@@ -4,8 +4,7 @@ import logging
 
 from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from graphql_relay import from_global_id
 
 from opencontractserver.shared.Models import BaseOCModel
@@ -13,64 +12,6 @@ from opencontractserver.shared.Models import BaseOCModel
 User = get_user_model()
 
 logger = logging.getLogger(__name__)
-
-
-def resolve_oc_model_queryset(
-    django_obj_model_type: type[BaseOCModel] = None,
-    user: AnonymousUser | User | int | str = None,
-) -> QuerySet[BaseOCModel]:
-    """
-    Given a model_type and a user instance, resolve a base queryset of the models this user
-    could possibly see.
-    """
-    try:
-        if isinstance(user, (int, str)):
-            user = User.objects.get(id=user)
-        elif not isinstance(user, (User, AnonymousUser)):
-            raise ValueError(
-                "User must be an instance of AnonymousUser, User, or an integer or string id"
-            )
-    except Exception as e:
-        logger.error(
-            f"Error resolving user for queryset of model {django_obj_model_type}: {e}"
-        )
-        user = None
-
-    model_name = django_obj_model_type._meta.model_name
-    app_label = django_obj_model_type._meta.app_label
-
-    # Get the base queryset first (only stuff given user CAN see)
-    if user:
-        if user.is_superuser:
-            queryset = (
-                django_obj_model_type.objects.all().order_by("created").distinct()
-            )
-        elif user.is_anonymous:
-            queryset = django_obj_model_type.objects.filter(
-                Q(is_public=True)
-            ).distinct()
-        # Finally, in all other cases, actually do the hard work
-        else:
-
-            permission_model_type = apps.get_model(
-                app_label, f"{model_name}userobjectpermission"
-            )
-            # logger.info(f"Got permission model type: {permission_model_type}")
-
-            must_have_permissions = permission_model_type.objects.filter(
-                permission__codename=f"read_{model_name}", user_id=user.id
-            )
-            # logger.info(f"Must have permissions: {must_have_permissions}")
-
-            queryset = django_obj_model_type.objects.filter(
-                Q(creator=user)
-                | Q(is_public=True)
-                | Q(**{f"{model_name}userobjectpermission__in": must_have_permissions})
-            ).distinct()
-    else:
-        queryset = django_obj_model_type.objects.none()
-
-    return queryset
 
 
 def resolve_single_oc_model_from_id(
@@ -92,30 +33,84 @@ def resolve_single_oc_model_from_id(
     elif user.is_anonymous:
         obj = model_type.objects.get(id=django_pk, is_public=True)
     else:
-
         permission_model_type = apps.get_model(
             app_label, f"{model_name}userobjectpermission"
         )
-        # logger.info(f"Got permission model type: {permission_model_type}")
 
         must_have_permissions = permission_model_type.objects.filter(
             permission__codename=f"read_{model_name}", user_id=user.id
         )
 
+        # Start with basic permission filter (direct permissions, creator, public)
+        base_filter = (
+            Q(creator=user)
+            | Q(is_public=True)
+            | Q(**{f"{model_name}userobjectpermission__in": must_have_permissions})
+        )
+
+        # Check if this model inherits corpus permissions
+        inherits_corpus_perms = getattr(
+            model_type, "INHERITS_CORPUS_PERMISSIONS", False
+        )
+        logger.debug(f"model_type ({type(model_type)}): {model_type}")
+
+        # If model has a corpus field and inherits permissions, add corpus permissions
+        if inherits_corpus_perms:
+            # Check if model has corpus field
+            has_corpus_field = False
+            for field in model_type._meta.get_fields():
+                if field.name == "corpus":
+                    has_corpus_field = True
+                    break
+
+            if has_corpus_field:
+
+                # Get corpus permission model
+                corpus_perm_model = apps.get_model(
+                    "corpuses", "corpususerobjectpermission"
+                )
+
+                # Get corpuses with read permission
+                corpus_permissions = corpus_perm_model.objects.filter(
+                    permission__codename="read_corpus", user_id=user.id
+                )
+
+                # Get corpus IDs
+                corpus_ids = corpus_permissions.values_list(
+                    "content_object_id", flat=True
+                )
+
+                # Try different field patterns to capture all possible corpus reference patterns
+                corpus_conditions = Q(corpus_id__in=corpus_ids)
+                # Also check for other corpus-related fields
+                corpus_field_names = []
+                for field in model_type._meta.get_fields():
+                    if field.name.endswith("corpus") and field.name != "corpus":
+                        corpus_field_names.append(field.name)
+
+                # Add conditions for each corpus-related field
+                for field_name in corpus_field_names:
+                    try:
+                        # Using double-underscore is important here to properly handle foreign keys
+                        filter_kwargs = {f"{field_name}__id__in": corpus_ids}
+                        corpus_conditions |= Q(**filter_kwargs)
+                    except Exception as e:
+                        logger.warning(
+                            f"RESOLVER: Error adding corpus condition for {field_name}: {str(e)}"
+                        )
+
+                if corpus_ids:
+                    # Add corpus inheritance to base filter
+                    base_filter |= corpus_conditions
+
+        # Apply permission filter along with ID filter
         obj_queryset = model_type.objects.filter(
-            (
-                Q(creator=user)
-                | Q(is_public=True)
-                | Q(**{f"{model_name}userobjectpermission__in": must_have_permissions})
-            )
-            & Q(id=django_pk)
+            base_filter & Q(id=django_pk)
         ).distinct()
 
-        # logger.info(f"Obj count is {len(obj_queryset)}")
         if len(obj_queryset) == 1:
             obj = obj_queryset[0]
         else:
             obj = None
-        # logger.info(f"After querying obj level permissions, returned obj is: {obj}")
 
     return obj

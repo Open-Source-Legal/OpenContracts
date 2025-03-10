@@ -1,17 +1,11 @@
 import django
 from django.contrib.auth import get_user_model
+from django.core.exceptions import PermissionDenied
 from django.db import models
-from django.db.models import Manager
 
-from opencontractserver.shared.QuerySets import PermissionQuerySet
-
-
-class PermissionManager(Manager):
-    def get_queryset(self):
-        return PermissionQuerySet(self.model, using=self._db)
-
-    def for_user(self, user, perm, extra_conditions=None):
-        return self.get_queryset().for_user(user, perm, extra_conditions)
+from opencontractserver.shared.Managers import PermissionManager
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 
 class BaseOCModel(models.Model):
@@ -54,3 +48,38 @@ class BaseOCModel(models.Model):
     # Timing variables
     created = django.db.models.DateTimeField(auto_now_add=True, blank=False, null=False)
     modified = django.db.models.DateTimeField(auto_now=True, blank=False, null=False)
+
+    def save_as(self, user, *args, **kwargs) -> None:
+        """
+        Save this instance only if the given user has the appropriate permission.
+
+        For new objects, check the CREATE permission.
+        For existing objects, check the UPDATE (or EDIT) permission.
+        Raises PermissionDenied if the user does not have the required permission.
+        """
+        if self.pk is not None:
+            # Existing object requires update permission.
+            if not user_has_permission_for_obj(user, self, PermissionTypes.UPDATE):
+                raise PermissionDenied(
+                    "User does not have update permission for this object."
+                )
+        else:
+            # New object requires create permission.
+            if not user_has_permission_for_obj(user, self, PermissionTypes.CREATE):
+                raise PermissionDenied(
+                    "User does not have create permission for this object."
+                )
+        # If permissions check passes, delegate to the standard save.
+        super().save(*args, **kwargs)
+
+    def delete_as(self, user, *args, **kwargs) -> None:
+        """
+        Delete this instance only if the given user has the DELETE permission.
+        Raises PermissionDenied if the user does not have the required permission.
+        """
+        if not user_has_permission_for_obj(user, self, PermissionTypes.DELETE):
+            raise PermissionDenied(
+                "User does not have delete permission for this object."
+            )
+        # If permission check passes, delegate to the standard delete.
+        super().delete(*args, **kwargs)

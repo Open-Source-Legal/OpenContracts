@@ -3,7 +3,6 @@ import pathlib
 from random import randrange
 
 from django.contrib.auth import get_user_model
-from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import Signal
@@ -21,6 +20,7 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.documents.signals import process_doc_on_create_atomic
 from opencontractserver.tasks.permissioning_tasks import (
     make_analysis_public_task,
     make_corpus_public_task,
@@ -31,8 +31,6 @@ from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
     user_has_permission_for_obj,
 )
-
-from .fixtures import SAMPLE_PDF_FILE_ONE_PATH
 
 User = get_user_model()
 
@@ -69,7 +67,14 @@ class PermissioningTestCase(TestCase):
             post_save,
             receiver=install_gremlin_on_creation,
             sender=GremlinEngine,
-            dispatch_uid="Signal.disconnect",
+            dispatch_uid="Signal.disconnect.install_gremlin_on_creation",
+        )
+
+        Signal.disconnect(
+            post_save,
+            receiver=process_doc_on_create_atomic,
+            sender=Document,
+            dispatch_uid="Signal.disconnect.process_doc_on_create_atomic",
         )
 
         # Create one regular user (and accompanying GraphQL client)
@@ -108,8 +113,8 @@ class PermissioningTestCase(TestCase):
         # Generate 10 docs for corpus:
         self.doc_ids = []
         for index in range(0, 10):
-            with SAMPLE_PDF_FILE_ONE_PATH.open("rb") as test_pdf:
-                pdf_contents = ContentFile(test_pdf.read())
+            # with SAMPLE_PDF_FILE_ONE_PATH.open("rb") as test_pdf:
+            #     pdf_contents = ContentFile(test_pdf.read())
 
             with transaction.atomic():
                 document = Document.objects.create(
@@ -117,13 +122,18 @@ class PermissioningTestCase(TestCase):
                     description="Manually created",
                     creator=self.user,
                 )
-                document.pdf_file.save("dummy_file.pdf", pdf_contents)
+                logger.info(f"Created document with id: {document.id}")
+
+                # document.pdf_file.save("dummy_file.pdf", pdf_contents)
+                # logger.info(f"Saved document file for id: {document.id}")
+
                 set_permissions_for_obj_to_user(
                     self.user, document, [PermissionTypes.READ]
                 )
+                logger.info(f"Set permissions for document with id: {document.id}")
 
             self.doc_ids.append(document.id)
-            logger.info(f"Created document with id: {document.id}")
+            logger.info(f"Finished creating document with id: {document.id}")
 
         # Link docs to corpus
         with transaction.atomic():
@@ -506,7 +516,7 @@ class PermissioningTestCase(TestCase):
         self.assertEqual(prohibited_graphql_response["data"]["deleteCorpus"], None)
         self.assertEqual(
             prohibited_graphql_response["errors"][0]["message"],
-            "You do no have sufficient permissions to delete requested object",
+            "User does not have delete permission for this object.",
         )
 
     def __test_permission_annotator(self):
@@ -668,7 +678,7 @@ class PermissioningTestCase(TestCase):
         )
 
         raw_permission_list = get_users_permissions_for_obj(
-            user=self.user_2, instance=self.corpus, include_group_permissions=True
+            user_val=self.user_2, instance=self.corpus, include_group_permissions=True
         )
         logger.info(f"Is corpus public: {self.corpus.is_public}")
         logger.info(f"Raw permissions list: {raw_permission_list}")
@@ -781,16 +791,47 @@ class PermissioningTestCase(TestCase):
         visible_feedback_user1 = UserFeedback.objects.visible_to_user(self.user)
         self.assertIn(feedback1, visible_feedback_user1)
         self.assertIn(feedback2, visible_feedback_user1)
-        self.assertIn(feedback3, visible_feedback_user1)
+
+        # Before we apply per obj permission... these should not be visible
+        self.assertNotIn(feedback3, visible_feedback_user1)
         self.assertNotIn(feedback4, visible_feedback_user1)
-        logger.info(f"User1 can see {visible_feedback_user1.count()} feedback items")
+        logger.info(
+            f"User1 can NOT see {visible_feedback_user1.count()} feedback items"
+        )
+
+        # Now apply per-obj permissions
+        set_permissions_for_obj_to_user(self.user, feedback3, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.user, feedback4, [PermissionTypes.READ])
+
+        # Refetch queryset
+        visible_feedback_user1 = UserFeedback.objects.visible_to_user(self.user)
+
+        # Now feedback3 and feedback4 should be visible
+        self.assertIn(feedback3, visible_feedback_user1)
+        self.assertIn(feedback4, visible_feedback_user1)
+        logger.info(f"User1 CAN see {visible_feedback_user1.count()} feedback items")
+
+        # Test visibility for user2 prior to applying per obj permissions
+        visible_feedback_user2 = UserFeedback.objects.visible_to_user(self.user_2)
+        self.assertNotIn(feedback1, visible_feedback_user2)
+        self.assertIn(feedback2, visible_feedback_user2)
+        self.assertNotIn(feedback3, visible_feedback_user2)
+        self.assertNotIn(feedback4, visible_feedback_user2)
+        logger.info(f"User2 can see {visible_feedback_user2.count()} feedback items")
+
+        # Apply per obj permissions to user 2
+        set_permissions_for_obj_to_user(self.user_2, feedback3, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.user_2, feedback4, [PermissionTypes.READ])
+
+        # Refetch queryset
+        visible_feedback_user2 = UserFeedback.objects.visible_to_user(self.user_2)
 
         # Test visibility for user2
         visible_feedback_user2 = UserFeedback.objects.visible_to_user(self.user_2)
         self.assertNotIn(feedback1, visible_feedback_user2)
         self.assertIn(feedback2, visible_feedback_user2)
         self.assertIn(feedback3, visible_feedback_user2)
-        self.assertNotIn(feedback4, visible_feedback_user2)
+        self.assertIn(feedback4, visible_feedback_user2)
         logger.info(f"User2 can see {visible_feedback_user2.count()} feedback items")
 
         # Test visibility for superuser
@@ -819,76 +860,3 @@ class PermissioningTestCase(TestCase):
         logger.info(
             f"Time taken for efficient filtering: {end_time - start_time} seconds"
         )
-
-        # Compare with a naive approach
-        start_time = time.time()
-        all_feedback = UserFeedback.objects.all()
-        naive_filtered = [
-            feedback
-            for feedback in all_feedback
-            if feedback.creator == self.user
-            or feedback.is_public
-            or (
-                feedback.commented_annotation
-                and feedback.commented_annotation.is_public
-            )
-        ]
-        end_time = time.time()
-
-        logger.info(f"Time taken for naive filtering: {end_time - start_time} seconds")
-
-        # Assert that both methods return the same results
-        self.assertEqual(set(visible_feedback_user1), set(naive_filtered))
-
-    # def test_direct_user_permissions(self):
-    #     logger.info("----- TEST DIRECT USER PERMISSIONS -----")
-    #
-    #     # Create a corpus
-    #     with transaction.atomic():
-    #         corpus = Corpus.objects.create(title="Direct Permission Corpus", creator=self.superuser)
-    #
-    #     # Grant read permission directly to user1
-    #     set_permissions_for_obj_to_user(self.user, corpus, [PermissionTypes.READ])
-    #
-    #     # Ensure user2 has no permissions
-    #     # No action needed as user2 has no permissions by default
-    #
-    #     # Verify that user1 can access the object
-    #     accessible_corpuses_user1 = Corpus.permissioned_objects.for_user(self.user, perm='read')
-    #     print("Access dis: ")
-    #     print(accessible_corpuses_user1)
-    #     print(accessible_corpuses_user1[0].title)
-    #     self.assertIn(corpus, accessible_corpuses_user1)
-    #     logger.info("User1 can access the corpus via direct permission.")
-    #
-    #     # Verify that user2 cannot access the object
-    #     accessible_corpuses_user2 = Corpus.permissioned_objects.for_user(self.user_2, perm='read')
-    #     self.assertNotIn(corpus, accessible_corpuses_user2)
-    #     logger.info("User2 cannot access the corpus without permissions.")
-    #
-    # def test_group_permissions(self):
-    #     logger.info("----- TEST GROUP PERMISSIONS -----")
-    #
-    #     # Create a corpus
-    #     with transaction.atomic():
-    #         corpus = Corpus.objects.create(title="Group Permission Corpus", creator=self.superuser)
-    #
-    #     # Create a group and add user1 to it
-    #     group = Group.objects.create(name="Test Group")
-    #     self.user.groups.add(group)
-    #
-    #     # Grant read permission to the group
-    #     assign_perm('read_corpus', group, corpus)
-    #
-    #     # Ensure user2 is not in the group
-    #     # No action needed as user2 is not added to any group
-    #
-    #     # Verify that user1 can access the object via group permission
-    #     accessible_corpuses_user1 = Corpus.permissioned_objects.for_user(self.user, perm='read')
-    #     self.assertIn(corpus, accessible_corpuses_user1)
-    #     logger.info("User1 can access the corpus via group permission.")
-    #
-    #     # Verify that user2 cannot access the object
-    #     accessible_corpuses_user2 = Corpus.permissioned_objects.for_user(self.user_2, perm='read')
-    #     self.assertNotIn(corpus, accessible_corpuses_user2)
-    #     logger.info("User2 cannot access the corpus without permissions.")

@@ -35,7 +35,6 @@ from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.pipeline.base.file_types import (
     FileTypeEnum as FileTypeEnumModel,
 )
-from opencontractserver.shared.resolvers import resolve_oc_model_queryset
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 User = get_user_model()
@@ -644,22 +643,19 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_all_notes(self, info, corpus_id: str):
         """
         Return the set of Note objects related to this Document instance that the user can see,
-        filtered by corpus_id. This approach uses resolve_oc_model_queryset to apply the same
-        permissioning logic applied elsewhere, ensuring consistency and potentially reducing
-        the query overhead by using a well-defined base queryset.
+        filtered by corpus_id. Uses the model's built-in permission filtering for consistency.
         """
         from opencontractserver.annotations.models import Note
 
         user = info.context.user
-
-        # Start with a base queryset of all Notes the user can see
-        base_qs = resolve_oc_model_queryset(django_obj_model_type=Note, user=user)
         corpus_pk = from_global_id(corpus_id)[1]
-        # Then intersect with this Document's related notes, filtering by the given corpus_id
-        # This ensures we only query notes that are both visible to the user and belong to
-        # this specific Document (through the related manager self.notes).
-        return base_qs.filter(
-            id__in=self.notes.values_list("id", flat=True), corpus_id=corpus_pk
+
+        # Use the document's related manager to get notes, then filter by corpus and permissions
+        document_notes = self.notes.filter(corpus_id=corpus_pk)
+
+        # Apply permission filtering using the model's visible_to_user method
+        return Note.objects.visible_to_user(user).filter(
+            id__in=document_notes.values_list("id", flat=True)
         )
 
     class Meta:

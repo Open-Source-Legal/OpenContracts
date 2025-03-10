@@ -288,12 +288,25 @@ class AnnotationManager(CTEManager.from_queryset(AnnotationQuerySet)):
         Returns:
             A filtered AnnotationQuerySet.
         """
-        return self.get_queryset().for_user(user, perm, extra_conditions)
+        # This method should now use filter_queryset_by_permission to ensure
+        # consistent permission handling that respects INHERITS_CORPUS_PERMISSIONS
+        from opencontractserver.utils.permissioning import filter_queryset_by_permission
+
+        queryset = self.get_queryset()
+
+        # Apply extra conditions if provided
+        if extra_conditions:
+            queryset = queryset.filter(extra_conditions)
+
+        # Use the centralized permission filtering
+        return filter_queryset_by_permission(queryset, user, perm)
 
 
 class Annotation(BaseOCModel):
     """
     The Annotation model represents annotations within documents.
+
+    Annotations inherit permissions from their parent corpus.
     """
 
     # Use the custom manager that combines permissioning and CTE capabilities
@@ -374,6 +387,9 @@ class Annotation(BaseOCModel):
     )
     modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
 
+    # Flag to indicate that Annotations inherit permissions from their parent corpus
+    INHERITS_CORPUS_PERMISSIONS = True
+
     class Meta:
         permissions = (
             ("permission_annotation", "permission annotation"),
@@ -451,6 +467,8 @@ class LabelSet(BaseOCModel):
         "analyzer.Analyzer", on_delete=django.db.models.SET_NULL, null=True, blank=True
     )
 
+    INHERITS_CORPUS_PERMISSIONS = True
+
     class Meta:
         permissions = (
             ("permission_labelset", "Can permission labelset"),
@@ -527,7 +545,18 @@ class NoteManager(CTEManager.from_queryset(NoteQuerySet)):
         Returns:
             A filtered NoteQuerySet.
         """
-        return self.get_queryset().for_user(user, perm, extra_conditions)
+        # This method should now use filter_queryset_by_permission to ensure
+        # consistent permission handling that respects INHERITS_CORPUS_PERMISSIONS
+        from opencontractserver.utils.permissioning import filter_queryset_by_permission
+
+        queryset = self.get_queryset()
+
+        # Apply extra conditions if provided
+        if extra_conditions:
+            queryset = queryset.filter(extra_conditions)
+
+        # Use the centralized permission filtering
+        return filter_queryset_by_permission(queryset, user, perm)
 
 
 class Note(BaseOCModel):
@@ -590,6 +619,9 @@ class Note(BaseOCModel):
     # Timing variables
     created = django.db.models.DateTimeField(default=timezone.now)
     modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
+
+    # Flag to indicate that Notes inherit permissions from their parent corpus
+    INHERITS_CORPUS_PERMISSIONS = True
 
     class Meta:
         permissions = (

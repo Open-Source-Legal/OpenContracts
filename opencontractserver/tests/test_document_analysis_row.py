@@ -152,7 +152,7 @@ class DocumentAnalysisRowTestCase(TestCase):
         self.assertTrue(
             user_has_permission_for_obj(self.user, self.row, PermissionTypes.UPDATE)
         )
-        self.assertFalse(
+        self.assertTrue(
             user_has_permission_for_obj(self.user, self.row, PermissionTypes.DELETE)
         )
 

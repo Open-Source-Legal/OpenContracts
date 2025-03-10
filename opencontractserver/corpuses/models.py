@@ -8,6 +8,7 @@ from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 from tree_queries.models import TreeNode
 
 from opencontractserver.annotations.models import Annotation
+from opencontractserver.shared.mixins import PermissionedOperationsMixin
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.QuerySets import PermissionedTreeQuerySet
 from opencontractserver.shared.utils import calc_oc_file_path
@@ -43,7 +44,7 @@ class TemporaryFileHandle(django.db.models.Model):
 
 
 # Create your models here.
-class Corpus(TreeNode):
+class Corpus(PermissionedOperationsMixin, TreeNode):
 
     """
     Corpus, which stores a collection of documents that are grouped for machine learning / study / export purposes.
@@ -304,3 +305,7 @@ class CorpusActionGroupObjectPermission(GroupObjectPermissionBase):
         "CorpusAction", on_delete=django.db.models.CASCADE
     )
     # enabled = False
+
+
+# Documents inherit permissions from their parent corpus
+INHERITS_CORPUS_PERMISSIONS = True

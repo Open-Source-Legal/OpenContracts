@@ -1,10 +1,20 @@
-from django.db import models
-from django.db.models import Q
+from django.db.models import Manager, Q
 
-from opencontractserver.shared.QuerySets import UserFeedbackQuerySet
+from opencontractserver.shared.QuerySets import PermissionQuerySet, UserFeedbackQuerySet
 
 
-class UserFeedbackManager(models.Manager):
+class PermissionManager(Manager):
+    def get_queryset(self):
+        return PermissionQuerySet(self.model, using=self._db)
+
+    def for_user(self, user, perm, extra_conditions=None):
+        return self.get_queryset().for_user(user, perm, extra_conditions)
+
+    def visible_to_user(self, user):
+        return self.get_queryset().visible_to_user(user)
+
+
+class UserFeedbackManager(PermissionManager):
     def get_queryset(self):
         return UserFeedbackQuerySet(self.model, using=self._db)
 
@@ -36,6 +46,3 @@ class UserFeedbackManager(models.Manager):
         return self.get_queryset().filter(
             Q(comment__icontains=query) | Q(markdown__icontains=query)
         )
-
-    def visible_to_user(self, user):
-        return self.get_queryset().visible_to_user(user)

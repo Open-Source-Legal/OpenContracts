@@ -5,7 +5,7 @@ from typing import Optional
 
 import graphene
 from django.conf import settings
-from django.db.models import Prefetch, Q
+from django.db.models import Q
 from graphene import relay
 from graphene.types.generic import GenericScalar
 from graphene_django.fields import DjangoConnectionField
@@ -72,7 +72,7 @@ from opencontractserver.annotations.models import (
     Note,
     Relationship,
 )
-from opencontractserver.conversations.models import ChatMessage, Conversation
+from opencontractserver.conversations.models import ChatMessage
 from opencontractserver.corpuses.models import Corpus, CorpusAction, CorpusQuery
 from opencontractserver.documents.models import Document, DocumentRelationship
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
@@ -85,7 +85,6 @@ from opencontractserver.pipeline.utils import (
     get_components_by_mimetype,
     get_metadata_for_component,
 )
-from opencontractserver.shared.resolvers import resolve_oc_model_queryset
 from opencontractserver.types.enums import LabelType
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
@@ -116,21 +115,11 @@ class Query(graphene.ObjectType):
     def resolve_annotations(
         self, info, analysis_isnull=None, structural=None, **kwargs
     ):
-        # Base filtering for user permissions
-        if info.context.user.is_superuser:
-            logger.info("User is superuser, returning all annotations")
-            queryset = Annotation.objects.all()
-        elif info.context.user.is_anonymous:
-            logger.info("User is anonymous, returning public annotations")
-            queryset = Annotation.objects.filter(Q(is_public=True))
-            logger.info(f"{queryset.count()} public annotations...")
-        else:
-            logger.info(
-                "User is authenticated, returning user's and public annotations"
-            )
-            queryset = Annotation.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        # Use the central permission system to filter annotations
+        # This ensures consistent handling of permissions, including corpus inheritance
+        queryset = Annotation.objects.visible_to_user(info.context.user)
+
+        print(f"Annotations queryset: {queryset}")
 
         # Filter by uses_label_from_labelset_id
         labelset_id = kwargs.get("uses_label_from_labelset_id")
@@ -290,21 +279,19 @@ class Query(graphene.ObjectType):
 
     def resolve_bulk_doc_relationships_in_corpus(self, info, corpus_id, document_id):
         # Get the base queryset first (only stuff given user CAN see)
-        if info.context.user.is_superuser:
-            queryset = Relationship.objects.all().order_by("created")
-        # Otherwise, if user is anonymous, try easy query
-        elif info.context.user.is_anonymous:
-            queryset = Relationship.objects.filter(Q(is_public=True))
-        # Finally, in all other cases, actually do the hard work
-        else:
-            queryset = Relationship.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        queryset = DocumentRelationship.objects.visible_to_user(info.context.user)
 
-        doc_django_pk = from_global_id(document_id)[1]
-        corpus_django_pk = from_global_id(corpus_id)[1]
+        # Always filter by document
+        doc_pk = from_global_id(document_id)[1]
+        queryset = queryset.filter(
+            Q(source_document_id=doc_pk) | Q(target_document_id=doc_pk)
+        )
 
-        return queryset.filter(corpus_id=corpus_django_pk, document_id=doc_django_pk)
+        # Apply optional filters
+        corpus_pk = from_global_id(corpus_id)[1]
+        queryset = queryset.filter(corpus_id=corpus_pk)
+
+        return queryset.order_by("created")
 
     bulk_doc_annotations_in_corpus = graphene.Field(
         graphene.List(AnnotationType),
@@ -319,14 +306,7 @@ class Query(graphene.ObjectType):
         corpus_django_pk = from_global_id(corpus_id)[1]
 
         # Get the base queryset first (only stuff given user CAN see)
-        if info.context.user.is_superuser:
-            queryset = Annotation.objects.all().order_by("page")
-        elif info.context.user.is_anonymous:
-            queryset = Annotation.objects.filter(Q(is_public=True))
-        else:
-            queryset = Annotation.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        queryset = Annotation.objects.visible_to_user(info.context.user)
 
         # Now build query to stuff they want to see (filter to annotations in this corpus or with NO corpus FK, which
         # travel with document.
@@ -381,14 +361,7 @@ class Query(graphene.ObjectType):
         document = Document.objects.get(id=doc_django_pk)
 
         # Get the base queryset first (only stuff given user CAN see)
-        if info.context.user.is_superuser:
-            queryset = Annotation.objects.all().order_by("page")
-        elif info.context.user.is_anonymous:
-            queryset = Annotation.objects.filter(Q(is_public=True))
-        else:
-            queryset = Annotation.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        queryset = Annotation.objects.visible_to_user(info.context.user)
 
         # Now build query to stuff they want to see
         q_objects = Q(document_id=doc_django_pk)
@@ -499,14 +472,7 @@ class Query(graphene.ObjectType):
 
     def resolve_annotation(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Annotation.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Annotation.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Annotation.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return Annotation.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     # RELATIONSHIP RESOLVERS #####################################
     relationships = DjangoFilterConnectionField(
@@ -514,27 +480,13 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_relationships(self, info, **kwargs):
-        if info.context.user.is_superuser:
-            return Relationship.objects.all()
-        elif info.context.user.is_anonymous:
-            return Relationship.objects.filter(Q(is_public=True))
-        else:
-            return Relationship.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        return Relationship.objects.visible_to_user(info.context.user)
 
     relationship = relay.Node.Field(RelationshipType)
 
     def resolve_relationship(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Relationship.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Relationship.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Relationship.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return Relationship.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     # LABEL RESOLVERS #####################################
 
@@ -543,27 +495,15 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_annotation_labels(self, info, **kwargs):
-        if info.context.user.is_superuser:
-            return AnnotationLabel.objects.all()
-        elif info.context.user.is_anonymous:
-            return AnnotationLabel.objects.filter(Q(is_public=True))
-        else:
-            return AnnotationLabel.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        return AnnotationLabel.objects.visible_to_user(info.context.user)
 
     annotation_label = relay.Node.Field(AnnotationLabelType)
 
     def resolve_annotation_label(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return AnnotationLabel.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return AnnotationLabel.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return AnnotationLabel.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return AnnotationLabel.objects.visible_to_user(info.context.user).get(
+            id=django_pk
+        )
 
     # LABEL SET RESOLVERS #####################################
 
@@ -572,35 +512,19 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_labelsets(self, info, **kwargs):
-        if info.context.user.is_superuser:
-            return LabelSet.objects.all()
-        elif info.context.user.is_anonymous:
-            return LabelSet.objects.filter(Q(is_public=True))
-        else:
-            return LabelSet.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        return LabelSet.objects.visible_to_user(info.context.user)
 
     labelset = relay.Node.Field(LabelSetType)
 
     def resolve_labelset(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return LabelSet.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return LabelSet.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return LabelSet.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return LabelSet.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     # CORPUS RESOLVERS #####################################
     corpuses = DjangoFilterConnectionField(CorpusType, filterset_class=CorpusFilter)
 
     def resolve_corpuses(self, info, **kwargs):
-        return resolve_oc_model_queryset(
-            django_obj_model_type=Corpus, user=info.context.user
-        )
+        return Corpus.objects.visible_to_user(info.context.user)
 
     corpus = OpenContractsNode.Field(CorpusType)  # relay.Node.Field(CorpusType)
 
@@ -611,36 +535,27 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_documents(self, info, **kwargs):
-        return resolve_oc_model_queryset(Document, info.context.user)
+        return Document.objects.visible_to_user(info.context.user)
 
     document = graphene.Field(DocumentType, id=graphene.String())
 
     def resolve_document(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Document.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Document.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Document.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return Document.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     # IMPORT RESOLVERS #####################################
     userimports = DjangoConnectionField(UserImportType)
 
     @login_required
     def resolve_userimports(self, info, **kwargs):
-        return resolve_oc_model_queryset(UserImport, info.context.user)
+        return UserImport.objects.visible_to_user(info.context.user)
 
     userimport = relay.Node.Field(UserImportType)
 
     @login_required
     def resolve_userimport(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        return UserImport.objects.get(
-            Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-        )
+        return UserImport.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     # EXPORT RESOLVERS #####################################
     userexports = DjangoFilterConnectionField(
@@ -649,16 +564,14 @@ class Query(graphene.ObjectType):
 
     @login_required
     def resolve_userexports(self, info, **kwargs):
-        return resolve_oc_model_queryset(UserExport, info.context.user)
+        return UserExport.objects.visible_to_user(info.context.user)
 
     userexport = relay.Node.Field(UserExportType)
 
     @login_required
     def resolve_userexport(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        return UserExport.objects.get(
-            Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-        )
+        return UserExport.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     # ASSIGNMENT RESOLVERS #####################################
     assignments = DjangoFilterConnectionField(
@@ -677,9 +590,7 @@ class Query(graphene.ObjectType):
     @login_required
     def resolve_assignment(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        return Assignment.objects.get(
-            Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-        )
+        return Assignment.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     if settings.USE_ANALYZER:
 
@@ -688,27 +599,21 @@ class Query(graphene.ObjectType):
 
         def resolve_gremlin_engine(self, info, **kwargs):
             django_pk = from_global_id(kwargs.get("id", None))[1]
-            if info.context.user.is_superuser:
-                return GremlinEngine.objects.get(id=django_pk)
-            elif info.context.user.is_anonymous:
-                return GremlinEngine.objects.get(Q(id=django_pk) & Q(is_public=True))
-            else:
-                return GremlinEngine.objects.get(
-                    Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-                )
+            return GremlinEngine.objects.visible_to_user(info.context.user).get(
+                id=django_pk
+            )
 
         gremlin_engines = DjangoFilterConnectionField(
             GremlinEngineType_READ, filterset_class=GremlinEngineFilter
         )
 
         def resolve_gremlin_engines(self, info, **kwargs):
-            return resolve_oc_model_queryset(GremlinEngine, info.context.user)
+            return GremlinEngine.objects.visible_to_user(info.context.user)
 
         # ANALYZER RESOLVERS #####################################
         analyzer = relay.Node.Field(AnalyzerType)
 
         def resolve_analyzer(self, info, **kwargs):
-
             if kwargs.get("id", None) is not None:
                 django_pk = from_global_id(kwargs.get("id", None))[1]
             elif kwargs.get("analyzerId", None) is not None:
@@ -716,115 +621,72 @@ class Query(graphene.ObjectType):
             else:
                 return None
 
-            if info.context.user.is_superuser:
-                return Analyzer.objects.get(id=django_pk)
-            elif info.context.user.is_anonymous:
-                return Analyzer.objects.get(Q(id=django_pk) & Q(is_public=True))
-            else:
-                return Analyzer.objects.get(
-                    Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-                )
+            return Analyzer.objects.visible_to_user(info.context.user).get(id=django_pk)
 
         analyzers = DjangoFilterConnectionField(
             AnalyzerType, filterset_class=AnalyzerFilter
         )
 
         def resolve_analyzers(self, info, **kwargs):
-            return resolve_oc_model_queryset(Analyzer, info.context.user)
+            return Analyzer.objects.visible_to_user(info.context.user)
 
         # ANALYSIS RESOLVERS #####################################
         analysis = relay.Node.Field(AnalysisType)
 
         def resolve_analysis(self, info, **kwargs):
             django_pk = from_global_id(kwargs.get("id", None))[1]
-            if info.context.user.is_superuser:
-                return Analysis.objects.get(id=django_pk)
-            elif info.context.user.is_anonymous:
-                return Analysis.objects.get(Q(id=django_pk) & Q(is_public=True))
-            else:
-                return Analysis.objects.get(
-                    Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-                )
+            return Analysis.objects.visible_to_user(info.context.user).get(id=django_pk)
 
         analyses = DjangoFilterConnectionField(
             AnalysisType, filterset_class=AnalysisFilter
         )
 
         def resolve_analyses(self, info, **kwargs):
-            return resolve_oc_model_queryset(Analysis, info.context.user)
+            return Analysis.objects.visible_to_user(info.context.user)
 
     fieldset = relay.Node.Field(FieldsetType)
 
     def resolve_fieldset(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Fieldset.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Fieldset.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Fieldset.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return Fieldset.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     fieldsets = DjangoFilterConnectionField(
         FieldsetType, filterset_class=FieldsetFilter
     )
 
     def resolve_fieldsets(self, info, **kwargs):
-        return resolve_oc_model_queryset(Fieldset, info.context.user)
+        return Fieldset.objects.visible_to_user(info.context.user)
 
     column = relay.Node.Field(ColumnType)
 
     def resolve_column(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Column.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Column.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Column.objects.get(
-                Q(id=django_pk)
-                & (Q(fieldset__creator=info.context.user) | Q(is_public=True))
-            )
+        return Column.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     columns = DjangoFilterConnectionField(ColumnType, filterset_class=ColumnFilter)
 
     def resolve_columns(self, info, **kwargs):
-        return resolve_oc_model_queryset(Column, info.context.user)
+        return Column.objects.visible_to_user(info.context.user)
 
     extract = relay.Node.Field(ExtractType)
 
     def resolve_extract(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Extract.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Extract.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Extract.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return Extract.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     extracts = DjangoFilterConnectionField(
         ExtractType, filterset_class=ExtractFilter, max_limit=15
     )
 
     def resolve_extracts(self, info, **kwargs):
-        return resolve_oc_model_queryset(Extract, info.context.user)
+        return Extract.objects.visible_to_user(info.context.user)
 
     corpus_query = relay.Node.Field(CorpusQueryType)
 
     @login_required
     def resolve_corpus_query(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return CorpusQuery.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return CorpusQuery.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return CorpusQuery.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        return CorpusQuery.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     corpus_queries = DjangoFilterConnectionField(
         CorpusQueryType, filterset_class=CorpusQueryFilter
@@ -832,28 +694,20 @@ class Query(graphene.ObjectType):
 
     @login_required
     def resolve_corpus_queries(self, info, **kwargs):
-        return resolve_oc_model_queryset(CorpusQuery, info.context.user)
+        return CorpusQuery.objects.visible_to_user(info.context.user)
 
     datacell = relay.Node.Field(DatacellType)
 
     def resolve_datacell(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Datacell.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Datacell.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Datacell.objects.get(
-                Q(id=django_pk)
-                & (Q(extract__creator=info.context.user) | Q(is_public=True))
-            )
+        return Datacell.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     datacells = DjangoFilterConnectionField(
         DatacellType, filterset_class=DatacellFilter
     )
 
     def resolve_datacells(self, info, **kwargs):
-        return resolve_oc_model_queryset(Datacell, info.context.user)
+        return Datacell.objects.visible_to_user(info.context.user)
 
     registered_extract_tasks = graphene.Field(GenericScalar)
 
@@ -1078,8 +932,12 @@ class Query(graphene.ObjectType):
         Returns:
             QuerySet[Conversation]: Filtered queryset of conversations
         """
+        from django.db.models import Prefetch
+
+        from opencontractserver.conversations.models import ChatMessage, Conversation
+
         return (
-            resolve_oc_model_queryset(Conversation, info.context.user)
+            Conversation.objects.visible_to_user(info.context.user)
             .prefetch_related(
                 Prefetch(
                     "chat_messages",
@@ -1099,15 +957,7 @@ class Query(graphene.ObjectType):
 
     @login_required
     def resolve_document_relationships(self, info, **kwargs):
-        # Start with base queryset based on user permissions
-        if info.context.user.is_superuser:
-            queryset = DocumentRelationship.objects.all()
-        elif info.context.user.is_anonymous:
-            queryset = DocumentRelationship.objects.filter(Q(is_public=True))
-        else:
-            queryset = DocumentRelationship.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        queryset = DocumentRelationship.objects.visible_to_user(info.context.user)
 
         # Apply filters if provided
         corpus_id = kwargs.get("corpus_id")
@@ -1129,17 +979,14 @@ class Query(graphene.ObjectType):
 
     document_relationship = relay.Node.Field(DocumentRelationshipType)
 
-    @login_required
-    def resolve_document_relationship(self, info, **kwargs):
+    def resolve_documentrelationship(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return DocumentRelationship.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return DocumentRelationship.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return DocumentRelationship.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
+        try:
+            return DocumentRelationship.objects.visible_to_user(info.context.user).get(
+                id=django_pk
             )
+        except DocumentRelationship.DoesNotExist:
+            return None
 
     # Also add a bulk resolver similar to bulk_doc_relationships_in_corpus
     bulk_doc_relationships = graphene.Field(
@@ -1152,14 +999,7 @@ class Query(graphene.ObjectType):
     @login_required
     def resolve_bulk_doc_relationships(self, info, document_id, **kwargs):
         # Start with base queryset based on user permissions
-        if info.context.user.is_superuser:
-            queryset = DocumentRelationship.objects.all()
-        elif info.context.user.is_anonymous:
-            queryset = DocumentRelationship.objects.filter(Q(is_public=True))
-        else:
-            queryset = DocumentRelationship.objects.filter(
-                Q(creator=info.context.user) | Q(is_public=True)
-            )
+        queryset = DocumentRelationship.objects.visible_to_user(info.context.user)
 
         # Always filter by document
         doc_pk = from_global_id(document_id)[1]
@@ -1194,8 +1034,14 @@ class Query(graphene.ObjectType):
 
     @login_required
     def resolve_notes(self, info, **kwargs):
-        # Base filtering for user permissions
-        queryset = resolve_oc_model_queryset(Note, info.context.user)
+        """
+        Resolver for notes that returns notes visible to the current user.
+        Can be filtered by title, content, document_id, and annotation_id.
+        """
+        from opencontractserver.annotations.models import Note
+
+        # Start with base queryset using consistent permission filtering
+        queryset = Note.objects.visible_to_user(info.context.user)
 
         # Filter by title
         title_contains = kwargs.get("title_contains")
@@ -1240,14 +1086,10 @@ class Query(graphene.ObjectType):
     @login_required
     def resolve_note(self, info, **kwargs):
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        if info.context.user.is_superuser:
-            return Note.objects.get(id=django_pk)
-        elif info.context.user.is_anonymous:
-            return Note.objects.get(Q(id=django_pk) & Q(is_public=True))
-        else:
-            return Note.objects.get(
-                Q(id=django_pk) & (Q(creator=info.context.user) | Q(is_public=True))
-            )
+        try:
+            return Note.objects.visible_to_user(info.context.user).get(id=django_pk)
+        except Note.DoesNotExist:
+            return None
 
     chat_messages = graphene.Field(
         graphene.List(MessageType),
@@ -1269,7 +1111,7 @@ class Query(graphene.ObjectType):
         Args:
             info (graphene.ResolveInfo): GraphQL resolve info
             conversation_id (Optional[str]): Global Relay ID for Conversation filter
-            order_by (Optional[str]): Field to order by. Defaults to "-created_at"
+            order_by (Optional[str]): Field to order by. Defaults to "created_at"
                 Supported fields: created_at, -created_at, msg_type, -msg_type,
                 modified, -modified
             **kwargs: Additional filter arguments
@@ -1277,7 +1119,10 @@ class Query(graphene.ObjectType):
         Returns:
             QuerySet[ChatMessage]: Filtered and ordered chat messages
         """
-        queryset = resolve_oc_model_queryset(ChatMessage, info.context.user)
+        from opencontractserver.conversations.models import ChatMessage
+
+        # Use consistent permission filtering
+        queryset = ChatMessage.objects.visible_to_user(info.context.user)
 
         # Apply conversation filter if provided
         conversation_pk = from_global_id(conversation_id)[1]
@@ -1301,31 +1146,21 @@ class Query(graphene.ObjectType):
     chat_message = relay.Node.Field(MessageType)
 
     @login_required
-    def resolve_chat_message(self, info: graphene.ResolveInfo, **kwargs) -> ChatMessage:
-        """
-        Resolver for fetching a single ChatMessage by global Relay ID.
+    def resolve_chat_message(self, info, **kwargs):
+        try:
+            django_pk = from_global_id(kwargs.get("id", None))[1]
+            user = info.context.user
 
-        Args:
-            info (graphene.ResolveInfo): GraphQL resolve info.
-            **kwargs: Any additional keyword arguments passed from the GraphQL query.
-
-        Returns:
-            ChatMessage: A single ChatMessage object visible to the current user.
-
-        Raises:
-            ChatMessage.DoesNotExist: If the object doesn't exist or is inaccessible.
-        """
-        django_pk = from_global_id(kwargs.get("id"))[1]
-        user = info.context.user
-
-        if user.is_superuser:
-            return ChatMessage.objects.get(pk=django_pk)
-        elif user.is_anonymous:
-            return ChatMessage.objects.get(Q(pk=django_pk) & Q(is_public=True))
-        else:
-            return ChatMessage.objects.get(
-                Q(pk=django_pk) & (Q(creator=user) | Q(is_public=True))
-            )
+            if user.is_superuser:
+                return ChatMessage.objects.get(pk=django_pk)
+            elif user.is_anonymous:
+                return ChatMessage.objects.get(Q(pk=django_pk) & Q(is_public=True))
+            else:
+                return ChatMessage.objects.get(
+                    Q(pk=django_pk) & (Q(creator=user) | Q(is_public=True))
+                )
+        except ChatMessage.DoesNotExist:
+            return None
 
     corpus_actions = DjangoConnectionField(
         CorpusActionType,
@@ -1340,8 +1175,10 @@ class Query(graphene.ObjectType):
         Resolver for corpus_actions that returns actions visible to the current user.
         Can be filtered by corpus_id, trigger type, and disabled status.
         """
-        user = info.context.user
-        queryset = resolve_oc_model_queryset(CorpusAction, user)
+        from opencontractserver.corpuses.models import CorpusAction
+
+        # Use consistent permission filtering
+        queryset = CorpusAction.objects.visible_to_user(info.context.user)
 
         # Filter by corpus if provided
         corpus_id = kwargs.get("corpus_id")

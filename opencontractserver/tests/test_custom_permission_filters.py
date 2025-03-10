@@ -241,6 +241,7 @@ class PermissionFilteringTestCase(TestCase):
         )
 
     def test_permission_change(self):
+
         query = """
         query {
             corpuses {
@@ -267,11 +268,12 @@ class PermissionFilteringTestCase(TestCase):
         )
 
         # Test again for user2
-        # NOTE - we are not filtering on per-instance level permissions YET, so preceding permission won't affect
+        # NOTE - we ARE NOW filtering on per-instance level permissions, so preceding permission change will affect
         # returned values.
         result2 = self.client2.execute(query)
-        self.assertEqual(len(result2["data"]["corpuses"]["edges"]), 1)
+        self.assertEqual(len(result2["data"]["corpuses"]["edges"]), 2)
         titles = [
             edge["node"]["title"] for edge in result2["data"]["corpuses"]["edges"]
         ]
         self.assertIn("Corpus 2", titles)
+        self.assertIn("Corpus 1", titles)
