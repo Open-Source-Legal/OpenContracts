@@ -48,7 +48,7 @@ plasmapdf==0.1.3  # https://github.com/Jsv4/plasmapdf
 pdf2image
 tiktoken==0.8.0  # https://github.com/openai/tiktoken
 openai==1.81.0  # https://github.com/openai/openai-python
-llama-index==0.12.9
+llama-index==0.12.52
 llama-index-agent-openai==0.4.8
 llama-index-llms-openai==0.3.12
 pytesseract
