@@ -13,7 +13,6 @@ from django.core.files.base import ContentFile, File
 from config import celery_app
 from opencontractserver.annotations.models import (
     DOC_TYPE_LABEL,
-    METADATA_LABEL,
     TOKEN_LABEL,
     Annotation,
 )
@@ -259,12 +258,6 @@ def import_document_to_corpus(
                 label_type=DOC_TYPE_LABEL
             )
         }
-        existing_metadata_labels = {
-            label.text: label
-            for label in labelset_obj.annotation_labels.filter(
-                label_type=METADATA_LABEL
-            )
-        }
 
         # Create new labels if needed
         existing_text_labels = load_or_create_labels(
@@ -279,17 +272,10 @@ def import_document_to_corpus(
             document_import_data.get("doc_labels", {}),
             existing_doc_labels,
         )
-        existing_metadata_labels = load_or_create_labels(
-            user_id,
-            labelset_obj,
-            document_import_data.get("metadata_labels", {}),
-            existing_metadata_labels,
-        )
 
         label_lookup = {
             **existing_text_labels,
             **existing_doc_labels,
-            **existing_metadata_labels,
         }
         logger.info(f"Label lookup: {label_lookup}")
 

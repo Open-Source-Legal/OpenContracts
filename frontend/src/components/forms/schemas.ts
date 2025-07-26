@@ -106,11 +106,6 @@ export const editColumnForm_Schema = {
       title:
         "If you want to provide detailed instructions to data parser, provide them here.",
     },
-    agentic: {
-      type: "boolean",
-      title:
-        "Use agentic retrieval of referenced sections and definitions in returned text.",
-    },
   },
   required: ["name", "outputType"],
 };

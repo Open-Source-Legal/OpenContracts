@@ -336,7 +336,7 @@ export const PDF: React.FC<PDFProps> = ({
   if (pageInfos.length === 0) return null;
 
   return (
-    <div style={{ position: "relative" }}>
+    <div data-testid="pdf-annotator" style={{ position: "relative" }}>
       {pageInfos.map((pInfo, idx) => {
         const top = cumulative[idx];
         const height = pageHeights[idx];

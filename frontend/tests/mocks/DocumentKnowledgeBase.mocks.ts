@@ -69,7 +69,7 @@ export const mockPdfDocument: RawDocumentType = {
   allStructuralAnnotations: [],
   allRelationships: [],
   allDocRelationships: [],
-  allNotes: [],
+  allNotes: [], // Will be overridden in specific document mocks
 };
 
 // Mock Annotations for Structural Test based on provided examples
@@ -186,6 +186,87 @@ export const mockPdfDocumentForStructuralTest: RawDocumentType = {
   allNotes: [],
 };
 
+// Mock label for text annotations
+const mockTextLabel = {
+  __typename: "AnnotationLabelType" as const,
+  id: "text-label-1",
+  text: "Important Text",
+  color: "#3B82F6",
+  icon: "tag" as any,
+  description: "Label for important text sections",
+  labelType: LabelType.SpanLabel,
+};
+
+// Mock annotations for TXT document
+export const mockTxtAnnotation1: RawServerAnnotationType = {
+  id: "txt-annot-1",
+  page: 0,
+  parent: null,
+  annotationLabel: mockTextLabel,
+  annotationType: LabelType.SpanLabel,
+  rawText: "Lorem ipsum",
+  json: {
+    start: 0,
+    end: 11,
+  },
+  structural: false,
+  myPermissions: ["read", "write", "delete", "update"],
+  __typename: "AnnotationType",
+};
+
+export const mockTxtAnnotation2: RawServerAnnotationType = {
+  id: "txt-annot-2",
+  page: 0,
+  parent: null,
+  annotationLabel: mockTextLabel,
+  annotationType: LabelType.SpanLabel,
+  rawText: "consectetur adipiscing",
+  json: {
+    start: 28,
+    end: 50,
+  },
+  structural: false,
+  myPermissions: ["read", "write", "delete", "update"],
+  __typename: "AnnotationType",
+};
+
+// Mock notes
+const mockNote1 = {
+  id: "note-1",
+  __typename: "NoteType" as const,
+  title: "Test Note 1",
+  content: "This is a test note for the document.",
+  created: new Date("2023-10-26T10:00:00.000Z").toISOString(),
+  modified: new Date("2023-10-26T10:00:00.000Z").toISOString(),
+  creator: {
+    __typename: "UserType" as const,
+    id: "user-1",
+    email: "test@test.com",
+  },
+  corpus: null,
+  document: { __typename: "DocumentType" as const, id: PDF_DOC_ID },
+  page: 1,
+  myPermissions: ["read", "write", "delete", "update"],
+};
+
+const mockNote2 = {
+  id: "note-2",
+  __typename: "NoteType" as const,
+  title: "Another Note",
+  content: "This is another test note.",
+  created: new Date("2023-10-26T11:00:00.000Z").toISOString(),
+  modified: new Date("2023-10-26T11:00:00.000Z").toISOString(),
+  creator: {
+    __typename: "UserType" as const,
+    id: "user-1",
+    email: "test@test.com",
+  },
+  corpus: null,
+  document: { __typename: "DocumentType" as const, id: PDF_DOC_ID },
+  page: 2,
+  myPermissions: ["read", "write", "delete", "update"],
+};
+
 export const mockTxtDocument: RawDocumentType = {
   ...mockPdfDocument,
   id: TXT_DOC_ID,
@@ -195,6 +276,7 @@ export const mockTxtDocument: RawDocumentType = {
   pawlsParseFile: undefined,
   txtExtractFile: "dummy-txt.txt",
   mdSummaryFile: undefined,
+  allAnnotations: [mockTxtAnnotation1, mockTxtAnnotation2],
 };
 
 export const mockCorpusData = {
@@ -219,6 +301,15 @@ export const mockCorpusData = {
         color: "#FF0000",
         icon: undefined,
         description: "A person entity",
+      },
+      {
+        __typename: "AnnotationLabelType",
+        id: "text-label-1",
+        text: "Important Text",
+        labelType: LabelType.SpanLabel,
+        color: "#3B82F6",
+        icon: undefined,
+        description: "Label for important text sections",
       },
       {
         __typename: "AnnotationLabelType",
@@ -284,7 +375,15 @@ export const graphqlMocks: ReadonlyArray<MockedResponse> = [
         analysisId: undefined,
       },
     },
-    result: { data: { document: mockPdfDocument, corpus: mockCorpusData } },
+    result: {
+      data: {
+        document: {
+          ...mockPdfDocument,
+          allNotes: [mockNote1, mockNote2],
+        },
+        corpus: mockCorpusData,
+      },
+    },
   },
   // --- Add the PDF knowledge+annotations query AGAIN for the refetch ---
   {
@@ -296,7 +395,15 @@ export const graphqlMocks: ReadonlyArray<MockedResponse> = [
         analysisId: undefined, // Assuming refetch doesn't add analysisId initially
       },
     },
-    result: { data: { document: mockPdfDocument, corpus: mockCorpusData } }, // Same result
+    result: {
+      data: {
+        document: {
+          ...mockPdfDocument,
+          allNotes: [mockNote1, mockNote2],
+        },
+        corpus: mockCorpusData,
+      },
+    }, // Same result
   },
   // 2) Original knowledge+annotations query for TXT
   {
@@ -308,7 +415,15 @@ export const graphqlMocks: ReadonlyArray<MockedResponse> = [
         analysisId: undefined,
       },
     },
-    result: { data: { document: mockTxtDocument, corpus: mockCorpusData } },
+    result: {
+      data: {
+        document: {
+          ...mockTxtDocument,
+          allNotes: [mockNote1, mockNote2],
+        },
+        corpus: mockCorpusData,
+      },
+    },
   },
   // 3) CORRECTED: Stub for Analyses/Extracts (documentCorpusActions) - PDF
   {

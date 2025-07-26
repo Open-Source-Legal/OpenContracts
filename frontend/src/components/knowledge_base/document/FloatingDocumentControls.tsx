@@ -10,9 +10,13 @@ import {
   EyeOff,
   BarChart3,
   Database,
+  Plus,
 } from "lucide-react";
 import { Checkbox, CheckboxProps } from "semantic-ui-react";
 import { useAnnotationDisplay } from "../../annotator/context/UISettingsAtom";
+import { useCorpusState } from "../../annotator/context/CorpusAtom";
+import { showSelectCorpusAnalyzerOrFieldsetModal } from "../../../graphql/cache";
+import { PermissionTypes } from "../../types";
 
 const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
   position: fixed;
@@ -176,6 +180,8 @@ interface FloatingDocumentControlsProps {
   extractsOpen?: boolean;
   /** Offset to apply when sliding panel is open */
   panelOffset?: number;
+  /** When true, hide create/edit functionality */
+  readOnly?: boolean;
 }
 
 export const FloatingDocumentControls: React.FC<
@@ -187,6 +193,7 @@ export const FloatingDocumentControls: React.FC<
   analysesOpen = false,
   extractsOpen = false,
   panelOffset = 0,
+  readOnly = false,
 }) => {
   const [expandedSettings, setExpandedSettings] = useState(false);
 
@@ -198,6 +205,12 @@ export const FloatingDocumentControls: React.FC<
     showBoundingBoxes,
     setShowBoundingBoxes,
   } = useAnnotationDisplay();
+
+  // Get corpus permissions to check if user can create analyses
+  const { selectedCorpus } = useCorpusState();
+  const canCreateAnalysis =
+    selectedCorpus?.myPermissions?.includes(PermissionTypes.CAN_READ) &&
+    selectedCorpus?.myPermissions?.includes(PermissionTypes.CAN_UPDATE);
 
   if (!visible) return null;
 
@@ -332,6 +345,19 @@ export const FloatingDocumentControls: React.FC<
       >
         <BarChart3 />
       </ActionButton>
+
+      {/* New button: Start Analysis - only show if user has permissions and not in readOnly mode */}
+      {canCreateAnalysis && !readOnly && (
+        <ActionButton
+          $color="#10b981"
+          onClick={() => showSelectCorpusAnalyzerOrFieldsetModal(true)}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          title="Start New Analysis"
+        >
+          <Plus />
+        </ActionButton>
+      )}
     </ControlsContainer>
   );
 };

@@ -1155,7 +1155,6 @@ export const GET_EXPORT = gql`
           extractIsList
           limitToLabel
           taskName
-          agentic
           matchText
           query
           outputType
@@ -1181,6 +1180,12 @@ export interface GetFieldsetsOutputs {
 export const GET_FIELDSETS = gql`
   query GetFieldsets($searchText: String) {
     fieldsets(name_Contains: $searchText) {
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
       edges {
         node {
           id
@@ -1203,11 +1208,45 @@ export const GET_FIELDSETS = gql`
                 instructions
                 extractIsList
                 taskName
-                agentic
               }
             }
           }
         }
+      }
+    }
+  }
+`;
+
+export interface GetFieldsetInput {
+  id: string;
+}
+
+export interface GetFieldsetOutput {
+  fieldset: FieldsetType;
+}
+
+export const REQUEST_GET_FIELDSET = gql`
+  query GetFieldset($id: ID!) {
+    fieldset(id: $id) {
+      id
+      name
+      description
+      inUse
+      creator {
+        id
+        username
+      }
+      fullColumnList {
+        id
+        name
+        query
+        matchText
+        mustContainText
+        outputType
+        limitToLabel
+        instructions
+        extractIsList
+        taskName
       }
     }
   }
@@ -1237,7 +1276,6 @@ export const GET_FIELDSET = gql`
         instructions
         extractIsList
         taskName
-        agentic
       }
     }
   }
@@ -1271,9 +1309,9 @@ export const REQUEST_GET_EXTRACT = gql`
           instructions
           matchText
           limitToLabel
-          agentic
           taskName
           outputType
+          extractIsList
         }
       }
       creator {
@@ -1589,7 +1627,6 @@ export const GET_DATACELLS_FOR_EXTRACT = gql`
           instructions
           extractIsList
           taskName
-          agentic
         }
       }
       fullDatacellList {

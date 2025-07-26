@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,6 +21,7 @@ interface FloatingSummaryPreviewProps {
   onSwitchToKnowledge?: (content?: string) => void;
   onBackToDocument?: () => void;
   isInKnowledgeLayer?: boolean;
+  readOnly?: boolean;
 }
 
 const FloatingContainer = styled(motion.div)`
@@ -538,6 +539,7 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
   onSwitchToKnowledge,
   onBackToDocument,
   isInKnowledgeLayer = false,
+  readOnly = false,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const { state, setExpanded, setStackFanned, setHovered } =
@@ -551,6 +553,18 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
     updateSummary,
     refetch,
   } = useSummaryVersions(documentId, corpusId);
+
+  /* ------------------------------------------------------------------ */
+  /* Refresh summary versions whenever the preview is expanded           */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (state.isExpanded) {
+      // Trigger a background refetch so the version stack is fresh.
+      // Apollo will serve cached data immediately and update when the
+      // network response arrives, keeping the UI snappy.
+      refetch();
+    }
+  }, [state.isExpanded, refetch]);
 
   const handleVersionClick = (version: number) => {
     if (version === currentVersion) {
@@ -614,6 +628,7 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
             </FloatingContainer>
           ) : (
             <FloatingContainer
+              id="floating-summary-preview-floating-container"
               key="expanded-knowledge"
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}

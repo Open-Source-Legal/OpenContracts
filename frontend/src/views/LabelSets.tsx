@@ -36,7 +36,7 @@ import { LabelSetType } from "../types/graphql-api";
 import { toast } from "react-toastify";
 
 export const Labelsets = () => {
-  const [createLabelset, {}] = useMutation<
+  const [createLabelset, { loading: create_labelset_loading }] = useMutation<
     CreateLabelsetOutputs,
     CreateLabelsetInputs
   >(CREATE_LABELSET);
@@ -147,6 +147,7 @@ export const Labelsets = () => {
               fileLabel="Labelset Icon"
               fileIsImage={true}
               acceptedFileTypes="image/*"
+              loading={create_labelset_loading}
             />
           ) : (
             <></>

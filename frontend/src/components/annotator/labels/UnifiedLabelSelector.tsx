@@ -24,6 +24,7 @@ interface UnifiedLabelSelectorProps {
   showRightPanel?: boolean;
   panelOffset?: number;
   hideControls?: boolean;
+  readOnly?: boolean;
 }
 
 export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
@@ -34,6 +35,7 @@ export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
   showRightPanel,
   panelOffset = 0,
   hideControls = false,
+  readOnly = false,
 }) => {
   const { width } = useWindowDimensions();
   const isMobile = width <= 768;
@@ -52,8 +54,11 @@ export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
 
   const selected_extract = useReactiveVar(selectedExtract);
   const selected_analysis = useReactiveVar(selectedAnalysis);
-  const read_only =
-    Boolean(selected_analysis) || Boolean(selected_extract) || !canUpdateCorpus;
+  const isReadOnlyMode =
+    readOnly ||
+    Boolean(selected_analysis) ||
+    Boolean(selected_extract) ||
+    !canUpdateCorpus;
 
   const doc_annotations = pdfAnnotations.docTypes;
 
@@ -255,12 +260,14 @@ export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
                       }}
                     />
                     <span>{activeSpanLabel.text}</span>
-                    <button
-                      className="clear-button"
-                      onClick={() => setActiveLabel(undefined)}
-                    >
-                      ×
-                    </button>
+                    {!isReadOnlyMode && (
+                      <button
+                        className="clear-button"
+                        onClick={() => setActiveLabel(undefined)}
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -270,8 +277,13 @@ export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
                   annotationLabelOptions.map((label) => (
                     <button
                       key={label.id}
-                      onClick={() => setActiveLabel(label)}
+                      onClick={() => !isReadOnlyMode && setActiveLabel(label)}
                       className="label-option"
+                      disabled={isReadOnlyMode}
+                      style={{
+                        cursor: isReadOnlyMode ? "not-allowed" : "pointer",
+                        opacity: isReadOnlyMode ? 0.5 : 1,
+                      }}
                     >
                       <span
                         className="color-dot"
@@ -311,7 +323,7 @@ export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
                         }}
                       />
                       <span>{annotation.annotationLabel.text}</span>
-                      {!read_only &&
+                      {!isReadOnlyMode &&
                         annotation.myPermissions.includes(
                           PermissionTypes.CAN_REMOVE
                         ) && (
@@ -327,7 +339,7 @@ export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
                 </div>
               )}
 
-              {!read_only && filteredDocLabelChoices.length > 0 ? (
+              {!isReadOnlyMode && filteredDocLabelChoices.length > 0 ? (
                 <div className="available-section">
                   {filteredDocLabelChoices.map((label) => (
                     <button
@@ -346,7 +358,7 @@ export const UnifiedLabelSelector: React.FC<UnifiedLabelSelectorProps> = ({
                 </div>
               ) : (
                 <div className="empty-state">
-                  {read_only
+                  {isReadOnlyMode
                     ? "Read-only mode"
                     : doc_annotations.length === 0
                     ? "No document labels assigned"

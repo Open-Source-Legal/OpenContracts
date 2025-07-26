@@ -3,7 +3,7 @@ import { Modal } from "semantic-ui-react";
 import styled from "styled-components";
 import { Edit3 } from "lucide-react";
 
-export const PostItNote = styled(motion.button)`
+export const PostItNote = styled(motion.button)<{ $readOnly?: boolean }>`
   background: #fff7b1;
   padding: 1.25rem;
   border-radius: 2px;
@@ -12,7 +12,7 @@ export const PostItNote = styled(motion.button)`
   border: none;
   width: 100%;
   text-align: left;
-  cursor: pointer;
+  cursor: ${(props) => (props.$readOnly ? "default" : "pointer")};
   transform-origin: center;
   transition: all 0.2s ease;
 
@@ -54,7 +54,7 @@ export const PostItNote = styled(motion.button)`
   }
 
   &:hover .edit-indicator {
-    opacity: 1;
+    opacity: ${(props) => (props.$readOnly ? 0 : 1)};
   }
 
   .title {

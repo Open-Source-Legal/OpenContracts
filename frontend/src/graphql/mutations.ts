@@ -1209,7 +1209,6 @@ export interface RequestCreateColumnInputType {
   limitToLabel?: string;
   instructions?: string;
   taskName: string;
-  agentic: boolean;
   name: string;
 }
 
@@ -1231,7 +1230,6 @@ export const REQUEST_CREATE_COLUMN = gql`
     $limitToLabel: String
     $instructions: String
     $taskName: String
-    $agentic: Boolean
   ) {
     createColumn(
       fieldsetId: $fieldsetId
@@ -1241,7 +1239,6 @@ export const REQUEST_CREATE_COLUMN = gql`
       limitToLabel: $limitToLabel
       instructions: $instructions
       taskName: $taskName
-      agentic: $agentic
       name: $name
     ) {
       message
@@ -1255,7 +1252,6 @@ export const REQUEST_CREATE_COLUMN = gql`
         limitToLabel
         instructions
         taskName
-        agentic
       }
     }
   }
@@ -1347,7 +1343,6 @@ export interface RequestUpdateColumnInputType {
   limitToLabel?: string;
   instructions?: string;
   taskName?: string;
-  agentic?: boolean;
 }
 
 export interface RequestUpdateColumnOutputType {
@@ -1368,7 +1363,6 @@ export const REQUEST_UPDATE_COLUMN = gql`
     $limitToLabel: String
     $instructions: String
     $taskName: String
-    $agentic: Boolean
   ) {
     updateColumn(
       id: $id
@@ -1379,7 +1373,6 @@ export const REQUEST_UPDATE_COLUMN = gql`
       limitToLabel: $limitToLabel
       instructions: $instructions
       taskName: $taskName
-      agentic: $agentic
     ) {
       message
       ok
@@ -1392,7 +1385,6 @@ export const REQUEST_UPDATE_COLUMN = gql`
         limitToLabel
         instructions
         taskName
-        agentic
       }
     }
   }
@@ -1475,6 +1467,12 @@ export const REQUEST_APPROVE_DATACELL = gql`
         completed
         stacktrace
         correctedData
+        column {
+          id
+        }
+        document {
+          id
+        }
         approvedBy {
           id
           username
@@ -1512,6 +1510,12 @@ export const REQUEST_REJECT_DATACELL = gql`
         completed
         stacktrace
         correctedData
+        column {
+          id
+        }
+        document {
+          id
+        }
         approvedBy {
           id
           username
@@ -1663,7 +1667,7 @@ export interface StartDocumentExtractInput {
 }
 
 export interface StartDocumentExtractOutput {
-  startDocumentExtract: {
+  startExtractForDoc: {
     ok: boolean;
     message: string;
     obj: ExtractType;
@@ -1676,7 +1680,7 @@ export const START_DOCUMENT_EXTRACT = gql`
     $fieldsetId: ID!
     $corpusId: ID
   ) {
-    startDocumentExtract(
+    startExtractForDoc(
       documentId: $documentId
       fieldsetId: $fieldsetId
       corpusId: $corpusId

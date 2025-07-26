@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(yarn install)",
+      "Bash(yarn run test:ct:*)",
+      "Bash(find:*)",
+      "Bash(mv:*)",
+      "Bash(yarn playwright test:*)",
+      "Bash(yarn lint)",
+      "Bash(yarn prettier:*)",
+      "Bash(yarn:*)",
+      "Bash(rm:*)",
+      "Bash(grep:*)"
+    ],
+    "deny": []
+  }
+}

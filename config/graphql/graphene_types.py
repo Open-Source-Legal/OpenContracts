@@ -303,8 +303,10 @@ class LabelTypeEnum(graphene.Enum):
     RELATIONSHIP_LABEL = "RELATIONSHIP_LABEL"
     DOC_TYPE_LABEL = "DOC_TYPE_LABEL"
     TOKEN_LABEL = "TOKEN_LABEL"
-    METADATA_LABEL = "METADATA_LABEL"
     SPAN_LABEL = "SPAN_LABEL"
+
+
+
 
 
 class AnnotationSummaryType(graphene.ObjectType):
@@ -355,7 +357,6 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     doc_label_count = graphene.Int(description="Count of document-level type labels")
     span_label_count = graphene.Int(description="Count of span-based labels")
     token_label_count = graphene.Int(description="Count of token-level labels")
-    metadata_label_count = graphene.Int(description="Count of metadata labels")
 
     def resolve_doc_label_count(self, info):
         return self.annotation_labels.filter(label_type="DOC_TYPE_LABEL").count()
@@ -365,9 +366,6 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_token_label_count(self, info):
         return self.annotation_labels.filter(label_type="TOKEN_LABEL").count()
-
-    def resolve_metadata_label_count(self, info):
-        return self.annotation_labels.filter(label_type="METADATA_LABEL").count()
 
     # To get ALL labels for a given labelset
     all_annotation_labels = graphene.Field(graphene.List(AnnotationLabelType))
@@ -985,6 +983,9 @@ class AnalysisType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
 
 class ColumnType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    validation_config = GenericScalar()
+    default_value = GenericScalar()
+    
     class Meta:
         model = Column
         interfaces = [relay.Node]

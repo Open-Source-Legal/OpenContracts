@@ -690,6 +690,8 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
     <>
       <PaperContainer
         ref={containerRef}
+        id="txt-annotator-txt-container"
+        data-testid="txt-annotator"
         style={{
           maxHeight: maxHeight || "auto",
           maxWidth: maxWidth || "auto",
@@ -771,6 +773,11 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
             <AnnotatedSpan
               key={index}
               data-span-index={index}
+              data-testid={
+                finalAnnotations.length > 0
+                  ? `annotated-span-${index}`
+                  : undefined
+              }
               onMouseEnter={() => handleMouseEnter(index)}
               onMouseLeave={handleMouseLeave}
               approved={approved}
@@ -854,6 +861,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
             return (
               <LabelContainer
                 key={`${annotation.id}-${labelIndex}`}
+                data-testid={`annotation-label-container-${annotation.id}`}
                 style={{
                   position: "absolute",
                   left: `${x}px`,
@@ -869,6 +877,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
               >
                 <Label
                   id={`label-${annotation.id}-${labelIndex}`}
+                  data-testid={`annotation-label-${annotation.id}`}
                   color={annotation.annotationLabel.color || "#cccccc"}
                   $index={labelIndex}
                   onClick={(e: React.MouseEvent<HTMLSpanElement>) => {

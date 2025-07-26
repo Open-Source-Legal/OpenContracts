@@ -1,5 +1,3 @@
-version: '3'
-
 volumes:
   local_postgres_data: {}
   local_postgres_data_backups: {}
@@ -16,7 +14,6 @@ services:
       - postgres
       - redis
       - vector-embedder
-      - nlm-ingestor
       - docling-parser
     volumes:
       - .:/app:z
@@ -26,13 +23,6 @@ services:
     ports:
       - "8000:8000"
     command: /start
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
   postgres:
     build:
@@ -49,10 +39,6 @@ services:
   redis:
     image: redis:6
     container_name: redis
-
-  nlm-ingestor:
-    image: jscrudato/nlm-ingestor-opencontracts
-    container_name: nlm-ingestor
 
   docling-parser:
     image: jscrudato/docsling-local
@@ -77,13 +63,7 @@ services:
       - ./.envs/.local/.django
       - ./.envs/.local/.postgres
     command: /start-celeryworker
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+
 
   celerybeat:
     image: opencontractserver_local_django

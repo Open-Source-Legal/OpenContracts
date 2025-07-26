@@ -30,6 +30,7 @@ import { useAnnotationRefs } from "../../../annotator/hooks/useAnnotationRefs";
 interface ContentItemRendererProps {
   item: UnifiedContentItem;
   onSelect?: () => void;
+  readOnly?: boolean;
 }
 
 /* Styled Components */
@@ -129,6 +130,7 @@ function isSearchResult(
 export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
   item,
   onSelect,
+  readOnly = false,
 }) => {
   const { annotationElementRefs } = useAnnotationRefs();
   const { pdfAnnotations } = usePdfAnnotations();
@@ -151,7 +153,8 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
     return (
       <ItemContainer>
         <PostItNote
-          onClick={onSelect}
+          onClick={readOnly ? undefined : onSelect}
+          $readOnly={readOnly}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
@@ -203,9 +206,9 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
         <HighlightItem
           annotation={annotation}
           relations={pdfAnnotations.relations}
-          read_only={false}
+          read_only={readOnly}
           onSelect={handleSelect}
-          onDelete={handleDeleteAnnotation}
+          onDelete={readOnly ? undefined : handleDeleteAnnotation}
         />
       </ItemContainer>
     );
@@ -255,7 +258,7 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
       <ItemContainer>
         <RelationItem
           relation={relation}
-          read_only={false}
+          read_only={readOnly}
           selected={selectedRelations.some((r) => r.id === relation.id)}
           source_annotations={allAnnotations.filter((a) =>
             relation.sourceIds.includes(a.id)
@@ -265,10 +268,12 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
           )}
           onSelectAnnotation={handleSelectAnnotation}
           onSelectRelation={handleSelectRelation}
-          onRemoveAnnotationFromRelation={(annId, relId) =>
-            removeAnnotationFromRelation(annId, relId)
+          onRemoveAnnotationFromRelation={
+            readOnly
+              ? () => {}
+              : (annId, relId) => removeAnnotationFromRelation(annId, relId)
           }
-          onDeleteRelation={handleRemoveRelationship}
+          onDeleteRelation={readOnly ? () => {} : handleRemoveRelationship}
         />
       </ItemContainer>
     );

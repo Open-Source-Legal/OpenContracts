@@ -61,7 +61,12 @@ const pulseGlow = keyframes`
 `;
 
 // Label Components
-export const LabelContainer = styled.div<{ color: string }>`
+export const LabelContainer = styled.div.attrs<{
+  color: string;
+  "data-testid"?: string;
+}>((props) => ({
+  "data-testid": props["data-testid"],
+}))<{ color: string }>`
   position: absolute;
   display: flex;
   align-items: center;
@@ -111,7 +116,13 @@ export const LabelContainer = styled.div<{ color: string }>`
   }
 `;
 
-export const Label = styled.span<{ color: string; $index: number }>`
+export const Label = styled.span.attrs<{
+  color: string;
+  $index: number;
+  "data-testid"?: string;
+}>((props) => ({
+  "data-testid": props["data-testid"],
+}))<{ color: string; $index: number }>`
   font-size: 0.85rem;
   font-weight: 500;
   padding: 4px 8px;
@@ -155,7 +166,7 @@ interface PaperContainerProps {
 export const PaperContainer = styled.div<PaperContainerProps>`
   background: white;
   border-radius: 8px;
-  padding: 24px;
+  padding: 24px 24px 96px 24px; /* Extra bottom padding for floating UI */
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   position: relative;
   transition: all 0.2s ease;

@@ -57,6 +57,7 @@ import {
   ExtractDataGridHandle,
 } from "../../extracts/datagrid/DataGrid";
 import { CSSProperties } from "react";
+import styled from "styled-components";
 
 interface EditExtractModalProps {
   ext: ExtractType | null;
@@ -64,130 +65,461 @@ interface EditExtractModalProps {
   toggleModal: () => void;
 }
 
-// Add new styled components at the top
+// Responsive Styled Components
+const StyledModal = styled(Modal)`
+  &.ui.modal {
+    height: 90vh;
+    max-height: 90vh !important;
+    margin: 5vh auto !important;
+    display: flex !important;
+    flex-direction: column;
+    background: #ffffff;
+    overflow: hidden;
+    border-radius: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+    @media (max-width: 768px) {
+      height: 100vh;
+      max-height: 100vh !important;
+      margin: 0 !important;
+      width: 100% !important;
+      border-radius: 0;
+    }
+  }
+`;
+
+const ModalHeader = styled.div`
+  background: linear-gradient(to right, #f8fafc, #f1f5f9);
+  padding: 1.75rem 2rem;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex: 0 0 auto;
+
+  @media (max-width: 768px) {
+    padding: 1.25rem 1rem;
+    flex-wrap: wrap;
+  }
+`;
+
+const HeaderTitle = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    width: 100%;
+  }
+`;
+
+const ExtractName = styled.h2`
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.025em;
+
+  @media (max-width: 768px) {
+    font-size: 1.375rem;
+  }
+`;
+
+const ExtractMeta = styled.span`
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
+
+  @media (max-width: 768px) {
+    font-size: 0.8125rem;
+  }
+`;
+
+const StyledModalContent = styled(ModalContent)`
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  max-height: calc(90vh - 130px) !important;
+  padding: 0 !important;
+  background: #fafbfc;
+
+  @media (max-width: 768px) {
+    max-height: calc(100vh - 120px) !important;
+    background: #ffffff;
+  }
+`;
+
+const ScrollableContent = styled.div`
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding: 1.5rem 2rem;
+
+  @media (max-width: 768px) {
+    padding: 1rem;
+  }
+`;
+
+const ContentWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+`;
+
+const TopSection = styled.div`
+  flex: 0 0 auto;
+  padding: 1.5rem 2rem 0;
+
+  @media (max-width: 768px) {
+    padding: 1rem 1rem 0;
+  }
+`;
+
+const GridSection = styled.div`
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+
+  @media (max-width: 768px) {
+    padding: 0 1rem 1rem;
+  }
+`;
+
+const StatsContainer = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+  padding: 0;
+  margin: 0 0 1.5rem 0;
+
+  @media (max-width: 640px) {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin: 0 0 1rem 0;
+  }
+
+  @media (max-width: 480px) {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+`;
+
+const StatCard = styled.div`
+  padding: 1.5rem;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(to right, #3b82f6, #2563eb);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.1);
+    border-color: #cbd5e1;
+
+    &::before {
+      opacity: 1;
+    }
+  }
+
+  @media (max-width: 640px) {
+    padding: 1rem;
+
+    &:hover {
+      transform: none;
+    }
+  }
+
+  @media (max-width: 480px) {
+    padding: 0.75rem;
+    border-radius: 8px;
+  }
+`;
+
+const StatLabel = styled.div`
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+
+  @media (max-width: 640px) {
+    font-size: 0.6875rem;
+    margin-bottom: 0.375rem;
+  }
+`;
+
+const StatValue = styled.div`
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  .icon {
+    opacity: 0.8;
+  }
+
+  @media (max-width: 640px) {
+    font-size: 1.125rem;
+    gap: 0.5rem;
+
+    .icon {
+      font-size: 1rem !important;
+    }
+  }
+
+  @media (max-width: 480px) {
+    font-size: 1rem;
+  }
+`;
+
+const StatusWithButton = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 0.5rem;
+
+  @media (max-width: 640px) {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+`;
+
+const ControlsContainer = styled.div`
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 0 0 1.5rem;
+  align-items: center;
+
+  @media (max-width: 640px) {
+    justify-content: center;
+    flex-wrap: wrap;
+    padding: 0 0 0.75rem;
+    gap: 0.75rem;
+  }
+`;
+
+const DataGridContainer = styled.div`
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  margin: 0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+
+  @media (max-width: 768px) {
+    min-height: 0;
+    border-radius: 12px;
+    flex: 1 1 auto;
+  }
+`;
+
+const ModalActions = styled.div`
+  flex: 0 0 auto;
+  padding: 1.25rem 2rem !important;
+  background: linear-gradient(to top, #f8fafc, #ffffff);
+  border-top: 1px solid #e2e8f0;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.03);
+  display: flex;
+  justify-content: flex-end;
+
+  @media (max-width: 768px) {
+    padding: 1rem !important;
+    justify-content: center;
+
+    button {
+      flex: 1;
+      max-width: 200px;
+    }
+  }
+`;
+
+const MobileCloseButton = styled.button`
+  display: none;
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0;
+  cursor: pointer;
+  z-index: 11;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+
+  @media (max-width: 768px) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+
+    &:active {
+      background: #f1f5f9;
+      transform: scale(0.95);
+    }
+  }
+`;
+
+const ResponsiveButton = styled(Button)`
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  transition: all 0.2s ease !important;
+
+  @media (max-width: 768px) {
+    padding: 14px 28px !important;
+    font-size: 1rem !important;
+    min-height: 48px;
+  }
+`;
+
+const DownloadButton = styled(ResponsiveButton)`
+  background: #ffffff !important;
+  border: 1.5px solid #e2e8f0 !important;
+  color: #475569 !important;
+
+  &:hover:not(:disabled) {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+    color: #1e293b !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  @media (max-width: 640px) {
+    width: 100%;
+  }
+`;
+
+const StatusIcon = styled.div<{ $status?: string }>`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  ${(props) =>
+    props.$status === "processing" &&
+    `
+    color: #3b82f6;
+  `}
+
+  ${(props) =>
+    props.$status === "completed" &&
+    `
+    color: #10b981;
+  `}
+  
+  ${(props) =>
+    props.$status === "failed" &&
+    `
+    color: #ef4444;
+  `}
+  
+  ${(props) =>
+    props.$status === "not-started" &&
+    `
+    color: #6b7280;
+  `}
+  
+  @media (max-width: 640px) {
+    gap: 0.5rem;
+
+    span {
+      font-size: 0.875rem;
+    }
+  }
+`;
+
+const StartButton = styled(Button)`
+  background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 12px !important;
+  width: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.3s ease !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+
+  &:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4) !important;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  }
+
+  &:active {
+    transform: translateY(0) !important;
+  }
+
+  .icon {
+    margin: 0 !important;
+  }
+
+  @media (max-width: 640px) {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 10px !important;
+
+    .icon {
+      font-size: 14px !important;
+    }
+  }
+`;
+
+// Legacy styles for buttons (keeping these as they have complex hover states)
 const styles = {
-  modalWrapper: {
-    height: "90vh",
-    display: "flex !important",
-    flexDirection: "column",
-    background: "#ffffff",
-    overflow: "hidden",
-    margin: "5vh auto !important",
-    maxHeight: "90vh !important",
-  } as React.CSSProperties,
-  modalHeader: {
-    background: "white",
-    padding: "1.5rem 2rem",
-    borderBottom: "1px solid #e2e8f0",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
-    position: "sticky",
-    top: 0,
-    zIndex: 10,
-    flex: "0 0 auto",
-  } as React.CSSProperties,
-  modalContent: {
-    flex: "1 1 auto",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    minHeight: 0,
-    maxHeight: "calc(90vh - 130px) !important",
-  } as React.CSSProperties,
-  scrollableContent: {
-    flex: "1 1 auto",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "auto",
-    minHeight: 0,
-    padding: "0 2rem",
-  } as React.CSSProperties,
-  headerTitle: {
-    display: "flex",
-    alignItems: "center",
-    gap: "1rem",
-  },
-  extractName: {
-    fontSize: "1.5rem",
-    fontWeight: 600,
-    color: "#1e293b",
-    margin: 0,
-  },
-  extractMeta: {
-    fontSize: "0.875rem",
-    color: "#475569",
-  },
-  statsContainer: {
-    flex: "0 0 auto",
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: "1rem",
-    padding: "1.5rem 0",
-    background: "white",
-    borderRadius: "0.5rem",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-    margin: "1rem 0",
-  },
-  statCard: {
-    padding: "1.25rem",
-    background: "#ffffff",
-    borderRadius: "0.5rem",
-    border: "1px solid #cbd5e1",
-    transition: "transform 0.2s ease",
-    "&:hover": {
-      transform: "translateY(-2px)",
-    },
-  },
-  statLabel: {
-    fontSize: "0.875rem",
-    fontWeight: 500,
-    color: "#475569",
-    marginBottom: "0.5rem",
-  },
-  statValue: {
-    fontSize: "1.25rem",
-    fontWeight: 600,
-    color: "#1e293b",
-    display: "flex",
-    alignItems: "center",
-    gap: "0.5rem",
-  },
-  actionButtons: {
-    padding: "0.75rem 2rem",
-    display: "flex",
-    gap: "1rem",
-    justifyContent: "flex-end",
-    background: "white",
-    borderTop: "1px solid #e2e8f0",
-  },
-  errorMessage: {
-    margin: "1rem 2rem",
-    padding: "1rem",
-    borderRadius: "0.5rem",
-    background: "#fee2e2",
-    border: "1px solid #fecaca",
-    color: "#991b1b",
-  },
-  dataGridContainer: {
-    flex: "1 1 auto",
-    minHeight: 0,
-    display: "flex",
-    flexDirection: "column",
-    position: "relative",
-    margin: "0 0 1rem",
-  } as React.CSSProperties,
-  modalActions: {
-    flex: "0 0 auto",
-    padding: "1rem 2rem !important",
-    background: "white",
-    borderTop: "1px solid #e2e8f0",
-    position: "sticky",
-    bottom: 0,
-    zIndex: 10,
-    boxShadow: "0 -4px 12px rgba(0,0,0,0.05)",
-  } as React.CSSProperties,
   startButton: {
     width: "40px",
     height: "40px",
@@ -227,12 +559,6 @@ const styles = {
     transform: "scale(0)",
     opacity: 0,
   } as CSSProperties,
-  statusWithButton: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-  },
   downloadButton: {
     background: "transparent",
     border: "1px solid #e2e8f0",
@@ -264,14 +590,23 @@ const styles = {
     fontSize: "16px",
     transition: "transform 0.2s ease",
   } as CSSProperties,
-  controlsContainer: {
-    flex: "0 0 auto",
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "12px",
-    padding: "0 0 1rem",
-    alignItems: "center",
-  } as React.CSSProperties,
+};
+
+// Custom hook to detect mobile
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    checkIsMobile();
+    window.addEventListener("resize", checkIsMobile);
+    return () => window.removeEventListener("resize", checkIsMobile);
+  }, []);
+
+  return isMobile;
 };
 
 export const EditExtractModal = ({
@@ -280,6 +615,7 @@ export const EditExtractModal = ({
   toggleModal,
 }: EditExtractModalProps) => {
   const dataGridRef = useRef<ExtractDataGridHandle>(null);
+  const isMobile = useIsMobile();
 
   const [extract, setExtract] = useState<ExtractType | null>(ext);
   const [cells, setCells] = useState<DatacellType[]>([]);
@@ -448,7 +784,6 @@ export const EditExtractModal = ({
                 limitToLabel: column.limitToLabel,
                 instructions: column.instructions,
                 taskName: column.taskName,
-                agentic: Boolean(column.agentic),
               },
             })
           )
@@ -601,156 +936,199 @@ export const EditExtractModal = ({
 
   return (
     <>
-      <Modal
+      <StyledModal
         id="edit-extract-modal"
-        closeIcon
+        closeIcon={!isMobile}
         size="fullscreen"
         open={open}
         onClose={toggleModal}
-        style={styles.modalWrapper}
+        data-testid="edit-extract-modal"
       >
-        <div style={styles.modalHeader}>
-          <div style={styles.headerTitle}>
-            <h2 style={styles.extractName}>{extract.name}</h2>
-            <span style={styles.extractMeta}>
+        <ModalHeader>
+          <HeaderTitle>
+            <ExtractName id="extract-name" data-testid="extract-name">
+              {extract.name}
+            </ExtractName>
+            <ExtractMeta id="extract-meta" data-testid="extract-meta">
               Created by {extract.creator?.email} on{" "}
               {new Date(extract.created).toLocaleDateString()}
-            </span>
-          </div>
-        </div>
+            </ExtractMeta>
+          </HeaderTitle>
+          <MobileCloseButton
+            onClick={toggleModal}
+            data-testid="close-button-mobile"
+          >
+            <Icon name="close" size="large" />
+          </MobileCloseButton>
+        </ModalHeader>
 
-        <ModalContent style={styles.modalContent}>
-          <div style={styles.scrollableContent}>
-            <div style={styles.statsContainer}>
-              <div style={styles.statCard}>
-                <div style={styles.statLabel}>Status</div>
-                <div style={styles.statValue}>
-                  {extract.started && !extract.finished && !extract.error ? (
-                    <>
-                      <Icon name="spinner" loading color="blue" />
-                      <span>Processing</span>
-                    </>
-                  ) : extract.finished ? (
-                    <>
-                      <Icon name="check circle" color="green" />
-                      <span>Completed</span>
-                    </>
-                  ) : extract.error ? (
-                    <>
-                      <Icon name="exclamation circle" color="red" />
-                      <span>Failed</span>
-                    </>
-                  ) : (
-                    <div style={styles.statusWithButton}>
-                      <div>
-                        <Icon name="clock outline" color="grey" />
-                        <span>Not Started</span>
-                      </div>
-                      <Button
-                        circular
-                        icon
-                        primary
-                        style={styles.startButton}
-                        onClick={() =>
-                          startExtract({ variables: { extractId: extract.id } })
-                        }
+        <StyledModalContent>
+          <ContentWrapper>
+            <TopSection>
+              <StatsContainer>
+                <StatCard data-testid="status-card">
+                  <StatLabel>Status</StatLabel>
+                  <StatValue>
+                    {extract.started && !extract.finished && !extract.error ? (
+                      <StatusIcon
+                        id="status-processing"
+                        $status="processing"
+                        data-testid="status-processing"
                       >
-                        <i
-                          className="play icon play-icon"
-                          style={{ ...styles.iconBase, ...styles.playIcon }}
-                        />
-                        <i
-                          className="rocket icon rocket-icon"
-                          style={{ ...styles.iconBase, ...styles.rocketIcon }}
-                        />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
+                        <Icon name="spinner" loading />
+                        <span>Processing</span>
+                      </StatusIcon>
+                    ) : extract.finished ? (
+                      <StatusIcon
+                        id="status-completed"
+                        $status="completed"
+                        data-testid="status-completed"
+                      >
+                        <Icon name="check circle" />
+                        <span>Completed</span>
+                      </StatusIcon>
+                    ) : extract.error ? (
+                      <StatusIcon
+                        id="status-failed"
+                        $status="failed"
+                        data-testid="status-failed"
+                      >
+                        <Icon name="exclamation circle" />
+                        <span>Failed</span>
+                      </StatusIcon>
+                    ) : (
+                      <StatusWithButton>
+                        <StatusIcon
+                          id="status-not-started"
+                          $status="not-started"
+                          data-testid="status-not-started"
+                        >
+                          <Icon name="clock outline" />
+                          <span>{!isMobile && "Not Started"}</span>
+                        </StatusIcon>
+                        <StartButton
+                          id="start-extract-button"
+                          onClick={() =>
+                            startExtract({
+                              variables: { extractId: extract.id },
+                            })
+                          }
+                          data-testid="start-extract-button"
+                        >
+                          <Icon name="play" />
+                        </StartButton>
+                      </StatusWithButton>
+                    )}
+                  </StatValue>
+                </StatCard>
 
-              <div style={styles.statCard}>
-                <div style={styles.statLabel}>Documents</div>
-                <div style={styles.statValue}>
-                  <Icon name="file outline" />
-                  {rows.length}
-                </div>
-              </div>
+                <StatCard data-testid="docs-card">
+                  <StatLabel>Docs</StatLabel>
+                  <StatValue>
+                    <Icon name="file outline" color="blue" />
+                    <span id="docs-count" data-testid="docs-count">
+                      {rows.length}
+                    </span>
+                  </StatValue>
+                </StatCard>
 
-              <div style={styles.statCard}>
-                <div style={styles.statLabel}>Columns</div>
-                <div style={styles.statValue}>
-                  <Icon name="columns" />
-                  {columns.length}
-                </div>
-              </div>
+                <StatCard data-testid="cols-card">
+                  <StatLabel>Cols</StatLabel>
+                  <StatValue>
+                    <Icon name="columns" color="teal" />
+                    <span id="cols-count" data-testid="cols-count">
+                      {columns.length}
+                    </span>
+                  </StatValue>
+                </StatCard>
 
-              {extract.corpus && (
-                <div style={styles.statCard}>
-                  <div style={styles.statLabel}>Corpus</div>
-                  <div style={styles.statValue}>
-                    <Icon name="database" />
-                    {extract.corpus.title}
-                  </div>
-                </div>
-              )}
-            </div>
+                {extract.corpus && (
+                  <StatCard data-testid="corpus-card">
+                    <StatLabel>Corpus</StatLabel>
+                    <StatValue>
+                      <Icon name="database" color="purple" />
+                      <span id="corpus-title" data-testid="corpus-title">
+                        {extract.corpus.title && isMobile
+                          ? extract.corpus.title.substring(0, 10) + "..."
+                          : extract.corpus.title || "Untitled"}
+                      </span>
+                    </StatValue>
+                  </StatCard>
+                )}
+              </StatsContainer>
 
-            <div style={styles.controlsContainer}>
-              <Button
-                basic
-                style={styles.downloadButton}
-                onClick={() => dataGridRef.current?.exportToCsv()}
-                disabled={
-                  loading ||
-                  isGridLoading ||
-                  networkStatus === NetworkStatus.refetch
-                }
-              >
-                <Icon name="download" style={styles.downloadIcon} />
-                Export CSV
-              </Button>
-            </div>
-
-            <div style={{ ...styles.dataGridContainer, position: "relative" }}>
-              {loading && (
-                <Dimmer
-                  active
-                  inverted
-                  style={{
-                    position: "absolute",
-                    margin: 0,
-                    borderRadius: "12px",
-                  }}
+              <ControlsContainer>
+                <DownloadButton
+                  id="export-csv-button"
+                  basic
+                  onClick={() => dataGridRef.current?.exportToCsv()}
+                  disabled={
+                    loading ||
+                    isGridLoading ||
+                    networkStatus === NetworkStatus.refetch
+                  }
+                  data-testid="export-csv-button"
                 >
-                  <Loader>
-                    {extract.started && !extract.finished
-                      ? "Processing..."
-                      : "Loading..."}
-                  </Loader>
-                </Dimmer>
-              )}
-              <ExtractDataGrid
-                ref={dataGridRef}
-                onAddDocIds={handleAddDocIdsToExtract}
-                onRemoveDocIds={handleRemoveDocIdsFromExtract}
-                onRemoveColumnId={handleDeleteColumnIdFromExtract}
-                onUpdateRow={handleRowUpdate}
-                onAddColumn={handleAddColumn}
-                extract={extract}
-                cells={cells}
-                rows={rows}
-                columns={columns}
-                loading={Boolean(isGridLoading)}
-              />
-            </div>
-          </div>
-        </ModalContent>
+                  <Icon name="download" style={styles.downloadIcon} />
+                  {!isMobile && "Export CSV"}
+                </DownloadButton>
+              </ControlsContainer>
+            </TopSection>
 
-        <div className="actions" style={styles.modalActions}>
-          <Button onClick={toggleModal}>Close</Button>
-        </div>
-      </Modal>
+            <GridSection>
+              <DataGridContainer
+                style={{ position: "relative" }}
+                id="data-grid-container"
+                data-testid="data-grid-container"
+              >
+                {loading && (
+                  <Dimmer
+                    id="loading-dimmer"
+                    active
+                    inverted
+                    style={{
+                      position: "absolute",
+                      margin: 0,
+                      borderRadius: "12px",
+                    }}
+                    data-testid="loading-dimmer"
+                  >
+                    <Loader>
+                      {extract.started && !extract.finished
+                        ? "Processing..."
+                        : "Loading..."}
+                    </Loader>
+                  </Dimmer>
+                )}
+                <ExtractDataGrid
+                  ref={dataGridRef}
+                  onAddDocIds={handleAddDocIdsToExtract}
+                  onRemoveDocIds={handleRemoveDocIdsFromExtract}
+                  onRemoveColumnId={handleDeleteColumnIdFromExtract}
+                  onUpdateRow={handleRowUpdate}
+                  onAddColumn={handleAddColumn}
+                  extract={extract}
+                  cells={cells}
+                  rows={rows}
+                  columns={columns}
+                  loading={Boolean(isGridLoading)}
+                  data-testid="extract-data-grid"
+                />
+              </DataGridContainer>
+            </GridSection>
+          </ContentWrapper>
+        </StyledModalContent>
+
+        <ModalActions>
+          <ResponsiveButton
+            id="close-button"
+            onClick={toggleModal}
+            data-testid="close-button"
+          >
+            Close
+          </ResponsiveButton>
+        </ModalActions>
+      </StyledModal>
     </>
   );
 };

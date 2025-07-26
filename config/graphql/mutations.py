@@ -7,7 +7,7 @@ import graphene
 import graphql_jwt
 from celery import chain, chord, group
 from django.conf import settings
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Max, Q
@@ -276,6 +276,311 @@ class EditDatacell(graphene.Mutation):
             message = f"Failed to approve datacell due to error: {e}"
 
         return EditDatacell(ok=ok, obj=obj, message=message)
+
+
+class CreateMetadataColumn(graphene.Mutation):
+    """Create a metadata column for a corpus."""
+    class Arguments:
+        corpus_id = graphene.ID(required=True, description="ID of the corpus")
+        name = graphene.String(required=True, description="Name of the metadata field")
+        data_type = graphene.String(required=True, description="Data type of the field")
+        validation_config = GenericScalar(required=False, description="Validation configuration")
+        default_value = GenericScalar(required=False, description="Default value")
+        help_text = graphene.String(required=False, description="Help text for the field")
+        display_order = graphene.Int(required=False, description="Display order")
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    obj = graphene.Field(ColumnType)
+
+    @login_required
+    def mutate(root, info, corpus_id, name, data_type, validation_config=None, 
+               default_value=None, help_text=None, display_order=0):
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+        
+        try:
+            user = info.context.user
+            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            
+            # Check permissions
+            if not user_has_permission_for_obj(user, corpus, PermissionTypes.UPDATE):
+                return CreateMetadataColumn(
+                    ok=False,
+                    message="You don't have permission to update this corpus"
+                )
+            
+            # Get or create metadata fieldset for corpus
+            if not hasattr(corpus, 'metadata_schema') or corpus.metadata_schema is None:
+                fieldset = Fieldset.objects.create(
+                    name=f"{corpus.title} Metadata",
+                    description=f"Metadata schema for {corpus.title}",
+                    corpus=corpus,
+                    creator=user
+                )
+                set_permissions_for_obj_to_user(user, fieldset, [PermissionTypes.CRUD])
+            else:
+                fieldset = corpus.metadata_schema
+            
+            # Validate data type
+            valid_types = ['STRING', 'TEXT', 'BOOLEAN', 'INTEGER', 'FLOAT', 
+                          'DATE', 'DATETIME', 'URL', 'EMAIL', 'CHOICE', 
+                          'MULTI_CHOICE', 'JSON']
+            if data_type not in valid_types:
+                return CreateMetadataColumn(
+                    ok=False,
+                    message=f"Invalid data type. Must be one of: {', '.join(valid_types)}"
+                )
+            
+            # Validate choice fields
+            if data_type in ['CHOICE', 'MULTI_CHOICE']:
+                if not validation_config or 'choices' not in validation_config:
+                    return CreateMetadataColumn(
+                        ok=False,
+                        message="Choice fields require 'choices' in validation_config"
+                    )
+            
+            # Create column
+            column = Column.objects.create(
+                fieldset=fieldset,
+                name=name,
+                data_type=data_type,
+                validation_config=validation_config or {},
+                default_value=default_value,
+                help_text=help_text or "",
+                display_order=display_order,
+                is_manual_entry=True,
+                output_type=data_type.lower(),  # For compatibility
+                creator=user
+            )
+            
+            set_permissions_for_obj_to_user(user, column, [PermissionTypes.CRUD])
+            
+            return CreateMetadataColumn(
+                ok=True,
+                message="Metadata field created successfully",
+                obj=column
+            )
+            
+        except Corpus.DoesNotExist:
+            return CreateMetadataColumn(
+                ok=False,
+                message="Corpus not found"
+            )
+        except Exception as e:
+            return CreateMetadataColumn(
+                ok=False,
+                message=f"Error creating metadata field: {str(e)}"
+            )
+
+
+class UpdateMetadataColumn(graphene.Mutation):
+    """Update a metadata column."""
+    class Arguments:
+        column_id = graphene.ID(required=True)
+        name = graphene.String(required=False)
+        validation_config = GenericScalar(required=False)
+        default_value = GenericScalar(required=False)
+        help_text = graphene.String(required=False)
+        display_order = graphene.Int(required=False)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    obj = graphene.Field(ColumnType)
+
+    @login_required
+    def mutate(root, info, column_id, **kwargs):
+        from opencontractserver.types.enums import PermissionTypes
+        
+        try:
+            user = info.context.user
+            column = Column.objects.get(pk=from_global_id(column_id)[1])
+            
+            # Check permissions
+            if not user_has_permission_for_obj(user, column, PermissionTypes.UPDATE):
+                return UpdateMetadataColumn(
+                    ok=False,
+                    message="You don't have permission to update this column"
+                )
+            
+            # Ensure it's a manual entry column
+            if not column.is_manual_entry:
+                return UpdateMetadataColumn(
+                    ok=False,
+                    message="Only manual entry columns can be updated"
+                )
+            
+            # Update fields
+            if 'name' in kwargs:
+                column.name = kwargs['name']
+            if 'validation_config' in kwargs:
+                # Validate choice fields
+                if column.data_type in ['CHOICE', 'MULTI_CHOICE']:
+                    if 'choices' not in kwargs['validation_config']:
+                        return UpdateMetadataColumn(
+                            ok=False,
+                            message="Choice fields require 'choices' in validation_config"
+                        )
+                column.validation_config = kwargs['validation_config']
+            if 'default_value' in kwargs:
+                column.default_value = kwargs['default_value']
+            if 'help_text' in kwargs:
+                column.help_text = kwargs['help_text']
+            if 'display_order' in kwargs:
+                column.display_order = kwargs['display_order']
+            
+            column.save()
+            
+            return UpdateMetadataColumn(
+                ok=True,
+                message="Metadata field updated successfully",
+                obj=column
+            )
+            
+        except Column.DoesNotExist:
+            return UpdateMetadataColumn(
+                ok=False,
+                message="Column not found"
+            )
+        except Exception as e:
+            return UpdateMetadataColumn(
+                ok=False,
+                message=f"Error updating metadata field: {str(e)}"
+            )
+
+
+class SetMetadataValue(graphene.Mutation):
+    """Set a metadata value for a document."""
+    class Arguments:
+        document_id = graphene.ID(required=True)
+        corpus_id = graphene.ID(required=True)
+        column_id = graphene.ID(required=True)
+        value = GenericScalar(required=True)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    obj = graphene.Field(DatacellType)
+
+    @login_required
+    def mutate(root, info, document_id, corpus_id, column_id, value):
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+        from django.utils import timezone
+        
+        try:
+            user = info.context.user
+            document = Document.objects.get(pk=from_global_id(document_id)[1])
+            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            column = Column.objects.get(pk=from_global_id(column_id)[1])
+            
+            # Check permissions on document
+            if not user_has_permission_for_obj(user, document, PermissionTypes.UPDATE):
+                return SetMetadataValue(
+                    ok=False,
+                    message="You don't have permission to update this document"
+                )
+            
+            # Ensure column belongs to corpus metadata schema
+            if not (column.fieldset and hasattr(column.fieldset, 'corpus') and 
+                    column.fieldset.corpus_id == corpus.id):
+                return SetMetadataValue(
+                    ok=False,
+                    message="Column does not belong to corpus metadata schema"
+                )
+            
+            # Ensure it's a manual entry column
+            if not column.is_manual_entry:
+                return SetMetadataValue(
+                    ok=False,
+                    message="Only manual entry columns can be set"
+                )
+            
+            # Find or create datacell
+            datacell, created = Datacell.objects.update_or_create(
+                document=document,
+                column=column,
+                defaults={
+                    'data': {'value': value},
+                    'data_definition': column.output_type,
+                    'creator': user,
+                    'completed': timezone.now(),
+                }
+            )
+            
+            if created:
+                set_permissions_for_obj_to_user(user, datacell, [PermissionTypes.CRUD])
+            
+            return SetMetadataValue(
+                ok=True,
+                message="Metadata value set successfully",
+                obj=datacell
+            )
+            
+        except (Document.DoesNotExist, Corpus.DoesNotExist, Column.DoesNotExist):
+            return SetMetadataValue(
+                ok=False,
+                message="Document, corpus, or column not found"
+            )
+        except Exception as e:
+            return SetMetadataValue(
+                ok=False,
+                message=f"Error setting metadata value: {str(e)}"
+            )
+
+
+class DeleteMetadataValue(graphene.Mutation):
+    """Delete a metadata value for a document."""
+    class Arguments:
+        document_id = graphene.ID(required=True)
+        corpus_id = graphene.ID(required=True)
+        column_id = graphene.ID(required=True)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @login_required
+    def mutate(root, info, document_id, corpus_id, column_id):
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.types.enums import PermissionTypes
+        
+        try:
+            user = info.context.user
+            document = Document.objects.get(pk=from_global_id(document_id)[1])
+            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            column = Column.objects.get(pk=from_global_id(column_id)[1])
+            
+            # Find the datacell
+            datacell = Datacell.objects.get(
+                document=document,
+                column=column
+            )
+            
+            # Check permissions
+            if not user_has_permission_for_obj(user, datacell, PermissionTypes.DELETE):
+                return DeleteMetadataValue(
+                    ok=False,
+                    message="You don't have permission to delete this metadata value"
+                )
+            
+            datacell.delete()
+            
+            return DeleteMetadataValue(
+                ok=True,
+                message="Metadata value deleted successfully"
+            )
+            
+        except Datacell.DoesNotExist:
+            return DeleteMetadataValue(
+                ok=False,
+                message="Metadata value not found"
+            )
+        except Exception as e:
+            return DeleteMetadataValue(
+                ok=False,
+                message=f"Error deleting metadata value: {str(e)}"
+            )
 
 
 class CreateLabelset(graphene.Mutation):
@@ -2045,6 +2350,7 @@ class StartDocumentExtract(graphene.Mutation):
     class Arguments:
         document_id = graphene.ID(required=True)
         fieldset_id = graphene.ID(required=True)
+        corpus_id = graphene.ID(required=False)
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -2052,17 +2358,25 @@ class StartDocumentExtract(graphene.Mutation):
 
     @staticmethod
     @login_required
-    def mutate(root, info, document_id, fieldset_id):
+    def mutate(root, info, document_id, fieldset_id, corpus_id=None):
+        from opencontractserver.corpuses.models import Corpus
+
         doc_pk = from_global_id(document_id)[1]
         fieldset_pk = from_global_id(fieldset_id)[1]
 
         document = Document.objects.get(pk=doc_pk)
         fieldset = Fieldset.objects.get(pk=fieldset_pk)
 
+        corpus = None
+        if corpus_id:
+            corpus_pk = from_global_id(corpus_id)[1]
+            corpus = Corpus.objects.get(pk=corpus_pk)
+
         extract = Extract.objects.create(
             name=f"Extract {uuid.uuid4()} for {document.title}",
             fieldset=fieldset,
             creator=info.context.user,
+            corpus=corpus,
         )
         extract.documents.add(document)
         extract.save()
@@ -2945,6 +3259,9 @@ class CreateNote(graphene.Mutation):
             )
 
 
+
+
+
 class Mutation(graphene.ObjectType):
     # TOKEN MUTATIONS (IF WE'RE NOT OUTSOURCING JWT CREATION TO AUTH0) #######
     if not settings.USE_AUTH0:
@@ -3039,3 +3356,9 @@ class Mutation(graphene.ObjectType):
     update_note = UpdateNote.Field()
     delete_note = DeleteNote.Field()
     create_note = CreateNote.Field()
+    
+    # NEW METADATA MUTATIONS (Column/Datacell based) ################################
+    create_metadata_column = CreateMetadataColumn.Field()
+    update_metadata_column = UpdateMetadataColumn.Field()
+    set_metadata_value = SetMetadataValue.Field()
+    delete_metadata_value = DeleteMetadataValue.Field()

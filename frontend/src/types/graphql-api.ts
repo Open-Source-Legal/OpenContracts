@@ -1258,7 +1258,6 @@ export interface ColumnType extends Node {
   outputType: string;
   limitToLabel?: string;
   instructions?: string;
-  agentic?: boolean;
   extractIsList?: boolean;
   fieldsetId?: string;
   taskName: string;

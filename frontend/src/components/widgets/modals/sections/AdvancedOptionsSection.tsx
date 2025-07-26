@@ -11,7 +11,6 @@ import { SectionTitle } from "../styled";
 
 interface AdvancedOptionsSectionProps {
   instructions: string;
-  agentic: boolean;
   limitToLabel: string;
   handleChange: (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -22,7 +21,6 @@ interface AdvancedOptionsSectionProps {
 
 export const AdvancedOptionsSection: React.FC<AdvancedOptionsSectionProps> = ({
   instructions,
-  agentic,
   limitToLabel,
   handleChange,
 }) => {
@@ -45,18 +43,6 @@ export const AdvancedOptionsSection: React.FC<AdvancedOptionsSectionProps> = ({
                 ) => handleChange(e, data, "instructions")}
               />
             </StyledFormField>
-          </Grid.Column>
-        </Grid.Row>
-        <Grid.Row>
-          <Grid.Column width={16}>
-            <StyledCheckbox
-              label="Agentic"
-              checked={agentic}
-              onChange={(
-                e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-                data: any
-              ) => handleChange(e, data, "agentic")}
-            />
           </Grid.Column>
         </Grid.Row>
         <Grid.Row>

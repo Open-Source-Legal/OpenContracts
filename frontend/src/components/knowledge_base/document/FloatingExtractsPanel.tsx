@@ -20,6 +20,7 @@ interface FloatingExtractsPanelProps {
   onClose: () => void;
   panelOffset?: number;
   initiallyExpanded?: boolean;
+  readOnly?: boolean;
 }
 
 const FloatingContainer = styled(motion.div)<{
@@ -226,6 +227,7 @@ export const FloatingExtractsPanel: React.FC<FloatingExtractsPanelProps> = ({
   onClose,
   panelOffset = 0,
   initiallyExpanded = false,
+  readOnly = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const [showBadge, setShowBadge] = useState(false);
@@ -324,7 +326,7 @@ export const FloatingExtractsPanel: React.FC<FloatingExtractsPanelProps> = ({
                   </div>
                 </>
               ) : (
-                <ExtractTraySelector read_only={false} extracts={extracts} />
+                <ExtractTraySelector read_only={readOnly} extracts={extracts} />
               )}
             </Content>
           </ExpandedPanel>

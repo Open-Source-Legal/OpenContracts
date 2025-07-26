@@ -29,6 +29,9 @@ interface FloatingDocumentInputProps {
    * inline element so it can be centred with flexbox, etc.
    */
   fixed?: boolean;
+
+  /** When true, the input is read-only and chat mode is disabled */
+  readOnly?: boolean;
 }
 
 const FloatingContainer = styled(motion.div)<{
@@ -311,6 +314,7 @@ export const FloatingDocumentInput: React.FC<FloatingDocumentInputProps> = ({
   onToggleChat,
   panelOffset = 0,
   fixed = true,
+  readOnly = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [mode, setMode] = useState<"search" | "chat">("search");
@@ -429,6 +433,11 @@ export const FloatingDocumentInput: React.FC<FloatingDocumentInputProps> = ({
    * expanded.
    */
   const handleModeButtonClick = (clickedMode: "search" | "chat") => {
+    // Prevent switching to chat mode in readOnly
+    if (readOnly && clickedMode === "chat") {
+      return;
+    }
+
     if (clickedMode === mode) {
       // Same mode clicked → toggle expand/collapse
       if (isExpanded) {
@@ -552,14 +561,16 @@ export const FloatingDocumentInput: React.FC<FloatingDocumentInputProps> = ({
         >
           <Search />
         </ToggleButton>
-        <ToggleButton
-          $isActive={mode === "chat"}
-          onClick={() => handleModeButtonClick("chat")}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          <MessageSquare />
-        </ToggleButton>
+        {!readOnly && (
+          <ToggleButton
+            $isActive={mode === "chat"}
+            onClick={() => handleModeButtonClick("chat")}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <MessageSquare />
+          </ToggleButton>
+        )}
       </ToggleGroup>
 
       {isExpanded && (

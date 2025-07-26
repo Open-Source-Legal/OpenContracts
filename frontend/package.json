@@ -5,6 +5,9 @@
   "dependencies": {
     "@apollo/client": "^3.13.8",
     "@auth0/auth0-react": "^2.3.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@hello-pangea/dnd": "^18.0.1",
     "@rjsf/core": "^3.2.1",
     "@rjsf/semantic-ui": "^3.2.1",
@@ -42,7 +45,6 @@
     "react": "18",
     "react-cool-inview": "^3.0.1",
     "react-countup": "^6.5.3",
-    "react-data-grid": "^7.0.0-beta.47",
     "react-dom": "18",
     "react-dropzone": "^14.2.10",
     "react-infinite-scroll-component": "^6.1.0",

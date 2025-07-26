@@ -126,34 +126,36 @@ export const TxtAnnotatorWrapper: React.FC<TxtAnnotatorWrapperProps> = ({
     ) ?? [];
 
   return (
-    <TxtAnnotator
-      text={docText}
-      annotations={filteredAnnotations}
-      searchResults={filteredSearchResults}
-      chatSources={chatSourceMatches}
-      selectedChatSourceId={
-        selectedMessageId && selectedSourceIndex
-          ? `${selectedMessageId}.${selectedSourceIndex}`
-          : undefined
-      }
-      getSpan={getSpan}
-      visibleLabels={spanLabelsToView}
-      availableLabels={spanLabels}
-      selectedLabelTypeId={activeSpanLabel?.id ?? null}
-      read_only={readOnly}
-      allowInput={allowInput}
-      zoom_level={zoomLevel}
-      createAnnotation={handleCreateAnnotation}
-      updateAnnotation={handleUpdateAnnotation}
-      approveAnnotation={handleApproveAnnotation}
-      rejectAnnotation={handleRejectAnnotation}
-      deleteAnnotation={handleDeleteAnnotation}
-      maxHeight="100%"
-      maxWidth="100%"
-      selectedAnnotations={selectedAnnotations}
-      setSelectedAnnotations={setSelectedAnnotations}
-      showStructuralAnnotations={showStructural}
-    />
+    <div data-testid="txt-annotator-wrapper">
+      <TxtAnnotator
+        text={docText}
+        annotations={filteredAnnotations}
+        searchResults={filteredSearchResults}
+        chatSources={chatSourceMatches}
+        selectedChatSourceId={
+          selectedMessageId && selectedSourceIndex
+            ? `${selectedMessageId}.${selectedSourceIndex}`
+            : undefined
+        }
+        getSpan={getSpan}
+        visibleLabels={spanLabelsToView}
+        availableLabels={spanLabels}
+        selectedLabelTypeId={activeSpanLabel?.id ?? null}
+        read_only={readOnly}
+        allowInput={allowInput}
+        zoom_level={zoomLevel}
+        createAnnotation={handleCreateAnnotation}
+        updateAnnotation={handleUpdateAnnotation}
+        approveAnnotation={handleApproveAnnotation}
+        rejectAnnotation={handleRejectAnnotation}
+        deleteAnnotation={handleDeleteAnnotation}
+        maxHeight="100%"
+        maxWidth="100%"
+        selectedAnnotations={selectedAnnotations}
+        setSelectedAnnotations={setSelectedAnnotations}
+        showStructuralAnnotations={showStructural}
+      />
+    </div>
   );
 };
 

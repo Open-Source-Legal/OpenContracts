@@ -61,12 +61,12 @@ export const SingleDocumentExtractResults: React.FC<
   const [editingCell, setEditingCell] = useState<DatacellType | null>(null);
 
   const [requestApprove] = useMutation<
-    { requestApproveDatacell: RequestApproveDatacellOutputType },
+    RequestApproveDatacellOutputType,
     RequestApproveDatacellInputType
   >(REQUEST_APPROVE_DATACELL);
 
   const [requestReject] = useMutation<
-    { requestRejectDatacell: RequestRejectDatacellOutputType },
+    RequestRejectDatacellOutputType,
     RequestRejectDatacellInputType
   >(REQUEST_REJECT_DATACELL);
 
@@ -132,25 +132,23 @@ export const SingleDocumentExtractResults: React.FC<
    */
   const handleApprove = (cell: DatacellType) => {
     setTryingApprove(true);
+
     requestApprove({ variables: { datacellId: cell.id } })
       .then((response) => {
-        const updatedCell =
-          response.data?.requestApproveDatacell.approveDatacell.obj;
+        // Grab the real datacell
+        const updatedCell = response.data?.approveDatacell?.obj;
+
         if (updatedCell) {
-          setDataCells((prevCells) =>
-            prevCells.map((c) => (c.id === updatedCell.id ? updatedCell : c))
+          setDataCells((prev) =>
+            prev.map((c) => (c.id === updatedCell.id ? updatedCell : c))
           );
           toast.success("Cell approved successfully.");
         } else {
           toast.error("Failed to approve cell.");
         }
       })
-      .catch(() => {
-        toast.error("Failed to approve cell.");
-      })
-      .finally(() => {
-        setTryingApprove(false);
-      });
+      .catch(() => toast.error("Failed to approve cell."))
+      .finally(() => setTryingApprove(false));
   };
 
   /**
@@ -159,25 +157,23 @@ export const SingleDocumentExtractResults: React.FC<
    */
   const handleReject = (cell: DatacellType) => {
     setTryingReject(true);
+
     requestReject({ variables: { datacellId: cell.id } })
       .then((response) => {
-        const updatedCell =
-          response.data?.requestRejectDatacell.rejectDatacell.obj;
+        // Grab the real datacell
+        const updatedCell = response.data?.rejectDatacell?.obj;
+
         if (updatedCell) {
-          setDataCells((prevCells) =>
-            prevCells.map((c) => (c.id === updatedCell.id ? updatedCell : c))
+          setDataCells((prev) =>
+            prev.map((c) => (c.id === updatedCell.id ? updatedCell : c))
           );
           toast.success("Cell rejected successfully.");
         } else {
           toast.error("Failed to reject cell.");
         }
       })
-      .catch(() => {
-        toast.error("Failed to reject cell.");
-      })
-      .finally(() => {
-        setTryingReject(false);
-      });
+      .catch(() => toast.error("Failed to reject cell."))
+      .finally(() => setTryingReject(false));
   };
 
   /**

@@ -210,32 +210,30 @@ const SelectionLayer = ({
       console.log("[MouseDown] canUpdateCorpus:", canUpdateCorpus);
       console.log("[MouseDown] read_only:", read_only);
 
-      if (!read_only && canUpdateCorpus) {
-        if (!localPageSelection && event.buttons === 1) {
-          setSelectedAnnotations([]); // Clear any selected annotations
-          setIsCreatingAnnotation(true); // Set creating annotation state
-          const canvasElement = containerRef.current
-            .previousSibling as HTMLCanvasElement;
-          if (!canvasElement) return;
-
-          const canvasBounds = canvasElement.getBoundingClientRect();
-          const left = event.clientX - canvasBounds.left;
-          const top = event.clientY - canvasBounds.top;
-
-          setLocalPageSelection({
-            pageNumber: pageNumber,
-            bounds: {
-              left,
-              top,
-              right: left,
-              bottom: top,
-            },
-          });
+      // Allow selection for copying even in read-only mode
+      if (!localPageSelection && event.buttons === 1) {
+        setSelectedAnnotations([]); // Clear any selected annotations
+        // Only set creating annotation state if we can actually create annotations
+        if (!read_only && canUpdateCorpus) {
+          setIsCreatingAnnotation(true);
         }
-      } else {
-        console.log("[MouseDown] Not allowed to update");
-        console.log("[MouseDown] read_only:", read_only);
-        console.log("[MouseDown] canUpdateCorpus:", canUpdateCorpus);
+        const canvasElement = containerRef.current
+          .previousSibling as HTMLCanvasElement;
+        if (!canvasElement) return;
+
+        const canvasBounds = canvasElement.getBoundingClientRect();
+        const left = event.clientX - canvasBounds.left;
+        const top = event.clientY - canvasBounds.top;
+
+        setLocalPageSelection({
+          pageNumber: pageNumber,
+          bounds: {
+            left,
+            top,
+            right: left,
+            bottom: top,
+          },
+        });
       }
     },
     [
@@ -443,7 +441,7 @@ const SelectionLayer = ({
             <span>Copy Text</span>
             <ShortcutHint>C</ShortcutHint>
           </ActionMenuItem>
-          {activeSpanLabel && (
+          {activeSpanLabel && !read_only && canUpdateCorpus && (
             <>
               <MenuDivider />
               <ActionMenuItem

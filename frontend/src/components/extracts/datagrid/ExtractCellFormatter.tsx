@@ -25,53 +25,61 @@ import {
 import { useNavigate } from "react-router-dom";
 
 const StatusDot = styled.div<{ statusColor: string }>`
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
+  background-color: ${(props) => props.statusColor};
   border-radius: 50%;
-  background-color: ${({ statusColor }) => statusColor};
+  cursor: pointer;
   position: absolute;
   top: 8px;
   right: 8px;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  animation: pulse 2s infinite;
-  box-shadow: 0 0 8px ${({ statusColor }) => `${statusColor}80`};
+  transition: all 0.2s ease;
+  box-shadow: ${(props) => {
+    switch (props.statusColor) {
+      case "#10b981":
+        return "0 0 0 3px rgba(16, 185, 129, 0.15)";
+      case "#ef4444":
+        return "0 0 0 3px rgba(239, 68, 68, 0.15)";
+      case "#f59e0b":
+        return "0 0 0 3px rgba(245, 158, 11, 0.15)";
+      default:
+        return "0 0 0 3px rgba(148, 163, 184, 0.15)";
+    }
+  }};
 
   &:hover {
     transform: scale(1.2);
-    box-shadow: 0 0 12px ${({ statusColor }) => statusColor};
-  }
-
-  @keyframes pulse {
-    0% {
-      transform: scale(0.95);
-      box-shadow: 0 0 0 0 ${({ statusColor }) => `${statusColor}80`};
-    }
-    70% {
-      transform: scale(1);
-      box-shadow: 0 0 0 6px ${({ statusColor }) => `${statusColor}00`};
-    }
-    100% {
-      transform: scale(0.95);
-      box-shadow: 0 0 0 0 ${({ statusColor }) => `${statusColor}00`};
-    }
+    box-shadow: ${(props) => {
+      switch (props.statusColor) {
+        case "#10b981":
+          return "0 0 0 4px rgba(16, 185, 129, 0.25)";
+        case "#ef4444":
+          return "0 0 0 4px rgba(239, 68, 68, 0.25)";
+        case "#f59e0b":
+          return "0 0 0 4px rgba(245, 158, 11, 0.25)";
+        default:
+          return "0 0 0 4px rgba(148, 163, 184, 0.25)";
+      }
+    }};
   }
 `;
 
 const ButtonContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.99);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 8px;
 
   .buttons {
     display: flex;
     gap: 8px;
+
+    button {
+      border-radius: 8px !important;
+      transition: all 0.15s ease !important;
+
+      &:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+    }
   }
 
   .status-message {
@@ -132,19 +140,26 @@ const ButtonContainer = styled.div`
 `;
 
 const CellContainer = styled.div`
-  position: relative;
-  width: 100%;
-  height: 100%;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  padding: 8px 24px 8px 12px;
-  transition: background 0.2s ease;
-  font-size: 0.9rem;
-  color: #334155;
-  line-height: 1.5;
+  padding: 0.75rem;
+  height: 100%;
+  min-height: 45px;
+  position: relative;
+  transition: background-color 0.15s ease;
+
+  .cell-loader {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 10px;
+    color: #64748b;
+    font-style: italic;
+  }
 
   &:hover {
-    background: rgba(248, 250, 252, 0.5);
+    background-color: rgba(59, 130, 246, 0.05);
   }
 `;
 
@@ -215,10 +230,18 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
     }
   }, [cellRef]);
 
+  const statusColor = () => {
+    if (cellStatus?.isApproved) return "#10b981"; // Modern green
+    if (cellStatus?.isRejected) return "#ef4444"; // Modern red
+    if (cellStatus?.isEdited) return "#f59e0b"; // Modern amber
+    return "#94a3b8"; // Modern gray
+  };
+
   const getCellBackground = () => {
-    if (!cellStatus) return "transparent";
-    if (cellStatus.isApproved) return "rgba(76, 175, 80, 0.1)";
-    if (cellStatus.isRejected) return "rgba(244, 67, 54, 0.1)";
+    if (cellStatus?.isLoading) return "rgba(59, 130, 246, 0.05)"; // Light blue
+    if (cellStatus?.isApproved) return "rgba(16, 185, 129, 0.05)"; // Light green
+    if (cellStatus?.isRejected) return "rgba(239, 68, 68, 0.05)"; // Light red
+    if (cellStatus?.isEdited) return "rgba(245, 158, 11, 0.05)"; // Light amber
     return "transparent";
   };
 
@@ -241,13 +264,6 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
   const handleJsonEdit = (edit: any) => {
     const updatedValue = edit.updated_src;
     onEdit(cellId, updatedValue);
-  };
-
-  const statusColor = () => {
-    if (cellStatus?.isApproved) return "rgba(76, 175, 80, 1)";
-    if (cellStatus?.isRejected) return "rgba(244, 67, 54, 1)";
-    if (cellStatus?.isEdited) return "rgba(33, 150, 243, 1)";
-    return "rgba(128, 128, 128, 1)";
   };
 
   const displayedValue =

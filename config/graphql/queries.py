@@ -91,8 +91,19 @@ from opencontractserver.pipeline.utils import (
 from opencontractserver.shared.resolvers import resolve_oc_model_queryset
 from opencontractserver.types.enums import LabelType
 from opencontractserver.users.models import Assignment, UserExport, UserImport
+from opencontractserver.utils.permissioning import user_has_permission_for_obj
+from opencontractserver.types.enums import PermissionTypes
 
 logger = logging.getLogger(__name__)
+
+
+class MetadataCompletionStatusType(graphene.ObjectType):
+    """Type for metadata completion status information."""
+    total_fields = graphene.Int()
+    filled_fields = graphene.Int()
+    missing_fields = graphene.Int()
+    percentage = graphene.Float()
+    missing_required = graphene.List(graphene.String)
 
 
 class Query(graphene.ObjectType):
@@ -1635,6 +1646,149 @@ class Query(graphene.ObjectType):
                 completed=False,
                 errors=[f"Error checking status: {str(e)}"],
             )
+
+
+
+    # NEW METADATA QUERIES (Column/Datacell based) ################################
+    corpus_metadata_columns = graphene.List(
+        ColumnType,
+        corpus_id=graphene.ID(required=True),
+        description="Get metadata columns for a corpus"
+    )
+    
+    document_metadata_datacells = graphene.List(
+        DatacellType,
+        document_id=graphene.ID(required=True),
+        corpus_id=graphene.ID(required=True),
+        description="Get metadata datacells for a document in a corpus"
+    )
+    
+    metadata_completion_status_v2 = graphene.Field(
+        MetadataCompletionStatusType,
+        document_id=graphene.ID(required=True),
+        corpus_id=graphene.ID(required=True),
+        description="Get metadata completion status for a document using column/datacell system"
+    )
+    
+    def resolve_corpus_metadata_columns(self, info, corpus_id):
+        """Get metadata columns for a corpus."""
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.types.enums import PermissionTypes
+        
+        try:
+            user = info.context.user
+            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            
+            # Check permissions
+            if not user_has_permission_for_obj(user, corpus, PermissionTypes.READ):
+                return []
+            
+            # Get metadata fieldset
+            if hasattr(corpus, 'metadata_schema') and corpus.metadata_schema:
+                return corpus.metadata_schema.columns.filter(
+                    is_manual_entry=True
+                ).order_by('display_order')
+            
+            return []
+            
+        except Corpus.DoesNotExist:
+            return []
+    
+    def resolve_document_metadata_datacells(self, info, document_id, corpus_id):
+        """Get metadata datacells for a document in a corpus."""
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.types.enums import PermissionTypes
+        
+        try:
+            user = info.context.user
+            document = Document.objects.get(pk=from_global_id(document_id)[1])
+            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            
+            # Check permissions
+            if not user_has_permission_for_obj(user, document, PermissionTypes.READ):
+                return []
+            
+            # Get metadata datacells
+            if hasattr(corpus, 'metadata_schema') and corpus.metadata_schema:
+                return Datacell.objects.filter(
+                    document=document,
+                    column__fieldset=corpus.metadata_schema,
+                    column__is_manual_entry=True
+                ).select_related('column')
+            
+            return []
+            
+        except (Document.DoesNotExist, Corpus.DoesNotExist):
+            return []
+    
+    def resolve_metadata_completion_status_v2(self, info, document_id, corpus_id):
+        """Get metadata completion status using column/datacell system."""
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.types.enums import PermissionTypes
+        
+        try:
+            user = info.context.user
+            document = Document.objects.get(pk=from_global_id(document_id)[1])
+            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            
+            # Check permissions
+            if not user_has_permission_for_obj(user, document, PermissionTypes.READ):
+                return None
+            
+            # Get metadata columns and datacells
+            if not hasattr(corpus, 'metadata_schema') or not corpus.metadata_schema:
+                return {
+                    'total_fields': 0,
+                    'filled_fields': 0,
+                    'missing_fields': 0,
+                    'percentage': 100.0,
+                    'missing_required': []
+                }
+            
+            columns = corpus.metadata_schema.columns.filter(is_manual_entry=True)
+            total_fields = columns.count()
+            
+            if total_fields == 0:
+                return {
+                    'total_fields': 0,
+                    'filled_fields': 0,
+                    'missing_fields': 0,
+                    'percentage': 100.0,
+                    'missing_required': []
+                }
+            
+            # Get filled datacells
+            filled_datacells = Datacell.objects.filter(
+                document=document,
+                column__in=columns
+            ).exclude(
+                data__value__isnull=True
+            )
+            
+            filled_count = filled_datacells.count()
+            filled_column_ids = set(filled_datacells.values_list('column_id', flat=True))
+            
+            # Find missing required fields
+            missing_required = []
+            for column in columns:
+                if column.id not in filled_column_ids:
+                    config = column.validation_config or {}
+                    if config.get('required', False):
+                        missing_required.append(column.name)
+            
+            # Calculate percentage
+            percentage = (filled_count / total_fields * 100) if total_fields > 0 else 0
+            
+            return {
+                'total_fields': total_fields,
+                'filled_fields': filled_count,
+                'missing_fields': total_fields - filled_count,
+                'percentage': percentage,
+                'missing_required': missing_required
+            }
+            
+        except (Corpus.DoesNotExist, Document.DoesNotExist):
+            return None
 
     # DEBUG FIELD ########################################
     if settings.ALLOW_GRAPHQL_DEBUG:

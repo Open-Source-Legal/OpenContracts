@@ -146,6 +146,10 @@ interface ChatTrayProps {
    * Used when the user submits a chat query via the floating input.
    */
   initialMessage?: string;
+  /**
+   * When true, hides conversation history and starts a fresh conversation each time.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -165,9 +169,10 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   onMessageSelect,
   corpusId,
   initialMessage,
+  readOnly = false,
 }) => {
   // Chat state
-  const [isNewChat, setIsNewChat] = useState(false);
+  const [isNewChat, setIsNewChat] = useState(readOnly); // Start with new chat if readOnly
   const [newMessage, setNewMessage] = useState("");
   const [chat, setChat] = useState<ChatMessageProps[]>([]);
   const [wsReady, setWsReady] = useState(false);
@@ -1647,7 +1652,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     <ChatContainer id="chat-container">
       <ConversationIndicator id="conversation-indicator">
         <AnimatePresence>
-          {isNewChat || selectedConversationId ? (
+          {isNewChat || selectedConversationId || readOnly ? (
             <motion.div
               style={{
                 display: "flex",
@@ -1674,20 +1679,22 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2 }}
               >
-                <Button
-                  size="small"
-                  onClick={exitConversation}
-                  style={{
-                    background: "transparent",
-                    padding: "0.5rem",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                  }}
-                >
-                  <ArrowLeft size={16} />
-                  Back to Conversations
-                </Button>
+                {!readOnly && (
+                  <Button
+                    size="small"
+                    onClick={exitConversation}
+                    style={{
+                      background: "transparent",
+                      padding: "0.5rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                    }}
+                  >
+                    <ArrowLeft size={16} />
+                    Back to Conversations
+                  </Button>
+                )}
                 <ReopenApprovalButton />
               </motion.div>
 

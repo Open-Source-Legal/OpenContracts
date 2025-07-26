@@ -117,7 +117,7 @@ class TestImportDocumentToCorpus(TestCase):
             "pdf_base64": pdf_base64,
             "text_labels": text_labels,
             "doc_labels": doc_labels,
-            "metadata_labels": {},
+            
         }
 
         # Call the import_document_to_corpus task

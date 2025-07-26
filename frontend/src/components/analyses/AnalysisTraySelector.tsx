@@ -43,6 +43,10 @@ interface AnalysisTraySelectorProps {
   read_only: boolean;
   /** The list of available analyses */
   analyses: AnalysisType[];
+  /** View mode for the cards */
+  viewMode?: "compact" | "expanded";
+  /** External search term */
+  searchTerm?: string;
 }
 
 const TrayContainer = styled(Segment.Group)`
@@ -110,15 +114,15 @@ const AnalysisListSegment = styled(Segment)`
   }
 `;
 
-const AnalysisCard = styled.div<{ $selected?: boolean }>`
-  padding: 1.75rem;
-  margin-bottom: 1.5rem;
+const AnalysisCard = styled.div<{ $selected?: boolean; $compact?: boolean }>`
+  padding: ${(props) => (props.$compact ? "1rem" : "1.75rem")};
+  margin-bottom: ${(props) => (props.$compact ? "0.75rem" : "1.5rem")};
   background: ${(props) =>
     props.$selected
       ? "linear-gradient(165deg, rgba(74, 144, 226, 0.03), rgba(255, 255, 255, 0.5))"
       : "#ffffff"};
   border: 1px solid ${(props) => (props.$selected ? "#4a90e2" : "#edf2f7")};
-  border-radius: 20px;
+  border-radius: ${(props) => (props.$compact ? "12px" : "20px")};
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
   position: relative;
@@ -129,8 +133,8 @@ const AnalysisCard = styled.div<{ $selected?: boolean }>`
       : "0 1px 3px rgba(0, 0, 0, 0.01)"};
 
   .timestamps {
-    margin-top: 2rem;
-    display: flex;
+    margin-top: ${(props) => (props.$compact ? "1rem" : "2rem")};
+    display: ${(props) => (props.$compact ? "none" : "flex")};
     gap: 1.25rem;
     padding: 0.5rem;
     background: ${(props) =>
@@ -167,7 +171,7 @@ const AnalysisCard = styled.div<{ $selected?: boolean }>`
   }
 
   &:hover {
-    transform: translateY(-2px);
+    transform: translateY(${(props) => (props.$compact ? "-1px" : "-2px")});
     box-shadow: ${(props) =>
       props.$selected
         ? "0 12px 32px rgba(74, 144, 226, 0.12)"
@@ -179,8 +183,8 @@ const AnalysisCard = styled.div<{ $selected?: boolean }>`
   }
 
   .annotations-section {
-    margin-top: 1.5rem;
-    padding-top: 1.5rem;
+    margin-top: ${(props) => (props.$compact ? "0.75rem" : "1.5rem")};
+    padding-top: ${(props) => (props.$compact ? "0.75rem" : "1.5rem")};
     border-top: 1px solid
       ${(props) => (props.$selected ? "rgba(74, 144, 226, 0.12)" : "#f1f5f9")};
   }
@@ -194,24 +198,27 @@ const AnalysisCard = styled.div<{ $selected?: boolean }>`
   }
 `;
 
-const AnalysisHeader = styled.div<{ $selected?: boolean }>`
-  margin: -1.75rem -1.75rem 1.5rem -1.75rem;
-  padding: 1.75rem;
+const AnalysisHeader = styled.div<{ $selected?: boolean; $compact?: boolean }>`
+  margin: ${(props) =>
+    props.$compact
+      ? "-1rem -1rem 0.75rem -1rem"
+      : "-1.75rem -1.75rem 1.5rem -1.75rem"};
+  padding: ${(props) => (props.$compact ? "1rem" : "1.75rem")};
   background: ${(props) =>
     props.$selected
       ? "linear-gradient(165deg, rgba(74, 144, 226, 0.04), transparent)"
       : "transparent"};
 `;
 
-const AnalysisTitle = styled.div<{ $selected?: boolean }>`
+const AnalysisTitle = styled.div<{ $selected?: boolean; $compact?: boolean }>`
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  gap: ${(props) => (props.$compact ? "0.75rem" : "1rem")};
+  margin-bottom: ${(props) => (props.$compact ? "0.5rem" : "1rem")};
 
   .icon-wrapper {
-    width: 38px;
-    height: 38px;
+    width: ${(props) => (props.$compact ? "32px" : "38px")};
+    height: ${(props) => (props.$compact ? "32px" : "38px")};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -219,20 +226,22 @@ const AnalysisTitle = styled.div<{ $selected?: boolean }>`
       props.$selected
         ? "linear-gradient(135deg, rgba(74, 144, 226, 0.1), rgba(74, 144, 226, 0.05))"
         : "#f8fafc"};
-    border-radius: 10px;
+    border-radius: ${(props) => (props.$compact ? "8px" : "10px")};
     transition: all 0.3s ease;
 
     svg {
+      width: ${(props) => (props.$compact ? "16px" : "18px")};
+      height: ${(props) => (props.$compact ? "16px" : "18px")};
       color: ${(props) => (props.$selected ? "#4a90e2" : "#94a3b8")};
     }
   }
 
   .text {
     h4 {
-      font-size: 1.125rem;
+      font-size: ${(props) => (props.$compact ? "1rem" : "1.125rem")};
       font-weight: 600;
       color: #1a202c;
-      margin-bottom: 0.25rem;
+      margin-bottom: ${(props) => (props.$compact ? "0" : "0.25rem")};
     }
 
     .id {
@@ -240,22 +249,27 @@ const AnalysisTitle = styled.div<{ $selected?: boolean }>`
       color: #94a3b8;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
         monospace;
+      display: ${(props) => (props.$compact ? "none" : "block")};
     }
   }
 `;
 
-const MetadataBadges = styled.div`
+const MetadataBadges = styled.div<{ $compact?: boolean }>`
   display: flex;
-  gap: 0.75rem;
+  gap: ${(props) => (props.$compact ? "0.5rem" : "0.75rem")};
   flex-wrap: wrap;
-  margin-top: 1.25rem;
+  margin-top: ${(props) => (props.$compact ? "0.75rem" : "1.25rem")};
 `;
 
-const Badge = styled.div<{ $variant?: "primary" | "secondary" }>`
+const Badge = styled.div<{
+  $variant?: "primary" | "secondary";
+  $compact?: boolean;
+}>`
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 0.875rem;
+  gap: ${(props) => (props.$compact ? "0.375rem" : "0.5rem")};
+  padding: ${(props) =>
+    props.$compact ? "0.375rem 0.625rem" : "0.625rem 0.875rem"};
   background: ${(props) =>
     props.$variant === "primary"
       ? "rgba(74, 144, 226, 0.04)"
@@ -265,14 +279,14 @@ const Badge = styled.div<{ $variant?: "primary" | "secondary" }>`
       props.$variant === "primary"
         ? "rgba(74, 144, 226, 0.15)"
         : "rgba(226, 232, 240, 0.8)"};
-  border-radius: 10px;
-  font-size: 0.8125rem;
+  border-radius: ${(props) => (props.$compact ? "6px" : "10px")};
+  font-size: ${(props) => (props.$compact ? "0.75rem" : "0.8125rem")};
   color: ${(props) => (props.$variant === "primary" ? "#4a90e2" : "#64748b")};
   backdrop-filter: blur(8px);
 
   svg {
-    width: 14px;
-    height: 14px;
+    width: ${(props) => (props.$compact ? "12px" : "14px")};
+    height: ${(props) => (props.$compact ? "12px" : "14px")};
     opacity: 0.8;
   }
 `;
@@ -309,7 +323,10 @@ const NoAnalysesMessage = styled.div`
   }
 `;
 
-const DescriptionContainer = styled.div<{ $expanded?: boolean }>`
+const DescriptionContainer = styled.div<{
+  $expanded?: boolean;
+  $compact?: boolean;
+}>`
   margin-top: 1rem;
   position: relative;
   overflow: hidden;
@@ -320,6 +337,7 @@ const DescriptionContainer = styled.div<{ $expanded?: boolean }>`
   background: #f8fafc;
   border-radius: 12px;
   border: 1px solid #e8edf5;
+  display: ${(props) => (props.$compact ? "none" : "block")};
 
   &::-webkit-scrollbar {
     width: 4px;
@@ -335,7 +353,7 @@ const DescriptionContainer = styled.div<{ $expanded?: boolean }>`
   }
 `;
 
-const AnalyzerDescriptionHeader = styled.div`
+const AnalyzerDescriptionHeader = styled.div<{ $compact?: boolean }>`
   font-size: 0.8rem;
   font-weight: 500;
   color: #64748b;
@@ -343,7 +361,7 @@ const AnalyzerDescriptionHeader = styled.div`
   letter-spacing: 0.05em;
   margin: 1rem 0 0.5rem 0;
   padding: 0 0.5rem;
-  display: flex;
+  display: ${(props) => (props.$compact ? "none" : "flex")};
   align-items: center;
   gap: 0.5rem;
 
@@ -423,20 +441,24 @@ const EmptyDescription = styled.div`
   }
 `;
 
-const AnnotationsToggle = styled.button<{ $isVisible: boolean }>`
+const AnnotationsToggle = styled.button<{
+  $isVisible: boolean;
+  $compact?: boolean;
+}>`
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1.25rem;
+  gap: ${(props) => (props.$compact ? "0.5rem" : "0.75rem")};
+  padding: ${(props) =>
+    props.$compact ? "0.5rem 0.875rem" : "0.75rem 1.25rem"};
   background: ${(props) =>
     props.$isVisible
       ? "linear-gradient(135deg, rgba(74, 144, 226, 0.08), rgba(74, 144, 226, 0.04))"
       : "#ffffff"};
   border: 1px solid
     ${(props) => (props.$isVisible ? "rgba(74, 144, 226, 0.2)" : "#e2e8f0")};
-  border-radius: 12px;
+  border-radius: ${(props) => (props.$compact ? "8px" : "12px")};
   color: ${(props) => (props.$isVisible ? "#4a90e2" : "#64748b")};
-  font-size: 0.875rem;
+  font-size: ${(props) => (props.$compact ? "0.8125rem" : "0.875rem")};
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -478,18 +500,18 @@ const AnnotationsToggle = styled.button<{ $isVisible: boolean }>`
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: ${(props) => (props.$compact ? "20px" : "24px")};
+    height: ${(props) => (props.$compact ? "20px" : "24px")};
     background: ${(props) =>
       props.$isVisible
         ? "rgba(74, 144, 226, 0.1)"
         : "rgba(226, 232, 240, 0.5)"};
-    border-radius: 6px;
+    border-radius: ${(props) => (props.$compact ? "4px" : "6px")};
     transition: all 0.3s ease;
 
     svg {
-      width: 14px;
-      height: 14px;
+      width: ${(props) => (props.$compact ? "12px" : "14px")};
+      height: ${(props) => (props.$compact ? "12px" : "14px")};
       transition: all 0.3s ease;
       color: ${(props) => (props.$isVisible ? "#4a90e2" : "#94a3b8")};
     }
@@ -499,13 +521,14 @@ const AnnotationsToggle = styled.button<{ $isVisible: boolean }>`
     display: inline-flex;
     align-items: center;
     margin-left: auto;
-    padding: 0.25rem 0.5rem;
+    padding: ${(props) =>
+      props.$compact ? "0.125rem 0.375rem" : "0.25rem 0.5rem"};
     background: ${(props) =>
       props.$isVisible
         ? "rgba(74, 144, 226, 0.1)"
         : "rgba(226, 232, 240, 0.5)"};
-    border-radius: 6px;
-    font-size: 0.75rem;
+    border-radius: ${(props) => (props.$compact ? "4px" : "6px")};
+    font-size: ${(props) => (props.$compact ? "0.7rem" : "0.75rem")};
     font-weight: 600;
     color: ${(props) => (props.$isVisible ? "#4a90e2" : "#64748b")};
   }
@@ -540,6 +563,8 @@ const calculateDuration = (start: string, end: string): string => {
 const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
   read_only,
   analyses,
+  viewMode = "expanded",
+  searchTerm: externalSearchTerm,
 }) => {
   const { width } = useWindowDimensions();
   const { selectedCorpus } = useCorpusState();
@@ -547,7 +572,11 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
   const { onSelectAnalysis } = useAnalysisManager();
   const { pdfAnnotations } = usePdfAnnotations();
 
-  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [internalSearchTerm, setInternalSearchTerm] = useState<string>("");
+  const searchTerm =
+    externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
+  const isCompact = viewMode === "compact";
+
   /**
    * Maintain open/closed state of annotation visibility for each analysis.
    * Keyed by Analysis ID.
@@ -584,7 +613,11 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
       : analyses;
   }, [analyses, searchTerm, analysesFuse, fuseOptions]);
 
-  const handleSearchChange = (value: string) => setSearchTerm(value);
+  const handleSearchChange = (value: string) => {
+    if (externalSearchTerm === undefined) {
+      setInternalSearchTerm(value);
+    }
+  };
 
   const mountedRef = useRef<boolean>(false);
   useEffect(() => {
@@ -615,22 +648,26 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
 
   return (
     <TrayContainer>
-      <SearchSegment attached="top">
-        <Form>
-          <Form.Input
-            icon={{
-              name: searchTerm ? "cancel" : "search",
-              link: true,
-              onClick: searchTerm ? () => handleSearchChange("") : undefined,
-            }}
-            placeholder="Search analyses..."
-            onChange={(e) => handleSearchChange(e.target.value)}
-            value={searchTerm}
-          />
-        </Form>
-      </SearchSegment>
+      {externalSearchTerm === undefined && (
+        <SearchSegment attached="top">
+          <Form>
+            <Form.Input
+              icon={{
+                name: searchTerm ? "cancel" : "search",
+                link: true,
+                onClick: searchTerm ? () => handleSearchChange("") : undefined,
+              }}
+              placeholder="Search analyses..."
+              onChange={(e) => handleSearchChange(e.target.value)}
+              value={searchTerm}
+            />
+          </Form>
+        </SearchSegment>
+      )}
 
-      <AnalysisListSegment attached="bottom">
+      <AnalysisListSegment
+        attached={externalSearchTerm === undefined ? "bottom" : undefined}
+      >
         {mountedRef.current && filteredItems.length === 0 ? (
           <NoAnalysesMessage>
             <ChartNetwork size={32} />
@@ -658,6 +695,7 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
               <AnalysisCard
                 key={itemId}
                 $selected={isSelected}
+                $compact={isCompact}
                 onClick={(e) => {
                   // Cast e.target as HTMLElement to use closest()
                   if (
@@ -673,29 +711,31 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
                   onSelectAnalysis(isSelected ? null : item);
                 }}
               >
-                <AnalysisHeader $selected={isSelected}>
-                  <AnalysisTitle $selected={isSelected}>
+                <AnalysisHeader $selected={isSelected} $compact={isCompact}>
+                  <AnalysisTitle $selected={isSelected} $compact={isCompact}>
                     <div className="icon-wrapper">
-                      <ChartNetwork size={18} />
+                      <ChartNetwork />
                     </div>
                     <div className="text">
                       <h4>{item.analyzer.id || "Untitled Analysis"}</h4>
                       <div className="id">{itemId}</div>
                     </div>
                   </AnalysisTitle>
-                  <MetadataBadges>
-                    <Badge $variant="primary">
-                      <Tag size={14} />
+                  <MetadataBadges $compact={isCompact}>
+                    <Badge $variant="primary" $compact={isCompact}>
+                      <Tag />
                       {analysisLabelsCount[item.id]} Labels
                     </Badge>
-                    <Badge>
-                      <Edit3 size={14} />
+                    <Badge $compact={isCompact}>
+                      <Edit3 />
                       {item.annotations?.totalCount || 0} Annotations
                     </Badge>
-                    <Badge>
-                      <BarChart3 size={14} />
-                      Analysis
-                    </Badge>
+                    {!isCompact && (
+                      <Badge $compact={isCompact}>
+                        <BarChart3 />
+                        Analysis
+                      </Badge>
+                    )}
                   </MetadataBadges>
                 </AnalysisHeader>
                 <div className="timestamps">
@@ -732,15 +772,17 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
                     </div>
                   )}
                 </div>
-                {item.analyzer.description && (
+                {item.analyzer.description && !isCompact && (
                   <DescriptionExpander
                     description={item.analyzer.description}
                     selected={isSelected}
+                    isCompact={isCompact}
                   />
                 )}
                 <div className="annotations-section">
                   <AnnotationsToggle
                     $isVisible={isVisible}
+                    $compact={isCompact}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleAnnotationsVisibility(itemId);
@@ -757,7 +799,8 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
 
                   {isVisible && (
                     <div className="annotations-container">
-                      <AnnotationList read_only={false} />
+                      {/* Pass through the read_only prop from AnalysisTraySelector to ensure read-only mode cascades correctly */}
+                      <AnnotationList read_only={read_only} />
                     </div>
                   )}
                 </div>
@@ -773,11 +816,13 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
 interface DescriptionExpanderProps {
   description: string;
   selected?: boolean;
+  isCompact?: boolean;
 }
 
 const DescriptionExpander: React.FC<DescriptionExpanderProps> = ({
   description,
   selected,
+  isCompact = false,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -789,14 +834,20 @@ const DescriptionExpander: React.FC<DescriptionExpanderProps> = ({
     }
   }, [description]);
 
+  if (isCompact) return null;
+
   return (
     <>
-      <AnalyzerDescriptionHeader>
+      <AnalyzerDescriptionHeader $compact={isCompact}>
         <FileText size={14} />
         Analyzer Description
       </AnalyzerDescriptionHeader>
       {description?.trim() ? (
-        <DescriptionContainer $expanded={expanded} ref={contentRef}>
+        <DescriptionContainer
+          $expanded={expanded}
+          $compact={isCompact}
+          ref={contentRef}
+        >
           <MarkdownContent>{description}</MarkdownContent>
           {needsExpansion && (
             <ExpandButton

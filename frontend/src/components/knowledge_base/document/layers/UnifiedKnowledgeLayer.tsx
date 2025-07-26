@@ -39,6 +39,7 @@ interface Props {
   corpusId: string;
   metadata: any;
   parentLoading: boolean; // loading flag from parent GraphQL query
+  readOnly?: boolean;
 }
 
 const UnifiedKnowledgeLayer: React.FC<Props> = ({
@@ -46,6 +47,7 @@ const UnifiedKnowledgeLayer: React.FC<Props> = ({
   corpusId,
   metadata,
   parentLoading,
+  readOnly = false,
 }) => {
   /** local component state **/
   const [versionSidebarCollapsed, setVersionSidebarCollapsed] = useState(false);
@@ -226,7 +228,7 @@ const UnifiedKnowledgeLayer: React.FC<Props> = ({
               <BookOpen /> {metadata.title || "Untitled Document"} - Summary
             </h2>
             <div className="header-actions">
-              {!isEditingSummary && isViewingCurrent && (
+              {!isEditingSummary && isViewingCurrent && !readOnly && (
                 <Button primary onClick={handleEdit}>
                   <Icon name="edit" /> Edit Summary
                 </Button>

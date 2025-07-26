@@ -46,7 +46,6 @@ User = get_user_model()
 RELATIONSHIP_LABEL = "RELATIONSHIP_LABEL"
 DOC_TYPE_LABEL = "DOC_TYPE_LABEL"
 TOKEN_LABEL = "TOKEN_LABEL"
-METADATA_LABEL = "METADATA_LABEL"
 SPAN_LABEL = "SPAN_LABEL"
 
 LABEL_TYPES = [
@@ -54,7 +53,6 @@ LABEL_TYPES = [
     (DOC_TYPE_LABEL, _("Document-level type label.")),
     (TOKEN_LABEL, _("Token-level labels for token-based labeling")),
     (SPAN_LABEL, _("Span labels for span-based labeling")),
-    (METADATA_LABEL, _("Metadata label for manual entry field")),
 ]
 
 # Define embedding dimensions constants
@@ -550,8 +548,8 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 and isinstance(self.json["end"], int)
             ):
                 raise ValueError(
-                    "SPAN_LABEL annotations must store SpanAnnotationJson with 'start' and 'end' ints."
-                )
+                                            "SPAN_LABEL annotations must store SpanAnnotationJson with 'start' and 'end' ints."
+                    )
 
         # Other annotation types are free-form – no validation.
 

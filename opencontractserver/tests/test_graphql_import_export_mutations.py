@@ -166,7 +166,7 @@ class GraphQLTestCase(TestCase):
             "pdf_base64": pdf_base64,
             "text_labels": text_labels,
             "doc_labels": doc_labels,
-            "metadata_labels": {},
+
         }
 
         mutation = """

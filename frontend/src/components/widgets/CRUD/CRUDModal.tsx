@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Modal, Icon, Header } from "semantic-ui-react";
+import { Button, Modal, Icon, Header, Loader, Dimmer } from "semantic-ui-react";
 import _ from "lodash";
 import { CRUDWidget } from "./CRUDWidget";
 import { CRUDProps, LooseObject, PropertyWidgets } from "../../types";
@@ -17,6 +17,8 @@ export interface ObjectCRUDModalProps extends CRUDProps {
   propertyWidgets?: PropertyWidgets;
   onSubmit?: (instanceData: LooseObject) => void;
   onClose: () => void;
+  /** When true the form is over-laid with a loader and inputs are disabled */
+  loading?: boolean;
   children?: React.ReactNode;
 }
 
@@ -42,6 +44,7 @@ export function CRUDModal({
   propertyWidgets,
   onSubmit,
   onClose,
+  loading = false,
   children,
 }: ObjectCRUDModalProps): JSX.Element {
   const [instanceObj, setInstanceObj] = useState<Record<string, any>>(
@@ -138,6 +141,12 @@ export function CRUDModal({
         </HorizontallyCenteredDiv>
       </Modal.Header>
       <Modal.Content scrolling>
+        {/* Overlay while the mutation is running */}
+        {loading && (
+          <Dimmer active inverted>
+            <Loader>Saving&hellip;</Loader>
+          </Dimmer>
+        )}
         <CRUDWidget
           mode={mode}
           instance={instanceObj}
@@ -157,18 +166,16 @@ export function CRUDModal({
       </Modal.Content>
       <Modal.Actions>
         <HorizontallyCenteredDiv>
-          <Button basic color="grey" onClick={onClose}>
+          <Button basic color="grey" onClick={onClose} disabled={loading}>
             <Icon name="remove" /> Close
           </Button>
           {canWrite && onSubmit && !_.isEqual(oldInstance, instanceObj) && (
             <Button
               color="green"
               inverted
+              loading={loading}
+              disabled={loading}
               onClick={() => {
-                console.log(
-                  "Submitting changes: ",
-                  mode === "EDIT" ? updatedFieldsObj : instanceObj
-                );
                 onSubmit(mode === "EDIT" ? updatedFieldsObj : instanceObj);
               }}
             >

@@ -31,6 +31,7 @@ interface Props {
   onSwitchToKnowledge?: (content?: string) => void;
   onBackToDocument?: () => void;
   isInKnowledgeLayer?: boolean;
+  readOnly?: boolean;
 }
 
 export const FloatingSummaryPreviewTestWrapper: React.FC<Props> = ({
@@ -42,6 +43,7 @@ export const FloatingSummaryPreviewTestWrapper: React.FC<Props> = ({
   onSwitchToKnowledge,
   onBackToDocument,
   isInKnowledgeLayer = false,
+  readOnly = false,
 }) => {
   return (
     <Provider>
@@ -54,6 +56,7 @@ export const FloatingSummaryPreviewTestWrapper: React.FC<Props> = ({
           onSwitchToKnowledge={onSwitchToKnowledge}
           onBackToDocument={onBackToDocument}
           isInKnowledgeLayer={isInKnowledgeLayer}
+          readOnly={readOnly}
         />
       </MockedProvider>
     </Provider>

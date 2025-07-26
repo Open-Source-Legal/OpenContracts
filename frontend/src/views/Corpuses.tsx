@@ -1073,6 +1073,7 @@ export const Corpuses = () => {
   }, [corpusByIdData]);
 
   if (corpus_load_error) {
+    console.log("Corpuses.tsx - corpus_load_error", corpus_load_error);
     toast.error("ERROR\nUnable to fetch corpuses.");
   }
 
@@ -1736,7 +1737,7 @@ export const Corpuses = () => {
           <CRUDModal
             open={corpus_to_edit !== null}
             mode="EDIT"
-            oldInstance={corpus_to_edit ? corpus_to_edit : {}}
+            oldInstance={corpus_to_edit ?? {}}
             modelName="corpus"
             uiSchema={editCorpusForm_Ui_Schema}
             dataSchema={editCorpusForm_Schema}
@@ -1751,6 +1752,7 @@ export const Corpuses = () => {
               labelSet: <LabelSetSelector />,
               preferredEmbedder: <EmbedderSelector />,
             }}
+            loading={update_corpus_loading}
           />
           {exporting_corpus ? (
             <SelectExportTypeModal visible={Boolean(exportingCorpus)} />
@@ -1808,6 +1810,7 @@ export const Corpuses = () => {
                 labelSet: <LabelSetSelector />,
                 preferredEmbedder: <EmbedderSelector />,
               }}
+              loading={create_corpus_loading}
             />
           ) : (
             <></>

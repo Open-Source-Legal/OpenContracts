@@ -162,7 +162,6 @@ export function generateMockColumn(fieldset: FieldsetType): ColumnType {
     limitToLabel: "mockLimitToLabel",
     instructions: "mockInstructions",
     taskName: "mockTaskName",
-    agentic: false,
   };
 }
 

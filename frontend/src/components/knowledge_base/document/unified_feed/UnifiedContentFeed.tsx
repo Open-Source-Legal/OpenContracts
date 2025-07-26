@@ -39,6 +39,8 @@ interface UnifiedContentFeedProps {
   onItemSelect?: (item: UnifiedContentItem) => void;
   /** Fetch more callback for infinite scroll */
   fetchMore?: () => Promise<void>;
+  /** Read-only mode disables editing capabilities */
+  readOnly?: boolean;
 }
 
 /* Styled Components */
@@ -121,6 +123,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   isLoading = false,
   onItemSelect,
   fetchMore,
+  readOnly = false,
 }) => {
   /* Data sources */
   const visibleAnnotations = useVisibleAnnotations();
@@ -156,7 +159,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
     }
 
     // Add annotations if enabled
-    if (filters.contentTypes.has("annotation")) {
+    if (filters.contentTypes.has("annotation") && visibleAnnotations) {
       visibleAnnotations.forEach((ann) => {
         // Apply label filter if present
         if (
@@ -180,7 +183,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
         unified.push({
           id: `ann-${ann.id}`,
           type: "annotation",
-          pageNumber: ann.page || 1,
+          pageNumber: ann.page !== undefined ? ann.page + 1 : 1, // Convert 0-based to 1-based
           data: ann,
           timestamp: undefined, // Annotations don't have created field
         });
@@ -188,7 +191,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
     }
 
     // Add relationships if enabled
-    if (filters.contentTypes.has("relationship")) {
+    if (filters.contentTypes.has("relationship") && pdfAnnotations?.relations) {
       const relationships = filters.relationshipFilters?.showStructural
         ? pdfAnnotations.relations
         : pdfAnnotations.relations.filter((rel) => !rel.structural);
@@ -199,9 +202,10 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
         const allAnnotationIds = [...rel.sourceIds, ...rel.targetIds];
 
         allAnnotationIds.forEach((id) => {
-          const ann = visibleAnnotations.find((a) => a.id === id);
-          if (ann && ann.page) {
-            minPage = minPage === 1 ? ann.page : Math.min(minPage, ann.page);
+          const ann = visibleAnnotations?.find((a) => a.id === id);
+          if (ann && ann.page !== undefined) {
+            const annPage = ann.page + 1; // Convert 0-based to 1-based
+            minPage = minPage === 1 ? annPage : Math.min(minPage, annPage);
           }
         });
 
@@ -226,7 +230,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
     if (
       filters.contentTypes.has("search") &&
       searchText &&
-      textSearchMatches.length > 0
+      textSearchMatches?.length > 0
     ) {
       textSearchMatches.forEach((result, idx) => {
         const pageNumber = "start_page" in result ? result.start_page : 1;
@@ -330,8 +334,8 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
     const vp = viewportRef.current;
     if (!vp) return;
 
-    const scrollTop = vp.scrollTop;
-    const vpHeight = vp.clientHeight;
+    const scrollTop = vp.scrollTop || 0;
+    const vpHeight = vp.clientHeight || 600; // Default height for test environments
 
     let first = 0;
     while (first < rowCount && cumulative[first + 1] <= scrollTop) first++;
@@ -358,6 +362,15 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
 
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
+  }, [updateRange]);
+
+  /* Force initial range calculation after mount */
+  useEffect(() => {
+    // Use setTimeout to ensure DOM is ready
+    const timer = setTimeout(() => {
+      updateRange();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [updateRange]);
 
   /* Measure row heights */
@@ -389,7 +402,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   /* Render empty state */
   if (items.length === 0) {
     return (
-      <FeedContainer>
+      <FeedContainer data-testid="unified-content-feed-empty">
         <EmptyState
           icon={<FileText size={40} />}
           title="No content found"
@@ -403,9 +416,12 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   let currentPage = -1;
 
   return (
-    <FeedContainer>
-      <FeedViewport ref={viewportRef}>
-        <div style={{ position: "relative", height: containerHeight }}>
+    <FeedContainer data-testid="unified-content-feed">
+      <FeedViewport ref={viewportRef} data-testid="feed-viewport">
+        <div
+          style={{ position: "relative", height: containerHeight }}
+          data-testid="feed-content"
+        >
           {Array.from(
             { length: visibleRange[1] - visibleRange[0] + 1 },
             (_, i) => {
@@ -458,6 +474,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
                     <ContentItemRenderer
                       item={item}
                       onSelect={() => onItemSelect?.(item)}
+                      readOnly={readOnly}
                     />
                   </ContentWrapper>
                 </div>

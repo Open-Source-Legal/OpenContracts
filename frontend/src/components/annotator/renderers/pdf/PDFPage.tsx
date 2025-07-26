@@ -398,14 +398,18 @@ export const PDFPage = ({
       let cancelled = false;
       const tryScrollAnnot = () => {
         if (cancelled) return;
-        const el = document.querySelector(
-          `.selection_${pendingScrollId}`
-        ) as HTMLElement | null;
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          setPendingScrollId(null); // done
-        } else {
-          requestAnimationFrame(tryScrollAnnot);
+        try {
+          const el = document.querySelector(
+            `.selection_${pendingScrollId}`
+          ) as HTMLElement | null;
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            setPendingScrollId(null); // done
+          } else {
+            requestAnimationFrame(tryScrollAnnot);
+          }
+        } catch (error) {
+          console.error("Error scrolling to annotation:", error);
         }
       };
       tryScrollAnnot();

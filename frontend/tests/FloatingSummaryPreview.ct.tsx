@@ -375,17 +375,20 @@ test("minimizes when minimize button is clicked", async ({ mount, page }) => {
   // Expand
   const summaryButton = page.locator("button").filter({ hasText: "Summary" });
   await summaryButton.click();
-  await expect(page.locator('h3:has-text("Document Summary")')).toBeVisible();
+  // In normal mode (not knowledge layer), title is "Document Summary" without "(Preview)"
+  await expect(
+    page.locator('h3:has-text("Document Summary")').first()
+  ).toBeVisible();
 
   // Click minimize
   const minimizeButton = page.getByTestId("minimize-button");
   await expect(minimizeButton).toBeVisible();
-  const handleMin = await minimizeButton.elementHandle();
-  if (handleMin) {
-    await page.evaluate((el) => (el as HTMLElement).click(), handleMin);
-  }
+  await minimizeButton.click();
 
-  // Should be collapsed again
+  // Wait for animation to complete
+  await page.waitForTimeout(500);
+
+  // Should be collapsed again - the h3 title should not be visible
   await expect(
     page.locator('h3:has-text("Document Summary")')
   ).not.toBeVisible();
@@ -512,3 +515,190 @@ const clickFanToggle = async (page: any) => {
     await page.evaluate((el) => (el as HTMLElement).click(), handle);
   }
 };
+
+test("read-only: displays summaries normally", async ({ mount, page }) => {
+  await mount(
+    <FloatingSummaryPreviewTestWrapper
+      mocks={createMocks()}
+      documentId={TEST_DOC_ID}
+      corpusId={TEST_CORPUS_ID}
+      documentTitle="Test Document"
+      readOnly={true}
+    />
+  );
+
+  // Summary button should be visible
+  const summaryButton = page.locator("button").filter({ hasText: "Summary" });
+  await expect(summaryButton).toBeVisible({ timeout: 10000 });
+
+  // Version badge should show
+  const versionBadge = page
+    .locator('div:has-text("v5")')
+    .filter({ hasText: /^v5$/ });
+  await expect(versionBadge).toBeVisible({ timeout: 5000 });
+
+  // Can expand
+  await summaryButton.click();
+  await expect(page.locator('h3:has-text("Document Summary")')).toBeVisible();
+});
+
+test("read-only: navigation between versions works", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <FloatingSummaryPreviewTestWrapper
+      mocks={createMocks()}
+      documentId={TEST_DOC_ID}
+      corpusId={TEST_CORPUS_ID}
+      documentTitle="Test Document"
+      readOnly={true}
+    />
+  );
+
+  // Expand and fan out
+  const summaryButton = page.locator("button").filter({ hasText: "Summary" });
+  await summaryButton.click();
+  await moveMouseAway(page);
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(300);
+  await clickFanToggle(page);
+  await page.waitForTimeout(400);
+
+  // Navigation should work
+  const rightArrow = page
+    .locator("button")
+    .filter({ has: page.locator('svg[class*="lucide-chevron-right"]') });
+
+  await rightArrow.click();
+  await expect(page.locator("text=2 / 5")).toBeVisible();
+
+  // Keyboard navigation should also work
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("text=3 / 5")).toBeVisible();
+});
+
+test("read-only: switching to knowledge layer still works", async ({
+  mount,
+  page,
+}) => {
+  let switchedContent: string | undefined;
+
+  await mount(
+    <FloatingSummaryPreviewTestWrapper
+      mocks={createMocks()}
+      documentId={TEST_DOC_ID}
+      corpusId={TEST_CORPUS_ID}
+      documentTitle="Test Document"
+      readOnly={true}
+      onSwitchToKnowledge={(content) => {
+        switchedContent = content;
+      }}
+    />
+  );
+
+  // Expand
+  const summaryButton = page.locator("button").filter({ hasText: "Summary" });
+  await summaryButton.click();
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1000);
+
+  // Click on a version - viewing should still be allowed
+  const latestCardContent = page.locator("p", {
+    hasText: "This is the most recent version",
+  });
+  await latestCardContent.click({ force: true });
+
+  await page.waitForTimeout(100);
+  expect(switchedContent).toContain("Latest Summary");
+});
+
+test("read-only: empty state shows but without edit options", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <FloatingSummaryPreviewTestWrapper
+      mocks={emptyMocks}
+      documentId={TEST_DOC_ID}
+      corpusId={TEST_CORPUS_ID}
+      documentTitle="Test Document"
+      readOnly={true}
+    />
+  );
+
+  // Expand
+  await page.locator('button:has-text("Summary")').click();
+
+  // Empty state message should still show
+  await expect(page.locator("text=No summary versions yet.")).toBeVisible();
+  await expect(
+    page.locator("text=Create your first summary to get started!")
+  ).toBeVisible();
+
+  // Note: Since there's no create button in the component,
+  // the readOnly flag doesn't affect any UI elements in empty state
+});
+
+test("read-only: minimize and back buttons remain functional", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <FloatingSummaryPreviewTestWrapper
+      mocks={createMocks()}
+      documentId={TEST_DOC_ID}
+      corpusId={TEST_CORPUS_ID}
+      documentTitle="Test Document"
+      readOnly={true}
+    />
+  );
+
+  // Expand
+  const summaryButton = page.locator("button").filter({ hasText: "Summary" });
+  await summaryButton.click();
+  await expect(page.locator('h3:has-text("Document Summary")')).toBeVisible();
+
+  // Minimize should work
+  const minimizeButton = page.getByTestId("minimize-button");
+  await expect(minimizeButton).toBeVisible();
+  const handleMin = await minimizeButton.elementHandle();
+  if (handleMin) {
+    await page.evaluate((el) => (el as HTMLElement).click(), handleMin);
+  }
+
+  // Should be collapsed
+  await expect(
+    page.locator('h3:has-text("Document Summary")')
+  ).not.toBeVisible();
+  await expect(summaryButton).toBeVisible();
+});
+
+test("read-only: knowledge layer mode with back button works", async ({
+  mount,
+  page,
+}) => {
+  let backClicked = false;
+
+  await mount(
+    <FloatingSummaryPreviewTestWrapper
+      mocks={createMocks()}
+      documentId={TEST_DOC_ID}
+      corpusId={TEST_CORPUS_ID}
+      documentTitle="Test Document"
+      readOnly={true}
+      isInKnowledgeLayer={true}
+      onBackToDocument={() => {
+        backClicked = true;
+      }}
+    />
+  );
+
+  // Back button should be functional
+  const backButton = page.locator('button:has-text("Back")');
+  await expect(backButton).toBeVisible();
+
+  await backButton.click();
+  await page.waitForTimeout(100);
+  expect(backClicked).toBe(true);
+});

@@ -16,7 +16,7 @@ import { OperationDefinitionNode } from "graphql";
 import "../src/assets/styles/semantic.css"; // ADDED: Global Semantic UI styles
 
 import DocumentKnowledgeBase from "../src/components/knowledge_base/document/DocumentKnowledgeBase";
-import { authStatusVar } from "../src/graphql/cache";
+import { authStatusVar, authToken, userObj } from "../src/graphql/cache";
 import { MemoryRouter } from "react-router-dom";
 
 // --- Minimal Test Cache Definition (copied from previous step) ---
@@ -86,6 +86,7 @@ interface WrapperProps {
   mocks: ReadonlyArray<MockedResponse>;
   documentId: string;
   corpusId: string;
+  readOnly?: boolean;
 }
 
 // Create a diagnostic component to monitor atom state
@@ -4217,9 +4218,20 @@ export const DocumentKnowledgeBaseTestWrapper: React.FC<WrapperProps> = ({
   mocks,
   documentId,
   corpusId,
+  readOnly = false,
 }) => {
   // Create a link that handles wildcard mutation and other mocks
   const link = createWildcardLink(mocks);
+
+  // Set up authentication for tests - BEFORE any components mount
+  // This ensures ChatTray has auth token available on first render
+  authToken("test-auth-token");
+  userObj({
+    id: "test-user",
+    email: "test@example.com",
+    username: "testuser",
+  });
+
   // Mark auth as ready (anonymous) for tests
   useEffect(() => {
     authStatusVar("ANONYMOUS");
@@ -4240,7 +4252,11 @@ export const DocumentKnowledgeBaseTestWrapper: React.FC<WrapperProps> = ({
             mutate: { errorPolicy: "all" },
           }}
         >
-          <DocumentKnowledgeBase documentId={documentId} corpusId={corpusId} />
+          <DocumentKnowledgeBase
+            documentId={documentId}
+            corpusId={corpusId}
+            readOnly={readOnly}
+          />
         </MockedProvider>
       </Provider>
     </MemoryRouter>
