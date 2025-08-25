@@ -1,228 +1,347 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://hatch.pypa.io/latest/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/acknowledgements/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/acknowledgements/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/philosophy/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/philosophy/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/quick-start/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/quick_start/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/requirements/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/requirements/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/architecture/PDF-data-layer/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/analyzer_framework/backend/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/architecture/asynchronous-processing/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/analyzer_framework/frontend/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/architecture/opencontract-corpus-actions/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/api/smart-label-mutations/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/architecture/components/Data-flow-diagram/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/PDF-data-layer/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/architecture/components/annotator/how-annotations-are-created/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/analyzers/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/architecture/components/annotator/overview/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/asynchronous-processing/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/configuration/add-users/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/embeddings_creation_and_retrieval/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/configuration/choose-an-authentication-backend/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/opencontract-corpus-actions/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/configuration/choose-and-configure-docker-stack/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/Data-flow-diagram/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/configuration/choose-storage-backend/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/document-knowledge-base-features/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/configuration/configure-admin-users/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/extract-selection-flow/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/configuration/configure-gremlin/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/how-annotations-are-created/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/configuration/frontend-configuration/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/how-search-works/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/development/documentation/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/overview/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/development/environment/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/scroll-to-annotation-flow/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/development/frontend-notes/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/state-management/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/development/test-suite/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/virtualized-rendering/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/extract_and_retrieval/document_data_extract/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/data_model/annotation_json/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/extract_and_retrieval/intro_to_django_annotation_vector_store/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/llms/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/extract_and_retrieval/querying_corpus/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/key-concepts/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/backend/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-1-add-documents/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/frontend/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-2-create-labelset/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/protocol/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-3-create-a-corpus/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/configuration/add-users/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-4-create-text-annotations/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/configuration/choose-an-authentication-backend/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-5-create-doc-type-annotations/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/configuration/choose-and-configure-docker-stack/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-6-search-and-filter-by-annotations/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/configuration/choose-storage-backend/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-7-query-corpus/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/configuration/configure-admin-users/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-8-data-extract/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/configuration/frontend-configuration/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/step-9-corpus-actions/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/corpus_actions/intro_to_corpus_actions/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/configure-annotation-view/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/deployment/docker-gpu-setup/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/data-extract-models/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/development/documentation/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/export-import-corpuses/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/development/environment/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/fork-a-corpus/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/development/frontend-notes/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/generate-graphql-schema-files/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/development/generating-new-graphql-schema/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/pawls-token-format/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/development/test-suite/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/register-doc-analyzer/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/embedders/minn_modernbert_embedder/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/run-gremlin-analyzer/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/embedders/modernbert_embedder/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/testing-llama-index-calls/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
     <url>
-         <loc>https://hatch.pypa.io/latest/walkthrough/advanced/write-your-own-extractors/</loc>
-         <lastmod>2024-08-26</lastmod>
-         <changefreq>daily</changefreq>
+         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/api_reference/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/corpus_queries/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/data_extraction/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/vector_stores/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/frontend/corpus-and-document-selection/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/frontend/corpus-optional-features/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/frontend/document_rendering_and_annotation/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/frontend/read_only_mode_inventory/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/frontend/routing_system/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/frontend/search_rendering/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/frontend/datagrid/rendering_custom_cells/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_api_examples/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_fields/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_frontend_requirements/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_overview/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/permissioning/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/permissioning/consolidated_permissioning_guide/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/permissioning/corpus_optional_features/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/permissioning/read_only_mode/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/permissioning/testing_permissions/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/pipelines/docling_parser/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/pipelines/nlm_ingest_parser/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/pipelines/pipeline_overview/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/add-and-edit-notes/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/key-concepts/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-1-add-documents/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-2-create-labelset/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-3-create-a-corpus/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-4-create-text-annotations/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-5-create-doc-type-annotations/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-6-search-and-filter-by-annotations/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-7-query-corpus/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-8-data-extract/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-9-corpus-actions/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/configure-annotation-view/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/export-import-corpuses/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/extraction_tutorial/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/fork-a-corpus/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/generate-graphql-schema-files/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/pawls-token-format/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/register-doc-analyzer/</loc>
+         <lastmod>2025-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/write-your-own-extractors/</loc>
+         <lastmod>2025-08-25</lastmod>
     </url>
 </urlset>
