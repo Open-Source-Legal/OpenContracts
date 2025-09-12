@@ -83,6 +83,15 @@ class Document(BaseOCModel, HasEmbeddingMixin):
         null=True,
     )
 
+    # Hash field for PDF file integrity and caching
+    pdf_file_hash = django.db.models.CharField(
+        max_length=64,  # SHA-256 produces 64 hex characters
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="SHA-256 hash of the PDF file content for caching and integrity checks",
+    )
+
     processing_started = django.db.models.DateTimeField(null=True)
     processing_finished = django.db.models.DateTimeField(null=True)
 
@@ -212,6 +221,33 @@ class Document(BaseOCModel, HasEmbeddingMixin):
 
     def get_embedding_reference_kwargs(self) -> dict:
         return {"document_id": self.pk}
+
+    def compute_pdf_hash(self):
+        """
+        Compute SHA-256 hash of the PDF file content.
+        Returns None if no PDF file exists.
+        """
+        if not self.pdf_file:
+            return None
+
+        sha256_hash = hashlib.sha256()
+        # Read file in chunks to handle large PDFs efficiently
+        for chunk in self.pdf_file.chunks(chunk_size=8192):
+            sha256_hash.update(chunk)
+
+        return sha256_hash.hexdigest()
+
+    def update_pdf_hash(self):
+        """
+        Update the pdf_file_hash field with the current PDF's hash.
+        This method saves the model if the hash changes.
+        """
+        new_hash = self.compute_pdf_hash()
+        if new_hash != self.pdf_file_hash:
+            self.pdf_file_hash = new_hash
+            self.save(update_fields=["pdf_file_hash"])
+            return True
+        return False
 
     def __str__(self):
         """

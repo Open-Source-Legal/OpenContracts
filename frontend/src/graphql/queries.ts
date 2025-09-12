@@ -2331,6 +2331,7 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
       created
       mdSummaryFile
       pdfFile
+      pdfFileHash
       txtExtractFile
       pawlsParseFile
       myPermissions
@@ -2595,6 +2596,7 @@ export const GET_DOCUMENT_ONLY = gql`
       }
       created
       pdfFile
+      pdfFileHash
       txtExtractFile
       pawlsParseFile
       myPermissions

@@ -335,6 +335,7 @@ export type RawDocumentType = Node & {
   customMeta?: Maybe<Scalars["JSONString"]>;
   icon?: Scalars["String"];
   pdfFile?: Scalars["String"];
+  pdfFileHash?: Maybe<Scalars["String"]>;
   mdSummaryFile?: Scalars["String"];
   is_open?: boolean;
   is_selected?: boolean;

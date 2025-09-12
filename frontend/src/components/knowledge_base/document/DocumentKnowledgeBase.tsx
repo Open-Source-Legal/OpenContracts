@@ -24,7 +24,11 @@ import {
   GetDocumentAnnotationsOnlyOutput,
 } from "../../../graphql/queries";
 import { useFeatureAvailability } from "../../../hooks/useFeatureAvailability";
-import { getDocumentRawText, getPawlsLayer } from "../../annotator/api/rest";
+import {
+  getDocumentRawText,
+  getPawlsLayer,
+  getCachedPDFUrl,
+} from "../../annotator/api/cachedRest";
 import {
   CorpusType,
   LabelType,
@@ -862,20 +866,29 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
         data.document.fileType === "application/pdf" &&
         data.document.pdfFile
       ) {
+        console.log("\n=== DOCUMENT LOAD START ===");
+        console.log("Type: PDF");
+        console.log("Document ID:", data.document.id);
+        console.log("Hash:", data.document.pdfFileHash || "no hash");
         setViewState(ViewState.LOADING); // Set loading state
-        const loadingTask: PDFDocumentLoadingTask = getDocument(
-          data.document.pdfFile
-        );
-        loadingTask.onProgress = (p: { loaded: number; total: number }) => {
-          setProgress(Math.round((p.loaded / p.total) * 100));
-        };
 
         const pawlsPath = data.document.pawlsParseFile || "";
+        const pdfHash = data.document.pdfFileHash || "";
+        const docId = data.document.id;
 
-        Promise.all([
-          loadingTask.promise,
-          getPawlsLayer(pawlsPath), // Fetches PAWLS via REST
-        ])
+        // First get the cached or fresh PDF URL
+        getCachedPDFUrl(data.document.pdfFile, docId, pdfHash)
+          .then((pdfUrl) => {
+            const loadingTask: PDFDocumentLoadingTask = getDocument(pdfUrl);
+            loadingTask.onProgress = (p: { loaded: number; total: number }) => {
+              setProgress(Math.round((p.loaded / p.total) * 100));
+            };
+
+            return Promise.all([
+              loadingTask.promise,
+              getPawlsLayer(pawlsPath, docId), // Fetches PAWLS via REST with caching
+            ]);
+          })
           .then(([pdfDocProxy, pawlsData]) => {
             // --- DETAILED LOGGING FOR PAWLS DATA ---
             if (!pawlsData) {
@@ -939,10 +952,12 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
             });
             setDocText(doc_text);
             setViewState(ViewState.LOADED); // Set loaded state only after everything is done
+            console.log("=== DOCUMENT LOAD COMPLETE ===");
           })
           .catch((err) => {
             // Log the specific error causing the catch
             console.error("Error during PDF/PAWLS loading Promise.all:", err);
+            console.log("=== DOCUMENT LOAD FAILED ===");
             setViewState(ViewState.ERROR);
             toast.error(
               `Error loading PDF details: ${
@@ -955,15 +970,23 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
           data.document.fileType === "text/plain") &&
         data.document.txtExtractFile
       ) {
-        console.log("onCompleted: Loading TXT", data.document.txtExtractFile);
+        console.log("\n=== DOCUMENT LOAD START ===");
+        console.log("Type: TEXT");
+        console.log("Document ID:", data.document.id);
+        console.log("Hash:", data.document.pdfFileHash || "no hash");
+        console.log("File URL:", data.document.txtExtractFile);
         setViewState(ViewState.LOADING); // Set loading state
-        getDocumentRawText(data.document.txtExtractFile)
+        const docId = data.document.id;
+        const textHash = data.document.pdfFileHash; // Can use same hash field for text files
+        getDocumentRawText(data.document.txtExtractFile, docId, textHash)
           .then((txt) => {
             setDocText(txt);
             setViewState(ViewState.LOADED);
+            console.log("=== DOCUMENT LOAD COMPLETE ===");
           })
           .catch((err) => {
             setViewState(ViewState.ERROR);
+            console.log("=== DOCUMENT LOAD FAILED ===");
             toast.error(
               `Error loading text content: ${
                 err instanceof Error ? err.message : String(err)
@@ -1111,6 +1134,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
           })
           .catch((err) => {
             console.error("Error during PDF/PAWLS loading Promise.all:", err);
+            console.log("=== DOCUMENT LOAD FAILED ===");
             setViewState(ViewState.ERROR);
             toast.error(
               `Error loading PDF details: ${
@@ -1123,15 +1147,21 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
           data.document.fileType === "text/plain") &&
         data.document.txtExtractFile
       ) {
-        console.log("onCompleted: Loading TXT", data.document.txtExtractFile);
+        console.log("\n=== DOCUMENT LOAD START ===");
+        console.log("Type: TEXT");
+        console.log("Document ID:", data.document.id);
+        console.log("Hash:", data.document.pdfFileHash || "no hash");
+        console.log("File URL:", data.document.txtExtractFile);
         setViewState(ViewState.LOADING);
         getDocumentRawText(data.document.txtExtractFile)
           .then((txt) => {
             setDocText(txt);
             setViewState(ViewState.LOADED);
+            console.log("=== DOCUMENT LOAD COMPLETE ===");
           })
           .catch((err) => {
             setViewState(ViewState.ERROR);
+            console.log("=== DOCUMENT LOAD FAILED ===");
             toast.error(
               `Error loading text content: ${
                 err instanceof Error ? err.message : String(err)
