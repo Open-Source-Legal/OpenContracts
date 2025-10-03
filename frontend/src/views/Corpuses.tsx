@@ -1498,6 +1498,7 @@ export const Corpuses = () => {
   if (corpus_search_term) {
     corpus_variables["textSearch"] = corpus_search_term;
   }
+
   // Now that auth is guaranteed to be ready before this component renders,
   // we can use a regular useQuery
   const {
@@ -1543,7 +1544,9 @@ export const Corpuses = () => {
           id: routeCorpusId,
         });
         if (isValid && validId) {
-          fetchCorpusById({ variables: { metadataForCorpusId: validId } });
+          fetchCorpusById({
+            variables: { metadataForCorpusId: validId },
+          });
         } else {
           console.warn(
             "Route corpus ID is not a valid GraphQL ID:",
@@ -1640,7 +1643,9 @@ export const Corpuses = () => {
         // Re-fetch with current corpus ID if we haven't fetched before
         const { id: validId, isValid } = ensureValidCorpusId(opened_corpus);
         if (isValid && validId) {
-          fetchMetadata({ variables: { metadataForCorpusId: validId } });
+          fetchMetadata({
+            variables: { metadataForCorpusId: validId },
+          });
         }
       }
     } else if (!auth_token) {
@@ -1693,7 +1698,9 @@ export const Corpuses = () => {
       const { id: validId, isValid } = ensureValidCorpusId(opened_corpus);
       if (isValid && validId) {
         try {
-          fetchMetadata({ variables: { metadataForCorpusId: validId } });
+          fetchMetadata({
+            variables: { metadataForCorpusId: validId },
+          });
           refetchStats(); // Refresh stats when corpus changes
         } catch (error) {
           console.error("Error fetching corpus metadata:", error);
@@ -1742,7 +1749,7 @@ export const Corpuses = () => {
     loading: statsLoading,
     refetch: refetchStats,
   } = useQuery(GET_CORPUS_STATS, {
-    variables: { corpusId: validCorpusId || "" }, // Provide empty string as fallback
+    variables: { corpusId: validCorpusId || "" },
     skip: !validCorpusId, // Skip if we don't have a valid ID
     pollInterval: 5000, // Poll every 5 seconds for real-time updates
     fetchPolicy: "cache-and-network", // Always fetch fresh data while showing cached

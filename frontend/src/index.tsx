@@ -9,7 +9,7 @@ import {
   ApolloLink,
   Observable,
 } from "@apollo/client";
-import { cache } from "./graphql/cache";
+import { cache, authStatusVar } from "./graphql/cache";
 import { LooseObject } from "./components/types";
 import { getRuntimeEnv } from "./utils/env";
 import { getToken } from "./utils/tokenManager";
@@ -70,8 +70,18 @@ const httpLink = createHttpLink({
   uri: `${api_root_url}/graphql/`,
 });
 
+// Auto-inject auth status into all query variables to force cache invalidation on auth changes
+const authStatusLink = new ApolloLink((operation, forward) => {
+  const authStatus = authStatusVar();
+  operation.variables = {
+    ...operation.variables,
+    _authStatus: authStatus,
+  };
+  return forward(operation);
+});
+
 const client = new ApolloClient({
-  link: authLink.concat(httpLink),
+  link: authLink.concat(authStatusLink).concat(httpLink),
   cache,
 });
 
