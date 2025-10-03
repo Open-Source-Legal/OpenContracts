@@ -191,12 +191,8 @@ class AnnotationQueryOptimizerTestCase(TestCase):
         logger.info("=" * 80)
 
         # Give owner full permissions
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         summary = AnnotationQueryOptimizer.get_extract_annotation_summary(
             document_id=self.doc1.id,
@@ -277,12 +273,8 @@ class AnnotationQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Non-existent extract handled gracefully")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         summary = AnnotationQueryOptimizer.get_extract_annotation_summary(
             document_id=self.doc1.id,
@@ -515,12 +507,8 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Owner sees all relationships")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         qs = RelationshipQueryOptimizer.get_document_relationships(
             document_id=self.doc1.id,
@@ -563,9 +551,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: No corpus = structural relationships only")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
 
         qs = RelationshipQueryOptimizer.get_document_relationships(
             document_id=self.doc1.id,
@@ -588,12 +574,8 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Analysis filtering works correctly")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         qs = RelationshipQueryOptimizer.get_document_relationships(
             document_id=self.doc1.id,
@@ -617,12 +599,8 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Page filtering works correctly")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         # Filter to only page 1
         qs = RelationshipQueryOptimizer.get_document_relationships(
@@ -647,12 +625,8 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Extract filtering works correctly")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         # Non-strict mode: either source or target in extract
         qs = RelationshipQueryOptimizer.get_document_relationships(
@@ -711,12 +685,8 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Structural filter works correctly")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         # Filter to only non-structural
         qs = RelationshipQueryOptimizer.get_document_relationships(
@@ -746,12 +716,8 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Owner sees complete relationship summary")
         logger.info("=" * 80)
 
-        set_permissions_for_obj_to_user(
-            self.owner, self.doc1, [PermissionTypes.READ]
-        )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         summary = RelationshipQueryOptimizer.get_relationship_summary(
             document_id=self.doc1.id, corpus_id=self.corpus.id, user=self.owner
@@ -847,12 +813,8 @@ class ExtractQueryOptimizerTestCase(TestCase):
         self.public_corpus.documents.add(self.doc1, self.doc2)
 
         # Create fieldsets
-        self.fieldset1 = Fieldset.objects.create(
-            name="Fieldset 1", creator=self.owner
-        )
-        self.fieldset2 = Fieldset.objects.create(
-            name="Fieldset 2", creator=self.owner
-        )
+        self.fieldset1 = Fieldset.objects.create(name="Fieldset 1", creator=self.owner)
+        self.fieldset2 = Fieldset.objects.create(name="Fieldset 2", creator=self.owner)
 
         # Create extracts
         self.extract1 = Extract.objects.create(

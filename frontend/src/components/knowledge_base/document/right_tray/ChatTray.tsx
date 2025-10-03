@@ -62,6 +62,7 @@ import {
 } from "../../../../graphql/queries";
 import { authToken, userObj } from "../../../../graphql/cache";
 import { getWebSocketUrl } from "../utils";
+import { getToken } from "../../../../utils/tokenManager";
 import {
   ChatInputContainer,
   ChatInput,
@@ -840,6 +841,8 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
    * Whenever the selected conversation changes, (re)establish the WebSocket connection.
    */
   useEffect(() => {
+    let cancelled = false;
+
     // If no conversation is selected and not in new chat mode, close any socket and exit.
     if (!selectedConversationId && !isNewChat) {
       if (socketRef.current) {
@@ -850,200 +853,213 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       return;
     }
 
-    // Build WebSocket URL, including conversation ID
-    const wsUrl = getWebSocketUrl(
-      documentId,
-      auth_token || undefined,
-      selectedConversationId,
-      corpusId
-    );
-    const newSocket = new WebSocket(wsUrl);
+    // Async function to setup WebSocket with fresh token
+    const setupWebSocket = async () => {
+      // Get fresh token (Auth0: auto-refreshes if needed, non-Auth0: cached)
+      const token = await getToken();
 
-    newSocket.onopen = () => {
-      setWsReady(true);
-      setWsError(null);
-      console.log(
-        "WebSocket connected for conversation:",
-        selectedConversationId
+      // Check if component unmounted during async operation
+      if (cancelled) return;
+
+      // Build WebSocket URL with fresh token
+      const wsUrl = getWebSocketUrl(
+        documentId,
+        token || undefined,
+        selectedConversationId,
+        corpusId
       );
-    };
+      const newSocket = new WebSocket(wsUrl);
 
-    newSocket.onerror = (event) => {
-      setWsReady(false);
-      setWsError("Error connecting to the websocket.");
-      console.error("WebSocket error:", event);
-    };
+      newSocket.onopen = () => {
+        setWsReady(true);
+        setWsError(null);
+        console.log(
+          "WebSocket connected for conversation:",
+          selectedConversationId
+        );
+      };
 
-    newSocket.onmessage = (event) => {
-      try {
-        const messageData: MessageData = JSON.parse(event.data);
-        if (!messageData) return;
-        const { type: msgType, content, data } = messageData;
+      newSocket.onerror = (event) => {
+        setWsReady(false);
+        setWsError("Error connecting to the websocket.");
+        console.error("WebSocket error:", event);
+      };
 
-        console.log("[ChatTray WebSocket] Received message:", {
-          type: msgType,
-          hasContent: !!content,
-          hasSources: !!data?.sources,
-          sourceCount: data?.sources?.length,
-          hasTimeline: !!data?.timeline,
-          timelineCount: data?.timeline?.length,
-          message_id: data?.message_id,
-          approval_decision: data?.approval_decision,
-          has_pending_tool_call: !!data?.pending_tool_call,
-        });
+      newSocket.onmessage = (event) => {
+        try {
+          const messageData: MessageData = JSON.parse(event.data);
+          if (!messageData) return;
+          const { type: msgType, content, data } = messageData;
 
-        // Check if any message includes approval status update
-        if (data?.approval_decision && data?.message_id) {
-          updateMessageApprovalStatus(
-            data.message_id,
-            data.approval_decision as "approved" | "rejected"
-          );
-        }
+          console.log("[ChatTray WebSocket] Received message:", {
+            type: msgType,
+            hasContent: !!content,
+            hasSources: !!data?.sources,
+            sourceCount: data?.sources?.length,
+            hasTimeline: !!data?.timeline,
+            timelineCount: data?.timeline?.length,
+            message_id: data?.message_id,
+            approval_decision: data?.approval_decision,
+            has_pending_tool_call: !!data?.pending_tool_call,
+          });
 
-        switch (msgType) {
-          case "ASYNC_START":
-            appendStreamingTokenToChat(content, data?.message_id);
-            break;
-          case "ASYNC_CONTENT":
-            appendStreamingTokenToChat(content, data?.message_id);
-            // Clear pending approval if agent resumes after approval decision
-            if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
-            ) {
-              setPendingApproval(null);
-              // Update the approval status of the message
-              updateMessageApprovalStatus(
-                pendingApproval.messageId,
-                "approved"
-              );
-            }
-            break;
-          case "ASYNC_THOUGHT":
-            appendThoughtToMessage(content, data);
-            break;
-          case "ASYNC_SOURCES":
-            mergeSourcesIntoMessage(data?.sources, data?.message_id);
-            break;
-          case "ASYNC_APPROVAL_NEEDED":
-            if (data?.pending_tool_call && data?.message_id) {
-              setPendingApproval({
-                messageId: data.message_id,
-                toolCall: data.pending_tool_call,
-              });
-              setShowApprovalModal(true);
-
-              // Update the message to show awaiting status
-              setChat((prev) =>
-                prev.map((msg) =>
-                  msg.messageId === data.message_id
-                    ? { ...msg, approvalStatus: "awaiting" as const }
-                    : msg
-                )
-              );
-              setServerMessages((prev) =>
-                prev.map((msg) =>
-                  msg.messageId === data.message_id
-                    ? { ...msg, approvalStatus: "awaiting" as const }
-                    : msg
-                )
-              );
-            }
-            break;
-          case "ASYNC_FINISH":
-            finalizeStreamingResponse(
-              content,
-              data?.sources,
-              data?.message_id,
-              data?.timeline
+          // Check if any message includes approval status update
+          if (data?.approval_decision && data?.message_id) {
+            updateMessageApprovalStatus(
+              data.message_id,
+              data.approval_decision as "approved" | "rejected"
             );
-            // Clear pending approval when streaming finishes (covers both approval and rejection cases)
-            if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
-            ) {
-              setPendingApproval(null);
-              // Update status based on the final content or metadata
-              if (data?.approval_decision) {
+          }
+
+          switch (msgType) {
+            case "ASYNC_START":
+              appendStreamingTokenToChat(content, data?.message_id);
+              break;
+            case "ASYNC_CONTENT":
+              appendStreamingTokenToChat(content, data?.message_id);
+              // Clear pending approval if agent resumes after approval decision
+              if (
+                pendingApproval &&
+                data?.message_id === pendingApproval.messageId
+              ) {
+                setPendingApproval(null);
+                // Update the approval status of the message
                 updateMessageApprovalStatus(
                   pendingApproval.messageId,
-                  data.approval_decision as "approved" | "rejected"
+                  "approved"
                 );
               }
+              break;
+            case "ASYNC_THOUGHT":
+              appendThoughtToMessage(content, data);
+              break;
+            case "ASYNC_SOURCES":
+              mergeSourcesIntoMessage(data?.sources, data?.message_id);
+              break;
+            case "ASYNC_APPROVAL_NEEDED":
+              if (data?.pending_tool_call && data?.message_id) {
+                setPendingApproval({
+                  messageId: data.message_id,
+                  toolCall: data.pending_tool_call,
+                });
+                setShowApprovalModal(true);
+
+                // Update the message to show awaiting status
+                setChat((prev) =>
+                  prev.map((msg) =>
+                    msg.messageId === data.message_id
+                      ? { ...msg, approvalStatus: "awaiting" as const }
+                      : msg
+                  )
+                );
+                setServerMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.messageId === data.message_id
+                      ? { ...msg, approvalStatus: "awaiting" as const }
+                      : msg
+                  )
+                );
+              }
+              break;
+            case "ASYNC_FINISH":
+              finalizeStreamingResponse(
+                content,
+                data?.sources,
+                data?.message_id,
+                data?.timeline
+              );
+              // Clear pending approval when streaming finishes (covers both approval and rejection cases)
+              if (
+                pendingApproval &&
+                data?.message_id === pendingApproval.messageId
+              ) {
+                setPendingApproval(null);
+                // Update status based on the final content or metadata
+                if (data?.approval_decision) {
+                  updateMessageApprovalStatus(
+                    pendingApproval.messageId,
+                    data.approval_decision as "approved" | "rejected"
+                  );
+                }
+              }
+              break;
+            case "ASYNC_ERROR":
+              // Set error state for the banner, but ALSO finalize the response
+              // with the error content so it appears as a chat message.
+              setWsError(data?.error || "Agent error");
+              finalizeStreamingResponse(
+                data?.error || "An unknown error occurred.",
+                [],
+                data?.message_id
+              );
+              break;
+            case "SYNC_CONTENT": {
+              // SYNC_CONTENT is for standalone messages that don't stream.
+              // Add it directly to the chat state.
+              setChat((prev) => [
+                ...prev,
+                {
+                  messageId: data?.message_id || `asst_${Date.now()}`,
+                  user: "Assistant",
+                  content: content,
+                  timestamp: new Date().toLocaleString(),
+                  isAssistant: true,
+                  isComplete: true,
+                },
+              ]);
+
+              const sourcesToPass =
+                data?.sources && Array.isArray(data.sources)
+                  ? data.sources
+                  : undefined;
+              const timelineToPass =
+                data?.timeline && Array.isArray(data.timeline)
+                  ? data.timeline
+                  : undefined;
+              console.log(
+                "[ChatTray WebSocket] SYNC_CONTENT sources:",
+                sourcesToPass,
+                "timeline:",
+                timelineToPass
+              );
+              handleCompleteMessage(
+                content,
+                sourcesToPass,
+                data?.message_id,
+                undefined,
+                timelineToPass
+              );
+              break;
             }
-            break;
-          case "ASYNC_ERROR":
-            // Set error state for the banner, but ALSO finalize the response
-            // with the error content so it appears as a chat message.
-            setWsError(data?.error || "Agent error");
-            finalizeStreamingResponse(
-              data?.error || "An unknown error occurred.",
-              [],
-              data?.message_id
-            );
-            break;
-          case "SYNC_CONTENT": {
-            // SYNC_CONTENT is for standalone messages that don't stream.
-            // Add it directly to the chat state.
-            setChat((prev) => [
-              ...prev,
-              {
-                messageId: data?.message_id || `asst_${Date.now()}`,
-                user: "Assistant",
-                content: content,
-                timestamp: new Date().toLocaleString(),
-                isAssistant: true,
-                isComplete: true,
-              },
-            ]);
-
-            const sourcesToPass =
-              data?.sources && Array.isArray(data.sources)
-                ? data.sources
-                : undefined;
-            const timelineToPass =
-              data?.timeline && Array.isArray(data.timeline)
-                ? data.timeline
-                : undefined;
-            console.log(
-              "[ChatTray WebSocket] SYNC_CONTENT sources:",
-              sourcesToPass,
-              "timeline:",
-              timelineToPass
-            );
-            handleCompleteMessage(
-              content,
-              sourcesToPass,
-              data?.message_id,
-              undefined,
-              timelineToPass
-            );
-            break;
+            default:
+              console.warn("Unknown message type:", msgType);
+              break;
           }
-          default:
-            console.warn("Unknown message type:", msgType);
-            break;
+        } catch (err) {
+          console.error("Failed to parse WS message:", err);
         }
-      } catch (err) {
-        console.error("Failed to parse WS message:", err);
-      }
+      };
+
+      newSocket.onclose = (event) => {
+        setWsReady(false);
+        console.warn("WebSocket closed:", event);
+      };
+
+      socketRef.current = newSocket;
     };
 
-    newSocket.onclose = (event) => {
-      setWsReady(false);
-      console.warn("WebSocket closed:", event);
-    };
-
-    socketRef.current = newSocket;
+    // Call async setup function
+    setupWebSocket();
 
     // Cleanup on unmount or conversation change
     return () => {
+      cancelled = true;
       if (socketRef.current) {
         socketRef.current.close();
         socketRef.current = null;
       }
     };
-  }, [auth_token, documentId, selectedConversationId, isNewChat]);
+  }, [documentId, selectedConversationId, isNewChat, corpusId]);
 
   /**
    * Load existing conversation by ID, clearing local state, then showing chat UI.

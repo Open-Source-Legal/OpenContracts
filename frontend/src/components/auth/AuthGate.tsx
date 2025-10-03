@@ -4,6 +4,10 @@ import { useReactiveVar } from "@apollo/client";
 import { authToken, authStatusVar, userObj } from "../../graphql/cache";
 import { toast } from "react-toastify";
 import { ModernLoadingDisplay } from "../widgets/ModernLoadingDisplay";
+import {
+  setAuth0TokenGetter,
+  clearAuth0TokenGetter,
+} from "../../utils/tokenManager";
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -51,8 +55,19 @@ export const AuthGate: React.FC<AuthGateProps> = ({
 
     // Auth0 has finished loading
     if (isAuthenticated && user) {
-      console.log("[AuthGate] User is authenticated, fetching access token...");
+      console.log("[AuthGate] User is authenticated, setting up Auth0...");
 
+      // Register the Auth0 token getter for use throughout the app
+      setAuth0TokenGetter(() =>
+        getAccessTokenSilently({
+          authorizationParams: {
+            audience: audience || undefined,
+            scope: "openid profile email",
+          },
+        })
+      );
+
+      // Fetch initial token to verify authentication and set user
       getAccessTokenSilently({
         authorizationParams: {
           audience: audience || undefined,
@@ -61,22 +76,16 @@ export const AuthGate: React.FC<AuthGateProps> = ({
       })
         .then((token) => {
           if (token) {
-            console.log("[AuthGate] Token obtained successfully");
-            // Set token first, then user, then status - all synchronously
+            console.log("[AuthGate] Initial token obtained successfully");
+            // Set token in cache for backward compatibility
             authToken(token);
             userObj(user);
             authStatusVar("AUTHENTICATED");
 
-            // Verify the token was set
-            const verifyToken = authToken();
-            console.log(
-              "[AuthGate] Token verified:",
-              verifyToken ? "Present" : "Missing"
-            );
-
             setAuthInitialized(true);
           } else {
             console.error("[AuthGate] No token received from Auth0");
+            clearAuth0TokenGetter();
             authToken("");
             userObj(null);
             authStatusVar("ANONYMOUS");
@@ -86,6 +95,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         })
         .catch((error) => {
           console.error("[AuthGate] Error getting access token:", error);
+          clearAuth0TokenGetter();
           authToken("");
           userObj(null);
           authStatusVar("ANONYMOUS");
@@ -95,6 +105,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     } else {
       // Not authenticated
       console.log("[AuthGate] User is not authenticated");
+      clearAuth0TokenGetter();
       authToken("");
       userObj(null);
       authStatusVar("ANONYMOUS");

@@ -80,6 +80,7 @@ import {
   TimelineEntry,
 } from "../widgets/chat/ChatMessage";
 import { getCorpusQueryWebSocket } from "../chat/get_websockets";
+import { getToken } from "../../utils/tokenManager";
 import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 
@@ -862,7 +863,9 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
    * otherwise close any existing socket.
    */
   useEffect(() => {
-    if (!auth_token || (!selectedConversationId && !isNewChat)) {
+    let cancelled = false;
+
+    if (!selectedConversationId && !isNewChat) {
       if (socketRef.current) {
         socketRef.current.close();
         socketRef.current = null;
@@ -871,139 +874,162 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       return;
     }
 
-    const wsUrl = getCorpusQueryWebSocket(
-      corpusId,
-      auth_token,
-      isNewChat ? undefined : selectedConversationId
-    );
-    const newSocket = new WebSocket(wsUrl);
+    // Async function to setup WebSocket with fresh token
+    const setupWebSocket = async () => {
+      // Get fresh token (Auth0: auto-refreshes if needed, non-Auth0: cached)
+      const token = await getToken();
 
-    newSocket.onopen = () => {
-      setWsReady(true);
-      setWsError(null);
-      console.log(
-        "WebSocket connected for corpus conversation:",
-        selectedConversationId
-      );
-    };
+      // Check if component unmounted during async operation
+      if (cancelled) return;
 
-    newSocket.onerror = (event) => {
-      setWsReady(false);
-      setWsError("Error connecting to the corpus WebSocket.");
-      console.error("WebSocket error:", event);
-    };
-
-    newSocket.onmessage = (event) => {
-      try {
-        const messageData: MessageData = JSON.parse(event.data);
-        if (!messageData) return;
-        const { type: msgType, content, data } = messageData;
-
-        console.log("[CorpusChat WebSocket] Received message:", {
-          type: msgType,
-          content,
-          hasContent: !!content,
-          hasSources: !!data?.sources,
-          sourceCount: data?.sources?.length,
-          hasTimeline: !!data?.timeline,
-          timelineCount: data?.timeline?.length,
-          message_id: data?.message_id,
-        });
-
-        switch (msgType) {
-          case "ASYNC_START":
-            setIsProcessing(true);
-            appendStreamingTokenToChat(content, data?.message_id);
-            break;
-          case "ASYNC_CONTENT":
-            appendStreamingTokenToChat(content, data?.message_id);
-            if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
-            ) {
-              setPendingApproval(null);
-            }
-            break;
-          case "ASYNC_THOUGHT":
-            appendThoughtToMessage(content, data);
-            break;
-          case "ASYNC_SOURCES":
-            mergeSourcesIntoMessage(data?.sources, data?.message_id);
-            break;
-          case "ASYNC_APPROVAL_NEEDED":
-            if (data?.pending_tool_call && data?.message_id) {
-              setPendingApproval({
-                messageId: data.message_id,
-                toolCall: data.pending_tool_call,
-              });
-              setShowApprovalModal(true);
-            }
-            break;
-          case "ASYNC_FINISH":
-            finalizeStreamingResponse(
-              content,
-              data?.sources,
-              data?.message_id,
-              data?.timeline
-            );
-            setIsProcessing(false);
-            if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
-            ) {
-              setPendingApproval(null);
-            }
-            break;
-          case "ASYNC_ERROR":
-            setWsError(data?.error || "Agent error");
-            finalizeStreamingResponse(
-              data?.error || "Error",
-              [],
-              data?.message_id
-            );
-            setIsProcessing(false);
-            break;
-          case "SYNC_CONTENT": {
-            const sourcesToPass =
-              data?.sources && Array.isArray(data.sources)
-                ? data.sources
-                : undefined;
-            const timelineToPass =
-              data?.timeline && Array.isArray(data.timeline)
-                ? data.timeline
-                : undefined;
-            handleCompleteMessage(
-              content,
-              sourcesToPass,
-              data?.message_id,
-              undefined,
-              timelineToPass
-            );
-            break;
-          }
-          default:
-            console.warn("Unknown message type:", msgType);
-            break;
+      // If no token available, don't proceed
+      if (!token) {
+        if (socketRef.current) {
+          socketRef.current.close();
+          socketRef.current = null;
         }
-      } catch (err) {
-        console.error("Failed to parse WS message:", err);
+        setWsReady(false);
+        return;
       }
+
+      const wsUrl = getCorpusQueryWebSocket(
+        corpusId,
+        token,
+        isNewChat ? undefined : selectedConversationId
+      );
+      const newSocket = new WebSocket(wsUrl);
+
+      newSocket.onopen = () => {
+        setWsReady(true);
+        setWsError(null);
+        console.log(
+          "WebSocket connected for corpus conversation:",
+          selectedConversationId
+        );
+      };
+
+      newSocket.onerror = (event) => {
+        setWsReady(false);
+        setWsError("Error connecting to the corpus WebSocket.");
+        console.error("WebSocket error:", event);
+      };
+
+      newSocket.onmessage = (event) => {
+        try {
+          const messageData: MessageData = JSON.parse(event.data);
+          if (!messageData) return;
+          const { type: msgType, content, data } = messageData;
+
+          console.log("[CorpusChat WebSocket] Received message:", {
+            type: msgType,
+            content,
+            hasContent: !!content,
+            hasSources: !!data?.sources,
+            sourceCount: data?.sources?.length,
+            hasTimeline: !!data?.timeline,
+            timelineCount: data?.timeline?.length,
+            message_id: data?.message_id,
+          });
+
+          switch (msgType) {
+            case "ASYNC_START":
+              setIsProcessing(true);
+              appendStreamingTokenToChat(content, data?.message_id);
+              break;
+            case "ASYNC_CONTENT":
+              appendStreamingTokenToChat(content, data?.message_id);
+              if (
+                pendingApproval &&
+                data?.message_id === pendingApproval.messageId
+              ) {
+                setPendingApproval(null);
+              }
+              break;
+            case "ASYNC_THOUGHT":
+              appendThoughtToMessage(content, data);
+              break;
+            case "ASYNC_SOURCES":
+              mergeSourcesIntoMessage(data?.sources, data?.message_id);
+              break;
+            case "ASYNC_APPROVAL_NEEDED":
+              if (data?.pending_tool_call && data?.message_id) {
+                setPendingApproval({
+                  messageId: data.message_id,
+                  toolCall: data.pending_tool_call,
+                });
+                setShowApprovalModal(true);
+              }
+              break;
+            case "ASYNC_FINISH":
+              finalizeStreamingResponse(
+                content,
+                data?.sources,
+                data?.message_id,
+                data?.timeline
+              );
+              setIsProcessing(false);
+              if (
+                pendingApproval &&
+                data?.message_id === pendingApproval.messageId
+              ) {
+                setPendingApproval(null);
+              }
+              break;
+            case "ASYNC_ERROR":
+              setWsError(data?.error || "Agent error");
+              finalizeStreamingResponse(
+                data?.error || "Error",
+                [],
+                data?.message_id
+              );
+              setIsProcessing(false);
+              break;
+            case "SYNC_CONTENT": {
+              const sourcesToPass =
+                data?.sources && Array.isArray(data.sources)
+                  ? data.sources
+                  : undefined;
+              const timelineToPass =
+                data?.timeline && Array.isArray(data.timeline)
+                  ? data.timeline
+                  : undefined;
+              handleCompleteMessage(
+                content,
+                sourcesToPass,
+                data?.message_id,
+                undefined,
+                timelineToPass
+              );
+              break;
+            }
+            default:
+              console.warn("Unknown message type:", msgType);
+              break;
+          }
+        } catch (err) {
+          console.error("Failed to parse WS message:", err);
+        }
+      };
+
+      newSocket.onclose = (event) => {
+        setWsReady(false);
+        console.warn("WebSocket closed:", event);
+      };
+
+      socketRef.current = newSocket;
     };
 
-    newSocket.onclose = (event) => {
-      setWsReady(false);
-      console.warn("WebSocket closed:", event);
-    };
-
-    socketRef.current = newSocket;
+    // Call async setup function
+    setupWebSocket();
 
     return () => {
+      cancelled = true;
       if (socketRef.current) {
         socketRef.current.close();
         socketRef.current = null;
       }
     };
-  }, [auth_token, corpusId, selectedConversationId, isNewChat]);
+  }, [corpusId, selectedConversationId, isNewChat]);
 
   // Force new chat mode when forceNewChat prop changes
   useEffect(() => {

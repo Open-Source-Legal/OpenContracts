@@ -7,10 +7,12 @@ import {
   ApolloProvider,
   createHttpLink,
   ApolloLink,
+  Observable,
 } from "@apollo/client";
-import { cache, authToken } from "./graphql/cache";
+import { cache } from "./graphql/cache";
 import { LooseObject } from "./components/types";
 import { getRuntimeEnv } from "./utils/env";
+import { getToken } from "./utils/tokenManager";
 import { HelmetProvider } from "react-helmet-async";
 
 import "./index.css";
@@ -31,17 +33,36 @@ console.log("OpenContracts is using Auth0: ", REACT_APP_USE_AUTH0);
 console.log("OpenContracts frontend target api root", api_root_url);
 
 const authLink = new ApolloLink((operation, forward) => {
-  // Get the token fresh on each request
-  operation.setContext(({ headers }: { headers: LooseObject }) => {
-    const token = authToken();
-    return {
-      headers: {
-        Authorization: token ? `Bearer ${token}` : "",
-        ...headers,
-      },
+  // Async link: fetch fresh token on each request
+  // For Auth0: calls getAccessTokenSilently() which auto-refreshes if needed
+  // For non-Auth0: returns cached token from reactive var
+  return new Observable((observer) => {
+    let handle: any;
+
+    getToken()
+      .then((token) => {
+        operation.setContext(({ headers }: { headers: LooseObject }) => ({
+          headers: {
+            Authorization: token ? `Bearer ${token}` : "",
+            ...headers,
+          },
+        }));
+
+        handle = forward(operation).subscribe({
+          next: observer.next.bind(observer),
+          error: observer.error.bind(observer),
+          complete: observer.complete.bind(observer),
+        });
+      })
+      .catch((error) => {
+        console.error("[authLink] Error getting token:", error);
+        observer.error(error);
+      });
+
+    return () => {
+      if (handle) handle.unsubscribe();
     };
   });
-  return forward(operation);
 });
 
 console.log("api_root_url", api_root_url);
