@@ -1,0 +1,135 @@
+# Desktop Compose Configuration
+# Optimized for desktop deployment using pre-built images
+# Based on local.yml but without development volumes and hot-reload
+#
+# NOTE: Currently uses local production images. Once images are published to ghcr.io
+# and made public, update image references to:
+# - ghcr.io/open-source-legal/opencontractserver_django:latest
+# - ghcr.io/open-source-legal/opencontractserver_postgres:latest
+
+volumes:
+  desktop_postgres_data: {}
+  desktop_postgres_data_backups: {}
+
+services:
+  migrate:
+    image: opencontractserver_production_django:latest
+    container_name: opencontracts_migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./.envs/.local/.django
+      - ./.envs/.local/.postgres
+    command: python manage.py migrate --noinput
+    restart: "no"
+
+  django: &django
+    image: opencontractserver_production_django:latest
+    container_name: opencontracts_django
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vector-embedder:
+        condition: service_started
+      docling-parser:
+        condition: service_started
+    env_file:
+      - ./.envs/.local/.django
+      - ./.envs/.local/.postgres
+    ports:
+      - "8000:5000"
+    command: /start
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health/')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    image: opencontractserver_production_postgres:latest
+    container_name: opencontracts_postgres
+    restart: unless-stopped
+    volumes:
+      - desktop_postgres_data:/var/lib/postgresql/data
+      - desktop_postgres_data_backups:/backups
+    env_file:
+      - ./.envs/.local/.postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: opencontracts_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  docling-parser:
+    image: jscrudato/docsling-local:latest
+    container_name: opencontracts_docling_parser
+    restart: unless-stopped
+
+  vector-embedder:
+    image: jscrudato/vector-embedder-microservice:latest
+    container_name: opencontracts_vector_embedder
+    restart: unless-stopped
+    environment:
+      PORT: 8000
+
+  celeryworker:
+    image: opencontractserver_production_django:latest
+    container_name: opencontracts_celeryworker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      docling-parser:
+        condition: service_started
+    env_file:
+      - ./.envs/.local/.django
+      - ./.envs/.local/.postgres
+    command: /start-celeryworker
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  celerybeat:
+    image: opencontractserver_production_django:latest
+    container_name: opencontracts_celerybeat
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      docling-parser:
+        condition: service_started
+    env_file:
+      - ./.envs/.local/.django
+      - ./.envs/.local/.postgres
+    command: /start-celerybeat
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/celerybeat.pid || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
