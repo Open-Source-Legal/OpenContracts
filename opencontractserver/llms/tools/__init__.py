@@ -5,8 +5,14 @@ This package provides framework-agnostic tools and framework-specific adapters.
 """
 
 from opencontractserver.llms.tools.core_tools import (
+    agenerate_annotation_hyperlink,
+    agenerate_corpus_hyperlink,
+    agenerate_document_hyperlink,
     aload_document_md_summary,
     aload_document_txt_extract,
+    generate_annotation_hyperlink,
+    generate_corpus_hyperlink,
+    generate_document_hyperlink,
     get_md_summary_token_length,
     get_note_content_token_length,
     get_notes_for_document_corpus,
@@ -31,6 +37,13 @@ __all__ = [
     "load_document_txt_extract",
     "aload_document_txt_extract",
     "aload_document_md_summary",
+    # Hyperlink generation tools
+    "generate_document_hyperlink",
+    "generate_annotation_hyperlink",
+    "generate_corpus_hyperlink",
+    "agenerate_document_hyperlink",
+    "agenerate_annotation_hyperlink",
+    "agenerate_corpus_hyperlink",
     # Factory and metadata
     "CoreTool",
     "ToolMetadata",

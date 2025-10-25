@@ -9,7 +9,9 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from opencontractserver.llms.agents.core_agents import SourceNode
 
-from opencontractserver.annotations.models import Note, NoteRevision
+from django.conf import settings
+
+from opencontractserver.annotations.models import Annotation, Note, NoteRevision
 from opencontractserver.corpuses.models import Corpus, CorpusDescriptionRevision
 from opencontractserver.documents.models import Document
 
@@ -1862,4 +1864,454 @@ async def aget_page_image(
         page_number=page_number,
         image_format=image_format,
         dpi=dpi,
+    )
+
+
+# ==============================================================================
+# Hyperlink Generation Tools
+# ==============================================================================
+
+
+def _get_base_url() -> str:
+    """Get frontend base URL from Django settings.
+
+    Returns:
+        Base URL for the frontend application.
+        Defaults to http://localhost:3000 if not configured.
+    """
+    return getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
+
+def _get_user_slug(user) -> str:
+    """Get slug or username from a user object.
+
+    Args:
+        user: Django user instance
+
+    Returns:
+        User slug if available, otherwise username
+
+    Raises:
+        ValueError: If user has neither slug nor username
+    """
+    if hasattr(user, "slug") and user.slug:
+        return user.slug
+    elif hasattr(user, "username") and user.username:
+        return user.username
+    else:
+        raise ValueError(f"User {user.id} has neither slug nor username")
+
+
+def _build_query_params(
+    annotation_ids: Optional[list[int]] = None,
+    analysis_ids: Optional[list[int]] = None,
+    extract_ids: Optional[list[int]] = None,
+    structural: bool = False,
+    selected_only: bool = False,
+    bounding_boxes: bool = False,
+    labels: str = "ON_HOVER",
+) -> str:
+    """Build query parameter string from parameters.
+
+    Only includes non-default values to keep URLs clean, following the
+    routing system convention from docs/frontend/routing_system.md.
+
+    Args:
+        annotation_ids: List of annotation IDs to select
+        analysis_ids: List of analysis IDs to show
+        extract_ids: List of extract IDs to show
+        structural: Show structural annotations
+        selected_only: Show only selected annotations
+        bounding_boxes: Show annotation bounding boxes
+        labels: Label display behavior (ALWAYS|ON_HOVER|HIDE)
+
+    Returns:
+        Query string with ? prefix, or empty string if no params
+    """
+    params = []
+
+    # Selection parameters
+    if annotation_ids:
+        params.append(f"ann={','.join(map(str, annotation_ids))}")
+    if analysis_ids:
+        params.append(f"analysis={','.join(map(str, analysis_ids))}")
+    if extract_ids:
+        params.append(f"extract={','.join(map(str, extract_ids))}")
+
+    # Visualization parameters (only add if non-default)
+    if structural:
+        params.append("structural=true")
+    if selected_only:
+        params.append("selectedOnly=true")
+    if bounding_boxes:
+        params.append("boundingBoxes=true")
+    if labels != "ON_HOVER":
+        params.append(f"labels={labels}")
+
+    return "?" + "&".join(params) if params else ""
+
+
+def generate_document_link(
+    document_id: int,
+    corpus_id: Optional[int] = None,
+    annotation_ids: Optional[list[int]] = None,
+    analysis_ids: Optional[list[int]] = None,
+    extract_ids: Optional[list[int]] = None,
+    structural: bool = False,
+    selected_only: bool = False,
+    bounding_boxes: bool = False,
+    labels: str = "ON_HOVER",
+    base_url: Optional[str] = None,
+) -> str:
+    """Generate a URL to view a document in the frontend.
+
+    Creates URLs following the centralized routing patterns from
+    docs/frontend/routing_system.md:
+    - Document in corpus: /d/{userSlug}/{corpusSlug}/{docSlug}
+    - Standalone document: /d/{userSlug}/{docSlug}
+
+    Args:
+        document_id: ID of the document to link to
+        corpus_id: Optional corpus context
+        annotation_ids: Optional list of annotation IDs to highlight
+        analysis_ids: Optional list of analysis IDs to show
+        extract_ids: Optional list of extract IDs to show
+        structural: Show structural annotations
+        selected_only: Show only selected annotations
+        bounding_boxes: Show bounding boxes
+        labels: Label display behavior (ALWAYS|ON_HOVER|HIDE)
+        base_url: Optional base URL override (defaults to settings.FRONTEND_URL)
+
+    Returns:
+        Full URL to the document view
+
+    Raises:
+        ValueError: If document doesn't exist or lacks required fields
+    """
+    # Fetch document with related creator
+    try:
+        document = Document.objects.select_related("creator").get(pk=document_id)
+    except Document.DoesNotExist:
+        raise ValueError(f"Document with id={document_id} does not exist")
+
+    # Verify document has slug
+    if (
+        not hasattr(document, "slug")
+        or document.slug is None
+        or not str(document.slug).strip()
+    ):
+        raise ValueError(f"Document {document_id} lacks slug field")
+
+    # Get user identifier
+    user_slug = _get_user_slug(document.creator)
+
+    # Build path based on corpus context
+    if corpus_id:
+        try:
+            corpus = Corpus.objects.select_related("creator").get(pk=corpus_id)
+        except Corpus.DoesNotExist:
+            raise ValueError(f"Corpus with id={corpus_id} does not exist")
+
+        if (
+            not hasattr(corpus, "slug")
+            or corpus.slug is None
+            or not str(corpus.slug).strip()
+        ):
+            raise ValueError(f"Corpus {corpus_id} lacks slug field")
+
+        # Document in corpus: /d/{user}/{corpus}/{doc}
+        path = f"/d/{user_slug}/{corpus.slug}/{document.slug}"
+    else:
+        # Standalone document: /d/{user}/{doc}
+        path = f"/d/{user_slug}/{document.slug}"
+
+    # Build query string
+    query = _build_query_params(
+        annotation_ids=annotation_ids,
+        analysis_ids=analysis_ids,
+        extract_ids=extract_ids,
+        structural=structural,
+        selected_only=selected_only,
+        bounding_boxes=bounding_boxes,
+        labels=labels,
+    )
+
+    # Construct full URL
+    base = base_url or _get_base_url()
+    return f"{base.rstrip('/')}{path}{query}"
+
+
+def generate_annotation_link(
+    annotation_id: int,
+    corpus_id: Optional[int] = None,
+    additional_annotation_ids: Optional[list[int]] = None,
+    structural: bool = True,
+    selected_only: bool = False,
+    bounding_boxes: bool = False,
+    labels: str = "ALWAYS",
+    base_url: Optional[str] = None,
+) -> str:
+    """Generate a URL to view an annotation in the frontend.
+
+    Looks up the annotation's document and generates a document link
+    with the annotation selected via query parameters. Uses sensible
+    defaults for annotation viewing (structural=True, labels=ALWAYS).
+
+    Args:
+        annotation_id: ID of the annotation to link to
+        corpus_id: Optional corpus context (if None, uses annotation's corpus)
+        additional_annotation_ids: Other annotation IDs to select alongside
+        structural: Show structural annotations (default True for annotations)
+        selected_only: Show only selected annotations
+        bounding_boxes: Show bounding boxes
+        labels: Label display behavior (default ALWAYS for annotations)
+        base_url: Optional base URL override
+
+    Returns:
+        Full URL to view the annotation
+
+    Raises:
+        ValueError: If annotation doesn't exist or lacks required fields
+    """
+    # Fetch annotation with related document and corpus
+    try:
+        annotation = Annotation.objects.select_related("document", "corpus").get(
+            pk=annotation_id
+        )
+    except Annotation.DoesNotExist:
+        raise ValueError(f"Annotation with id={annotation_id} does not exist")
+
+    # Use annotation's corpus if not explicitly specified
+    if corpus_id is None and annotation.corpus:
+        corpus_id = annotation.corpus.id
+
+    # Build annotation ID list
+    ann_ids = [annotation_id]
+    if additional_annotation_ids:
+        ann_ids.extend(additional_annotation_ids)
+
+    # Generate document link with annotation selected
+    return generate_document_link(
+        document_id=annotation.document.id,
+        corpus_id=corpus_id,
+        annotation_ids=ann_ids,
+        structural=structural,
+        selected_only=selected_only,
+        bounding_boxes=bounding_boxes,
+        labels=labels,
+        base_url=base_url,
+    )
+
+
+def generate_corpus_link(
+    corpus_id: int,
+    analysis_ids: Optional[list[int]] = None,
+    extract_ids: Optional[list[int]] = None,
+    base_url: Optional[str] = None,
+) -> str:
+    """Generate a URL to view a corpus in the frontend.
+
+    Creates URLs following the pattern: /c/{userSlug}/{corpusSlug}
+
+    Args:
+        corpus_id: ID of the corpus to link to
+        analysis_ids: Optional list of analysis IDs to show
+        extract_ids: Optional list of extract IDs to show
+        base_url: Optional base URL override
+
+    Returns:
+        Full URL to the corpus view
+
+    Raises:
+        ValueError: If corpus doesn't exist or lacks required fields
+    """
+    # Fetch corpus with related creator
+    try:
+        corpus = Corpus.objects.select_related("creator").get(pk=corpus_id)
+    except Corpus.DoesNotExist:
+        raise ValueError(f"Corpus with id={corpus_id} does not exist")
+
+    # Verify corpus has slug
+    if (
+        not hasattr(corpus, "slug")
+        or corpus.slug is None
+        or not str(corpus.slug).strip()
+    ):
+        raise ValueError(f"Corpus {corpus_id} lacks slug field")
+
+    # Get user identifier
+    user_slug = _get_user_slug(corpus.creator)
+
+    # Build path: /c/{user}/{corpus}
+    path = f"/c/{user_slug}/{corpus.slug}"
+
+    # Build query string (corpus view supports analysis and extract selection)
+    query = _build_query_params(analysis_ids=analysis_ids, extract_ids=extract_ids)
+
+    # Construct full URL
+    base = base_url or _get_base_url()
+    return f"{base.rstrip('/')}{path}{query}"
+
+
+def generate_document_hyperlink(
+    document_id: int,
+    corpus_id: Optional[int] = None,
+    link_text: Optional[str] = None,
+) -> str:
+    """Generate a markdown hyperlink to view a document.
+
+    This tool creates a markdown-formatted link that can be embedded in
+    LLM responses. The link opens the specified document in the OpenContracts
+    frontend interface.
+
+    Args:
+        document_id: The ID of the document to link to
+        corpus_id: Optional corpus context (shows document within corpus)
+        link_text: Custom text for the link (defaults to document title)
+
+    Returns:
+        Markdown formatted link like: [Document Title](URL)
+
+    Example:
+        >>> generate_document_hyperlink(42, corpus_id=1)
+        '[Contract Agreement](http://localhost:3000/d/john/my-corpus/contract)'
+
+    Raises:
+        ValueError: If document doesn't exist or lacks required fields
+    """
+    # Fetch document to get title
+    try:
+        document = Document.objects.get(pk=document_id)
+    except Document.DoesNotExist:
+        raise ValueError(f"Document with id={document_id} does not exist")
+
+    # Generate URL
+    url = generate_document_link(document_id=document_id, corpus_id=corpus_id)
+
+    # Determine link text
+    if link_text:
+        label = link_text
+    else:
+        label = document.title or f"Document #{document_id}"
+
+    return f"[{label}]({url})"
+
+
+def generate_annotation_hyperlink(
+    annotation_id: int,
+    link_text: Optional[str] = None,
+    include_structural: bool = True,
+) -> str:
+    """Generate a markdown hyperlink to view a specific annotation.
+
+    This tool creates a markdown-formatted link that opens the document
+    containing the annotation with the annotation highlighted and selected.
+    Uses sensible defaults optimized for annotation viewing (structural
+    annotations visible, labels always shown).
+
+    Args:
+        annotation_id: The ID of the annotation to link to
+        link_text: Custom text for the link (defaults to annotation text snippet)
+        include_structural: Whether to show structural annotations (default True)
+
+    Returns:
+        Markdown formatted link like: [Annotation Text...](URL)
+
+    Example:
+        >>> generate_annotation_hyperlink(123)
+        '[This clause specifies payment terms...](http://localhost:3000/...?ann=123)'
+
+    Raises:
+        ValueError: If annotation doesn't exist or lacks required fields
+    """
+    # Fetch annotation to get text
+    try:
+        annotation = Annotation.objects.get(pk=annotation_id)
+    except Annotation.DoesNotExist:
+        raise ValueError(f"Annotation with id={annotation_id} does not exist")
+
+    # Generate URL with annotation-optimized settings
+    url = generate_annotation_link(
+        annotation_id=annotation_id, structural=include_structural, labels="ALWAYS"
+    )
+
+    # Determine link text
+    if link_text:
+        label = link_text
+    else:
+        # Use annotation text, truncated to reasonable length
+        text = annotation.raw_text or f"Annotation #{annotation_id}"
+        label = text[:50] + "..." if len(text) > 50 else text
+
+    return f"[{label}]({url})"
+
+
+def generate_corpus_hyperlink(corpus_id: int, link_text: Optional[str] = None) -> str:
+    """Generate a markdown hyperlink to view a corpus.
+
+    This tool creates a markdown-formatted link that opens the specified
+    corpus in the OpenContracts frontend interface.
+
+    Args:
+        corpus_id: The ID of the corpus to link to
+        link_text: Custom text for the link (defaults to corpus title)
+
+    Returns:
+        Markdown formatted link like: [Corpus Title](URL)
+
+    Example:
+        >>> generate_corpus_hyperlink(1)
+        '[Legal Contracts 2024](http://localhost:3000/c/john/legal-contracts-2024)'
+
+    Raises:
+        ValueError: If corpus doesn't exist or lacks required fields
+    """
+    # Fetch corpus to get title
+    try:
+        corpus = Corpus.objects.get(pk=corpus_id)
+    except Corpus.DoesNotExist:
+        raise ValueError(f"Corpus with id={corpus_id} does not exist")
+
+    # Generate URL
+    url = generate_corpus_link(corpus_id=corpus_id)
+
+    # Determine link text
+    if link_text:
+        label = link_text
+    else:
+        label = corpus.title or f"Corpus #{corpus_id}"
+
+    return f"[{label}]({url})"
+
+
+async def agenerate_document_hyperlink(
+    document_id: int,
+    corpus_id: Optional[int] = None,
+    link_text: Optional[str] = None,
+) -> str:
+    """Async wrapper around :func:`generate_document_hyperlink`."""
+    return await _db_sync_to_async(generate_document_hyperlink)(
+        document_id=document_id, corpus_id=corpus_id, link_text=link_text
+    )
+
+
+async def agenerate_annotation_hyperlink(
+    annotation_id: int,
+    link_text: Optional[str] = None,
+    include_structural: bool = True,
+) -> str:
+    """Async wrapper around :func:`generate_annotation_hyperlink`."""
+    return await _db_sync_to_async(generate_annotation_hyperlink)(
+        annotation_id=annotation_id,
+        link_text=link_text,
+        include_structural=include_structural,
+    )
+
+
+async def agenerate_corpus_hyperlink(
+    corpus_id: int, link_text: Optional[str] = None
+) -> str:
+    """Async wrapper around :func:`generate_corpus_hyperlink`."""
+    return await _db_sync_to_async(generate_corpus_hyperlink)(
+        corpus_id=corpus_id, link_text=link_text
     )

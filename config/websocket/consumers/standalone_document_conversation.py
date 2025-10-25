@@ -169,33 +169,29 @@ class StandaloneDocumentQueryConsumer(AsyncWebsocketConsumer):
         """
         from opencontractserver.annotations.models import Embedding
 
-        # Extract document ID in async context before passing to sync function
         document_id = self.document.id
 
-        def get_embedder_paths():
-            """
-            Construct AND evaluate queryset in same DB connection to avoid
-            transaction isolation issues with database_sync_to_async.
-            """
-            return list(
-                Embedding.objects.filter(
-                    annotation__document_id=document_id,
-                    annotation__structural=True,
-                )
-                .values_list("embedder_path", flat=True)
-                .distinct()
-            )
+        # Use async iteration to query in the same transaction context
+        # This avoids transaction isolation issues with database_sync_to_async
+        embeddings = [
+            e
+            async for e in Embedding.objects.filter(
+                annotation__document_id=document_id,
+                annotation__structural=True,
+            ).only("embedder_path")
+        ]
 
-        paths = await database_sync_to_async(get_embedder_paths)()
+        # Get unique embedder paths
+        paths = list({e.embedder_path for e in embeddings})
 
         if paths:
             logger.info(
-                f"[Session {self.session_id}] Using existing embedder: {paths[0]} for Document {getattr(self, 'document_id', 'unknown')}"  # noqa: E501
+                f"[Session {self.session_id}] Using existing embedder: {paths[0]} for Document {document_id}"
             )
             return paths[0]
         else:
             logger.warning(
-                f"[Session {self.session_id}] No existing embedder found for Document {getattr(self, 'document_id', 'unknown')}, "  # noqa: E501
+                f"[Session {self.session_id}] No existing embedder found for Document {document_id}, "
                 f"falling back to DEFAULT_EMBEDDER: {settings.DEFAULT_EMBEDDER}"
             )
             return settings.DEFAULT_EMBEDDER
