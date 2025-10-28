@@ -13,7 +13,7 @@ django-stubs==4.2.7  # https://github.com/typeddjango/django-stubs
 pytest==8.4.2  # https://github.com/pytest-dev/pytest
 pytest-cov==7.0.0  # https://github.com/pytest-dev/pytest-cov
 pytest-sugar==1.1.1  # https://github.com/Frozenball/pytest-sugar
-djangorestframework-stubs==1.8.0  # https://github.com/typeddjango/djangorestframework-stubs
+djangorestframework-stubs==3.16.5  # https://github.com/typeddjango/djangorestframework-stubs
 responses==0.25.7  # https://github.com/getsentry/responses
 vcrpy==7.0.0
 
