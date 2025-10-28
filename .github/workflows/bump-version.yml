@@ -18,7 +18,7 @@ jobs:
 
     steps:
       # 📥 check out your code
-      - uses: actions/checkout@v5.0.0
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

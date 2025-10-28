@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Checkout Code Repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v5
 
       - name: Create Required Environment Files
         run: |

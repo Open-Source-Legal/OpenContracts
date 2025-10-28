@@ -33,7 +33,7 @@ jobs:
             platforms: linux/amd64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v5
 
       - name: Convert repository owner to lowercase
         id: repo

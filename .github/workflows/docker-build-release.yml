@@ -32,7 +32,7 @@ jobs:
             dockerfile: ./compose/production/traefik/Dockerfile
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
