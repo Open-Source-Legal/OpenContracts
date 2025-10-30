@@ -50,7 +50,7 @@ pdf2image
 tiktoken==0.12.0  # https://github.com/openai/tiktoken
 openai==1.102.0  # https://github.com/openai/openai-python
 pytesseract
-pydantic-ai==0.2.*
+pydantic-ai==1.9.*
 spacy
 
 # Data Processing Tools
