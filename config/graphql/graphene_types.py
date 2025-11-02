@@ -1592,3 +1592,86 @@ class UserBadgeType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "awarded_by",
             "corpus",
         )
+
+
+class NotificationType(DjangoObjectType):
+    """GraphQL type for notifications."""
+
+    class Meta:
+        from opencontractserver.notifications.models import Notification
+
+        model = Notification
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+        fields = (
+            "id",
+            "recipient",
+            "notification_type",
+            "message",
+            "conversation",
+            "actor",
+            "is_read",
+            "created_at",
+            "modified",
+            "data",
+        )
+        filter_fields = {
+            "is_read": ["exact"],
+            "notification_type": ["exact"],
+            "created_at": ["lte", "gte"],
+        }
+
+    def resolve_message(self, info):
+        """
+        Resolve message field with permission check.
+        Returns None if user doesn't have permission to view the message.
+        """
+        if not self.message:
+            return None
+
+        user = info.context.user if hasattr(info.context, "user") else None
+        if not user or not user.is_authenticated:
+            return None
+
+        # Check if user can access this message via visible_to_user
+        accessible_messages = ChatMessage.objects.filter(
+            id=self.message.id
+        ).visible_to_user(user)
+
+        if accessible_messages.exists():
+            return self.message
+        return None
+
+    def resolve_conversation(self, info):
+        """
+        Resolve conversation field with permission check.
+        Returns None if user doesn't have permission to view the conversation.
+        """
+        if not self.conversation:
+            return None
+
+        user = info.context.user if hasattr(info.context, "user") else None
+        if not user or not user.is_authenticated:
+            return None
+
+        # Check if user can access this conversation via visible_to_user
+        accessible_conversations = Conversation.objects.filter(
+            id=self.conversation.id
+        ).visible_to_user(user)
+
+        if accessible_conversations.exists():
+            return self.conversation
+        return None
+
+    def resolve_data(self, info):
+        """
+        Resolve data field. The data is stored as JSON and returned as-is.
+        Frontend must handle HTML escaping to prevent XSS.
+
+        Note: Content previews in data field come from message.content which is
+        user-generated. Frontend MUST escape this content before rendering.
+        """
+        # Data field is already JSON - no server-side sanitization needed
+        # as GraphQL's GenericScalar handles JSON serialization safely.
+        # XSS protection must be handled on frontend via proper escaping.
+        return self.data

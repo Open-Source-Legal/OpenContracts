@@ -16,19 +16,23 @@ The following sub-epics have been completed:
 2. **[#550](https://github.com/Open-Source-Legal/OpenContracts/issues/550)** - Epic: Voting System & Reputation
 3. **[#554](https://github.com/Open-Source-Legal/OpenContracts/issues/554)** - Create GraphQL mutations for voting with rate limiting
 4. **[#557](https://github.com/Open-Source-Legal/OpenContracts/issues/557)** - Create GraphQL mutations for moderation actions
+5. **[#558](https://github.com/Open-Source-Legal/OpenContracts/issues/558)** - Epic: Badge System
+6. **[#562](https://github.com/Open-Source-Legal/OpenContracts/issues/562)** - Epic: Notification System
 
 ## Current Implementation Status
 
 ### Backend: ✅ Complete
 
 The backend implementation is fully functional with:
-- Complete database models for threads, voting, reputation, and moderation
+- Complete database models for threads, voting, reputation, moderation, badges, and notifications
 - Comprehensive GraphQL API with mutations and queries
 - Robust permission system with corpus owners and designated moderators
 - Rate limiting to prevent abuse
-- Automatic reputation calculation via Django signals
+- Automatic reputation calculation and notification creation via Django signals
 - Soft delete functionality for reversible moderation
-- Extensive test coverage (6 test files, 80,000+ characters of tests)
+- Badge system with auto-awarding capabilities
+- Real-time notification system for all user interactions
+- Extensive test coverage (8 test files, 100,000+ characters of tests)
 
 ### Frontend: ⚠️ Not Yet Implemented
 
@@ -60,7 +64,26 @@ The frontend UI components have not been built yet. The backend API is ready to 
 - Complete audit trail of all moderation actions
 - Permission hierarchy: superusers > corpus owners > designated moderators > creators
 
-### 4. Rate Limiting
+### 4. Badge System
+
+- Global and corpus-specific badges
+- Manual and automatic badge awarding
+- Configurable criteria for auto-awards (reputation thresholds, contribution metrics)
+- Badge icons and customizable colors
+- Complete audit trail of badge awards and revocations
+- Integration with notification system
+
+### 5. Notification System
+
+- Real-time notifications for all user interactions
+- 14 notification types: replies, mentions, votes, badges, moderation actions, thread participation
+- @username mention detection with smart parsing
+- Configurable read/unread status
+- GraphQL API for managing notifications
+- Automatic cleanup via signal handlers
+- Rich notification context data
+
+### 6. Rate Limiting
 
 - Multi-level rate limiting to prevent abuse
 - Different limits for different operation types
@@ -76,18 +99,21 @@ This documentation is organized into the following sections:
 3. **[GraphQL API](./graphql_api.md)** - Mutations, queries, and type definitions
 4. **[Voting & Reputation](./voting_and_reputation.md)** - How voting and reputation scoring works
 5. **[Moderation System](./moderation.md)** - Moderator roles, permissions, and actions
-6. **[Testing](./testing.md)** - Test coverage and testing strategies
-7. **[Implementation Timeline](./implementation_timeline.md)** - What was built and when
+6. **[Notifications](./notifications.md)** - Notification system and user alerts
+7. **[Testing](./testing.md)** - Test coverage and testing strategies
+8. **[Implementation Timeline](./implementation_timeline.md)** - What was built and when
 
 ## Quick Links
 
 ### Key Backend Files
 
-- **Models**: `opencontractserver/conversations/models.py`
-- **Signals**: `opencontractserver/conversations/signals.py`
+- **Models**: `opencontractserver/conversations/models.py`, `opencontractserver/badges/models.py`, `opencontractserver/notifications/models.py`
+- **Signals**: `opencontractserver/conversations/signals.py`, `opencontractserver/notifications/signals.py`
 - **Thread Mutations**: `config/graphql/conversation_mutations.py`
 - **Voting Mutations**: `config/graphql/voting_mutations.py`
 - **Moderation Mutations**: `config/graphql/moderation_mutations.py`
+- **Badge Mutations**: `config/graphql/badge_mutations.py`
+- **Notification Mutations**: `config/graphql/notification_mutations.py`
 - **Queries**: `config/graphql/queries.py`
 - **Rate Limits**: `config/graphql/ratelimits.py`
 
@@ -99,6 +125,9 @@ This documentation is organized into the following sections:
 - `opencontractserver/tests/test_moderation.py`
 - `opencontractserver/tests/test_conversation_mutations_graphql.py`
 - `opencontractserver/tests/test_conversation_query.py`
+- `opencontractserver/tests/test_badges.py`
+- `opencontractserver/tests/test_notifications.py`
+- `opencontractserver/tests/test_notification_graphql.py`
 
 ## Development Guidelines
 
@@ -134,9 +163,6 @@ All contributions to this feature set followed these requirements:
 
 The following epics remain to be implemented:
 
-- **#555**: Epic: Moderation System (backend complete, UI pending)
-- **#558**: Epic: Badge System
-- **#562**: Epic: Notification System
 - **#565**: Epic: Corpus Engagement Metrics & Analytics
 - **#569**: Epic: Thread Search & Discovery
-- **#572**: Epic: Frontend UI Implementation
+- **#572**: Epic: Frontend UI Implementation (All backend features complete, ready for UI development)

@@ -69,6 +69,12 @@ from config.graphql.moderation_mutations import (
     UnpinThreadMutation,
     UpdateModeratorPermissionsMutation,
 )
+from config.graphql.notification_mutations import (
+    DeleteNotificationMutation,
+    MarkAllNotificationsReadMutation,
+    MarkNotificationReadMutation,
+    MarkNotificationUnreadMutation,
+)
 from config.graphql.ratelimits import (
     RateLimits,
     get_user_tier_rate,
@@ -3875,3 +3881,9 @@ class Mutation(graphene.ObjectType):
     # VOTING MUTATIONS ###########################################################
     vote_message = VoteMessageMutation.Field()
     remove_vote = RemoveVoteMutation.Field()
+
+    # NOTIFICATION MUTATIONS #####################################################
+    mark_notification_read = MarkNotificationReadMutation.Field()
+    mark_notification_unread = MarkNotificationUnreadMutation.Field()
+    mark_all_notifications_read = MarkAllNotificationsReadMutation.Field()
+    delete_notification = DeleteNotificationMutation.Field()

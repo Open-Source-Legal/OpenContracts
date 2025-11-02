@@ -11,6 +11,7 @@ from graphene.types.generic import GenericScalar
 from graphene_django.debug import DjangoDebug
 from graphene_django.fields import DjangoConnectionField
 from graphene_django.filter import DjangoFilterConnectionField
+from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
@@ -61,6 +62,7 @@ from config.graphql.graphene_types import (
     LabelSetType,
     MessageType,
     NoteType,
+    NotificationType,
     PageAwareAnnotationType,
     PdfPageInfoType,
     PipelineComponentsType,
@@ -89,6 +91,7 @@ from opencontractserver.corpuses.models import Corpus, CorpusAction, CorpusQuery
 from opencontractserver.documents.models import Document, DocumentRelationship
 from opencontractserver.extracts.models import Column, Datacell, Fieldset
 from opencontractserver.feedback.models import UserFeedback
+from opencontractserver.notifications.models import Notification
 from opencontractserver.pipeline.utils import (
     get_all_embedders,
     get_all_parsers,
@@ -1768,6 +1771,65 @@ class Query(graphene.ObjectType):
         """Resolve a single user badge by ID."""
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return UserBadge.objects.get(id=django_pk)
+
+    # NOTIFICATION QUERIES ########################################
+    notifications = DjangoFilterConnectionField(
+        NotificationType,
+        description="Get user's notifications (paginated and filterable)",
+    )
+    notification = relay.Node.Field(NotificationType)
+
+    unread_notification_count = graphene.Int(
+        description="Get count of unread notifications for the current user"
+    )
+
+    def resolve_notifications(self, info, **kwargs):
+        """
+        Resolve notifications for the current user.
+
+        Filters notifications to only show those belonging to the current user.
+        Supports filtering by is_read and notification_type via DjangoFilterConnectionField.
+        """
+        user = info.context.user
+        if not user or not user.is_authenticated:
+            return Notification.objects.none()
+
+        return (
+            Notification.objects.filter(recipient=user)
+            .select_related("actor", "message", "conversation", "recipient")
+            .order_by("-created_at")
+        )
+
+    def resolve_notification(self, info, **kwargs):
+        """
+        Resolve a single notification by ID.
+
+        Ensures user can only access their own notifications.
+        Returns consistent error to prevent IDOR enumeration.
+        """
+        user = info.context.user
+        if not user or not user.is_authenticated:
+            raise GraphQLError("Notification not found")
+
+        django_pk = from_global_id(kwargs.get("id", None))[1]
+
+        # Use try/except to catch DoesNotExist and return same error
+        # This prevents enumeration of valid notification IDs
+        try:
+            notification = Notification.objects.get(id=django_pk, recipient=user)
+        except Notification.DoesNotExist:
+            # Same error whether notification doesn't exist or belongs to another user
+            raise GraphQLError("Notification not found")
+
+        return notification
+
+    def resolve_unread_notification_count(self, info):
+        """Get count of unread notifications for the current user."""
+        user = info.context.user
+        if not user or not user.is_authenticated:
+            return 0
+
+        return Notification.objects.filter(recipient=user, is_read=False).count()
 
     # DEBUG FIELD ########################################
     if settings.ALLOW_GRAPHQL_DEBUG:
