@@ -80,6 +80,9 @@ import {
   editDocForm_Schema,
   editDocForm_Ui_Schema,
 } from "./components/forms/schemas";
+import { useBadgeNotifications } from "./hooks/useBadgeNotifications";
+import { useBadgeCelebration } from "./hooks/useBadgeCelebration";
+import { BadgeCelebrationModal } from "./components/badges/BadgeCelebrationModal";
 
 export const App = () => {
   const { REACT_APP_USE_AUTH0, REACT_APP_AUDIENCE } = useEnv();
@@ -142,6 +145,16 @@ export const App = () => {
       backendUserObj(null);
     }
   }, [isLoading, meData, meLoading, meError, auth_token]);
+
+  // Badge notification system
+  const { newBadges } = useBadgeNotifications(30000); // Poll every 30 seconds
+  const { showModal, currentBadge, closeModal } = useBadgeCelebration(
+    newBadges,
+    {
+      showToast: true,
+      showModal: true,
+    }
+  );
 
   // Set mobile-friendly display settings once when narrow viewport detected
   // CRITICAL: Don't include location/navigate in deps - causes infinite loop!
@@ -238,6 +251,18 @@ export const App = () => {
           />
         )}
       {show_cookie_modal ? <CookieConsentDialog /> : <></>}
+      {showModal && currentBadge && (
+        <BadgeCelebrationModal
+          badgeName={currentBadge.badgeName}
+          badgeDescription={currentBadge.badgeDescription}
+          badgeIcon={currentBadge.badgeIcon}
+          badgeColor={currentBadge.badgeColor}
+          isAutoAwarded={currentBadge.isAutoAwarded}
+          awardedBy={currentBadge.awardedBy}
+          onClose={closeModal}
+          onViewBadges={() => navigate("/badges")}
+        />
+      )}
       <ThemeProvider>
         <div
           style={{

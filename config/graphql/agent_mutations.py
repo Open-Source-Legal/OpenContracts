@@ -95,7 +95,7 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
 
                 # Check if user has permission for this corpus
                 if not user.is_superuser and not user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD
+                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
                 ):
                     return CreateAgentConfigurationMutation(
                         ok=False,
@@ -200,7 +200,7 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
 
             # Permission check
             if not user.is_superuser and not user_has_permission_for_obj(
-                user, agent, PermissionTypes.CRUD
+                user, agent, PermissionTypes.CRUD, include_group_permissions=True
             ):
                 return UpdateAgentConfigurationMutation(
                     ok=False,
@@ -271,7 +271,7 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
 
             # Permission check
             if not user.is_superuser and not user_has_permission_for_obj(
-                user, agent, PermissionTypes.CRUD
+                user, agent, PermissionTypes.CRUD, include_group_permissions=True
             ):
                 return DeleteAgentConfigurationMutation(
                     ok=False,

@@ -80,7 +80,7 @@ class CreateBadgeMutation(graphene.Mutation):
 
                 # Check if user has permission for this corpus
                 if not user.is_superuser and not user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD
+                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
                 ):
                     raise GraphQLError(
                         "You must be a corpus owner to create corpus-specific badges."
@@ -163,7 +163,7 @@ class UpdateBadgeMutation(graphene.Mutation):
 
             # Permission check
             if not user.is_superuser and not user_has_permission_for_obj(
-                user, badge, PermissionTypes.CRUD
+                user, badge, PermissionTypes.CRUD, include_group_permissions=True
             ):
                 raise GraphQLError("You do not have permission to update this badge.")
 
@@ -224,7 +224,7 @@ class DeleteBadgeMutation(graphene.Mutation):
 
             # Permission check
             if not user.is_superuser and not user_has_permission_for_obj(
-                user, badge, PermissionTypes.CRUD
+                user, badge, PermissionTypes.CRUD, include_group_permissions=True
             ):
                 raise GraphQLError("You do not have permission to delete this badge.")
 
@@ -283,7 +283,10 @@ class AwardBadgeMutation(graphene.Mutation):
             if badge.badge_type == "CORPUS" and badge.corpus:
                 # For corpus badges, check corpus permissions
                 if not awarder.is_superuser and not user_has_permission_for_obj(
-                    awarder, badge.corpus, PermissionTypes.CRUD
+                    awarder,
+                    badge.corpus,
+                    PermissionTypes.CRUD,
+                    include_group_permissions=True,
                 ):
                     raise GraphQLError(
                         "You must be a corpus owner/moderator to award this badge."
@@ -365,7 +368,10 @@ class RevokeBadgeMutation(graphene.Mutation):
             badge = user_badge.badge
             if badge.badge_type == "CORPUS" and badge.corpus:
                 if not user.is_superuser and not user_has_permission_for_obj(
-                    user, badge.corpus, PermissionTypes.CRUD
+                    user,
+                    badge.corpus,
+                    PermissionTypes.CRUD,
+                    include_group_permissions=True,
                 ):
                     raise GraphQLError(
                         "You must be a corpus owner/moderator to revoke this badge."

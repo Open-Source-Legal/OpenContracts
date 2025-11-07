@@ -1469,12 +1469,13 @@ The remaining issues (#578-580, #610-611, #621-623, #634) complete the discussio
 
 **Progression Summary**:
 1. **#634**: Backend agent/bot configuration (FOUNDATION - blocks #610, #611)
-2. **#578-580**: Supporting features (badges, analytics, search)
-3. **#610**: Display user & bot badges in conversations (depends on #634)
-4. **#611**: User profile page (depends on #634, #610)
-5. **#621**: Corpus integration with full-page thread routing
-6. **#622**: Document integration with sidebar discussions
-7. **#623**: Global discussions view + @ mentions
+2. **#612**: ✅ Badge notification system (COMPLETED)
+3. **#578-580**: Supporting features (badges, analytics, search)
+4. **#610**: Display user & bot badges in conversations (depends on #634)
+5. **#611**: User profile page (depends on #634, #610)
+6. **#621**: Corpus integration with full-page thread routing
+7. **#622**: Document integration with sidebar discussions
+8. **#623**: Global discussions view + @ mentions
 
 ---
 
@@ -1572,6 +1573,188 @@ The remaining issues (#578-580, #610-611, #621-623, #634) complete the discussio
 
 ---
 
+### ✅ Issue #612: Badge Notification System for Auto-Awarded Badges (COMPLETED)
+
+**Status**: ✅ Complete
+**Estimated**: 10-12 hours (Extra Large)
+**Completed**: [Current Date]
+
+**Scope**:
+Implemented a comprehensive badge notification system that provides immediate visual feedback when users earn badges through auto-award criteria or manual awards. The system includes:
+
+#### Components Created
+
+**1. `useBadgeNotifications` Hook** (`frontend/src/hooks/useBadgeNotifications.ts`)
+- Polls for BADGE notification types from backend
+- Detects newly awarded badges in real-time (30-second polling interval)
+- Filters out already-shown badges to prevent duplicates
+- Skips initial load to avoid showing old badge awards
+- Returns badge data: name, description, icon, color, award context
+
+**2. `BadgeToast` Component** (`frontend/src/components/badges/BadgeToast.tsx`)
+- Compact toast notification using react-toastify
+- Displays badge icon with custom color
+- Shows badge name and awarding context
+- Differentiates between auto-awarded and manual awards
+- Uses Lucide React icons with fallback to Award icon
+
+**3. `BadgeCelebrationModal` Component** (`frontend/src/components/badges/BadgeCelebrationModal.tsx`)
+- Full-screen celebration modal with rich animations
+- Framer Motion animations for entrance, icon spin, and sparkles
+- 6 sparkle animations around badge icon with staggered timing
+- Badge display: icon (120px), name, description, award message
+- "View Your Badges" button navigates to `/badges` route
+- Click-outside or close button to dismiss
+- Responsive design for mobile and desktop
+
+**4. `useBadgeCelebration` Hook** (`frontend/src/hooks/useBadgeCelebration.ts`)
+- Manages badge celebration state and queueing
+- Prevents duplicate celebrations using Set-based tracking
+- Queues multiple badges earned simultaneously
+- Configurable delays between showing badges (default: 500ms)
+- Shows toast for all badges, modal for significant badges (auto-awarded)
+- Options for toast duration, queue delay, enable/disable toast or modal
+
+**5. App Integration** (`frontend/src/App.tsx`)
+- Integrated badge notification system into main app
+- Polls every 30 seconds for new badge awards
+- Renders BadgeCelebrationModal when badges are earned
+- Navigation to `/badges` route on "View Your Badges" click
+
+#### Features
+
+**Real-Time Detection**:
+- Polling-based approach (30-second interval)
+- Uses existing GET_NOTIFICATIONS GraphQL query
+- Filters for BADGE notification type
+- Compatible with existing notification infrastructure
+
+**Visual Feedback**:
+- **Toast Notification**: Appears for all badge awards (top-right, 5s duration)
+- **Celebration Modal**: Full-screen modal for significant badges (auto-awarded)
+- **Animations**: Smooth entrance, icon spin, sparkle effects using Framer Motion
+- **Customizable Icons**: Uses Lucide React icon system with fallback
+
+**Queue Management**:
+- Handles multiple badges earned simultaneously
+- Prevents overwhelming user with notifications
+- Configurable delay between badge displays
+- Tracks shown badges to prevent duplicates
+- Persists across page navigation until dismissed
+
+**Award Context**:
+- Shows "You earned the [badge] badge!" for auto-awards
+- Shows "[username] awarded you the [badge] badge!" for manual awards
+- Displays badge description and achievement details
+
+#### Testing
+
+**Component Tests** (`frontend/tests/BadgeCelebration.ct.tsx`)
+- ✅ 10 comprehensive tests using Playwright Component Testing
+- BadgeCelebrationModal tests (6 tests):
+  - Renders with badge information
+  - Shows awarded by message for manual awards
+  - Calls onClose when close button clicked
+  - Calls onViewBadges when button clicked
+  - Displays badge icon
+  - Closes when clicking close button
+- BadgeToast tests (4 tests):
+  - Renders badge information in toast
+  - Shows awarded by message for manual awards
+  - Displays badge icon with correct color
+  - Handles unknown icon gracefully
+
+**All tests passing**: 10/10 passed in 6.9s
+
+#### Backend Integration
+
+The backend already had all necessary infrastructure:
+- `UserBadge` model for tracking badge awards
+- `create_badge_notification` signal handler creates notifications when badges are awarded
+- `check_auto_badges` Celery task for auto-awarding badges based on criteria
+- `GET_NOTIFICATIONS` GraphQL query returns badge notification data
+
+**Notification Data Structure**:
+```json
+{
+  "notificationType": "BADGE",
+  "data": {
+    "badge_id": "...",
+    "badge_name": "First Post",
+    "badge_description": "Made your first post",
+    "badge_icon": "Trophy",
+    "badge_color": "#05313d",
+    "is_auto_awarded": true
+  },
+  "actor": { "username": "..." } // Present for manual awards
+}
+```
+
+#### Technical Decisions
+
+**Why Polling Instead of WebSockets**:
+- Reuses existing NotificationBell polling infrastructure (30s interval)
+- Simpler implementation with no additional backend changes
+- Consistent with existing notification system
+- Near-real-time performance acceptable for badge awards
+
+**Why Separate Toast and Modal**:
+- Toast for all badges (non-intrusive, quick feedback)
+- Modal for significant achievements (celebration moment)
+- User can dismiss modal and continue working
+- Provides flexibility in notification intensity
+
+**Why Queue System**:
+- Prevents overwhelming user with multiple simultaneous notifications
+- Ensures user sees and appreciates each badge
+- Configurable delays allow tuning UX
+- Handles edge cases like earning multiple badges at once
+
+#### Acceptance Criteria
+
+- ✅ Toast notification appears when badge is auto-awarded
+- ✅ Celebration modal displays for significant badges
+- ✅ Animations are smooth and non-intrusive
+- ✅ Notifications don't spam user (debounced/queued)
+- ✅ Works in real-time (30-second polling)
+- ✅ User can dismiss notifications
+- ✅ Notifications persist across page navigation (until dismissed)
+- ✅ Backend event emission is reliable (signal-based)
+
+#### Files Changed
+
+**Created**:
+- `frontend/src/hooks/useBadgeNotifications.ts` - Badge detection hook
+- `frontend/src/hooks/useBadgeCelebration.ts` - Celebration state management
+- `frontend/src/components/badges/BadgeToast.tsx` - Toast component
+- `frontend/src/components/badges/BadgeCelebrationModal.tsx` - Modal component
+- `frontend/tests/BadgeCelebration.ct.tsx` - Component tests
+
+**Modified**:
+- `frontend/src/App.tsx` - Integrated badge celebration system
+
+#### Performance Considerations
+
+- Polling every 30 seconds (same as NotificationBell)
+- Set-based duplicate tracking (O(1) lookups)
+- Minimal re-renders using useState and useCallback
+- Animations use GPU-accelerated transforms
+- Toast notifications auto-close after 5 seconds
+- Modal animations use Framer Motion with spring physics
+
+#### Future Enhancements (Optional)
+
+- WebSocket support for instant notifications
+- Confetti animation library integration
+- Sound effects for badge awards
+- Badge tier system (bronze/silver/gold celebration intensity)
+- Social sharing of badge achievements
+- Badge award history timeline
+
+**Related Issues**: #558 (Badge System Epic), #572 (Social Features), Backend signal infrastructure already in place
+
+---
+
 ### ⏳ Issue #621: Forum-like Corpus Discussion View
 
 **Status**: ⏳ Pending (after #580)
@@ -1653,6 +1836,7 @@ v3.0.0.b3 (base)
       └─ feature/voting-ui-575 ✅ (committed)
          └─ feature/moderation-ui-576 ✅ (committed)
             └─ feature/notification-center-577 ✅ (committed)
+               ├─ feature/badge-notification-612 ✅ (COMPLETED - 1.5 days)
                ├─ feature/agent-configuration-634 ⏳ (2 days - NEXT, foundational)
                │  └─ feature/badge-display-610 ⏳ (1 day - depends on #634)
                │     └─ feature/user-profile-611 ⏳ (1.5 days - depends on #634, #610)
@@ -1667,12 +1851,13 @@ v3.0.0.b3 (base)
 **IMPORTANT**: Each branch builds on the previous issue's branch to maintain a clean dependency chain.
 
 **Key Dependencies**:
+- **#612 (Badge Notifications)** ✅ Complete - standalone feature, no dependencies
 - **#634 (Agent Configuration)** is foundational and should be implemented next
 - **#610 and #611** branch from #634 (not from #578) because they need agent data
 - **#578-580** can proceed in parallel with #634→#610→#611 track
 - **#621-623** are integration work that comes after all UI components are done
 
-**Total Remaining Effort**: ~26.5 days across 9 issues (#634, #578-580, #610-611, #621-623)
+**Total Remaining Effort**: ~25 days across 8 issues (#634, #578-580, #610-611, #621-623)
 
 ---
 
