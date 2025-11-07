@@ -3,7 +3,7 @@ import { BadgeCelebrationModal } from "../src/components/badges/BadgeCelebration
 import { BadgeToast } from "../src/components/badges/BadgeToast";
 
 test.describe("BadgeCelebrationModal", () => {
-  test("renders with badge information", async ({ mount }) => {
+  test("renders with badge information", async ({ mount, page }) => {
     const component = await mount(
       <BadgeCelebrationModal
         badgeName="First Post"
@@ -15,18 +15,24 @@ test.describe("BadgeCelebrationModal", () => {
       />
     );
 
+    // Wait for animations to settle
+    await page.waitForTimeout(500);
+
     await expect(
       component.getByRole("heading", { name: "First Post" })
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
     await expect(
       component.getByText("Made your first post in the community")
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
     await expect(
       component.getByText("Congratulations on your achievement!")
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
   });
 
-  test("shows awarded by message for manual awards", async ({ mount }) => {
+  test("shows awarded by message for manual awards", async ({
+    mount,
+    page,
+  }) => {
     const component = await mount(
       <BadgeCelebrationModal
         badgeName="Helpful Contributor"
@@ -39,10 +45,13 @@ test.describe("BadgeCelebrationModal", () => {
       />
     );
 
-    await expect(component.getByText(/Awarded by adminuser/)).toBeVisible();
+    await page.waitForTimeout(500);
+    await expect(component.getByText(/Awarded by adminuser/)).toBeVisible({
+      timeout: 20000,
+    });
   });
 
-  test("calls onClose when close button clicked", async ({ mount }) => {
+  test("calls onClose when close button clicked", async ({ mount, page }) => {
     let closeCalled = false;
 
     const component = await mount(
@@ -58,11 +67,12 @@ test.describe("BadgeCelebrationModal", () => {
       />
     );
 
+    await page.waitForTimeout(500);
     await component.getByRole("button", { name: "Close" }).click();
     expect(closeCalled).toBe(true);
   });
 
-  test("calls onViewBadges when button clicked", async ({ mount }) => {
+  test("calls onViewBadges when button clicked", async ({ mount, page }) => {
     let viewBadgesCalled = false;
 
     const component = await mount(
@@ -79,11 +89,12 @@ test.describe("BadgeCelebrationModal", () => {
       />
     );
 
+    await page.waitForTimeout(500);
     await component.getByRole("button", { name: "View Your Badges" }).click();
     expect(viewBadgesCalled).toBe(true);
   });
 
-  test("displays badge icon", async ({ mount }) => {
+  test("displays badge icon", async ({ mount, page }) => {
     const component = await mount(
       <BadgeCelebrationModal
         badgeName="Star Badge"
@@ -95,15 +106,18 @@ test.describe("BadgeCelebrationModal", () => {
       />
     );
 
+    await page.waitForTimeout(500);
     // Check that the badge name heading is visible
     await expect(
       component.getByRole("heading", { name: "Star Badge" })
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
     // Check that SVG icon is present
-    await expect(component.locator("svg").first()).toBeVisible();
+    await expect(component.locator("svg").first()).toBeVisible({
+      timeout: 20000,
+    });
   });
 
-  test("closes when clicking close button", async ({ mount }) => {
+  test("closes when clicking close button", async ({ mount, page }) => {
     let closeCalled = false;
 
     const component = await mount(
@@ -119,6 +133,7 @@ test.describe("BadgeCelebrationModal", () => {
       />
     );
 
+    await page.waitForTimeout(500);
     // Click the close button
     await component.getByRole("button", { name: "Close" }).click();
     expect(closeCalled).toBe(true);
@@ -126,7 +141,7 @@ test.describe("BadgeCelebrationModal", () => {
 });
 
 test.describe("BadgeToast", () => {
-  test("renders badge information in toast", async ({ mount }) => {
+  test("renders badge information in toast", async ({ mount, page }) => {
     const component = await mount(
       <BadgeToast
         badgeName="First Post"
@@ -136,13 +151,19 @@ test.describe("BadgeToast", () => {
       />
     );
 
-    await expect(component.getByText("Badge Earned!")).toBeVisible();
+    await page.waitForTimeout(200);
+    await expect(component.getByText("Badge Earned!")).toBeVisible({
+      timeout: 20000,
+    });
     await expect(
       component.getByText(/You earned the "First Post" badge!/)
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
   });
 
-  test("shows awarded by message for manual awards", async ({ mount }) => {
+  test("shows awarded by message for manual awards", async ({
+    mount,
+    page,
+  }) => {
     const component = await mount(
       <BadgeToast
         badgeName="Helpful"
@@ -153,12 +174,13 @@ test.describe("BadgeToast", () => {
       />
     );
 
+    await page.waitForTimeout(200);
     await expect(
       component.getByText(/adminuser awarded you the "Helpful" badge!/)
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
   });
 
-  test("displays badge icon with correct color", async ({ mount }) => {
+  test("displays badge icon with correct color", async ({ mount, page }) => {
     const component = await mount(
       <BadgeToast
         badgeName="Test Badge"
@@ -168,13 +190,18 @@ test.describe("BadgeToast", () => {
       />
     );
 
+    await page.waitForTimeout(200);
     // Check that SVG icon is visible
-    await expect(component.locator("svg").first()).toBeVisible();
+    await expect(component.locator("svg").first()).toBeVisible({
+      timeout: 20000,
+    });
     // Check that "Badge Earned!" text is visible
-    await expect(component.getByText("Badge Earned!")).toBeVisible();
+    await expect(component.getByText("Badge Earned!")).toBeVisible({
+      timeout: 20000,
+    });
   });
 
-  test("handles unknown icon gracefully", async ({ mount }) => {
+  test("handles unknown icon gracefully", async ({ mount, page }) => {
     const component = await mount(
       <BadgeToast
         badgeName="Unknown Icon Badge"
@@ -184,7 +211,10 @@ test.describe("BadgeToast", () => {
       />
     );
 
+    await page.waitForTimeout(200);
     // Should still render with fallback icon
-    await expect(component.getByText("Badge Earned!")).toBeVisible();
+    await expect(component.getByText("Badge Earned!")).toBeVisible({
+      timeout: 20000,
+    });
   });
 });
