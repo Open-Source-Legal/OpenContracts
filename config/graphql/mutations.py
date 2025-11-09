@@ -717,12 +717,17 @@ class AddDocumentsToCorpus(graphene.Mutation):
             required=True,
             description="List of ids of the docs to add to corpus.",
         )
+        path = graphene.String(
+            required=False,
+            default_value="",
+            description="Virtual folder path for the documents (e.g., '/contracts/2024/'). Defaults to root.",
+        )
 
     ok = graphene.Boolean()
     message = graphene.String()
 
     @login_required
-    def mutate(root, info, corpus_id, document_ids):
+    def mutate(root, info, corpus_id, document_ids, path=""):
         ok = False
         message = "Success"
 
@@ -738,7 +743,8 @@ class AddDocumentsToCorpus(graphene.Mutation):
                 Q(pk=from_global_id(corpus_id)[1])
                 & (Q(creator=user) | Q(is_public=True))
             )
-            corpus.documents.add(*doc_objs)
+            # Use the new helper method that supports paths
+            corpus.add_documents(doc_objs, path=path)
             ok = True
 
         except Exception as e:
@@ -779,8 +785,8 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
                 Q(pk=from_global_id(corpus_id)[1])
                 & (Q(creator=user) | Q(is_public=True))
             )
-            corpus_docs = corpus.documents.filter(pk__in=doc_pks)
-            corpus.documents.remove(*corpus_docs)
+            # Use the new helper method
+            corpus.remove_documents(doc_pks)
             ok = True
 
         except Exception as e:
@@ -788,6 +794,62 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
             ok = False
 
         return RemoveDocumentsFromCorpus(message=message, ok=ok)
+
+
+class SetDocumentPath(graphene.Mutation):
+    """
+    Set or update the virtual folder path for a document within a corpus.
+    """
+
+    class Arguments:
+        corpus_id = graphene.String(
+            required=True, description="ID of the corpus containing the document."
+        )
+        document_id = graphene.String(
+            required=True, description="ID of the document to update."
+        )
+        path = graphene.String(
+            required=True,
+            description="New virtual folder path (e.g., '/contracts/2024/').",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @login_required
+    def mutate(root, info, corpus_id, document_id, path):
+        ok = False
+        message = "Success"
+
+        try:
+            user = info.context.user
+            doc_pk = from_global_id(document_id)[1]
+            corpus = Corpus.objects.get(
+                Q(pk=from_global_id(corpus_id)[1])
+                & (Q(creator=user) | Q(is_public=True))
+            )
+
+            # Check if document is in corpus
+            if not corpus.documents.filter(pk=doc_pk).exists():
+                message = "Document is not in this corpus"
+                ok = False
+            else:
+                # Update path using helper method
+                association = corpus.set_document_path(doc_pk, path)
+                if association:
+                    ok = True
+                else:
+                    message = "Failed to update document path"
+                    ok = False
+
+        except Corpus.DoesNotExist:
+            message = "Corpus not found or access denied"
+            ok = False
+        except Exception as e:
+            message = f"Error updating path: {e}"
+            ok = False
+
+        return SetDocumentPath(message=message, ok=ok)
 
 
 class UpdateDocument(DRFMutation):
@@ -3768,6 +3830,7 @@ class Mutation(graphene.ObjectType):
     delete_corpus = DeleteCorpusMutation.Field()
     link_documents_to_corpus = AddDocumentsToCorpus.Field()
     remove_documents_from_corpus = RemoveDocumentsFromCorpus.Field()
+    set_document_path = SetDocumentPath.Field()
     create_corpus_action = CreateCorpusAction.Field()
     delete_corpus_action = DeleteCorpusAction.Field()
 

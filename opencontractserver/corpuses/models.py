@@ -48,6 +48,77 @@ def calculate_description_filepath(instance, filename):
     )
 
 
+class CorpusDocumentAssociation(django.db.models.Model):
+    """
+    Through model for Corpus-Document many-to-many relationship.
+    Adds virtual folder path information for organizing documents within a corpus.
+
+    The path field represents a virtual folder structure (e.g., "/contracts/2024/" or "" for root).
+    This allows documents to be organized differently across different corpuses without
+    requiring explicit folder objects.
+    """
+
+    corpus = django.db.models.ForeignKey(
+        "Corpus",
+        on_delete=django.db.models.CASCADE,
+        related_name="document_associations",
+    )
+    document = django.db.models.ForeignKey(
+        "documents.Document",
+        on_delete=django.db.models.CASCADE,
+        related_name="corpus_associations",
+    )
+    path = django.db.models.CharField(
+        max_length=1024,
+        default="",
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Virtual folder path for this document in the corpus. "
+            "Use forward slashes with leading/trailing slashes (e.g., '/folder/subfolder/'). "
+            "Empty string or '/' represents root level."
+        ),
+    )
+    created = django.db.models.DateTimeField(default=timezone.now)
+    modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
+
+    class Meta:
+        unique_together = ("corpus", "document")
+        indexes = [
+            django.db.models.Index(fields=["corpus", "path"]),
+            django.db.models.Index(fields=["document"]),
+            django.db.models.Index(fields=["path"]),
+            django.db.models.Index(fields=["created"]),
+        ]
+        ordering = ("path", "document__title")
+
+    def save(self, *args, **kwargs):
+        """Normalize path on save."""
+        # Normalize empty paths to empty string
+        if self.path in (None, "/"):
+            self.path = ""
+        # Ensure non-empty paths have proper format
+        elif self.path:
+            # Strip whitespace
+            self.path = self.path.strip()
+            # Ensure leading slash
+            if not self.path.startswith("/"):
+                self.path = "/" + self.path
+            # Ensure trailing slash
+            if not self.path.endswith("/"):
+                self.path = self.path + "/"
+
+        self.modified = timezone.now()
+        if not self.pk:
+            self.created = timezone.now()
+
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        path_display = self.path if self.path else "/"
+        return f"{self.corpus.title}: {self.document.title} @ {path_display}"
+
+
 class TemporaryFileHandle(django.db.models.Model):
     """
     This may seem useless, but lets us leverage django's infrastructure to support multiple
@@ -90,7 +161,12 @@ class Corpus(TreeNode):
     )
 
     # Documents and Labels in the Corpus
-    documents = django.db.models.ManyToManyField("documents.Document", blank=True)
+    documents = django.db.models.ManyToManyField(
+        "documents.Document",
+        blank=True,
+        through="CorpusDocumentAssociation",
+        related_name="corpuses_via_associations",
+    )
     label_set = django.db.models.ForeignKey(
         "annotations.LabelSet",
         null=True,
@@ -337,6 +413,226 @@ class Corpus(TreeNode):
             A tuple of (embedder path, embeddings list), or (None, None) on failure.
         """
         return generate_embeddings_from_text(text, corpus_id=self.pk)
+
+    # --------------------------------------------------------------------- #
+    # Document association helpers                                         #
+    # --------------------------------------------------------------------- #
+
+    def add_document(self, document, path=""):
+        """
+        Add a document to this corpus with an optional path.
+
+        Args:
+            document: Document instance or ID to add
+            path: Virtual folder path (e.g., "/contracts/2024/"). Defaults to root ("").
+
+        Returns:
+            CorpusDocumentAssociation instance
+        """
+        from opencontractserver.documents.models import Document
+
+        if isinstance(document, int):
+            document = Document.objects.get(pk=document)
+
+        association, created = CorpusDocumentAssociation.objects.get_or_create(
+            corpus=self, document=document, defaults={"path": path}
+        )
+
+        # Update path if association already exists but path differs
+        if not created and association.path != path:
+            association.path = path
+            association.save()
+
+        return association
+
+    def add_documents(self, documents, path=""):
+        """
+        Add multiple documents to this corpus with the same path.
+
+        Args:
+            documents: Iterable of Document instances or IDs
+            path: Virtual folder path for all documents. Defaults to root ("").
+
+        Returns:
+            List of CorpusDocumentAssociation instances
+        """
+        from opencontractserver.documents.models import Document
+
+        # Convert IDs to documents if needed
+        doc_objects = []
+        for doc in documents:
+            if isinstance(doc, int):
+                doc_objects.append(Document.objects.get(pk=doc))
+            else:
+                doc_objects.append(doc)
+
+        associations = []
+        for doc in doc_objects:
+            association = self.add_document(doc, path)
+            associations.append(association)
+
+        return associations
+
+    def remove_document(self, document):
+        """
+        Remove a document from this corpus.
+
+        Args:
+            document: Document instance or ID to remove
+
+        Returns:
+            bool: True if removed, False if not found
+        """
+        from opencontractserver.documents.models import Document
+
+        if isinstance(document, int):
+            document = Document.objects.get(pk=document)
+
+        deleted_count, _ = CorpusDocumentAssociation.objects.filter(
+            corpus=self, document=document
+        ).delete()
+
+        return deleted_count > 0
+
+    def remove_documents(self, documents):
+        """
+        Remove multiple documents from this corpus.
+
+        Args:
+            documents: Iterable of Document instances or IDs
+
+        Returns:
+            int: Number of associations deleted
+        """
+        from opencontractserver.documents.models import Document
+
+        # Convert to IDs
+        doc_ids = []
+        for doc in documents:
+            if isinstance(doc, int):
+                doc_ids.append(doc)
+            else:
+                doc_ids.append(doc.id)
+
+        deleted_count, _ = CorpusDocumentAssociation.objects.filter(
+            corpus=self, document_id__in=doc_ids
+        ).delete()
+
+        return deleted_count
+
+    def get_document_path(self, document):
+        """
+        Get the virtual folder path for a document in this corpus.
+
+        Args:
+            document: Document instance or ID
+
+        Returns:
+            str: Path string, or None if document not in corpus
+        """
+        from opencontractserver.documents.models import Document
+
+        if isinstance(document, int):
+            document_id = document
+        else:
+            document_id = document.id
+
+        try:
+            association = CorpusDocumentAssociation.objects.get(
+                corpus=self, document_id=document_id
+            )
+            return association.path
+        except CorpusDocumentAssociation.DoesNotExist:
+            return None
+
+    def set_document_path(self, document, path):
+        """
+        Update the virtual folder path for a document in this corpus.
+
+        Args:
+            document: Document instance or ID
+            path: New path string
+
+        Returns:
+            CorpusDocumentAssociation: Updated association, or None if not found
+        """
+        from opencontractserver.documents.models import Document
+
+        if isinstance(document, int):
+            document_id = document
+        else:
+            document_id = document.id
+
+        try:
+            association = CorpusDocumentAssociation.objects.get(
+                corpus=self, document_id=document_id
+            )
+            association.path = path
+            association.save()
+            return association
+        except CorpusDocumentAssociation.DoesNotExist:
+            return None
+
+    def get_documents_in_path(self, path="", recursive=False):
+        """
+        Get documents at a specific path in this corpus.
+
+        Args:
+            path: Virtual folder path. Defaults to root ("").
+            recursive: If True, include documents in subfolders
+
+        Returns:
+            QuerySet of Document instances
+        """
+        from opencontractserver.documents.models import Document
+
+        # Normalize path
+        if path in (None, "/"):
+            path = ""
+        elif path:
+            path = path.strip()
+            if not path.startswith("/"):
+                path = "/" + path
+            if not path.endswith("/"):
+                path = path + "/"
+
+        if recursive and path:
+            # Get all documents in this path and subpaths
+            associations = CorpusDocumentAssociation.objects.filter(
+                corpus=self, path__startswith=path
+            )
+        elif recursive:
+            # Get all documents in corpus
+            associations = CorpusDocumentAssociation.objects.filter(corpus=self)
+        else:
+            # Get only documents exactly in this path
+            associations = CorpusDocumentAssociation.objects.filter(
+                corpus=self, path=path
+            )
+
+        doc_ids = associations.values_list("document_id", flat=True)
+        return Document.objects.filter(id__in=doc_ids)
+
+    def get_folder_structure(self):
+        """
+        Get the complete folder structure for this corpus.
+
+        Returns:
+            dict: Dictionary with paths as keys and document counts as values
+        """
+        associations = CorpusDocumentAssociation.objects.filter(corpus=self).values(
+            "path"
+        )
+
+        # Count documents per path
+        from collections import defaultdict
+
+        path_counts = defaultdict(int)
+        for assoc in associations:
+            path = assoc["path"] or "/"
+            path_counts[path] += 1
+
+        return dict(path_counts)
 
     # --------------------------------------------------------------------- #
     # Label helper                                                         #

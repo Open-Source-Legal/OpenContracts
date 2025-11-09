@@ -31,6 +31,7 @@ from opencontractserver.corpuses.models import (
     Corpus,
     CorpusAction,
     CorpusDescriptionRevision,
+    CorpusDocumentAssociation,
     CorpusQuery,
 )
 from opencontractserver.documents.models import (
@@ -1106,6 +1107,20 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # Returns all revisions, ordered by version asc by default from model ordering
         return self.revisions.all() if hasattr(self, "revisions") else []
 
+    # Document associations with path information
+    document_associations = graphene.List(CorpusDocumentAssociationType)
+
+    def resolve_document_associations(self, info):
+        # Returns all document associations for this corpus
+        return self.document_associations.all() if hasattr(self, "document_associations") else []
+
+    # Folder structure as JSON
+    folder_structure = GenericScalar()
+
+    def resolve_folder_structure(self, info):
+        # Returns a dict with paths as keys and document counts as values
+        return self.get_folder_structure() if hasattr(self, "get_folder_structure") else {}
+
     class Meta:
         model = Corpus
         interfaces = [relay.Node]
@@ -1120,6 +1135,17 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return queryset.all().visible_to_user(info.context.user)
         else:
             return queryset
+
+
+class CorpusDocumentAssociationType(DjangoObjectType):
+    """
+    Represents a document's membership in a corpus with virtual folder path information.
+    """
+
+    class Meta:
+        model = CorpusDocumentAssociation
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
 
 
 class CorpusActionType(AnnotatePermissionsForReadMixin, DjangoObjectType):
