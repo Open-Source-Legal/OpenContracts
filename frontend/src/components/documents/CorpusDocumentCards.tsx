@@ -10,6 +10,7 @@ import useWindowDimensions from "../hooks/WindowDimensionHook";
 
 import { DocumentCards } from "../../components/documents/DocumentCards";
 import { DocumentMetadataGrid } from "../../components/documents/DocumentMetadataGrid";
+import { FolderTreeView } from "../../components/corpuses/FolderTreeView";
 
 import {
   selectedDocumentIds,
@@ -93,7 +94,7 @@ export const CorpusDocumentCards = ({
   const isMobile = width <= 768;
 
   const [viewMode, setViewMode] = useState<
-    "modern-card" | "modern-list" | "grid"
+    "modern-card" | "modern-list" | "grid" | "tree"
   >(isMobile ? "modern-list" : "modern-card");
 
   /**
@@ -275,6 +276,17 @@ export const CorpusDocumentCards = ({
               />
             }
           />
+          <Popup
+            content="Tree View"
+            trigger={
+              <ViewToggleButton
+                icon="folder open outline"
+                active={viewMode === "tree"}
+                onClick={() => setViewMode("tree")}
+                data-testid="tree-view-button"
+              />
+            }
+          />
         </Button.Group>
       </ViewToggleContainer>
 
@@ -289,7 +301,27 @@ export const CorpusDocumentCards = ({
           flexDirection: "column",
         }}
       >
-        {viewMode !== "grid" ? (
+        {viewMode === "tree" ? (
+          <div
+            style={{
+              paddingTop: "3.5rem",
+              height: "100%",
+              overflow: "auto",
+            }}
+          >
+            {openedCorpus() ? (
+              <FolderTreeView
+                corpus={openedCorpus()!}
+                documents={document_items}
+                loading={documents_loading}
+              />
+            ) : (
+              <div style={{ padding: "2rem", textAlign: "center" }}>
+                <p>No corpus selected. Please select a corpus to view its folder structure.</p>
+              </div>
+            )}
+          </div>
+        ) : viewMode !== "grid" ? (
           <DocumentCards
             items={document_items}
             loading={documents_loading}

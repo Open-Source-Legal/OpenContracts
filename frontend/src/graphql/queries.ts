@@ -741,6 +741,28 @@ export const GET_CORPUSES = gql`
             icon
             title
             description
+            slug
+            creator {
+              slug
+            }
+          }
+          children {
+            edges {
+              node {
+                id
+                slug
+                title
+                icon
+                description
+                myPermissions
+                creator {
+                  slug
+                }
+                documents {
+                  totalCount
+                }
+              }
+            }
           }
           annotations {
             totalCount
@@ -763,6 +785,92 @@ export const GET_CORPUSES = gql`
             docLabelCount
             spanLabelCount
             tokenLabelCount
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Query for fetching corpus tree structure (recursive)
+export interface GetCorpusTreeInputs {
+  corpusId?: string;
+  includeDocuments?: boolean;
+}
+
+export interface GetCorpusTreeOutputs {
+  corpus: CorpusType;
+}
+
+export const GET_CORPUS_TREE = gql`
+  query GetCorpusTree($corpusId: ID!, $includeDocuments: Boolean = false) {
+    corpus(id: $corpusId) {
+      id
+      slug
+      title
+      icon
+      description
+      myPermissions
+      isPublic
+      creator {
+        id
+        slug
+        username
+      }
+      parent {
+        id
+        slug
+        title
+        creator {
+          slug
+        }
+      }
+      children {
+        edges {
+          node {
+            id
+            slug
+            title
+            icon
+            description
+            myPermissions
+            creator {
+              slug
+            }
+            documents {
+              totalCount
+            }
+            children {
+              edges {
+                node {
+                  id
+                  slug
+                  title
+                  icon
+                  myPermissions
+                  documents {
+                    totalCount
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      documents @include(if: $includeDocuments) {
+        totalCount
+        edges {
+          node {
+            id
+            slug
+            title
+            description
+            fileType
+            icon
+            myPermissions
+            creator {
+              slug
+            }
           }
         }
       }
