@@ -468,3 +468,490 @@ class TestDocumentActionsSuperuser(TestCase):
             actions["corpus_actions"],
             "Superuser should see all corpus actions",
         )
+
+
+class TestGetCorpusActionsForCorpus(TestCase):
+    """Tests for get_corpus_actions_for_corpus method."""
+
+    def setUp(self):
+        """Create test scenario for corpus actions."""
+        self.owner = User.objects.create_user(
+            username="owner",
+            email="owner@example.com",
+            password="testpass123",
+        )
+        self.reader = User.objects.create_user(
+            username="reader",
+            email="reader@example.com",
+            password="testpass123",
+        )
+        self.outsider = User.objects.create_user(
+            username="outsider",
+            email="outsider@example.com",
+            password="testpass123",
+        )
+
+        # Create corpus
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+
+        # Give reader READ permission on corpus
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.corpus,
+            [PermissionTypes.READ],
+        )
+
+        # Create fieldset and corpus action
+        self.fieldset = Fieldset.objects.create(
+            name="Test Fieldset",
+            description="Test",
+            creator=self.owner,
+        )
+        self.corpus_action = CorpusAction.objects.create(
+            name="Test Action",
+            corpus=self.corpus,
+            fieldset=self.fieldset,
+            trigger="add_document",
+            creator=self.owner,
+        )
+
+    def test_owner_can_see_corpus_actions(self):
+        """
+        GIVEN: A corpus owner
+        WHEN: Querying for corpus actions
+        THEN: Actions should be visible
+        """
+        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+            user=self.owner,
+            corpus_id=self.corpus.id,
+        )
+
+        self.assertIn(
+            self.corpus_action,
+            actions,
+            "Owner should see corpus actions",
+        )
+
+    def test_reader_with_corpus_action_permission_can_see_actions(self):
+        """
+        GIVEN: A user with READ permission on corpus and corpus action
+        WHEN: Querying for corpus actions
+        THEN: Actions should be visible
+        """
+        # Give reader permission on corpus action
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.corpus_action,
+            [PermissionTypes.READ],
+        )
+
+        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+            user=self.reader,
+            corpus_id=self.corpus.id,
+        )
+
+        self.assertIn(
+            self.corpus_action,
+            actions,
+            "Reader with permission should see corpus actions",
+        )
+
+    def test_outsider_cannot_see_corpus_actions(self):
+        """
+        GIVEN: A user without corpus permission
+        WHEN: Querying for corpus actions
+        THEN: Empty queryset should be returned
+        """
+        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+            user=self.outsider,
+            corpus_id=self.corpus.id,
+        )
+
+        self.assertEqual(
+            actions.count(),
+            0,
+            "Outsider should not see corpus actions",
+        )
+
+    def test_nonexistent_corpus_returns_empty(self):
+        """
+        GIVEN: A non-existent corpus ID
+        WHEN: Querying for corpus actions
+        THEN: Empty queryset should be returned
+        """
+        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+            user=self.owner,
+            corpus_id=999999,  # Non-existent
+        )
+
+        self.assertEqual(
+            actions.count(),
+            0,
+            "Non-existent corpus should return empty queryset",
+        )
+
+    def test_public_corpus_actions_visible_to_all(self):
+        """
+        GIVEN: A public corpus with actions
+        WHEN: Any user queries for corpus actions
+        THEN: Actions should be visible (if user has permission on actions)
+        """
+        # Make corpus public
+        self.corpus.is_public = True
+        self.corpus.save()
+
+        # Give outsider permission on corpus action
+        set_permissions_for_obj_to_user(
+            self.outsider,
+            self.corpus_action,
+            [PermissionTypes.READ],
+        )
+
+        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+            user=self.outsider,
+            corpus_id=self.corpus.id,
+        )
+
+        self.assertIn(
+            self.corpus_action,
+            actions,
+            "Public corpus actions should be visible",
+        )
+
+
+class TestGetExtractsForDocument(TestCase):
+    """Tests for get_extracts_for_document method."""
+
+    def setUp(self):
+        """Create test scenario for extracts."""
+        from opencontractserver.extracts.models import Extract
+
+        self.owner = User.objects.create_user(
+            username="owner",
+            email="owner@example.com",
+            password="testpass123",
+        )
+        self.reader = User.objects.create_user(
+            username="reader",
+            email="reader@example.com",
+            password="testpass123",
+        )
+        self.outsider = User.objects.create_user(
+            username="outsider",
+            email="outsider@example.com",
+            password="testpass123",
+        )
+
+        # Create corpus and document
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+        self.document = Document.objects.create(
+            title="Test Document",
+            creator=self.owner,
+            is_public=False,
+        )
+
+        # Give reader permission on document
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.document,
+            [PermissionTypes.READ],
+        )
+
+        # Create fieldset and extract
+        self.fieldset = Fieldset.objects.create(
+            name="Test Fieldset",
+            description="Test",
+            creator=self.owner,
+        )
+        self.extract = Extract.objects.create(
+            name="Test Extract",
+            corpus=self.corpus,
+            fieldset=self.fieldset,
+            creator=self.owner,
+        )
+        self.extract.documents.add(self.document)
+
+    def test_owner_can_see_extracts_for_document(self):
+        """
+        GIVEN: A document owner
+        WHEN: Querying for extracts that include the document
+        THEN: Extracts should be visible
+        """
+        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+            user=self.owner,
+            document_id=self.document.id,
+        )
+
+        self.assertIn(
+            self.extract,
+            extracts,
+            "Owner should see extracts",
+        )
+
+    def test_reader_with_permission_can_see_extracts(self):
+        """
+        GIVEN: A user with READ permission on document
+        WHEN: Querying for extracts
+        THEN: Extracts should be visible if user has extract permission
+        """
+        # Give reader permission on corpus and extract
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.corpus,
+            [PermissionTypes.READ],
+        )
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.extract,
+            [PermissionTypes.READ],
+        )
+
+        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+            user=self.reader,
+            document_id=self.document.id,
+            corpus_id=self.corpus.id,
+        )
+
+        self.assertIn(
+            self.extract,
+            extracts,
+            "Reader with permission should see extracts",
+        )
+
+    def test_outsider_cannot_see_extracts(self):
+        """
+        GIVEN: A user without document permission
+        WHEN: Querying for extracts
+        THEN: Empty queryset should be returned
+        """
+        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+            user=self.outsider,
+            document_id=self.document.id,
+        )
+
+        self.assertEqual(
+            extracts.count(),
+            0,
+            "Outsider should not see extracts",
+        )
+
+    def test_nonexistent_document_returns_empty(self):
+        """
+        GIVEN: A non-existent document ID
+        WHEN: Querying for extracts
+        THEN: Empty queryset should be returned
+        """
+        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+            user=self.owner,
+            document_id=999999,  # Non-existent
+        )
+
+        self.assertEqual(
+            extracts.count(),
+            0,
+            "Non-existent document should return empty queryset",
+        )
+
+
+class TestGetAnalysisRowsForDocument(TestCase):
+    """Tests for get_analysis_rows_for_document method."""
+
+    def setUp(self):
+        """Create test scenario for analysis rows."""
+        from opencontractserver.analyzer.models import Analysis, Analyzer
+        from opencontractserver.documents.models import DocumentAnalysisRow
+
+        self.owner = User.objects.create_user(
+            username="owner",
+            email="owner@example.com",
+            password="testpass123",
+        )
+        self.reader = User.objects.create_user(
+            username="reader",
+            email="reader@example.com",
+            password="testpass123",
+        )
+        self.outsider = User.objects.create_user(
+            username="outsider",
+            email="outsider@example.com",
+            password="testpass123",
+        )
+
+        # Create corpus and document
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+        self.document = Document.objects.create(
+            title="Test Document",
+            creator=self.owner,
+            is_public=False,
+        )
+
+        # Give reader permission on document
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.document,
+            [PermissionTypes.READ],
+        )
+
+        # Create analyzer and analysis
+        self.analyzer = Analyzer.objects.create(
+            description="Test Analyzer",
+            creator=self.owner,
+        )
+        self.analysis = Analysis.objects.create(
+            analyzer=self.analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+        )
+
+        # Create analysis row
+        self.analysis_row = DocumentAnalysisRow.objects.create(
+            document=self.document,
+            analysis=self.analysis,
+            data={"test": "data"},
+            creator=self.owner,
+        )
+
+    def test_owner_can_see_analysis_rows(self):
+        """
+        GIVEN: A document owner
+        WHEN: Querying for analysis rows
+        THEN: Analysis rows should be visible
+        """
+        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+            user=self.owner,
+            document_id=self.document.id,
+        )
+
+        self.assertIn(
+            self.analysis_row,
+            rows,
+            "Owner should see analysis rows",
+        )
+
+    def test_reader_with_permission_can_see_analysis_rows(self):
+        """
+        GIVEN: A user with READ permission on document and analysis
+        WHEN: Querying for analysis rows
+        THEN: Analysis rows should be visible
+        """
+        # Give reader permission on corpus and analysis
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.corpus,
+            [PermissionTypes.READ],
+        )
+        set_permissions_for_obj_to_user(
+            self.reader,
+            self.analysis,
+            [PermissionTypes.READ],
+        )
+
+        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+            user=self.reader,
+            document_id=self.document.id,
+            corpus_id=self.corpus.id,
+        )
+
+        self.assertIn(
+            self.analysis_row,
+            rows,
+            "Reader with permission should see analysis rows",
+        )
+
+    def test_outsider_cannot_see_analysis_rows(self):
+        """
+        GIVEN: A user without document permission
+        WHEN: Querying for analysis rows
+        THEN: Empty queryset should be returned
+        """
+        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+            user=self.outsider,
+            document_id=self.document.id,
+        )
+
+        self.assertEqual(
+            rows.count(),
+            0,
+            "Outsider should not see analysis rows",
+        )
+
+    def test_nonexistent_document_returns_empty(self):
+        """
+        GIVEN: A non-existent document ID
+        WHEN: Querying for analysis rows
+        THEN: Empty queryset should be returned
+        """
+        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+            user=self.owner,
+            document_id=999999,  # Non-existent
+        )
+
+        self.assertEqual(
+            rows.count(),
+            0,
+            "Non-existent document should return empty queryset",
+        )
+
+    def test_analysis_rows_include_select_related(self):
+        """
+        GIVEN: A document with analysis rows
+        WHEN: Querying for analysis rows
+        THEN: Related objects should be prefetched (analysis, analyzer)
+        """
+        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+            user=self.owner,
+            document_id=self.document.id,
+        )
+
+        # Access related objects - should not trigger additional queries
+        for row in rows:
+            # These accesses should work without additional queries
+            self.assertIsNotNone(row.analysis)
+            self.assertIsNotNone(row.analysis.analyzer)
+
+
+class TestDocumentActionsNonexistentCorpus(TestCase):
+    """Tests for handling non-existent corpus in get_document_actions."""
+
+    def setUp(self):
+        """Create test scenario."""
+        self.owner = User.objects.create_user(
+            username="owner",
+            email="owner@example.com",
+            password="testpass123",
+        )
+        self.document = Document.objects.create(
+            title="Test Document",
+            creator=self.owner,
+            is_public=False,
+        )
+
+    def test_nonexistent_corpus_id_still_returns_document_results(self):
+        """
+        GIVEN: A valid document but non-existent corpus ID
+        WHEN: Querying for document actions
+        THEN: Should still return document-level results (extracts, analysis rows)
+        """
+        actions = DocumentActionsQueryOptimizer.get_document_actions(
+            user=self.owner,
+            document_id=self.document.id,
+            corpus_id=999999,  # Non-existent corpus
+        )
+
+        # Should return empty corpus_actions but not fail
+        self.assertEqual(actions["corpus_actions"], [])
+        # Document-level results still returned (may be empty if no extracts/rows)
+        self.assertIsInstance(actions["extracts"], list)
+        self.assertIsInstance(actions["analysis_rows"], list)

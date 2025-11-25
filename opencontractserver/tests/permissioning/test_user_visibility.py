@@ -413,3 +413,207 @@ class TestUserSearchForMention(TestCase):
         self.assertEqual(
             results.count(), 0, "Anonymous users cannot search for mentions"
         )
+
+    def test_none_user_cannot_search(self):
+        """
+        GIVEN: None passed as user
+        WHEN: Attempting to search for mentions
+        THEN: Empty queryset is returned
+        """
+        results = UserQueryOptimizer.get_users_for_mention(None, "alice")
+
+        self.assertEqual(results.count(), 0, "None user cannot search for mentions")
+
+    def test_search_with_no_text_returns_all_visible(self):
+        """
+        GIVEN: No text search provided
+        WHEN: Searching for mentions
+        THEN: Returns all visible users (up to limit)
+        """
+        results = UserQueryOptimizer.get_users_for_mention(self.searcher)
+
+        # Should return visible users (searcher and alice are visible)
+        self.assertIn(self.searcher, results, "Searcher should be visible")
+        self.assertIn(self.alice, results, "Public alice should be visible")
+
+    def test_search_respects_limit(self):
+        """
+        GIVEN: A limit parameter
+        WHEN: Searching for mentions
+        THEN: Results should not exceed the limit
+        """
+        results = UserQueryOptimizer.get_users_for_mention(
+            self.searcher, text_search=None, corpus_id=None, limit=1
+        )
+
+        self.assertLessEqual(len(list(results)), 1, "Results should respect limit")
+
+
+class TestUserVisibilityIncludeSelf(TestCase):
+    """Tests for the include_self parameter in get_visible_users."""
+
+    def setUp(self):
+        """Create test users."""
+        self.user = User.objects.create_user(
+            username="testuser",
+            email="test@example.com",
+            password="testpass123",
+            is_profile_public=False,  # Private profile
+        )
+
+    def test_include_self_true_returns_own_profile(self):
+        """
+        GIVEN: A user with a private profile
+        WHEN: Querying with include_self=True (default)
+        THEN: User's own profile should be included
+        """
+        visible_users = UserQueryOptimizer.get_visible_users(
+            self.user, include_self=True
+        )
+
+        self.assertIn(
+            self.user,
+            visible_users,
+            "User should see themselves with include_self=True",
+        )
+
+    def test_include_self_false_excludes_own_profile(self):
+        """
+        GIVEN: A user with a private profile
+        WHEN: Querying with include_self=False
+        THEN: User's own profile should NOT be included
+        """
+        visible_users = UserQueryOptimizer.get_visible_users(
+            self.user, include_self=False
+        )
+
+        self.assertNotIn(
+            self.user,
+            visible_users,
+            "User should NOT see themselves with include_self=False",
+        )
+
+
+class TestUserVisibilityCorpusFilter(TestCase):
+    """Tests for corpus_id filtering in get_visible_users."""
+
+    def setUp(self):
+        """Create test scenario with corpus membership."""
+        self.corpus_owner = User.objects.create_user(
+            username="corpusowner",
+            email="owner@example.com",
+            password="testpass123",
+        )
+        self.corpus_member = User.objects.create_user(
+            username="corpusmember",
+            email="member@example.com",
+            password="testpass123",
+        )
+        self.non_member = User.objects.create_user(
+            username="nonmember",
+            email="nonmember@example.com",
+            password="testpass123",
+            is_profile_public=True,  # Public but not in corpus
+        )
+
+        # Create corpus
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus",
+            creator=self.corpus_owner,
+        )
+
+        # Give corpus_member UPDATE permission
+        set_permissions_for_obj_to_user(
+            self.corpus_member,
+            self.corpus,
+            [PermissionTypes.READ, PermissionTypes.UPDATE],
+        )
+
+    def test_corpus_filter_returns_corpus_members(self):
+        """
+        GIVEN: A corpus with members
+        WHEN: Querying with corpus_id filter
+        THEN: Only corpus members should be returned
+        """
+        visible_users = UserQueryOptimizer.get_visible_users(
+            self.corpus_owner, corpus_id=self.corpus.id
+        )
+
+        self.assertIn(
+            self.corpus_owner,
+            visible_users,
+            "Corpus owner should be visible",
+        )
+        self.assertIn(
+            self.corpus_member,
+            visible_users,
+            "Corpus member should be visible",
+        )
+
+    def test_corpus_filter_excludes_non_members(self):
+        """
+        GIVEN: A user who is NOT a corpus member (but has public profile)
+        WHEN: Querying with corpus_id filter
+        THEN: Non-member should NOT be in results (filtered by corpus scope)
+        """
+        visible_users = UserQueryOptimizer.get_visible_users(
+            self.corpus_owner, corpus_id=self.corpus.id
+        )
+
+        self.assertNotIn(
+            self.non_member,
+            visible_users,
+            "Non-member should NOT be visible with corpus filter",
+        )
+
+    def test_corpus_filter_nonexistent_corpus(self):
+        """
+        GIVEN: A non-existent corpus ID
+        WHEN: Querying with that corpus_id
+        THEN: Should handle gracefully (only return self if include_self=True)
+        """
+        visible_users = UserQueryOptimizer.get_visible_users(
+            self.corpus_owner, corpus_id=999999  # Non-existent
+        )
+
+        # Should still include self
+        self.assertIn(
+            self.corpus_owner,
+            visible_users,
+            "User should see themselves even with invalid corpus_id",
+        )
+
+    def test_corpus_filter_includes_corpus_creator(self):
+        """
+        GIVEN: A corpus with a creator
+        WHEN: Querying with corpus_id filter
+        THEN: Corpus creator should be included
+        """
+        visible_users = UserQueryOptimizer.get_visible_users(
+            self.corpus_member, corpus_id=self.corpus.id
+        )
+
+        self.assertIn(
+            self.corpus_owner,
+            visible_users,
+            "Corpus creator should be visible to members",
+        )
+
+    def test_search_for_mention_with_corpus_id(self):
+        """
+        GIVEN: A corpus with members
+        WHEN: Searching for mentions with corpus_id
+        THEN: Only corpus members matching search should be returned
+        """
+        results = UserQueryOptimizer.get_users_for_mention(
+            self.corpus_owner,
+            text_search="corpus",
+            corpus_id=self.corpus.id,
+        )
+
+        # corpus_member and corpus_owner should match "corpus" in username
+        usernames = [u.username for u in results]
+        self.assertTrue(
+            any("corpus" in u for u in usernames),
+            "Should find users matching 'corpus' in corpus scope",
+        )

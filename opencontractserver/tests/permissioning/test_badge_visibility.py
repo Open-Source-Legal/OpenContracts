@@ -458,3 +458,170 @@ class TestSuperuserBadgeVisibility(TestCase):
             visible_badges,
             "Superusers should see all badges",
         )
+
+
+class TestGetBadgesForUser(TestCase):
+    """Tests for the get_badges_for_user convenience method."""
+
+    def setUp(self):
+        """Create test scenario for get_badges_for_user tests."""
+        self.public_user = User.objects.create_user(
+            username="public_badge_holder",
+            email="public@example.com",
+            password="testpass123",
+            is_profile_public=True,
+        )
+        self.private_user = User.objects.create_user(
+            username="private_badge_holder",
+            email="private@example.com",
+            password="testpass123",
+            is_profile_public=False,
+        )
+        self.viewer = User.objects.create_user(
+            username="viewer",
+            email="viewer@example.com",
+            password="testpass123",
+        )
+
+        # Create badges
+        self.global_badge = Badge.objects.create(
+            name="Global Achievement",
+            description="A global badge",
+            icon="Star",
+            creator=self.public_user,
+        )
+
+        # Create corpus and corpus-specific badge
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus",
+            creator=self.viewer,
+            is_public=False,
+        )
+        self.corpus_badge = Badge.objects.create(
+            name="Corpus Achievement",
+            description="A corpus-specific badge",
+            icon="Trophy",
+            badge_type="CORPUS",
+            corpus=self.corpus,
+            creator=self.viewer,
+        )
+
+        # Award badges to public user
+        self.global_badge_award = UserBadge.objects.create(
+            user=self.public_user,
+            badge=self.global_badge,
+        )
+        self.corpus_badge_award = UserBadge.objects.create(
+            user=self.public_user,
+            badge=self.corpus_badge,
+            corpus=self.corpus,
+        )
+
+        # Award badge to private user
+        self.private_badge_award = UserBadge.objects.create(
+            user=self.private_user,
+            badge=self.global_badge,
+        )
+
+    def test_get_badges_for_visible_user(self):
+        """
+        GIVEN: A visible user (public profile) with badges
+        WHEN: Viewer queries for that user's badges
+        THEN: Badges should be returned
+        """
+        badges = BadgeQueryOptimizer.get_badges_for_user(
+            self.viewer, self.public_user.id
+        )
+
+        self.assertIn(
+            self.global_badge_award,
+            badges,
+            "Should return badges for visible user",
+        )
+
+    def test_get_badges_for_invisible_user_returns_empty(self):
+        """
+        GIVEN: An invisible user (private profile, no shared corpus)
+        WHEN: Viewer queries for that user's badges
+        THEN: Empty queryset should be returned
+        """
+        badges = BadgeQueryOptimizer.get_badges_for_user(
+            self.viewer, self.private_user.id
+        )
+
+        self.assertEqual(
+            badges.count(),
+            0,
+            "Should return empty for invisible user",
+        )
+
+    def test_get_badges_for_user_excludes_corpus_badges(self):
+        """
+        GIVEN: A user with both global and corpus-specific badges
+        WHEN: Querying with include_corpus_badges=False
+        THEN: Only global badges should be returned
+        """
+        badges = BadgeQueryOptimizer.get_badges_for_user(
+            self.viewer,
+            self.public_user.id,
+            include_corpus_badges=False,
+        )
+
+        self.assertIn(
+            self.global_badge_award,
+            badges,
+            "Global badges should be included",
+        )
+        self.assertNotIn(
+            self.corpus_badge_award,
+            badges,
+            "Corpus badges should be excluded when include_corpus_badges=False",
+        )
+
+    def test_get_badges_for_user_includes_corpus_badges_by_default(self):
+        """
+        GIVEN: A user with both global and corpus-specific badges
+        WHEN: Querying with default include_corpus_badges=True
+        THEN: Both types of badges should be returned
+        """
+        # Give viewer permission to the corpus first
+        set_permissions_for_obj_to_user(
+            self.viewer,
+            self.corpus,
+            [PermissionTypes.READ],
+        )
+
+        badges = BadgeQueryOptimizer.get_badges_for_user(
+            self.viewer, self.public_user.id
+        )
+
+        self.assertIn(
+            self.global_badge_award,
+            badges,
+            "Global badges should be included",
+        )
+        self.assertIn(
+            self.corpus_badge_award,
+            badges,
+            "Corpus badges should be included by default",
+        )
+
+    def test_get_badges_for_user_ordered_by_awarded_at(self):
+        """
+        GIVEN: A user with multiple badges
+        WHEN: Querying for badges
+        THEN: Results should be ordered by awarded_at descending
+        """
+        badges = BadgeQueryOptimizer.get_badges_for_user(
+            self.viewer, self.public_user.id
+        )
+
+        badges_list = list(badges)
+        if len(badges_list) >= 2:
+            # Verify descending order by awarded_at
+            for i in range(len(badges_list) - 1):
+                self.assertGreaterEqual(
+                    badges_list[i].awarded_at,
+                    badges_list[i + 1].awarded_at,
+                    "Badges should be ordered by awarded_at descending",
+                )
