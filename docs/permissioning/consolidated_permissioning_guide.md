@@ -12,6 +12,10 @@
 
 > **🟡 ANONYMOUS USER SUPPORT**: Anonymous users can access public resources with read-only permissions. Document AND corpus must both be `is_public=True` for access. Applies to documents, corpuses, conversations, analyses (public only), and annotations.
 
+> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. See `UserQueryOptimizer` in `opencontractserver/users/query_optimizer.py`.
+
+> **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeQueryOptimizer` in `opencontractserver/badges/query_optimizer.py`.
+
 ## Key Changes in Current Implementation
 
 | Component | Old Model | New Model | Impact |
@@ -26,6 +30,9 @@
 | **Analysis Privacy** | All annotations visible with doc+corpus perms | Annotations created by analysis are private | Enhanced privacy control |
 | **Extract Privacy** | All annotations visible with doc+corpus perms | Annotations created by extract are private | Enhanced privacy control |
 | **Anonymous Access** | Not supported | Read-only access to public resources | Public corpus support |
+| **User Profile Privacy** | All users visible | Privacy via `is_profile_public` + corpus membership | Profile privacy control |
+| **Badge Visibility** | All badges visible | Follows recipient's profile privacy | Badge privacy control |
+| **Document Actions** | Inline permission checks | `DocumentActionsQueryOptimizer` | Centralized least-privilege |
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -35,11 +42,13 @@
 5. [Backend Implementation](#backend-implementation)
 6. [Frontend Implementation](#frontend-implementation)
 7. [Annotation Permission Inheritance](#annotation-permission-inheritance)
-8. [Performance Optimizations](#performance-optimizations)
-9. [Component Integration](#component-integration)
-10. [Testing](#testing)
-11. [Troubleshooting](#troubleshooting)
-12. [resolve_oc_model_queryset Deprecation](#resolve_oc_model_queryset-deprecation)
+8. [User Profile and Badge Visibility](#user-profile-and-badge-visibility)
+9. [Document Actions Permissions](#document-actions-permissions)
+10. [Performance Optimizations](#performance-optimizations)
+11. [Component Integration](#component-integration)
+12. [Testing](#testing)
+13. [Troubleshooting](#troubleshooting)
+14. [resolve_oc_model_queryset Deprecation](#resolve_oc_model_queryset-deprecation)
 
 ## Overview
 
@@ -765,6 +774,253 @@ def migrate_existing_analysis_annotations(apps, schema_editor):
         created_by_analysis_id=models.F('analysis_id')
     )
 ```
+
+## User Profile and Badge Visibility
+
+### Overview
+
+User profiles and badge awards have privacy controls that follow a consistent visibility model. This ensures that private user information is only visible to appropriate audiences.
+
+### User Profile Privacy
+
+User profiles have a `is_profile_public` boolean field that controls visibility:
+
+**Visibility Rules:**
+1. **Own Profile**: Always visible regardless of privacy setting
+2. **Public Profiles** (`is_profile_public=True`): Visible to all authenticated users
+3. **Private Profiles** (`is_profile_public=False`): Only visible via corpus membership with > READ permission
+4. **Inactive Users** (`is_active=False`): Never visible (except to superusers)
+5. **Anonymous Users**: Can only see public profiles
+
+**Corpus Membership Visibility:**
+Private profiles become visible to users who share a corpus where the private user has more than READ permission (i.e., CREATE, UPDATE, or DELETE). This ensures collaborators who are actively contributing to a corpus can see each other.
+
+### Implementation: UserQueryOptimizer
+
+The `UserQueryOptimizer` class in `opencontractserver/users/query_optimizer.py` provides centralized user visibility logic:
+
+```python
+from opencontractserver.users.query_optimizer import UserQueryOptimizer
+
+# Get all users visible to the requesting user
+visible_users = UserQueryOptimizer.get_visible_users(requesting_user)
+
+# Check if a specific user is visible
+is_visible = UserQueryOptimizer.check_user_visibility(requesting_user, target_user_id)
+
+# Search for users (for @mention autocomplete)
+results = UserQueryOptimizer.get_users_for_mention(requesting_user, search_text="alice")
+```
+
+**Key Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_visible_users(user)` | All users visible to the requesting user | QuerySet |
+| `check_user_visibility(user, target_id)` | Check if specific user is visible | bool |
+| `get_users_for_mention(user, search_text)` | Search users for @mention (authenticated only) | QuerySet |
+
+### Badge Visibility
+
+Badge awards (`UserBadge` model) follow the recipient's profile privacy rules:
+
+**Visibility Rules:**
+1. **Own Badges**: Always visible regardless of recipient's profile privacy
+2. **Badges of Public Users**: Visible to all authenticated users
+3. **Badges of Private Users**: Visible only if recipient's profile is visible (via corpus membership)
+4. **Corpus-Specific Badges**: Visible only to users with access to that corpus
+5. **Anonymous Users**: Can only see badges of public users
+
+### Implementation: BadgeQueryOptimizer
+
+The `BadgeQueryOptimizer` class in `opencontractserver/badges/query_optimizer.py` provides centralized badge visibility logic:
+
+```python
+from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+
+# Get all badge awards visible to the requesting user
+visible_badges = BadgeQueryOptimizer.get_visible_user_badges(requesting_user)
+
+# Check visibility of a specific badge award (IDOR-safe)
+has_permission, badge_obj = BadgeQueryOptimizer.check_user_badge_visibility(
+    requesting_user, user_badge_id
+)
+
+# Get badges for a specific user (respects privacy)
+user_badges = BadgeQueryOptimizer.get_badges_for_user(requesting_user, target_user_id)
+```
+
+**Key Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_visible_user_badges(user)` | All badge awards visible to user | QuerySet |
+| `check_user_badge_visibility(user, badge_id)` | Check specific badge visibility (IDOR-safe) | tuple(bool, UserBadge or None) |
+| `get_badges_for_user(user, target_user_id)` | Get visible badges for a specific user | QuerySet |
+
+### IDOR Protection
+
+Both optimizers implement IDOR protection by returning the same response whether an object doesn't exist or the user lacks permission:
+
+```python
+# IDOR-safe check - same response for non-existent or inaccessible
+has_permission, badge = BadgeQueryOptimizer.check_user_badge_visibility(user, badge_id)
+if not has_permission:
+    return None  # Same response whether badge doesn't exist or user can't see it
+```
+
+### GraphQL Resolver Integration
+
+The following GraphQL resolvers use these optimizers:
+
+| Resolver | Optimizer | Description |
+|----------|-----------|-------------|
+| `resolve_user_by_slug` | `UserQueryOptimizer` | Get user by slug with privacy check |
+| `resolve_search_users_for_mention` | `UserQueryOptimizer` | Search users for @mention |
+| `resolve_user_badges` | `BadgeQueryOptimizer` | List visible badge awards |
+| `resolve_user_badge` | `BadgeQueryOptimizer` | Get single badge by ID |
+
+### Testing
+
+Comprehensive tests are available in:
+- `opencontractserver/tests/permissioning/test_user_visibility.py` - 16 tests for user visibility
+- `opencontractserver/tests/permissioning/test_badge_visibility.py` - 13 tests for badge visibility
+
+---
+
+## Document Actions Permissions
+
+### Overview
+
+Document actions (corpus actions, extracts, and analysis rows) follow the least-privilege model where effective permissions are the minimum of document and corpus permissions.
+
+### Permission Model
+
+**Formula:** `Effective Permission = MIN(document_permission, corpus_permission)`
+
+This ensures:
+- Users cannot access document-related data beyond their document permissions
+- Corpus permissions provide additional restrictions, not expansions
+- Consistent permission behavior across all document-related objects
+
+### Implementation: DocumentActionsQueryOptimizer
+
+The `DocumentActionsQueryOptimizer` class in `opencontractserver/documents/query_optimizer.py` provides centralized permission logic for document-related queries:
+
+```python
+from opencontractserver.documents.query_optimizer import DocumentActionsQueryOptimizer
+
+# Get all actions/extracts/analyses for a document
+result = DocumentActionsQueryOptimizer.get_document_actions(
+    user=requesting_user,
+    document_id=document_id,
+    corpus_id=corpus_id  # Optional
+)
+# Returns: {"corpus_actions": [...], "extracts": [...], "analysis_rows": [...]}
+
+# Get corpus actions for a corpus
+corpus_actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+    user=requesting_user,
+    corpus_id=corpus_id
+)
+
+# Get extracts that include a document
+extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+    user=requesting_user,
+    document_id=document_id,
+    corpus_id=corpus_id  # Optional
+)
+
+# Get analysis rows for a document
+analysis_rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+    user=requesting_user,
+    document_id=document_id,
+    corpus_id=corpus_id  # Optional
+)
+```
+
+**Key Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_document_actions(user, doc_id, corpus_id)` | All actions/extracts/analyses for document | dict |
+| `get_corpus_actions_for_corpus(user, corpus_id)` | Corpus actions for a corpus | QuerySet |
+| `get_extracts_for_document(user, doc_id, corpus_id)` | Extracts including a document | QuerySet |
+| `get_analysis_rows_for_document(user, doc_id, corpus_id)` | Analysis rows for a document | QuerySet |
+
+### Permission Checking
+
+The optimizer includes internal permission checking methods:
+
+```python
+# Internal methods (called automatically)
+_check_document_permission(user, document) -> bool
+_check_corpus_permission(user, corpus) -> bool
+```
+
+**Access is granted if any of:**
+- User is superuser
+- Object is public (`is_public=True`)
+- User is the creator
+- User has explicit READ permission (via django-guardian)
+
+### Integration with Other Optimizers
+
+The `DocumentActionsQueryOptimizer` leverages other query optimizers for consistent permission filtering:
+
+- **ExtractQueryOptimizer**: Used for filtering visible extracts
+- **AnalysisQueryOptimizer**: Used for filtering visible analyses
+
+```python
+# Example: How get_document_actions uses other optimizers
+def get_document_actions(cls, user, document_id, corpus_id=None):
+    # 1. Check document permission
+    if not cls._check_document_permission(user, document):
+        return empty_result
+
+    # 2. Check corpus permission (if provided)
+    if corpus_id and not cls._check_corpus_permission(user, corpus):
+        return empty_result
+
+    # 3. Use ExtractQueryOptimizer for extracts
+    visible_extracts = ExtractQueryOptimizer.get_visible_extracts(user, corpus_id)
+    result["extracts"] = visible_extracts.filter(documents=document)
+
+    # 4. Use AnalysisQueryOptimizer for analysis rows
+    visible_analyses = AnalysisQueryOptimizer.get_visible_analyses(user, corpus_id)
+    result["analysis_rows"] = document.rows.filter(analysis__in=visible_analyses)
+
+    return result
+```
+
+### GraphQL Resolver Integration
+
+The `resolve_document_corpus_actions` resolver uses this optimizer:
+
+```python
+def resolve_document_corpus_actions(self, info, **kwargs):
+    user = info.context.user
+    result = DocumentActionsQueryOptimizer.get_document_actions(
+        user=user,
+        document_id=decode_id(self.id),
+        corpus_id=decode_id(kwargs.get("corpus_id")) if kwargs.get("corpus_id") else None
+    )
+    return result
+```
+
+### Testing
+
+Comprehensive tests are available in:
+- `opencontractserver/tests/permissioning/test_document_actions_permissions.py` - 11 tests
+
+Key test scenarios:
+- Document owner can see their document's actions
+- Users without document permission get empty results
+- Corpus permission filtering works correctly
+- Anonymous user handling
+- Superuser access to all documents
+
+---
 
 ## Performance Optimizations
 

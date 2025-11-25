@@ -161,11 +161,25 @@ class Query(graphene.ObjectType):
         return info.context.user
 
     def resolve_user_by_slug(self, info, slug):
+        """
+        Resolve a user by their slug with profile privacy filtering.
+
+        SECURITY: Respects is_profile_public and corpus membership visibility rules.
+        Users are visible if:
+        - Profile is public (is_profile_public=True)
+        - Requesting user shares corpus membership with > READ permission
+        - It's the requesting user's own profile
+        """
         from django.contrib.auth import get_user_model
+
+        from opencontractserver.users.query_optimizer import UserQueryOptimizer
 
         User = get_user_model()
         try:
-            return User.objects.get(slug=slug)
+            # Use visibility filtering instead of direct query
+            return UserQueryOptimizer.get_visible_users(info.context.user).get(
+                slug=slug
+            )
         except User.DoesNotExist:
             return None
 
@@ -1136,22 +1150,22 @@ class Query(graphene.ObjectType):
         """
         Search users for @ mention autocomplete.
 
-        SECURITY: All authenticated users can search for other users.
-        This is necessary for @mentions to work in collaborative contexts.
-        User data exposed is minimal (username, email) - no sensitive info.
+        SECURITY: Respects user profile privacy settings.
+        Users are visible if:
+        - Profile is public (is_profile_public=True)
+        - Requesting user shares corpus membership with > READ permission
+        - It's the requesting user's own profile
 
         PERFORMANCE NOTES:
+        - Uses UserQueryOptimizer for efficient visibility filtering
         - Searches username (indexed, fast)
         - Searches email (indexed, fast)
-        - Limits to 10 results to prevent overwhelming UI
-
-        Rationale: Mentioning users is fundamental to collaboration.
-        Users can already see each other in shared corpuses, so this doesn't
-        expose additional information.
 
         @param text_search: Search query for username or email
         """
         from django.contrib.auth import get_user_model
+
+        from opencontractserver.users.query_optimizer import UserQueryOptimizer
 
         User = get_user_model()
         user = info.context.user
@@ -1160,8 +1174,8 @@ class Query(graphene.ObjectType):
         if user.is_anonymous:
             return User.objects.none()
 
-        # All authenticated users can search for users
-        qs = User.objects.filter(is_active=True)
+        # Use UserQueryOptimizer for visibility filtering
+        qs = UserQueryOptimizer.get_visible_users(user)
 
         if text_search:
             # Search username and email
@@ -1244,17 +1258,65 @@ class Query(graphene.ObjectType):
 
     @login_required
     def resolve_assignments(self, info, **kwargs):
-        if info.context.user.is_superuser:
+        """
+        Resolve assignments.
+
+        DEPRECATED: Assignment feature is not currently used.
+        See opencontractserver/users/models.py:202-206
+
+        SECURITY: Users can only see assignments where they are the assignor or assignee.
+        Superusers can see all assignments.
+        """
+        import warnings
+
+        warnings.warn(
+            "Assignment feature is deprecated and not in use", DeprecationWarning
+        )
+
+        user = info.context.user
+        if user.is_superuser:
             return Assignment.objects.all()
         else:
-            return Assignment.objects.filter(assignor=info.context.user)
+            # User can see assignments they created or were assigned to
+            return Assignment.objects.filter(Q(assignor=user) | Q(assignee=user))
 
     assignment = relay.Node.Field(AssignmentType)
 
     @login_required
     def resolve_assignment(self, info, **kwargs):
+        """
+        Resolve a single assignment by ID.
+
+        DEPRECATED: Assignment feature is not currently used.
+
+        SECURITY: Uses direct query instead of broken visible_to_user
+        (Assignment model doesn't have this method - it inherits from
+        django.db.models.Model, not BaseOCModel).
+        """
+        import warnings
+
+        warnings.warn(
+            "Assignment feature is deprecated and not in use", DeprecationWarning
+        )
+
+        user = info.context.user
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        return Assignment.objects.visible_to_user(info.context.user).get(id=django_pk)
+
+        # Use direct query - Assignment model doesn't have visible_to_user manager
+        if user.is_superuser:
+            try:
+                return Assignment.objects.get(id=django_pk)
+            except Assignment.DoesNotExist:
+                raise GraphQLError("Assignment not found")
+
+        # Regular users can only see their own assignments
+        try:
+            return Assignment.objects.get(
+                Q(id=django_pk) & (Q(assignor=user) | Q(assignee=user))
+            )
+        except Assignment.DoesNotExist:
+            # Same error whether doesn't exist or no permission (IDOR protection)
+            raise GraphQLError("Assignment not found")
 
     if settings.USE_ANALYZER:
 
@@ -1486,44 +1548,37 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_document_corpus_actions(self, info, document_id, corpus_id=None):
+        """
+        Resolve document actions (corpus actions, extracts, analysis rows) with proper
+        permission filtering.
+
+        SECURITY: Uses DocumentActionsQueryOptimizer which follows the least-privilege model:
+        - Document permissions are primary
+        - Corpus permissions are secondary
+        - Effective permission = MIN(document_permission, corpus_permission)
+
+        This prevents unauthorized access to document-related data.
+        """
+        from opencontractserver.documents.query_optimizer import (
+            DocumentActionsQueryOptimizer,
+        )
 
         user = info.context.user
-        if user.is_anonymous:
-            user = None
 
         document_pk = from_global_id(document_id)[1]
+        corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
 
-        if corpus_id is not None:
-            corpus_pk = from_global_id(corpus_id)[1]
-            corpus = Corpus.objects.get(id=corpus_pk)
-            corpus_actions = CorpusAction.objects.filter(
-                Q(corpus=corpus), Q(creator=user) | Q(is_public=True)
-            )
-
-        else:
-            corpus = None
-            corpus_actions = []
-
-        try:
-            document = Document.objects.get(
-                Q(id=document_pk), Q(creator=user) | Q(is_public=True)
-            )
-            extracts = document.extracts.filter(
-                Q(is_public=True) | Q(creator=user), corpus=corpus
-            )
-            analysis_rows = document.rows.filter(
-                Q(analysis__is_public=True) | Q(analysis__creator=user)
-            )
-
-        except Document.DoesNotExist:
-            logger.error("ERROR!")
-            extracts = []
-            analysis_rows = []
+        # Use centralized permission-aware optimizer
+        actions = DocumentActionsQueryOptimizer.get_document_actions(
+            user=user,
+            document_id=int(document_pk),
+            corpus_id=int(corpus_pk) if corpus_pk else None,
+        )
 
         return DocumentCorpusActionsType(
-            corpus_actions=corpus_actions,
-            extracts=extracts,
-            analysis_rows=analysis_rows,
+            corpus_actions=actions["corpus_actions"],
+            extracts=actions["extracts"],
+            analysis_rows=actions["analysis_rows"],
         )
 
     pipeline_components = graphene.Field(
@@ -2445,15 +2500,40 @@ class Query(graphene.ObjectType):
     user_badge = relay.Node.Field(UserBadgeType)
 
     def resolve_user_badges(self, info, **kwargs):
-        """Resolve user badge awards."""
-        return UserBadge.objects.all().select_related(
-            "user", "badge", "awarded_by", "corpus"
-        )
+        """
+        Resolve user badge awards with profile privacy filtering.
+
+        SECURITY: Badge visibility follows the recipient's profile visibility.
+        Badges are visible if:
+        - Recipient's profile is public
+        - Requesting user shares corpus membership with recipient (> READ permission)
+        - It's the requesting user's own badges
+        - For corpus-specific badges: user has access to that corpus
+        """
+        from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+
+        return BadgeQueryOptimizer.get_visible_user_badges(info.context.user)
 
     def resolve_user_badge(self, info, **kwargs):
-        """Resolve a single user badge by ID."""
+        """
+        Resolve a single user badge by ID with visibility check and IDOR protection.
+
+        SECURITY: Returns same error whether badge doesn't exist or user lacks permission.
+        This prevents enumeration attacks.
+        """
+        from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        return UserBadge.objects.get(id=django_pk)
+
+        has_permission, user_badge = BadgeQueryOptimizer.check_user_badge_visibility(
+            info.context.user, django_pk
+        )
+
+        if not has_permission:
+            # Same error whether doesn't exist or no permission (IDOR protection)
+            raise GraphQLError("User badge not found")
+
+        return user_badge
 
     badge_criteria_types = graphene.List(
         CriteriaTypeDefinitionType,
@@ -2726,9 +2806,7 @@ class Query(graphene.ObjectType):
         current_user = info.context.user
 
         if metric == "badges":
-            # Count badges per user
-            from opencontractserver.badges.models import UserBadge
-
+            # Count badges per user (UserBadge imported at top level)
             badge_query = UserBadge.objects.filter(user__in=users)
             if cutoff_date:
                 badge_query = badge_query.filter(awarded_at__gte=cutoff_date)
@@ -2909,7 +2987,8 @@ class Query(graphene.ObjectType):
         from django.db.models import Count, Q
 
         from opencontractserver.annotations.models import Annotation
-        from opencontractserver.badges.models import UserBadge
+
+        # UserBadge is imported at top level
 
         User = get_user_model()
 
