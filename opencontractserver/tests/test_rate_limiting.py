@@ -156,7 +156,7 @@ class GraphQLRateLimitIntegrationTestCase(TestCase):
         self.document = Document.objects.create(
             title=f"Test Doc {self.test_id}", description="Test", creator=self.user
         )
-        self.corpus.documents.add(self.document)
+        self.corpus.add_document(document=self.document, user=self.user)
 
         # Get global IDs
         self.corpus_gid = to_global_id("CorpusType", self.corpus.id)

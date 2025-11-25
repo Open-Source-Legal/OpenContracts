@@ -88,8 +88,8 @@ class CorpusForkTestCase:
 
         print("7)\tMake sure the document count is the same")
         assert (
-            forked_corpus.documents.all().count()
-            == original_corpus_obj.documents.all().count()
+            forked_corpus.get_documents().count()
+            == original_corpus_obj.get_documents().count()
         )
         print("\t\tSUCCESS")
 

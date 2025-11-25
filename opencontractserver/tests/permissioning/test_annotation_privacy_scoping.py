@@ -53,7 +53,7 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.extracts.models import Extract, Fieldset
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
@@ -168,8 +168,37 @@ class AnnotationPrivacyScopingTestCase(TestCase):
         self.doc_contract3 = self._create_document("Contract Gamma", self.admin)
 
         # Add documents to the shared corpus
-        self.shared_corpus.documents.add(
-            self.doc_contract1, self.doc_contract2, self.doc_contract3
+        self.shared_corpus.add_document(document=self.doc_contract1, user=self.admin)
+        self.shared_corpus.add_document(document=self.doc_contract2, user=self.admin)
+        self.shared_corpus.add_document(document=self.doc_contract3, user=self.admin)
+
+        # Create DocumentPath records for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_contract1,
+            corpus=self.shared_corpus,
+            path="/contract_alpha.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.admin,
+        )
+        DocumentPath.objects.create(
+            document=self.doc_contract2,
+            corpus=self.shared_corpus,
+            path="/contract_beta.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.admin,
+        )
+        DocumentPath.objects.create(
+            document=self.doc_contract3,
+            corpus=self.shared_corpus,
+            path="/contract_gamma.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.admin,
         )
 
         logger.info("✓ Created shared corpus with 3 documents")
@@ -1290,7 +1319,18 @@ class AnnotationPrivacyMutationTestCase(TestCase):
         self.doc = Document.objects.create(
             title="Test Doc", creator=self.admin, is_public=False
         )
-        self.corpus.documents.add(self.doc)
+        self.corpus.add_document(document=self.doc, user=self.admin)
+
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            path="/test_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.admin,
+        )
 
         # Create analyzer infrastructure
         self.gremlin = GremlinEngine.objects.create(

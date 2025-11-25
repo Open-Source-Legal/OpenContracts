@@ -100,7 +100,7 @@ def make_corpus_public(corpus_id: int | str) -> MakePublicReturnType:
             logger.info(f"Locked and set corpus {corpus_id} as public")
 
         # Make documents public
-        docs = corpus.documents.all()
+        docs = corpus.get_documents()
         updated_docs = Document.objects.filter(id__in=docs).update(is_public=True)
         logger.info(f"Made {updated_docs} documents public")
 

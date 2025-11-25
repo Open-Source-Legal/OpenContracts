@@ -525,7 +525,12 @@ def process_documents_zip(
 
                             # Add to corpus if needed
                             if corpus_obj:
-                                corpus_obj.documents.add(document)
+                                # Use the new versioning system to create proper DocumentPath
+                                added_doc, status, doc_path = corpus_obj.add_document(
+                                    document=document, user=user_obj
+                                )
+                                # Update document reference in case versioning returned a different doc
+                                document = added_doc
 
                             # Update results
                             results["processed_files"] += 1

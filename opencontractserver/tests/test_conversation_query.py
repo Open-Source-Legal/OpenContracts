@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.core.files.base import ContentFile
 from django.test import TestCase
 from graphene.test import Client
@@ -56,7 +57,7 @@ class GraphQLConversationTestCase(TestCase):
             pdf_file=pdf_file,
             backend_lock=True,
         )
-        self.corpus.documents.add(self.doc)
+        self.corpus.add_document(document=self.doc, user=self.user)
         self.corpus.save()
 
         # Create a conversation linked to the corpus
@@ -304,3 +305,292 @@ class GraphQLConversationTestCase(TestCase):
             found_titles,
             "The other user's conversation was visible without permission!",
         )
+
+
+class AnonymousUserConversationTestCase(TestCase):
+    """
+    TestCase for testing anonymous user access to conversations.
+    Anonymous users should only be able to see public conversations.
+    """
+
+    def setUp(self) -> None:
+        """
+        Create test users and conversations with different visibility settings.
+        """
+        # Create a test user
+        self.user = User.objects.create_user(
+            username="conv_owner", password="testpassword"
+        )
+        self.other_user = User.objects.create_user(
+            username="other_user", password="testpassword"
+        )
+
+        # Create GraphQL client with anonymous user context
+        self.anon_client = Client(schema, context_value=TestContext(AnonymousUser()))
+
+        # Create a corpus for testing
+        self.corpus = Corpus.objects.create(
+            title="Public Test Corpus", creator=self.user, is_public=True
+        )
+
+        # Create a PUBLIC conversation (thread type)
+        self.public_conversation = Conversation.objects.create(
+            title="Public Discussion Thread",
+            conversation_type="thread",
+            chat_with_corpus=self.corpus,
+            creator=self.user,
+            is_public=True,
+        )
+        # Add a message to the public conversation
+        ChatMessage.objects.create(
+            creator=self.user,
+            conversation=self.public_conversation,
+            msg_type="HUMAN",
+            content="This is a public discussion message.",
+        )
+
+        # Create a PRIVATE conversation (not public)
+        self.private_conversation = Conversation.objects.create(
+            title="Private Discussion Thread",
+            conversation_type="thread",
+            chat_with_corpus=self.corpus,
+            creator=self.user,
+            is_public=False,
+        )
+        # Grant permissions to the creator
+        set_permissions_for_obj_to_user(
+            user_val=self.user,
+            instance=self.private_conversation,
+            permissions=[PermissionTypes.ALL],
+        )
+        # Add a message to the private conversation
+        ChatMessage.objects.create(
+            creator=self.user,
+            conversation=self.private_conversation,
+            msg_type="HUMAN",
+            content="This is a private discussion message.",
+        )
+
+        # Create another PUBLIC conversation for variety
+        self.public_conversation_2 = Conversation.objects.create(
+            title="Another Public Thread",
+            conversation_type="thread",
+            chat_with_corpus=self.corpus,
+            creator=self.other_user,
+            is_public=True,
+        )
+
+    def test_anonymous_user_can_see_public_conversations(self):
+        """
+        Test that anonymous users can see public conversations (threads).
+        """
+        query = """
+        query GetConversations($conversationType: ConversationTypeEnum) {
+            conversations(conversationType: $conversationType) {
+                edges {
+                    node {
+                        id
+                        title
+                        conversationType
+                        isPublic
+                        creator {
+                            username
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        variables = {"conversationType": "THREAD"}
+
+        response = self.anon_client.execute(query, variables=variables)
+        self.assertIsNone(
+            response.get("errors"),
+            f"GraphQL returned errors: {response.get('errors')}",
+        )
+
+        data = response.get("data", {})
+        edges = data.get("conversations", {}).get("edges", [])
+
+        # Should see 2 public conversations
+        self.assertEqual(
+            len(edges), 2, "Expected anonymous user to see 2 public conversations."
+        )
+
+        found_titles = {conv["node"]["title"] for conv in edges}
+        self.assertIn("Public Discussion Thread", found_titles)
+        self.assertIn("Another Public Thread", found_titles)
+
+        # Verify all returned conversations are public
+        for edge in edges:
+            self.assertTrue(
+                edge["node"]["isPublic"],
+                f"Anonymous user received non-public conversation: {edge['node']['title']}",
+            )
+
+    def test_anonymous_user_cannot_see_private_conversations(self):
+        """
+        Test that anonymous users CANNOT see private conversations.
+        """
+        query = """
+        query GetAllConversations {
+            conversations {
+                edges {
+                    node {
+                        id
+                        title
+                        isPublic
+                    }
+                }
+            }
+        }
+        """
+
+        response = self.anon_client.execute(query)
+        self.assertIsNone(
+            response.get("errors"),
+            f"GraphQL returned errors: {response.get('errors')}",
+        )
+
+        data = response.get("data", {})
+        edges = data.get("conversations", {}).get("edges", [])
+
+        found_titles = {conv["node"]["title"] for conv in edges}
+
+        # Private conversation should NOT be visible
+        self.assertNotIn(
+            "Private Discussion Thread",
+            found_titles,
+            "Anonymous user should not see private conversations!",
+        )
+
+        # All visible conversations should be public
+        for edge in edges:
+            self.assertTrue(
+                edge["node"]["isPublic"],
+                f"Anonymous user received non-public conversation: {edge['node']['title']}",
+            )
+
+    def test_anonymous_user_can_query_single_public_conversation(self):
+        """
+        Test that anonymous users can query a single public conversation by ID.
+        """
+        query = """
+        query GetConversation($id: ID!) {
+            conversation(id: $id) {
+                id
+                title
+                isPublic
+                conversationType
+                chatMessages {
+                    edges {
+                        node {
+                            id
+                            content
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        conversation_global_id = to_global_id(
+            "ConversationType", self.public_conversation.id
+        )
+        variables = {"id": conversation_global_id}
+
+        response = self.anon_client.execute(query, variables=variables)
+        self.assertIsNone(
+            response.get("errors"),
+            f"GraphQL returned errors: {response.get('errors')}",
+        )
+
+        data = response.get("data", {})
+        conversation = data.get("conversation")
+
+        self.assertIsNotNone(conversation, "Public conversation should be accessible")
+        self.assertEqual(conversation["title"], "Public Discussion Thread")
+        self.assertTrue(conversation["isPublic"])
+
+        # Check messages are returned
+        msg_edges = conversation["chatMessages"]["edges"]
+        self.assertEqual(len(msg_edges), 1)
+        self.assertEqual(
+            msg_edges[0]["node"]["content"], "This is a public discussion message."
+        )
+
+    def test_anonymous_user_cannot_query_single_private_conversation(self):
+        """
+        Test that anonymous users CANNOT query a single private conversation by ID.
+        """
+        query = """
+        query GetConversation($id: ID!) {
+            conversation(id: $id) {
+                id
+                title
+                isPublic
+            }
+        }
+        """
+
+        conversation_global_id = to_global_id(
+            "ConversationType", self.private_conversation.id
+        )
+        variables = {"id": conversation_global_id}
+
+        response = self.anon_client.execute(query, variables=variables)
+
+        # Should get an error or null result
+        data = response.get("data", {})
+        conversation = data.get("conversation")
+
+        # The conversation should not be returned (will raise DoesNotExist or return None)
+        # Depending on implementation, either errors or null result is acceptable
+        if response.get("errors"):
+            # Expected: error when trying to access private conversation
+            self.assertTrue(True, "Correctly received error for private conversation")
+        else:
+            # Alternative: null result
+            self.assertIsNone(
+                conversation,
+                "Private conversation should not be accessible to anonymous users",
+            )
+
+    def test_anonymous_user_filtered_by_corpus(self):
+        """
+        Test that anonymous users can filter conversations by corpus and only see public ones.
+        """
+        query = """
+        query GetConversations($corpusId: String) {
+            conversations(corpusId: $corpusId) {
+                edges {
+                    node {
+                        id
+                        title
+                        isPublic
+                    }
+                }
+            }
+        }
+        """
+
+        corpus_global_id = to_global_id("CorpusType", self.corpus.id)
+        variables = {"corpusId": corpus_global_id}
+
+        response = self.anon_client.execute(query, variables=variables)
+        self.assertIsNone(
+            response.get("errors"),
+            f"GraphQL returned errors: {response.get('errors')}",
+        )
+
+        data = response.get("data", {})
+        edges = data.get("conversations", {}).get("edges", [])
+
+        # Should see 2 public conversations for this corpus
+        self.assertEqual(len(edges), 2)
+
+        found_titles = {conv["node"]["title"] for conv in edges}
+        self.assertIn("Public Discussion Thread", found_titles)
+        self.assertIn("Another Public Thread", found_titles)
+        self.assertNotIn("Private Discussion Thread", found_titles)

@@ -153,6 +153,13 @@ class StandaloneDocumentConsumerTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_pick_document_embedder_with_existing_embeddings(self) -> None:
         """Embedder picker should use existing structural annotation embedder."""
+        # Delete any pre-existing structural embeddings for this document from fixtures
+        await database_sync_to_async(
+            lambda: Embedding.objects.filter(
+                annotation__document=self.doc, annotation__structural=True
+            ).delete()
+        )()
+
         # Create a structural annotation for this document
         annotation = await Annotation.objects.acreate(
             document=self.doc,

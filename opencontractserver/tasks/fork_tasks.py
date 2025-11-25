@@ -163,7 +163,7 @@ def fork_corpus(
                         user_id, document, [PermissionTypes.CRUD]
                     )
 
-                    corpus.documents.add(document)
+                    corpus.add_document(document=document, user=user_id)
 
                     # Store map of old id to new id
                     doc_map[old_id] = document.pk

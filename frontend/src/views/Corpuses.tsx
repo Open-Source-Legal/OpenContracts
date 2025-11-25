@@ -26,6 +26,8 @@ import {
   AlignJustify,
   Send,
   History,
+  Trophy,
+  BarChart3,
 } from "lucide-react";
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
@@ -104,6 +106,7 @@ import { FilterToLabelSelector } from "../components/widgets/model-filters/Filte
 import { ensureValidCorpusId } from "../utils/graphqlGuards";
 import { CorpusAnnotationCards } from "../components/annotations/CorpusAnnotationCards";
 import { CorpusDocumentCards } from "../components/documents/CorpusDocumentCards";
+import { FolderDocumentBrowser } from "../components/corpuses/folders/FolderDocumentBrowser";
 import { CorpusAnalysesCards } from "../components/analyses/CorpusAnalysesCards";
 import { FilterToAnalysesSelector } from "../components/widgets/model-filters/FilterToAnalysesSelector";
 import useWindowDimensions from "../components/hooks/WindowDimensionHook";
@@ -120,6 +123,9 @@ import { CorpusSettings } from "../components/corpuses/CorpusSettings";
 import { CorpusChat } from "../components/corpuses/CorpusChat";
 import { CorpusHome } from "../components/corpuses/CorpusHome";
 import { CorpusDescriptionEditor } from "../components/corpuses/CorpusDescriptionEditor";
+import { CorpusDiscussionsView } from "../components/discussions/CorpusDiscussionsView";
+import { BadgeManagement } from "../components/badges/BadgeManagement";
+import { CorpusEngagementDashboard } from "../components/analytics/CorpusEngagementDashboard";
 
 // Add these styled components near your other styled components
 const DashboardContainer = styled.div`
@@ -1823,6 +1829,7 @@ export const Corpuses = () => {
         totalAnnotations: 0,
         totalAnalyses: 0,
         totalExtracts: 0,
+        totalThreads: 0,
       }
     );
   }, [
@@ -1830,6 +1837,7 @@ export const Corpuses = () => {
     statsData?.corpusStats?.totalAnnotations,
     statsData?.corpusStats?.totalAnalyses,
     statsData?.corpusStats?.totalExtracts,
+    statsData?.corpusStats?.totalThreads,
   ]);
 
   // When query is skipped (no valid corpus ID), treat as not loading
@@ -2102,7 +2110,11 @@ export const Corpuses = () => {
               <TabTitle>Documents</TabTitle>
             </TabNavigationHeader>
             <div style={{ flex: 1, overflow: "hidden" }}>
-              <CorpusDocumentCards opened_corpus_id={opened_corpus_id} />
+              {opened_corpus_id && (
+                <FolderDocumentBrowser corpusId={opened_corpus_id}>
+                  <CorpusDocumentCards opened_corpus_id={opened_corpus_id} />
+                </FolderDocumentBrowser>
+              )}
             </div>
           </div>
         ),
@@ -2185,6 +2197,23 @@ export const Corpuses = () => {
           </div>
         ),
       },
+      {
+        id: "discussions",
+        label: "Discussions",
+        icon: <MessageSquare />,
+        badge: stats.totalThreads || 0,
+        component: opened_corpus?.id ? (
+          <CorpusDiscussionsView corpusId={opened_corpus.id} />
+        ) : null,
+      },
+      {
+        id: "analytics",
+        label: "Analytics",
+        icon: <BarChart3 />,
+        component: opened_corpus?.id ? (
+          <CorpusEngagementDashboard corpusId={opened_corpus.id} />
+        ) : null,
+      },
       ...(opened_corpus && canUpdateCorpus
         ? [
             {
@@ -2226,6 +2255,35 @@ export const Corpuses = () => {
                         myPermissions: corpusAtomPermissions,
                       }}
                     />
+                  </div>
+                </div>
+              ) : null,
+            },
+            {
+              id: "badges",
+              label: "Badges",
+              icon: <Trophy />,
+              component: opened_corpus?.id ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    height: "100%",
+                  }}
+                >
+                  <TabNavigationHeader>
+                    <BackNavButton
+                      onClick={() => setActiveTab(0)}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      title="Back to Home"
+                    >
+                      <ArrowLeft />
+                    </BackNavButton>
+                    <TabTitle>Badges</TabTitle>
+                  </TabNavigationHeader>
+                  <div style={{ flex: 1, overflow: "auto" }}>
+                    <BadgeManagement corpusId={opened_corpus.id} />
                   </div>
                 </div>
               ) : null,

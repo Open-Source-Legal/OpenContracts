@@ -1,31 +1,21 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Build outputs
+dist/
+build/
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
+# Test outputs
+playwright-report/
+test-results/
+coverage/
 
-# testing
-/coverage
+# Dependencies
+node_modules/
 
-# production
-/build
+# Generated files
+*.min.js
+*.min.css
 
-# misc
-.DS_Store
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Playwright cache
+playwright/.cache/
 
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# bit files (for now)
-/public/bit/*
-workspace.jsonc
-
-# playwright cache
-playwright/.cache
+# Vite cache
+.vite/

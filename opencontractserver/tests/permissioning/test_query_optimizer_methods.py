@@ -90,7 +90,8 @@ class AnnotationQueryOptimizerTestCase(TestCase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.corpus.documents.add(self.doc1, self.doc2)
+        self.corpus.add_document(document=self.doc1, user=self.owner)
+        self.corpus.add_document(document=self.doc2, user=self.owner)
 
         # Create annotation labels
         self.label1 = AnnotationLabel.objects.create(
@@ -290,6 +291,232 @@ class AnnotationQueryOptimizerTestCase(TestCase):
 
         logger.info("✓ Non-existent extract returns empty summary")
 
+    def test_compute_effective_permissions_anonymous_user_public_doc(self):
+        """
+        Test that anonymous users can read public documents/corpuses.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        logger.info("\n" + "=" * 80)
+        logger.info("TEST: Anonymous user can access public document")
+        logger.info("=" * 80)
+
+        # Make document and corpus public
+        self.doc1.is_public = True
+        self.doc1.save()
+        self.corpus.is_public = True
+        self.corpus.save()
+
+        anon_user = AnonymousUser()
+
+        (
+            can_read,
+            can_create,
+            can_update,
+            can_delete,
+            can_comment,
+        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+            user=anon_user, document_id=self.doc1.id, corpus_id=self.corpus.id
+        )
+
+        # Anonymous user should have read permission for public doc/corpus
+        self.assertTrue(can_read, "Anonymous user should read public document")
+
+        # But no write/update/delete permissions
+        self.assertFalse(can_create, "Anonymous user should not create annotations")
+        self.assertFalse(can_update, "Anonymous user should not update annotations")
+        self.assertFalse(can_delete, "Anonymous user should not delete annotations")
+        self.assertFalse(can_comment, "Anonymous user should not comment")
+
+        logger.info("✓ Anonymous user has read-only access to public resources")
+
+    def test_compute_effective_permissions_anonymous_user_private_doc(self):
+        """
+        Test that anonymous users cannot access private documents/corpuses.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        logger.info("\n" + "=" * 80)
+        logger.info("TEST: Anonymous user blocked from private document")
+        logger.info("=" * 80)
+
+        # Document and corpus are private by default
+        anon_user = AnonymousUser()
+
+        (
+            can_read,
+            can_create,
+            can_update,
+            can_delete,
+            can_comment,
+        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+            user=anon_user, document_id=self.doc1.id, corpus_id=self.corpus.id
+        )
+
+        # Anonymous user should have NO permissions for private resources
+        self.assertFalse(can_read, "Anonymous user should not read private document")
+        self.assertFalse(can_create, "Anonymous user should not create annotations")
+        self.assertFalse(can_update, "Anonymous user should not update annotations")
+        self.assertFalse(can_delete, "Anonymous user should not delete annotations")
+        self.assertFalse(can_comment, "Anonymous user should not comment")
+
+        logger.info("✓ Anonymous user blocked from private resources")
+
+    def test_compute_effective_permissions_anonymous_user_public_doc_private_corpus(
+        self,
+    ):
+        """
+        Test that anonymous users need both document AND corpus to be public.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        logger.info("\n" + "=" * 80)
+        logger.info("TEST: Anonymous user needs both doc and corpus public")
+        logger.info("=" * 80)
+
+        # Make only document public, corpus stays private
+        self.doc1.is_public = True
+        self.doc1.save()
+
+        anon_user = AnonymousUser()
+
+        (
+            can_read,
+            can_create,
+            can_update,
+            can_delete,
+            can_comment,
+        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+            user=anon_user, document_id=self.doc1.id, corpus_id=self.corpus.id
+        )
+
+        # Should be blocked because corpus is private
+        self.assertFalse(can_read, "Should be blocked by private corpus")
+
+        logger.info("✓ Private corpus blocks anonymous access even with public doc")
+
+    def test_get_visible_analyses_anonymous_user(self):
+        """
+        Test that anonymous users can only see public analyses.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.annotations.query_optimizer import (
+            AnalysisQueryOptimizer,
+        )
+
+        logger.info("\n" + "=" * 80)
+        logger.info("TEST: Anonymous user sees only public analyses")
+        logger.info("=" * 80)
+
+        # Make corpus public
+        self.corpus.is_public = True
+        self.corpus.save()
+
+        # Create an analyzer
+        gremlin = GremlinEngine.objects.create(
+            url="http://test.com", creator=self.owner
+        )
+        analyzer = Analyzer.objects.create(
+            description="Test", creator=self.owner, host_gremlin=gremlin
+        )
+
+        # Create public and private analyses
+        public_analysis = Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            is_public=True,
+        )
+        private_analysis = Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            is_public=False,
+        )
+
+        anon_user = AnonymousUser()
+
+        visible = AnalysisQueryOptimizer.get_visible_analyses(
+            user=anon_user, corpus_id=self.corpus.id
+        )
+
+        # Should only see public analysis
+        visible_ids = [a.id for a in visible]
+        self.assertIn(public_analysis.id, visible_ids)
+        self.assertNotIn(private_analysis.id, visible_ids)
+
+        logger.info("✓ Anonymous user sees only public analyses")
+
+    def test_compute_effective_permissions_anonymous_user_public_doc_no_corpus(self):
+        """
+        Test that anonymous users can access public documents without a corpus.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        logger.info("\n" + "=" * 80)
+        logger.info("TEST: Anonymous user accessing public doc without corpus")
+        logger.info("=" * 80)
+
+        # Make document public
+        self.doc1.is_public = True
+        self.doc1.save()
+
+        anon_user = AnonymousUser()
+
+        (
+            can_read,
+            can_create,
+            can_update,
+            can_delete,
+            can_comment,
+        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+            user=anon_user, document_id=self.doc1.id, corpus_id=None
+        )
+
+        # Anonymous user should only have read permission
+        self.assertTrue(can_read, "Anonymous user should read public document")
+        self.assertFalse(can_create, "Anonymous user cannot create annotations")
+        self.assertFalse(can_update, "Anonymous user cannot update annotations")
+        self.assertFalse(can_delete, "Anonymous user cannot delete annotations")
+        self.assertFalse(can_comment, "Anonymous user cannot comment")
+
+        logger.info("✓ Anonymous user can read public doc without corpus")
+
+    def test_compute_effective_permissions_nonexistent_document(self):
+        """
+        Test that accessing a nonexistent document returns all False permissions.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        logger.info("\n" + "=" * 80)
+        logger.info("TEST: Nonexistent document returns no permissions")
+        logger.info("=" * 80)
+
+        anon_user = AnonymousUser()
+
+        # Use a document ID that doesn't exist
+        nonexistent_id = 999999
+
+        (
+            can_read,
+            can_create,
+            can_update,
+            can_delete,
+            can_comment,
+        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+            user=anon_user, document_id=nonexistent_id, corpus_id=None
+        )
+
+        # All permissions should be False for nonexistent document
+        self.assertFalse(can_read, "Should not read nonexistent document")
+        self.assertFalse(can_create, "Should not create on nonexistent document")
+        self.assertFalse(can_update, "Should not update on nonexistent document")
+        self.assertFalse(can_delete, "Should not delete on nonexistent document")
+        self.assertFalse(can_comment, "Should not comment on nonexistent document")
+
+        logger.info("✓ Nonexistent document properly denied")
+
 
 class RelationshipQueryOptimizerTestCase(TestCase):
     """
@@ -323,7 +550,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.corpus.documents.add(self.doc1)
+        self.corpus.add_document(document=self.doc1, user=self.owner)
 
         # Create labels
         self.token_label = AnnotationLabel.objects.create(
@@ -963,17 +1190,18 @@ class ExtractQueryOptimizerTestCase(TestCase):
         self.corpus1 = Corpus.objects.create(
             title="Corpus 1", creator=self.owner, is_public=False
         )
-        self.corpus1.documents.add(self.doc1)
+        self.corpus1.add_document(document=self.doc1, user=self.owner)
 
         self.corpus2 = Corpus.objects.create(
             title="Corpus 2", creator=self.owner, is_public=False
         )
-        self.corpus2.documents.add(self.doc2)
+        self.corpus2.add_document(document=self.doc2, user=self.owner)
 
         self.public_corpus = Corpus.objects.create(
             title="Public Corpus", creator=self.owner, is_public=True
         )
-        self.public_corpus.documents.add(self.doc1, self.doc2)
+        self.public_corpus.add_document(document=self.doc1, user=self.owner)
+        self.public_corpus.add_document(document=self.doc2, user=self.owner)
 
         # Create fieldsets
         self.fieldset1 = Fieldset.objects.create(name="Fieldset 1", creator=self.owner)

@@ -38,6 +38,7 @@ import {
 import { CorpusSelector } from "../../corpuses/CorpusSelector";
 import { uploadModalPreloadedFiles } from "../../../graphql/cache";
 import { GET_DOCUMENTS } from "../../../graphql/queries";
+import { GET_CORPUS_FOLDERS } from "../../../graphql/queries/folders";
 
 export const NOT_STARTED = "NOT_STARTED";
 export const SUCCESS = "SUCCESS";
@@ -95,12 +96,13 @@ interface DocumentUploadModalProps {
   onClose: () => void;
   refetch?: (args?: any) => any | void;
   corpusId?: string | null;
+  folderId?: string | null;
 }
 
 export function DocumentUploadModal(props: DocumentUploadModalProps) {
   const client = useApolloClient();
 
-  const { open, onClose, refetch, corpusId } = props;
+  const { open, onClose, refetch, corpusId, folderId } = props;
   const [files, setFiles] = useState<FileUploadPackageProps[]>([]);
   const preloadedFiles = useReactiveVar(uploadModalPreloadedFiles);
   const [upload_state, setUploadState] = useState<
@@ -189,141 +191,114 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
   };
 
   const uploadFiles = async () => {
+    console.log(
+      "[UPLOAD] Starting upload with folderId:",
+      folderId,
+      "corpusId:",
+      corpusId
+    );
     toast.info("Starting upload...");
     setStep("uploading");
     let uploads: Promise<any>[] = [];
     if (files) {
-      files.forEach(async (file_package, file_index) => {
+      // IMPORTANT: Use for...of instead of forEach to properly handle async/await
+      // forEach doesn't wait for async callbacks, causing uploads array to be empty
+      for (const [file_index, file_package] of files.entries()) {
         setFileStatus(UPLOADING, file_index);
         var base_64_str = await toBase64(file_package.file);
         if (typeof base_64_str === "string" || base_64_str instanceof String) {
+          const uploadVariables = {
+            base64FileString: base_64_str.split(",")[1],
+            filename: file_package.file.name,
+            customMeta: {},
+            description: file_package.formData.description,
+            title: file_package.formData.title,
+            slug: file_package.formData.slug,
+            addToCorpusId: corpusId || selected_corpus?.id,
+            addToFolderId: folderId,
+            makePublic: false,
+          };
+          console.log(
+            "[UPLOAD] Uploading file:",
+            file_package.file.name,
+            "with variables:",
+            {
+              addToCorpusId: uploadVariables.addToCorpusId,
+              addToFolderId: uploadVariables.addToFolderId,
+            }
+          );
           uploads.push(
             uploadDocument({
-              variables: {
-                base64FileString: base_64_str.split(",")[1],
-                filename: file_package.file.name,
-                customMeta: {},
-                description: file_package.formData.description,
-                title: file_package.formData.title,
-                slug: file_package.formData.slug,
-                addToCorpusId: corpusId || selected_corpus?.id,
-                makePublic: false,
-              },
-              update: (cache, { data }) => {
-                if (
-                  !data ||
-                  !data.uploadDocument ||
-                  !data.uploadDocument.document
-                )
-                  return;
-
-                const newDocument = data.uploadDocument.document;
-
-                cache.modify({
-                  fields: {
-                    documents(existingDocuments = { edges: [] }) {
-                      const newDocumentRef = cache.writeFragment({
-                        data: newDocument,
-                        fragment: gql`
-                          fragment NewDocument on DocumentType {
-                            id
-                            icon
-                            pdfFile
-                            title
-                            description
-                            backendLock
-                            fileType
-                            docAnnotations {
-                              edges {
-                                node {
-                                  id
-                                }
-                              }
-                            }
-                          }
-                        `,
-                      });
-
-                      return {
-                        ...existingDocuments,
-                        edges: [
-                          {
-                            __typename: "DocumentTypeEdge",
-                            node: newDocumentRef,
-                          },
-                          ...existingDocuments.edges,
-                        ],
-                      };
-                    },
-                  },
-                });
-
-                // If a corpus is specified, update the corpus' documents as well
-                if (corpusId || selected_corpus?.id) {
-                  const calcedcorpusId = corpusId || selected_corpus?.id;
-                  const existingCorpus = cache.readFragment<{
-                    documents: { edges: { node: { id: string } }[] };
-                  }>({
-                    id: `CorpusType:${calcedcorpusId}`,
-                    fragment: gql`
-                      fragment CorpusDocuments on CorpusType {
-                        id
-                        documents {
-                          edges {
-                            node {
-                              id
-                            }
-                          }
-                        }
-                      }
-                    `,
-                  });
-
-                  if (existingCorpus) {
-                    cache.writeFragment({
-                      id: `CorpusType:${corpusId}`,
-                      fragment: gql`
-                        fragment UpdateCorpusDocuments on CorpusType {
-                          documents {
-                            edges {
-                              node {
-                                id
-                              }
-                            }
-                          }
-                        }
-                      `,
-                      data: {
-                        documents: {
-                          ...existingCorpus.documents,
-                          edges: [
-                            {
-                              node: { id: newDocument.id },
-                              __typename: "DocumentTypeEdge",
-                            },
-                            ...existingCorpus.documents.edges,
-                          ],
-                        },
-                      },
-                    });
-                  }
-                }
-              },
+              variables: uploadVariables,
+              // Skip cache update - rely on refetch to get correct folder-filtered results
+              // Manual cache updates don't account for folder filtering and cause temporary display issues
             })
-              .then(({ data }) => {
-                if (data?.uploadDocument) {
+              .then(({ data, errors }) => {
+                console.log(
+                  "[UPLOAD] Upload mutation response for:",
+                  file_package.file.name
+                );
+                console.log("[UPLOAD]   - data:", data);
+                console.log("[UPLOAD]   - errors:", errors);
+                console.log("[UPLOAD]   - ok:", data?.uploadDocument?.ok);
+                console.log(
+                  "[UPLOAD]   - message:",
+                  data?.uploadDocument?.message
+                );
+                console.log(
+                  "[UPLOAD]   - document:",
+                  data?.uploadDocument?.document
+                );
+
+                if (data?.uploadDocument?.ok) {
                   setFileStatus(SUCCESS, file_index);
+                } else {
+                  console.error(
+                    "[UPLOAD] Upload mutation returned ok=false or undefined"
+                  );
+                  setFileStatus(FAILED, file_index);
+                  toast.error(
+                    data?.uploadDocument?.message ||
+                      "Upload failed - check authentication"
+                  );
                 }
               })
               .catch((upload_error: ApolloError) => {
-                toast.error(upload_error.message);
+                console.error(
+                  "[UPLOAD] Upload mutation threw error for:",
+                  file_package.file.name
+                );
+                console.error("[UPLOAD]   - message:", upload_error.message);
+                console.error(
+                  "[UPLOAD]   - networkError:",
+                  upload_error.networkError
+                );
+                console.error(
+                  "[UPLOAD]   - graphQLErrors:",
+                  upload_error.graphQLErrors
+                );
+                toast.error(
+                  upload_error.message || "Upload failed - check authentication"
+                );
                 setFileStatus(FAILED, file_index);
               })
           );
         }
-      });
+      }
     }
+    console.log(
+      "[UPLOAD] All upload promises created, waiting for completion..."
+    );
     await Promise.all(uploads);
+    console.log("[UPLOAD] All uploads complete, triggering refetch...");
+
+    // Refetch documents and folders to get correct folder-filtered results
+    // This must happen AFTER all uploads complete to avoid race conditions
+    await client.refetchQueries({
+      include: [GET_DOCUMENTS, GET_CORPUS_FOLDERS],
+    });
+    console.log("[UPLOAD] Refetch complete, closing modal");
+
     onClose();
     if (refetch) {
       refetch();

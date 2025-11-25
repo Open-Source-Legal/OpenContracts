@@ -28,7 +28,7 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
@@ -271,6 +271,17 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
         # Add document to corpus
         self.corpus_shared.documents.add(self.doc_shared)
 
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_shared,
+            corpus=self.corpus_shared,
+            path="/shared_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user_alice,
+        )
+
         # Convert to global IDs for GraphQL
         doc_global_id = to_global_id("DocumentType", self.doc_shared.id)
         corpus_global_id = to_global_id("CorpusType", self.corpus_shared.id)
@@ -339,6 +350,17 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
         # Add document to corpus
         self.corpus_shared.documents.add(self.doc_shared)
 
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_shared,
+            corpus=self.corpus_shared,
+            path="/shared_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user_alice,
+        )
+
         # Convert to global IDs for GraphQL
         doc_global_id = to_global_id("DocumentType", self.doc_shared.id)
         corpus_global_id = to_global_id("CorpusType", self.corpus_shared.id)
@@ -403,6 +425,17 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
 
         # Add document to corpus
         self.corpus_shared.documents.add(self.doc_shared)
+
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_shared,
+            corpus=self.corpus_shared,
+            path="/shared_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user_alice,
+        )
 
         # Convert to global IDs for GraphQL
         doc_global_id = to_global_id("DocumentType", self.doc_shared.id)
@@ -471,6 +504,17 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
         # Add document to corpus
         self.corpus_shared.documents.add(self.doc_shared)
 
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_shared,
+            corpus=self.corpus_shared,
+            path="/shared_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user_alice,
+        )
+
         # Convert to global IDs for GraphQL
         doc_global_id = to_global_id("DocumentType", self.doc_shared.id)
         corpus_global_id = to_global_id("CorpusType", self.corpus_shared.id)
@@ -535,6 +579,17 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
         # Add document to corpus
         self.corpus_shared.documents.add(self.doc_shared)
 
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_shared,
+            corpus=self.corpus_shared,
+            path="/shared_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user_alice,
+        )
+
         # Convert to global IDs for GraphQL
         doc_global_id = to_global_id("DocumentType", self.doc_shared.id)
         corpus_global_id = to_global_id("CorpusType", self.corpus_shared.id)
@@ -579,6 +634,20 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
         logger.info("\n" + "=" * 80)
         logger.info("TEST: Superuser → Full Access to Everything")
         logger.info("=" * 80)
+
+        # Add document to corpus
+        self.corpus_private.documents.add(self.doc_private)
+
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_private,
+            corpus=self.corpus_private,
+            path="/private_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user_alice,
+        )
 
         # Convert to global IDs for GraphQL
         doc_global_id = to_global_id("DocumentType", self.doc_private.id)
@@ -627,6 +696,20 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
         logger.info("\n" + "=" * 80)
         logger.info("TEST: Permission Format Frontend Compatibility")
         logger.info("=" * 80)
+
+        # Add document to corpus
+        self.corpus_private.documents.add(self.doc_private)
+
+        # Create DocumentPath for versioning system
+        DocumentPath.objects.create(
+            document=self.doc_private,
+            corpus=self.corpus_private,
+            path="/private_doc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user_alice,
+        )
 
         # Convert to global IDs for GraphQL
         doc_global_id = to_global_id("DocumentType", self.doc_private.id)

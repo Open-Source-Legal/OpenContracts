@@ -362,6 +362,14 @@ export type RawDocumentType = Node & {
   conversations?: ConversationTypeConnection;
   chatMessages?: ChatMessageTypeConnection;
   allNotes?: NoteType[];
+  // Version metadata fields
+  hasVersionHistory?: Maybe<Scalars["Boolean"]>;
+  versionCount?: Maybe<Scalars["Int"]>;
+  isLatestVersion?: Maybe<Scalars["Boolean"]>;
+  canViewHistory?: Maybe<Scalars["Boolean"]>;
+  canRestore?: Maybe<Scalars["Boolean"]>;
+  versionNumber?: Maybe<Scalars["Int"]>;
+  lastModified?: Maybe<Scalars["DateTime"]>;
 };
 
 export type DocumentType = Omit<RawDocumentType, "myPermissions"> & {
@@ -1446,10 +1454,72 @@ export interface FeedbackType extends Node {
   commented_annotation?: ServerAnnotationType | null;
 }
 
+export type ConversationTypeEnum = "CHAT" | "THREAD";
+export type AgentTypeEnum = "DOCUMENT_AGENT" | "CORPUS_AGENT";
+export type MessageStateChoices =
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "ERROR"
+  | "AWAITING_APPROVAL";
+export type VoteType = "UPVOTE" | "DOWNVOTE";
+
+/**
+ * Agent Configuration Type - represents bot/agent profiles
+ */
+export type AgentConfigurationType = Node & {
+  __typename?: "AgentConfigurationType";
+  id: Scalars["ID"];
+  name: Scalars["String"];
+  description?: Maybe<Scalars["String"]>;
+  systemInstructions: Scalars["String"];
+  availableTools?: Maybe<Scalars["GenericScalar"]>;
+  permissionRequiredTools?: Maybe<Scalars["GenericScalar"]>;
+  badgeConfig?: Maybe<Scalars["GenericScalar"]>;
+  avatarUrl?: Maybe<Scalars["String"]>;
+  scope: Scalars["String"];
+  corpus?: Maybe<CorpusType>;
+  isActive: Scalars["Boolean"];
+  creator: UserType;
+  isPublic?: Scalars["Boolean"];
+  created: Scalars["DateTime"];
+  modified: Scalars["DateTime"];
+  myPermissions?: PermissionTypes[];
+};
+
+/**
+ * User Badge Type - represents awarded badges to users
+ */
+export type UserBadgeType = Node & {
+  __typename?: "UserBadgeType";
+  id: Scalars["ID"];
+  user: UserType;
+  badge: BadgeType;
+  awardedAt: Scalars["DateTime"];
+  awardedBy?: Maybe<UserType>;
+  corpus?: Maybe<CorpusType>;
+};
+
+/**
+ * Badge Type - represents badge definitions
+ */
+export type BadgeType = Node & {
+  __typename?: "BadgeType";
+  id: Scalars["ID"];
+  name: Scalars["String"];
+  description: Scalars["String"];
+  icon: Scalars["String"];
+  color: Scalars["String"];
+  badgeType: Scalars["String"];
+  isAutoAwarded?: Scalars["Boolean"];
+};
+
 export type ConversationType = Node & {
   __typename?: "ConversationType";
   id: Scalars["ID"];
+  conversationType?: ConversationTypeEnum;
   title?: Maybe<Scalars["String"]>;
+  description?: Maybe<Scalars["String"]>;
   createdAt: Scalars["DateTime"];
   updatedAt: Scalars["DateTime"];
   chatWithCorpus?: Maybe<CorpusType>;
@@ -1461,6 +1531,15 @@ export type ConversationType = Node & {
   modified: Scalars["DateTime"];
   isPublic?: Scalars["Boolean"];
   myPermissions?: PermissionTypes[];
+
+  // Moderation fields
+  isLocked?: Scalars["Boolean"];
+  lockedBy?: Maybe<UserType>;
+  lockedAt?: Maybe<Scalars["DateTime"]>;
+  isPinned?: Scalars["Boolean"];
+  pinnedBy?: Maybe<UserType>;
+  pinnedAt?: Maybe<Scalars["DateTime"]>;
+  deletedAt?: Maybe<Scalars["DateTime"]>;
 };
 
 export type ConversationTypeConnection = {
@@ -1476,16 +1555,33 @@ export type ConversationTypeEdge = {
   cursor: Scalars["String"];
 };
 
+// Mentioned resource type for @corpus: and @document: mentions (Issue #623)
+export type MentionedResourceType = {
+  __typename?: "MentionedResourceType";
+  type: "CORPUS" | "DOCUMENT";
+  id: Scalars["ID"];
+  slug: Scalars["String"];
+  title: Scalars["String"];
+  url: Scalars["String"];
+  corpus?: Maybe<{
+    slug: Scalars["String"];
+    title: Scalars["String"];
+  }>;
+};
+
 export type ChatMessageType = Node & {
   __typename?: "ChatMessageType";
   id: Scalars["ID"];
   conversation: ConversationType;
   msgType: Scalars["String"];
+  agentType?: Maybe<AgentTypeEnum>;
+  agentConfiguration?: Maybe<AgentConfigurationType>;
   content: Scalars["String"];
   data?: Maybe<{
     sources?: WebSocketSources[];
     message_id?: string;
   }>;
+  state?: MessageStateChoices;
   createdAt: Scalars["DateTime"];
   sourceDocument?: Maybe<DocumentType>;
   sourceAnnotations: AnnotationTypeConnection;
@@ -1495,6 +1591,22 @@ export type ChatMessageType = Node & {
   modified: Scalars["DateTime"];
   isPublic?: Scalars["Boolean"];
   myPermissions?: PermissionTypes[];
+
+  // Threading fields
+  parentMessage?: Maybe<ChatMessageType>;
+  replies?: Maybe<ChatMessageType[]>;
+
+  // Voting fields
+  upvoteCount?: Scalars["Int"];
+  downvoteCount?: Scalars["Int"];
+  userVote?: Maybe<VoteType>;
+
+  // Soft delete
+  deletedAt?: Maybe<Scalars["DateTime"]>;
+  deletedBy?: Maybe<UserType>;
+
+  // Mentioned resources (Issue #623)
+  mentionedResources?: Maybe<MentionedResourceType[]>;
 };
 
 export type ChatMessageTypeConnection = {

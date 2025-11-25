@@ -48,7 +48,7 @@ class TestLongConversationAPI(TestCase):
             is_public=True,
         )
 
-        cls.corpus.documents.add(cls.document)
+        cls.corpus.add_document(document=cls.document, user=cls.user)
 
         # Ensure fixture-derived corpus is public for anonymous-agent tests.
         if hasattr(cls, "corpus"):

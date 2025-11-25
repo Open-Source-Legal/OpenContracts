@@ -22,6 +22,24 @@ vi.mock("react-toastify", () => ({
   },
 }));
 
+// Helper for Auth0 mock properties (required in newer @auth0/auth0-react versions)
+const baseAuth0Props = {
+  getAccessTokenSilently: vi.fn(),
+  loginWithRedirect: vi.fn(),
+  logout: vi.fn(),
+  getIdTokenClaims: vi.fn(),
+  loginWithPopup: vi.fn(),
+  getAccessTokenWithPopup: vi.fn(),
+  handleRedirectCallback: vi.fn(),
+  connectAccountWithRedirect: vi.fn(),
+  getDpopNonce: vi.fn(),
+  setDpopNonce: vi.fn(),
+  generateDpopProof: vi.fn(),
+  createFetcher: vi.fn(),
+  error: undefined,
+  isReadOnly: false,
+};
+
 describe("AuthGate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -35,16 +53,10 @@ describe("AuthGate", () => {
     it("shows loading screen while Auth0 is loading", () => {
       const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
       mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
         isLoading: true,
         isAuthenticated: false,
         user: undefined,
-        getAccessTokenSilently: vi.fn(),
-        loginWithRedirect: vi.fn(),
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
       });
 
       render(
@@ -69,13 +81,8 @@ describe("AuthGate", () => {
         isLoading: false,
         isAuthenticated: true,
         user: mockUser,
+        ...baseAuth0Props,
         getAccessTokenSilently: mockGetAccessTokenSilently,
-        loginWithRedirect: vi.fn(),
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
       });
 
       render(
@@ -109,13 +116,7 @@ describe("AuthGate", () => {
         isLoading: false,
         isAuthenticated: false,
         user: undefined,
-        getAccessTokenSilently: vi.fn(),
-        loginWithRedirect: vi.fn(),
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
+        ...baseAuth0Props,
       });
 
       render(
@@ -146,13 +147,8 @@ describe("AuthGate", () => {
         isLoading: false,
         isAuthenticated: true,
         user: mockUser,
+        ...baseAuth0Props,
         getAccessTokenSilently: mockGetAccessTokenSilently,
-        loginWithRedirect: vi.fn(),
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
       });
 
       render(
@@ -192,16 +188,12 @@ describe("AuthGate", () => {
 
       const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
       mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
         isLoading: false,
         isAuthenticated: true,
         user: mockUser,
         getAccessTokenSilently: mockGetAccessTokenSilently,
         loginWithRedirect: mockLoginWithRedirect,
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
       });
 
       render(
@@ -228,7 +220,7 @@ describe("AuthGate", () => {
       });
 
       // Restore window.location
-      window.location = originalLocation;
+      (window as any).location = originalLocation;
     });
   });
 
@@ -240,13 +232,7 @@ describe("AuthGate", () => {
         isLoading: false,
         isAuthenticated: false,
         user: undefined,
-        getAccessTokenSilently: vi.fn(),
-        loginWithRedirect: vi.fn(),
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
+        ...baseAuth0Props,
       });
 
       render(
@@ -284,13 +270,8 @@ describe("AuthGate", () => {
         isLoading: false,
         isAuthenticated: true,
         user: mockUser,
+        ...baseAuth0Props,
         getAccessTokenSilently: mockGetAccessTokenSilently,
-        loginWithRedirect: vi.fn(),
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
       });
 
       render(
@@ -328,13 +309,8 @@ describe("AuthGate", () => {
         isLoading: false,
         isAuthenticated: true,
         user: mockUser,
+        ...baseAuth0Props,
         getAccessTokenSilently: mockGetAccessTokenSilently,
-        loginWithRedirect: vi.fn(),
-        logout: vi.fn(),
-        getIdTokenClaims: vi.fn(),
-        loginWithPopup: vi.fn(),
-        getAccessTokenWithPopup: vi.fn(),
-        handleRedirectCallback: vi.fn(),
       });
 
       render(

@@ -658,16 +658,19 @@ test("read-only: minimize and back buttons remain functional", async ({
   // Minimize should work
   const minimizeButton = page.getByTestId("minimize-button");
   await expect(minimizeButton).toBeVisible();
-  const handleMin = await minimizeButton.elementHandle();
-  if (handleMin) {
-    await page.evaluate((el) => (el as HTMLElement).click(), handleMin);
-  }
 
-  // Should be collapsed
-  await expect(
-    page.locator('h3:has-text("Document Summary")')
-  ).not.toBeVisible();
+  // Click and wait for state to update
+  await minimizeButton.click({ force: true });
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(500);
+
+  // Should be collapsed - check that the summary button returns
   await expect(summaryButton).toBeVisible();
+
+  // Header should no longer be visible
+  await expect(page.locator('h3:has-text("Document Summary")')).not.toBeVisible(
+    { timeout: 10000 }
+  );
 });
 
 test("read-only: knowledge layer mode with back button works", async ({

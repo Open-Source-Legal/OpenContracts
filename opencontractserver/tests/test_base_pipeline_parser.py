@@ -227,8 +227,14 @@ class MockParser(BaseParser):
             annotation_type="SPAN_LABEL",
         )
 
-        self.doc.refresh_from_db()
-        self.assertIn(self.doc, self.corpus.documents.all())
+        # save_parsed_data internally calls add_document, which may return a new document
+        # Refresh and get the actual document in the corpus
+        corpus_docs = [dp.document for dp in self.corpus.document_paths.all()]
+        self.assertEqual(
+            len(corpus_docs), 1, "Should have exactly one document in corpus"
+        )
+        actual_doc = corpus_docs[0]
+        self.assertIn(actual_doc, corpus_docs)
 
         self.assertEqual(Annotation.objects.count(), 2)
         ann_a = Annotation.objects.get(raw_text="Hello World")

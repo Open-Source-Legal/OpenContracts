@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - v*
   pull_request:
     paths:
       - 'frontend/**'
@@ -26,14 +27,28 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          cache: "yarn"
-          cache-dependency-path: frontend/yarn.lock
+          node-version: '20'
+          # Temporarily disable cache to debug phantom dependency issue
+          # cache: "yarn"
+          # cache-dependency-path: frontend/yarn.lock
 
       - name: Install Yarn
         run: npm install -g yarn
 
+      - name: Clear Yarn Cache
+        run: yarn cache clean
+
+      - name: Debug - Check for tippy references
+        run: |
+          echo "=== Checking package.json for tippy ==="
+          grep -i tippy package.json || echo "No tippy in package.json"
+          echo "=== Checking yarn.lock for tippy ==="
+          grep -i tippy yarn.lock || echo "No tippy in yarn.lock"
+          echo "=== yarn.lock hash ==="
+          shasum yarn.lock
+
       - name: Install Dependencies
-        run: yarn install
+        run: yarn install --frozen-lockfile # Use frozen lockfile for CI
 
       - name: Lint Prettier
         run: yarn run lint
@@ -51,11 +66,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          cache: "yarn"
-          cache-dependency-path: frontend/yarn.lock
+          node-version: '20'
+          # Temporarily disable cache to debug phantom dependency issue
+          # cache: "yarn"
+          # cache-dependency-path: frontend/yarn.lock
 
       - name: Install Yarn
         run: npm install -g yarn # Still need global yarn
+
+      - name: Clear Yarn Cache
+        run: yarn cache clean
 
       - name: Install Dependencies
         run: yarn install --frozen-lockfile # Use frozen lockfile for CI
@@ -71,6 +91,31 @@ jobs:
           yarn run test:ct tests/*Metadata*.ct.tsx
         continue-on-error: true
 
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: lint
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          # Temporarily disable cache to debug phantom dependency issue
+          # cache: "yarn"
+          # cache-dependency-path: frontend/yarn.lock
+      - name: Install Yarn
+        run: npm install -g yarn
+      - name: Clear Yarn Cache
+        run: yarn cache clean
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build TypeScript and Vite
+        run: yarn build
+
   unit-test:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -83,10 +128,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          cache: "yarn"
-          cache-dependency-path: frontend/yarn.lock
+          node-version: '20'
+          # Temporarily disable cache to debug phantom dependency issue
+          # cache: "yarn"
+          # cache-dependency-path: frontend/yarn.lock
       - name: Install Yarn
         run: npm install -g yarn
+      - name: Clear Yarn Cache
+        run: yarn cache clean
       - name: Install Dependencies
         run: yarn install --frozen-lockfile
       - name: Run Unit Tests

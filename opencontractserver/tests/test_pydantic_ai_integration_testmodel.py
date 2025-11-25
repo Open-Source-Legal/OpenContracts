@@ -99,7 +99,8 @@ class TestPydanticAIAgentsWithTestModel(TransactionTestCase):
             "service_agreement.txt", ContentFile(doc2_text.encode("utf-8")), save=True
         )
 
-        self.corpus.documents.add(self.doc1, self.doc2)
+        self.corpus.add_document(document=self.doc1, user=self.user)
+        self.corpus.add_document(document=self.doc2, user=self.user)
 
         # Create annotation labels
         self.payment_label = AnnotationLabel.objects.create(

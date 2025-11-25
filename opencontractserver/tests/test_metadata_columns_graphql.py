@@ -31,7 +31,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
         self.document = Document.objects.create(
             title="Test Document", creator=self.user
         )
-        self.corpus.documents.add(self.document)
+        self.corpus.add_document(document=self.document, user=self.user)
 
         # Set permissions
         set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.CRUD])

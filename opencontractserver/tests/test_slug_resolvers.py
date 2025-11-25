@@ -21,8 +21,13 @@ class SlugResolverTestCase(TestCase):
         cls.user = User.objects.create_user(username="JSv4", password="x")
         # Create corpuses and documents
         cls.corpus = Corpus.objects.create(title="Repo One", creator=cls.user)
-        cls.doc = Document.objects.create(title="Master Agreement", creator=cls.user)
-        cls.corpus.documents.add(cls.doc)
+        original_doc = Document.objects.create(
+            title="Master Agreement", creator=cls.user
+        )
+        cls.original_doc_slug = (
+            original_doc.slug
+        )  # Keep track of original slug for comparison
+        cls.doc, _, _ = cls.corpus.add_document(document=original_doc, user=cls.user)
         # Create a second document with same title to test per-user uniqueness
         cls.doc2 = Document.objects.create(title="Master Agreement", creator=cls.user)
         # Another user with same corpus/doc titles should be allowed same slugs
@@ -44,7 +49,8 @@ class SlugResolverTestCase(TestCase):
         self.assertNotEqual(self.doc.slug, self.doc2.slug)
         # Other user's corpus/doc may reuse the same slugs
         self.assertEqual(self.corpus.slug, self.corpus_b.slug)
-        self.assertEqual(self.doc.slug, self.doc_b.slug)
+        # Use original doc slug for comparison (before add_document created a new document)
+        self.assertEqual(self.original_doc_slug, self.doc_b.slug)
 
     def test_user_by_slug_query(self):
         query = """

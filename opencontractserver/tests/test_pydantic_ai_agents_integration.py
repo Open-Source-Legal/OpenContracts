@@ -119,7 +119,8 @@ class TestPydanticAIAgentsIntegration(TransactionTestCase):
             "service_agreement.txt", ContentFile(doc2_text.encode("utf-8")), save=True
         )
 
-        self.corpus.documents.add(self.doc1, self.doc2)
+        self.doc1, _, _ = self.corpus.add_document(document=self.doc1, user=self.user)
+        self.doc2, _, _ = self.corpus.add_document(document=self.doc2, user=self.user)
 
         # Create annotation labels
         self.payment_label = AnnotationLabel.objects.create(
@@ -540,7 +541,7 @@ class TestPydanticAIAgentsEdgeCases(TransactionTestCase):
             "minimal.txt", ContentFile(b"Short text."), save=True
         )
 
-        self.corpus.documents.add(self.doc)
+        self.doc, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
 
     @vcr.use_cassette(
         "fixtures/vcr_cassettes/pydantic_ai_malformed_tool_result.yaml",

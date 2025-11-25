@@ -23,7 +23,7 @@ class TestMetadataColumns(TestCase):
         self.document = Document.objects.create(
             title="Test Document", creator=self.user
         )
-        self.corpus.documents.add(self.document)
+        self.corpus.add_document(document=self.document, user=self.user)
 
         # Create metadata fieldset
         self.fieldset = Fieldset.objects.create(

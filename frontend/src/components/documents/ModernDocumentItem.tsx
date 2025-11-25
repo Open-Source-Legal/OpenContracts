@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { Icon } from "semantic-ui-react";
 import styled, { keyframes } from "styled-components";
 import { useNavigate } from "react-router-dom";
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { navigateToDocument } from "../../utils/navigationUtils";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 
@@ -16,6 +18,8 @@ import fallback_doc_icon from "../../assets/images/defaults/default_doc_icon.jpg
 import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
 import { ModernContextMenu, ContextMenuItem } from "./ModernContextMenu";
+import { VersionBadge } from "./VersionBadge";
+import { VersionHistoryPanel } from "./VersionHistoryPanel";
 
 const spin = keyframes`
   from { transform: rotate(0deg); }
@@ -181,6 +185,20 @@ const FileTypeBadge = styled.div`
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+`;
+
+// Positioned version badge that doesn't conflict with FileTypeBadge
+const VersionBadgeWrapper = styled.div`
+  position: absolute;
+  top: 8px;
+  left: 32px; /* After the checkbox */
+
+  /* Override the internal absolute positioning */
+  > div {
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+  }
 `;
 
 // ===============================================
@@ -397,8 +415,27 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     y: number;
   } | null>(null);
   const [isLongPressing, setIsLongPressing] = useState(false);
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const longPressStartPos = useRef<{ x: number; y: number } | null>(null);
+
+  // Draggable setup (documents can be dragged to folders)
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: `document-${item.id}`,
+      data: {
+        type: "document",
+        documentId: item.id,
+      },
+    });
+
+  // Apply transform for drag preview
+  const style = transform
+    ? {
+        transform: CSS.Translate.toString(transform),
+        opacity: isDragging ? 0.5 : 1,
+      }
+    : undefined;
 
   const {
     id,
@@ -412,6 +449,11 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     myPermissions,
     fileType,
     pageCount,
+    // Version metadata fields
+    hasVersionHistory,
+    versionCount,
+    isLatestVersion,
+    canViewHistory,
   } = item;
 
   const handleClick = (event: React.MouseEvent) => {
@@ -575,6 +617,20 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     });
   }
 
+  // Add version history option if document has history
+  if (hasVersionHistory && canViewHistory) {
+    contextMenuItems.push({
+      label: "View Version History",
+      icon: "code branch",
+      onClick: (e) => {
+        e.stopPropagation();
+        setVersionHistoryOpen(true);
+      },
+      disabled: backendLock,
+      dividerAfter: true,
+    });
+  }
+
   if (removeFromCorpus) {
     contextMenuItems.push({
       label: "Remove from Corpus",
@@ -686,6 +742,7 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     return (
       <>
         <CardContainer
+          ref={setNodeRef}
           className={`${is_selected ? "is-selected" : ""} ${
             backendLock ? "backend-locked" : ""
           } ${isLongPressing ? "long-pressing" : ""}`}
@@ -694,6 +751,9 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          style={style}
+          {...attributes}
+          {...listeners}
         >
           {backendLock && (
             <LoadingOverlay
@@ -714,6 +774,17 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
           <CardPreview>
             {renderThumbnail()}
             {fileType && <FileTypeBadge>{fileType}</FileTypeBadge>}
+            {(hasVersionHistory || (versionCount && versionCount > 1)) && (
+              <VersionBadgeWrapper>
+                <VersionBadge
+                  versionNumber={versionCount || 1}
+                  hasHistory={hasVersionHistory ?? false}
+                  isLatest={isLatestVersion ?? true}
+                  versionCount={versionCount || 1}
+                  onClick={() => setVersionHistoryOpen(true)}
+                />
+              </VersionBadgeWrapper>
+            )}
           </CardPreview>
 
           <CardContent>
@@ -755,6 +826,18 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
             title={title || "Document Actions"}
           />
         )}
+
+        <VersionHistoryPanel
+          documentId={id}
+          corpusId={openedCorpus()?.id || ""}
+          documentTitle={title || "Document"}
+          isOpen={versionHistoryOpen}
+          onClose={() => setVersionHistoryOpen(false)}
+          onDownload={(versionId) => {
+            console.log("Download version", versionId);
+            // TODO: Implement version download
+          }}
+        />
       </>
     );
   }
@@ -763,6 +846,7 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
   return (
     <>
       <ListContainer
+        ref={setNodeRef}
         className={`${is_selected ? "is-selected" : ""} ${
           backendLock ? "backend-locked" : ""
         } ${isLongPressing ? "long-pressing" : ""}`}
@@ -771,6 +855,9 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        style={style}
+        {...attributes}
+        {...listeners}
       >
         {backendLock && (
           <LoadingOverlay
@@ -804,6 +891,26 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
                 Public
               </div>
             )}
+            {(hasVersionHistory || (versionCount && versionCount > 1)) && (
+              <div
+                className="meta-item"
+                style={{
+                  cursor: hasVersionHistory ? "pointer" : "default",
+                  color: isLatestVersion === false ? "#c2410c" : "#1d4ed8",
+                }}
+                onClick={
+                  hasVersionHistory
+                    ? (e) => {
+                        e.stopPropagation();
+                        setVersionHistoryOpen(true);
+                      }
+                    : undefined
+                }
+              >
+                <Icon name="code branch" />v{versionCount || 1}
+                {hasVersionHistory && ` (${versionCount} versions)`}
+              </div>
+            )}
           </ListMeta>
         </ListContent>
 
@@ -819,6 +926,18 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
           title={title || "Document Actions"}
         />
       )}
+
+      <VersionHistoryPanel
+        documentId={id}
+        corpusId={openedCorpus()?.id || ""}
+        documentTitle={title || "Document"}
+        isOpen={versionHistoryOpen}
+        onClose={() => setVersionHistoryOpen(false)}
+        onDownload={(versionId) => {
+          console.log("Download version", versionId);
+          // TODO: Implement version download
+        }}
+      />
     </>
   );
 };

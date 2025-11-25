@@ -198,6 +198,7 @@ graph TB
 | `?ann=`      | Select annotations          | `?ann=123,456,789`                | Phase 2 or 4   |
 | `?analysis=` | Select analyses             | `?analysis=123,456`               | Phase 2 or 4   |
 | `?extract=`  | Select extracts             | `?extract=456,789`                | Phase 2 or 4   |
+| `?thread=`   | Select discussion thread (document sidebar only) | `?thread=thread-123`   | Component-local |
 
 **Visualization Parameters (Document Viewer):**
 
@@ -218,6 +219,9 @@ graph TB
 
 # Document with full visualization state
 /d/john/corpus/doc?ann=1,2&analysis=3&structural=true&boundingBoxes=true&labels=ALWAYS
+
+# Document with discussion thread open in sidebar
+/d/john/corpus/doc?thread=thread-456
 
 # Browse with highlighting
 /annotations?ann=123,456

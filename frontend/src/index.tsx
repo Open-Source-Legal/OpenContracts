@@ -9,6 +9,7 @@ import {
   ApolloLink,
 } from "@apollo/client";
 import { cache, authToken } from "./graphql/cache";
+import { errorLink } from "./graphql/errorLink";
 import { LooseObject } from "./components/types";
 import { getRuntimeEnv } from "./utils/env";
 import { HelmetProvider } from "react-helmet-async";
@@ -50,7 +51,7 @@ const httpLink = createHttpLink({
 });
 
 const client = new ApolloClient({
-  link: authLink.concat(httpLink),
+  link: ApolloLink.from([errorLink, authLink, httpLink]),
   cache,
 });
 

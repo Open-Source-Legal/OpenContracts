@@ -371,15 +371,18 @@ class EmbeddingManager(BaseVisibilityManager):
         document_id: Optional[int] = None,
         annotation_id: Optional[int] = None,
         note_id: Optional[int] = None,
+        conversation_id: Optional[int] = None,
+        message_id: Optional[int] = None,
     ):
         """
-        Create or update an Embedding, referencing exactly one of Document, Annotation, or Note.
+        Create or update an Embedding, referencing exactly one of:
+        Document, Annotation, Note, Conversation, or ChatMessage.
         If an Embedding already exists for (embedder_path + parent_id), update its vector field
         instead of creating a new record.
         """
-        if not any([document_id, annotation_id, note_id]):
+        if not any([document_id, annotation_id, note_id, conversation_id, message_id]):
             raise ValueError(
-                "Must provide one of document_id, annotation_id, or note_id."
+                "Must provide one of document_id, annotation_id, note_id, conversation_id, or message_id."
             )
 
         field_name = self._get_vector_field_name(dimension)
@@ -392,6 +395,8 @@ class EmbeddingManager(BaseVisibilityManager):
                 document_id=document_id,
                 annotation_id=annotation_id,
                 note_id=note_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
             )
             .first()
         )
@@ -408,5 +413,7 @@ class EmbeddingManager(BaseVisibilityManager):
             document_id=document_id,
             annotation_id=annotation_id,
             note_id=note_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
             **{field_name: vector},
         )

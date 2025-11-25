@@ -5,7 +5,7 @@ volumes:
 services:
 
   vector-embedder:
-    image: jscrudato/vector-embedder-microservice
+    image: ghcr.io/jsv4/vectorembeddermicroservice:latest
     # build:
     #   context: .
     #   dockerfile: ./compose/local/vector-embedder/Dockerfile

@@ -209,6 +209,20 @@ class OpenContractCorpusType(OpenContractCorpusTemplateType):
     label_set: str
 
 
+class OpenContractCorpusV2Type(OpenContractCorpusType):
+    """
+    Extended corpus type for V2 exports that includes additional configuration.
+    Backward compatible with V1 by inheriting from OpenContractCorpusType.
+    """
+
+    slug: NotRequired[Optional[str]]
+    post_processors: NotRequired[list[str]]
+    preferred_embedder: NotRequired[Optional[str]]
+    corpus_agent_instructions: NotRequired[Optional[str]]
+    document_agent_instructions: NotRequired[Optional[str]]
+    allow_comments: NotRequired[bool]
+
+
 class OpenContractsLabelSetType(TypedDict):
     id: int | str
     title: str
@@ -290,6 +304,9 @@ class OpenContractDocExport(OpenContractsDocAnnotations):
     # We need to have a page count for certain analyses
     page_count: int
 
+    # V2: Reference to structural annotation set (if any)
+    structural_set_hash: NotRequired[Optional[str]]
+
 
 class OpenContractsExportDataJsonPythonType(TypedDict):
     """
@@ -358,3 +375,180 @@ class OpenContractsGeneratedCorpusPythonType(TypedDict):
 
     # Stores the label set (todo - make sure the icon gets stored as base64)
     label_set: OpenContractsLabelSetType
+
+
+# ============================================================================
+# Export Format V2.0 - Added for comprehensive corpus export/import
+# ============================================================================
+
+
+class StructuralAnnotationSetExport(TypedDict):
+    """
+    Export format for StructuralAnnotationSet - shared structural annotations
+    across document copies.
+    """
+
+    content_hash: str
+    parser_name: Optional[str]
+    parser_version: Optional[str]
+    page_count: Optional[int]
+    token_count: Optional[int]
+    pawls_file_content: list[PawlsPagePythonType]
+    txt_content: str
+    structural_annotations: list[OpenContractsAnnotationPythonType]
+    structural_relationships: list[OpenContractsRelationshipPythonType]
+
+
+class CorpusFolderExport(TypedDict):
+    """
+    Export format for CorpusFolder - hierarchical folder structure.
+    Stores full path for easier reconstruction.
+    """
+
+    id: str  # Temporary export ID
+    name: str
+    description: str
+    color: str
+    icon: str
+    tags: list[str]
+    is_public: bool
+    parent_id: Optional[str]  # Reference to parent folder export ID
+    path: str  # Full path from root for easier reconstruction
+
+
+class DocumentPathExport(TypedDict):
+    """
+    Export format for DocumentPath - version tree for document paths.
+    Preserves full version history within corpus.
+    """
+
+    document_ref: str  # Reference to document in export (filename or hash)
+    folder_path: Optional[str]  # Full folder path if assigned to folder
+    path: str
+    version_number: int
+    parent_version_number: Optional[int]  # Reference to parent version
+    is_current: bool
+    is_deleted: bool
+    created: str  # ISO format timestamp
+
+
+class AgentConfigExport(TypedDict):
+    """
+    Export format for corpus and document agent configurations.
+    """
+
+    corpus_agent_instructions: Optional[str]
+    document_agent_instructions: Optional[str]
+
+
+class DescriptionRevisionExport(TypedDict):
+    """
+    Export format for CorpusDescriptionRevision.
+    """
+
+    version: int
+    diff: str
+    snapshot: Optional[str]
+    checksum_base: str
+    checksum_full: str
+    created: str  # ISO format timestamp
+    author_email: str
+
+
+class ConversationExport(TypedDict):
+    """
+    Export format for Conversation (discussion threads).
+    Optional - only included if include_conversations=True.
+    """
+
+    id: str  # Temporary export ID
+    title: str
+    conversation_type: str  # 'chat' or 'thread'
+    agent_type: Optional[str]
+    is_public: bool
+    creator_email: str
+    created: str
+    modified: str
+
+
+class ChatMessageExport(TypedDict):
+    """
+    Export format for ChatMessage.
+    Optional - only included if include_conversations=True.
+    """
+
+    id: str  # Temporary export ID
+    conversation_id: str  # Reference to ConversationExport id
+    content: str
+    message_type: str
+    state: str
+    role: str
+    tool_name: Optional[str]
+    approved_by_email: Optional[str]
+    creator_email: str
+    created: str
+
+
+class MessageVoteExport(TypedDict):
+    """
+    Export format for MessageVote.
+    Optional - only included if include_conversations=True.
+    """
+
+    message_id: str  # Reference to ChatMessageExport id
+    vote_type: str
+    creator_email: str
+    created: str
+
+
+class OpenContractsExportDataJsonV2Type(TypedDict):
+    """
+    Export format V2.0 - Comprehensive corpus export including all new features
+    added since original export design.
+
+    Backward compatible: Old importers will ignore new fields.
+    New importers check 'version' field to determine format.
+    """
+
+    # Version marker for format detection
+    version: str  # "2.0"
+
+    # ===== EXISTING V1 FIELDS (maintained for backward compatibility) =====
+    annotated_docs: dict[str, OpenContractDocExport]
+    doc_labels: dict[str, AnnotationLabelPythonType]
+    text_labels: dict[str, AnnotationLabelPythonType]
+    corpus: OpenContractCorpusV2Type  # Enhanced with V2 fields
+    label_set: OpenContractsLabelSetType
+
+    # ===== NEW V2 FIELDS =====
+
+    # Structural annotations (shared across document copies)
+    structural_annotation_sets: dict[
+        str, StructuralAnnotationSetExport
+    ]  # Keyed by content_hash
+
+    # Corpus folder hierarchy
+    folders: list[CorpusFolderExport]
+
+    # Document version trees (DocumentPath history)
+    document_paths: list[DocumentPathExport]
+
+    # Cross-document relationships
+    relationships: list[OpenContractsRelationshipPythonType]
+
+    # Agent configuration
+    agent_config: AgentConfigExport
+
+    # Markdown description and revision history
+    md_description: Optional[str]
+    md_description_revisions: list[DescriptionRevisionExport]
+
+    # Post-processors configuration
+    post_processors: list[str]
+
+    # ===== OPTIONAL V2 FIELDS (based on export flags) =====
+
+    # Conversations/messages (only if include_conversations=True)
+    conversations: NotRequired[list[ConversationExport]]
+    messages: NotRequired[list[ChatMessageExport]]
+    message_votes: NotRequired[list[MessageVoteExport]]

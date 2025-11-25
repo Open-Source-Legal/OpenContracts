@@ -47,6 +47,30 @@ class AnnotationQueryOptimizer:
         if user.is_superuser:
             return True, True, True, True, True
 
+        # Anonymous users only have read access to public documents/corpuses
+        if user.is_anonymous:
+            try:
+                document = Document.objects.get(id=document_id)
+                doc_read = document.is_public
+            except Document.DoesNotExist:
+                return False, False, False, False, False
+
+            if not doc_read:
+                return False, False, False, False, False
+
+            if corpus_id:
+                try:
+                    corpus = Corpus.objects.get(id=corpus_id)
+                    corpus_read = corpus.is_public
+                except Corpus.DoesNotExist:
+                    return False, False, False, False, False
+
+                if not corpus_read:
+                    return False, False, False, False, False
+
+            # Anonymous users only get read permission
+            return True, False, False, False, False
+
         # First check document permissions (primary)
         try:
             document = Document.objects.get(id=document_id)
@@ -126,12 +150,18 @@ class AnnotationQueryOptimizer:
         extract_id: Optional[int] = None,
         structural: Optional[bool] = None,  # Filter for structural annotations
         use_cache: bool = True,  # Kept for backward compatibility, ignored
+        check_current_version: bool = True,  # NEW: Check if document is current and has active path
     ) -> QuerySet:
         """
         Get annotations with permission filtering and optimized queries.
         Permissions are computed at document+corpus level and applied to all annotations.
+
+        IMPORTANT: Returns annotations from BOTH:
+        1. Direct document annotations (document FK) - corpus-specific annotations
+        2. Structural annotations via document's structural_annotation_set (structural_set FK) - shared annotations
         """
         from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import Document
 
         # Compute effective permissions once
         can_read, can_create, can_update, can_delete, can_comment = (
@@ -141,8 +171,45 @@ class AnnotationQueryOptimizer:
         if not can_read:
             return Annotation.objects.none()
 
-        # Build optimized query
-        qs = Annotation.objects.filter(document_id=document_id)
+        # Check if document has active path in corpus (version awareness)
+        if check_current_version and corpus_id:
+            from opencontractserver.documents.models import DocumentPath
+
+            has_active_path = DocumentPath.objects.filter(
+                document_id=document_id,
+                corpus_id=corpus_id,
+                is_current=True,
+                is_deleted=False,
+            ).exists()
+
+            if not has_active_path:
+                # Document is deleted or not current in corpus
+                return Annotation.objects.none()
+
+        # Fetch document to check for structural_annotation_set
+        # Use select_related for efficiency to avoid N+1 queries
+        try:
+            document = Document.objects.select_related("structural_annotation_set").get(
+                pk=document_id
+            )
+        except Document.DoesNotExist:
+            return Annotation.objects.none()
+
+        # Build base filter for annotations from BOTH sources:
+        # 1. Direct document annotations (corpus-specific, user-created)
+        # 2. Structural annotations via document's structural_annotation_set (shared)
+        doc_filters = Q(document_id=document_id)
+
+        if document.structural_annotation_set_id:
+            # Include structural annotations from the shared set
+            # These annotations have document_id=NULL but structural_set_id=X
+            doc_filters |= Q(
+                structural_set_id=document.structural_annotation_set_id,
+                structural=True,  # Safety check - structural_set annotations must be structural
+            )
+
+        # Build optimized query with combined document filters
+        qs = Annotation.objects.filter(doc_filters)
 
         # Apply privacy filtering for created_by_* fields
         if not user.is_superuser:
@@ -153,33 +220,40 @@ class AnnotationQueryOptimizer:
             )
             from opencontractserver.extracts.models import Extract
 
-            # Base query for visible analyses
-            visible_analyses = Analysis.objects.filter(
-                Q(is_public=True) | Q(creator=user)
-            )
+            # Anonymous users can only see public analyses/extracts
+            if user.is_anonymous:
+                visible_analyses = Analysis.objects.filter(Q(is_public=True))
+                visible_extracts = Extract.objects.none()  # No extracts for anonymous
+            else:
+                # Base query for visible analyses
+                visible_analyses = Analysis.objects.filter(
+                    Q(is_public=True) | Q(creator=user)
+                )
 
-            # Add analyses with explicit permissions
-            analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
+                # Add analyses with explicit permissions
+                analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
+                    user=user
+                ).values_list("content_object_id", flat=True)
 
-            visible_analyses = visible_analyses | Analysis.objects.filter(
-                id__in=analyses_with_permission
-            )
+                visible_analyses = visible_analyses | Analysis.objects.filter(
+                    id__in=analyses_with_permission
+                )
 
-            # Get extracts user can access
-            from opencontractserver.extracts.models import ExtractUserObjectPermission
+                # Get extracts user can access
+                from opencontractserver.extracts.models import (
+                    ExtractUserObjectPermission,
+                )
 
-            visible_extracts = Extract.objects.filter(Q(creator=user))
+                visible_extracts = Extract.objects.filter(Q(creator=user))
 
-            # Add extracts with explicit permissions
-            extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
+                # Add extracts with explicit permissions
+                extracts_with_permission = ExtractUserObjectPermission.objects.filter(
+                    user=user
+                ).values_list("content_object_id", flat=True)
 
-            visible_extracts = visible_extracts | Extract.objects.filter(
-                id__in=extracts_with_permission
-            )
+                visible_extracts = visible_extracts | Extract.objects.filter(
+                    id__in=extracts_with_permission
+                )
 
             # Filter annotations: exclude private ones unless user has access
             # BUT always include structural annotations (they're always visible)
@@ -198,7 +272,22 @@ class AnnotationQueryOptimizer:
         # Add filters
         if corpus_id:
             # Filter by corpus (permissions already checked)
-            qs = qs.filter(corpus_id=corpus_id)
+            # IMPORTANT: Structural_set annotations have corpus_id=NULL (they're shared across corpuses)
+            # So we need to keep BOTH:
+            # 1. Corpus-specific annotations where corpus_id matches
+            # 2. Structural_set annotations (which have corpus_id=NULL but structural_set_id set)
+            corpus_filter = Q(corpus_id=corpus_id)
+
+            if document.structural_annotation_set_id:
+                # Also keep structural annotations from this document's set
+                # (already filtered in base query, but corpus_id=NULL so we must explicitly allow them)
+                corpus_filter |= Q(
+                    structural_set_id=document.structural_annotation_set_id,
+                    structural=True,
+                )
+
+            qs = qs.filter(corpus_filter)
+
             # Apply structural filter if specified
             if structural is not None:
                 qs = qs.filter(structural=structural)
@@ -272,6 +361,55 @@ class AnnotationQueryOptimizer:
         )
 
         return qs
+
+    @classmethod
+    def get_annotations_for_path(
+        cls, corpus_id: int, path: str, user, version: Optional[int] = None, **kwargs
+    ) -> QuerySet:
+        """
+        Get annotations for document at a specific path (defaults to current version).
+        This is the recommended method for corpus-scoped annotation queries.
+
+        Args:
+            corpus_id: The corpus ID
+            path: The document path in the corpus
+            user: The requesting user
+            version: Optional specific version number (defaults to current)
+            **kwargs: Additional arguments passed to get_document_annotations
+
+        Returns:
+            QuerySet of annotations for the document at this path
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import DocumentPath
+
+        # Find the document at this path
+        path_query = DocumentPath.objects.filter(corpus_id=corpus_id, path=path)
+
+        if version is not None:
+            # Specific version requested
+            path_query = path_query.filter(version_number=version)
+        else:
+            # Default to current, non-deleted
+            path_query = path_query.filter(is_current=True, is_deleted=False)
+
+        try:
+            document_path = path_query.get()
+        except DocumentPath.DoesNotExist:
+            # Path doesn't exist or is deleted
+            return Annotation.objects.none()
+        except DocumentPath.MultipleObjectsReturned:
+            # Shouldn't happen with constraints, but handle safely
+            document_path = path_query.first()
+
+        # Use existing method with resolved document_id
+        return cls.get_document_annotations(
+            document_id=document_path.document_id,
+            user=user,
+            corpus_id=corpus_id,
+            check_current_version=False,  # Already checked via path
+            **kwargs
+        )
 
     # TODO - in-use?
     @classmethod
@@ -382,8 +520,13 @@ class RelationshipQueryOptimizer:
         """
         Get relationships with optimized prefetching.
         Permissions are computed at document+corpus level.
+
+        IMPORTANT: Returns relationships from BOTH:
+        1. Direct document relationships (document FK) - corpus-specific relationships
+        2. Structural relationships via document's structural_annotation_set (structural_set FK) - shared relationships
         """
         from opencontractserver.annotations.models import Relationship
+        from opencontractserver.documents.models import Document
 
         # Use unified permission check from AnnotationQueryOptimizer
         can_read, can_create, can_update, can_delete, can_comment = (
@@ -395,8 +538,30 @@ class RelationshipQueryOptimizer:
         if not can_read:
             return Relationship.objects.none()
 
-        # Build query
-        qs = Relationship.objects.filter(document_id=document_id)
+        # Fetch document to check for structural_annotation_set
+        # Use select_related for efficiency
+        try:
+            document = Document.objects.select_related("structural_annotation_set").get(
+                pk=document_id
+            )
+        except Document.DoesNotExist:
+            return Relationship.objects.none()
+
+        # Build base filter for relationships from BOTH sources:
+        # 1. Direct document relationships (corpus-specific, user-created)
+        # 2. Structural relationships via document's structural_annotation_set (shared)
+        doc_filters = Q(document_id=document_id)
+
+        if document.structural_annotation_set_id:
+            # Include structural relationships from the shared set
+            # These relationships have document_id=NULL but structural_set_id=X
+            doc_filters |= Q(
+                structural_set_id=document.structural_annotation_set_id,
+                structural=True,  # Safety check - structural_set relationships must be structural
+            )
+
+        # Build query with combined document filters
+        qs = Relationship.objects.filter(doc_filters)
 
         # Apply privacy filtering for created_by_* fields (same pattern as Annotations)
         if not user.is_superuser:
@@ -407,33 +572,40 @@ class RelationshipQueryOptimizer:
             )
             from opencontractserver.extracts.models import Extract
 
-            # Base query for visible analyses
-            visible_analyses = Analysis.objects.filter(
-                Q(is_public=True) | Q(creator=user)
-            )
+            # Anonymous users can only see public analyses/extracts
+            if user.is_anonymous:
+                visible_analyses = Analysis.objects.filter(Q(is_public=True))
+                visible_extracts = Extract.objects.none()  # No extracts for anonymous
+            else:
+                # Base query for visible analyses
+                visible_analyses = Analysis.objects.filter(
+                    Q(is_public=True) | Q(creator=user)
+                )
 
-            # Add analyses with explicit permissions
-            analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
+                # Add analyses with explicit permissions
+                analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
+                    user=user
+                ).values_list("content_object_id", flat=True)
 
-            visible_analyses = visible_analyses | Analysis.objects.filter(
-                id__in=analyses_with_permission
-            )
+                visible_analyses = visible_analyses | Analysis.objects.filter(
+                    id__in=analyses_with_permission
+                )
 
-            # Get extracts user can access
-            from opencontractserver.extracts.models import ExtractUserObjectPermission
+                # Get extracts user can access
+                from opencontractserver.extracts.models import (
+                    ExtractUserObjectPermission,
+                )
 
-            visible_extracts = Extract.objects.filter(Q(creator=user))
+                visible_extracts = Extract.objects.filter(Q(creator=user))
 
-            # Add extracts with explicit permissions
-            extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
+                # Add extracts with explicit permissions
+                extracts_with_permission = ExtractUserObjectPermission.objects.filter(
+                    user=user
+                ).values_list("content_object_id", flat=True)
 
-            visible_extracts = visible_extracts | Extract.objects.filter(
-                id__in=extracts_with_permission
-            )
+                visible_extracts = visible_extracts | Extract.objects.filter(
+                    id__in=extracts_with_permission
+                )
 
             # Filter relationships: exclude private ones unless user has access
             # BUT always include structural relationships (they're always visible)
@@ -451,7 +623,21 @@ class RelationshipQueryOptimizer:
 
         if corpus_id:
             # Filter by corpus (permissions already checked)
-            qs = qs.filter(corpus_id=corpus_id)
+            # IMPORTANT: Structural_set relationships have corpus_id=NULL (they're shared across corpuses)
+            # So we need to keep BOTH:
+            # 1. Corpus-specific relationships where corpus_id matches
+            # 2. Structural_set relationships (which have corpus_id=NULL but structural_set_id set)
+            corpus_filter = Q(corpus_id=corpus_id)
+
+            if document.structural_annotation_set_id:
+                # Also keep structural relationships from this document's set
+                # (already filtered in base query, but corpus_id=NULL so we must explicitly allow them)
+                corpus_filter |= Q(
+                    structural_set_id=document.structural_annotation_set_id,
+                    structural=True,
+                )
+
+            qs = qs.filter(corpus_filter)
         else:
             # No corpus = structural only (always readable if doc is readable)
             qs = qs.filter(structural=True)
@@ -670,6 +856,12 @@ class AnalysisQueryOptimizer:
 
         if user.is_superuser:
             qs = Analysis.objects.all()
+        elif user.is_anonymous:
+            # Anonymous users can only see public analyses in public corpuses
+            qs = Analysis.objects.filter(
+                Q(is_public=True)
+                & (Q(analyzed_corpus__isnull=True) | Q(analyzed_corpus__is_public=True))
+            )
         else:
             # Import permission model
             from opencontractserver.analyzer.models import AnalysisUserObjectPermission
@@ -705,7 +897,11 @@ class AnalysisQueryOptimizer:
             # Check corpus permission
             try:
                 corpus = Corpus.objects.get(id=corpus_id)
-                if not user.is_superuser and not user_has_permission_for_obj(
+                # Anonymous users can only access public corpuses
+                if user.is_anonymous:
+                    if not corpus.is_public:
+                        return Analysis.objects.none()
+                elif not user.is_superuser and not user_has_permission_for_obj(
                     user, corpus, PermissionTypes.READ, include_group_permissions=True
                 ):
                     return Analysis.objects.none()
@@ -859,6 +1055,11 @@ class ExtractQueryOptimizer:
 
         if user.is_superuser:
             qs = Extract.objects.all()
+        elif user.is_anonymous:
+            # Anonymous users can only see public extracts in public corpuses
+            qs = Extract.objects.filter(
+                Q(corpus__isnull=True) | Q(corpus__is_public=True)
+            )
         else:
             # Import permission model
             from opencontractserver.extracts.models import ExtractUserObjectPermission
@@ -893,7 +1094,11 @@ class ExtractQueryOptimizer:
             # Check corpus permission
             try:
                 corpus = Corpus.objects.get(id=corpus_id)
-                if not user.is_superuser and not user_has_permission_for_obj(
+                # Anonymous users can only access public corpuses
+                if user.is_anonymous:
+                    if not corpus.is_public:
+                        return Extract.objects.none()
+                elif not user.is_superuser and not user_has_permission_for_obj(
                     user, corpus, PermissionTypes.READ, include_group_permissions=True
                 ):
                     return Extract.objects.none()

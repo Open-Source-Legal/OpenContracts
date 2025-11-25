@@ -553,13 +553,13 @@ export const AnnotatorSidebar = ({
             let source_annotations = _.intersectionWith(
               annotations,
               relation.sourceIds,
-              ({ id }, annotationId: string) => id === annotationId
+              (annotation, annotationId) => annotation.id === annotationId
             );
 
             let target_annotations = _.intersectionWith(
               annotations,
               relation.targetIds,
-              ({ id }, annotationId: string) => id === annotationId
+              (annotation, annotationId) => annotation.id === annotationId
             );
 
             return (

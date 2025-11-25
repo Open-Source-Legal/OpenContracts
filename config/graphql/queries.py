@@ -11,14 +11,17 @@ from graphene.types.generic import GenericScalar
 from graphene_django.debug import DjangoDebug
 from graphene_django.fields import DjangoConnectionField
 from graphene_django.filter import DjangoFilterConnectionField
+from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
 from config.graphql.base import OpenContractsNode
 from config.graphql.filters import (
+    AgentConfigurationFilter,
     AnalysisFilter,
     AnalyzerFilter,
     AssignmentFilter,
+    BadgeFilter,
     ColumnFilter,
     ConversationFilter,
     CorpusFilter,
@@ -33,22 +36,30 @@ from config.graphql.filters import (
     LabelFilter,
     LabelsetFilter,
     RelationshipFilter,
+    UserBadgeFilter,
 )
 from config.graphql.graphene_types import (
+    AgentConfigurationType,
     AnalysisType,
     AnalyzerType,
     AnnotationLabelType,
     AnnotationType,
     AssignmentType,
+    BadgeDistributionType,
+    BadgeType,
     BulkDocumentUploadStatusType,
     ColumnType,
+    CommunityStatsType,
     ConversationType,
     CorpusActionType,
+    CorpusFolderType,
     CorpusQueryType,
     CorpusStatsType,
     CorpusType,
+    CriteriaTypeDefinitionType,
     DatacellType,
     DocumentCorpusActionsType,
+    DocumentPathType,
     DocumentRelationshipType,
     DocumentType,
     ExtractType,
@@ -56,13 +67,19 @@ from config.graphql.graphene_types import (
     FileTypeEnum,
     GremlinEngineType_READ,
     LabelSetType,
+    LeaderboardEntryType,
+    LeaderboardMetricEnum,
+    LeaderboardScopeEnum,
+    LeaderboardType,
     MessageType,
     NoteType,
+    NotificationType,
     PageAwareAnnotationType,
     PdfPageInfoType,
     PipelineComponentsType,
     PipelineComponentType,
     RelationshipType,
+    UserBadgeType,
     UserExportType,
     UserImportType,
     UserType,
@@ -79,11 +96,19 @@ from opencontractserver.annotations.models import (
     Note,
     Relationship,
 )
+from opencontractserver.badges.criteria_registry import BadgeCriteriaRegistry
+from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.conversations.models import ChatMessage, Conversation
-from opencontractserver.corpuses.models import Corpus, CorpusAction, CorpusQuery
+from opencontractserver.corpuses.models import (
+    Corpus,
+    CorpusAction,
+    CorpusFolder,
+    CorpusQuery,
+)
 from opencontractserver.documents.models import Document, DocumentRelationship
 from opencontractserver.extracts.models import Column, Datacell, Fieldset
 from opencontractserver.feedback.models import UserFeedback
+from opencontractserver.notifications.models import Notification
 from opencontractserver.pipeline.utils import (
     get_all_embedders,
     get_all_parsers,
@@ -136,11 +161,25 @@ class Query(graphene.ObjectType):
         return info.context.user
 
     def resolve_user_by_slug(self, info, slug):
+        """
+        Resolve a user by their slug with profile privacy filtering.
+
+        SECURITY: Respects is_profile_public and corpus membership visibility rules.
+        Users are visible if:
+        - Profile is public (is_profile_public=True)
+        - Requesting user shares corpus membership with > READ permission
+        - It's the requesting user's own profile
+        """
         from django.contrib.auth import get_user_model
+
+        from opencontractserver.users.query_optimizer import UserQueryOptimizer
 
         User = get_user_model()
         try:
-            return User.objects.get(slug=slug)
+            # Use visibility filtering instead of direct query
+            return UserQueryOptimizer.get_visible_users(info.context.user).get(
+                slug=slug
+            )
         except User.DoesNotExist:
             return None
 
@@ -173,6 +212,8 @@ class Query(graphene.ObjectType):
     ):
         from django.contrib.auth import get_user_model
 
+        from opencontractserver.documents.models import DocumentPath
+
         User = get_user_model()
         try:
             owner = User.objects.get(slug=user_slug)
@@ -192,8 +233,10 @@ class Query(graphene.ObjectType):
         )
         if not doc:
             return None
-        # Validate membership
-        if not doc.corpus_set.filter(pk=corpus.pk).exists():
+        # Validate membership via DocumentPath (dual-tree versioning model)
+        if not DocumentPath.objects.filter(
+            document=doc, corpus=corpus, is_current=True, is_deleted=False
+        ).exists():
             return None
         return doc
 
@@ -770,6 +813,382 @@ class Query(graphene.ObjectType):
 
     corpus = OpenContractsNode.Field(CorpusType)  # relay.Node.Field(CorpusType)
 
+    # CORPUS FOLDER RESOLVERS #####################################
+
+    corpus_folders = graphene.List(
+        CorpusFolderType,
+        corpus_id=graphene.ID(required=True),
+        description="Get all folders in a corpus (flat list for tree construction)",
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_folders(self, info, corpus_id):
+        """
+        Get all folders in a corpus.
+        Returns flat list - frontend reconstructs tree from parentId relationships.
+        """
+        _, corpus_pk = from_global_id(corpus_id)
+        return CorpusFolder.objects.filter(corpus_id=corpus_pk).visible_to_user(
+            info.context.user
+        )
+
+    corpus_folder = graphene.Field(
+        CorpusFolderType,
+        id=graphene.ID(required=True),
+        description="Get a single folder by ID",
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_folder(self, info, id):
+        """Get a single folder by ID with permission check."""
+        _, folder_pk = from_global_id(id)
+        try:
+            return CorpusFolder.objects.visible_to_user(info.context.user).get(
+                pk=folder_pk
+            )
+        except CorpusFolder.DoesNotExist:
+            return None
+
+    deleted_documents_in_corpus = graphene.List(
+        DocumentPathType,
+        corpus_id=graphene.ID(required=True),
+        description="Get all soft-deleted documents in a corpus (trash folder view)",
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_deleted_documents_in_corpus(self, info, corpus_id):
+        """
+        Get all soft-deleted documents in a corpus for trash folder view.
+
+        Returns DocumentPath records where is_deleted=True and is_current=True,
+        which represents the current soft-deleted state in the path tree.
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        _, corpus_pk = from_global_id(corpus_id)
+
+        # First check user has access to the corpus
+        try:
+            corpus = Corpus.objects.visible_to_user(info.context.user).get(pk=corpus_pk)
+        except Corpus.DoesNotExist:
+            return []
+
+        # Return soft-deleted documents (is_deleted=True, is_current=True)
+        return (
+            DocumentPath.objects.filter(corpus=corpus, is_current=True, is_deleted=True)
+            .select_related("document", "folder", "creator")
+            .order_by("-modified")
+        )
+
+    # SEARCH RESOURCES FOR MENTIONS #####################################
+    search_corpuses_for_mention = DjangoConnectionField(
+        CorpusType,
+        text_search=graphene.String(
+            description="Search query to find corpuses by title or description"
+        ),
+    )
+    search_documents_for_mention = DjangoConnectionField(
+        DocumentType,
+        text_search=graphene.String(
+            description="Search query to find documents by title or description"
+        ),
+    )
+    search_annotations_for_mention = DjangoConnectionField(
+        AnnotationType,
+        text_search=graphene.String(
+            description="Search query to find annotations by label text or raw content"
+        ),
+        corpus_id=graphene.ID(
+            description="Optional corpus ID to scope search to specific corpus"
+        ),
+    )
+    search_users_for_mention = DjangoConnectionField(
+        UserType,
+        text_search=graphene.String(
+            description="Search query to find users by username or email"
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_search_corpuses_for_mention(self, info, text_search=None, **kwargs):
+        """
+        Search corpuses for @ mention autocomplete.
+
+        SECURITY: Only returns corpuses where user can meaningfully contribute.
+        Requires write permission (CREATE/UPDATE/DELETE), creator status, or public corpus.
+
+        Rationale: Mentioning a corpus implies drawing attention to it for collaborative
+        purposes. Read-only viewers shouldn't be mentioning corpuses since they can't
+        contribute to them.
+
+        See: docs/permissioning/mention_permissioning_spec.md
+        """
+        from guardian.shortcuts import get_objects_for_user
+
+        user = info.context.user
+
+        # Anonymous users cannot mention (must be authenticated)
+        if user.is_anonymous:
+            return Corpus.objects.none()
+
+        # Superusers see all corpuses
+        if user.is_superuser:
+            qs = Corpus.objects.all()
+        else:
+            # Get corpuses user has write permission to
+            writable_corpuses = get_objects_for_user(
+                user,
+                [
+                    "corpuses.create_corpus",
+                    "corpuses.update_corpus",
+                    "corpuses.remove_corpus",  # Note: PermissionTypes.DELETE maps to "remove"
+                ],
+                klass=Corpus,
+                accept_global_perms=False,
+                any_perm=True,  # Has ANY of these permissions
+            )
+
+            # Combine: creator OR writable OR public
+            qs = Corpus.objects.filter(
+                Q(creator=user) | Q(id__in=writable_corpuses) | Q(is_public=True)
+            ).distinct()
+
+        if text_search:
+            qs = qs.filter(
+                Q(title__icontains=text_search) | Q(description__icontains=text_search)
+            )
+
+        # Order by most recently modified first
+        return qs.order_by("-modified")
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_search_documents_for_mention(self, info, text_search=None, **kwargs):
+        """
+        Search documents for @ mention autocomplete.
+
+        SECURITY: Only returns documents where user can meaningfully contribute.
+        Requires one of:
+        - User is creator
+        - User has write permission on document
+        - Document is in a corpus where user has write permission
+        - Document is public AND (no corpus OR public corpus OR user has corpus access)
+
+        Rationale: Similar to corpuses, mentioning a document implies collaborative context.
+        However, public documents are included to allow discussion/reference in open forums.
+
+        See: docs/permissioning/mention_permissioning_spec.md
+        """
+        from guardian.shortcuts import get_objects_for_user
+
+        user = info.context.user
+
+        # Anonymous users cannot mention (must be authenticated)
+        if user.is_anonymous:
+            return Document.objects.none()
+
+        # Superusers see all documents
+        if user.is_superuser:
+            qs = Document.objects.all()
+        else:
+            # Get documents user has write permission to
+            writable_documents = get_objects_for_user(
+                user,
+                [
+                    "documents.create_document",
+                    "documents.update_document",
+                    "documents.remove_document",  # Note: PermissionTypes.DELETE maps to "remove"
+                ],
+                klass=Document,
+                accept_global_perms=False,
+                any_perm=True,
+            )
+
+            # Get corpuses user has write permission to
+            writable_corpuses = get_objects_for_user(
+                user,
+                [
+                    "corpuses.create_corpus",
+                    "corpuses.update_corpus",
+                    "corpuses.remove_corpus",  # Note: PermissionTypes.DELETE maps to "remove"
+                ],
+                klass=Corpus,
+                accept_global_perms=False,
+                any_perm=True,
+            )
+
+            # Get corpuses user can at least read (for public document context)
+            readable_corpuses = Corpus.objects.visible_to_user(user)
+
+            # Get documents in writable corpuses via DocumentPath (corpus isolation)
+            from opencontractserver.documents.models import DocumentPath
+
+            docs_in_writable_corpuses = DocumentPath.objects.filter(
+                corpus__in=writable_corpuses, is_current=True, is_deleted=False
+            ).values_list("document_id", flat=True)
+
+            # Get documents in readable corpuses for public document context
+            docs_in_readable_corpuses = DocumentPath.objects.filter(
+                corpus__in=readable_corpuses, is_current=True, is_deleted=False
+            ).values_list("document_id", flat=True)
+
+            # Get documents in public corpuses for public document context
+            public_corpuses = Corpus.objects.filter(is_public=True)
+            docs_in_public_corpuses = DocumentPath.objects.filter(
+                corpus__in=public_corpuses, is_current=True, is_deleted=False
+            ).values_list("document_id", flat=True)
+
+            # Get standalone documents (not in any corpus via DocumentPath)
+            docs_with_paths = (
+                DocumentPath.objects.filter(is_current=True, is_deleted=False)
+                .values_list("document_id", flat=True)
+                .distinct()
+            )
+
+            # Build complex filter:
+            # 1. User is creator
+            # 2. User has write permission on document
+            # 3. Document is in a writable corpus (via DocumentPath)
+            # 4. Document is public AND (not in any corpus OR in public corpus OR user has corpus access)
+            qs = Document.objects.filter(
+                Q(creator=user)
+                | Q(id__in=writable_documents)
+                | Q(id__in=docs_in_writable_corpuses)  # Via DocumentPath
+                | (
+                    Q(is_public=True)
+                    & (
+                        ~Q(id__in=docs_with_paths)  # Not in any corpus (standalone)
+                        | Q(id__in=docs_in_public_corpuses)  # In a public corpus
+                        | Q(id__in=docs_in_readable_corpuses)  # In a readable corpus
+                    )
+                )
+            ).distinct()
+
+        if text_search:
+            qs = qs.filter(
+                Q(title__icontains=text_search) | Q(description__icontains=text_search)
+            )
+
+        # Note: corpus field exists in model but not in current DB schema for select_related
+        # Documents use Many-to-Many relationship via Corpus.documents instead
+
+        # Order by most recently modified first
+        return qs.order_by("-modified")
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_search_annotations_for_mention(
+        self, info, text_search=None, corpus_id=None, **kwargs
+    ):
+        """
+        Search annotations for @ mention autocomplete.
+
+        SECURITY: Annotations inherit permissions from document + corpus.
+        Uses .visible_to_user() which applies composite permission logic.
+
+        PERFORMANCE NOTES:
+        - Prioritizes annotation_label.text matches (indexed, fast)
+        - Falls back to raw_text search (full-text, slower)
+        - Corpus scoping significantly reduces search space
+        - Limits to 10 results to prevent overwhelming UI
+
+        Rationale: Mentioning annotations allows precise reference to specific
+        content sections. Useful for discussions, citations, and cross-references.
+
+        @param text_search: Search query for label text or content
+        @param corpus_id: Optional corpus to scope search (recommended for performance)
+        """
+        from opencontractserver.annotations.models import Annotation
+
+        user = info.context.user
+
+        # Anonymous users cannot mention (must be authenticated)
+        if user.is_anonymous:
+            return Annotation.objects.none()
+
+        # Use visible_to_user() which handles composite document+corpus permissions
+        qs = Annotation.objects.visible_to_user(user)
+
+        # Scope to specific corpus if provided (major performance boost)
+        if corpus_id:
+            qs = qs.filter(corpus_id=corpus_id)
+
+        if text_search:
+            # Search priority:
+            # 1. annotation_label.text (indexed CharField - fast)
+            # 2. raw_text (TextField - slower but comprehensive)
+            qs = qs.filter(
+                Q(annotation_label__text__icontains=text_search)
+                | Q(raw_text__icontains=text_search)
+            )
+
+        # Select related for efficient queries
+        qs = qs.select_related("annotation_label", "document", "corpus")
+
+        # Order by label match first (more relevant), then by created date
+        # Annotations matching label text are usually more specific/useful
+        from django.db.models import Case, IntegerField, Value, When
+
+        if text_search:
+            qs = qs.annotate(
+                label_match=Case(
+                    When(
+                        annotation_label__text__icontains=text_search,
+                        then=Value(0),
+                    ),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                )
+            ).order_by("label_match", "-created")
+        else:
+            qs = qs.order_by("-created")
+
+        # Note: DjangoConnectionField handles pagination automatically
+        # Slicing here would prevent GraphQL from applying filters
+        return qs
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_search_users_for_mention(self, info, text_search=None, **kwargs):
+        """
+        Search users for @ mention autocomplete.
+
+        SECURITY: Respects user profile privacy settings.
+        Users are visible if:
+        - Profile is public (is_profile_public=True)
+        - Requesting user shares corpus membership with > READ permission
+        - It's the requesting user's own profile
+
+        PERFORMANCE NOTES:
+        - Uses UserQueryOptimizer for efficient visibility filtering
+        - Searches username (indexed, fast)
+        - Searches email (indexed, fast)
+
+        @param text_search: Search query for username or email
+        """
+        from django.contrib.auth import get_user_model
+
+        from opencontractserver.users.query_optimizer import UserQueryOptimizer
+
+        User = get_user_model()
+        user = info.context.user
+
+        # Anonymous users cannot mention (must be authenticated)
+        if user.is_anonymous:
+            return User.objects.none()
+
+        # Use UserQueryOptimizer for visibility filtering
+        qs = UserQueryOptimizer.get_visible_users(user)
+
+        if text_search:
+            # Search username and email
+            qs = qs.filter(
+                Q(username__icontains=text_search) | Q(email__icontains=text_search)
+            )
+
+        # Order by username for consistent results
+        qs = qs.order_by("username")
+
+        # Note: DjangoConnectionField handles pagination automatically
+        return qs
+
     # DOCUMENT RESOLVERS #####################################
 
     documents = DjangoFilterConnectionField(
@@ -839,17 +1258,65 @@ class Query(graphene.ObjectType):
 
     @login_required
     def resolve_assignments(self, info, **kwargs):
-        if info.context.user.is_superuser:
+        """
+        Resolve assignments.
+
+        DEPRECATED: Assignment feature is not currently used.
+        See opencontractserver/users/models.py:202-206
+
+        SECURITY: Users can only see assignments where they are the assignor or assignee.
+        Superusers can see all assignments.
+        """
+        import warnings
+
+        warnings.warn(
+            "Assignment feature is deprecated and not in use", DeprecationWarning
+        )
+
+        user = info.context.user
+        if user.is_superuser:
             return Assignment.objects.all()
         else:
-            return Assignment.objects.filter(assignor=info.context.user)
+            # User can see assignments they created or were assigned to
+            return Assignment.objects.filter(Q(assignor=user) | Q(assignee=user))
 
     assignment = relay.Node.Field(AssignmentType)
 
     @login_required
     def resolve_assignment(self, info, **kwargs):
+        """
+        Resolve a single assignment by ID.
+
+        DEPRECATED: Assignment feature is not currently used.
+
+        SECURITY: Uses direct query instead of broken visible_to_user
+        (Assignment model doesn't have this method - it inherits from
+        django.db.models.Model, not BaseOCModel).
+        """
+        import warnings
+
+        warnings.warn(
+            "Assignment feature is deprecated and not in use", DeprecationWarning
+        )
+
+        user = info.context.user
         django_pk = from_global_id(kwargs.get("id", None))[1]
-        return Assignment.objects.visible_to_user(info.context.user).get(id=django_pk)
+
+        # Use direct query - Assignment model doesn't have visible_to_user manager
+        if user.is_superuser:
+            try:
+                return Assignment.objects.get(id=django_pk)
+            except Assignment.DoesNotExist:
+                raise GraphQLError("Assignment not found")
+
+        # Regular users can only see their own assignments
+        try:
+            return Assignment.objects.get(
+                Q(id=django_pk) & (Q(assignor=user) | Q(assignee=user))
+            )
+        except Assignment.DoesNotExist:
+            # Same error whether doesn't exist or no permission (IDOR protection)
+            raise GraphQLError("Assignment not found")
 
     if settings.USE_ANALYZER:
 
@@ -1040,6 +1507,7 @@ class Query(graphene.ObjectType):
         total_comments = 0
         total_analyses = 0
         total_extracts = 0
+        total_threads = 0
 
         corpus_pk = from_global_id(corpus_id)[1]
         corpuses = Corpus.objects.visible_to_user(info.context.user).filter(
@@ -1048,13 +1516,21 @@ class Query(graphene.ObjectType):
 
         if corpuses.count() == 1:
             corpus = corpuses[0]
-            total_docs = corpus.documents.all().count()
+            # Use DocumentPath-based method for accurate count
+            total_docs = corpus.document_count()
             total_annotations = corpus.annotations.all().count()
             total_comments = UserFeedback.objects.filter(
                 commented_annotation__corpus=corpus
             ).count()
             total_analyses = corpus.analyses.all().count()
             total_extracts = corpus.extracts.all().count()
+            total_threads = (
+                Conversation.objects.filter(
+                    conversation_type="thread", chat_with_corpus=corpus
+                )
+                .visible_to_user(info.context.user)
+                .count()
+            )
 
         return CorpusStatsType(
             total_docs=total_docs,
@@ -1062,6 +1538,7 @@ class Query(graphene.ObjectType):
             total_comments=total_comments,
             total_analyses=total_analyses,
             total_extracts=total_extracts,
+            total_threads=total_threads,
         )
 
     document_corpus_actions = graphene.Field(
@@ -1071,44 +1548,37 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_document_corpus_actions(self, info, document_id, corpus_id=None):
+        """
+        Resolve document actions (corpus actions, extracts, analysis rows) with proper
+        permission filtering.
+
+        SECURITY: Uses DocumentActionsQueryOptimizer which follows the least-privilege model:
+        - Document permissions are primary
+        - Corpus permissions are secondary
+        - Effective permission = MIN(document_permission, corpus_permission)
+
+        This prevents unauthorized access to document-related data.
+        """
+        from opencontractserver.documents.query_optimizer import (
+            DocumentActionsQueryOptimizer,
+        )
 
         user = info.context.user
-        if user.is_anonymous:
-            user = None
 
         document_pk = from_global_id(document_id)[1]
+        corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
 
-        if corpus_id is not None:
-            corpus_pk = from_global_id(corpus_id)[1]
-            corpus = Corpus.objects.get(id=corpus_pk)
-            corpus_actions = CorpusAction.objects.filter(
-                Q(corpus=corpus), Q(creator=user) | Q(is_public=True)
-            )
-
-        else:
-            corpus = None
-            corpus_actions = []
-
-        try:
-            document = Document.objects.get(
-                Q(id=document_pk), Q(creator=user) | Q(is_public=True)
-            )
-            extracts = document.extracts.filter(
-                Q(is_public=True) | Q(creator=user), corpus=corpus
-            )
-            analysis_rows = document.rows.filter(
-                Q(analysis__is_public=True) | Q(analysis__creator=user)
-            )
-
-        except Document.DoesNotExist:
-            logger.error("ERROR!")
-            extracts = []
-            analysis_rows = []
+        # Use centralized permission-aware optimizer
+        actions = DocumentActionsQueryOptimizer.get_document_actions(
+            user=user,
+            document_id=int(document_pk),
+            corpus_id=int(corpus_pk) if corpus_pk else None,
+        )
 
         return DocumentCorpusActionsType(
-            corpus_actions=corpus_actions,
-            extracts=extracts,
-            analysis_rows=analysis_rows,
+            corpus_actions=actions["corpus_actions"],
+            extracts=actions["extracts"],
+            analysis_rows=actions["analysis_rows"],
         )
 
     pipeline_components = graphene.Field(
@@ -1215,10 +1685,12 @@ class Query(graphene.ObjectType):
         description="Retrieve conversations, optionally filtered by document_id or corpus_id",
     )
 
-    @login_required
     def resolve_conversations(self, info, **kwargs):
         """
         Resolver to fetch Conversations along with their Messages.
+
+        Anonymous users can see public conversations.
+        Authenticated users see public conversations, their own, or explicitly shared.
 
         Args:
             info: GraphQL execution info.
@@ -1237,6 +1709,179 @@ class Query(graphene.ObjectType):
             )
             .order_by("-created")
         )
+
+    # CONVERSATION SEARCH RESOLVERS #######################################
+    search_conversations = relay.ConnectionField(
+        "config.graphql.graphene_types.ConversationConnection",
+        query=graphene.String(required=True, description="Search query text"),
+        corpus_id=graphene.ID(required=False, description="Filter by corpus ID"),
+        document_id=graphene.ID(required=False, description="Filter by document ID"),
+        conversation_type=graphene.String(
+            required=False, description="Filter by conversation type (chat/thread)"
+        ),
+        top_k=graphene.Int(
+            default_value=100,
+            description="Maximum number of results to fetch from vector store",
+        ),
+        description="Search conversations using vector similarity with pagination",
+    )
+
+    def resolve_search_conversations(
+        self,
+        info,
+        query,
+        corpus_id=None,
+        document_id=None,
+        conversation_type=None,
+        top_k=100,
+        **kwargs,
+    ):
+        """
+        Search conversations using vector similarity with cursor-based pagination.
+
+        Anonymous users can search public conversations.
+        Authenticated users can search public, their own, or explicitly shared conversations.
+
+        Args:
+            info: GraphQL execution info
+            query: Search query text
+            corpus_id: Optional corpus ID filter
+            document_id: Optional document ID filter
+            conversation_type: Optional conversation type filter
+            top_k: Maximum results to fetch from vector store (default 100)
+            **kwargs: Pagination args (first, after, last, before) handled by ConnectionField
+
+        Returns:
+            Connection with edges and pageInfo for pagination
+        """
+        from opencontractserver.llms.vector_stores.core_conversation_vector_stores import (
+            CoreConversationVectorStore,
+            VectorSearchQuery,
+        )
+
+        # Convert global IDs to database IDs
+        corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
+        document_pk = from_global_id(document_id)[1] if document_id else None
+
+        # Get embedder path from settings if no corpus specified
+        embedder_path = None
+        if not corpus_pk and not document_id:
+            # Use default embedder from settings
+            from django.conf import settings
+
+            embedder_path = getattr(settings, "DEFAULT_EMBEDDER_PATH", None)
+            if not embedder_path:
+                # If still no embedder available, raise clear error
+                raise ValueError(
+                    "Either corpus_id, document_id, or DEFAULT_EMBEDDER_PATH setting is required"
+                )
+
+        # Handle anonymous users
+        user_id = (
+            None
+            if not info.context.user or info.context.user.is_anonymous
+            else info.context.user.id
+        )
+
+        # Create vector store
+        vector_store = CoreConversationVectorStore(
+            user_id=user_id,
+            corpus_id=corpus_pk,
+            document_id=document_pk,
+            conversation_type=conversation_type,
+            embedder_path=embedder_path,
+        )
+
+        # Create search query
+        search_query = VectorSearchQuery(
+            query_text=query,
+            similarity_top_k=top_k,
+        )
+
+        # Perform search (sync in GraphQL context)
+        results = vector_store.search(search_query)
+
+        # Extract conversations from results and return as queryset-like list
+        # ConnectionField will handle pagination automatically
+        conversations = [result.conversation for result in results]
+        return conversations
+
+    search_messages = graphene.List(
+        "config.graphql.graphene_types.MessageType",
+        query=graphene.String(required=True, description="Search query text"),
+        corpus_id=graphene.ID(required=False, description="Filter by corpus ID"),
+        conversation_id=graphene.ID(
+            required=False, description="Filter by conversation ID"
+        ),
+        msg_type=graphene.String(
+            required=False, description="Filter by message type (HUMAN/LLM/SYSTEM)"
+        ),
+        top_k=graphene.Int(default_value=10, description="Number of results to return"),
+        description="Search messages using vector similarity",
+    )
+
+    @login_required
+    def resolve_search_messages(
+        self, info, query, corpus_id=None, conversation_id=None, msg_type=None, top_k=10
+    ):
+        """
+        Search messages using vector similarity.
+
+        Args:
+            info: GraphQL execution info
+            query: Search query text
+            corpus_id: Optional corpus ID filter
+            conversation_id: Optional conversation ID filter
+            msg_type: Optional message type filter
+            top_k: Number of results to return
+
+        Returns:
+            List[ChatMessage]: List of matching messages
+        """
+        from opencontractserver.llms.vector_stores.core_conversation_vector_stores import (
+            CoreChatMessageVectorStore,
+            VectorSearchQuery,
+        )
+
+        # Convert global IDs to database IDs
+        corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
+        conversation_pk = (
+            from_global_id(conversation_id)[1] if conversation_id else None
+        )
+
+        # Get embedder path from settings if no corpus specified
+        embedder_path = None
+        if not corpus_pk and not conversation_pk:
+            # Use default embedder from settings
+            from django.conf import settings
+
+            embedder_path = getattr(settings, "DEFAULT_EMBEDDER_PATH", None)
+            if not embedder_path:
+                # If still no embedder available, raise clear error
+                raise ValueError(
+                    "Either corpus_id, conversation_id, or DEFAULT_EMBEDDER_PATH setting is required"
+                )
+
+        # Create vector store
+        vector_store = CoreChatMessageVectorStore(
+            user_id=info.context.user.id,
+            corpus_id=corpus_pk,
+            conversation_id=conversation_pk,
+            msg_type=msg_type,
+            embedder_path=embedder_path,
+        )
+
+        # Create search query
+        search_query = VectorSearchQuery(
+            query_text=query,
+            similarity_top_k=top_k,
+        )
+
+        # Perform search (sync in GraphQL context)
+        results = vector_store.search(search_query)
+
+        # Extract messages from results
+        return [result.message for result in results]
 
     # DOCUMENT RELATIONSHIP RESOLVERS #####################################
     document_relationships = DjangoFilterConnectionField(
@@ -1437,6 +2082,70 @@ class Query(graphene.ObjectType):
 
     chat_message = relay.Node.Field(MessageType)
 
+    # User messages query for profile/activity feeds
+    user_messages = graphene.Field(
+        graphene.List(MessageType),
+        creator_id=graphene.ID(required=True),
+        first=graphene.Int(required=False, default_value=10),
+        msg_type=graphene.String(required=False),
+        order_by=graphene.String(required=False),
+        description="Get messages created by a specific user, with optional filtering and pagination",
+    )
+
+    @login_required
+    def resolve_user_messages(
+        self,
+        info: graphene.ResolveInfo,
+        creator_id: str,
+        first: int = 10,
+        msg_type: Optional[str] = None,
+        order_by: Optional[str] = None,
+        **kwargs,
+    ):
+        """
+        Resolver for fetching ChatMessage objects by creator for user profiles.
+
+        Args:
+            info (graphene.ResolveInfo): GraphQL resolve info
+            creator_id (str): Global Relay ID for User
+            first (int): Number of messages to return (default 10)
+            msg_type (Optional[str]): Filter by message type (HUMAN, AI_AGENT, SYSTEM)
+            order_by (Optional[str]): Field to order by. Defaults to "-created"
+
+        Returns:
+            QuerySet[ChatMessage]: Filtered and ordered chat messages
+        """
+        queryset = (
+            ChatMessage.objects.visible_to_user(info.context.user)
+            .select_related("conversation", "creator")
+            .prefetch_related("votes")
+        )
+
+        # Apply creator filter
+        creator_pk = from_global_id(creator_id)[1]
+        queryset = queryset.filter(creator_id=creator_pk)
+
+        # Apply msg_type filter if provided
+        if msg_type:
+            # Validate msg_type against ChatMessage.TYPE_CHOICES
+            valid_types = [choice[0] for choice in ChatMessage.TYPE_CHOICES]
+            if msg_type in valid_types:
+                queryset = queryset.filter(msg_type=msg_type)
+
+        # Apply ordering
+        valid_order_fields = {
+            "created",
+            "-created",
+            "modified",
+            "-modified",
+        }
+
+        order_field = order_by if order_by in valid_order_fields else "-created"
+        queryset = queryset.order_by(order_field)
+
+        # Limit results
+        return queryset[:first]
+
     @login_required
     def resolve_chat_message(self, info: graphene.ResolveInfo, **kwargs) -> ChatMessage:
         """
@@ -1491,10 +2200,47 @@ class Query(graphene.ObjectType):
 
     conversation = relay.Node.Field(ConversationType)
 
-    @login_required
     def resolve_conversation(self, info, **kwargs):
-        django_pk = from_global_id(kwargs.get("id", None))[1]
-        return Conversation.objects.visible_to_user(info.context.user).get(id=django_pk)
+        """
+        Resolver to fetch a single Conversation by ID.
+
+        Anonymous users can see public conversations.
+        Authenticated users see public conversations, their own, or explicitly shared.
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        conversation_id = kwargs.get("id", None)
+        logger.info(f"🔍 resolve_conversation called with id: {conversation_id}")
+        logger.info(f"   User: {info.context.user}")
+        is_auth = (
+            info.context.user.is_authenticated
+            if hasattr(info.context.user, "is_authenticated")
+            else "N/A"
+        )
+        logger.info(f"   Is authenticated: {is_auth}")
+
+        try:
+            django_pk = from_global_id(conversation_id)[1]
+            logger.info(f"   Decoded django_pk: {django_pk}")
+
+            queryset = Conversation.objects.visible_to_user(info.context.user)
+            logger.info(f"   Visible conversations count: {queryset.count()}")
+
+            conversation = queryset.get(id=django_pk)
+            logger.info(
+                f"   ✅ Found conversation: {conversation.id} - {conversation.title}"
+            )
+            return conversation
+        except Conversation.DoesNotExist:
+            logger.warning(
+                f"   ❌ Conversation {django_pk} not found or not visible to user"
+            )
+            return None
+        except Exception as e:
+            logger.error(f"   ❌ Error resolving conversation: {e}", exc_info=True)
+            return None
 
     # BULK DOCUMENT UPLOAD STATUS QUERY ###########################################
     bulk_document_upload_status = graphene.Field(
@@ -1732,6 +2478,626 @@ class Query(graphene.ObjectType):
 
         except (Corpus.DoesNotExist, Document.DoesNotExist):
             return None
+
+    # BADGE RESOLVERS ####################################
+    badges = DjangoFilterConnectionField(BadgeType, filterset_class=BadgeFilter)
+    badge = relay.Node.Field(BadgeType)
+
+    def resolve_badges(self, info, **kwargs):
+        """Resolve badges visible to the user."""
+        return Badge.objects.visible_to_user(info.context.user).select_related(
+            "creator", "corpus"
+        )
+
+    def resolve_badge(self, info, **kwargs):
+        """Resolve a single badge by ID."""
+        django_pk = from_global_id(kwargs.get("id", None))[1]
+        return Badge.objects.visible_to_user(info.context.user).get(id=django_pk)
+
+    user_badges = DjangoFilterConnectionField(
+        UserBadgeType, filterset_class=UserBadgeFilter
+    )
+    user_badge = relay.Node.Field(UserBadgeType)
+
+    def resolve_user_badges(self, info, **kwargs):
+        """
+        Resolve user badge awards with profile privacy filtering.
+
+        SECURITY: Badge visibility follows the recipient's profile visibility.
+        Badges are visible if:
+        - Recipient's profile is public
+        - Requesting user shares corpus membership with recipient (> READ permission)
+        - It's the requesting user's own badges
+        - For corpus-specific badges: user has access to that corpus
+        """
+        from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+
+        return BadgeQueryOptimizer.get_visible_user_badges(info.context.user)
+
+    def resolve_user_badge(self, info, **kwargs):
+        """
+        Resolve a single user badge by ID with visibility check and IDOR protection.
+
+        SECURITY: Returns same error whether badge doesn't exist or user lacks permission.
+        This prevents enumeration attacks.
+        """
+        from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+
+        django_pk = from_global_id(kwargs.get("id", None))[1]
+
+        has_permission, user_badge = BadgeQueryOptimizer.check_user_badge_visibility(
+            info.context.user, django_pk
+        )
+
+        if not has_permission:
+            # Same error whether doesn't exist or no permission (IDOR protection)
+            raise GraphQLError("User badge not found")
+
+        return user_badge
+
+    badge_criteria_types = graphene.List(
+        CriteriaTypeDefinitionType,
+        scope=graphene.String(
+            required=False,
+            description="Filter by scope: 'global', 'corpus', or 'both'",
+        ),
+        description="Get available badge criteria types from the registry",
+    )
+
+    def resolve_badge_criteria_types(self, info, scope=None):
+        """
+        Resolve available badge criteria types from the registry.
+
+        Args:
+            info: GraphQL resolve info
+            scope: Optional scope filter ('global', 'corpus', or 'both')
+
+        Returns:
+            List of criteria type definitions with their field schemas
+        """
+        # Get criteria types from registry
+        if scope:
+            criteria_types = BadgeCriteriaRegistry.for_scope(scope)
+        else:
+            criteria_types = BadgeCriteriaRegistry.all()
+
+        # Convert dataclass instances to dicts for GraphQL
+        return [
+            {
+                "type_id": ct.type_id,
+                "name": ct.name,
+                "description": ct.description,
+                "scope": ct.scope,
+                "fields": [
+                    {
+                        "name": f.name,
+                        "label": f.label,
+                        "field_type": f.field_type,
+                        "required": f.required,
+                        "description": f.description,
+                        "min_value": f.min_value,
+                        "max_value": f.max_value,
+                        "allowed_values": f.allowed_values,
+                    }
+                    for f in ct.fields
+                ],
+                "implemented": ct.implemented,
+            }
+            for ct in criteria_types
+        ]
+
+    # AGENT CONFIGURATION QUERIES ########################################
+    agents = DjangoFilterConnectionField(
+        AgentConfigurationType, filterset_class=AgentConfigurationFilter
+    )
+    agent = relay.Node.Field(AgentConfigurationType)
+
+    def resolve_agents(self, info, **kwargs):
+        """Resolve agent configurations visible to the user."""
+        from opencontractserver.agents.models import AgentConfiguration
+
+        return AgentConfiguration.objects.visible_to_user(
+            info.context.user
+        ).select_related("creator", "corpus")
+
+    def resolve_agent(self, info, **kwargs):
+        """Resolve a single agent configuration by ID."""
+        from opencontractserver.agents.models import AgentConfiguration
+
+        django_pk = from_global_id(kwargs.get("id", None))[1]
+        return AgentConfiguration.objects.visible_to_user(info.context.user).get(
+            id=django_pk
+        )
+
+    # NOTIFICATION QUERIES ########################################
+    notifications = DjangoFilterConnectionField(
+        NotificationType,
+        description="Get user's notifications (paginated and filterable)",
+    )
+    notification = relay.Node.Field(NotificationType)
+
+    unread_notification_count = graphene.Int(
+        description="Get count of unread notifications for the current user"
+    )
+
+    def resolve_notifications(self, info, **kwargs):
+        """
+        Resolve notifications for the current user.
+
+        Filters notifications to only show those belonging to the current user.
+        Supports filtering by is_read and notification_type via DjangoFilterConnectionField.
+        """
+        user = info.context.user
+        if not user or not user.is_authenticated:
+            return Notification.objects.none()
+
+        return (
+            Notification.objects.filter(recipient=user)
+            .select_related("actor", "message", "conversation", "recipient")
+            .order_by("-created_at")
+        )
+
+    def resolve_notification(self, info, **kwargs):
+        """
+        Resolve a single notification by ID.
+
+        Ensures user can only access their own notifications.
+        Returns consistent error to prevent IDOR enumeration.
+        """
+        user = info.context.user
+        if not user or not user.is_authenticated:
+            raise GraphQLError("Notification not found")
+
+        django_pk = from_global_id(kwargs.get("id", None))[1]
+
+        # Use try/except to catch DoesNotExist and return same error
+        # This prevents enumeration of valid notification IDs
+        try:
+            notification = Notification.objects.get(id=django_pk, recipient=user)
+        except Notification.DoesNotExist:
+            # Same error whether notification doesn't exist or belongs to another user
+            raise GraphQLError("Notification not found")
+
+        return notification
+
+    def resolve_unread_notification_count(self, info):
+        """Get count of unread notifications for the current user."""
+        user = info.context.user
+        if not user or not user.is_authenticated:
+            return 0
+
+        return Notification.objects.filter(recipient=user, is_read=False).count()
+
+    # ENGAGEMENT METRICS & LEADERBOARD QUERIES (Epic #565) ########
+    corpus_leaderboard = graphene.List(
+        UserType,
+        corpus_id=graphene.ID(required=True),
+        limit=graphene.Int(default_value=10),
+        description="Get top contributors for a specific corpus by reputation",
+    )
+    global_leaderboard = graphene.List(
+        UserType,
+        limit=graphene.Int(default_value=10),
+        description="Get top contributors globally by reputation",
+    )
+
+    def resolve_corpus_leaderboard(self, info, corpus_id, limit=10):
+        """
+        Get top contributors for a corpus by reputation.
+
+        Returns users ordered by corpus-specific reputation score.
+        Requires read access to the corpus.
+
+        Epic: #565 - Corpus Engagement Metrics & Analytics
+        Issue: #568 - Create GraphQL queries for engagement metrics and leaderboards
+        """
+        from opencontractserver.conversations.models import UserReputation
+
+        try:
+            # Get corpus PK from global ID
+            _, corpus_pk = from_global_id(corpus_id)
+
+            # Check if user has access to this corpus
+            Corpus.objects.visible_to_user(info.context.user).get(id=corpus_pk)
+
+            # Get top users by reputation for this corpus
+            top_reputations = (
+                UserReputation.objects.filter(corpus_id=corpus_pk)
+                .select_related("user")
+                .order_by("-reputation_score")[:limit]
+            )
+
+            # Return user objects
+            return [rep.user for rep in top_reputations]
+
+        except Corpus.DoesNotExist:
+            raise GraphQLError("Corpus not found or access denied")
+        except Exception as e:
+            logger.error(f"Error resolving corpus leaderboard: {e}")
+            return []
+
+    def resolve_global_leaderboard(self, info, limit=10):
+        """
+        Get top contributors globally by reputation.
+
+        Returns users ordered by global reputation score.
+
+        Epic: #565 - Corpus Engagement Metrics & Analytics
+        Issue: #568 - Create GraphQL queries for engagement metrics and leaderboards
+        """
+        from opencontractserver.conversations.models import UserReputation
+
+        # Get top users by global reputation (corpus__isnull=True)
+        top_reputations = (
+            UserReputation.objects.filter(corpus__isnull=True)
+            .select_related("user")
+            .order_by("-reputation_score")[:limit]
+        )
+
+        # Return user objects
+        return [rep.user for rep in top_reputations]
+
+    # LEADERBOARD QUERIES (Issue #613) ###################
+    leaderboard = graphene.Field(
+        LeaderboardType,
+        metric=graphene.Argument(LeaderboardMetricEnum, required=True),
+        scope=graphene.Argument(LeaderboardScopeEnum, default_value="all_time"),
+        corpus_id=graphene.ID(),
+        limit=graphene.Int(default_value=25),
+        description="Get leaderboard for a specific metric and scope",
+    )
+    community_stats = graphene.Field(
+        CommunityStatsType,
+        corpus_id=graphene.ID(),
+        description="Get overall community engagement statistics",
+    )
+
+    def resolve_leaderboard(
+        self, info, metric, scope="all_time", corpus_id=None, limit=25
+    ):
+        """
+        Get leaderboard for a specific metric and scope.
+
+        Issue: #613 - Create leaderboard and community stats dashboard
+        Epic: #572 - Social Features Epic
+
+        Args:
+            metric: The metric to rank by (BADGES, MESSAGES, THREADS, ANNOTATIONS, REPUTATION)
+            scope: Time period (ALL_TIME, MONTHLY, WEEKLY)
+            corpus_id: Optional corpus ID for corpus-specific leaderboards
+            limit: Maximum number of entries to return (default 25)
+
+        Returns:
+            LeaderboardType with ranked entries
+        """
+        from datetime import datetime, timedelta
+
+        from django.contrib.auth import get_user_model
+        from django.db.models import Count, Q
+
+        from opencontractserver.annotations.models import Annotation
+
+        User = get_user_model()
+
+        # Calculate date cutoff based on scope
+        cutoff_date = None
+        if scope == "weekly":
+            cutoff_date = datetime.now() - timedelta(days=7)
+        elif scope == "monthly":
+            cutoff_date = datetime.now() - timedelta(days=30)
+
+        # Get corpus if specified
+        corpus_django_pk = None
+        if corpus_id:
+            try:
+                _, corpus_django_pk = from_global_id(corpus_id)
+                # Verify user has access to this corpus
+                Corpus.objects.visible_to_user(info.context.user).get(
+                    id=corpus_django_pk
+                )
+            except Corpus.DoesNotExist:
+                raise GraphQLError("Corpus not found or access denied")
+
+        # Get visible users (respect privacy settings)
+        users = User.objects.visible_to_user(info.context.user).filter(is_active=True)
+
+        # Build query based on metric
+        entries = []
+        current_user = info.context.user
+
+        if metric == "badges":
+            # Count badges per user (UserBadge imported at top level)
+            badge_query = UserBadge.objects.filter(user__in=users)
+            if cutoff_date:
+                badge_query = badge_query.filter(awarded_at__gte=cutoff_date)
+            if corpus_django_pk:
+                badge_query = badge_query.filter(
+                    Q(corpus_id=corpus_django_pk) | Q(corpus__isnull=True)
+                )
+
+            user_badge_counts = (
+                badge_query.values("user")
+                .annotate(count=Count("id"))
+                .order_by("-count")[:limit]
+            )
+
+            for idx, item in enumerate(user_badge_counts, start=1):
+                user = User.objects.get(id=item["user"])
+                entries.append(
+                    LeaderboardEntryType(
+                        user=user,
+                        rank=idx,
+                        score=item["count"],
+                        badge_count=item["count"],
+                    )
+                )
+
+        elif metric == "messages":
+            # Count messages per user
+            # Filter by visible conversations since ChatMessage doesn't inherit conversation visibility
+            visible_conversations = Conversation.objects.visible_to_user(
+                info.context.user
+            )
+
+            message_query = ChatMessage.objects.filter(
+                creator__in=users,
+                msg_type="HUMAN",
+                conversation__in=visible_conversations,
+            )
+
+            if cutoff_date:
+                message_query = message_query.filter(created__gte=cutoff_date)
+            if corpus_django_pk:
+                message_query = message_query.filter(
+                    conversation__chat_with_corpus_id=corpus_django_pk
+                )
+
+            user_message_counts = (
+                message_query.values("creator")
+                .annotate(count=Count("id"))
+                .order_by("-count")[:limit]
+            )
+
+            for idx, item in enumerate(user_message_counts, start=1):
+                user = User.objects.get(id=item["creator"])
+                entries.append(
+                    LeaderboardEntryType(
+                        user=user,
+                        rank=idx,
+                        score=item["count"],
+                        message_count=item["count"],
+                    )
+                )
+
+        elif metric == "threads":
+            # Count threads created per user
+            thread_query = Conversation.objects.filter(
+                creator__in=users, conversation_type="thread"
+            ).visible_to_user(info.context.user)
+
+            if cutoff_date:
+                thread_query = thread_query.filter(created__gte=cutoff_date)
+            if corpus_django_pk:
+                thread_query = thread_query.filter(chat_with_corpus_id=corpus_django_pk)
+
+            user_thread_counts = (
+                thread_query.values("creator")
+                .annotate(count=Count("id"))
+                .order_by("-count")[:limit]
+            )
+
+            for idx, item in enumerate(user_thread_counts, start=1):
+                user = User.objects.get(id=item["creator"])
+                entries.append(
+                    LeaderboardEntryType(
+                        user=user,
+                        rank=idx,
+                        score=item["count"],
+                        thread_count=item["count"],
+                    )
+                )
+
+        elif metric == "annotations":
+            # Count annotations created per user
+            annotation_query = Annotation.objects.filter(
+                creator__in=users
+            ).visible_to_user(info.context.user)
+
+            if cutoff_date:
+                annotation_query = annotation_query.filter(created__gte=cutoff_date)
+            if corpus_django_pk:
+                annotation_query = annotation_query.filter(
+                    document__corpus__id=corpus_django_pk
+                )
+
+            user_annotation_counts = (
+                annotation_query.values("creator")
+                .annotate(count=Count("id"))
+                .order_by("-count")[:limit]
+            )
+
+            for idx, item in enumerate(user_annotation_counts, start=1):
+                user = User.objects.get(id=item["creator"])
+                entries.append(
+                    LeaderboardEntryType(
+                        user=user,
+                        rank=idx,
+                        score=item["count"],
+                        annotation_count=item["count"],
+                    )
+                )
+
+        elif metric == "reputation":
+            # Get reputation scores
+            from opencontractserver.conversations.models import UserReputation
+
+            rep_query = UserReputation.objects.filter(user__in=users)
+            if corpus_django_pk:
+                rep_query = rep_query.filter(corpus_id=corpus_django_pk)
+            else:
+                rep_query = rep_query.filter(corpus__isnull=True)
+
+            top_reps = rep_query.select_related("user").order_by("-reputation_score")[
+                :limit
+            ]
+
+            for idx, rep in enumerate(top_reps, start=1):
+                entries.append(
+                    LeaderboardEntryType(
+                        user=rep.user,
+                        rank=idx,
+                        score=rep.reputation_score,
+                        reputation=rep.reputation_score,
+                    )
+                )
+
+        # Find current user's rank
+        current_user_rank = None
+        if current_user and current_user.is_authenticated:
+            for entry in entries:
+                if entry.user.id == current_user.id:
+                    current_user_rank = entry.rank
+                    break
+
+        return LeaderboardType(
+            metric=metric,
+            scope=scope,
+            corpus_id=corpus_id,
+            total_users=len(entries),
+            entries=entries,
+            current_user_rank=current_user_rank,
+        )
+
+    def resolve_community_stats(self, info, corpus_id=None):
+        """
+        Get overall community engagement statistics.
+
+        Issue: #613 - Create leaderboard and community stats dashboard
+        Epic: #572 - Social Features Epic
+
+        Args:
+            corpus_id: Optional corpus ID for corpus-specific stats
+
+        Returns:
+            CommunityStatsType with engagement metrics
+        """
+        from datetime import datetime, timedelta
+
+        from django.contrib.auth import get_user_model
+        from django.db.models import Count, Q
+
+        from opencontractserver.annotations.models import Annotation
+
+        # UserBadge is imported at top level
+
+        User = get_user_model()
+
+        # Get corpus if specified
+        corpus_django_pk = None
+        if corpus_id:
+            try:
+                _, corpus_django_pk = from_global_id(corpus_id)
+                # Verify user has access to this corpus
+                Corpus.objects.visible_to_user(info.context.user).get(
+                    id=corpus_django_pk
+                )
+            except Corpus.DoesNotExist:
+                raise GraphQLError("Corpus not found or access denied")
+
+        # Calculate date cutoffs
+        week_ago = datetime.now() - timedelta(days=7)
+        month_ago = datetime.now() - timedelta(days=30)
+
+        # Get visible users
+        users = User.objects.visible_to_user(info.context.user).filter(is_active=True)
+        total_users = users.count()
+
+        # Total messages
+        # Filter by visible conversations since ChatMessage doesn't inherit conversation visibility
+        visible_conversations_stats = Conversation.objects.visible_to_user(
+            info.context.user
+        )
+        message_query = ChatMessage.objects.filter(
+            msg_type="HUMAN", conversation__in=visible_conversations_stats
+        )
+        if corpus_django_pk:
+            message_query = message_query.filter(
+                conversation__chat_with_corpus_id=corpus_django_pk
+            )
+        total_messages = message_query.count()
+        messages_this_week = message_query.filter(created__gte=week_ago).count()
+        messages_this_month = message_query.filter(created__gte=month_ago).count()
+
+        # Active users (users who posted messages)
+        active_users_week = (
+            message_query.filter(created__gte=week_ago)
+            .values("creator")
+            .distinct()
+            .count()
+        )
+        active_users_month = (
+            message_query.filter(created__gte=month_ago)
+            .values("creator")
+            .distinct()
+            .count()
+        )
+
+        # Total threads
+        thread_query = Conversation.objects.filter(
+            conversation_type="thread"
+        ).visible_to_user(info.context.user)
+        if corpus_django_pk:
+            thread_query = thread_query.filter(chat_with_corpus_id=corpus_django_pk)
+        total_threads = thread_query.count()
+
+        # Total annotations
+        annotation_query = Annotation.objects.visible_to_user(info.context.user)
+        if corpus_django_pk:
+            annotation_query = annotation_query.filter(
+                document__corpus__id=corpus_django_pk
+            )
+        total_annotations = annotation_query.count()
+
+        # Total badges awarded
+        badge_query = UserBadge.objects.all()
+        if corpus_django_pk:
+            badge_query = badge_query.filter(
+                Q(corpus_id=corpus_django_pk) | Q(corpus__isnull=True)
+            )
+        total_badges_awarded = badge_query.count()
+
+        # Badge distribution
+        badge_distribution = []
+        badge_stats = (
+            badge_query.values("badge")
+            .annotate(
+                award_count=Count("id"), unique_recipients=Count("user", distinct=True)
+            )
+            .order_by("-award_count")[:10]
+        )
+
+        for stat in badge_stats:
+            badge = Badge.objects.get(id=stat["badge"])
+            badge_distribution.append(
+                BadgeDistributionType(
+                    badge=badge,
+                    award_count=stat["award_count"],
+                    unique_recipients=stat["unique_recipients"],
+                )
+            )
+
+        return CommunityStatsType(
+            total_users=total_users,
+            total_messages=total_messages,
+            total_threads=total_threads,
+            total_annotations=total_annotations,
+            total_badges_awarded=total_badges_awarded,
+            badge_distribution=badge_distribution,
+            messages_this_week=messages_this_week,
+            messages_this_month=messages_this_month,
+            active_users_this_week=active_users_week,
+            active_users_this_month=active_users_month,
+        )
 
     # DEBUG FIELD ########################################
     if settings.ALLOW_GRAPHQL_DEBUG:

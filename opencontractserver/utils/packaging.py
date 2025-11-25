@@ -11,6 +11,7 @@ from opencontractserver.annotations.models import LabelSet
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.dicts import (
     OpenContractCorpusType,
+    OpenContractCorpusV2Type,
     OpenContractsLabelSetType,
 )
 from opencontractserver.types.enums import PermissionTypes
@@ -21,7 +22,9 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-def package_corpus_for_export(corpus: Corpus) -> OpenContractCorpusType | None:
+def package_corpus_for_export(
+    corpus: Corpus, v2_format: bool = False
+) -> OpenContractCorpusType | OpenContractCorpusV2Type | None:
     try:
 
         if corpus.icon:
@@ -29,17 +32,33 @@ def package_corpus_for_export(corpus: Corpus) -> OpenContractCorpusType | None:
         else:
             base64_encoded_icon = ""
 
-        return {
+        base_export = {
             "id": corpus.id,
             "title": corpus.title,
             "description": corpus.description,
-            "icon_name": Path(corpus.icon.name).name,
+            "icon_name": Path(corpus.icon.name).name if corpus.icon else "",
             "icon_data": base64_encoded_icon,
             "creator": corpus.creator.email,
-            "label_set": corpus.label_set.id,
+            "label_set": corpus.label_set.id if corpus.label_set else "",
         }
 
-    except Exception:
+        # Add V2-specific fields if requested
+        if v2_format:
+            base_export.update(
+                {
+                    "slug": corpus.slug,
+                    "post_processors": corpus.post_processors or [],
+                    "preferred_embedder": corpus.preferred_embedder,
+                    "corpus_agent_instructions": corpus.corpus_agent_instructions,
+                    "document_agent_instructions": corpus.document_agent_instructions,
+                    "allow_comments": corpus.allow_comments,
+                }
+            )
+
+        return base_export
+
+    except Exception as e:
+        logger.error(f"Error packaging corpus {corpus.id} for export: {e}")
         return None
 
 
@@ -128,29 +147,50 @@ def unpack_corpus_from_export(
         icon_data = base64.decodebytes(icon_base64_string)
         icon_file = ContentFile(icon_data, name=data["icon_name"])
 
+        # Prepare V2 fields if present
+        v2_fields = {}
+        if "post_processors" in data:
+            v2_fields["post_processors"] = data["post_processors"]
+        if "preferred_embedder" in data:
+            v2_fields["preferred_embedder"] = data["preferred_embedder"]
+        if "corpus_agent_instructions" in data:
+            v2_fields["corpus_agent_instructions"] = data["corpus_agent_instructions"]
+        if "document_agent_instructions" in data:
+            v2_fields["document_agent_instructions"] = data[
+                "document_agent_instructions"
+            ]
+        if "allow_comments" in data:
+            v2_fields["allow_comments"] = data["allow_comments"]
+
         if corpus_id:
             corpus = Corpus.objects.get(id=corpus_id)
             corpus.icon = icon_file
             corpus.title = data["title"]
             corpus.description = data["description"]
             corpus.label_set_id = label_set_id
+            # Update V2 fields if present
+            for field_name, field_value in v2_fields.items():
+                setattr(corpus, field_name, field_value)
             corpus.save()
         else:
+            base_fields = {
+                "icon": icon_file,
+                "title": data["title"],
+                "description": data["description"],
+                "label_set_id": label_set_id,
+            }
+            # Add V2 fields if present
+            base_fields.update(v2_fields)
+
             if isinstance(user, str):
                 corpus = Corpus.objects.create(
-                    icon=icon_file,
                     creator_id=user,
-                    title=data["title"],
-                    description=data["description"],
-                    label_set_id=label_set_id,
+                    **base_fields,
                 )
             else:
                 corpus = Corpus.objects.create(
-                    icon=icon_file,
                     creator=user,
-                    title=data["title"],
-                    description=data["description"],
-                    label_set_id=label_set_id,
+                    **base_fields,
                 )
 
         set_permissions_for_obj_to_user(user, corpus, [PermissionTypes.ALL])

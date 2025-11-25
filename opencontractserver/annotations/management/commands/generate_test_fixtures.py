@@ -228,8 +228,25 @@ class Command(BaseCommand):
             self.stdout.write("Processing fourth document...")
             ingest_doc.delay(user_id=user.id, doc_id=doc4.id)
 
-            for annot in Annotation.objects.all():
+            # Generate embeddings synchronously to ensure they're ready before dumping
+            self.stdout.write("Generating embeddings for annotations...")
+            annot_count = Annotation.objects.count()
+            for i, annot in enumerate(Annotation.objects.all(), 1):
                 calculate_embedding_for_annotation_text.delay(annotation_id=annot.id)
+                if i % 100 == 0:
+                    self.stdout.write(
+                        f"  Progress: {i}/{annot_count} ({i/annot_count*100:.1f}%)"
+                    )
+
+            # Wait a moment for eager tasks to complete
+            import time
+
+            time.sleep(2)
+
+            embed_count = Annotation.objects.filter(embeddings__isnull=False).count()
+            self.stdout.write(
+                f"Generated {embed_count} embeddings for {annot_count} annotations"
+            )
 
             # Dump all apps with natural keys into a single fixture
             apps_to_dump = [

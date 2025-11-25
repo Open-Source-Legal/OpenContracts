@@ -344,26 +344,26 @@ class DocumentQueryConsumer(AsyncWebsocketConsumer):
                 if self.agent and self.agent.get_conversation_id():
                     logger.debug(
                         f"[Session {self.session_id}] Agent NEWLY INITIALIZED "
-                        f"for doc {self.document_id} with conversation ID: "
+                        f"for doc {getattr(self, 'document_id', 'UNKNOWN')} with conversation ID: "
                         f"{self.agent.get_conversation_id()}"
                     )
                 elif self.agent:
                     logger.debug(
                         f"[Session {self.session_id}] Agent NEWLY INITIALIZED "
-                        f"for doc {self.document_id} (anonymous or new conversation)."
+                        f"for doc {getattr(self, 'document_id', 'UNKNOWN')} (anonymous or new conversation)."
                     )
 
             # Enhanced Logging for existing agent instance
             elif self.agent and self.agent.get_conversation_id():
                 logger.debug(
                     f"[Session {self.session_id}] Using EXISTING agent "
-                    f"for doc {self.document_id} with conversation ID: "
+                    f"for doc {getattr(self, 'document_id', 'UNKNOWN')} with conversation ID: "
                     f"{self.agent.get_conversation_id()}"
                 )
             elif self.agent:
                 logger.debug(
                     f"[Session {self.session_id}] Using EXISTING agent "
-                    f"for doc {self.document_id} (anonymous or new conversation)."
+                    f"for doc {getattr(self, 'document_id', 'UNKNOWN')} (anonymous or new conversation)."
                 )
 
             # Use the new streaming API

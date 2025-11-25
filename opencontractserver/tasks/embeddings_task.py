@@ -110,7 +110,13 @@ def calculate_embedding_for_annotation_text(
     final_path = embedder_path if embedder_path else returned_path
 
     # Now store the embedding
-    annotation.add_embedding(final_path or "unknown-embedder", vector)
+    embedding = annotation.add_embedding(final_path or "unknown-embedder", vector)
+
+    # Set the reverse FK so annotation.embeddings points to the embedding
+    if embedding:
+        annotation.embeddings = embedding
+        annotation.save(update_fields=["embeddings"])
+
     logger.info(
         f"Embedding for Annotation {annotation_id} stored using path: {final_path}, dimension={len(vector)}."
     )

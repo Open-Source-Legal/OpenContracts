@@ -1870,6 +1870,31 @@ export const CollapseSidebarButton = styled(motion.button)`
   }
 `;
 
+// Small count badge for sidebar tabs
+export const TabBadge = styled.span<{ $isActive: boolean }>`
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: ${(props) =>
+    props.$isActive ? "rgba(255, 255, 255, 0.25)" : "#3b82f6"};
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  border: 1px solid
+    ${(props) =>
+      props.$isActive ? "rgba(255, 255, 255, 0.3)" : "rgba(59, 130, 246, 0.3)"};
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+`;
+
 export const MobileTabBar = styled.div`
   display: none;
 

@@ -59,7 +59,8 @@ class CorpusStatsTestCase(TestCase):
             doc = Document.objects.create(
                 title=f"Public Doc {i}", creator=self.owner, is_public=True
             )
-            self.public_corpus.documents.add(doc)
+            # Store the versioned document returned by add_document()
+            doc, _, _ = self.public_corpus.add_document(document=doc, user=self.owner)
 
             # Create public annotations for each document
             for j in range(2):

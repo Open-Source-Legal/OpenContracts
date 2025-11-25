@@ -66,18 +66,27 @@ class ComprehensivePermissionTestCase(TestCase):
         self.private_doc = Document.objects.create(
             title="Private Doc", creator=self.owner, is_public=False
         )
-        self.public_corpus.documents.add(self.public_doc, self.private_doc)
+        # Store the versioned documents returned by add_document()
+        self.public_doc, _, _ = self.public_corpus.add_document(
+            document=self.public_doc, user=self.owner
+        )
+        self.private_doc, _, _ = self.public_corpus.add_document(
+            document=self.private_doc, user=self.owner
+        )
 
         # Create Annotations
-        # Mark as structural since they're not in a corpus (per new permission model)
+        # Mark as structural since they're in a corpus (per new permission model)
+        # Include corpus field for proper permission inheritance
         self.public_annotation = Annotation.objects.create(
             document=self.public_doc,
+            corpus=self.public_corpus,
             creator=self.owner,
             is_public=True,
             structural=True,
         )
         self.private_annotation = Annotation.objects.create(
             document=self.public_doc,
+            corpus=self.public_corpus,
             creator=self.owner,
             is_public=False,
             structural=True,

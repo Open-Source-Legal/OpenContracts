@@ -4,6 +4,7 @@ Tests for core agent components: AgentConfig, Contexts, and CoreConversationMana
 
 from unittest.mock import MagicMock, patch
 
+from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
@@ -131,8 +132,10 @@ class TestAgentContexts(TestCoreAgentComponentsSetup):
             description="First document for this specific test",
             is_public=True,
         )
-        # Explicitly add to the ManyToManyField
-        await test_corpus.documents.aadd(doc1_for_this_test)
+        # add_document returns corpus-isolated copy (not the original)
+        corpus_doc1, _, _ = await sync_to_async(test_corpus.add_document)(
+            document=doc1_for_this_test, user=self.user
+        )
 
         # This is the second document expected by the original test logic
         doc2_for_this_test = await Document.objects.acreate(
@@ -141,8 +144,10 @@ class TestAgentContexts(TestCoreAgentComponentsSetup):
             description="Second document for this specific test",
             is_public=True,
         )
-        # Explicitly add to the ManyToManyField
-        await test_corpus.documents.aadd(doc2_for_this_test)
+        # add_document returns corpus-isolated copy (not the original)
+        corpus_doc2, _, _ = await sync_to_async(test_corpus.add_document)(
+            document=doc2_for_this_test, user=self.user
+        )
 
         config = AgentConfig(embedder_path=None)  # Test corpus default embedder
         config.user_id = self.user.id
@@ -161,9 +166,9 @@ class TestAgentContexts(TestCoreAgentComponentsSetup):
 
         doc_ids_in_context = {doc.id for doc in context.documents}
 
-        # Check that both documents created for this test are found in the context
-        self.assertIn(doc1_for_this_test.id, doc_ids_in_context)
-        self.assertIn(doc2_for_this_test.id, doc_ids_in_context)
+        # Check that corpus-isolated copies are found in the context
+        self.assertIn(corpus_doc1.id, doc_ids_in_context)
+        self.assertIn(corpus_doc2.id, doc_ids_in_context)
         self.assertEqual(len(context.documents), 2)  # Expecting two documents
 
         # Check if corpus preferred embedder was used (this part of the logic remains)

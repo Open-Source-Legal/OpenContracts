@@ -62,18 +62,20 @@ interface CorpusSettingsProps {
 }
 
 const ActionCard = styled.div`
-  background: white;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin: 1rem 0;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.12);
-  transition: all 0.2s ease;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 16px;
+  padding: 1.75rem;
+  margin: 1.25rem 0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
-  border: 1px solid #eaeaea;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08), 0 4px 10px rgba(0, 0, 0, 0.05);
+    border-color: #ddd6fe;
   }
 
   &::before {
@@ -82,14 +84,30 @@ const ActionCard = styled.div`
     left: -2rem;
     top: 50%;
     width: 1.5rem;
-    height: 3px;
-    background: #d1d1d1;
+    height: 2px;
+    background: linear-gradient(90deg, #a78bfa, #818cf8);
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #8b5cf6 0%, #6366f1 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  &:hover::after {
+    opacity: 1;
   }
 
   /* Fix Issue #7: Mobile responsive action cards */
   @media (max-width: 768px) {
-    padding: 1rem;
-    margin: 0.75rem 0;
+    padding: 1.25rem;
+    margin: 1rem 0;
 
     &::before {
       display: none; /* Hide connector line on mobile */
@@ -99,7 +117,7 @@ const ActionCard = styled.div`
     @media (hover: none) {
       &:hover {
         transform: none;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.12);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.08);
       }
     }
   }
@@ -107,54 +125,95 @@ const ActionCard = styled.div`
 
 const TriggerBadge = styled.span<{ trigger: "add_document" | "edit_document" }>`
   background: ${(props) =>
-    props.trigger === "add_document" ? "#15803d" : "#1d4ed8"};
+    props.trigger === "add_document"
+      ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+      : "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"};
   color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  font-size: 0.9rem;
+  padding: 0.375rem 0.875rem;
+  border-radius: 100px;
+  font-size: 0.8125rem;
   font-weight: 600;
-  letter-spacing: 0.3px;
-  box-shadow: 0 2px 4px
-    ${(props) =>
+  letter-spacing: 0.025em;
+  box-shadow: ${(props) =>
+    props.trigger === "add_document"
+      ? "0 4px 14px rgba(16, 185, 129, 0.35)"
+      : "0 4px 14px rgba(59, 130, 246, 0.35)"};
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: ${(props) =>
       props.trigger === "add_document"
-        ? "rgba(21, 128, 61, 0.2)"
-        : "rgba(29, 78, 216, 0.2)"};
+        ? "0 6px 20px rgba(16, 185, 129, 0.4)"
+        : "0 6px 20px rgba(59, 130, 246, 0.4)"};
+  }
 `;
 
 const ActionFlow = styled.div`
   padding-left: 2rem;
-  border-left: 2px dashed #c1c1c1;
+  border-left: 2px solid transparent;
+  border-image: linear-gradient(180deg, #e0e7ff, #c7d2fe, #e0e7ff) 1;
   margin: 2rem 0;
+  position: relative;
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: -6px;
+    top: 0;
+    width: 10px;
+    height: 10px;
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    left: -6px;
+    bottom: 0;
+    width: 10px;
+    height: 10px;
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+  }
 `;
 
 const PageContainer = styled(Container)`
-  padding: 2rem;
+  padding: 2.5rem;
   max-width: 1200px !important;
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  background: linear-gradient(180deg, #fafbfc 0%, #f5f7fa 100%);
 
   &::-webkit-scrollbar {
-    width: 8px;
+    width: 10px;
   }
 
   &::-webkit-scrollbar-track {
-    background: #f8fafc;
-    border-radius: 4px;
+    background: #f1f5f9;
+    border-radius: 10px;
   }
 
   &::-webkit-scrollbar-thumb {
-    background: #e2e8f0;
-    border-radius: 4px;
+    background: linear-gradient(180deg, #cbd5e1, #94a3b8);
+    border-radius: 10px;
+    border: 2px solid #f1f5f9;
 
     &:hover {
-      background: #cbd5e1;
+      background: linear-gradient(180deg, #94a3b8, #64748b);
     }
   }
 
   /* Fix Issue #7: Mobile responsive styles */
   @media (max-width: 768px) {
-    padding: 1rem;
+    padding: 1.25rem;
   }
 `;
 
@@ -162,16 +221,31 @@ const CorpusHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 2.5rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 3rem;
+  padding: 2rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  }
 
   /* Fix Issue #7: Stack header on mobile */
   @media (max-width: 768px) {
     flex-direction: column;
     gap: 1rem;
-    margin-bottom: 1.5rem;
-    padding-bottom: 1rem;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
   }
 `;
 
@@ -180,46 +254,79 @@ const TitleArea = styled.div`
 `;
 
 const CorpusTitle = styled.h1`
-  font-size: 2rem;
-  font-weight: 600;
-  color: #1a202c;
-  margin: 0 0 0.5rem 0;
-  letter-spacing: -0.02em;
+  font-size: 2.25rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 0.75rem 0;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 
   /* Fix Issue #7: Smaller title on mobile */
   @media (max-width: 768px) {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
   }
 `;
 
 const CorpusDescription = styled.p`
-  color: #4a5568;
-  font-size: 1rem;
+  color: #64748b;
+  font-size: 1.0625rem;
   margin: 0;
   max-width: 600px;
+  line-height: 1.6;
+  font-weight: 400;
 `;
 
 const EditButton = styled(Button)`
   &&& {
-    background: white;
-    color: #3b82f6;
-    border: 1px solid #e2e8f0;
-    padding: 0.75rem 1rem;
-    font-weight: 500;
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+    border: none;
+    padding: 0.875rem 1.5rem;
+    font-weight: 600;
+    border-radius: 12px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
     margin-left: 1rem;
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
 
     &:hover {
-      border-color: #3b82f6;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      background: #f9fafb;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+
+      &::before {
+        opacity: 1;
+      }
+    }
+
+    &:active {
+      transform: translateY(0);
     }
 
     .icon {
       margin-right: 0.5rem !important;
-      opacity: 0.8;
+      position: relative;
+      z-index: 1;
+    }
+
+    span {
+      position: relative;
+      z-index: 1;
     }
 
     /* Fix Issue #7: Full width button on mobile */
@@ -234,90 +341,148 @@ const EditButton = styled(Button)`
 const InfoSection = styled.div`
   margin-bottom: 3.5rem;
   background: white;
-  border-radius: 12px;
-  border: 1px solid #f1f5f9;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
   overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08), 0 4px 10px rgba(0, 0, 0, 0.05);
+    transform: translateY(-1px);
+  }
+
+  @media (max-width: 768px) {
+    margin-bottom: 2rem;
+    border-radius: 12px;
+  }
 `;
 
 const SectionHeader = styled.div`
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid #f1f5f9;
+  padding: 1.5rem 1.75rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 2px solid #e2e8f0;
   display: flex;
   align-items: center;
+  justify-content: space-between;
 `;
 
 const SectionTitle = styled.h2`
-  font-size: 1rem;
-  font-weight: 600;
-  color: #1a202c;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1e293b;
   margin: 0;
   display: flex;
   align-items: center;
+  letter-spacing: -0.02em;
 
   &:before {
     content: "";
     width: 4px;
-    height: 1rem;
-    background: #3b82f6;
-    margin-right: 0.75rem;
-    border-radius: 2px;
+    height: 1.25rem;
+    background: linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%);
+    margin-right: 0.875rem;
+    border-radius: 100px;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
   }
 `;
 
 const MetadataContent = styled.div`
-  padding: 1.5rem;
+  padding: 2rem;
+
+  @media (max-width: 768px) {
+    padding: 1.5rem;
+  }
 `;
 
 const MetadataGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 2rem;
+  gap: 2.5rem;
 
   @media (max-width: 768px) {
     grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
   }
 
   @media (max-width: 480px) {
     grid-template-columns: 1fr;
+    gap: 1.5rem;
   }
 `;
 
 const MetadataItem = styled.div`
+  position: relative;
+  padding-left: 1rem;
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #e0e7ff 0%, #c7d2fe 100%);
+    border-radius: 100px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  &:hover::before {
+    opacity: 1;
+  }
+
   .label {
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    margin-bottom: 0.625rem;
+    font-weight: 600;
+    transition: color 0.2s ease;
+  }
+
+  &:hover .label {
     color: #64748b;
-    margin-bottom: 0.5rem;
-    font-weight: 500;
   }
 
   .value {
-    font-size: 1rem;
-    color: #1e293b;
-    font-weight: 500;
+    font-size: 1.0625rem;
+    color: #0f172a;
+    font-weight: 600;
+    line-height: 1.4;
   }
 
   .badge {
     display: inline-flex;
     align-items: center;
-    border-radius: 4px;
-    padding: 0.25rem 0.5rem;
+    border-radius: 100px;
+    padding: 0.375rem 0.875rem;
     font-size: 0.875rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 
     &.private {
-      background-color: #f1f5f9;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
       color: #475569;
+      border: 1px solid #e2e8f0;
     }
 
     &.public {
-      background-color: #ecfdf5;
-      color: #10b981;
+      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
 
     .icon {
-      margin-right: 0.25rem;
-      font-size: 0.75rem;
+      margin-right: 0.375rem;
+      font-size: 0.8125rem;
     }
   }
 `;
@@ -326,48 +491,116 @@ const ActionHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid #f1f5f9;
+  padding: 1.5rem 1.75rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 2px solid #e2e8f0;
 `;
 
 const ActionContent = styled.div`
-  padding: 1.5rem;
+  padding: 2rem;
+
+  @media (max-width: 768px) {
+    padding: 1.5rem;
+  }
 `;
 
 const AddActionButton = styled(Button)`
   &&& {
-    background: #3b82f6;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
     color: white;
     border: none;
-    padding: 0.6rem 1rem;
-    font-weight: 500;
-    border-radius: 6px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    padding: 0.75rem 1.25rem;
+    font-weight: 600;
+    border-radius: 10px;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      transform: translate(-50%, -50%);
+      transition: width 0.4s ease, height 0.4s ease;
+    }
 
     &:hover {
-      background: #2563eb;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+
+      &::before {
+        width: 300px;
+        height: 300px;
+      }
+    }
+
+    &:active {
+      transform: translateY(0);
     }
 
     .icon {
       margin-right: 0.5rem !important;
-      opacity: 0.9;
+      position: relative;
+      z-index: 1;
+    }
+
+    span {
+      position: relative;
+      z-index: 1;
     }
   }
 `;
 
 const ActionNote = styled.div`
-  font-size: 0.95rem;
-  color: #4a5568;
-  margin-bottom: 2rem;
-  line-height: 1.6;
+  font-size: 1rem;
+  color: #475569;
+  margin-bottom: 2.5rem;
+  line-height: 1.7;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  position: relative;
+  padding-left: 3rem;
+
+  &::before {
+    content: "💡";
+    position: absolute;
+    left: 1.25rem;
+    top: 1.25rem;
+    font-size: 1.25rem;
+  }
 
   strong {
-    color: #1e293b;
-    font-weight: 600;
+    color: #0f172a;
+    font-weight: 700;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 
   .highlight {
-    color: #3b82f6;
+    color: #6366f1;
+    font-weight: 600;
+    position: relative;
+
+    &::after {
+      content: "";
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+      opacity: 0.3;
+    }
   }
 `;
 
@@ -585,58 +818,145 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
             {!canUpdate && !canPermission && (
               <div
                 style={{
-                  background: "#fef3c7",
+                  background:
+                    "linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%)",
                   border: "1px solid #fbbf24",
-                  borderRadius: "6px",
-                  padding: "0.75rem",
-                  marginBottom: "1rem",
-                  fontSize: "0.875rem",
+                  borderRadius: "10px",
+                  padding: "1rem 1.25rem",
+                  marginBottom: "1.5rem",
+                  fontSize: "0.9375rem",
                   color: "#92400e",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.75rem",
+                  boxShadow: "0 2px 8px rgba(251, 191, 36, 0.15)",
                 }}
               >
-                ⚠️ You don't have permission to update these settings. Contact
-                the corpus owner for access.
+                <span style={{ fontSize: "1.25rem" }}>⚠️</span>
+                <span>
+                  You don't have permission to update these settings. Contact
+                  the corpus owner for access.
+                </span>
               </div>
             )}
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
-                gap: "1.5rem",
+                gap: "2rem",
                 alignItems: "end",
               }}
             >
               <div>
-                <div className="label">
-                  Public visibility {!canPermission && "(No permission)"}
+                <div
+                  style={{
+                    fontSize: "0.875rem",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: !canPermission ? "#cbd5e1" : "#64748b",
+                    marginBottom: "0.75rem",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                  }}
+                >
+                  Public visibility
+                  {!canPermission && (
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        background: "#f1f5f9",
+                        padding: "0.125rem 0.375rem",
+                        borderRadius: "4px",
+                        fontWeight: 500,
+                        textTransform: "none",
+                      }}
+                    >
+                      No permission
+                    </span>
+                  )}
                 </div>
                 <div
-                  className="value"
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: "0.75rem",
+                    gap: "0.875rem",
+                    padding: "0.875rem 1rem",
+                    background: !canPermission
+                      ? "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)"
+                      : "linear-gradient(135deg, #ffffff 0%, #fafbfc 100%)",
+                    border: "2px solid",
+                    borderColor: !canPermission ? "#e2e8f0" : "#cbd5e1",
+                    borderRadius: "10px",
+                    transition: "all 0.3s ease",
                   }}
                 >
-                  <input
-                    id="corpus-is-public-checkbox"
-                    type="checkbox"
-                    checked={publicDraft}
-                    disabled={!canPermission}
-                    onChange={(e) => setPublicDraft(e.target.checked)}
+                  <label
+                    htmlFor="corpus-is-public-checkbox"
                     style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.75rem",
                       cursor: !canPermission ? "not-allowed" : "pointer",
-                      opacity: !canPermission ? 0.5 : 1,
+                      width: "100%",
                     }}
-                  />
-                  <label htmlFor="corpus-is-public-checkbox">
-                    {publicDraft ? "Public" : "Private"}
+                  >
+                    <input
+                      id="corpus-is-public-checkbox"
+                      type="checkbox"
+                      checked={publicDraft}
+                      disabled={!canPermission}
+                      onChange={(e) => setPublicDraft(e.target.checked)}
+                      style={{
+                        width: "20px",
+                        height: "20px",
+                        cursor: !canPermission ? "not-allowed" : "pointer",
+                        opacity: !canPermission ? 0.5 : 1,
+                        accentColor: "#6366f1",
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: "0.9375rem",
+                        fontWeight: 600,
+                        color: !canPermission ? "#94a3b8" : "#1e293b",
+                      }}
+                    >
+                      {publicDraft ? "Public" : "Private"}
+                    </span>
                   </label>
                 </div>
               </div>
               <div>
-                <div className="label">
-                  Slug {!canUpdate && "(No permission)"}
+                <div
+                  style={{
+                    fontSize: "0.875rem",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: !canUpdate ? "#cbd5e1" : "#64748b",
+                    marginBottom: "0.75rem",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                  }}
+                >
+                  Slug
+                  {!canUpdate && (
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        background: "#f1f5f9",
+                        padding: "0.125rem 0.375rem",
+                        borderRadius: "4px",
+                        fontWeight: 500,
+                        textTransform: "none",
+                      }}
+                    >
+                      No permission
+                    </span>
+                  )}
                 </div>
                 <input
                   id="corpus-slug-input"
@@ -647,16 +967,30 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                   onChange={(e) => setSlugDraft(e.target.value)}
                   style={{
                     width: "100%",
-                    padding: "0.6rem",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 6,
-                    background: !canUpdate ? "#f5f5f5" : "white",
+                    padding: "0.875rem 1rem",
+                    border: "2px solid",
+                    borderColor: !canUpdate ? "#e2e8f0" : "#cbd5e1",
+                    borderRadius: "10px",
+                    background: !canUpdate
+                      ? "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)"
+                      : "white",
                     cursor: !canUpdate ? "not-allowed" : "text",
                     opacity: !canUpdate ? 0.7 : 1,
+                    fontSize: "0.9375rem",
+                    fontWeight: 500,
+                    color: "#1e293b",
+                    transition: "all 0.3s ease",
+                    outline: "none",
+                    ...(canUpdate && {
+                      "&:focus": {
+                        borderColor: "#6366f1",
+                        boxShadow: "0 0 0 3px rgba(99, 102, 241, 0.1)",
+                      },
+                    }),
                   }}
                 />
               </div>
-              <div style={{ gridColumn: "1 / span 2" }}>
+              <div style={{ gridColumn: "1 / span 2", marginTop: "1rem" }}>
                 <Button
                   primary
                   loading={updatingVisibility}
@@ -667,8 +1001,35 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                     if (canUpdate) vars.slug = slugDraft || undefined;
                     updateCorpusMutation({ variables: vars });
                   }}
+                  style={{
+                    background:
+                      !canUpdate && !canPermission
+                        ? "#e2e8f0"
+                        : "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+                    color: !canUpdate && !canPermission ? "#94a3b8" : "white",
+                    border: "none",
+                    padding: "0.875rem 2rem",
+                    borderRadius: "10px",
+                    fontWeight: 600,
+                    fontSize: "0.9375rem",
+                    cursor:
+                      !canUpdate && !canPermission ? "not-allowed" : "pointer",
+                    boxShadow:
+                      !canUpdate && !canPermission
+                        ? "none"
+                        : "0 4px 14px rgba(99, 102, 241, 0.25)",
+                    transition: "all 0.3s ease",
+                    ...(canUpdate || canPermission
+                      ? {
+                          "&:hover": {
+                            transform: "translateY(-2px)",
+                            boxShadow: "0 6px 20px rgba(99, 102, 241, 0.35)",
+                          },
+                        }
+                      : {}),
+                  }}
                 >
-                  <Icon name="save" /> Save
+                  <Icon name="save" /> Save Changes
                 </Button>
               </div>
             </div>

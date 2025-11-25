@@ -339,6 +339,352 @@ class Corpus(TreeNode):
         return generate_embeddings_from_text(text, corpus_id=self.pk)
 
     # --------------------------------------------------------------------- #
+    # Document Management - Issue #654                                     #
+    # --------------------------------------------------------------------- #
+
+    def add_document(
+        self,
+        document=None,
+        path: str = None,
+        user=None,
+        folder=None,
+        content: bytes = None,
+        **doc_kwargs,
+    ):
+        """
+        Add a document to this corpus, creating a corpus-isolated copy.
+
+        This implements Phase 2 corpus isolation. When adding a document to a corpus,
+        a NEW corpus-isolated document is created with:
+        - Its own version_tree_id (independent version tree)
+        - source_document pointing to original (provenance tracking)
+        - DocumentPath linking to this corpus
+
+        This ensures no cross-corpus version tree conflicts.
+
+        Args:
+            document: The source Document to copy into corpus (required)
+            path: The filesystem path within the corpus (auto-generated if not provided)
+            user: The user performing the operation (required)
+            folder: Optional CorpusFolder to place the document in
+            content: DEPRECATED - use import_content() for content-based imports
+            **doc_kwargs: Override properties for the corpus copy
+
+        Returns:
+            Tuple of (document, status, document_path) where:
+            - document: The NEW corpus-isolated document (NOT the original)
+            - status: 'added' (new copy created) or 'already_exists' (content already in corpus)
+            - document_path: The DocumentPath record created or existing
+
+        Raises:
+            ValueError: If user or document is not provided
+        """
+        if not user:
+            raise ValueError("User is required for document operations (audit trail)")
+
+        if not document:
+            raise ValueError(
+                "Document is required. For content-based imports, use import_content()"
+            )
+
+        # Handle deprecated content parameter
+        if content is not None:
+            logger.warning(
+                "content parameter is deprecated in add_document(). "
+                "Use import_content() for content-based imports."
+            )
+
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        # Generate path if not provided
+        if not path:
+            if document.title:
+                safe_title = "".join(
+                    c if c.isalnum() or c in "-_." else "_"
+                    for c in document.title[:100]
+                )
+                path = f"/documents/{safe_title or f'doc_{document.pk}'}"
+            else:
+                path = f"/documents/doc_{document.pk}"
+
+        with transaction.atomic():
+            # Check if this content already exists in THIS corpus (by hash)
+            # This implements corpus isolation - we check within corpus, not globally
+            # IMPORTANT: Only deduplicate if hash is not None (avoid treating all NULL hashes as same)
+            corpus_doc_with_hash = None
+            if document.pdf_file_hash is not None:
+                corpus_doc_with_hash = (
+                    DocumentPath.objects.filter(
+                        corpus=self,
+                        document__pdf_file_hash=document.pdf_file_hash,
+                        is_current=True,
+                        is_deleted=False,
+                    )
+                    .select_related("document")
+                    .first()
+                )
+
+            if corpus_doc_with_hash:
+                # Content already exists in THIS corpus
+                existing_doc = corpus_doc_with_hash.document
+                logger.info(
+                    f"Content from doc {document.pk} already exists in corpus {self.pk} "
+                    f"as doc {existing_doc.pk}"
+                )
+                # Return the existing corpus-isolated document
+                return existing_doc, "already_exists", corpus_doc_with_hash
+
+            # Create corpus-isolated copy with new version tree
+            tree_id = uuid.uuid4()
+            corpus_copy = Document.objects.create(
+                title=doc_kwargs.get("title", document.title),
+                description=doc_kwargs.get("description", document.description),
+                file_type=doc_kwargs.get("file_type", document.file_type),
+                pdf_file=document.pdf_file,  # Share file blob (Rule I3)
+                pdf_file_hash=document.pdf_file_hash,
+                # Share parsing artifacts (file blobs, not duplicated)
+                pawls_parse_file=document.pawls_parse_file,
+                txt_extract_file=document.txt_extract_file,
+                icon=document.icon,
+                md_summary_file=document.md_summary_file,
+                page_count=document.page_count,
+                is_public=document.is_public,  # Inherit public status
+                version_tree_id=tree_id,  # NEW isolated version tree
+                is_current=True,
+                parent=None,  # Root of NEW content tree
+                source_document=document,  # Provenance tracking (Rule I2)
+                structural_annotation_set=document.structural_annotation_set,  # Share structural annotations
+                creator=user,
+                **{
+                    k: v
+                    for k, v in doc_kwargs.items()
+                    if k not in ["title", "description", "file_type"]
+                },
+            )
+
+            logger.info(
+                f"Created corpus-isolated copy {corpus_copy.pk} from doc {document.pk} "
+                f"in corpus {self.pk} (structural_set={document.structural_annotation_set_id})"
+            )
+
+            # Check if path is occupied
+            occupied_path = DocumentPath.objects.filter(
+                corpus=self, path=path, is_current=True, is_deleted=False
+            ).first()
+
+            if occupied_path:
+                # Path exists with different document - mark as not current
+                occupied_path.is_current = False
+                occupied_path.save(update_fields=["is_current"])
+                parent = occupied_path
+                version_number = occupied_path.version_number + 1
+                logger.info(
+                    f"Replacing doc {occupied_path.document_id} with {corpus_copy.pk} "
+                    f"at {path} in corpus {self.pk}"
+                )
+            else:
+                parent = None
+                version_number = 1
+
+            # Create DocumentPath linking corpus-isolated document
+            new_path = DocumentPath.objects.create(
+                document=corpus_copy,
+                corpus=self,
+                folder=folder,
+                path=path,
+                version_number=version_number,
+                parent=parent,
+                is_current=True,
+                is_deleted=False,
+                creator=user,
+            )
+
+            logger.info(
+                f"Added corpus-isolated doc {corpus_copy.pk} to corpus {self.pk} at {path}"
+            )
+
+            return corpus_copy, "added", new_path
+
+    def import_content(
+        self,
+        content: bytes,
+        path: str = None,
+        user=None,
+        folder=None,
+        **doc_kwargs,
+    ):
+        """
+        Import content into this corpus with corpus-isolated deduplication.
+
+        This uses SHA-256 hashing to detect duplicate content within THIS corpus.
+        Documents are isolated within the corpus with independent version trees.
+        Provenance is tracked via source_document field when content exists elsewhere.
+
+        Args:
+            content: PDF content bytes (required)
+            path: The filesystem path within the corpus (auto-generated if not provided)
+            user: The user performing the operation (required)
+            folder: Optional CorpusFolder to place the document in
+            **doc_kwargs: Additional arguments for document creation (title, description, etc.)
+
+        Returns:
+            Tuple of (document, status, document_path) where status is one of:
+            - 'created': Brand new document (content hash first seen globally)
+            - 'updated': Content changed at existing path (version increment)
+            - 'unchanged': No change detected at path
+            - 'linked': Same content already exists in THIS corpus at different path
+            - 'created_from_existing': New corpus-isolated doc, content exists elsewhere
+
+        Raises:
+            ValueError: If user or content is not provided
+        """
+        if not user:
+            raise ValueError("User is required for document operations (audit trail)")
+
+        if content is None:
+            raise ValueError("Content is required for import_content()")
+
+        from opencontractserver.documents.versioning import import_document
+
+        # Generate path if not provided
+        if not path:
+            path = f"/documents/doc_{uuid.uuid4().hex[:8]}"
+
+        return import_document(
+            corpus=self,
+            path=path,
+            content=content,
+            user=user,
+            folder=folder,
+            **doc_kwargs,
+        )
+
+    def remove_document(self, document=None, path: str = None, user=None):
+        """
+        Remove a document from this corpus (soft delete).
+
+        This is the recommended way to remove documents, replacing corpus.documents.remove().
+        It creates a soft-delete DocumentPath record maintaining history.
+
+        Args:
+            document: The Document to remove (optional if path provided)
+            path: The filesystem path to remove (optional if document provided)
+            user: The user performing the operation (required)
+
+        Returns:
+            List of DocumentPath records that were soft-deleted
+
+        Raises:
+            ValueError: If neither document nor path provided, or if user not provided
+            RuntimeError: If operation fails
+        """
+        if not user:
+            raise ValueError("User is required for document operations (audit trail)")
+
+        if not document and not path:
+            raise ValueError("Either document or path must be provided")
+
+        from opencontractserver.documents.models import DocumentPath
+
+        deleted_paths = []
+
+        with transaction.atomic():
+            if path:
+                # Delete specific path
+                active_path = DocumentPath.objects.filter(
+                    corpus=self, path=path, is_current=True, is_deleted=False
+                ).first()
+
+                if active_path:
+                    # Mark current as not current
+                    active_path.is_current = False
+                    active_path.save(update_fields=["is_current"])
+
+                    # Create soft-deleted record
+                    deleted_path = DocumentPath.objects.create(
+                        document=active_path.document,
+                        corpus=self,
+                        folder=active_path.folder,
+                        path=active_path.path,
+                        version_number=active_path.version_number,
+                        parent=active_path,
+                        is_deleted=True,
+                        is_current=True,
+                        creator=user,
+                    )
+                    deleted_paths.append(deleted_path)
+                    logger.info(
+                        f"Removed document at path {path} from corpus {self.pk}"
+                    )
+                else:
+                    logger.warning(
+                        f"Path {path} not found in corpus {self.pk} for deletion"
+                    )
+            else:
+                # Delete all paths for this document
+                active_paths = DocumentPath.objects.filter(
+                    corpus=self, document=document, is_current=True, is_deleted=False
+                )
+
+                for path_record in active_paths:
+                    # Mark current as not current
+                    path_record.is_current = False
+                    path_record.save(update_fields=["is_current"])
+
+                    # Create soft-deleted record
+                    deleted_path = DocumentPath.objects.create(
+                        document=path_record.document,
+                        corpus=self,
+                        folder=path_record.folder,
+                        path=path_record.path,
+                        version_number=path_record.version_number,
+                        parent=path_record,
+                        is_deleted=True,
+                        is_current=True,
+                        creator=user,
+                    )
+                    deleted_paths.append(deleted_path)
+                    logger.info(
+                        f"Removed document {document.pk} at path "
+                        f"{path_record.path} from corpus {self.pk}"
+                    )
+
+        return deleted_paths
+
+    def get_documents(self):
+        """
+        Get all documents with active paths in this corpus.
+
+        This method uses DocumentPath as the source of truth.
+
+        Returns:
+            QuerySet of Document objects with active paths in this corpus
+        """
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        active_doc_ids = DocumentPath.objects.filter(
+            corpus=self, is_current=True, is_deleted=False
+        ).values_list("document_id", flat=True)
+
+        return Document.objects.filter(id__in=active_doc_ids).distinct()
+
+    def document_count(self):
+        """
+        Get count of documents with active paths in this corpus.
+
+        Returns:
+            Integer count of active documents
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        return (
+            DocumentPath.objects.filter(corpus=self, is_current=True, is_deleted=False)
+            .values("document_id")
+            .distinct()
+            .count()
+        )
+
+    # --------------------------------------------------------------------- #
     # Label helper                                                         #
     # --------------------------------------------------------------------- #
 
@@ -590,3 +936,296 @@ class CorpusDescriptionRevision(django.db.models.Model):
         return (
             f"CorpusDescriptionRevision(corpus_id={self.corpus_id}, v={self.version})"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Corpus Engagement Metrics
+# --------------------------------------------------------------------------- #
+
+
+class CorpusEngagementMetrics(django.db.models.Model):
+    """
+    Denormalized engagement metrics per corpus for fast dashboard queries.
+
+    This model stores aggregated statistics about corpus participation,
+    updated asynchronously via Celery tasks to avoid performance impact
+    on user operations.
+
+    Epic: #565 - Corpus Engagement Metrics & Analytics
+    """
+
+    corpus = django.db.models.OneToOneField(
+        "corpuses.Corpus",
+        on_delete=django.db.models.CASCADE,
+        related_name="engagement_metrics",
+        help_text="The corpus these metrics belong to",
+    )
+
+    # Thread counts
+    total_threads = django.db.models.IntegerField(
+        default=0,
+        help_text="Total number of discussion threads in this corpus",
+    )
+    active_threads = django.db.models.IntegerField(
+        default=0,
+        help_text="Number of active (not locked/deleted) threads",
+    )
+
+    # Message counts
+    total_messages = django.db.models.IntegerField(
+        default=0,
+        help_text="Total number of messages across all threads",
+    )
+    messages_last_7_days = django.db.models.IntegerField(
+        default=0,
+        help_text="Number of messages posted in the last 7 days",
+    )
+    messages_last_30_days = django.db.models.IntegerField(
+        default=0,
+        help_text="Number of messages posted in the last 30 days",
+    )
+
+    # Contributor counts
+    unique_contributors = django.db.models.IntegerField(
+        default=0,
+        help_text="Total number of unique users who have posted messages",
+    )
+    active_contributors_30_days = django.db.models.IntegerField(
+        default=0,
+        help_text="Number of users who posted in the last 30 days",
+    )
+
+    # Engagement metrics
+    total_upvotes = django.db.models.IntegerField(
+        default=0,
+        help_text="Total upvotes across all messages in this corpus",
+    )
+    avg_messages_per_thread = django.db.models.FloatField(
+        default=0.0,
+        help_text="Average number of messages per thread",
+    )
+
+    # Metadata
+    last_updated = django.db.models.DateTimeField(
+        auto_now=True,
+        help_text="Timestamp when metrics were last calculated",
+    )
+
+    class Meta:
+        verbose_name = "Corpus Engagement Metrics"
+        verbose_name_plural = "Corpus Engagement Metrics"
+        indexes = [
+            django.db.models.Index(fields=["corpus", "last_updated"]),
+        ]
+
+    def __str__(self):
+        return f"Engagement Metrics for {self.corpus.title}"
+
+
+# --------------------------------------------------------------------------- #
+# Corpus Folder Structure
+# --------------------------------------------------------------------------- #
+
+
+class CorpusFolder(TreeNode):
+    """
+    Hierarchical folder structure within a corpus for organizing documents.
+    Uses TreeNode for efficient tree operations via CTEs.
+    """
+
+    # Basic fields
+    name = django.db.models.CharField(
+        max_length=255, help_text="Folder name (not full path)"
+    )
+
+    corpus = django.db.models.ForeignKey(
+        "Corpus",
+        on_delete=django.db.models.CASCADE,
+        related_name="folders",
+        help_text="Parent corpus this folder belongs to",
+    )
+
+    # Metadata
+    description = django.db.models.TextField(blank=True, default="")
+    color = django.db.models.CharField(
+        max_length=7,
+        blank=True,
+        default="#05313d",
+        help_text="Hex color for UI display",
+    )
+    icon = django.db.models.CharField(
+        max_length=50,
+        blank=True,
+        default="folder",
+        help_text="Icon identifier for UI",
+    )
+    tags = django.db.models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of tags for categorization",
+    )
+
+    # Sharing (inherits from corpus but can be set independently)
+    is_public = django.db.models.BooleanField(default=False)
+
+    # Timestamps and ownership
+    created = django.db.models.DateTimeField(default=timezone.now)
+    modified = django.db.models.DateTimeField(default=timezone.now)
+    creator = django.db.models.ForeignKey(
+        get_user_model(),
+        on_delete=django.db.models.CASCADE,
+    )
+
+    # Use permissioned tree queryset
+    objects = PermissionedTreeQuerySet.as_manager(with_tree_fields=True)
+
+    class Meta:
+        ordering = ("name",)
+        indexes = [
+            django.db.models.Index(fields=["corpus", "name"]),
+            django.db.models.Index(fields=["creator"]),
+            django.db.models.Index(fields=["corpus", "parent"]),
+        ]
+        constraints = [
+            # Unique folder names per parent within a corpus
+            django.db.models.UniqueConstraint(
+                fields=["corpus", "parent", "name"],
+                name="unique_folder_name_per_parent",
+            ),
+        ]
+        permissions = (
+            ("permission_corpusfolder", "permission corpusfolder"),
+            ("publish_corpusfolder", "publish corpusfolder"),
+            ("create_corpusfolder", "create corpusfolder"),
+            ("read_corpusfolder", "read corpusfolder"),
+            ("update_corpusfolder", "update corpusfolder"),
+            ("remove_corpusfolder", "delete corpusfolder"),
+        )
+
+    def save(self, *args, **kwargs):
+        """On save, update timestamps and validate parent corpus"""
+        if not self.pk:
+            self.created = timezone.now()
+        self.modified = timezone.now()
+
+        # Validate parent belongs to same corpus
+        if self.parent and self.parent.corpus_id != self.corpus_id:
+            raise ValidationError("Folder parent must belong to the same corpus")
+
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        """Validate the model before saving."""
+        super().clean()
+
+        # Validate tags is a list
+        if not isinstance(self.tags, list):
+            raise ValidationError({"tags": "Must be a list of strings"})
+
+        # Validate each tag is a string
+        for tag in self.tags:
+            if not isinstance(tag, str):
+                raise ValidationError({"tags": "Each tag must be a string"})
+
+    def get_path(self) -> str:
+        """Get full path from root to this folder."""
+        ancestors = self.ancestors(include_self=True)
+        return "/".join(f.name for f in ancestors)
+
+    def get_descendant_folders(self):
+        """Get all descendant folders efficiently using CTE."""
+        return self.descendants(include_self=True)
+
+    def get_document_count(self) -> int:
+        """Get count of documents directly in this folder (not including subfolders)."""
+        return self.document_assignments.count()
+
+    def get_descendant_document_count(self) -> int:
+        """Get count of documents in this folder and all subfolders."""
+        descendant_folders = self.get_descendant_folders()
+        return CorpusDocumentFolder.objects.filter(
+            folder__in=descendant_folders
+        ).count()
+
+    def __str__(self):
+        return f"{self.corpus.title}/{self.get_path()}"
+
+
+class CorpusFolderUserObjectPermission(UserObjectPermissionBase):
+    """Guardian permission model for per-user folder permissions."""
+
+    content_object = django.db.models.ForeignKey(
+        "CorpusFolder", on_delete=django.db.models.CASCADE
+    )
+
+
+class CorpusFolderGroupObjectPermission(GroupObjectPermissionBase):
+    """Guardian permission model for per-group folder permissions."""
+
+    content_object = django.db.models.ForeignKey(
+        "CorpusFolder", on_delete=django.db.models.CASCADE
+    )
+
+
+class CorpusDocumentFolder(django.db.models.Model):
+    """
+    Junction table linking documents to folders within a corpus.
+    Enforces one-folder-per-document-per-corpus constraint.
+    Null folder means document is in corpus "root".
+    """
+
+    document = django.db.models.ForeignKey(
+        "documents.Document",
+        on_delete=django.db.models.CASCADE,
+        related_name="corpus_folder_assignments",
+    )
+
+    corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=django.db.models.CASCADE,
+        related_name="document_folder_assignments",
+    )
+
+    folder = django.db.models.ForeignKey(
+        "CorpusFolder",
+        on_delete=django.db.models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="document_assignments",
+        help_text="Folder containing this document. Null = root of corpus.",
+    )
+
+    # Timestamps
+    added_to_folder = django.db.models.DateTimeField(
+        default=timezone.now,
+        help_text="When document was added to this folder",
+    )
+
+    class Meta:
+        indexes = [
+            django.db.models.Index(fields=["corpus", "folder"]),
+            django.db.models.Index(fields=["document", "corpus"]),
+            django.db.models.Index(fields=["folder"]),
+        ]
+        constraints = [
+            # One folder per document per corpus (null folder = root)
+            django.db.models.UniqueConstraint(
+                fields=["document", "corpus"],
+                name="unique_document_folder_per_corpus",
+            ),
+        ]
+
+    def clean(self):
+        """Validate folder belongs to same corpus."""
+        super().clean()
+        if self.folder and self.folder.corpus_id != self.corpus_id:
+            raise ValidationError("Folder must belong to the same corpus")
+
+    def save(self, *args, **kwargs):
+        """Validate before saving."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        folder_path = self.folder.get_path() if self.folder else "root"
+        return f"{self.document.title} in {self.corpus.title}/{folder_path}"

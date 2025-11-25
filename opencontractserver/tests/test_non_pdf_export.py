@@ -104,7 +104,7 @@ class NonPDFExportTestCase(TestCase):
 
         # Create a PDF document
         pdf_doc = self.create_document(file_type="application/pdf")
-        self.corpus.documents.add(pdf_doc)
+        self.corpus.add_document(document=pdf_doc, user=self.user)
 
         # Add annotation
         self.add_annotation_to_doc(pdf_doc, self.text_label)
@@ -134,7 +134,7 @@ class NonPDFExportTestCase(TestCase):
 
         # Create a text document
         text_doc = self.create_document(file_type="text/plain")
-        self.corpus.documents.add(text_doc)
+        self.corpus.add_document(document=text_doc, user=self.user)
 
         # Add annotations
         self.add_annotation_to_doc(text_doc, self.text_label)
@@ -176,7 +176,7 @@ class NonPDFExportTestCase(TestCase):
         docx_doc = self.create_document(
             file_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-        self.corpus.documents.add(docx_doc)
+        self.corpus.add_document(document=docx_doc, user=self.user)
 
         # Add annotation
         self.add_annotation_to_doc(docx_doc, self.text_label)
@@ -207,7 +207,7 @@ class NonPDFExportTestCase(TestCase):
 
         # Create a document without a pdf_file
         doc = self.create_document(file_type="text/plain", has_pdf_file=False)
-        self.corpus.documents.add(doc)
+        self.corpus.add_document(document=doc, user=self.user)
 
         # Add annotation
         self.add_annotation_to_doc(doc, self.text_label)

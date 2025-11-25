@@ -116,6 +116,12 @@ class BaseParser(PipelineComponentBase, ABC):
 
         document = Document.objects.get(pk=doc_id)
 
+        # Get user for corpus operations
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user = User.objects.get(pk=user_id)
+
         # Associate with corpus if provided
         if corpus_id:
             # Use Django's lazy-loading with string reference to avoid circular import
@@ -123,9 +129,11 @@ class BaseParser(PipelineComponentBase, ABC):
 
             Corpus = apps.get_model("corpuses", "Corpus")
             corpus_obj = Corpus.objects.get(id=corpus_id)
-            corpus_obj.documents.add(document)
-            corpus_obj.save()
-            logger.info(f"Associated document with corpus: {corpus_obj.title}")
+            # Use add_document for corpus isolation (creates DocumentPath)
+            document, status, _ = corpus_obj.add_document(document=document, user=user)
+            logger.info(
+                f"Associated document with corpus: {corpus_obj.title} (status: {status})"
+            )
         else:
             corpus_obj = None
 

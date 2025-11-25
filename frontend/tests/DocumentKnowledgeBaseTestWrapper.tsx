@@ -24,6 +24,7 @@ import {
   selectedAnnotationIds,
   selectedAnalysesIds,
   selectedExtractIds,
+  selectedThreadId,
 } from "../src/graphql/cache";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { CentralRouteManager } from "../src/routing/CentralRouteManager";
@@ -122,13 +123,22 @@ const conversationsMockData = {
       {
         node: {
           id: "Q29udmVyc2F0aW9uVHlwZToz",
+          conversationType: "THREAD",
           title: "Transfer Taxes in Document Analysis",
+          description: null,
           createdAt: "2025-05-19T05:23:56.913169+00:00",
           updatedAt: "2025-05-19T05:23:58.482189+00:00",
           creator: {
             id: "VXNlclR5cGU6Mw==",
+            username: "scrudato",
             email: "scrudato@umich.edu",
             __typename: "UserType",
+          },
+          chatWithCorpus: null,
+          chatWithDocument: {
+            id: "pdf-doc-1",
+            title: "Test PDF Document",
+            __typename: "DocumentType",
           },
           chatMessages: {
             totalCount: 2,
@@ -144,6 +154,13 @@ const conversationsMockData = {
           },
           isPublic: false,
           myPermissions: [],
+          isLocked: false,
+          lockedBy: null,
+          lockedAt: null,
+          isPinned: false,
+          pinnedBy: null,
+          pinnedAt: null,
+          deletedAt: null,
           __typename: "ConversationType",
         },
         __typename: "ConversationTypeEdge",
@@ -151,13 +168,22 @@ const conversationsMockData = {
       {
         node: {
           id: "Q29udmVyc2F0aW9uVHlwZToy",
+          conversationType: "THREAD",
           title: "Transfer Taxes in Document Analysis",
+          description: null,
           createdAt: "2025-05-19T05:17:30.973110+00:00",
           updatedAt: "2025-05-19T05:17:32.044191+00:00",
           creator: {
             id: "VXNlclR5cGU6Mw==",
+            username: "scrudato",
             email: "scrudato@umich.edu",
             __typename: "UserType",
+          },
+          chatWithCorpus: null,
+          chatWithDocument: {
+            id: "pdf-doc-1",
+            title: "Test PDF Document",
+            __typename: "DocumentType",
           },
           chatMessages: {
             totalCount: 2,
@@ -173,6 +199,13 @@ const conversationsMockData = {
           },
           isPublic: false,
           myPermissions: [],
+          isLocked: false,
+          lockedBy: null,
+          lockedAt: null,
+          isPinned: false,
+          pinnedBy: null,
+          pinnedAt: null,
+          deletedAt: null,
           __typename: "ConversationType",
         },
         __typename: "ConversationTypeEdge",
@@ -180,13 +213,22 @@ const conversationsMockData = {
       {
         node: {
           id: "Q29udmVyc2F0aW9uVHlwZTox",
+          conversationType: "THREAD",
           title: "Tax Transfers Document Summary",
+          description: null,
           createdAt: "2025-05-19T04:33:00.003664+00:00",
           updatedAt: "2025-05-19T04:33:02.400566+00:00",
           creator: {
             id: "VXNlclR5cGU6Mw==",
+            username: "scrudato",
             email: "scrudato@umich.edu",
             __typename: "UserType",
+          },
+          chatWithCorpus: null,
+          chatWithDocument: {
+            id: "pdf-doc-1",
+            title: "Test PDF Document",
+            __typename: "DocumentType",
           },
           chatMessages: {
             totalCount: 2,
@@ -202,6 +244,13 @@ const conversationsMockData = {
           },
           isPublic: false,
           myPermissions: [],
+          isLocked: false,
+          lockedBy: null,
+          lockedAt: null,
+          isPinned: false,
+          pinnedBy: null,
+          pinnedAt: null,
+          deletedAt: null,
           __typename: "ConversationType",
         },
         __typename: "ConversationTypeEdge",
@@ -214,6 +263,7 @@ const conversationsMockData = {
       endCursor: "YXJyYXljb25uZWN0aW9uOjI=",
       __typename: "PageInfo",
     },
+    totalCount: 3,
     __typename: "ConversationTypeConnection",
   },
 };
@@ -226,8 +276,27 @@ const chatMessagesMockData = {
     {
       id: "TWVzc2FnZVR5cGU6NQ==",
       msgType: "HUMAN",
+      agentType: null,
+      agentConfiguration: null,
       content: "What does this document say about Transfer Taxes?",
+      state: null,
       data: {},
+      createdAt: "2025-05-19T05:23:57.000000+00:00",
+      created: "2025-05-19T05:23:57.000000+00:00",
+      modified: "2025-05-19T05:23:57.000000+00:00",
+      creator: {
+        id: "VXNlclR5cGU6Mw==",
+        username: "scrudato",
+        email: "scrudato@umich.edu",
+        __typename: "UserType",
+      },
+      parentMessage: null,
+      upvoteCount: 0,
+      downvoteCount: 0,
+      userVote: null,
+      deletedAt: null,
+      deletedBy: null,
+      mentionedResources: [],
       __typename: "MessageType",
     },
     {
@@ -4122,6 +4191,25 @@ const chatMessagesMockData = {
         ],
         message_id: 6,
       },
+      agentType: "SUMMARY_GEN",
+      agentConfiguration: null,
+      state: null,
+      createdAt: "2025-05-19T05:23:58.000000+00:00",
+      created: "2025-05-19T05:23:58.000000+00:00",
+      modified: "2025-05-19T05:23:58.000000+00:00",
+      creator: {
+        id: "VXNlclR5cGU6Mw==",
+        username: "scrudato",
+        email: "scrudato@umich.edu",
+        __typename: "UserType",
+      },
+      parentMessage: null,
+      upvoteCount: 0,
+      downvoteCount: 0,
+      userVote: null,
+      deletedAt: null,
+      deletedBy: null,
+      mentionedResources: [],
       __typename: "MessageType",
     },
   ],
@@ -4224,6 +4312,19 @@ const createWildcardLink = (mocks: ReadonlyArray<MockedResponse>) => {
       return Observable.of({ data: chatMessagesMockData });
     }
 
+    /* ✅  wildcard for GetThreadDetail --------------------------------- */
+    if (operation.operationName === "GetThreadDetail") {
+      console.log("[MOCK HIT] GetThreadDetail – wildcard match");
+      // Combine conversation metadata with messages
+      const threadDetailData = {
+        conversation: {
+          ...conversationsMockData.conversations.edges[0].node,
+          allMessages: chatMessagesMockData.chatMessages,
+        },
+      };
+      return Observable.of({ data: threadDetailData });
+    }
+
     // Delegate other operations to the default MockLink
     return defaultMockLink.request(operation) as any;
   });
@@ -4237,6 +4338,7 @@ const LocationWatcher: React.FC = () => {
     const params = new URLSearchParams(location.search);
     const analysisId = params.get("analysis");
     const extractId = params.get("extract");
+    const threadIdParam = params.get("thread");
 
     if (analysisId) {
       selectedAnalysesIds([analysisId]);
@@ -4248,6 +4350,12 @@ const LocationWatcher: React.FC = () => {
       selectedExtractIds([extractId]);
     } else {
       selectedExtractIds([]);
+    }
+
+    if (threadIdParam) {
+      selectedThreadId(threadIdParam);
+    } else {
+      selectedThreadId(null);
     }
   }, [location.search]);
 

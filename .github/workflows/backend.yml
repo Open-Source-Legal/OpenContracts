@@ -12,11 +12,11 @@ defaults:
 
 on:
   pull_request:
-    branches: [ "master", "main" ]
+    branches: [ "master", "main", "v*" ]
     paths-ignore: [ "docs/**" ]
 
   push:
-    branches: [ "master", "main" ]
+    branches: [ "master", "main", "v*" ]
     paths-ignore: [ "docs/**" ]
 
 concurrency:

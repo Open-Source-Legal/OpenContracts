@@ -492,12 +492,15 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   }, [virtualItems, rowHeightManager]);
 
   /* Row renderer component for List */
-  const RowComponent: React.FC<{
+  const RowComponent = ({
+    index,
+    style,
+  }: {
     index: number;
     style: React.CSSProperties;
-  }> = ({ index, style }) => {
+  }): React.ReactElement => {
     const virtualItem = virtualItems[index];
-    if (!virtualItem) return null;
+    if (!virtualItem) return <div style={style} />;
 
     const hasCorpus = !!selectedCorpus?.id;
 

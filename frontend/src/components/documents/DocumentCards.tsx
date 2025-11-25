@@ -176,6 +176,7 @@ interface DocumentCardProps {
   fetchMore: (args?: any) => void | any;
   onDrop: (acceptedFiles: File[]) => void;
   viewMode?: "classic" | "modern-card" | "modern-list";
+  prefixItems?: React.ReactNode[]; // Items to render before documents (e.g., folders)
 }
 
 export const DocumentCards = ({
@@ -191,6 +192,7 @@ export const DocumentCards = ({
   fetchMore,
   onDrop,
   viewMode = "modern-card",
+  prefixItems = [],
 }: DocumentCardProps) => {
   const [contextMenuOpen, setContextMenuOpen] = useState<string | null>(null);
 
@@ -305,7 +307,10 @@ export const DocumentCards = ({
           ...style,
         }}
       >
-        <GridContainer>{cards}</GridContainer>
+        <GridContainer>
+          {prefixItems}
+          {cards}
+        </GridContainer>
         <FetchMoreOnVisible fetchNextPage={handleUpdate} />
       </div>
     </div>

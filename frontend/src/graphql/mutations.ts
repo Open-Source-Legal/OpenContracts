@@ -781,11 +781,14 @@ export interface UploadDocumentInputProps {
   description?: string;
   title?: string;
   addToCorpusId?: string;
+  addToFolderId?: string;
   slug?: string;
 }
 
 export interface UploadDocumentOutputProps {
   uploadDocument: {
+    ok: boolean;
+    message: string;
     document: {
       id: string;
       icon: string;
@@ -793,6 +796,7 @@ export interface UploadDocumentOutputProps {
       title: string;
       description: string;
       backendLock: boolean;
+      fileType: string;
       docAnnotations: {
         edges: {
           node: {
@@ -800,7 +804,7 @@ export interface UploadDocumentOutputProps {
           };
         };
       }[];
-    };
+    } | null;
   };
 }
 
@@ -814,6 +818,7 @@ export const UPLOAD_DOCUMENT = gql`
     $makePublic: Boolean!
     $addToCorpusId: ID
     $addToExtractId: ID
+    $addToFolderId: ID
     $slug: String
   ) {
     uploadDocument(
@@ -825,8 +830,11 @@ export const UPLOAD_DOCUMENT = gql`
       makePublic: $makePublic
       addToCorpusId: $addToCorpusId
       addToExtractId: $addToExtractId
+      addToFolderId: $addToFolderId
       slug: $slug
     ) {
+      ok
+      message
       document {
         id
         icon
@@ -2200,5 +2208,932 @@ export interface DeleteCorpusActionOutput {
   deleteCorpusAction: {
     ok: boolean;
     message: string;
+  };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// BADGE-RELATED MUTATIONS
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const CREATE_BADGE = gql`
+  mutation CreateBadge(
+    $name: String!
+    $description: String!
+    $icon: String!
+    $badgeType: String!
+    $color: String
+    $corpusId: ID
+    $isAutoAwarded: Boolean
+    $criteriaConfig: JSONString
+  ) {
+    createBadge(
+      name: $name
+      description: $description
+      icon: $icon
+      badgeType: $badgeType
+      color: $color
+      corpusId: $corpusId
+      isAutoAwarded: $isAutoAwarded
+      criteriaConfig: $criteriaConfig
+    ) {
+      ok
+      message
+      badge {
+        id
+        name
+        description
+        icon
+        badgeType
+        color
+        isAutoAwarded
+        criteriaConfig
+        corpus {
+          id
+          title
+        }
+      }
+    }
+  }
+`;
+
+export interface CreateBadgeInput {
+  name: string;
+  description: string;
+  icon: string;
+  badgeType: "GLOBAL" | "CORPUS";
+  color?: string;
+  corpusId?: string;
+  isAutoAwarded?: boolean;
+  criteriaConfig?: any;
+}
+
+export interface CreateBadgeOutput {
+  createBadge: {
+    ok: boolean;
+    message: string;
+    badge: {
+      id: string;
+      name: string;
+      description: string;
+      icon: string;
+      badgeType: string;
+      color: string;
+      isAutoAwarded: boolean;
+      criteriaConfig: any;
+      corpus?: {
+        id: string;
+        title: string;
+      };
+    } | null;
+  };
+}
+
+export const UPDATE_BADGE = gql`
+  mutation UpdateBadge(
+    $badgeId: ID!
+    $name: String
+    $description: String
+    $icon: String
+    $color: String
+    $isAutoAwarded: Boolean
+    $criteriaConfig: JSONString
+  ) {
+    updateBadge(
+      badgeId: $badgeId
+      name: $name
+      description: $description
+      icon: $icon
+      color: $color
+      isAutoAwarded: $isAutoAwarded
+      criteriaConfig: $criteriaConfig
+    ) {
+      ok
+      message
+      badge {
+        id
+        name
+        description
+        icon
+        color
+        isAutoAwarded
+        criteriaConfig
+      }
+    }
+  }
+`;
+
+export interface UpdateBadgeInput {
+  badgeId: string;
+  name?: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  isAutoAwarded?: boolean;
+  criteriaConfig?: any;
+}
+
+export interface UpdateBadgeOutput {
+  updateBadge: {
+    ok: boolean;
+    message: string;
+    badge: {
+      id: string;
+      name: string;
+      description: string;
+      icon: string;
+      color: string;
+      isAutoAwarded: boolean;
+      criteriaConfig: any;
+    } | null;
+  };
+}
+
+export const DELETE_BADGE = gql`
+  mutation DeleteBadge($badgeId: ID!) {
+    deleteBadge(badgeId: $badgeId) {
+      ok
+      message
+    }
+  }
+`;
+
+export interface DeleteBadgeInput {
+  badgeId: string;
+}
+
+export interface DeleteBadgeOutput {
+  deleteBadge: {
+    ok: boolean;
+    message: string;
+  };
+}
+
+export const AWARD_BADGE = gql`
+  mutation AwardBadge($badgeId: ID!, $userId: ID!, $corpusId: ID) {
+    awardBadge(badgeId: $badgeId, userId: $userId, corpusId: $corpusId) {
+      ok
+      message
+      userBadge {
+        id
+        awardedAt
+        user {
+          id
+          username
+          email
+        }
+        badge {
+          id
+          name
+          description
+          icon
+          color
+        }
+        awardedBy {
+          id
+          username
+        }
+      }
+    }
+  }
+`;
+
+export interface AwardBadgeInput {
+  badgeId: string;
+  userId: string;
+  corpusId?: string;
+}
+
+export interface AwardBadgeOutput {
+  awardBadge: {
+    ok: boolean;
+    message: string;
+    userBadge: {
+      id: string;
+      awardedAt: string;
+      user: {
+        id: string;
+        username: string;
+        email: string;
+      };
+      badge: {
+        id: string;
+        name: string;
+        description: string;
+        icon: string;
+        color: string;
+      };
+      awardedBy?: {
+        id: string;
+        username: string;
+      };
+    } | null;
+  };
+}
+
+export const REVOKE_BADGE = gql`
+  mutation RevokeBadge($userBadgeId: ID!) {
+    revokeBadge(userBadgeId: $userBadgeId) {
+      ok
+      message
+    }
+  }
+`;
+
+export interface RevokeBadgeInput {
+  userBadgeId: string;
+}
+
+export interface RevokeBadgeOutput {
+  revokeBadge: {
+    ok: boolean;
+    message: string;
+  };
+}
+
+// ============================================================================
+// Thread and Message Mutations
+// ============================================================================
+
+export const CREATE_THREAD = gql`
+  mutation CreateThread(
+    $corpusId: String!
+    $title: String!
+    $description: String
+    $initialMessage: String!
+  ) {
+    createThread(
+      corpusId: $corpusId
+      title: $title
+      description: $description
+      initialMessage: $initialMessage
+    ) {
+      ok
+      message
+      obj {
+        id
+        title
+        description
+      }
+    }
+  }
+`;
+
+export interface CreateThreadInput {
+  corpusId: string;
+  title: string;
+  description?: string;
+  initialMessage: string;
+}
+
+export interface CreateThreadOutput {
+  createThread: {
+    ok: boolean;
+    message: string;
+    obj?: {
+      id: string;
+      title: string;
+      description?: string;
+    };
+  };
+}
+
+export const CREATE_THREAD_MESSAGE = gql`
+  mutation CreateThreadMessage($conversationId: String!, $content: String!) {
+    createThreadMessage(conversationId: $conversationId, content: $content) {
+      ok
+      message
+      obj {
+        id
+        content
+        created
+        modified
+        creator {
+          id
+          username
+          email
+        }
+        conversation {
+          id
+          title
+        }
+        upvoteCount
+        downvoteCount
+        # userVote  # TODO: Backend field not implemented yet
+      }
+    }
+  }
+`;
+
+export interface CreateThreadMessageInput {
+  conversationId: string;
+  content: string;
+}
+
+export interface CreateThreadMessageOutput {
+  createThreadMessage: {
+    ok: boolean;
+    message: string;
+    obj: {
+      id: string;
+      content: string;
+      created: string;
+      modified: string;
+      creator: {
+        id: string;
+        username: string;
+        email: string;
+      };
+      conversation: {
+        id: string;
+        title: string;
+      };
+      upvoteCount: number;
+      downvoteCount: number;
+      userVote?: string;
+    } | null;
+  };
+}
+
+export const REPLY_TO_MESSAGE = gql`
+  mutation ReplyToMessage($parentMessageId: String!, $content: String!) {
+    replyToMessage(parentMessageId: $parentMessageId, content: $content) {
+      ok
+      message
+      obj {
+        id
+        content
+        created
+        modified
+        creator {
+          id
+          username
+          email
+        }
+        parentMessage {
+          id
+          content
+          creator {
+            id
+            username
+          }
+        }
+        conversation {
+          id
+          title
+        }
+        upvoteCount
+        downvoteCount
+        # userVote  # TODO: Backend field not implemented yet
+      }
+    }
+  }
+`;
+
+export interface ReplyToMessageInput {
+  parentMessageId: string;
+  content: string;
+}
+
+export interface ReplyToMessageOutput {
+  replyToMessage: {
+    ok: boolean;
+    message: string;
+    obj: {
+      id: string;
+      content: string;
+      created: string;
+      modified: string;
+      creator: {
+        id: string;
+        username: string;
+        email: string;
+      };
+      parentMessage: {
+        id: string;
+        content: string;
+        creator: {
+          id: string;
+          username: string;
+        };
+      } | null;
+      conversation: {
+        id: string;
+        title: string;
+      };
+      upvoteCount: number;
+      downvoteCount: number;
+      userVote?: string;
+    } | null;
+  };
+}
+
+export const DELETE_CONVERSATION = gql`
+  mutation DeleteConversation($conversationId: ID!) {
+    deleteConversation(conversationId: $conversationId) {
+      ok
+      message
+    }
+  }
+`;
+
+export interface DeleteConversationInput {
+  conversationId: string;
+}
+
+export interface DeleteConversationOutput {
+  deleteConversation: {
+    ok: boolean;
+    message: string;
+  };
+}
+
+export const DELETE_MESSAGE = gql`
+  mutation DeleteMessage($messageId: ID!) {
+    deleteMessage(messageId: $messageId) {
+      ok
+      message
+    }
+  }
+`;
+
+export interface DeleteMessageInput {
+  messageId: string;
+}
+
+export interface DeleteMessageOutput {
+  deleteMessage: {
+    ok: boolean;
+    message: string;
+  };
+}
+
+// ============================================================================
+// Voting Mutations
+// ============================================================================
+
+export const UPVOTE_MESSAGE = gql`
+  mutation UpvoteMessage($messageId: ID!) {
+    upvoteMessage(messageId: $messageId) {
+      ok
+      message
+      chatMessage {
+        id
+        upvoteCount
+        downvoteCount
+        # userVote  # TODO: Backend field not implemented yet
+      }
+    }
+  }
+`;
+
+export interface UpvoteMessageInput {
+  messageId: string;
+}
+
+export interface UpvoteMessageOutput {
+  upvoteMessage: {
+    ok: boolean;
+    message: string;
+    chatMessage: {
+      id: string;
+      upvoteCount: number;
+      downvoteCount: number;
+      userVote?: string;
+    } | null;
+  };
+}
+
+export const DOWNVOTE_MESSAGE = gql`
+  mutation DownvoteMessage($messageId: ID!) {
+    downvoteMessage(messageId: $messageId) {
+      ok
+      message
+      chatMessage {
+        id
+        upvoteCount
+        downvoteCount
+        # userVote  # TODO: Backend field not implemented yet
+      }
+    }
+  }
+`;
+
+export interface DownvoteMessageInput {
+  messageId: string;
+}
+
+export interface DownvoteMessageOutput {
+  downvoteMessage: {
+    ok: boolean;
+    message: string;
+    chatMessage: {
+      id: string;
+      upvoteCount: number;
+      downvoteCount: number;
+      userVote?: string;
+    } | null;
+  };
+}
+
+export const REMOVE_VOTE = gql`
+  mutation RemoveVote($messageId: ID!) {
+    removeVote(messageId: $messageId) {
+      ok
+      message
+      chatMessage {
+        id
+        upvoteCount
+        downvoteCount
+        # userVote  # TODO: Backend field not implemented yet
+      }
+    }
+  }
+`;
+
+export interface RemoveVoteInput {
+  messageId: string;
+}
+
+export interface RemoveVoteOutput {
+  removeVote: {
+    ok: boolean;
+    message: string;
+    chatMessage: {
+      id: string;
+      upvoteCount: number;
+      downvoteCount: number;
+      userVote?: string;
+    } | null;
+  };
+}
+
+// ============================================================================
+// Moderation Mutations
+// ============================================================================
+
+export const PIN_THREAD = gql`
+  mutation PinThread($conversationId: ID!) {
+    pinThread(conversationId: $conversationId) {
+      ok
+      message
+      conversation {
+        id
+        isPinned
+        pinnedBy {
+          id
+          username
+        }
+        pinnedAt
+      }
+    }
+  }
+`;
+
+export interface PinThreadInput {
+  conversationId: string;
+}
+
+export interface PinThreadOutput {
+  pinThread: {
+    ok: boolean;
+    message: string;
+    conversation: {
+      id: string;
+      isPinned: boolean;
+      pinnedBy: {
+        id: string;
+        username: string;
+      } | null;
+      pinnedAt: string | null;
+    } | null;
+  };
+}
+
+export const UNPIN_THREAD = gql`
+  mutation UnpinThread($conversationId: ID!) {
+    unpinThread(conversationId: $conversationId) {
+      ok
+      message
+      conversation {
+        id
+        isPinned
+        pinnedBy {
+          id
+          username
+        }
+        pinnedAt
+      }
+    }
+  }
+`;
+
+export interface UnpinThreadInput {
+  conversationId: string;
+}
+
+export interface UnpinThreadOutput {
+  unpinThread: {
+    ok: boolean;
+    message: string;
+    conversation: {
+      id: string;
+      isPinned: boolean;
+      pinnedBy: {
+        id: string;
+        username: string;
+      } | null;
+      pinnedAt: string | null;
+    } | null;
+  };
+}
+
+export const LOCK_THREAD = gql`
+  mutation LockThread($conversationId: ID!) {
+    lockThread(conversationId: $conversationId) {
+      ok
+      message
+      conversation {
+        id
+        isLocked
+        lockedBy {
+          id
+          username
+        }
+        lockedAt
+      }
+    }
+  }
+`;
+
+export interface LockThreadInput {
+  conversationId: string;
+}
+
+export interface LockThreadOutput {
+  lockThread: {
+    ok: boolean;
+    message: string;
+    conversation: {
+      id: string;
+      isLocked: boolean;
+      lockedBy: {
+        id: string;
+        username: string;
+      } | null;
+      lockedAt: string | null;
+    } | null;
+  };
+}
+
+export const UNLOCK_THREAD = gql`
+  mutation UnlockThread($conversationId: ID!) {
+    unlockThread(conversationId: $conversationId) {
+      ok
+      message
+      conversation {
+        id
+        isLocked
+        lockedBy {
+          id
+          username
+        }
+        lockedAt
+      }
+    }
+  }
+`;
+
+export interface UnlockThreadInput {
+  conversationId: string;
+}
+
+export interface UnlockThreadOutput {
+  unlockThread: {
+    ok: boolean;
+    message: string;
+    conversation: {
+      id: string;
+      isLocked: boolean;
+      lockedBy: {
+        id: string;
+        username: string;
+      } | null;
+      lockedAt: string | null;
+    } | null;
+  };
+}
+
+export const DELETE_THREAD = gql`
+  mutation DeleteThread($conversationId: ID!) {
+    deleteThread(conversationId: $conversationId) {
+      ok
+      message
+      conversation {
+        id
+        isDeleted
+        deletedBy {
+          id
+          username
+        }
+        deletedAt
+      }
+    }
+  }
+`;
+
+export interface DeleteThreadInput {
+  conversationId: string;
+}
+
+export interface DeleteThreadOutput {
+  deleteThread: {
+    ok: boolean;
+    message: string;
+    conversation: {
+      id: string;
+      isDeleted: boolean;
+      deletedBy: {
+        id: string;
+        username: string;
+      } | null;
+      deletedAt: string | null;
+    } | null;
+  };
+}
+
+export const RESTORE_THREAD = gql`
+  mutation RestoreThread($conversationId: ID!) {
+    restoreThread(conversationId: $conversationId) {
+      ok
+      message
+      conversation {
+        id
+        isDeleted
+        deletedBy {
+          id
+          username
+        }
+        deletedAt
+      }
+    }
+  }
+`;
+
+export interface RestoreThreadInput {
+  conversationId: string;
+}
+
+export interface RestoreThreadOutput {
+  restoreThread: {
+    ok: boolean;
+    message: string;
+    conversation: {
+      id: string;
+      isDeleted: boolean;
+      deletedBy: {
+        id: string;
+        username: string;
+      } | null;
+      deletedAt: string | null;
+    } | null;
+  };
+}
+
+/**
+ * ============================================================================
+ * NOTIFICATION MUTATIONS
+ * ============================================================================
+ */
+
+export const MARK_NOTIFICATION_READ = gql`
+  mutation MarkNotificationRead($notificationId: ID!) {
+    markNotificationRead(notificationId: $notificationId) {
+      ok
+      message
+      notification {
+        id
+        isRead
+        modified
+      }
+    }
+  }
+`;
+
+export interface MarkNotificationReadInput {
+  notificationId: string;
+}
+
+export interface MarkNotificationReadOutput {
+  markNotificationRead: {
+    ok: boolean;
+    message: string;
+    notification: {
+      id: string;
+      isRead: boolean;
+      modified: string;
+    } | null;
+  };
+}
+
+export const MARK_NOTIFICATION_UNREAD = gql`
+  mutation MarkNotificationUnread($notificationId: ID!) {
+    markNotificationUnread(notificationId: $notificationId) {
+      ok
+      message
+      notification {
+        id
+        isRead
+        modified
+      }
+    }
+  }
+`;
+
+export interface MarkNotificationUnreadInput {
+  notificationId: string;
+}
+
+export interface MarkNotificationUnreadOutput {
+  markNotificationUnread: {
+    ok: boolean;
+    message: string;
+    notification: {
+      id: string;
+      isRead: boolean;
+      modified: string;
+    } | null;
+  };
+}
+
+export const MARK_ALL_NOTIFICATIONS_READ = gql`
+  mutation MarkAllNotificationsRead {
+    markAllNotificationsRead {
+      ok
+      message
+      count
+    }
+  }
+`;
+
+export interface MarkAllNotificationsReadOutput {
+  markAllNotificationsRead: {
+    ok: boolean;
+    message: string;
+    count: number;
+  };
+}
+
+export const DELETE_NOTIFICATION = gql`
+  mutation DeleteNotification($notificationId: ID!) {
+    deleteNotification(notificationId: $notificationId) {
+      ok
+      message
+    }
+  }
+`;
+
+export interface DeleteNotificationInput {
+  notificationId: string;
+}
+
+export interface DeleteNotificationOutput {
+  deleteNotification: {
+    ok: boolean;
+    message: string;
+  };
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///
+/// DOCUMENT VERSIONING MUTATIONS
+///
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const RESTORE_DELETED_DOCUMENT = gql`
+  mutation RestoreDeletedDocument($documentId: ID!, $corpusId: ID!) {
+    restoreDeletedDocument(documentId: $documentId, corpusId: $corpusId) {
+      ok
+      message
+      document {
+        id
+        title
+      }
+    }
+  }
+`;
+
+export interface RestoreDeletedDocumentInput {
+  documentId: string;
+  corpusId: string;
+}
+
+export interface RestoreDeletedDocumentOutput {
+  restoreDeletedDocument: {
+    ok: boolean;
+    message: string;
+    document: {
+      id: string;
+      title: string;
+    } | null;
   };
 }

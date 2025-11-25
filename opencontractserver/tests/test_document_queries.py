@@ -33,7 +33,7 @@ class DocumentQueryTestCase(TestCase):
             description="Testing summaries",
         )
         # Add document to corpus for completeness
-        self.corpus.documents.add(self.document)
+        self.corpus.add_document(document=self.document, user=self.user)
 
         # Add two summary versions for this document within the corpus
         self.document.update_summary(
@@ -95,7 +95,7 @@ class DocumentQueryTestCase(TestCase):
         unsummarised_doc = Document.objects.create(
             creator=self.user, title="No Summary", description="No summary yet"
         )
-        self.corpus.documents.add(unsummarised_doc)
+        self.corpus.add_document(document=unsummarised_doc, user=self.user)
         unsummarised_doc_gid = to_global_id("DocumentType", unsummarised_doc.id)
 
         query = """

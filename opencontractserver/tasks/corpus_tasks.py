@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from celery import chord, group, shared_task
 from django.db import transaction
@@ -6,7 +7,18 @@ from django.db.models import Q
 from django.utils import timezone
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
-from opencontractserver.corpuses.models import CorpusAction
+from opencontractserver.conversations.models import (
+    ChatMessage,
+    Conversation,
+    ConversationTypeChoices,
+    MessageVote,
+    VoteType,
+)
+from opencontractserver.corpuses.models import (
+    Corpus,
+    CorpusAction,
+    CorpusEngagementMetrics,
+)
 from opencontractserver.documents.models import DocumentAnalysisRow
 from opencontractserver.extracts.models import Datacell, Extract
 from opencontractserver.tasks.analyzer_tasks import (
@@ -55,7 +67,7 @@ def run_task_name_analyzer(
             )
 
         document_ids = list(
-            analysis.analyzed_corpus.documents.values_list("id", flat=True)
+            analysis.analyzed_corpus.get_documents().values_list("id", flat=True)
         )
 
     logger.info(f"Added task {task_name} to queue: {task_func}")
@@ -222,3 +234,169 @@ def process_corpus_action(
             )
 
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Engagement Metrics Tasks (Epic #565)
+# --------------------------------------------------------------------------- #
+
+
+@shared_task
+def update_corpus_engagement_metrics(corpus_id: int | str):
+    """
+    Calculate and update engagement metrics for a specific corpus.
+
+    This task aggregates statistics about thread participation, message activity,
+    and voting patterns to populate the CorpusEngagementMetrics model.
+
+    Args:
+        corpus_id: The ID of the corpus to update metrics for
+
+    Returns:
+        dict: Summary of updated metrics
+
+    Raises:
+        Corpus.DoesNotExist: If corpus_id is invalid
+
+    Epic: #565 - Corpus Engagement Metrics & Analytics
+    Issue: #567 - Create Celery periodic task for updating engagement metrics
+    """
+    try:
+        corpus = Corpus.objects.get(id=corpus_id)
+        logger.info(
+            f"Updating engagement metrics for corpus {corpus_id}: {corpus.title}"
+        )
+
+        now = timezone.now()
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+
+        # Get all threads for this corpus (excluding soft-deleted)
+        threads = Conversation.objects.filter(
+            chat_with_corpus=corpus,
+            conversation_type=ConversationTypeChoices.THREAD,
+            deleted_at__isnull=True,
+        )
+
+        # Calculate thread counts
+        total_threads = threads.count()
+        active_threads = threads.filter(is_locked=False).count()
+
+        # Get all messages in corpus threads (excluding soft-deleted messages and messages in soft-deleted threads)
+        messages = ChatMessage.objects.filter(
+            conversation__chat_with_corpus=corpus,
+            conversation__conversation_type=ConversationTypeChoices.THREAD,
+            deleted_at__isnull=True,
+            conversation__deleted_at__isnull=True,  # Also exclude messages in deleted threads
+        )
+
+        # Calculate message counts
+        total_messages = messages.count()
+        messages_last_7_days = messages.filter(created_at__gte=seven_days_ago).count()
+        messages_last_30_days = messages.filter(created_at__gte=thirty_days_ago).count()
+
+        # Calculate contributor counts
+        unique_contributors = messages.values("creator").distinct().count()
+        active_contributors_30_days = (
+            messages.filter(created_at__gte=thirty_days_ago)
+            .values("creator")
+            .distinct()
+            .count()
+        )
+
+        # Calculate total upvotes
+        total_upvotes = MessageVote.objects.filter(
+            message__conversation__chat_with_corpus=corpus,
+            message__conversation__conversation_type=ConversationTypeChoices.THREAD,
+            vote_type=VoteType.UPVOTE,
+        ).count()
+
+        # Calculate average messages per thread
+        avg_messages_per_thread = (
+            float(total_messages) / float(total_threads) if total_threads > 0 else 0.0
+        )
+
+        # Get or create metrics record
+        metrics, created = CorpusEngagementMetrics.objects.get_or_create(corpus=corpus)
+
+        # Update all metrics
+        metrics.total_threads = total_threads
+        metrics.active_threads = active_threads
+        metrics.total_messages = total_messages
+        metrics.messages_last_7_days = messages_last_7_days
+        metrics.messages_last_30_days = messages_last_30_days
+        metrics.unique_contributors = unique_contributors
+        metrics.active_contributors_30_days = active_contributors_30_days
+        metrics.total_upvotes = total_upvotes
+        metrics.avg_messages_per_thread = avg_messages_per_thread
+        metrics.save()
+
+        result = {
+            "corpus_id": corpus_id,
+            "corpus_title": corpus.title,
+            "created": created,
+            "metrics": {
+                "total_threads": total_threads,
+                "active_threads": active_threads,
+                "total_messages": total_messages,
+                "messages_last_7_days": messages_last_7_days,
+                "messages_last_30_days": messages_last_30_days,
+                "unique_contributors": unique_contributors,
+                "active_contributors_30_days": active_contributors_30_days,
+                "total_upvotes": total_upvotes,
+                "avg_messages_per_thread": round(avg_messages_per_thread, 2),
+            },
+        }
+
+        logger.info(
+            f"Successfully updated metrics for corpus {corpus_id}: "
+            f"{total_threads} threads, {total_messages} messages, "
+            f"{unique_contributors} contributors"
+        )
+
+        return result
+
+    except Corpus.DoesNotExist:
+        logger.error(f"Corpus {corpus_id} not found, cannot update metrics")
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error updating engagement metrics for corpus {corpus_id}: {str(e)}",
+            exc_info=True,
+        )
+        raise
+
+
+@shared_task
+def update_all_corpus_engagement_metrics():
+    """
+    Update engagement metrics for all corpuses.
+
+    This task iterates through all corpuses and queues individual
+    update_corpus_engagement_metrics tasks for each one.
+
+    Returns:
+        dict: Summary of queued updates
+
+    Epic: #565 - Corpus Engagement Metrics & Analytics
+    Issue: #567 - Create Celery periodic task for updating engagement metrics
+    """
+    logger.info("Starting batch update of all corpus engagement metrics")
+
+    # Get all corpus IDs
+    corpus_ids = list(Corpus.objects.values_list("id", flat=True))
+
+    logger.info(f"Queueing metrics updates for {len(corpus_ids)} corpuses")
+
+    # Queue individual update tasks
+    for corpus_id in corpus_ids:
+        transaction.on_commit(
+            lambda cid=corpus_id: update_corpus_engagement_metrics.apply_async(
+                args=[cid]
+            )
+        )
+
+    return {
+        "queued_updates": len(corpus_ids),
+        "corpus_ids": corpus_ids,
+    }

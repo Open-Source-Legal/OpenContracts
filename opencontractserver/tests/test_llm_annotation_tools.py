@@ -47,7 +47,9 @@ class TestLLMAnnotationTools(TestCase):
             SAMPLE_PAWLS_FILE_ONE_PATH.name, ContentFile(pawls_json.encode())
         )
         cls.doc.save()
-        cls.corpus.documents.add(cls.doc)
+        # add_document returns (new_doc, status, path) - use the returned doc
+        # as it may be a versioned copy
+        cls.doc, _, _ = cls.corpus.add_document(document=cls.doc, user=cls.user)
 
     def test_add_annotations_pdf(self):
         """Exact-string PDF annotation results in TOKEN_LABEL annotations."""
@@ -91,7 +93,9 @@ class TestLLMAnnotationTools(TestCase):
             SAMPLE_TXT_FILE_ONE_PATH.name, ContentFile(text_content.encode())
         )
         doc.save()
-        self.corpus.documents.add(doc)
+        # add_document returns (new_doc, status, path) - use the returned doc
+        # as it may be a versioned copy
+        doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
         return doc
 
     def test_add_annotations_text(self):
@@ -182,7 +186,9 @@ class AsyncTestLLMAnnotationTools(TransactionTestCase):
         cls.pdf_doc.pawls_parse_file.save(
             SAMPLE_PAWLS_FILE_ONE_PATH.name, ContentFile(pawls_json.encode())
         )
-        cls.corpus.documents.add(cls.pdf_doc)
+        # add_document returns (new_doc, status, path) - use the returned doc
+        # as it may be a versioned copy
+        cls.pdf_doc, _, _ = cls.corpus.add_document(document=cls.pdf_doc, user=cls.user)
 
         # Prepare text doc
         cls.txt_doc = Document.objects.create(
@@ -194,7 +200,9 @@ class AsyncTestLLMAnnotationTools(TransactionTestCase):
             SAMPLE_TXT_FILE_ONE_PATH.name,
             ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
         )
-        cls.corpus.documents.add(cls.txt_doc)
+        # add_document returns (new_doc, status, path) - use the returned doc
+        # as it may be a versioned copy
+        cls.txt_doc, _, _ = cls.corpus.add_document(document=cls.txt_doc, user=cls.user)
 
     # -------------------- async tests ---------------------------- #
 

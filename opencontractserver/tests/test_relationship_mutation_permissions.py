@@ -57,7 +57,7 @@ class RelationshipMutationPermissionTestCase(TestCase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.corpus.documents.add(self.doc)
+        self.corpus.add_document(document=self.doc, user=self.owner)
 
         # Create labels
         self.token_label = AnnotationLabel.objects.create(

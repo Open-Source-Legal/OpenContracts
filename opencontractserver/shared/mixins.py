@@ -74,8 +74,19 @@ class VectorSearchViaEmbeddingMixin:
             similarity_score=CosineDistance(vector_field, query_vector)
         )
 
-        # Order ascending by distance, then limit to top_k
-        return base_qs.order_by("similarity_score")[:top_k]
+        # PostgreSQL DISTINCT ON approach to handle JOIN duplicates:
+        # When an object has multiple Embedding rows with the same embedder_path,
+        # we want to keep only one result per unique object ID.
+        # DISTINCT ON (id) requires id to be first in ORDER BY, so we order by id first,
+        # then similarity_score to pick the best score for each ID (though they should be identical).
+        base_qs = base_qs.order_by("id", "similarity_score").distinct("id")
+
+        # Convert to list to materialize the query, then sort by similarity_score in Python
+        results = list(base_qs)
+        results.sort(key=lambda obj: obj.similarity_score)
+
+        # Return top_k results
+        return results[:top_k]
 
 
 class HasEmbeddingMixin:

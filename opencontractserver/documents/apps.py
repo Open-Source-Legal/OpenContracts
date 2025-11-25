@@ -36,5 +36,13 @@ class DocumentsConfig(AppConfig):
 
             warm_storage_backend()
 
+            # BACKWARD COMPATIBILITY LAYER REMOVED - Issue #654 Phase 2 ###############################################
+            # The custom M2M manager has been removed. All code must now use:
+            # - corpus.add_document(document=doc, user=user) instead of corpus.documents.add(doc)
+            # - corpus.remove_document(document=doc, user=user) instead of corpus.documents.remove(doc)
+            # - corpus.get_documents() instead of corpus.documents.all()
+            # - corpus.document_count() instead of corpus.documents.count()
+            # This ensures DocumentPath is the single source of truth for corpus-document relationships.
+
         except ImportError:
             pass

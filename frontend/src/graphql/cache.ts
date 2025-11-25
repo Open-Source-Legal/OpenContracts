@@ -19,6 +19,7 @@ import {
   FieldsetType,
   ColumnType,
   CorpusQueryType,
+  ConversationType,
   LabelType,
   UserType,
 } from "../types/graphql-api";
@@ -91,6 +92,26 @@ export const cache = new InMemoryCache({
           read(val, { readField }) {
             return openedDocument() && openedDocument()?.id === readField("id");
           },
+        },
+        // Version history fields - cache separately to enable lazy loading
+        versionHistory: {
+          // Don't merge with existing data, replace entirely
+          merge: false,
+        },
+        pathHistory: {
+          // Key by corpusId since path history is corpus-specific
+          keyArgs: ["corpusId"],
+          merge: false,
+        },
+        // Version metadata fields with corpus context
+        versionNumber: {
+          keyArgs: ["corpusId"],
+        },
+        lastModified: {
+          keyArgs: ["corpusId"],
+        },
+        canRestore: {
+          keyArgs: ["corpusId"],
         },
         // CRITICAL: Handle all Connection types properly to prevent infinite loops
         // Without these, Apollo creates new object references on every query,
@@ -235,7 +256,15 @@ export const cache = new InMemoryCache({
           ],
           merge: true,
         },
-        documents: relayStylePagination(),
+        // CRITICAL: Specify keyArgs to isolate cache entries by folder/corpus/search
+        // Without this, refetchQueries pollutes cache across different filter contexts
+        documents: relayStylePagination([
+          "inCorpusWithId",
+          "inFolderId",
+          "textSearch",
+          "hasLabelWithId",
+          "hasAnnotationsWithIds",
+        ]),
         corpuses: relayStylePagination(),
         userexports: relayStylePagination(),
         labelsets: relayStylePagination(),
@@ -436,6 +465,36 @@ export const editingColumnForExtract = makeVar<ColumnType | null>(null);
  */
 export const selectedQueryIds = makeVar<string[]>([]);
 export const openedQueryObj = makeVar<CorpusQueryType | null>(null);
+
+/**
+ * Thread/Discussion-related global variables
+ *
+ * ENTITY STATE (set by CentralRouteManager Phase 1):
+ * openedThread - The full thread entity for thread routes (/c/user/corpus/discussions/thread-id)
+ *
+ * URL-DRIVEN STATE (set by CentralRouteManager Phase 2):
+ * selectedThreadId - Controlled by URL query parameter ?thread= for sidebar thread selection
+ *
+ * Examples:
+ *   /c/user/corpus/discussions/thread-123  → openedThread(ThreadEntity), openedCorpus(CorpusEntity)
+ *   /c/user/corpus?thread=thread-456       → selectedThreadId("thread-456") (sidebar)
+ *   /d/user/doc?thread=thread-789          → selectedThreadId("thread-789") (sidebar)
+ */
+export const openedThread = makeVar<ConversationType | null>(null);
+export const selectedThreadId = makeVar<string | null>(null);
+
+/**
+ * Folder navigation (URL-driven state - set by CentralRouteManager Phase 2)
+ *
+ * Tracks currently selected folder within a corpus for document filtering.
+ * - null: viewing corpus root (all documents)
+ * - string: viewing specific folder (filtered documents)
+ *
+ * URL Examples:
+ *   /c/user/corpus                    → selectedFolderId(null)
+ *   /c/user/corpus?folder=folder-123  → selectedFolderId("folder-123")
+ */
+export const selectedFolderId = makeVar<string | null>(null);
 
 /**
  * Auth-related global variables

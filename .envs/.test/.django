@@ -47,7 +47,7 @@ ANTHROPIC_API_KEY=fake
 # ------------------------------------------------------------------------------
 DJANGO_SETTINGS_MODULE=config.settings.test
 
-# Testing Environment Flag (Specifically for rate limit safety checks)
+# Test Runner
 # ------------------------------------------------------------------------------
 TESTING=true
 

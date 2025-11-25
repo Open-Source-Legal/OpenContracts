@@ -10,6 +10,12 @@
 
 > **⚠️ DEPRECATION WARNING**: The `resolve_oc_model_queryset` function in `opencontractserver.shared.resolvers` was DEPRECATED and replaced with `Model.objects.visible_to_user(user)` calls.
 
+> **🟡 ANONYMOUS USER SUPPORT**: Anonymous users can access public resources with read-only permissions. Document AND corpus must both be `is_public=True` for access. Applies to documents, corpuses, conversations, analyses (public only), and annotations.
+
+> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. See `UserQueryOptimizer` in `opencontractserver/users/query_optimizer.py`.
+
+> **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeQueryOptimizer` in `opencontractserver/badges/query_optimizer.py`.
+
 ## Key Changes in Current Implementation
 
 | Component | Old Model | New Model | Impact |
@@ -23,6 +29,10 @@
 | **Permission Uniformity** | Each annotation/relationship different | All same in document | Predictable behavior |
 | **Analysis Privacy** | All annotations visible with doc+corpus perms | Annotations created by analysis are private | Enhanced privacy control |
 | **Extract Privacy** | All annotations visible with doc+corpus perms | Annotations created by extract are private | Enhanced privacy control |
+| **Anonymous Access** | Not supported | Read-only access to public resources | Public corpus support |
+| **User Profile Privacy** | All users visible | Privacy via `is_profile_public` + corpus membership | Profile privacy control |
+| **Badge Visibility** | All badges visible | Follows recipient's profile privacy | Badge privacy control |
+| **Document Actions** | Inline permission checks | `DocumentActionsQueryOptimizer` | Centralized least-privilege |
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -32,11 +42,13 @@
 5. [Backend Implementation](#backend-implementation)
 6. [Frontend Implementation](#frontend-implementation)
 7. [Annotation Permission Inheritance](#annotation-permission-inheritance)
-8. [Performance Optimizations](#performance-optimizations)
-9. [Component Integration](#component-integration)
-10. [Testing](#testing)
-11. [Troubleshooting](#troubleshooting)
-12. [resolve_oc_model_queryset Deprecation](#resolve_oc_model_queryset-deprecation)
+8. [User Profile and Badge Visibility](#user-profile-and-badge-visibility)
+9. [Document Actions Permissions](#document-actions-permissions)
+10. [Performance Optimizations](#performance-optimizations)
+11. [Component Integration](#component-integration)
+12. [Testing](#testing)
+13. [Troubleshooting](#troubleshooting)
+14. [resolve_oc_model_queryset Deprecation](#resolve_oc_model_queryset-deprecation)
 
 ## Overview
 
@@ -47,8 +59,19 @@ OpenContracts implements a sophisticated hierarchical permission system with dif
 1. **Standard Objects (Corpus, Document, etc.)**
    - Direct permission model - permissions are checked on the object itself
    - Corpus-level permissions can provide additional context when viewing documents
+   - **Anonymous users**: Read-only access if `is_public=True`
 
-2. **Annotations and Relationships - NO INDIVIDUAL PERMISSIONS**
+2. **CorpusFolder - INHERITS CORPUS PERMISSIONS**
+   - **NO individual permissions** - CorpusFolder objects do NOT have their own permission records
+   - Inherits ALL permissions from parent Corpus
+   - **Write operations** (create, update, move, delete folders) require:
+     - User is Corpus creator, OR
+     - User has `PermissionTypes.UPDATE` permission on parent Corpus (with `include_group_permissions=True`)
+   - **CRITICAL SECURITY**: `corpus.is_public=True` grants READ-ONLY access, NOT write access
+   - Never check `corpus.is_public` for write permission authorization
+   - Implementation: `config/graphql/corpus_folder_mutations.py`
+
+3. **Annotations and Relationships - NO INDIVIDUAL PERMISSIONS**
    - **IMPORTANT: Annotations and Relationships do NOT have individual permissions**
    - Both annotations and relationships inherit permissions from their parent document and corpus
    - **Document permissions are PRIMARY** (most restrictive)
@@ -59,7 +82,7 @@ OpenContracts implements a sophisticated hierarchical permission system with dif
    - **CRITICAL**: Structural annotations and relationships are ALWAYS read-only except for superusers
    - Relationships use the same permission inheritance model as annotations (implemented at `permissioning.py:376-433`)
 
-3. **Analyses and Extracts - HYBRID MODEL**
+4. **Analyses and Extracts - HYBRID MODEL**
    - Have their own individual permissions (can be shared independently)
    - **Visibility requires THREE conditions**:
      1. Permission on the analysis/extract object itself
@@ -505,6 +528,17 @@ class AnnotationQueryOptimizer:
         if user.is_superuser:
             return True, True, True, True
 
+        # Anonymous users only have read access to public documents/corpuses
+        if user.is_anonymous:
+            doc_read = document.is_public
+            if not doc_read:
+                return False, False, False, False
+            if corpus_id:
+                corpus = Corpus.objects.get(id=corpus_id)
+                if not corpus.is_public:
+                    return False, False, False, False
+            return True, False, False, False  # Read-only
+
         # Check document permissions (PRIMARY - must have these)
         doc = Document.objects.get(id=document_id)
         doc_read = user_has_permission(user, doc, READ)
@@ -571,6 +605,14 @@ class AnnotationQueryOptimizer:
    - Get full permissions automatically
    - Can see all annotations including private analysis/extract annotations
    - **Only superusers can modify or delete structural annotations/relationships**
+
+6. **Anonymous Users** (NEW)
+   - Can access resources where `is_public=True`
+   - Get READ-ONLY permissions (no CREATE, UPDATE, DELETE, COMMENT)
+   - For annotations: BOTH document AND corpus must be public
+   - For analyses: Only see public analyses in public corpuses
+   - For extracts: No access (always filtered out)
+   - For conversations: Only see `is_public=True` conversations
 
 ## Annotation Privacy Model (NEW)
 
@@ -732,6 +774,253 @@ def migrate_existing_analysis_annotations(apps, schema_editor):
         created_by_analysis_id=models.F('analysis_id')
     )
 ```
+
+## User Profile and Badge Visibility
+
+### Overview
+
+User profiles and badge awards have privacy controls that follow a consistent visibility model. This ensures that private user information is only visible to appropriate audiences.
+
+### User Profile Privacy
+
+User profiles have a `is_profile_public` boolean field that controls visibility:
+
+**Visibility Rules:**
+1. **Own Profile**: Always visible regardless of privacy setting
+2. **Public Profiles** (`is_profile_public=True`): Visible to all authenticated users
+3. **Private Profiles** (`is_profile_public=False`): Only visible via corpus membership with > READ permission
+4. **Inactive Users** (`is_active=False`): Never visible (except to superusers)
+5. **Anonymous Users**: Can only see public profiles
+
+**Corpus Membership Visibility:**
+Private profiles become visible to users who share a corpus where the private user has more than READ permission (i.e., CREATE, UPDATE, or DELETE). This ensures collaborators who are actively contributing to a corpus can see each other.
+
+### Implementation: UserQueryOptimizer
+
+The `UserQueryOptimizer` class in `opencontractserver/users/query_optimizer.py` provides centralized user visibility logic:
+
+```python
+from opencontractserver.users.query_optimizer import UserQueryOptimizer
+
+# Get all users visible to the requesting user
+visible_users = UserQueryOptimizer.get_visible_users(requesting_user)
+
+# Check if a specific user is visible
+is_visible = UserQueryOptimizer.check_user_visibility(requesting_user, target_user_id)
+
+# Search for users (for @mention autocomplete)
+results = UserQueryOptimizer.get_users_for_mention(requesting_user, search_text="alice")
+```
+
+**Key Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_visible_users(user)` | All users visible to the requesting user | QuerySet |
+| `check_user_visibility(user, target_id)` | Check if specific user is visible | bool |
+| `get_users_for_mention(user, search_text)` | Search users for @mention (authenticated only) | QuerySet |
+
+### Badge Visibility
+
+Badge awards (`UserBadge` model) follow the recipient's profile privacy rules:
+
+**Visibility Rules:**
+1. **Own Badges**: Always visible regardless of recipient's profile privacy
+2. **Badges of Public Users**: Visible to all authenticated users
+3. **Badges of Private Users**: Visible only if recipient's profile is visible (via corpus membership)
+4. **Corpus-Specific Badges**: Visible only to users with access to that corpus
+5. **Anonymous Users**: Can only see badges of public users
+
+### Implementation: BadgeQueryOptimizer
+
+The `BadgeQueryOptimizer` class in `opencontractserver/badges/query_optimizer.py` provides centralized badge visibility logic:
+
+```python
+from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+
+# Get all badge awards visible to the requesting user
+visible_badges = BadgeQueryOptimizer.get_visible_user_badges(requesting_user)
+
+# Check visibility of a specific badge award (IDOR-safe)
+has_permission, badge_obj = BadgeQueryOptimizer.check_user_badge_visibility(
+    requesting_user, user_badge_id
+)
+
+# Get badges for a specific user (respects privacy)
+user_badges = BadgeQueryOptimizer.get_badges_for_user(requesting_user, target_user_id)
+```
+
+**Key Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_visible_user_badges(user)` | All badge awards visible to user | QuerySet |
+| `check_user_badge_visibility(user, badge_id)` | Check specific badge visibility (IDOR-safe) | tuple(bool, UserBadge or None) |
+| `get_badges_for_user(user, target_user_id)` | Get visible badges for a specific user | QuerySet |
+
+### IDOR Protection
+
+Both optimizers implement IDOR protection by returning the same response whether an object doesn't exist or the user lacks permission:
+
+```python
+# IDOR-safe check - same response for non-existent or inaccessible
+has_permission, badge = BadgeQueryOptimizer.check_user_badge_visibility(user, badge_id)
+if not has_permission:
+    return None  # Same response whether badge doesn't exist or user can't see it
+```
+
+### GraphQL Resolver Integration
+
+The following GraphQL resolvers use these optimizers:
+
+| Resolver | Optimizer | Description |
+|----------|-----------|-------------|
+| `resolve_user_by_slug` | `UserQueryOptimizer` | Get user by slug with privacy check |
+| `resolve_search_users_for_mention` | `UserQueryOptimizer` | Search users for @mention |
+| `resolve_user_badges` | `BadgeQueryOptimizer` | List visible badge awards |
+| `resolve_user_badge` | `BadgeQueryOptimizer` | Get single badge by ID |
+
+### Testing
+
+Comprehensive tests are available in:
+- `opencontractserver/tests/permissioning/test_user_visibility.py` - 16 tests for user visibility
+- `opencontractserver/tests/permissioning/test_badge_visibility.py` - 13 tests for badge visibility
+
+---
+
+## Document Actions Permissions
+
+### Overview
+
+Document actions (corpus actions, extracts, and analysis rows) follow the least-privilege model where effective permissions are the minimum of document and corpus permissions.
+
+### Permission Model
+
+**Formula:** `Effective Permission = MIN(document_permission, corpus_permission)`
+
+This ensures:
+- Users cannot access document-related data beyond their document permissions
+- Corpus permissions provide additional restrictions, not expansions
+- Consistent permission behavior across all document-related objects
+
+### Implementation: DocumentActionsQueryOptimizer
+
+The `DocumentActionsQueryOptimizer` class in `opencontractserver/documents/query_optimizer.py` provides centralized permission logic for document-related queries:
+
+```python
+from opencontractserver.documents.query_optimizer import DocumentActionsQueryOptimizer
+
+# Get all actions/extracts/analyses for a document
+result = DocumentActionsQueryOptimizer.get_document_actions(
+    user=requesting_user,
+    document_id=document_id,
+    corpus_id=corpus_id  # Optional
+)
+# Returns: {"corpus_actions": [...], "extracts": [...], "analysis_rows": [...]}
+
+# Get corpus actions for a corpus
+corpus_actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+    user=requesting_user,
+    corpus_id=corpus_id
+)
+
+# Get extracts that include a document
+extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+    user=requesting_user,
+    document_id=document_id,
+    corpus_id=corpus_id  # Optional
+)
+
+# Get analysis rows for a document
+analysis_rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+    user=requesting_user,
+    document_id=document_id,
+    corpus_id=corpus_id  # Optional
+)
+```
+
+**Key Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_document_actions(user, doc_id, corpus_id)` | All actions/extracts/analyses for document | dict |
+| `get_corpus_actions_for_corpus(user, corpus_id)` | Corpus actions for a corpus | QuerySet |
+| `get_extracts_for_document(user, doc_id, corpus_id)` | Extracts including a document | QuerySet |
+| `get_analysis_rows_for_document(user, doc_id, corpus_id)` | Analysis rows for a document | QuerySet |
+
+### Permission Checking
+
+The optimizer includes internal permission checking methods:
+
+```python
+# Internal methods (called automatically)
+_check_document_permission(user, document) -> bool
+_check_corpus_permission(user, corpus) -> bool
+```
+
+**Access is granted if any of:**
+- User is superuser
+- Object is public (`is_public=True`)
+- User is the creator
+- User has explicit READ permission (via django-guardian)
+
+### Integration with Other Optimizers
+
+The `DocumentActionsQueryOptimizer` leverages other query optimizers for consistent permission filtering:
+
+- **ExtractQueryOptimizer**: Used for filtering visible extracts
+- **AnalysisQueryOptimizer**: Used for filtering visible analyses
+
+```python
+# Example: How get_document_actions uses other optimizers
+def get_document_actions(cls, user, document_id, corpus_id=None):
+    # 1. Check document permission
+    if not cls._check_document_permission(user, document):
+        return empty_result
+
+    # 2. Check corpus permission (if provided)
+    if corpus_id and not cls._check_corpus_permission(user, corpus):
+        return empty_result
+
+    # 3. Use ExtractQueryOptimizer for extracts
+    visible_extracts = ExtractQueryOptimizer.get_visible_extracts(user, corpus_id)
+    result["extracts"] = visible_extracts.filter(documents=document)
+
+    # 4. Use AnalysisQueryOptimizer for analysis rows
+    visible_analyses = AnalysisQueryOptimizer.get_visible_analyses(user, corpus_id)
+    result["analysis_rows"] = document.rows.filter(analysis__in=visible_analyses)
+
+    return result
+```
+
+### GraphQL Resolver Integration
+
+The `resolve_document_corpus_actions` resolver uses this optimizer:
+
+```python
+def resolve_document_corpus_actions(self, info, **kwargs):
+    user = info.context.user
+    result = DocumentActionsQueryOptimizer.get_document_actions(
+        user=user,
+        document_id=decode_id(self.id),
+        corpus_id=decode_id(kwargs.get("corpus_id")) if kwargs.get("corpus_id") else None
+    )
+    return result
+```
+
+### Testing
+
+Comprehensive tests are available in:
+- `opencontractserver/tests/permissioning/test_document_actions_permissions.py` - 11 tests
+
+Key test scenarios:
+- Document owner can see their document's actions
+- Users without document permission get empty results
+- Corpus permission filtering works correctly
+- Anonymous user handling
+- Superuser access to all documents
+
+---
 
 ## Performance Optimizations
 
@@ -1470,6 +1759,246 @@ user_has_permission_for_obj(
 ### Pitfall 7: Bypassing user_has_permission_for_obj
 **Problem**: Implementing custom permission logic that doesn't handle all cases
 **Solution**: ALWAYS use `user_has_permission_for_obj` - it's the single source of truth
+
+## @ Mention Permissions (NEW)
+
+### Overview
+
+The @ mention system allows users to reference corpuses and documents in discussions using patterns like `@corpus:slug`, `@document:slug`, or `@corpus:slug/document:slug`. Mention permissions follow a **write-permission-required** model to prevent information leakage and ensure users only mention resources in collaborative contexts.
+
+**See detailed specification:** `docs/permissioning/mention_permissioning_spec.md`
+
+### Core Principles
+
+1. **Write Permission Required (Private Resources)**: Users must have CREATE, UPDATE, or DELETE permission to mention private corpuses/documents
+2. **Read Permission Sufficient (Public Resources)**: Public resources can be mentioned by anyone with READ access
+3. **IDOR Protection**: Autocomplete searches never reveal existence of inaccessible resources
+4. **Viewer-Filtered Rendering**: Mention chips only render for viewers with appropriate permissions
+
+### Permission Rules
+
+#### Corpus Mentions (`@corpus:slug`)
+
+Users can autocomplete/mention a corpus if they have **at least one of**:
+- **Creator**: User created the corpus
+- **Write Permission**: User has `create_corpus`, `update_corpus`, or `delete_corpus` permission
+- **Public Corpus**: Corpus is marked `is_public=True`
+
+**Rationale**: Mentioning implies collaborative context; read-only viewers shouldn't draw attention to resources they can't contribute to.
+
+#### Document Mentions (`@document:slug` or `@corpus:slug/document:slug`)
+
+Users can autocomplete/mention a document if they have **at least one of**:
+- **Creator**: User created the document
+- **Write Permission on Document**: User has `create_document`, `update_document`, or `delete_document` on document
+- **Write Permission on Parent Corpus**: Document is in a corpus where user has write permission
+- **Public Document in Accessible Context**: Document is `is_public=True` AND (no corpus OR public corpus OR user has READ access to corpus)
+
+**Rationale**: Similar to corpuses, but public documents are included for open forum discussions.
+
+### Backend Implementation
+
+#### Autocomplete Filtering
+
+```python
+# In config/graphql/queries.py
+
+def resolve_search_corpuses_for_mention(self, info, text_search=None, **kwargs):
+    """Only returns corpuses where user can meaningfully contribute."""
+    from guardian.shortcuts import get_objects_for_user
+
+    user = info.context.user
+
+    if user.is_anonymous:
+        return Corpus.objects.none()
+
+    if user.is_superuser:
+        return Corpus.objects.all()
+
+    # Get corpuses user has write permission to
+    writable_corpuses = get_objects_for_user(
+        user,
+        ["corpuses.create_corpus", "corpuses.update_corpus", "corpuses.delete_corpus"],
+        klass=Corpus,
+        any_perm=True
+    )
+
+    # Combine: creator OR writable OR public
+    qs = Corpus.objects.filter(
+        Q(creator=user) | Q(id__in=writable_corpuses) | Q(is_public=True)
+    ).distinct()
+
+    return qs
+```
+
+#### Mention Rendering with Viewer Filtering
+
+The `mentionedResources` field on `MessageType` resolves mentioned resources **per viewer**:
+
+```python
+def resolve_mentioned_resources(self, info):
+    """
+    Parse message content and resolve mentioned resources.
+    SECURITY: Only returns resources visible to requesting user.
+    """
+    user = info.context.user
+    content = self.content or ""
+
+    # Parse mention patterns (regex)
+    resources = []
+
+    for corpus_slug in parse_corpus_mentions(content):
+        try:
+            corpus = Corpus.objects.get(slug=corpus_slug)
+            if user_has_permission_for_obj(user, corpus, PermissionTypes.READ):
+                resources.append({
+                    'type': 'CORPUS',
+                    'slug': corpus_slug,
+                    'title': corpus.title,
+                    # ...
+                })
+        except Corpus.DoesNotExist:
+            # Resource doesn't exist or user can't see it - skip silently (IDOR protection)
+            pass
+
+    return resources
+```
+
+### Frontend Implementation
+
+The frontend **trusts backend filtering** and has no client-side permission logic:
+
+#### Autocomplete
+```typescript
+// useResourceMentionSearch hook
+export function useResourceMentionSearch(query: string) {
+  // Query backend with search text
+  const [searchCorpuses] = useLazyQuery(SEARCH_CORPUSES_FOR_MENTION);
+  const [searchDocuments] = useLazyQuery(SEARCH_DOCUMENTS_FOR_MENTION);
+
+  // Backend has already filtered - frontend displays results as-is
+  // No client-side permission checks
+}
+```
+
+#### Rendering
+```typescript
+// parseMentionsInContent function
+export function parseMentionsInContent(
+  content: string,
+  mentionedResources: MentionedResource[]  // Already viewer-filtered by backend
+): React.ReactNode {
+  const mentionMap = new Map();
+  mentionedResources.forEach(resource => {
+    mentionMap.set(getMentionPattern(resource), resource);
+  });
+
+  // Parse content for mention patterns
+  // If resource in mentionMap: render chip
+  // If not in mentionMap: render plain text (IDOR protection)
+}
+```
+
+### IDOR Protection Strategy
+
+1. **Autocomplete**: Only shows resources user has write permission to (or public resources)
+2. **Mention Parsing**: Backend filters `mentionedResources` per viewer
+3. **Chip Rendering**: Inaccessible mentions render as plain text, not chips
+4. **Error Messages**: Same message whether resource doesn't exist or user lacks permission
+5. **No Timing Attacks**: All resource lookups use same execution path
+
+### Example Scenarios
+
+#### Scenario 1: Private Corpus Mention
+```python
+# Setup
+owner = create_user("owner")
+viewer = create_user("viewer")
+
+private_corpus = Corpus.objects.create(
+    title="Private Legal Corpus",
+    creator=owner,
+    is_public=False
+)
+
+# Give viewer READ permission (not write)
+set_permissions_for_obj_to_user(viewer, private_corpus, [PermissionTypes.READ])
+
+# Autocomplete test
+owner_results = search_corpuses_for_mention(owner, "Legal")
+assert private_corpus in owner_results  # Owner can mention
+
+viewer_results = search_corpuses_for_mention(viewer, "Legal")
+assert private_corpus not in viewer_results  # Viewer cannot mention (read-only)
+```
+
+#### Scenario 2: Public Document Mention
+```python
+# Setup
+public_doc = Document.objects.create(
+    title="Public Contract Template",
+    is_public=True,
+    creator=owner
+)
+
+# Public documents are mentionable by anyone (even read-only users)
+viewer_results = search_documents_for_mention(viewer, "Contract")
+assert public_doc in viewer_results  # Viewer can mention public document
+```
+
+#### Scenario 3: Mention Rendering with Different Viewers
+```python
+# Message content
+content = "Check @corpus:private-legal for details"
+
+# Owner viewing message
+owner_resources = message.mentioned_resources(owner)
+assert len(owner_resources) == 1  # Owner sees mention
+
+# Viewer viewing same message
+viewer_resources = message.mentioned_resources(viewer)
+assert len(viewer_resources) == 0  # Viewer doesn't see mention
+
+# Frontend renders:
+# - For owner: Clickable chip "Private Legal Corpus"
+# - For viewer: Plain text "@corpus:private-legal" (no chip)
+```
+
+### Testing Requirements
+
+**Backend Tests** (`opencontractserver/tests/test_mention_permissions.py`):
+- [ ] Corpus autocomplete respects write permissions
+- [ ] Document autocomplete respects write + corpus permissions
+- [ ] Public resources are mentionable with read-only access
+- [ ] Anonymous users cannot mention anything
+- [ ] `mentionedResources` filters by viewer permissions
+- [ ] IDOR protection: same error for non-existent vs. inaccessible
+
+**Frontend Tests** (`frontend/tests/MentionPermissions.test.tsx`):
+- [ ] Autocomplete displays backend-filtered results
+- [ ] Inaccessible mentions render as plain text
+- [ ] Accessible mentions render as clickable chips
+- [ ] No client-side permission filtering
+
+### Migration Notes
+
+When deploying this feature:
+1. **No data migration needed** - permission checks are query-time only
+2. **Existing mentions gracefully degrade** - inaccessible mentions become plain text
+3. **Permission changes take effect immediately** - no caching of mention visibility
+
+### Security Audit Checklist
+
+- [x] Autocomplete uses write permission filtering (not just read)
+- [x] Backend filters `mentionedResources` per viewer
+- [x] Frontend trusts backend, no client-side permission logic
+- [x] Inaccessible mentions render as plain text (IDOR protection)
+- [ ] Backend tests cover permission edge cases
+- [ ] Frontend tests verify rendering behavior
+- [ ] Anonymous user handling tested
+- [ ] Public vs. private resource scenarios tested
+
+---
 
 ## resolve_oc_model_queryset Deprecation
 

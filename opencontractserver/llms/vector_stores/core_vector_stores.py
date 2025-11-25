@@ -27,9 +27,19 @@ def _is_async_context() -> bool:
         return False
 
 
-async def _safe_queryset_info(queryset: QuerySet, description: str) -> str:
-    """Safely log queryset information in both sync and async contexts."""
+async def _safe_queryset_info(queryset, description: str) -> str:
+    """Safely log queryset/list information in both sync and async contexts.
+
+    Args:
+        queryset: Either a Django QuerySet or a list (after search_by_embedding deduplication)
+        description: Description for logging
+    """
     try:
+        # Handle lists (from search_by_embedding which materializes for deduplication)
+        if isinstance(queryset, list):
+            return f"{description}: {len(queryset)} results"
+
+        # Handle QuerySets
         if _is_async_context():
             count = await sync_to_async(queryset.count)()
             return f"{description}: {count} results"
@@ -39,19 +49,41 @@ async def _safe_queryset_info(queryset: QuerySet, description: str) -> str:
         return f"{description}: unable to count results ({e})"
 
 
-def _safe_queryset_info_sync(queryset: QuerySet, description: str) -> str:
-    """Safely log queryset information in sync context only."""
+def _safe_queryset_info_sync(queryset, description: str) -> str:
+    """Safely log queryset/list information in sync context only.
+
+    Args:
+        queryset: Either a Django QuerySet or a list (after search_by_embedding deduplication)
+        description: Description for logging
+    """
     if _is_async_context():
         return f"{description}: queryset (async context - count not available)"
     else:
         try:
+            # Handle lists (from search_by_embedding which materializes for deduplication)
+            if isinstance(queryset, list):
+                return f"{description}: {len(queryset)} results"
+
+            # Handle QuerySets
             return f"{description}: {queryset.count()} results"
         except Exception as e:
             return f"{description}: unable to count results ({e})"
 
 
-async def _safe_execute_queryset(queryset: QuerySet) -> list:
-    """Safely execute a queryset in both sync and async contexts."""
+async def _safe_execute_queryset(queryset) -> list:
+    """Safely execute a queryset/list in both sync and async contexts.
+
+    Args:
+        queryset: Either a Django QuerySet or a list (after search_by_embedding deduplication)
+
+    Returns:
+        List of results
+    """
+    # If already a list (from search_by_embedding deduplication), return as-is
+    if isinstance(queryset, list):
+        return queryset
+
+    # Execute QuerySet
     if _is_async_context():
         return await sync_to_async(list)(queryset)
     else:
@@ -100,6 +132,8 @@ class CoreAnnotationVectorStore:
         embedder_path: Optional[str] = None,
         must_have_text: Optional[str] = None,
         embed_dim: int = 384,
+        only_current_versions: bool = True,  # NEW: Default to current versions only
+        check_corpus_deletion: bool = True,  # NEW: Check DocumentPath for deletion status
     ):
         # ------------------------------------------------------------------ #
         # Validation – we need a corpus context unless the caller overrides
@@ -115,6 +149,8 @@ class CoreAnnotationVectorStore:
         self.document_id = document_id
         self.must_have_text = must_have_text
         self.embed_dim = embed_dim
+        self.only_current_versions = only_current_versions
+        self.check_corpus_deletion = check_corpus_deletion
 
         # Auto-detect embedder configuration
         embedder_class, detected_embedder_path = get_embedder(
@@ -161,14 +197,109 @@ class CoreAnnotationVectorStore:
 
         active_filters = Q()
 
+        # ------------------------------------------------------------------ #
+        # Filter to current document versions if requested
+        # ------------------------------------------------------------------ #
+        # CRITICAL: This filter must preserve structural annotations!
+        #
+        # Background:
+        # - Regular annotations have document_id FK → can filter via document__is_current
+        # - Structural annotations from StructuralAnnotationSet have document_id=NULL
+        #   (they're linked via structural_set_id instead)
+        #
+        # Problem:
+        # - Q(document__is_current=True) creates INNER JOIN on document table
+        # - Annotations with document_id=NULL fail the JOIN and are excluded
+        # - This happens BEFORE document/corpus scoping (lines 196-228)
+        # - Result: Structural annotations are filtered out before scoping can include them
+        #
+        # Solution:
+        # - For annotations WITH document FK: require document.is_current=True
+        # - For structural annotations (document_id=NULL): allow through to scoping
+        # - Later scoping logic (lines 196-228) will filter by structural_set_id
+        #   to ensure only structural annotations from the relevant document are included
+        #
+        if self.only_current_versions:
+            active_filters &= Q(document__is_current=True) | Q(
+                document_id__isnull=True, structural=True
+            )
+            _logger.debug(
+                "Filtering to current document versions (preserving structural annotations)"
+            )
+
+        # Check for deleted documents in corpus
+        if self.check_corpus_deletion and self.corpus_id and not self.document_id:
+            from asgiref.sync import sync_to_async
+
+            from opencontractserver.documents.models import DocumentPath
+
+            # Get documents with active (non-deleted) paths in corpus
+            active_doc_ids = await sync_to_async(
+                lambda: list(
+                    DocumentPath.objects.filter(
+                        corpus_id=self.corpus_id, is_current=True, is_deleted=False
+                    ).values_list("document_id", flat=True)
+                )
+            )()
+
+            if active_doc_ids:
+                # Ensure we only search documents with active paths
+                active_filters &= Q(document_id__in=active_doc_ids)
+                _logger.debug(f"Found {len(active_doc_ids)} active documents in corpus")
+            else:
+                _logger.warning(f"No active documents found in corpus {self.corpus_id}")
+                return Annotation.objects.none()
+
+        # ------------------------------------------------------------------ #
+        # Document/Corpus scoping
+        # ------------------------------------------------------------------ #
+        # This section filters annotations by document and/or corpus context.
+        # IMPORTANT: Structural annotations allowed through by the version filter above
+        # (lines 190-196) are now scoped to only include those from the relevant
+        # document's structural_annotation_set.
+        #
         if self.document_id is not None:
             # --- Document-specific context ---
             _logger.debug(
                 f"Document context: document_id={self.document_id}, corpus_id={self.corpus_id}"
             )
 
-            # 1. Annotations must belong to the specified document.
-            active_filters &= Q(document_id=self.document_id)
+            # Get document to check for structural_annotation_set
+            from asgiref.sync import sync_to_async
+
+            from opencontractserver.documents.models import Document
+
+            document = await sync_to_async(
+                lambda: Document.objects.select_related(
+                    "structural_annotation_set"
+                ).get(pk=self.document_id)
+            )()
+
+            # Build filter for annotations from BOTH sources:
+            # 1. Direct document annotations (user-created, corpus-specific)
+            #    - Have document_id=self.document_id
+            #    - Have corpus_id set (if corpus-isolated) or NULL (if standalone)
+            # 2. Structural annotations from document's structural_annotation_set
+            #    - Have document_id=NULL (stored in StructuralAnnotationSet)
+            #    - Have structural_set_id=document.structural_annotation_set_id
+            #    - Have structural=True
+            #    - Shared across all corpus copies of this document
+            #
+            doc_filters = Q(document_id=self.document_id)
+
+            if document.structural_annotation_set_id:
+                # Include structural annotations from the shared set.
+                # These annotations were preserved by the version filter above
+                # (lines 190-196) and are now scoped to this specific document.
+                doc_filters |= Q(
+                    structural_set_id=document.structural_annotation_set_id,
+                    structural=True,
+                )
+                _logger.debug(
+                    f"Including structural annotations from set {document.structural_annotation_set_id}"
+                )
+
+            active_filters &= doc_filters
 
         elif self.corpus_id is not None:
             # --- Corpus-only context (no document_id specified) ---
@@ -385,6 +516,9 @@ class CoreAnnotationVectorStore:
         results = []
         for annotation in annotations:
             similarity_score = getattr(annotation, "similarity_score", 1.0)
+            # Handle NaN values (can occur when annotations lack computed similarity)
+            if similarity_score != similarity_score:  # NaN check (NaN != NaN is True)
+                similarity_score = 1.0
             results.append(
                 VectorSearchResult(
                     annotation=annotation, similarity_score=similarity_score
@@ -420,11 +554,15 @@ class CoreAnnotationVectorStore:
                 f"Performing vector search with embedder: {self.embedder_path}"
             )
 
-            queryset = queryset.search_by_embedding(
-                query_vector=vector,
-                embedder_path=self.embedder_path,
-                top_k=query.similarity_top_k,
-            )
+            # search_by_embedding is a sync method that materializes the queryset
+            # Wrap it with sync_to_async to make it safe for async contexts
+            queryset = await sync_to_async(
+                lambda: queryset.search_by_embedding(
+                    query_vector=vector,
+                    embedder_path=self.embedder_path,
+                    top_k=query.similarity_top_k,
+                )
+            )()
             _logger.debug(await _safe_queryset_info(queryset, "After vector search"))
         else:
             # Fallback to standard filtering with limit
@@ -449,6 +587,9 @@ class CoreAnnotationVectorStore:
         results = []
         for annotation in annotations:
             similarity_score = getattr(annotation, "similarity_score", 1.0)
+            # Handle NaN values (can occur when annotations lack computed similarity)
+            if similarity_score != similarity_score:  # NaN check (NaN != NaN is True)
+                similarity_score = 1.0
             results.append(
                 VectorSearchResult(
                     annotation=annotation, similarity_score=similarity_score

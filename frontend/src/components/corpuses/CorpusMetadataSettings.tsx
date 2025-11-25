@@ -36,71 +36,137 @@ interface CorpusMetadataSettingsProps {
 }
 
 const Container = styled.div`
-  padding: 1.5rem;
+  padding: 0;
+  height: 100%;
+  background: transparent;
 `;
 
 const HeaderSection = styled.div`
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  }
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    gap: 1rem;
+  }
 `;
 
 const Title = styled.h3`
-  margin: 0;
-  color: #1e293b;
-  font-size: 1.125rem;
-  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+  color: #0f172a;
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 `;
 
 const HelperText = styled.p`
   color: #64748b;
-  font-size: 0.875rem;
-  margin: 0 0 1.5rem 0;
-  line-height: 1.5;
+  font-size: 0.9375rem;
+  margin: 0;
+  line-height: 1.6;
+  max-width: 600px;
 `;
 
 const EmptyState = styled.div`
   text-align: center;
-  padding: 3rem;
+  padding: 4rem 2rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 16px;
+  border: 2px dashed #e2e8f0;
   color: #64748b;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    border-color: #cbd5e1;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  }
 
   .icon {
-    font-size: 3rem;
-    margin-bottom: 1rem;
-    opacity: 0.3;
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    opacity: 0.5;
   }
 
   h4 {
-    color: #475569;
-    margin-bottom: 0.5rem;
+    color: #1e293b;
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+    letter-spacing: -0.02em;
   }
 
   p {
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: #64748b;
   }
 `;
 
 const StyledTable = styled(Table)`
   &.ui.table {
-    border-radius: 8px;
+    border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e2e8f0;
+    background: white;
 
     thead th {
-      background-color: #f8fafc;
-      font-weight: 600;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      font-weight: 700;
       color: #475569;
       text-transform: uppercase;
-      font-size: 0.75rem;
-      letter-spacing: 0.05em;
+      font-size: 0.8125rem;
+      letter-spacing: 0.08em;
+      padding: 1rem 1.25rem;
+      border-bottom: 2px solid #e2e8f0;
     }
 
     tbody tr {
-      transition: all 0.2s ease;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-bottom: 1px solid #f1f5f9;
+
+      &:last-child {
+        border-bottom: none;
+      }
 
       &:hover {
-        background-color: #f8fafc;
+        background: linear-gradient(135deg, #fafbfc 0%, #f8fafc 100%);
+        transform: translateX(2px);
+        box-shadow: inset 3px 0 0 #6366f1;
+      }
+
+      td {
+        padding: 1rem 1.25rem;
+        color: #1e293b;
+        font-size: 0.9375rem;
       }
     }
   }
@@ -109,70 +175,210 @@ const StyledTable = styled(Table)`
 const OrderButtons = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.375rem;
+
+  button {
+    transition: all 0.2s ease !important;
+    border-radius: 8px !important;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%) !important;
+    border: 1px solid #e2e8f0 !important;
+
+    &:not(:disabled):hover {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+      border-color: transparent !important;
+      color: white !important;
+      transform: scale(1.05);
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+    }
+
+    &:disabled {
+      opacity: 0.3 !important;
+    }
+  }
 `;
 
 const DataTypeBadge = styled.span<{ dataType: string }>`
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.375rem 0.875rem;
+  border-radius: 100px;
+  font-size: 0.8125rem;
   font-weight: 600;
-  background-color: ${(props) => {
+  letter-spacing: 0.025em;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  position: relative;
+  overflow: hidden;
+
+  background: ${(props) => {
     switch (props.dataType) {
       case "STRING":
       case "TEXT":
-        return "#dbeafe";
+        return "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)";
       case "INTEGER":
       case "FLOAT":
-        return "#fef3c7";
+        return "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)";
       case "BOOLEAN":
-        return "#d1fae5";
+        return "linear-gradient(135deg, #10b981 0%, #059669 100%)";
       case "DATE":
       case "DATETIME":
-        return "#e0e7ff";
+        return "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)";
       case "CHOICE":
       case "MULTI_CHOICE":
-        return "#fce7f3";
+        return "linear-gradient(135deg, #ec4899 0%, #db2777 100%)";
       case "JSON":
-        return "#f3e8ff";
+        return "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)";
       default:
-        return "#f3f4f6";
+        return "linear-gradient(135deg, #64748b 0%, #475569 100%)";
     }
   }};
-  color: ${(props) => {
-    switch (props.dataType) {
-      case "STRING":
-      case "TEXT":
-        return "#1e40af";
-      case "INTEGER":
-      case "FLOAT":
-        return "#92400e";
-      case "BOOLEAN":
-        return "#064e3b";
-      case "DATE":
-      case "DATETIME":
-        return "#3730a3";
-      case "CHOICE":
-      case "MULTI_CHOICE":
-        return "#831843";
-      case "JSON":
-        return "#6b21a8";
-      default:
-        return "#374151";
+  color: white;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.2),
+      transparent
+    );
+    transform: translateY(-50%);
+    transition: left 0.5s ease;
+  }
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+
+    &::before {
+      left: 100%;
     }
-  }};
+  }
 `;
 
 const RequiredBadge = styled.span`
-  display: inline-block;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  background-color: #fee2e2;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
   color: #dc2626;
-  margin-left: 0.5rem;
+  border: 1px solid #fecaca;
+  margin-left: 0.625rem;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.1);
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(220, 38, 38, 0.15);
+  }
+`;
+
+const AddFieldButton = styled(Button)`
+  &&& {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
+    border: none;
+    padding: 0.875rem 1.5rem;
+    font-weight: 600;
+    border-radius: 12px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+
+      &::before {
+        opacity: 1;
+      }
+    }
+
+    &:active {
+      transform: translateY(0);
+    }
+
+    .icon {
+      margin-right: 0.5rem !important;
+      position: relative;
+      z-index: 1;
+    }
+
+    span {
+      position: relative;
+      z-index: 1;
+    }
+  }
+`;
+
+const ActionButtonGroup = styled(Button.Group)`
+  &&& {
+    button {
+      transition: all 0.2s ease !important;
+      border: 1px solid #e2e8f0 !important;
+      background: white !important;
+      color: #64748b !important;
+
+      &:first-child {
+        border-top-left-radius: 8px !important;
+        border-bottom-left-radius: 8px !important;
+      }
+
+      &:last-child {
+        border-top-right-radius: 8px !important;
+        border-bottom-right-radius: 8px !important;
+      }
+
+      &:hover:not(.negative) {
+        background: linear-gradient(
+          135deg,
+          #6366f1 0%,
+          #8b5cf6 100%
+        ) !important;
+        border-color: transparent !important;
+        color: white !important;
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        z-index: 1;
+      }
+
+      &.negative:hover {
+        background: linear-gradient(
+          135deg,
+          #ef4444 0%,
+          #dc2626 100%
+        ) !important;
+        border-color: transparent !important;
+        color: white !important;
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+        z-index: 1;
+      }
+    }
+  }
 `;
 
 export const CorpusMetadataSettings = ({
@@ -386,10 +592,10 @@ export const CorpusMetadataSettings = ({
             can be edited directly in the document list view.
           </HelperText>
         </div>
-        <Button primary onClick={() => setIsModalOpen(true)}>
+        <AddFieldButton primary onClick={() => setIsModalOpen(true)}>
           <Icon name="plus" />
           Add Field
-        </Button>
+        </AddFieldButton>
       </HeaderSection>
 
       {columns.length === 0 ? (
@@ -400,10 +606,10 @@ export const CorpusMetadataSettings = ({
             Create custom fields to track additional information about your
             documents.
           </p>
-          <Button primary onClick={() => setIsModalOpen(true)}>
+          <AddFieldButton primary onClick={() => setIsModalOpen(true)}>
             <Icon name="plus" />
-            Add Field
-          </Button>
+            Create Your First Field
+          </AddFieldButton>
         </EmptyState>
       ) : (
         <StyledTable>
@@ -473,7 +679,7 @@ export const CorpusMetadataSettings = ({
                 </Table.Cell>
                 <Table.Cell>{column.helpText || "-"}</Table.Cell>
                 <Table.Cell textAlign="center">
-                  <Button.Group size="tiny">
+                  <ActionButtonGroup size="tiny">
                     <Popup
                       content="Edit field"
                       trigger={
@@ -496,7 +702,7 @@ export const CorpusMetadataSettings = ({
                         />
                       }
                     />
-                  </Button.Group>
+                  </ActionButtonGroup>
                 </Table.Cell>
               </Table.Row>
             ))}

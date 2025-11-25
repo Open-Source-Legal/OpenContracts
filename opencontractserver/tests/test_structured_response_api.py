@@ -417,7 +417,7 @@ class TestStructuredResponseAPI(BaseFixtureTestCase):
         """Test extracting insights from an entire corpus."""
         # Add multiple documents to corpus
         for doc in self.docs[:3]:  # Use first 3 documents
-            await sync_to_async(self.corpus.documents.add)(doc)
+            await sync_to_async(self.corpus.add_document)(document=doc, user=self.user)
 
         agent = await agents.for_corpus(
             corpus=self.corpus.id,
@@ -1020,7 +1020,7 @@ class TestStructuredResponseAPIConvenience(BaseFixtureTestCase):
 
         # Add documents to corpus
         for doc in self.docs[:3]:
-            await sync_to_async(self.corpus.documents.add)(doc)
+            await sync_to_async(self.corpus.add_document)(document=doc, user=self.user)
 
         result = await AgentAPI.get_structured_response_from_corpus(
             corpus=self.corpus.id,

@@ -15,7 +15,7 @@ from pydantic_ai.tools import RunContext
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.llms.agents.agent_factory import UnifiedAgentFactory
 from opencontractserver.llms.agents.core_agents import UnifiedChatResponse
 from opencontractserver.llms.agents.pydantic_ai_agents import PydanticAIDocumentAgent
@@ -144,7 +144,29 @@ class TestPydanticAIAgents(TestCase):
             )
 
             # Add documents to corpus
-            cls.corpus.documents.add(cls.doc1, cls.doc2)
+            cls.corpus.add_document(document=cls.doc1, user=cls.user)
+            cls.corpus.add_document(document=cls.doc2, user=cls.user)
+
+            # Create DocumentPath records for dual-tree versioning
+            # This is required for the vector store to find documents
+            DocumentPath.objects.create(
+                document=cls.doc1,
+                corpus=cls.corpus,
+                path="/test_doc1.pdf",
+                version_number=1,
+                is_deleted=False,
+                is_current=True,
+                creator=cls.user,
+            )
+            DocumentPath.objects.create(
+                document=cls.doc2,
+                corpus=cls.corpus,
+                path="/test_doc2.pdf",
+                version_number=1,
+                is_deleted=False,
+                is_current=True,
+                creator=cls.user,
+            )
 
             # Create annotation labels
             cls.label_important = AnnotationLabel.objects.create(
@@ -679,7 +701,7 @@ class TestPydanticAIAgentsCoverage(TestCase):
                 creator=cls.user,
                 is_public=True,
             )
-            cls.corpus.documents.add(cls.doc1)
+            cls.corpus.add_document(document=cls.doc1, user=cls.user)
 
     # ========================================================================
     # Group 1: Helper function tests (_to_source_node)

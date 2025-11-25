@@ -27,7 +27,7 @@ class NewExtractionTestCase(TransactionTestCase):
         self.document = Document.objects.create(
             title="Test Document", creator=self.user, file_type="text/plain"
         )
-        self.corpus.documents.add(self.document)
+        self.corpus.add_document(document=self.document, user=self.user)
 
         # Create fieldset
         self.fieldset = Fieldset.objects.create(
@@ -205,7 +205,9 @@ class ExtractOrchestrationTestCase(TransactionTestCase):
         )
 
         # Add documents to corpus
-        self.corpus.documents.add(self.doc1, self.doc2, self.doc3)
+        self.corpus.add_document(document=self.doc1, user=self.user)
+        self.corpus.add_document(document=self.doc2, user=self.user)
+        self.corpus.add_document(document=self.doc3, user=self.user)
 
         # Create fieldset with multiple columns
         self.fieldset = Fieldset.objects.create(

@@ -1434,7 +1434,7 @@ def add_annotations_from_exact_strings(
         except Corpus.DoesNotExist as exc:
             raise ValueError(f"Corpus id={corpus_id} does not exist") from exc
 
-        if not corpus.documents.filter(pk=doc_id).exists():
+        if not corpus.get_documents().filter(pk=doc_id).exists():
             raise ValueError(
                 f"Document id={doc_id} is not linked to corpus id={corpus_id}."
             )

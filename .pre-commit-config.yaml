@@ -1,3 +1,4 @@
+
 exclude: "/migrations/|frontend/|.idea/|README.md|pytest.xml|pytest-coverage.txt"
 default_stages: [pre-commit]
 

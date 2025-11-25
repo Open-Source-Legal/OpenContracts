@@ -18,8 +18,42 @@ from graphql import GraphQLError
 from graphql_jwt.decorators import login_required, user_passes_test
 from graphql_relay import from_global_id, to_global_id
 
+# Import agent mutations
+from config.graphql.agent_mutations import (
+    CreateAgentConfigurationMutation,
+    DeleteAgentConfigurationMutation,
+    UpdateAgentConfigurationMutation,
+)
 from config.graphql.annotation_serializers import AnnotationLabelSerializer
+
+# Import badge mutations
+from config.graphql.badge_mutations import (
+    AwardBadgeMutation,
+    CreateBadgeMutation,
+    DeleteBadgeMutation,
+    RevokeBadgeMutation,
+    UpdateBadgeMutation,
+)
 from config.graphql.base import DRFDeletion, DRFMutation
+
+# Import conversation mutations
+from config.graphql.conversation_mutations import (
+    CreateThreadMessageMutation,
+    CreateThreadMutation,
+    DeleteConversationMutation,
+    DeleteMessageMutation,
+    ReplyToMessageMutation,
+)
+
+# Import corpus folder mutations
+from config.graphql.corpus_folder_mutations import (
+    CreateCorpusFolderMutation,
+    DeleteCorpusFolderMutation,
+    MoveCorpusFolderMutation,
+    MoveDocumentsToFolderMutation,
+    MoveDocumentToFolderMutation,
+    UpdateCorpusFolderMutation,
+)
 from config.graphql.graphene_types import (
     AnalysisType,
     AnnotationLabelType,
@@ -40,6 +74,23 @@ from config.graphql.graphene_types import (
     UserFeedbackType,
     UserType,
 )
+
+# Import moderation mutations
+from config.graphql.moderation_mutations import (
+    AddModeratorMutation,
+    LockThreadMutation,
+    PinThreadMutation,
+    RemoveModeratorMutation,
+    UnlockThreadMutation,
+    UnpinThreadMutation,
+    UpdateModeratorPermissionsMutation,
+)
+from config.graphql.notification_mutations import (
+    DeleteNotificationMutation,
+    MarkAllNotificationsReadMutation,
+    MarkNotificationReadMutation,
+    MarkNotificationUnreadMutation,
+)
 from config.graphql.ratelimits import (
     RateLimits,
     get_user_tier_rate,
@@ -58,6 +109,9 @@ from config.graphql.smart_label_mutations import (
     SmartLabelListMutation,
     SmartLabelSearchOrCreateMutation,
 )
+
+# Import voting mutations
+from config.graphql.voting_mutations import RemoveVoteMutation, VoteMessageMutation
 from config.telemetry import record_event
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.annotations.models import (
@@ -70,10 +124,15 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import (
     Corpus,
     CorpusAction,
+    CorpusDocumentFolder,
+    CorpusFolder,
     CorpusQuery,
     TemporaryFileHandle,
 )
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.documents.versioning import (
+    restore_document as restore_document_func,
+)
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.tasks import (
@@ -738,7 +797,9 @@ class AddDocumentsToCorpus(graphene.Mutation):
                 Q(pk=from_global_id(corpus_id)[1])
                 & (Q(creator=user) | Q(is_public=True))
             )
-            corpus.documents.add(*doc_objs)
+            # Use new DocumentPath-based method with audit trail
+            for doc in doc_objs:
+                corpus.add_document(document=doc, user=user)
             ok = True
 
         except Exception as e:
@@ -779,8 +840,10 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
                 Q(pk=from_global_id(corpus_id)[1])
                 & (Q(creator=user) | Q(is_public=True))
             )
-            corpus_docs = corpus.documents.filter(pk__in=doc_pks)
-            corpus.documents.remove(*corpus_docs)
+            # Use new DocumentPath-based method with soft-delete and audit trail
+            corpus_docs = corpus.get_documents().filter(pk__in=doc_pks)
+            for doc in corpus_docs:
+                corpus.remove_document(document=doc, user=user)
             ok = True
 
         except Exception as e:
@@ -965,7 +1028,8 @@ class StartCorpusFork(graphene.Mutation):
             corpus = Corpus.objects.get(pk=corpus_pk)
 
             # Get ids to related objects that need copyin'
-            doc_ids = list(corpus.documents.all().values_list("id", flat=True))
+            # Use new DocumentPath-based method to get active documents
+            doc_ids = list(corpus.get_documents().values_list("id", flat=True))
             label_set_id = corpus.label_set.pk if corpus.label_set else None
 
             # Clone the corpus: https://docs.djangoproject.com/en/3.1/topics/db/queries/copying-model-instances
@@ -985,6 +1049,7 @@ class StartCorpusFork(graphene.Mutation):
             )
 
             # Now remove references to related objects on our new object, as these point to original docs and labels
+            # Note: New corpus has no DocumentPath records yet, so this is safe
             corpus.documents.clear()
             corpus.label_set = None
 
@@ -1392,6 +1457,11 @@ class UploadDocument(graphene.Mutation):
             required=False,
             description="If provided, successfully uploaded document will be added to extract with specified id",
         )
+        add_to_folder_id = graphene.ID(
+            required=False,
+            description="If provided along with add_to_corpus_id, the document "
+            "will be assigned to this folder within the corpus",
+        )
         make_public = graphene.Boolean(
             required=True,
             description="If True, document is immediately public. "
@@ -1416,6 +1486,7 @@ class UploadDocument(graphene.Mutation):
         make_public,
         add_to_corpus_id=None,
         add_to_extract_id=None,
+        add_to_folder_id=None,
         slug=None,
     ):
         if add_to_corpus_id is not None and add_to_extract_id is not None:
@@ -1465,60 +1536,140 @@ class UploadDocument(graphene.Mutation):
 
             user = info.context.user
 
-            if kind in [
+            # If uploading directly to a corpus, use import_content() for deduplication
+            if add_to_corpus_id is not None and kind in [
                 "application/pdf",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ]:
-                pdf_file = ContentFile(file_bytes, name=filename)
-                document = Document(
-                    creator=user,
-                    title=title,
-                    description=description,
-                    custom_meta=custom_meta,
-                    pdf_file=pdf_file,
-                    backend_lock=True,
-                    is_public=make_public,
-                    file_type=kind,  # Store filetype
-                    slug=slug,
-                )
-                document.save()
-            elif kind in ["text/plain", "application/txt"]:
-                txt_extract_file = ContentFile(file_bytes, name=filename)
-                document = Document(
-                    creator=user,
-                    title=title,
-                    description=description,
-                    custom_meta=custom_meta,
-                    txt_extract_file=txt_extract_file,
-                    backend_lock=True,
-                    is_public=make_public,
-                    file_type=kind,
-                    slug=slug,
-                )
-                document.save()
-
-            set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
-
-            # Handle linking to corpus or extract
-            if add_to_corpus_id is not None:
                 try:
                     corpus = Corpus.objects.get(id=from_global_id(add_to_corpus_id)[1])
-                    transaction.on_commit(lambda: corpus.documents.add(document))
-                except Exception as e:
-                    message = f"Adding to corpus failed due to error: {e}"
-            elif add_to_extract_id is not None:
-                try:
-                    extract = Extract.objects.get(
-                        Q(pk=from_global_id(add_to_extract_id)[1])
-                        & (Q(creator=user) | Q(is_public=True))
+
+                    # Resolve folder if provided
+                    folder = None
+                    if add_to_folder_id is not None:
+                        folder_pk = from_global_id(add_to_folder_id)[1]
+                        folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
+
+                    # Generate path from filename
+                    safe_filename = "".join(
+                        c if c.isalnum() or c in "-_." else "_" for c in filename[:100]
                     )
-                    if extract.finished is not None:
-                        raise ValueError("Cannot add document to a finished extract")
-                    transaction.on_commit(lambda: extract.documents.add(document))
+                    doc_path = f"/documents/{safe_filename}"
+
+                    # Use import_content for content-based deduplication
+                    document, status, path_record = corpus.import_content(
+                        content=file_bytes,
+                        path=doc_path,
+                        user=user,
+                        folder=folder,
+                        title=title,
+                        description=description,
+                        file_type=kind,
+                        custom_meta=custom_meta,
+                        backend_lock=True,
+                        is_public=make_public,
+                        slug=slug,
+                    )
+
+                    # Set permissions on the document (may be new or reused)
+                    set_permissions_for_obj_to_user(
+                        user, document, [PermissionTypes.CRUD]
+                    )
+
+                    if status == "created":
+                        logger.info(
+                            f"[UPLOAD] Created new document {document.id} in corpus {corpus.id}"
+                        )
+                    elif status == "created_from_existing":
+                        logger.info(
+                            f"[UPLOAD] Created corpus-isolated document {document.id} "
+                            f"with provenance from {document.source_document_id} in corpus {corpus.id}"
+                        )
+                    elif status == "linked":
+                        logger.info(
+                            f"[UPLOAD] Linked to existing document {document.id} "
+                            f"(same content already in corpus) in corpus {corpus.id}"
+                        )
+                    elif status == "updated":
+                        logger.info(
+                            f"[UPLOAD] Updated document at path {doc_path} in corpus {corpus.id}"
+                        )
+                    else:
+                        logger.info(
+                            f"[UPLOAD] Document {document.id} status: {status} in corpus {corpus.id}"
+                        )
+
+                    # Handle folder assignment via CorpusDocumentFolder for backward compatibility
+                    if folder is not None:
+                        folder_assignment, created = (
+                            CorpusDocumentFolder.objects.update_or_create(
+                                document=document,
+                                corpus=corpus,
+                                defaults={"folder": folder},
+                            )
+                        )
+                        logger.info(
+                            f"[UPLOAD] Assigned document {document.id} to folder {folder.id} (created={created})"
+                        )
+
                 except Exception as e:
-                    message = f"Adding to extract failed due to error: {e}"
+                    logger.error(f"[UPLOAD] Error importing to corpus: {e}")
+                    message = f"Importing to corpus failed due to error: {e}"
+                    return UploadDocument(message=message, ok=False, document=None)
+            else:
+                # Standalone document upload (no corpus) - create directly
+                if kind in [
+                    "application/pdf",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ]:
+                    pdf_file = ContentFile(file_bytes, name=filename)
+                    document = Document(
+                        creator=user,
+                        title=title,
+                        description=description,
+                        custom_meta=custom_meta,
+                        pdf_file=pdf_file,
+                        backend_lock=True,
+                        is_public=make_public,
+                        file_type=kind,
+                        slug=slug,
+                    )
+                    document.save()
+                elif kind in ["text/plain", "application/txt"]:
+                    txt_extract_file = ContentFile(file_bytes, name=filename)
+                    document = Document(
+                        creator=user,
+                        title=title,
+                        description=description,
+                        custom_meta=custom_meta,
+                        txt_extract_file=txt_extract_file,
+                        backend_lock=True,
+                        is_public=make_public,
+                        file_type=kind,
+                        slug=slug,
+                    )
+                    document.save()
+
+                set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
+
+                # Handle linking to extract (corpus case already handled above)
+                if add_to_extract_id is not None:
+                    try:
+                        extract = Extract.objects.get(
+                            Q(pk=from_global_id(add_to_extract_id)[1])
+                            & (Q(creator=user) | Q(is_public=True))
+                        )
+                        if extract.finished is not None:
+                            raise ValueError(
+                                "Cannot add document to a finished extract"
+                            )
+                        transaction.on_commit(lambda: extract.documents.add(document))
+                    except Exception as e:
+                        message = f"Adding to extract failed due to error: {e}"
 
             ok = True
 
@@ -2439,6 +2590,7 @@ class UpdateMe(graphene.Mutation):
         last_name = graphene.String(required=False)
         phone = graphene.String(required=False)
         slug = graphene.String(required=False)
+        is_profile_public = graphene.Boolean(required=False)  # Issue #611
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -3154,8 +3306,8 @@ class CreateExtract(graphene.Mutation):
         extract.save()
 
         if corpus is not None:
-            # print(f"Try to add corpus docs: {corpus.documents.all()}")
-            extract.documents.add(*corpus.documents.all())
+            # Use new DocumentPath-based method to get active documents in corpus
+            extract.documents.add(*corpus.get_documents())
         else:
             logger.info("Corpus IS still None... no docs to add.")
 
@@ -3707,6 +3859,284 @@ class CreateNote(graphene.Mutation):
             )
 
 
+# DOCUMENT VERSIONING MUTATIONS ################################################
+
+
+class RestoreDeletedDocument(graphene.Mutation):
+    """
+    Restore a soft-deleted document path within a corpus.
+    Creates a new path entry with is_deleted=False.
+    """
+
+    class Arguments:
+        document_id = graphene.String(
+            required=True, description="Global ID of the document to restore"
+        )
+        corpus_id = graphene.String(
+            required=True, description="Global ID of the corpus"
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    document = graphene.Field(DocumentType)
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(root, info, document_id, corpus_id):
+        user = info.context.user
+
+        try:
+            doc_pk = from_global_id(document_id)[1]
+            corpus_pk = from_global_id(corpus_id)[1]
+
+            document = Document.objects.get(pk=doc_pk)
+            corpus = Corpus.objects.get(pk=corpus_pk)
+
+            # Check UPDATE permission on both document and corpus
+            if not user_has_permission_for_obj(
+                user, document, PermissionTypes.UPDATE, include_group_permissions=True
+            ):
+                return RestoreDeletedDocument(
+                    ok=False,
+                    message="You don't have permission to restore this document",
+                    document=None,
+                )
+
+            if not user_has_permission_for_obj(
+                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
+            ):
+                return RestoreDeletedDocument(
+                    ok=False,
+                    message="You don't have permission to modify this corpus",
+                    document=None,
+                )
+
+            # Find the deleted path entry
+            deleted_path = (
+                DocumentPath.objects.filter(
+                    document=document, corpus=corpus, is_deleted=True, is_current=True
+                )
+                .order_by("-created")
+                .first()
+            )
+
+            if not deleted_path:
+                return RestoreDeletedDocument(
+                    ok=False,
+                    message="Cannot restore document - it may not be deleted or may not exist in this corpus",
+                    document=None,
+                )
+
+            # Restore the document using the versioning function
+            new_path = restore_document_func(
+                corpus=corpus,
+                path=deleted_path.path,
+                user=user,
+            )
+
+            logger.info(
+                f"User {user.id} restored document {doc_pk} in corpus {corpus_pk}"
+            )
+
+            return RestoreDeletedDocument(
+                ok=True,
+                message=f"Document restored successfully to {new_path.path}",
+                document=document,
+            )
+
+        except Document.DoesNotExist:
+            return RestoreDeletedDocument(
+                ok=False, message="Document not found", document=None
+            )
+        except Corpus.DoesNotExist:
+            return RestoreDeletedDocument(
+                ok=False, message="Corpus not found", document=None
+            )
+        except Exception as e:
+            logger.error(f"Failed to restore document: {str(e)}")
+            return RestoreDeletedDocument(
+                ok=False,
+                message=f"Failed to restore document: {str(e)}",
+                document=None,
+            )
+
+
+class RestoreDocumentToVersion(graphene.Mutation):
+    """
+    Restore a document to a previous content version.
+    Creates a new version that is a copy of the specified version.
+    """
+
+    class Arguments:
+        document_id = graphene.String(
+            required=True,
+            description="Global ID of the document version to restore to",
+        )
+        corpus_id = graphene.String(
+            required=True, description="Global ID of the corpus"
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    document = graphene.Field(DocumentType)
+    new_version_number = graphene.Int()
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(root, info, document_id, corpus_id):
+        user = info.context.user
+
+        try:
+            doc_pk = from_global_id(document_id)[1]
+            corpus_pk = from_global_id(corpus_id)[1]
+
+            old_version = Document.objects.get(pk=doc_pk)
+            corpus = Corpus.objects.get(pk=corpus_pk)
+
+            # Check UPDATE permission on both document and corpus
+            if not user_has_permission_for_obj(
+                user,
+                old_version,
+                PermissionTypes.UPDATE,
+                include_group_permissions=True,
+            ):
+                return RestoreDocumentToVersion(
+                    ok=False,
+                    message="You don't have permission to restore this document",
+                    document=None,
+                    new_version_number=None,
+                )
+
+            if not user_has_permission_for_obj(
+                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
+            ):
+                return RestoreDocumentToVersion(
+                    ok=False,
+                    message="You don't have permission to modify this corpus",
+                    document=None,
+                    new_version_number=None,
+                )
+
+            # Find the current version in the same version tree
+            current_version = Document.objects.filter(
+                version_tree_id=old_version.version_tree_id, is_current=True
+            ).first()
+
+            if not current_version:
+                return RestoreDocumentToVersion(
+                    ok=False,
+                    message="Cannot find current version of this document",
+                    document=None,
+                    new_version_number=None,
+                )
+
+            if old_version.id == current_version.id:
+                return RestoreDocumentToVersion(
+                    ok=False,
+                    message="Cannot restore to current version",
+                    document=None,
+                    new_version_number=None,
+                )
+
+            # Find the current path in the corpus
+            current_path = DocumentPath.objects.filter(
+                document__version_tree_id=old_version.version_tree_id,
+                corpus=corpus,
+                is_current=True,
+                is_deleted=False,
+            ).first()
+
+            if not current_path:
+                return RestoreDocumentToVersion(
+                    ok=False,
+                    message="Document not found in this corpus",
+                    document=None,
+                    new_version_number=None,
+                )
+
+            # Create a new document version as a copy of the old version
+            with transaction.atomic():
+                # Mark old current as not current
+                current_version.is_current = False
+                current_version.save()
+
+                # Create new document version
+                new_document = Document.objects.create(
+                    title=old_version.title,
+                    description=old_version.description,
+                    custom_meta=old_version.custom_meta,
+                    pdf_file=old_version.pdf_file,
+                    txt_extract_file=old_version.txt_extract_file,
+                    pawls_parse_file=old_version.pawls_parse_file,
+                    icon=old_version.icon,
+                    page_count=old_version.page_count,
+                    file_type=old_version.file_type,
+                    pdf_file_hash=old_version.pdf_file_hash,
+                    creator=user,
+                    # Versioning fields
+                    version_tree_id=old_version.version_tree_id,
+                    is_current=True,
+                    parent=current_version,  # Parent is the old current, not the restored version
+                )
+
+                # Copy permissions from old version
+                set_permissions_for_obj_to_user(
+                    user, new_document, [PermissionTypes.CRUD]
+                )
+
+                # Mark old path as not current FIRST to avoid unique constraint violation
+                current_path.is_current = False
+                current_path.save()
+
+                # Create new path entry with incremented version number
+                new_path = DocumentPath.objects.create(
+                    document=new_document,
+                    corpus=corpus,
+                    folder=current_path.folder,
+                    path=current_path.path,
+                    version_number=current_path.version_number + 1,
+                    is_current=True,
+                    is_deleted=False,
+                    parent=current_path,
+                    creator=user,
+                )
+
+            logger.info(
+                f"User {user.id} restored document to version {old_version.id} "
+                f"in corpus {corpus_pk}, new version number: {new_path.version_number}"
+            )
+
+            return RestoreDocumentToVersion(
+                ok=True,
+                message="Document restored to version successfully",
+                document=new_document,
+                new_version_number=new_path.version_number,
+            )
+
+        except Document.DoesNotExist:
+            return RestoreDocumentToVersion(
+                ok=False,
+                message="Document version not found",
+                document=None,
+                new_version_number=None,
+            )
+        except Corpus.DoesNotExist:
+            return RestoreDocumentToVersion(
+                ok=False,
+                message="Corpus not found",
+                document=None,
+                new_version_number=None,
+            )
+        except Exception as e:
+            logger.error(f"Failed to restore document to version: {str(e)}")
+            return RestoreDocumentToVersion(
+                ok=False,
+                message=f"Failed to restore document: {str(e)}",
+                document=None,
+                new_version_number=None,
+            )
+
+
 class Mutation(graphene.ObjectType):
     # TOKEN MUTATIONS (IF WE'RE NOT OUTSOURCING JWT CREATION TO AUTH0) #######
     if not settings.USE_AUTH0:
@@ -3758,6 +4188,10 @@ class Mutation(graphene.ObjectType):
     delete_multiple_documents = DeleteMultipleDocuments.Field()
     upload_documents_zip = UploadDocumentsZip.Field()  # Bulk document upload via zip
 
+    # DOCUMENT VERSIONING MUTATIONS ############################################
+    restore_deleted_document = RestoreDeletedDocument.Field()
+    restore_document_to_version = RestoreDocumentToVersion.Field()
+
     # CORPUS MUTATIONS #########################################################
     fork_corpus = StartCorpusFork.Field()
     make_corpus_public = MakeCorpusPublic.Field()
@@ -3770,6 +4204,14 @@ class Mutation(graphene.ObjectType):
     remove_documents_from_corpus = RemoveDocumentsFromCorpus.Field()
     create_corpus_action = CreateCorpusAction.Field()
     delete_corpus_action = DeleteCorpusAction.Field()
+
+    # CORPUS FOLDER MUTATIONS ##################################################
+    create_corpus_folder = CreateCorpusFolderMutation.Field()
+    update_corpus_folder = UpdateCorpusFolderMutation.Field()
+    move_corpus_folder = MoveCorpusFolderMutation.Field()
+    delete_corpus_folder = DeleteCorpusFolderMutation.Field()
+    move_document_to_folder = MoveDocumentToFolderMutation.Field()
+    move_documents_to_folder = MoveDocumentsToFolderMutation.Field()
 
     # IMPORT MUTATIONS #########################################################
     import_open_contracts_zip = UploadCorpusImportZip.Field()
@@ -3816,3 +4258,41 @@ class Mutation(graphene.ObjectType):
     update_metadata_column = UpdateMetadataColumn.Field()
     set_metadata_value = SetMetadataValue.Field()
     delete_metadata_value = DeleteMetadataValue.Field()
+
+    # BADGE MUTATIONS #############################################################
+    create_badge = CreateBadgeMutation.Field()
+    update_badge = UpdateBadgeMutation.Field()
+    delete_badge = DeleteBadgeMutation.Field()
+    award_badge = AwardBadgeMutation.Field()
+    revoke_badge = RevokeBadgeMutation.Field()
+
+    # CONVERSATION/THREAD MUTATIONS ##############################################
+    create_thread = CreateThreadMutation.Field()
+    create_thread_message = CreateThreadMessageMutation.Field()
+    reply_to_message = ReplyToMessageMutation.Field()
+    delete_conversation = DeleteConversationMutation.Field()
+    delete_message = DeleteMessageMutation.Field()
+
+    # MODERATION MUTATIONS #######################################################
+    lock_thread = LockThreadMutation.Field()
+    unlock_thread = UnlockThreadMutation.Field()
+    pin_thread = PinThreadMutation.Field()
+    unpin_thread = UnpinThreadMutation.Field()
+    add_moderator = AddModeratorMutation.Field()
+    remove_moderator = RemoveModeratorMutation.Field()
+    update_moderator_permissions = UpdateModeratorPermissionsMutation.Field()
+
+    # VOTING MUTATIONS ###########################################################
+    vote_message = VoteMessageMutation.Field()
+    remove_vote = RemoveVoteMutation.Field()
+
+    # NOTIFICATION MUTATIONS #####################################################
+    mark_notification_read = MarkNotificationReadMutation.Field()
+    mark_notification_unread = MarkNotificationUnreadMutation.Field()
+    mark_all_notifications_read = MarkAllNotificationsReadMutation.Field()
+    delete_notification = DeleteNotificationMutation.Field()
+
+    # AGENT CONFIGURATION MUTATIONS ##############################################
+    create_agent_configuration = CreateAgentConfigurationMutation.Field()
+    update_agent_configuration = UpdateAgentConfigurationMutation.Field()
+    delete_agent_configuration = DeleteAgentConfigurationMutation.Field()

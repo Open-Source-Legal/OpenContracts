@@ -1,6 +1,7 @@
 import difflib
 import functools
 import hashlib
+import uuid
 
 import django
 from django.contrib.auth import get_user_model
@@ -9,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 from pgvector.django import VectorField
+from tree_queries.models import TreeNode
 
 from opencontractserver.shared.defaults import jsonfield_default_value
 from opencontractserver.shared.fields import NullableJSONField
@@ -19,7 +21,7 @@ from opencontractserver.shared.slug_utils import generate_unique_slug, sanitize_
 from opencontractserver.shared.utils import calc_oc_file_path
 
 
-class Document(BaseOCModel, HasEmbeddingMixin):
+class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
     """
     Document
     """
@@ -92,6 +94,38 @@ class Document(BaseOCModel, HasEmbeddingMixin):
         help_text="SHA-256 hash of the PDF file content for caching and integrity checks",
     )
 
+    # Versioning fields for dual-tree architecture
+    version_tree_id = django.db.models.UUIDField(
+        default=uuid.uuid4,
+        db_index=True,
+        help_text="Groups all content versions of same logical document. Implements Rule C1.",
+    )
+    is_current = django.db.models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="True for newest content in this version tree. Implements Rule C3.",
+    )
+
+    # Provenance tracking for corpus-isolated documents (Phase 2)
+    source_document = django.db.models.ForeignKey(
+        "self",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="corpus_copies",
+        help_text="Original document this was copied from (cross-corpus provenance). Implements Rule I2.",
+    )
+
+    # Shared structural annotations (Phase 2.5)
+    structural_annotation_set = django.db.models.ForeignKey(
+        "annotations.StructuralAnnotationSet",
+        on_delete=django.db.models.PROTECT,  # Never delete if documents reference it
+        null=True,
+        blank=True,
+        related_name="documents",
+        help_text="Shared structural annotations for this document's content",
+    )
+
     processing_started = django.db.models.DateTimeField(null=True)
     processing_finished = django.db.models.DateTimeField(null=True)
 
@@ -118,7 +152,13 @@ class Document(BaseOCModel, HasEmbeddingMixin):
         constraints = [
             django.db.models.UniqueConstraint(
                 fields=["creator", "slug"], name="uniq_document_slug_per_creator_cs"
-            )
+            ),
+            # Rule C3: Only one current Document per version tree
+            django.db.models.UniqueConstraint(
+                fields=["version_tree_id"],
+                condition=django.db.models.Q(is_current=True),
+                name="one_current_per_version_tree",
+            ),
         ]
 
     # ------ Revision mechanics ------ #
@@ -487,6 +527,121 @@ class DocumentRelationshipUserObjectPermission(UserObjectPermissionBase):
 class DocumentRelationshipGroupObjectPermission(GroupObjectPermissionBase):
     content_object = django.db.models.ForeignKey(
         "DocumentRelationship", on_delete=django.db.models.CASCADE
+    )
+
+
+# -------------------- DocumentPath -------------------- #
+
+
+class DocumentPath(TreeNode, BaseOCModel):
+    """
+    Path Tree - tracks where documents lived and what happened to them.
+
+    This model implements the Path Tree from the dual-tree versioning architecture.
+    Each node represents a lifecycle event:
+    - File first imported
+    - File content updated to new version
+    - File moved or renamed
+    - File deleted (soft delete)
+    - File restored
+
+    Architecture Rules Implemented:
+    - P1: New DocumentPath for every lifecycle event
+    - P2: New nodes are children of previous state (via TreeNode parent)
+    - P3: Only current filesystem state has is_current=True
+    - P4: One active path per (corpus, path) tuple
+    - P5: version_number increments only on content changes
+    - P6: Folder deletion sets folder=NULL
+    """
+
+    document = django.db.models.ForeignKey(
+        "Document",
+        on_delete=django.db.models.PROTECT,  # Never delete Documents
+        related_name="path_records",
+        help_text="Specific content version this path points to",
+    )
+
+    corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=django.db.models.CASCADE,
+        related_name="document_paths",
+        help_text="Corpus owning this path",
+    )
+
+    folder = django.db.models.ForeignKey(
+        "corpuses.CorpusFolder",
+        null=True,
+        blank=True,
+        on_delete=django.db.models.SET_NULL,  # Rule P6: folder deletion sets NULL
+        related_name="document_paths",
+        help_text="Current folder (null if folder deleted or at root)",
+    )
+
+    path = django.db.models.CharField(
+        max_length=1024,
+        db_index=True,
+        help_text="Full path in corpus filesystem",
+    )
+
+    version_number = django.db.models.IntegerField(
+        help_text="Content version number (Rule P5: increments only on content changes)",
+    )
+
+    is_deleted = django.db.models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Soft delete flag",
+    )
+
+    is_current = django.db.models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="True for current filesystem state (Rule P3)",
+    )
+
+    # TreeNode provides: parent (previous state), tree_depth, tree_path, tree_ordering
+
+    class Meta:
+        constraints = [
+            # Rule P4: Only one active path per (corpus, path) tuple
+            django.db.models.UniqueConstraint(
+                fields=["corpus", "path"],
+                condition=django.db.models.Q(is_current=True, is_deleted=False),
+                name="unique_active_path_per_corpus",
+            ),
+        ]
+        indexes = [
+            django.db.models.Index(fields=["corpus", "is_current", "is_deleted"]),
+            django.db.models.Index(fields=["document", "corpus"]),
+            django.db.models.Index(fields=["path"]),
+            django.db.models.Index(fields=["version_number"]),
+            django.db.models.Index(fields=["creator"]),
+            django.db.models.Index(fields=["created"]),
+        ]
+        permissions = (
+            ("create_documentpath", "create DocumentPath"),
+            ("read_documentpath", "read DocumentPath"),
+            ("update_documentpath", "update DocumentPath"),
+            ("remove_documentpath", "delete DocumentPath"),
+        )
+
+    def __str__(self):
+        status = "deleted" if self.is_deleted else "active"
+        current = "current" if self.is_current else "historical"
+        return f"DocumentPath(doc={self.document_id}, path={self.path}, v{self.version_number}, {status}, {current})"
+
+
+# Model for Django Guardian permissions
+class DocumentPathUserObjectPermission(UserObjectPermissionBase):
+    content_object = django.db.models.ForeignKey(
+        "DocumentPath", on_delete=django.db.models.CASCADE
+    )
+
+
+# Model for Django Guardian permissions
+class DocumentPathGroupObjectPermission(GroupObjectPermissionBase):
+    content_object = django.db.models.ForeignKey(
+        "DocumentPath", on_delete=django.db.models.CASCADE
     )
 
 

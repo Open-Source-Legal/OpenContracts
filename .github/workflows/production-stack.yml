@@ -11,14 +11,14 @@ defaults:
 
 on:
   pull_request:
-    branches: [ "master", "main" ]
+    branches: [ "master", "main", "v*" ]
     paths:
       - "compose/production/**"
       - "production.yml"
       - ".github/workflows/production-stack.yml"
 
   push:
-    branches: [ "master", "main" ]
+    branches: [ "master", "main", "v*" ]
     paths:
       - "compose/production/**"
       - "production.yml"

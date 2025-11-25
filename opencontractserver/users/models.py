@@ -4,7 +4,12 @@ import uuid
 import django
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AbstractUser, Group
+from django.contrib.auth.models import (
+    AbstractUser,
+    Group,
+)
+from django.contrib.auth.models import UserManager as DjangoUserManager
+from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -24,6 +29,42 @@ from opencontractserver.types.enums import ExportType
 from opencontractserver.users.validators import UserUnicodeUsernameValidator
 
 logger = logging.getLogger(__name__)
+
+
+class UserProfileManager(DjangoUserManager):
+    """
+    Custom manager for User model that implements visible_to_user pattern.
+
+    Issue: #611 - Create User Profile Page with badge display and stats
+    Epic: #572 - Social Features Epic
+    """
+
+    def visible_to_user(self, user=None):
+        """
+        Returns queryset filtered to users whose profiles are visible to the requesting user.
+
+        Privacy rules:
+        - Own profile is always visible (even if private)
+        - Public profiles are visible to everyone
+        - Private profiles are only visible to the profile owner
+
+        Args:
+            user: The requesting user (or None for anonymous)
+
+        Returns:
+            QuerySet of User objects visible to the requesting user
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        # Handle None user as anonymous
+        if user is None or isinstance(user, AnonymousUser):
+            # Anonymous users can only see public profiles
+            return self.filter(is_profile_public=True, is_active=True)
+
+        # Authenticated users can see:
+        # 1. Their own profile (even if private)
+        # 2. All public profiles
+        return self.filter(Q(id=user.id) | Q(is_profile_public=True), is_active=True)
 
 
 class User(AbstractUser):
@@ -85,6 +126,16 @@ class User(AbstractUser):
         null=True,
         help_text="When the user accepted cookie consent",
     )
+
+    # Profile visibility (Issue #611 - User Profile Page)
+    is_profile_public = django.db.models.BooleanField(
+        "Public Profile",
+        default=True,
+        help_text="Whether this user's profile is visible to other users",
+    )
+
+    # Custom manager for profile visibility
+    objects = UserProfileManager()
 
     def __str__(self):
         return f"{self.username}: {self.email}"

@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.llms.vector_stores.core_vector_stores import (
     CoreAnnotationVectorStore,
     VectorSearchQuery,
@@ -82,6 +82,26 @@ class TestCoreAnnotationVectorStore(TestCase):
                 corpus=cls.corpus,
                 creator=cls.user,
                 is_public=True,
+            )
+
+            # Create DocumentPath records to link documents to corpus
+            DocumentPath.objects.create(
+                document=cls.doc1,
+                corpus=cls.corpus,
+                path="/document_one.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+                creator=cls.user,
+            )
+            DocumentPath.objects.create(
+                document=cls.doc2,
+                corpus=cls.corpus,
+                path="/document_two.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+                creator=cls.user,
             )
 
             # Labels

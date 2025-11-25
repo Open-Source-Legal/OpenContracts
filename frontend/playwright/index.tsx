@@ -12,6 +12,7 @@ import { Provider as JotaiProvider, createStore } from "jotai";
 import workerSrc from "pdfjs-dist/build/pdf.worker?worker&url";
 import * as pdfjs from "pdfjs-dist";
 import { ApolloClient, InMemoryCache, ApolloProvider } from "@apollo/client";
+import { ThemeProvider } from "../src/theme/ThemeProvider";
 
 // Create a type for the Jotai Store
 type Store = ReturnType<typeof createStore>;
@@ -57,7 +58,9 @@ beforeMount(async ({ App }: BeforeMountParams) => {
   return (
     <JotaiProvider store={window.jotaiStore}>
       <ApolloProvider client={window.apolloClient}>
-        <App />
+        <ThemeProvider>
+          <App />
+        </ThemeProvider>
       </ApolloProvider>
     </JotaiProvider>
   );

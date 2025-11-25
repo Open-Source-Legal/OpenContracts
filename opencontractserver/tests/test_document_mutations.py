@@ -288,7 +288,7 @@ class DocumentMutationTestCase(TestCase):
             title="Summary Test Doc",
             description="Testing summary mutation",
         )
-        corpus.documents.add(document)
+        corpus.add_document(document=document, user=self.user)
 
         doc_gid = to_global_id("DocumentType", document.id)
         corpus_gid = to_global_id("CorpusType", corpus.id)

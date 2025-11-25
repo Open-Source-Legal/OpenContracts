@@ -87,6 +87,17 @@ export const NavMenu = () => {
             </Label>
           </Menu.Item>
           {!isLoading && user ? [...items, ...private_items] : items}
+          {!isLoading && user && (user as any).isSuperuser && (
+            <Menu.Item
+              id="admin_badges_menu_button"
+              name="Badge Management"
+              active={getIsActive("/admin/badges")}
+              as={Link}
+              to="/admin/badges"
+            >
+              Badge Management
+            </Menu.Item>
+          )}
           <Menu.Menu position="right">
             {!isLoading && user ? (
               <>
@@ -151,6 +162,17 @@ export const NavMenu = () => {
             </Label>
           </Menu.Item>
           {user ? [...items, ...private_items] : items}
+          {user && (user as any).isSuperuser && (
+            <Menu.Item
+              id="admin_badges_menu_button"
+              name="Badge Management"
+              active={getIsActive("/admin/badges")}
+              as={Link}
+              to="/admin/badges"
+            >
+              Badge Management
+            </Menu.Item>
+          )}
           <Menu.Menu position="right">
             {user ? (
               <>

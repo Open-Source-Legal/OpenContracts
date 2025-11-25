@@ -112,7 +112,9 @@ class GraphQLAnalyzerTestCase(TestCase):
         logger.info(f"{len(self.doc_ids)} pdfs loaded for analysis")
 
         # Link docs to corpus
-        self.corpus.documents.add(*self.doc_ids)
+        for doc_id in self.doc_ids:
+            doc = Document.objects.get(id=doc_id)
+            self.corpus.add_document(document=doc, user=self.user)
         logger.info("Linked documents to corpus")
 
         # Setup a test gremlin + analyzers

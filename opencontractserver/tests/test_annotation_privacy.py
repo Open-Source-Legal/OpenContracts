@@ -16,7 +16,7 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.extracts.models import Column, Extract, Fieldset
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -47,7 +47,18 @@ class AnnotationPrivacyTestCase(TestCase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.corpus.documents.add(self.doc)
+        self.corpus.add_document(document=self.doc, user=self.owner)
+
+        # Create DocumentPath to link document to corpus in dual-tree versioning
+        DocumentPath.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            path="/test_document.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.owner,
+        )
 
         # Create label
         self.label = AnnotationLabel.objects.create(

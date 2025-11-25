@@ -313,7 +313,7 @@ class TestLLMTools(TestCase):
             creator=self.user,
             title="No Summary Doc",
         )
-        self.corpus.documents.add(doc_no_summary)
+        self.corpus.add_document(document=doc_no_summary, user=self.user)
 
         result = get_document_summary(doc_no_summary.id, self.corpus.id)
         self.assertEqual(result, "")
@@ -1223,7 +1223,7 @@ class AsyncTestSearchDocumentNotes(TransactionTestCase):
             title="Search Test Corpus",
             creator=self.user,
         )
-        self.corpus.documents.add(self.doc)
+        self.corpus.add_document(document=self.doc, user=self.user)
 
         # Create multiple notes with different content for testing
         self.note1 = Note.objects.create(
@@ -1431,7 +1431,7 @@ class AsyncTestDocumentSummary(TransactionTestCase):
             title="Async Summary Document",
             description="Test Description",
         )
-        self.corpus.documents.add(self.doc)
+        self.corpus.add_document(document=self.doc, user=self.user)
 
     async def _update_summary_async(self, document, new_content, author, corpus):
         """Helper to update document summary asynchronously."""
@@ -1624,7 +1624,7 @@ class AsyncTestSearchExactTextAsSources(TransactionTestCase):
             "async_text_extract.txt", ContentFile(self.text_content.encode())
         )
 
-        self.corpus.documents.add(self.text_doc)
+        self.corpus.add_document(document=self.text_doc, user=self.user)
 
         # Create document with unsupported file type (for testing error handling)
         self.unsupported_doc = Document.objects.create(

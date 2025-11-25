@@ -25,18 +25,49 @@ export const errorLink = onError(
           err.extensions?.status ||
           err.extensions?.statusCode;
 
-        // Handle authentication errors (401/403)
+        const isExpiredToken =
+          err.message?.toLowerCase().includes("signature has expired") ||
+          err.message?.toLowerCase().includes("token expired") ||
+          err.message?.toLowerCase().includes("jwt expired");
+
+        // Handle authentication errors (401/403) or expired tokens
         if (
           statusCode === 401 ||
           statusCode === 403 ||
           statusCode === "UNAUTHENTICATED" ||
           err.message?.toLowerCase().includes("unauthorized") ||
-          err.message?.toLowerCase().includes("not authenticated")
+          err.message?.toLowerCase().includes("not authenticated") ||
+          isExpiredToken
         ) {
           console.error(
             "[Apollo Error Link] Authentication error detected:",
             err
           );
+
+          if (isExpiredToken) {
+            console.log(
+              "[Apollo Error Link] Token has expired - forcing page reload to trigger token refresh"
+            );
+
+            // Clear auth state
+            authToken("");
+            userObj(null);
+            authStatusVar("ANONYMOUS");
+
+            // Force a page reload to trigger AuthGate token refresh
+            // This will call getAccessTokenSilently() which handles token refresh automatically
+            toast.warning("Your session has expired. Refreshing...", {
+              toastId: "token-expired",
+              autoClose: 2000,
+            });
+
+            // Reload after a short delay to show the toast
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+
+            return;
+          }
 
           // Switch to anonymous mode - allows user to browse public content
           // without forcing an immediate re-login

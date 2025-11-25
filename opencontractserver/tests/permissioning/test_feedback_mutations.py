@@ -92,7 +92,7 @@ class FeedbackMutationPermissionTestCase(TestCase):
             creator=self.owner,
             allow_comments=False,  # Start with standard mode
         )
-        self.corpus.documents.add(self.document)
+        self.corpus.add_document(document=self.document, user=self.owner)
 
         # Create annotation label
         self.label = AnnotationLabel.objects.create(

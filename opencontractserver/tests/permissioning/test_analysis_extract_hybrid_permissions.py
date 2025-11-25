@@ -113,10 +113,11 @@ class AnalysisExtractHybridPermissionTestCase(TestCase):
 
         # Set up corpus membership
         # Corpus X contains both Alpha and Beta
-        self.corpus_x.documents.add(self.doc_alpha, self.doc_beta)
+        self.corpus_x.add_document(document=self.doc_alpha, user=self.superuser)
+        self.corpus_x.add_document(document=self.doc_beta, user=self.superuser)
 
         # Corpus Y contains only Beta (NOT Alpha - this is important!)
-        self.corpus_y.documents.add(self.doc_beta)
+        self.corpus_y.add_document(document=self.doc_beta, user=self.superuser)
 
         # Set up the permission structure
         self._setup_permissions()

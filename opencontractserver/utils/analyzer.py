@@ -209,7 +209,7 @@ def run_analysis(
         not isinstance(doc_ids, list) or len(doc_ids) == 0
     ):
         corpus = analysis.analyzed_corpus
-        docs = corpus.documents.all()
+        docs = corpus.get_documents()
         logger.info(f"Analyze corpus {corpus.id} with {docs.count()} docs")
 
     # Otherwise we need a list of valid doc_ids to apply to analysis

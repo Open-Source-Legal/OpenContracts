@@ -45,7 +45,7 @@ class TestDocExtractQueryTask(TransactionTestCase):
         self.doc = Document.objects.create(
             title="Test Document", creator=self.user, file_type="text/plain"
         )
-        self.corpus.documents.add(self.doc)
+        self.corpus.add_document(document=self.doc, user=self.user)
 
     @vcr.use_cassette(
         "fixtures/vcr_cassettes/test_doc_extract_query_task_synchronously.yaml",
@@ -170,7 +170,9 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
         )
 
         # Add documents (from BaseFixtureTestCase) to the Corpus (required for new agent API)
-        self.corpus.documents.add(self.doc, self.doc2, self.doc3)
+        self.corpus.add_document(document=self.doc, user=self.user)
+        self.corpus.add_document(document=self.doc2, user=self.user)
+        self.corpus.add_document(document=self.doc3, user=self.user)
 
         # Add documents to the Extract
         self.extract.documents.add(self.doc, self.doc2, self.doc3)

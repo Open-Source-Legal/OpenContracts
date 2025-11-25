@@ -93,6 +93,16 @@ export const MobileNavMenu = () => {
             >
               <Dropdown.Menu>
                 {user ? [...items, ...private_items] : items}
+                {user && (user as any).isSuperuser && (
+                  <Dropdown.Item
+                    id="admin_badges_menu_button_mobile"
+                    className="uninvert_me"
+                    name="Badge Management"
+                    active={isActive("/admin/badges")}
+                  >
+                    <Link to="/admin/badges">Badge Management</Link>
+                  </Dropdown.Item>
+                )}
               </Dropdown.Menu>
             </Dropdown>
           </Menu.Item>
@@ -184,6 +194,16 @@ export const MobileNavMenu = () => {
             >
               <Dropdown.Menu>
                 {user ? [...items, ...private_items] : items}
+                {user && (user as any).isSuperuser && (
+                  <Dropdown.Item
+                    id="admin_badges_menu_button_mobile"
+                    className="uninvert_me"
+                    name="Badge Management"
+                    active={isActive("/admin/badges")}
+                  >
+                    <Link to="/admin/badges">Badge Management</Link>
+                  </Dropdown.Item>
+                )}
               </Dropdown.Menu>
             </Dropdown>
           </Menu.Item>

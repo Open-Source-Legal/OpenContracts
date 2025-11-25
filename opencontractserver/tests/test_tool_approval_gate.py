@@ -118,7 +118,9 @@ class TestApprovalFlow(TestCase):
         cls.document: Document = Document.objects.create(
             title="Gate Doc", description="", creator=cls.user, is_public=False
         )
-        cls.corpus.documents.add(cls.document)
+        cls.document, _, _ = cls.corpus.add_document(
+            document=cls.document, user=cls.user
+        )
 
     # ------------------------------------------------------------------
     # Utilities

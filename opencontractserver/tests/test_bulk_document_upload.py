@@ -298,11 +298,19 @@ class BulkDocumentUploadTests(TestCase):
             self.assertGreater(new_doc_count, initial_doc_count)
 
             # Verify documents are associated with the corpus
-            corpus_docs = self.corpus.documents.count()
+            corpus_docs = self.corpus.get_documents().count()
             self.assertGreater(corpus_docs, 0)
 
             # Verify document titles and content
-            documents = Document.objects.filter(creator=self.user).order_by("-created")
+            # With corpus isolation, we need to check corpus copies (have DocumentPath), not originals
+            from opencontractserver.documents.models import DocumentPath
+
+            corpus_doc_ids = DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=False
+            ).values_list("document_id", flat=True)
+            documents = Document.objects.filter(
+                id__in=corpus_doc_ids, creator=self.user
+            ).order_by("-created")
 
             # Filter to only documents that should match the pattern and check the first 3 of those
             test_docs = [
@@ -324,9 +332,21 @@ class BulkDocumentUploadTests(TestCase):
                     ],
                 )
 
-            # Verify the documents are linked to the corpus
+            # Verify the documents are linked to the corpus via DocumentPath
+            from opencontractserver.documents.models import DocumentPath
+
             for doc in test_docs:
-                self.assertIn(self.corpus, doc.corpus_set.all())
+                # Check that a DocumentPath exists linking the document to the corpus
+                doc_path_exists = DocumentPath.objects.filter(
+                    document=doc,
+                    corpus=self.corpus,
+                    is_current=True,
+                    is_deleted=False,
+                ).exists()
+                self.assertTrue(
+                    doc_path_exists,
+                    f"Document {doc.id} should have a DocumentPath to corpus {self.corpus.id}",
+                )
         except Exception as e:
             print(f"Exception in end-to-end test: {e}")
             raise

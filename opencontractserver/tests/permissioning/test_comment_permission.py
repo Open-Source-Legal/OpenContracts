@@ -24,7 +24,7 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
@@ -66,7 +66,18 @@ class CommentPermissionTestCase(TestCase):
             description="Test",
             creator=self.owner,
         )
-        self.corpus.documents.add(self.document)
+        self.corpus.add_document(document=self.document, user=self.owner)
+
+        # Create DocumentPath to link document to corpus in dual-tree versioning
+        DocumentPath.objects.create(
+            document=self.document,
+            corpus=self.corpus,
+            path="/test.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.owner,
+        )
 
         # Create annotation label
         self.label = AnnotationLabel.objects.create(

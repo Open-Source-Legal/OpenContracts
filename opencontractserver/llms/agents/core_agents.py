@@ -15,6 +15,7 @@ from typing import (
     runtime_checkable,
 )
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.utils import timezone
 
@@ -308,7 +309,8 @@ class CorpusAgentContext:
     async def __post_init__(self):
         """Initialize documents list if not provided."""
         if self.documents is None:
-            self.documents = [doc async for doc in self.corpus.documents.all()]
+            # Use DocumentPath-based method to get active documents
+            self.documents = await sync_to_async(list)(self.corpus.get_documents())
 
 
 @runtime_checkable
@@ -498,8 +500,27 @@ class CoreAgentBase(ABC):
         metadata: dict[str, Any] = None,
     ) -> None:
         """Complete a message atomically with content, sources, and metadata."""
+        logger.error("[DIAGNOSTIC complete_message] Called with:")
+        logger.error(f"[DIAGNOSTIC complete_message]   message_id: {message_id}")
+        logger.error(f"[DIAGNOSTIC complete_message]   content length: {len(content)}")
+        logger.error(
+            f"[DIAGNOSTIC complete_message]   sources: {sources is not None} (count: {len(sources) if sources else 0})"
+        )
+        if sources:
+            logger.error(
+                f"[DIAGNOSTIC complete_message]   First source: {sources[0].to_dict()}"
+            )
+        logger.error(
+            f"[DIAGNOSTIC complete_message]   metadata keys: {metadata.keys() if metadata else 'None'}"
+        )
+        logger.error(
+            "[DIAGNOSTIC complete_message]   Calling conversation_manager.complete_message()..."
+        )
         await self.conversation_manager.complete_message(
             message_id, content, sources, metadata
+        )
+        logger.error(
+            "[DIAGNOSTIC complete_message]   conversation_manager.complete_message() returned successfully"
         )
 
     async def cancel_message(self, message_id: int, reason: str = "Cancelled") -> None:
@@ -1038,7 +1059,8 @@ class CoreCorpusAgentFactory:
         # Permission check – anonymous sessions cannot access private corpuses
         _assert_access(corpus, config.user_id)
 
-        documents = [doc async for doc in corpus.documents.all()]
+        # Use DocumentPath-based method to get active documents
+        documents = await sync_to_async(list)(corpus.get_documents())
 
         # Set default system prompt if not provided
         if config.system_prompt is None:

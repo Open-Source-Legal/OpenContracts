@@ -101,7 +101,11 @@ class TestAgenticHighlighterClaude(BaseFixtureTestCase):
 
         # Add documents to corpus
         if self.docs:
-            self.corpus.documents.add(*self.docs)
+            updated_docs = []
+            for doc in self.docs:
+                new_doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
+                updated_docs.append(new_doc)
+            self.docs = updated_docs
 
         # GraphQL IDs for our test objects
         self.corpus_gid = to_global_id("CorpusType", self.corpus.id)
@@ -189,7 +193,7 @@ class TestAgenticHighlighterClaude(BaseFixtureTestCase):
         )
 
         # Verify that each document in the corpus has an analysis row
-        for doc in self.corpus.documents.all():
+        for doc in self.corpus.get_documents():
             doc_row = analysis_rows.filter(document=doc).first()
             self.assertIsNotNone(
                 doc_row, f"Document {doc.id} should have an analysis row"

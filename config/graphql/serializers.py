@@ -77,6 +77,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             "last_name",
             "phone",
             "slug",
+            "is_profile_public",  # Issue #611
         ]
         read_only_fields = []
 
