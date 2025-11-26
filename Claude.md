@@ -120,9 +120,9 @@ docker compose -f production.yml up
    - Computed/derived atoms automatically update when dependencies change
 
 2. **Route Driven State**
-   - We use routes to drive core object selections - e.g. selected user, selected document, selected corpus. 
+   - We use routes to drive core object selections - e.g. selected user, selected document, selected corpus.
    - If you're working on code that touches the routes or requires selection of object, ensure it follows the core routing mantra set forth in docs/frontend/routing_system.md .
-   - Ensure any changes to the routing scheme or related code are proeprly reflected in routing system documentation MD file. 
+   - Ensure any changes to the routing scheme or related code are proeprly reflected in routing system documentation MD file.
 
 2. **PDF Annotation System** (see `.cursor/rules/pdf-viewer-and-annotator-architecture.mdc`):
    - **Virtualized rendering**: Only visible pages (+overscan) rendered for performance
