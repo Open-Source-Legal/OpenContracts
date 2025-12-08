@@ -103,13 +103,13 @@ export default defineConfig({
    *
    * For E2E integration tests, you should have both services running:
    *   1. Backend: docker compose -f local.yml up
-   *   2. Frontend: yarn start
+   *   2. Frontend: yarn start:e2e (uses password auth, not Auth0)
    *
    * This config will reuse an existing frontend server if running.
-   * If not running, it will try to start one (may timeout on slow machines).
+   * If not running, it will start one with Auth0 disabled.
    */
   webServer: {
-    command: "yarn start",
+    command: "yarn start:e2e",
     url: "http://localhost:3000",
     reuseExistingServer: true,
     timeout: 180000, // 3 minutes for slow cold starts

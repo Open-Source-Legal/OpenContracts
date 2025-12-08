@@ -92,6 +92,7 @@
   },
   "scripts": {
     "start": "vite",
+    "start:e2e": "REACT_APP_USE_AUTH0=false vite",
     "build": "tsc && vite build",
     "serve": "vite preview",
     "test:unit": "vitest",
