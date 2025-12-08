@@ -96,6 +96,7 @@
     "serve": "vite preview",
     "test:unit": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:integration": "playwright test -c playwright-e2e.config.ts",
     "test:coverage": "vitest run --coverage --watch=false",
     "lint": "prettier . --check --ignore-unknown",
     "fix-styles": "prettier . --check --write --ignore-unknown",
