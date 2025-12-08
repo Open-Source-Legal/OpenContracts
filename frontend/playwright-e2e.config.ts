@@ -98,11 +98,22 @@ export default defineConfig({
     },
   ],
 
-  /* Start frontend dev server if not already running */
+  /*
+   * Web server configuration
+   *
+   * For E2E integration tests, you should have both services running:
+   *   1. Backend: docker compose -f local.yml up
+   *   2. Frontend: yarn start
+   *
+   * This config will reuse an existing frontend server if running.
+   * If not running, it will try to start one (may timeout on slow machines).
+   */
   webServer: {
     command: "yarn start",
     url: "http://localhost:3000",
     reuseExistingServer: true,
-    timeout: 120000,
+    timeout: 180000, // 3 minutes for slow cold starts
+    stdout: "pipe",
+    stderr: "pipe",
   },
 });
