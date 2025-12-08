@@ -1,4 +1,10 @@
-Our test suite provides comprehensive coverage of the backend. Frontend tests use Playwright for component testing. All tests are integrated in our GitHub Actions CI pipeline.
+Our test suite provides comprehensive coverage across three levels:
+
+1. **Backend Tests** - Django/pytest tests for models, GraphQL, and business logic
+2. **Component Tests** - Playwright tests for isolated React components with mocked GraphQL
+3. **E2E Integration Tests** - Full-stack Playwright tests against live backend
+
+All tests are integrated in our GitHub Actions CI pipeline.
 
 NOTE: **Use Python 3.10 or above** as pydantic and certain pre-3.10 type annotations do not play well.
 
@@ -87,6 +93,116 @@ Most tests are safe for parallel execution by default:
 - API tests
 
 The `--dist loadscope` option keeps tests from the same class together, which is important for `setUpClass`/`setUpTestData` patterns.
+
+## Frontend Tests
+
+### Component Tests (Mocked GraphQL)
+
+Component tests use Playwright's component testing feature with mocked GraphQL responses. They test React components in isolation without requiring a running backend.
+
+```bash
+cd frontend
+
+# Run all component tests (MUST use --reporter=list to prevent hanging)
+yarn test:ct --reporter=list
+
+# Run specific component test
+yarn test:ct --reporter=list -g "DocumentCards"
+
+# Run with headed browser for debugging
+yarn test:ct --reporter=list --headed
+```
+
+**Key patterns:**
+- Tests use `MockedProvider` from Apollo Client with predefined GraphQL responses
+- Components are mounted via test wrappers that provide Jotai state and Apollo cache
+- Located in `frontend/tests/*.ct.tsx`
+
+### E2E Integration Tests (Live Backend)
+
+E2E integration tests run Playwright against the full application stack - real frontend talking to real Django backend with real PostgreSQL database. No mocking.
+
+#### Prerequisites
+
+1. **Backend running:**
+   ```bash
+   docker compose -f local.yml up
+   ```
+
+2. **Test user exists** with known credentials:
+   - Default: `admin@example.com` / `admin`
+   - Or set via environment variables
+
+3. **Sample PDF** (optional, for upload tests):
+   - Place a `sample.pdf` in `frontend/tests/e2e/fixtures/`
+
+#### Running E2E Tests
+
+```bash
+cd frontend
+
+# Run all E2E integration tests
+yarn test:e2e:integration
+
+# Run with visible browser for debugging
+yarn test:e2e:integration --headed
+
+# Run with slow motion (easier to follow)
+E2E_SLOW_MO=500 yarn test:e2e:integration --headed
+
+# Run only chromium (faster)
+yarn test:e2e:integration --project=chromium
+```
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `E2E_BASE_URL` | `http://localhost:3000` | Frontend URL |
+| `E2E_API_URL` | `http://localhost:8000` | Backend API URL |
+| `E2E_TEST_USER` | `admin@example.com` | Test user email/username |
+| `E2E_TEST_PASSWORD` | `admin` | Test user password |
+| `E2E_SLOW_MO` | `0` | Slow down actions (ms) for debugging |
+
+#### Test Structure
+
+```
+frontend/tests/e2e/
+├── .auth/                    # Stored auth state (gitignored)
+├── fixtures/
+│   ├── api-client.ts         # GraphQL client for test setup/teardown
+│   └── sample.pdf            # Sample PDF for upload tests
+├── pages/
+│   ├── login.page.ts         # Login page object
+│   └── corpus.page.ts        # Corpus page object
+├── auth.setup.ts             # Authentication setup (runs first)
+├── folder-upload.e2e.ts      # Folder and upload integration tests
+├── global-setup.ts           # Verify backend is running
+└── global-teardown.ts        # Cleanup
+```
+
+#### How It Works
+
+1. **Global setup** verifies the backend is running and healthy
+2. **Auth setup** logs in via the UI and saves auth state for reuse
+3. **Test fixtures** use the real GraphQL API (not mocks) to create test data
+4. **Tests** use Playwright to interact with the real UI
+5. **All requests hit the live backend** - no mocking anywhere
+
+The `api-client.ts` is used for efficient test setup/teardown (creating corpora, folders via GraphQL) rather than clicking through the UI for prerequisites.
+
+#### Debugging
+
+```bash
+# View test report
+npx playwright show-report playwright-report-e2e
+
+# Debug mode
+yarn test:e2e:integration --debug
+
+# View trace for failed tests
+npx playwright show-trace test-results/*/trace.zip
+```
 
 ## Production Stack Testing
 
