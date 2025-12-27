@@ -27,6 +27,11 @@ from django.conf import settings
 from graphql_relay import from_global_id
 
 from config.websocket.middleware import WS_CLOSE_UNAUTHENTICATED
+from config.websocket.ratelimits import (
+    WebSocketRateLimits,
+    check_rate_limit_async,
+    parse_rate,
+)
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from config.websocket.utils.extract_ids import extract_websocket_path_id
 from opencontractserver.conversations.models import MessageType
@@ -44,12 +49,6 @@ from opencontractserver.llms.agents.core_agents import (
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
-from config.websocket.ratelimits import (
-    WebSocketRateLimits,
-    check_rate_limit_async,
-    parse_rate,
-)
 
 logger = logging.getLogger(__name__)
 

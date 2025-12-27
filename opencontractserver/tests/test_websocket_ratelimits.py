@@ -19,7 +19,6 @@ from django.core.cache import caches
 from django.test import override_settings
 from graphql_relay import to_global_id
 
-from config.asgi import application
 from config.websocket.ratelimits import (
     WebSocketRateLimits,
     check_rate_limit,
@@ -127,14 +126,14 @@ class TestWebSocketRateLimits:
         assert rate == "10/m"
 
     def test_get_rate_for_superuser(self):
-        """Test that superusers get higher limits (5x)."""
+        """Test that superusers get higher limits (10x, consistent with GraphQL)."""
         mock_user = mock.MagicMock()
         mock_user.is_authenticated = True
         mock_user.is_superuser = True
 
         rate = WebSocketRateLimits.get_rate_for_user("WS_CONNECT", mock_user)
-        # Default is 30/m, superuser gets 5x = 150/m
-        assert rate == "150/m"
+        # Default is 30/m, superuser gets 10x = 300/m (unified with GraphQL tier)
+        assert rate == "300/m"
 
 
 @pytest.mark.django_db
@@ -146,8 +145,9 @@ class TestCheckRateLimit:
         cache = caches["default"]
         cache.clear()
 
-    def test_rate_limit_not_exceeded(self):
+    def test_rate_limit_not_exceeded(self, settings):
         """Test that requests under the limit are allowed."""
+        settings.RATELIMIT_DISABLE = False
         scope = {
             "user": AnonymousUser(),
             "headers": [],
@@ -160,8 +160,9 @@ class TestCheckRateLimit:
         assert info["limit"] == 5
         assert info["remaining"] == 4
 
-    def test_rate_limit_exceeded(self):
+    def test_rate_limit_exceeded(self, settings):
         """Test that requests over the limit are blocked."""
+        settings.RATELIMIT_DISABLE = False
         scope = {
             "user": AnonymousUser(),
             "headers": [],
@@ -170,7 +171,9 @@ class TestCheckRateLimit:
 
         # Make 5 requests (the limit)
         for _ in range(5):
-            is_limited, _ = check_rate_limit(scope, "test_exceed", "5/m", increment=True)
+            is_limited, _ = check_rate_limit(
+                scope, "test_exceed", "5/m", increment=True
+            )
             assert is_limited is False
 
         # 6th request should be limited
@@ -178,8 +181,7 @@ class TestCheckRateLimit:
         assert is_limited is True
         assert info["remaining"] == 0
 
-    @override_settings(RATELIMIT_DISABLE=True)
-    def test_rate_limit_disabled(self):
+    def test_rate_limit_disabled(self, settings):
         """Test that rate limiting can be disabled via settings."""
         scope = {
             "user": AnonymousUser(),
@@ -231,7 +233,9 @@ class WebSocketRateLimitIntegrationTestCase(WebsocketFixtureBaseTestCase):
         )
 
         connected, _ = await communicator.connect()
-        self.assertTrue(connected, "Connection should succeed when rate limiting disabled")
+        self.assertTrue(
+            connected, "Connection should succeed when rate limiting disabled"
+        )
 
         await communicator.disconnect()
 
@@ -284,7 +288,12 @@ class WebSocketRateLimitIntegrationTestCase(WebsocketFixtureBaseTestCase):
             # Allow first few calls (for connection), then limit messages
             if "ws_connect" in group or call_count < 3:
                 return False, {"limit": 10, "remaining": 5, "reset_time": 60}
-            return True, {"limit": 10, "remaining": 0, "reset_time": 60, "key": "test:key"}
+            return True, {
+                "limit": 10,
+                "remaining": 0,
+                "reset_time": 60,
+                "key": "test:key",
+            }
 
         mock_check_rate_limit.side_effect = rate_limit_side_effect
 
@@ -350,7 +359,9 @@ class WebSocketConnectionRateLimitTestCase(WebsocketFixtureBaseTestCase):
 
         # Connection should be rejected with code 4029
         self.assertFalse(connected, "Connection should be rejected when rate limited")
-        self.assertEqual(close_code, 4029, "Close code should be 4029 for rate limiting")
+        self.assertEqual(
+            close_code, 4029, "Close code should be 4029 for rate limiting"
+        )
 
     @mock.patch("config.websocket.middlewares.ratelimit_middleware.check_rate_limit")
     async def test_connection_allowed_when_not_rate_limited(

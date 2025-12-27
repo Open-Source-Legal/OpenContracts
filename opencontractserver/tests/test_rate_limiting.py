@@ -55,17 +55,18 @@ class RateLimitConfigurationTestCase(TestCase):
             RATE_LIMIT_OVERRIDES={"AUTH_LOGIN": "10/m", "READ_HEAVY": "20/m"}
         ):
             # Need to reimport to pick up new settings
+            # RateLimits is now in the shared config.ratelimits.config module
             from importlib import reload
 
-            import config.graphql.ratelimits as ratelimits_module
+            import config.ratelimits.config as config_module
 
-            reload(ratelimits_module)
+            reload(config_module)
 
             # Check that overrides are applied
-            self.assertEqual(ratelimits_module.RateLimits.AUTH_LOGIN, "10/m")
-            self.assertEqual(ratelimits_module.RateLimits.READ_HEAVY, "20/m")
+            self.assertEqual(config_module.RateLimits.AUTH_LOGIN, "10/m")
+            self.assertEqual(config_module.RateLimits.READ_HEAVY, "20/m")
             # Other limits should remain default
-            self.assertEqual(ratelimits_module.RateLimits.WRITE_MEDIUM, "10/m")
+            self.assertEqual(config_module.RateLimits.WRITE_MEDIUM, "10/m")
 
     def test_user_tier_rate_calculation(self):
         """Test that user tier rates are calculated correctly."""

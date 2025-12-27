@@ -14,12 +14,10 @@ from channels.middleware import BaseMiddleware
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 
-from config.websocket.ratelimits import (
-    WebSocketRateLimits,
-    check_rate_limit,
-    get_client_ip_from_scope,
-    parse_rate,
-)
+from config.ratelimits import parse_rate, period_to_name
+from config.ratelimits.cache import check_rate_limit
+from config.ratelimits.ip import get_client_ip_from_scope
+from config.websocket.ratelimits import WebSocketRateLimits
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +77,7 @@ class WebSocketRateLimitMiddleware(BaseMiddleware):
             rate = WebSocketRateLimits.WS_CONNECT_ANONYMOUS
 
         # Check rate limit (synchronous check is fine for connection middleware)
-        is_limited, info = check_rate_limit(
-            scope, "ws_connect", rate, increment=True
-        )
+        is_limited, info = check_rate_limit(scope, "ws_connect", rate, increment=True)
 
         if is_limited:
             # Log the rate limit hit
@@ -115,24 +111,20 @@ class WebSocketRateLimitMiddleware(BaseMiddleware):
         # Code 4029 is a custom close code indicating rate limiting
         # (4000-4999 range is reserved for application use)
         try:
-            count, period = parse_rate(rate)
-            period_name = {
-                1: "second",
-                60: "minute",
-                3600: "hour",
-                86400: "day"
-            }.get(period, "period")
-            reason = f"Rate limit exceeded: {count}/{period_name}"
+            count, period_seconds = parse_rate(rate)
+            reason = f"Rate limit exceeded: {count}/{period_to_name(period_seconds)}"
         except (ValueError, TypeError):
             reason = "Rate limit exceeded"
 
         # For WebSocket, we need to accept then close, or just deny
         # Sending close without accept is the cleanest approach
-        await send({
-            "type": "websocket.close",
-            "code": 4029,
-            "reason": reason[:123],  # Close reason max 123 bytes
-        })
+        await send(
+            {
+                "type": "websocket.close",
+                "code": 4029,
+                "reason": reason[:123],  # Close reason max 123 bytes
+            }
+        )
 
 
 def RateLimitMiddleware(inner):
