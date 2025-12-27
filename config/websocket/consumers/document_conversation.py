@@ -36,6 +36,12 @@ from opencontractserver.llms.agents.core_agents import (
     ThoughtEvent,
 )
 
+from config.websocket.ratelimits import (
+    WebSocketRateLimits,
+    check_rate_limit_async,
+    parse_rate,
+)
+
 logger = logging.getLogger(__name__)
 
 # Define a literal type for our standardized message types
@@ -167,6 +173,52 @@ class DocumentQueryConsumer(AsyncWebsocketConsumer):
         )
         self.agent = None
 
+    async def _check_message_rate_limit(self) -> bool:
+        """
+        Check if the current message is within rate limits.
+
+        Returns:
+            True if message is allowed, False if rate limited
+        """
+        if getattr(settings, "RATELIMIT_DISABLE", False):
+            return True
+
+        user = self.scope.get("user")
+        rate = WebSocketRateLimits.get_rate_for_user("WS_AI_QUERY", user)
+
+        is_limited, info = await check_rate_limit_async(
+            self.scope, "ws_ai_query", rate, increment=True
+        )
+
+        if is_limited:
+            count, period = parse_rate(rate)
+            period_name = {1: "second", 60: "minute", 3600: "hour", 86400: "day"}.get(
+                period, "period"
+            )
+
+            error_msg = (
+                f"Rate limit exceeded: Max {count} AI queries per {period_name}. "
+                "Please wait before sending another query."
+            )
+
+            logger.warning(
+                f"[Session {self.session_id}] Message rate limited - "
+                f"Key: {info.get('key', 'unknown')}, Rate: {rate}"
+            )
+
+            await self.send_standard_message(
+                msg_type="RATE_LIMITED",
+                content=error_msg,
+                data={
+                    "limit": info.get("limit", 0),
+                    "remaining": 0,
+                    "retry_after": info.get("reset_time", 60),
+                },
+            )
+            return False
+
+        return True
+
     async def send_standard_message(
         self,
         msg_type: MessageType,
@@ -235,6 +287,10 @@ class DocumentQueryConsumer(AsyncWebsocketConsumer):
         logger.debug(
             f"[Session {self.session_id}] receive() called with text_data: {text_data}"
         )
+
+        # Check message rate limit
+        if not await self._check_message_rate_limit():
+            return
 
         try:
             text_data_json: dict[str, Any] = json.loads(text_data)

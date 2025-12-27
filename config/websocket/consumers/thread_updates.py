@@ -29,6 +29,12 @@ from graphql_relay import from_global_id
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from opencontractserver.conversations.models import Conversation
 
+from config.websocket.ratelimits import (
+    WebSocketRateLimits,
+    check_rate_limit_async,
+    parse_rate,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -144,6 +150,53 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
                 f"[ThreadUpdates {self.consumer_id}] Disconnected from {self.room_group_name}"
             )
 
+    async def _check_message_rate_limit(self) -> bool:
+        """
+        Check if the current message is within rate limits.
+
+        Uses WS_MESSAGE rate for control messages (ping/pong, heartbeat).
+
+        Returns:
+            True if message is allowed, False if rate limited
+        """
+        from django.conf import settings
+
+        if getattr(settings, "RATELIMIT_DISABLE", False):
+            return True
+
+        user = self.scope.get("user")
+        rate = WebSocketRateLimits.get_rate_for_user("WS_MESSAGE", user)
+
+        is_limited, info = await check_rate_limit_async(
+            self.scope, "ws_message", rate, increment=True
+        )
+
+        if is_limited:
+            count, period = parse_rate(rate)
+            period_name = {1: "second", 60: "minute", 3600: "hour", 86400: "day"}.get(
+                period, "period"
+            )
+
+            logger.warning(
+                f"[ThreadUpdates {self.consumer_id}] Message rate limited - "
+                f"Key: {info.get('key', 'unknown')}, Rate: {rate}"
+            )
+
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "RATE_LIMITED",
+                        "message": f"Rate limit exceeded: Max {count} messages per {period_name}.",
+                        "limit": info.get("limit", 0),
+                        "remaining": 0,
+                        "retry_after": info.get("reset_time", 60),
+                    }
+                )
+            )
+            return False
+
+        return True
+
     async def receive(self, text_data: str) -> None:
         """
         Handle incoming messages from client.
@@ -151,6 +204,10 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
         This consumer is primarily for receiving broadcasts, but we handle
         a few client-initiated message types for connection management.
         """
+        # Check message rate limit
+        if not await self._check_message_rate_limit():
+            return
+
         try:
             data = json.loads(text_data)
             msg_type = data.get("type", "")

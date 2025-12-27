@@ -33,6 +33,12 @@ from opencontractserver.conversations.models import MessageType
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.llms import agents
 
+from config.websocket.ratelimits import (
+    WebSocketRateLimits,
+    check_rate_limit_async,
+    parse_rate,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,6 +100,57 @@ class CorpusQueryConsumer(AsyncWebsocketConsumer):
         self.agent = None  # allow GC
 
     # --------------------------------------------------------------------- #
+    #  Rate limiting                                                        #
+    # --------------------------------------------------------------------- #
+    async def _check_message_rate_limit(self) -> bool:
+        """
+        Check if the current message is within rate limits.
+
+        Returns:
+            True if message is allowed, False if rate limited
+        """
+        if getattr(settings, "RATELIMIT_DISABLE", False):
+            return True
+
+        user = self.scope.get("user")
+        rate = WebSocketRateLimits.get_rate_for_user("WS_AI_QUERY", user)
+
+        is_limited, info = await check_rate_limit_async(
+            self.scope, "ws_ai_query", rate, increment=True
+        )
+
+        if is_limited:
+            count, period = parse_rate(rate)
+            period_name = {1: "second", 60: "minute", 3600: "hour", 86400: "day"}.get(
+                period, "period"
+            )
+
+            error_msg = (
+                f"Rate limit exceeded: Max {count} AI queries per {period_name}. "
+                "Please wait before sending another query."
+            )
+
+            logger.warning(
+                "[Session %s] Message rate limited - Key: %s, Rate: %s",
+                self.session_id,
+                info.get("key", "unknown"),
+                rate,
+            )
+
+            await self.send_standard_message(
+                msg_type="RATE_LIMITED",
+                content=error_msg,
+                data={
+                    "limit": info.get("limit", 0),
+                    "remaining": 0,
+                    "retry_after": info.get("reset_time", 60),
+                },
+            )
+            return False
+
+        return True
+
+    # --------------------------------------------------------------------- #
     #  Public helpers                                                       #
     # --------------------------------------------------------------------- #
     async def send_standard_message(
@@ -125,6 +182,10 @@ class CorpusQueryConsumer(AsyncWebsocketConsumer):
             { "query": "some user question" }
         """
         logger.debug("[Session %s] <- %s", self.session_id, text_data)
+
+        # Check message rate limit
+        if not await self._check_message_rate_limit():
+            return
 
         try:
             payload: dict[str, Any] = json.loads(text_data)

@@ -18,7 +18,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Performance optimizations**: Uses existing `AnnotationQueryOptimizer`, `prefetch_related` for threaded messages, and proper pagination
 - **Robust URI parsing**: Regex-based URI parsing with slug validation to prevent injection attacks
 - **Helper function implementations**: Complete `format_*` functions for corpus, document, annotation, thread, and message formatting
-## [Unreleased] - 2025-12-27
+
+#### WebSocket Rate Limiting (Issue #730)
+- **New rate limiting module** (`config/websocket/ratelimits.py`): Comprehensive WebSocket rate limiting utilities that mirror the GraphQL rate limiting infrastructure
+  - `check_rate_limit()` and `check_rate_limit_async()` functions for cache-based rate limit tracking
+  - `WebSocketRateLimits` configuration class with sensible defaults for connection, message, and AI query limits
+  - `parse_rate()` utility for parsing rate limit strings (e.g., "10/m", "100/h")
+  - `get_rate_limit_key()` for per-user (authenticated) or per-IP (anonymous) rate limiting
+  - `RateLimitedConsumerMixin` for easy integration into WebSocket consumers
+- **New rate limiting middleware** (`config/websocket/middlewares/ratelimit_middleware.py`): Connection-level rate limiting that runs before consumers
+  - Rejects excessive connection attempts with close code 4029
+  - Separate limits for authenticated users (WS_CONNECT: 30/m) vs anonymous (WS_CONNECT_ANONYMOUS: 10/m)
+  - Logs rate limit violations for security monitoring
+- **WebSocket rate limit settings** (`config/settings/ratelimit.py`): Environment-variable configurable rate limits
+  - `RATELIMIT_WS_CONNECT`: Connection rate limit (default: 30/m)
+  - `RATELIMIT_WS_MESSAGE`: General message rate limit (default: 60/m)
+  - `RATELIMIT_WS_AI_QUERY`: AI query rate limit (default: 20/m)
+  - All settings have `_ANONYMOUS` variants with lower limits
+- **Message-level rate limiting in all WebSocket consumers**:
+  - `UnifiedAgentConsumer` (`config/websocket/consumers/unified_agent_conversation.py:224-270`)
+  - `DocumentQueryConsumer` (`config/websocket/consumers/document_conversation.py:178-222`)
+  - `CorpusQueryConsumer` (`config/websocket/consumers/corpus_conversation.py:105-151`)
+  - `StandaloneDocumentQueryConsumer` (`config/websocket/consumers/standalone_document_conversation.py:155-199`)
+  - `ThreadUpdatesConsumer` (`config/websocket/consumers/thread_updates.py:156-201`)
+- **Rate limiting integrated into ASGI stack** (`config/asgi.py:126-128`): Middleware runs after authentication for user-aware rate limiting
+- **Comprehensive test suite** (`opencontractserver/tests/test_websocket_ratelimits.py`): Tests for utility functions, rate limit checks, and integration with consumers
+
+### Technical Details
+
+#### WebSocket Rate Limiting Architecture
+- Uses Django's cache backend (same as GraphQL rate limiting) for distributed rate limit tracking
+- Superusers get 5x the normal rate limits
+- Anonymous users get lower rate limits than authenticated users
+- Rate limit violations return a `RATE_LIMITED` message type with retry information
+- Connection rejections use WebSocket close code 4029 (custom code for rate limiting)
+- Respects `RATELIMIT_DISABLE` setting for development/testing
 
 ### Fixed
 

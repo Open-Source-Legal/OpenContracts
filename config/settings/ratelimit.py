@@ -59,3 +59,22 @@ RATELIMIT_IP_META_KEY = "HTTP_X_FORWARDED_FOR"
 # This prevents users from bypassing rate limits by using different IPv6 addresses
 # in the same subnet
 RATELIMIT_IPV6_MASK = 64  # Group by /64 subnet
+
+# WebSocket rate limiting configuration
+# These limits apply to WebSocket connections and messages
+WEBSOCKET_RATE_LIMIT_OVERRIDES = {
+    # Connection rate limits - how often users can establish new WebSocket connections
+    "WS_CONNECT": os.environ.get("RATELIMIT_WS_CONNECT", "30/m"),
+    "WS_CONNECT_ANONYMOUS": os.environ.get("RATELIMIT_WS_CONNECT_ANONYMOUS", "10/m"),
+    # Message rate limits - how many messages can be sent per connection
+    "WS_MESSAGE": os.environ.get("RATELIMIT_WS_MESSAGE", "60/m"),
+    "WS_MESSAGE_ANONYMOUS": os.environ.get("RATELIMIT_WS_MESSAGE_ANONYMOUS", "20/m"),
+    # AI query rate limits - specific limits for AI agent queries
+    "WS_AI_QUERY": os.environ.get("RATELIMIT_WS_AI_QUERY", "20/m"),
+    "WS_AI_QUERY_ANONYMOUS": os.environ.get("RATELIMIT_WS_AI_QUERY_ANONYMOUS", "5/m"),
+}
+
+# Remove None values from websocket rate limits
+WEBSOCKET_RATE_LIMIT_OVERRIDES = {
+    k: v for k, v in WEBSOCKET_RATE_LIMIT_OVERRIDES.items() if v is not None
+}

@@ -41,6 +41,9 @@ from config.websocket.consumers.thread_updates import (  # noqa: E402
 from config.websocket.consumers.unified_agent_conversation import (  # noqa: E402
     UnifiedAgentConsumer,
 )
+from config.websocket.middlewares.ratelimit_middleware import (  # noqa: E402
+    RateLimitMiddleware,
+)
 from opencontractserver.mcp.server import mcp_asgi_app  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -138,12 +141,14 @@ else:
 # Create the ASGI application with proper middleware order
 # 1. Protocol routing
 # 2. Auth middleware (determined above)
-# 3. Logging middleware
+# 3. Rate limit middleware (checks connection rate limits)
 # 4. URL routing
 application = ProtocolTypeRouter(
     {
         "http": http_application,  # Routes /mcp/* to MCP, rest to Django
-        "websocket": websocket_auth_middleware(URLRouter(websocket_urlpatterns)),
+        "websocket": websocket_auth_middleware(
+            RateLimitMiddleware(URLRouter(websocket_urlpatterns))
+        ),
     }
 )
 
