@@ -5,8 +5,6 @@ This module provides common functions for parsing rate strings, formatting
 error messages, and other shared rate limiting logic.
 """
 
-from typing import Tuple
-
 # Period mapping: character -> seconds
 PERIOD_SECONDS = {
     "s": 1,
@@ -32,7 +30,7 @@ PERIOD_CHAR_NAMES = {
 }
 
 
-def parse_rate(rate: str) -> Tuple[int, int]:
+def parse_rate(rate: str) -> tuple[int, int]:
     """
     Parse a rate string like "10/m" into (count, seconds).
 

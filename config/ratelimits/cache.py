@@ -8,7 +8,6 @@ Uses Django's cache backend for atomic rate limit tracking.
 """
 
 import logging
-from typing import Tuple
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -48,7 +47,7 @@ def check_rate_limit(
     group: str,
     rate: str,
     increment: bool = True,
-) -> Tuple[bool, dict]:
+) -> tuple[bool, dict]:
     """
     Check if a request is rate limited using Django's cache backend.
 
@@ -123,14 +122,10 @@ def check_rate_limit(
         # If cache is unavailable, check RATELIMIT_FAIL_OPEN setting
         fail_open = getattr(settings, "RATELIMIT_FAIL_OPEN", False)
         if fail_open:
-            logger.error(
-                f"Rate limit cache error (failing open): {e}", exc_info=True
-            )
+            logger.error(f"Rate limit cache error (failing open): {e}", exc_info=True)
             return False, {"limit": 0, "remaining": 0, "reset_time": 0}
         else:
-            logger.error(
-                f"Rate limit cache error (failing closed): {e}", exc_info=True
-            )
+            logger.error(f"Rate limit cache error (failing closed): {e}", exc_info=True)
             return True, {"limit": 0, "remaining": 0, "reset_time": 0}
 
 
@@ -139,7 +134,7 @@ async def check_rate_limit_async(
     group: str,
     rate: str,
     increment: bool = True,
-) -> Tuple[bool, dict]:
+) -> tuple[bool, dict]:
     """
     Async wrapper for check_rate_limit.
 
@@ -157,6 +152,4 @@ async def check_rate_limit_async(
     """
     from channels.db import database_sync_to_async
 
-    return await database_sync_to_async(check_rate_limit)(
-        scope, group, rate, increment
-    )
+    return await database_sync_to_async(check_rate_limit)(scope, group, rate, increment)

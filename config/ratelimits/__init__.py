@@ -24,6 +24,16 @@ Usage:
     is_limited, info = await check_rate_limit_async(scope, "ws_connect", "30/m")
 """
 
+# Cache-based rate limiting (for WebSocket)
+from config.ratelimits.cache import (
+    check_rate_limit,
+    check_rate_limit_async,
+    get_rate_limit_key,
+)
+
+# Configuration
+from config.ratelimits.config import RateLimits
+
 # Core utilities
 from config.ratelimits.core import (
     PERIOD_CHAR_NAMES,
@@ -36,8 +46,11 @@ from config.ratelimits.core import (
     period_to_name,
 )
 
-# Configuration
-from config.ratelimits.config import RateLimits
+# IP extraction
+from config.ratelimits.ip import (
+    get_client_ip_from_request,
+    get_client_ip_from_scope,
+)
 
 # User tier logic
 from config.ratelimits.tiers import (
@@ -45,19 +58,6 @@ from config.ratelimits.tiers import (
     get_tier_multiplier,
     get_user_tier_rate,
     is_user_authenticated,
-)
-
-# IP extraction
-from config.ratelimits.ip import (
-    get_client_ip_from_request,
-    get_client_ip_from_scope,
-)
-
-# Cache-based rate limiting (for WebSocket)
-from config.ratelimits.cache import (
-    check_rate_limit,
-    check_rate_limit_async,
-    get_rate_limit_key,
 )
 
 __all__ = [
