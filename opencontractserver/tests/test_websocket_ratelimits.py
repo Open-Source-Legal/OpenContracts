@@ -19,6 +19,7 @@ from django.core.cache import caches
 from django.test import override_settings
 from graphql_relay import to_global_id
 
+from config.ratelimits.tiers import TIER_MULTIPLIERS, get_tier_multiplier
 from config.websocket.ratelimits import (
     WebSocketRateLimits,
     check_rate_limit,
@@ -196,6 +197,99 @@ class TestCheckRateLimit:
             )
             assert is_limited is False
 
+    @override_settings(RATELIMIT_DISABLE=False, RATELIMIT_FAIL_OPEN=True)
+    def test_rate_limit_fail_open(self, settings):
+        """Test that rate limiting fails open when configured."""
+        # Mock cache to raise an exception
+        scope = {
+            "user": AnonymousUser(),
+            "headers": [],
+            "client": ("10.0.0.10", 8000),
+        }
+
+        with mock.patch("config.ratelimits.cache.caches") as mock_caches:
+            mock_cache = mock.MagicMock()
+            mock_cache.add.side_effect = Exception("Cache unavailable")
+            mock_caches.__getitem__.return_value = mock_cache
+
+            # Should NOT be limited when failing open
+            is_limited, _ = check_rate_limit(
+                scope, "test_fail_open", "5/m", increment=True
+            )
+            assert is_limited is False
+
+    @override_settings(RATELIMIT_DISABLE=False, RATELIMIT_FAIL_OPEN=False)
+    def test_rate_limit_fail_closed(self, settings):
+        """Test that rate limiting fails closed when configured (default)."""
+        scope = {
+            "user": AnonymousUser(),
+            "headers": [],
+            "client": ("10.0.0.11", 8000),
+        }
+
+        with mock.patch("config.ratelimits.cache.caches") as mock_caches:
+            mock_cache = mock.MagicMock()
+            mock_cache.add.side_effect = Exception("Cache unavailable")
+            mock_caches.__getitem__.return_value = mock_cache
+
+            # SHOULD be limited when failing closed
+            is_limited, _ = check_rate_limit(
+                scope, "test_fail_closed", "5/m", increment=True
+            )
+            assert is_limited is True
+
+
+@pytest.mark.django_db
+class TestTierMultipliers:
+    """Tests for user tier-based rate limit multipliers."""
+
+    def test_anonymous_user_multiplier(self):
+        """Test that anonymous users get 1x multiplier."""
+        multiplier = get_tier_multiplier(AnonymousUser())
+        assert multiplier == TIER_MULTIPLIERS["anonymous"]
+        assert multiplier == 1.0
+
+    def test_authenticated_user_multiplier(self):
+        """Test that authenticated non-superusers get 2x multiplier."""
+        mock_user = mock.MagicMock(spec=["is_authenticated", "is_superuser"])
+        mock_user.is_authenticated = True
+        mock_user.is_superuser = False
+
+        multiplier = get_tier_multiplier(mock_user)
+        assert multiplier == TIER_MULTIPLIERS["authenticated"]
+        assert multiplier == 2.0
+
+    def test_superuser_multiplier(self):
+        """Test that superusers get 10x multiplier."""
+        mock_user = mock.MagicMock()
+        mock_user.is_authenticated = True
+        mock_user.is_superuser = True
+
+        multiplier = get_tier_multiplier(mock_user)
+        assert multiplier == TIER_MULTIPLIERS["superuser"]
+        assert multiplier == 10.0
+
+    def test_usage_capped_user_multiplier(self):
+        """Test that usage-capped users get 0.5x on top of authenticated (2x * 0.5 = 1x)."""
+        mock_user = mock.MagicMock()
+        mock_user.is_authenticated = True
+        mock_user.is_superuser = False
+        mock_user.is_usage_capped = True
+
+        multiplier = get_tier_multiplier(mock_user)
+        # 2.0 (authenticated) * 0.5 (usage_capped) = 1.0
+        assert (
+            multiplier
+            == TIER_MULTIPLIERS["authenticated"] * TIER_MULTIPLIERS["usage_capped"]
+        )
+        assert multiplier == 1.0
+
+    def test_none_user_multiplier(self):
+        """Test that None user gets anonymous multiplier."""
+        multiplier = get_tier_multiplier(None)
+        assert multiplier == TIER_MULTIPLIERS["anonymous"]
+        assert multiplier == 1.0
+
 
 @pytest.mark.serial
 class WebSocketRateLimitIntegrationTestCase(WebsocketFixtureBaseTestCase):
@@ -336,6 +430,7 @@ class WebSocketConnectionRateLimitTestCase(WebsocketFixtureBaseTestCase):
         cache = caches["default"]
         cache.clear()
 
+    @override_settings(RATELIMIT_DISABLE=False)
     @mock.patch("config.websocket.middlewares.ratelimit_middleware.check_rate_limit")
     async def test_connection_rejected_when_rate_limited(
         self,
@@ -363,6 +458,7 @@ class WebSocketConnectionRateLimitTestCase(WebsocketFixtureBaseTestCase):
             close_code, 4029, "Close code should be 4029 for rate limiting"
         )
 
+    @override_settings(RATELIMIT_DISABLE=False)
     @mock.patch("config.websocket.middlewares.ratelimit_middleware.check_rate_limit")
     async def test_connection_allowed_when_not_rate_limited(
         self,

@@ -30,6 +30,7 @@ from config.websocket.ratelimits import (
     WebSocketRateLimits,
     check_rate_limit_async,
     parse_rate,
+    period_to_name,
 )
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from opencontractserver.conversations.models import Conversation
@@ -172,9 +173,7 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
 
         if is_limited:
             count, period = parse_rate(rate)
-            period_name = {1: "second", 60: "minute", 3600: "hour", 86400: "day"}.get(
-                period, "period"
-            )
+            period_name_str = period_to_name(period)
 
             logger.warning(
                 f"[ThreadUpdates {self.consumer_id}] Message rate limited - "
@@ -185,7 +184,7 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
                 text_data=json.dumps(
                     {
                         "type": "RATE_LIMITED",
-                        "message": f"Rate limit exceeded: Max {count} messages per {period_name}.",
+                        "message": f"Rate limit exceeded: Max {count} messages per {period_name_str}.",
                         "limit": info.get("limit", 0),
                         "remaining": 0,
                         "retry_after": info.get("reset_time", 60),

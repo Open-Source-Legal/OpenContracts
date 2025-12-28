@@ -14,7 +14,7 @@ from channels.middleware import BaseMiddleware
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 
-from config.ratelimits import parse_rate, period_to_name
+from config.ratelimits import WS_CLOSE_REASON_MAX_BYTES, parse_rate, period_to_name
 from config.ratelimits.cache import check_rate_limit
 from config.ratelimits.ip import get_client_ip_from_scope
 from config.websocket.ratelimits import WebSocketRateLimits
@@ -122,7 +122,7 @@ class WebSocketRateLimitMiddleware(BaseMiddleware):
             {
                 "type": "websocket.close",
                 "code": 4029,
-                "reason": reason[:123],  # Close reason max 123 bytes
+                "reason": reason[:WS_CLOSE_REASON_MAX_BYTES],
             }
         )
 

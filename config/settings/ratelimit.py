@@ -62,19 +62,21 @@ RATELIMIT_IPV6_MASK = 64  # Group by /64 subnet
 
 # WebSocket rate limiting configuration
 # These limits apply to WebSocket connections and messages
+# NOTE: Default values are defined in config/ratelimits/config.py (single source of truth)
+# Only set here if environment variables are explicitly provided
 WEBSOCKET_RATE_LIMIT_OVERRIDES = {
     # Connection rate limits - how often users can establish new WebSocket connections
-    "WS_CONNECT": os.environ.get("RATELIMIT_WS_CONNECT", "30/m"),
-    "WS_CONNECT_ANONYMOUS": os.environ.get("RATELIMIT_WS_CONNECT_ANONYMOUS", "10/m"),
+    "WS_CONNECT": os.environ.get("RATELIMIT_WS_CONNECT"),
+    "WS_CONNECT_ANONYMOUS": os.environ.get("RATELIMIT_WS_CONNECT_ANONYMOUS"),
     # Message rate limits - how many messages can be sent per connection
-    "WS_MESSAGE": os.environ.get("RATELIMIT_WS_MESSAGE", "60/m"),
-    "WS_MESSAGE_ANONYMOUS": os.environ.get("RATELIMIT_WS_MESSAGE_ANONYMOUS", "20/m"),
+    "WS_MESSAGE": os.environ.get("RATELIMIT_WS_MESSAGE"),
+    "WS_MESSAGE_ANONYMOUS": os.environ.get("RATELIMIT_WS_MESSAGE_ANONYMOUS"),
     # AI query rate limits - specific limits for AI agent queries
-    "WS_AI_QUERY": os.environ.get("RATELIMIT_WS_AI_QUERY", "20/m"),
-    "WS_AI_QUERY_ANONYMOUS": os.environ.get("RATELIMIT_WS_AI_QUERY_ANONYMOUS", "5/m"),
+    "WS_AI_QUERY": os.environ.get("RATELIMIT_WS_AI_QUERY"),
+    "WS_AI_QUERY_ANONYMOUS": os.environ.get("RATELIMIT_WS_AI_QUERY_ANONYMOUS"),
 }
 
-# Remove None values from websocket rate limits
+# Remove None values - only overrides explicitly set via environment will be applied
 WEBSOCKET_RATE_LIMIT_OVERRIDES = {
     k: v for k, v in WEBSOCKET_RATE_LIMIT_OVERRIDES.items() if v is not None
 }

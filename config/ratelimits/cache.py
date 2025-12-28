@@ -81,25 +81,31 @@ def check_rate_limit(
     full_key = f"{prefix}:{key}"
 
     try:
-        # Get current count
-        current = cache.get(full_key, 0)
+        # Use atomic operations to prevent race conditions:
+        # 1. cache.add() atomically creates key with value 0 if it doesn't exist
+        # 2. cache.incr() atomically increments the counter
+        # 3. Check if the NEW value exceeds the limit
 
-        is_limited = current >= max_count
+        if increment:
+            # Try to atomically create the key with value 0
+            # Returns True if key was created, False if it already exists
+            cache.add(full_key, 0, period_seconds)
 
-        if increment and not is_limited:
-            # Use cache.add for atomic increment with TTL
-            # If key doesn't exist, set it with TTL
-            if current == 0:
+            # Atomically increment and get the new value
+            try:
+                current = cache.incr(full_key)
+            except ValueError:
+                # Key expired between add and incr (rare race condition)
+                # Set it to 1 with TTL
                 cache.set(full_key, 1, period_seconds)
-            else:
-                # Increment existing counter
-                try:
-                    cache.incr(full_key)
-                except ValueError:
-                    # Key expired between get and incr, reset it
-                    cache.set(full_key, 1, period_seconds)
+                current = 1
 
-            current += 1
+            # Check limit AFTER incrementing for accurate rate limiting
+            is_limited = current > max_count
+        else:
+            # Just check current state without incrementing
+            current = cache.get(full_key, 0)
+            is_limited = current >= max_count
 
         remaining = max(0, max_count - current)
 

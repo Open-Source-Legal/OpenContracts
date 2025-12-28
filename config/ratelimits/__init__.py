@@ -39,6 +39,7 @@ from config.ratelimits.core import (
     PERIOD_CHAR_NAMES,
     PERIOD_NAMES,
     PERIOD_SECONDS,
+    WS_CLOSE_REASON_MAX_BYTES,
     apply_multiplier_to_rate,
     format_rate_limit_message,
     parse_rate,
@@ -70,6 +71,7 @@ __all__ = [
     "PERIOD_SECONDS",
     "PERIOD_NAMES",
     "PERIOD_CHAR_NAMES",
+    "WS_CLOSE_REASON_MAX_BYTES",
     # Config
     "RateLimits",
     # Tiers

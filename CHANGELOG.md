@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### WebSocket Rate Limiting Architecture
 - Uses Django's cache backend (same as GraphQL rate limiting) for distributed rate limit tracking
-- Superusers get 5x the normal rate limits
+- Superusers get 10x the normal rate limits (consistent with GraphQL tier)
 - Anonymous users get lower rate limits than authenticated users
 - Rate limit violations return a `RATE_LIMITED` message type with retry information
 - Connection rejections use WebSocket close code 4029 (custom code for rate limiting)

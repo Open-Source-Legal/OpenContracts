@@ -5,6 +5,9 @@ This module provides common functions for parsing rate strings, formatting
 error messages, and other shared rate limiting logic.
 """
 
+# WebSocket close reason max length (per WebSocket spec, close reasons must be ≤123 bytes)
+WS_CLOSE_REASON_MAX_BYTES = 123
+
 # Period mapping: character -> seconds
 PERIOD_SECONDS = {
     "s": 1,
