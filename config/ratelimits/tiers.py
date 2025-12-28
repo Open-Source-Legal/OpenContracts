@@ -83,6 +83,13 @@ def get_user_tier_rate(operation_type: str) -> Callable:
     This is the main function used by GraphQL dynamic rate limiting.
     It returns a callable that can be passed to graphql_ratelimit_dynamic.
 
+    Note:
+        This function works correctly for both authenticated and anonymous users.
+        Anonymous users (including None and AnonymousUser instances) receive a
+        1x multiplier, meaning they get the base rate limit without modification.
+        The inner function accesses user via info.context.user, which is always
+        available in GraphQL resolvers (set by authentication middleware).
+
     Args:
         operation_type: Type of operation from RateLimits class
                        (e.g., "READ_MEDIUM", "WRITE_HEAVY")
