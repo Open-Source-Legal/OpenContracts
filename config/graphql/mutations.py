@@ -152,6 +152,7 @@ from opencontractserver.tasks import (
     burn_doc_annotations,
     delete_analysis_and_annotations_task,
     fork_corpus,
+    fork_corpus_v2,
     import_corpus,
     import_document_to_corpus,
     package_annotated_docs,
@@ -1120,10 +1121,43 @@ class UpdateDocumentSummary(graphene.Mutation):
 
 
 class StartCorpusFork(graphene.Mutation):
+    """
+    Fork a corpus with all its content.
+
+    This mutation creates a copy of a corpus including:
+    - Documents (with file copies)
+    - LabelSet and AnnotationLabels
+    - Annotations (non-analysis)
+    - Relationships between annotations
+    - Extracts, Fieldsets, Columns, Datacells
+    - Conversations (chat type only)
+    - Notes and NoteRevisions
+    - Folder structure
+
+    What is NOT forked:
+    - Analyses and analyzer-created annotations
+    - Discussion threads (conversation_type='thread')
+    - Moderation actions and audit trails
+    - User reputation and moderator assignments
+    - CorpusActions (automation configs)
+    """
+
     class Arguments:
         corpus_id = graphene.String(
             required=True,
-            description="Graphene id of the corpus you want to package for export",
+            description="Graphene id of the corpus you want to fork",
+        )
+        fork_extracts = graphene.Boolean(
+            default_value=True,
+            description="Whether to fork extracts and datacells",
+        )
+        fork_conversations = graphene.Boolean(
+            default_value=True,
+            description="Whether to fork chat conversations",
+        )
+        fork_notes = graphene.Boolean(
+            default_value=True,
+            description="Whether to fork notes",
         )
 
     ok = graphene.Boolean()
@@ -1131,22 +1165,25 @@ class StartCorpusFork(graphene.Mutation):
     new_corpus = graphene.Field(CorpusType)
 
     @login_required
-    def mutate(root, info, corpus_id):
-
+    def mutate(
+        root,
+        info,
+        corpus_id,
+        fork_extracts=True,
+        fork_conversations=True,
+        fork_notes=True,
+    ):
         ok = False
         message = ""
         new_corpus = None
 
         try:
-
-            # Get annotation ids for the old corpus - these refer to a corpus, doc and label by id, so easaiest way to
-            # copy these is to first filter by annotations for our corpus. Then, later, we'll use a dict to map old ids
-            # for labels and docs to new obj ids
+            # Parse corpus ID
             corpus_pk = from_global_id(corpus_id)[1]
 
             # Get corpus obj with visibility check
             try:
-                corpus = Corpus.objects.visible_to_user(info.context.user).get(
+                source_corpus = Corpus.objects.visible_to_user(info.context.user).get(
                     pk=corpus_pk
                 )
             except Corpus.DoesNotExist:
@@ -1154,10 +1191,10 @@ class StartCorpusFork(graphene.Mutation):
                     ok=False, message="Corpus not found", new_corpus=None
                 )
 
-            # Verify READ permission
+            # Verify READ permission (IDOR protection - same error message)
             if not user_has_permission_for_obj(
                 info.context.user,
-                corpus,
+                source_corpus,
                 PermissionTypes.READ,
                 include_group_permissions=True,
             ):
@@ -1165,47 +1202,42 @@ class StartCorpusFork(graphene.Mutation):
                     ok=False, message="Corpus not found", new_corpus=None
                 )
 
-            annotation_ids = list(
-                Annotation.objects.filter(
-                    corpus_id=corpus_pk,
-                    analysis__isnull=True,
-                ).values_list("id", flat=True)
+            # Create new corpus (locked until async task completes)
+            # Using Django ORM copy trick - set pk to None and save
+            new_corpus_obj = Corpus(
+                title=f"[FORK] {source_corpus.title}",
+                description=source_corpus.description,
+                icon=source_corpus.icon,
+                allow_comments=source_corpus.allow_comments,
+                is_public=False,  # Forks start private
+                creator=info.context.user,
+                backend_lock=True,  # Lock until fork completes
+                parent_id=corpus_pk,  # Track lineage
+                # Copy agent instructions
+                corpus_agent_instructions=source_corpus.corpus_agent_instructions,
+                document_agent_instructions=source_corpus.document_agent_instructions,
+                preferred_embedder=source_corpus.preferred_embedder,
             )
+            new_corpus_obj.save()
 
-            # Get ids to related objects that need copyin'
-            # Use new DocumentPath-based method to get active documents
-            doc_ids = list(corpus.get_documents().values_list("id", flat=True))
-            label_set_id = corpus.label_set.pk if corpus.label_set else None
-
-            # Clone the corpus: https://docs.djangoproject.com/en/3.1/topics/db/queries/copying-model-instances
-            corpus.pk = None
-
-            # Adjust the title to indicate it's a fork
-            corpus.title = f"{corpus.title}"
-
-            # lock the corpus which will tell frontend to show this as loading and disable selection
-            corpus.backend_lock = True
-            corpus.creator = info.context.user  # switch the creator to the current user
-            corpus.parent_id = corpus_pk
-            corpus.save()
-
+            # Set full permissions for the user
             set_permissions_for_obj_to_user(
-                info.context.user, corpus, [PermissionTypes.CRUD]
+                info.context.user, new_corpus_obj, [PermissionTypes.CRUD]
             )
 
-            # Now remove references to related objects on our new object, as these point to original docs and labels
-            # Note: New corpus has no DocumentPath records yet, so this is safe
-            corpus.documents.clear()
-            corpus.label_set = None
-
-            # Copy docs and annotations using async task to avoid massive lag if we have large dataset or lots of
-            # users requesting copies.
-            fork_corpus.si(
-                corpus.id, doc_ids, label_set_id, annotation_ids, info.context.user.id
-            ).apply_async()
+            # Queue async fork task with new modular implementation
+            fork_corpus_v2.delay(
+                new_corpus_id=new_corpus_obj.id,
+                source_corpus_id=int(corpus_pk),
+                user_id=info.context.user.id,
+                fork_extracts_flag=fork_extracts,
+                fork_conversations_flag=fork_conversations,
+                fork_notes_flag=fork_notes,
+            )
 
             ok = True
-            new_corpus = corpus
+            new_corpus = new_corpus_obj
+            message = "Fork started successfully"
 
         except Exception as e:
             message = f"Error trying to fork corpus with id {corpus_id}: {e}"
@@ -1216,6 +1248,10 @@ class StartCorpusFork(graphene.Mutation):
             {
                 "env": settings.MODE,
                 "user_id": info.context.user.id,
+                "source_corpus_id": corpus_pk if "corpus_pk" in dir() else None,
+                "fork_extracts": fork_extracts,
+                "fork_conversations": fork_conversations,
+                "fork_notes": fork_notes,
             },
         )
 

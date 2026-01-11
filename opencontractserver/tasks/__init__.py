@@ -8,6 +8,7 @@ from .doc_tasks import burn_doc_annotations
 from .export_tasks import package_annotated_docs
 from .extract_orchestrator_tasks import run_extract
 from .fork_tasks import fork_corpus
+from .fork_tasks_v2 import fork_corpus_v2
 from .import_tasks import (
     import_corpus,
     import_document_to_corpus,
@@ -30,6 +31,7 @@ __all__ = [
     "package_annotated_docs",
     "burn_doc_annotations",
     "fork_corpus",
+    "fork_corpus_v2",
     "build_label_lookups_task",
     "import_corpus",
     "import_document_to_corpus",
