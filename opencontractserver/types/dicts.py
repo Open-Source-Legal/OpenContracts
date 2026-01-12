@@ -304,8 +304,10 @@ class OpenContractDocExport(OpenContractsDocAnnotations):
     # We need to have a page count for certain analyses
     page_count: int
 
-    # V2: Reference to structural annotation set (if any)
-    structural_set_hash: NotRequired[Optional[str]]
+    # Original PDF file hash (for V2 DocumentPath matching)
+    # Note: The exported PDF may be modified (annotations burned in),
+    # so we store the original hash to enable matching on import
+    pdf_file_hash: NotRequired[Optional[str]]
 
 
 class OpenContractsExportDataJsonPythonType(TypedDict):
@@ -381,22 +383,10 @@ class OpenContractsGeneratedCorpusPythonType(TypedDict):
 # Export Format V2.0 - Added for comprehensive corpus export/import
 # ============================================================================
 
-
-class StructuralAnnotationSetExport(TypedDict):
-    """
-    Export format for StructuralAnnotationSet - shared structural annotations
-    across document copies.
-    """
-
-    content_hash: str
-    parser_name: Optional[str]
-    parser_version: Optional[str]
-    page_count: Optional[int]
-    token_count: Optional[int]
-    pawls_file_content: list[PawlsPagePythonType]
-    txt_content: str
-    structural_annotations: list[OpenContractsAnnotationPythonType]
-    structural_relationships: list[OpenContractsRelationshipPythonType]
+# NOTE: StructuralAnnotationSetExport was removed. Structural annotations are now
+# stored directly on documents with structural=True flag, not in a separate set.
+# The structural_annotation_sets field in V2 exports is kept for backward
+# compatibility but will always be an empty dict in new exports.
 
 
 class CorpusFolderExport(TypedDict):
@@ -578,10 +568,10 @@ class OpenContractsExportDataJsonV2Type(TypedDict):
 
     # ===== NEW V2 FIELDS =====
 
-    # Structural annotations (shared across document copies)
-    structural_annotation_sets: dict[
-        str, StructuralAnnotationSetExport
-    ]  # Keyed by content_hash
+    # Structural annotations - DEPRECATED, always empty in new exports.
+    # Legacy exports may have data here which will be converted to regular
+    # annotations with structural=True during import.
+    structural_annotation_sets: dict[str, dict]  # Keyed by content_hash
 
     # Corpus folder hierarchy
     folders: list[CorpusFolderExport]

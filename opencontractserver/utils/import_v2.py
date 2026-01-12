@@ -2,18 +2,20 @@
 Import utilities for V2 corpus import format.
 
 Handles import of new features added since original import design:
-- Structural annotation sets (with deduplication)
 - Corpus folders (reconstruct hierarchy)
 - DocumentPath version trees (preserve history)
-- Relationships (with ID mapping)
+- Relationships (with ID mapping, including structural)
 - Agent configurations
 - Markdown descriptions with revisions
 - Conversations and messages (optional)
+
+Note: StructuralAnnotationSet was removed. Structural annotations are now stored
+directly on documents with structural=True flag. Legacy V2 exports with
+structural_annotation_sets are handled by converting to direct annotations.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 
@@ -24,7 +26,6 @@ from django.utils import timezone
 from opencontractserver.annotations.models import (
     Annotation,
     Relationship,
-    StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import (
     Corpus,
@@ -38,153 +39,12 @@ from opencontractserver.types.dicts import (
     DescriptionRevisionExport,
     DocumentPathExport,
     OpenContractsRelationshipPythonType,
-    StructuralAnnotationSetExport,
 )
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 User = get_user_model()
-
-
-def import_structural_annotation_set(
-    struct_data: StructuralAnnotationSetExport,
-    label_lookup: dict,
-    user_obj: User,
-) -> StructuralAnnotationSet | None:
-    """
-    Import or retrieve existing StructuralAnnotationSet.
-
-    Uses content_hash for deduplication - if a set with this hash already exists,
-    returns it instead of creating a new one.
-
-    Args:
-        struct_data: StructuralAnnotationSetExport dict
-        label_lookup: Mapping of label text to AnnotationLabel instances
-        user_obj: User performing the import
-
-    Returns:
-        StructuralAnnotationSet instance or None on error
-    """
-    try:
-        content_hash = struct_data["content_hash"]
-
-        # Check if this structural set already exists
-        existing_set = StructuralAnnotationSet.objects.filter(
-            content_hash=content_hash
-        ).first()
-
-        if existing_set:
-            logger.info(f"Structural set {content_hash} already exists, reusing it")
-            return existing_set
-
-        logger.info(f"Creating new structural annotation set {content_hash}")
-
-        # Create files
-        pawls_file = None
-        if struct_data.get("pawls_file_content"):
-            pawls_content = json.dumps(struct_data["pawls_file_content"]).encode(
-                "utf-8"
-            )
-            pawls_file = ContentFile(pawls_content, name="pawls_tokens.json")
-
-        txt_file = None
-        if struct_data.get("txt_content"):
-            txt_content = struct_data["txt_content"].encode("utf-8")
-            txt_file = ContentFile(txt_content, name="extracted_text.txt")
-
-        # Create StructuralAnnotationSet
-        struct_set = StructuralAnnotationSet.objects.create(
-            content_hash=content_hash,
-            parser_name=struct_data.get("parser_name"),
-            parser_version=struct_data.get("parser_version"),
-            page_count=struct_data.get("page_count"),
-            token_count=struct_data.get("token_count"),
-            pawls_parse_file=pawls_file,
-            txt_extract_file=txt_file,
-            creator=user_obj,
-        )
-
-        # Build annotation ID mapping (old export ID -> new DB ID)
-        annot_id_map = {}
-
-        # Create structural annotations
-        for annot_data in struct_data.get("structural_annotations", []):
-            label_text = annot_data.get("annotationLabel", "")
-            label_obj = label_lookup.get(label_text)
-
-            if not label_obj:
-                logger.warning(
-                    f"Label '{label_text}' not found in lookup, skipping annotation"
-                )
-                continue
-
-            old_id = annot_data.get("id")
-
-            annot = Annotation.objects.create(
-                structural_set=struct_set,
-                annotation_label=label_obj,
-                raw_text=annot_data.get("rawText", ""),
-                page=annot_data.get("page", 0),
-                json=annot_data.get("annotation_json", {}),
-                annotation_type=annot_data.get("annotation_type", ""),
-                structural=True,
-                creator=user_obj,
-            )
-
-            if old_id:
-                annot_id_map[str(old_id)] = annot.id
-
-        # Second pass: set parent relationships
-        for annot_data in struct_data.get("structural_annotations", []):
-            old_id = annot_data.get("id")
-            parent_old_id = annot_data.get("parent_id")
-
-            if old_id and parent_old_id and str(parent_old_id) in annot_id_map:
-                new_id = annot_id_map[str(old_id)]
-                parent_new_id = annot_id_map[str(parent_old_id)]
-
-                annot = Annotation.objects.get(id=new_id)
-                annot.parent_id = parent_new_id
-                annot.save(update_fields=["parent"])
-
-        # Create structural relationships
-        for rel_data in struct_data.get("structural_relationships", []):
-            label_text = rel_data.get("relationshipLabel", "")
-            label_obj = label_lookup.get(label_text)
-
-            if not label_obj:
-                logger.warning(f"Relationship label '{label_text}' not found, skipping")
-                continue
-
-            # Map old annotation IDs to new ones
-            source_ids = [
-                annot_id_map.get(str(old_id))
-                for old_id in rel_data.get("source_annotation_ids", [])
-                if str(old_id) in annot_id_map
-            ]
-            target_ids = [
-                annot_id_map.get(str(old_id))
-                for old_id in rel_data.get("target_annotation_ids", [])
-                if str(old_id) in annot_id_map
-            ]
-
-            if source_ids and target_ids:
-                rel = Relationship.objects.create(
-                    structural_set=struct_set,
-                    relationship_label=label_obj,
-                    structural=True,
-                    creator=user_obj,
-                )
-                rel.source_annotations.set(source_ids)
-                rel.target_annotations.set(target_ids)
-
-        logger.info(f"Created structural set {content_hash} with annotations")
-        return struct_set
-
-    except Exception as e:
-        logger.error(f"Error importing structural annotation set: {e}")
-        return None
 
 
 def import_corpus_folders(
@@ -346,6 +206,8 @@ def import_relationships(
     """
     Import relationships with ID mapping.
 
+    Imports both structural and non-structural relationships.
+
     Args:
         relationships_data: List of relationship dicts
         corpus: Target Corpus instance
@@ -363,9 +225,7 @@ def import_relationships(
                 logger.warning(f"Relationship label '{label_text}' not found")
                 continue
 
-            # Skip structural relationships (handled by structural sets)
-            if rel_data.get("structural"):
-                continue
+            is_structural = rel_data.get("structural", False)
 
             # Map annotation IDs
             source_ids = [
@@ -381,8 +241,6 @@ def import_relationships(
 
             if source_ids and target_ids:
                 # Get document from first source annotation
-                from opencontractserver.annotations.models import Annotation
-
                 first_source_annot = Annotation.objects.get(id=source_ids[0])
                 document = first_source_annot.document
 
@@ -390,7 +248,7 @@ def import_relationships(
                     corpus=corpus,
                     document=document,
                     relationship_label=label_obj,
-                    structural=False,
+                    structural=is_structural,
                     creator=user_obj,
                 )
                 rel.source_annotations.set(source_ids)

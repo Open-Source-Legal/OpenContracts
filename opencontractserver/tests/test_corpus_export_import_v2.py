@@ -9,6 +9,7 @@ Tests cover:
 - Edge cases and data integrity
 """
 
+import hashlib
 import json
 import pathlib
 import zipfile
@@ -28,7 +29,6 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     LabelSet,
     Relationship,
-    StructuralAnnotationSet,
 )
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -52,7 +52,6 @@ from opencontractserver.utils.export_v2 import (
     package_corpus_folders,
     package_document_paths,
     package_md_description_revisions,
-    package_structural_annotation_set,
 )
 from opencontractserver.utils.import_v2 import (
     import_agent_config,
@@ -61,7 +60,6 @@ from opencontractserver.utils.import_v2 import (
     import_document_paths,
     import_md_description_revisions,
     import_relationships,
-    import_structural_annotation_set,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -113,49 +111,6 @@ class TestV2ExportUtilities(TransactionTestCase):
             allow_comments=True,
         )
         set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.ALL])
-
-    def test_package_structural_annotation_set(self):
-        """Test exporting a structural annotation set."""
-        # Create structural annotation set
-        pawls_content = [
-            {"page": {"index": 0, "width": 600, "height": 800}, "tokens": []}
-        ]
-        txt_content = "Test document content"
-
-        struct_set = StructuralAnnotationSet.objects.create(
-            content_hash="test_hash_123",
-            parser_name="docling",
-            parser_version="1.0",
-            page_count=1,
-            token_count=10,
-            pawls_parse_file=ContentFile(
-                json.dumps(pawls_content).encode(), name="pawls.json"
-            ),
-            txt_extract_file=ContentFile(txt_content.encode(), name="text.txt"),
-            creator=self.user,
-        )
-
-        # Create structural annotations
-        Annotation.objects.create(
-            structural_set=struct_set,
-            annotation_label=self.text_label,
-            raw_text="Test annotation",
-            page=0,
-            json={"0": {"bounds": {}, "tokensJsons": [], "rawText": "Test"}},
-            structural=True,
-            creator=self.user,
-        )
-
-        # Export
-        result = package_structural_annotation_set(struct_set)
-
-        # Verify
-        self.assertIsNotNone(result)
-        self.assertEqual(result["content_hash"], "test_hash_123")
-        self.assertEqual(result["parser_name"], "docling")
-        self.assertEqual(result["page_count"], 1)
-        self.assertEqual(len(result["structural_annotations"]), 1)
-        self.assertEqual(result["txt_content"], txt_content)
 
     def test_package_corpus_folders(self):
         """Test exporting corpus folder hierarchy."""
@@ -321,47 +276,6 @@ class TestV2ImportUtilities(TransactionTestCase):
             label_set=self.labelset,
             creator=self.user,
         )
-
-    def test_import_structural_annotation_set(self):
-        """Test importing a structural annotation set."""
-        struct_data = {
-            "content_hash": "import_hash_123",
-            "parser_name": "docling",
-            "parser_version": "1.0",
-            "page_count": 1,
-            "token_count": 10,
-            "pawls_file_content": [
-                {"page": {"index": 0, "width": 600, "height": 800}, "tokens": []}
-            ],
-            "txt_content": "Test content",
-            "structural_annotations": [
-                {
-                    "id": "1",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Test",
-                    "page": 0,
-                    "annotation_json": {},
-                    "parent_id": None,
-                    "annotation_type": "header",
-                    "structural": True,
-                }
-            ],
-            "structural_relationships": [],
-        }
-
-        label_lookup = {"Test Label": self.text_label}
-
-        # Import
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
-
-        # Verify
-        self.assertIsNotNone(result)
-        self.assertEqual(result.content_hash, "import_hash_123")
-        self.assertEqual(result.structural_annotations.count(), 1)
-
-        # Test deduplication - importing same hash should return existing
-        result2 = import_structural_annotation_set(struct_data, label_lookup, self.user)
-        self.assertEqual(result.id, result2.id)
 
     def test_import_corpus_folders(self):
         """Test importing corpus folder hierarchy."""
@@ -651,42 +565,8 @@ class TestV2ImportUtilities(TransactionTestCase):
         vote = votes.first()
         self.assertEqual(vote.vote_type, "upvote")
 
-    def test_import_structural_annotation_set_create_new(self):
-        """Test creating a NEW structural annotation set (not reusing existing)."""
-        # Create structural set data with unique hash
-        struct_data = {
-            "content_hash": "unique_new_hash_12345",
-            "pawls_file_content": [{"page": {"width": 612, "height": 792, "index": 0}}],
-            "txt_content": "Test structural content",
-            "structural_annotations": [
-                {
-                    "id": "struct_annot_1",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Test",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                }
-            ],
-        }
-
-        label_lookup = {"Test Label": self.text_label}
-
-        # Import - should CREATE new since hash doesn't exist
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
-
-        # Verify new structural set was created
-        self.assertIsNotNone(result)
-        self.assertEqual(result.content_hash, "unique_new_hash_12345")
-
-        # Verify annotation was created
-        annots = Annotation.objects.filter(structural_set=result)
-        self.assertEqual(annots.count(), 1)
-        self.assertEqual(annots.first().raw_text, "Test")
-
-    def test_import_relationships_skip_structural(self):
-        """Test that structural relationships are skipped during import."""
+    def test_import_relationships_include_structural(self):
+        """Test that structural relationships are imported (not skipped)."""
         # Create annotations
         doc = Document.objects.create(title="Test Doc", creator=self.user, page_count=1)
         annot1 = Annotation.objects.create(
@@ -694,6 +574,7 @@ class TestV2ImportUtilities(TransactionTestCase):
             corpus=self.corpus,
             annotation_label=self.text_label,
             raw_text="Source",
+            structural=True,
             creator=self.user,
         )
         annot2 = Annotation.objects.create(
@@ -701,6 +582,7 @@ class TestV2ImportUtilities(TransactionTestCase):
             corpus=self.corpus,
             annotation_label=self.text_label,
             raw_text="Target",
+            structural=True,
             creator=self.user,
         )
 
@@ -719,7 +601,7 @@ class TestV2ImportUtilities(TransactionTestCase):
                 "relationshipLabel": "Structural Rel",
                 "source_annotation_ids": [str(annot1.id)],
                 "target_annotation_ids": [str(annot2.id)],
-                "structural": True,  # This should be skipped
+                "structural": True,
             }
         ]
 
@@ -737,9 +619,10 @@ class TestV2ImportUtilities(TransactionTestCase):
             self.user,
         )
 
-        # Verify NO relationship was created (structural ones are skipped)
+        # Verify structural relationship WAS created
         relationships = Relationship.objects.filter(corpus=self.corpus)
-        self.assertEqual(relationships.count(), 0)
+        self.assertEqual(relationships.count(), 1)
+        self.assertTrue(relationships.first().structural)
 
     def test_import_document_paths_edge_cases(self):
         """Test document path import with missing folder/document references."""
@@ -809,154 +692,6 @@ class TestV2ImportUtilities(TransactionTestCase):
         # Check second path has None folder (missing folder reference)
         path2 = paths.get(path="/missing_folder/doc.pdf")
         self.assertIsNone(path2.folder)
-
-    def test_import_structural_annotations_with_parents(self):
-        """Test importing structural annotations with parent-child relationships."""
-        struct_data = {
-            "content_hash": "test_parent_hash_123",
-            "pawls_file_content": [{"page": {"width": 612, "height": 792, "index": 0}}],
-            "txt_content": "Parent and child annotations",
-            "structural_annotations": [
-                {
-                    "id": "parent_annot_1",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Parent annotation",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                    "parent_id": None,
-                },
-                {
-                    "id": "child_annot_2",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Child annotation",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                    "parent_id": "parent_annot_1",  # References parent
-                },
-            ],
-        }
-
-        label_lookup = {"Test Label": self.text_label}
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result.content_hash, "test_parent_hash_123")
-
-        # Check that parent-child relationship was set
-        annots = Annotation.objects.filter(structural_set=result).order_by("id")
-        self.assertEqual(annots.count(), 2)
-
-        parent_annot = annots[0]
-        child_annot = annots[1]
-
-        # Child should have parent set
-        self.assertEqual(child_annot.parent_id, parent_annot.id)
-        # Parent should have no parent
-        self.assertIsNone(parent_annot.parent_id)
-
-    def test_import_structural_relationships(self):
-        """Test importing structural relationships between annotations."""
-        # Create a relationship label
-        rel_label = AnnotationLabel.objects.create(
-            text="Causes",
-            label_type="RELATIONSHIP_LABEL",
-            color="blue",
-            description="Causal relationship",
-            creator=self.user,
-        )
-        self.labelset.annotation_labels.add(rel_label)
-
-        struct_data = {
-            "content_hash": "test_rel_hash_456",
-            "pawls_file_content": [{"page": {"width": 612, "height": 792, "index": 0}}],
-            "txt_content": "Annotations with relationships",
-            "structural_annotations": [
-                {
-                    "id": "source_annot_1",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Source annotation",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                },
-                {
-                    "id": "target_annot_2",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Target annotation",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                },
-            ],
-            "structural_relationships": [
-                {
-                    "relationshipLabel": "Causes",
-                    "source_annotation_ids": ["source_annot_1"],
-                    "target_annotation_ids": ["target_annot_2"],
-                }
-            ],
-        }
-
-        label_lookup = {"Test Label": self.text_label, "Causes": rel_label}
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
-
-        self.assertIsNotNone(result)
-
-        # Check that relationship was created
-        relationships = Relationship.objects.filter(structural_set=result)
-        self.assertEqual(relationships.count(), 1)
-
-        rel = relationships.first()
-        self.assertEqual(rel.relationship_label, rel_label)
-        self.assertTrue(rel.structural)
-
-        # Check source and target annotations are linked
-        self.assertEqual(rel.source_annotations.count(), 1)
-        self.assertEqual(rel.target_annotations.count(), 1)
-
-    def test_import_structural_set_missing_label(self):
-        """Test importing structural annotations with missing label (should skip)."""
-        struct_data = {
-            "content_hash": "test_missing_label_789",
-            "pawls_file_content": [{"page": {"width": 612, "height": 792, "index": 0}}],
-            "txt_content": "Test content",
-            "structural_annotations": [
-                {
-                    "id": "annot_1",
-                    "annotationLabel": "NonexistentLabel",  # This label doesn't exist
-                    "rawText": "Test",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                },
-                {
-                    "id": "annot_2",
-                    "annotationLabel": "Test Label",  # This one exists
-                    "rawText": "Valid",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                },
-            ],
-        }
-
-        label_lookup = {"Test Label": self.text_label}  # Missing "NonexistentLabel"
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
-
-        self.assertIsNotNone(result)
-
-        # Should only have 1 annotation (the one with valid label)
-        annots = Annotation.objects.filter(structural_set=result)
-        self.assertEqual(annots.count(), 1)
-        self.assertEqual(annots.first().raw_text, "Valid")
 
     def test_import_relationships_missing_label(self):
         """Test importing relationships with missing label (should skip)."""
@@ -1060,55 +795,6 @@ class TestV2ImportUtilities(TransactionTestCase):
         self.assertEqual(path_v2.parent_id, path_v1.id)
         self.assertIsNone(path_v1.parent_id)
 
-    def test_import_structural_relationships_missing_label(self):
-        """Test importing structural relationships with missing relationship label."""
-        struct_data = {
-            "content_hash": "test_missing_rel_label_999",
-            "pawls_file_content": [{"page": {"width": 612, "height": 792, "index": 0}}],
-            "txt_content": "Test content with relationships",
-            "structural_annotations": [
-                {
-                    "id": "annot_1",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Source",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                },
-                {
-                    "id": "annot_2",
-                    "annotationLabel": "Test Label",
-                    "rawText": "Target",
-                    "page": 0,
-                    "annotation_json": {},
-                    "annotation_type": "TOKEN_LABEL",
-                    "structural": True,
-                },
-            ],
-            "structural_relationships": [
-                {
-                    "relationshipLabel": "MissingRelLabel",  # This label doesn't exist
-                    "source_annotation_ids": ["annot_1"],
-                    "target_annotation_ids": ["annot_2"],
-                }
-            ],
-        }
-
-        label_lookup = {"Test Label": self.text_label}  # Missing "MissingRelLabel"
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
-
-        self.assertIsNotNone(result)
-
-        # Should have 2 annotations but 0 relationships (missing label)
-        annots = Annotation.objects.filter(structural_set=result)
-        self.assertEqual(annots.count(), 2)
-
-        relationships = Relationship.objects.filter(structural_set=result)
-        self.assertEqual(
-            relationships.count(), 0
-        )  # No relationship due to missing label
-
 
 class TestV2ImportExceptionHandling(TransactionTestCase):
     """Test exception handling in V2 import functions."""
@@ -1125,34 +811,6 @@ class TestV2ImportExceptionHandling(TransactionTestCase):
             text="Test Label", label_type=TOKEN_LABEL, creator=self.user
         )
         self.labelset.annotation_labels.add(self.text_label)
-
-    @mock.patch(
-        "opencontractserver.utils.import_v2.StructuralAnnotationSet.objects.create"
-    )
-    def test_import_structural_set_exception(self, mock_create):
-        """Test import_structural_annotation_set exception handler (lines 185-187)."""
-        from opencontractserver.utils.import_v2 import import_structural_annotation_set
-
-        # Force an exception when creating StructuralAnnotationSet
-        mock_create.side_effect = Exception("Database error")
-
-        struct_data = {
-            "content_hash": "hash123",
-            "parser_name": "test_parser",
-            "parser_version": "1.0",
-            "page_count": 1,
-            "token_count": 100,
-            "pawls_file_content": [],
-            "txt_content": "test",
-            "structural_annotations": [],
-            "structural_relationships": [],
-        }
-
-        label_lookup = {}
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
-
-        # Should return None on exception
-        self.assertIsNone(result)
 
     @mock.patch("opencontractserver.utils.import_v2.CorpusFolder.objects.create")
     def test_import_corpus_folders_exception(self, mock_create):
@@ -1307,29 +965,6 @@ class TestV2FullRoundTrip(TransactionTestCase):
             creator=self.user,
         )
 
-        # Create structural annotation set
-        self.struct_set = StructuralAnnotationSet.objects.create(
-            content_hash="test_content_hash",
-            parser_name="docling",
-            page_count=1,
-            pawls_parse_file=ContentFile(
-                json.dumps([{"page": {"index": 0}, "tokens": []}]).encode(),
-                name="pawls.json",
-            ),
-            txt_extract_file=ContentFile(b"Test content", name="text.txt"),
-            creator=self.user,
-        )
-
-        # Create structural annotation
-        Annotation.objects.create(
-            structural_set=self.struct_set,
-            annotation_label=self.text_label,
-            raw_text="Header",
-            structural=True,
-            creator=self.user,
-        )
-
-        # Create document with structural set
         # Create a minimal valid PDF
         minimal_pdf = (
             b"%PDF-1.4\n"
@@ -1339,13 +974,24 @@ class TestV2FullRoundTrip(TransactionTestCase):
             b"xref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000056 00000 n\n"
             b"0000000115 00000 n\ntrailer <</Size 4/Root 1 0 R>>\nstartxref\n204\n%%EOF\n"
         )
+        # Calculate actual hash for proper export/import reference matching
+        pdf_hash = hashlib.md5(minimal_pdf).hexdigest()
         self.doc = Document.objects.create(
             title="Test Document",
             pdf_file=ContentFile(minimal_pdf, name="test.pdf"),
-            pdf_file_hash="test_content_hash",
-            structural_annotation_set=self.struct_set,
+            pdf_file_hash=pdf_hash,
             creator=self.user,
             page_count=1,
+        )
+
+        # Create structural annotation on the document
+        Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            annotation_label=self.text_label,
+            raw_text="Header",
+            structural=True,
+            creator=self.user,
         )
 
         # Create document path
@@ -1404,11 +1050,8 @@ class TestV2FullRoundTrip(TransactionTestCase):
                     self.assertIn("document_paths", data)
                     self.assertIn("agent_config", data)
 
-                    # Verify structural set exported
-                    self.assertEqual(len(data["structural_annotation_sets"]), 1)
-                    self.assertIn(
-                        "test_content_hash", data["structural_annotation_sets"]
-                    )
+                    # structural_annotation_sets is now empty (kept for backward compat)
+                    self.assertEqual(data["structural_annotation_sets"], {})
 
                     # Verify folder exported
                     self.assertEqual(len(data["folders"]), 1)
@@ -1442,12 +1085,6 @@ class TestV2FullRoundTrip(TransactionTestCase):
         imported_folders = CorpusFolder.objects.filter(corpus=imported_corpus)
         self.assertEqual(imported_folders.count(), 1)
         self.assertEqual(imported_folders.first().name, "Test Folder")
-
-        # Verify structural set reused (not duplicated)
-        struct_sets = StructuralAnnotationSet.objects.filter(
-            content_hash="test_content_hash"
-        )
-        self.assertEqual(struct_sets.count(), 1)  # Same one reused
 
         # Verify document imported
         imported_docs = DocumentPath.objects.filter(

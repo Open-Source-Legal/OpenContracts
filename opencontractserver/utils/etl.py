@@ -241,6 +241,9 @@ def build_document_export(
             "content": extracted_document_content_json,
             "pawls_file_content": pawls_tokens,
             "page_count": doc.page_count,
+            # Store original hash for V2 DocumentPath matching
+            # (exported PDF may be modified with burned-in annotations)
+            "pdf_file_hash": doc.pdf_file_hash,
         }
 
         page_highlights = {}

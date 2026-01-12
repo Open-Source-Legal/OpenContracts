@@ -5,7 +5,40 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-01-10
+## [Unreleased] - 2026-01-11
+
+### Changed
+
+#### Removed StructuralAnnotationSet Model - Architecture Simplification
+- **Background**: `StructuralAnnotationSet` was designed to allow sharing structural annotations (headers, sections, etc.) across corpuses to avoid duplication. However, analysis showed this benefit was never realized since each corpus always duplicates structural annotations for corpus-specific embeddings.
+- **Change**: Removed the entire `StructuralAnnotationSet` model and associated infrastructure
+- **Migration Strategy**: 5 reversible migrations that safely move structural annotations from sets to documents:
+  1. `0057_remove_structural_set_constraints.py` - Remove XOR constraints
+  2. `0058_migrate_structural_to_documents.py` - Data migration (reversible)
+  3. `0059_remove_structural_set_fk.py` - Remove FK fields from Annotation/Relationship
+  4. `0030_remove_structural_annotation_set_fk.py` - Remove FK from Document
+  5. `0060_delete_structuralannotationset.py` - Delete model
+- **Files Modified**:
+  - `opencontractserver/annotations/models.py` - Removed model, FK fields, and constraints
+  - `opencontractserver/documents/models.py` - Removed `structural_annotation_set` FK
+  - `opencontractserver/annotations/query_optimizer.py` - Simplified queries (removed union)
+  - `opencontractserver/pipeline/base/parser.py` - Removed structural set creation
+  - `opencontractserver/corpuses/models.py` - Updated `add_document()` to copy structural annotations
+  - `opencontractserver/utils/export_v2.py` - Removed structural set packaging
+  - `opencontractserver/utils/import_v2.py` - Added backward compatibility for legacy imports
+  - `opencontractserver/tasks/export_tasks_v2.py`, `import_tasks_v2.py` - Updated export/import
+- **Tests Deleted**: 5 obsolete test files for structural annotation sets
+- **Management Commands Deleted**: `migrate_structural_annotations.py`
+- **Backward Compatibility**: V2 exports now include empty `structural_annotation_sets` dict; legacy imports handle embedded structural data
+
+#### Fixed Export/Import Document Hash Matching
+- **Bug**: V2 round-trip export/import failed to match documents because PDF modifications (annotation burn-in via PyPDF2) changed the file hash
+- **Root Cause**: Export modifies PDFs with annotations, but import used hash from modified PDF
+- **Fix**: Export now stores original `pdf_file_hash` in document data; import uses stored hash for matching
+- **Files Changed**:
+  - `opencontractserver/types/dicts.py` - Added `pdf_file_hash` field to `OpenContractDocExport`
+  - `opencontractserver/utils/etl.py` - Include original hash in export
+  - `opencontractserver/tasks/import_tasks_v2.py` - Use stored hash for document matching
 
 ### Fixed
 

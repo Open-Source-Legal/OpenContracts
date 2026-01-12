@@ -280,9 +280,7 @@ class TestPermanentDeletionCascadeCleanup(TestCase):
 
         # Verify annotations exist
         self.assertEqual(
-            Annotation.objects.filter(
-                document=self.doc, structural_set__isnull=True
-            ).count(),
+            Annotation.objects.filter(document=self.doc).count(),
             2,
         )
 
@@ -387,56 +385,6 @@ class TestPermanentDeletionCascadeCleanup(TestCase):
                 id__in=[revision1.id, revision2.id]
             ).count(),
             0,
-        )
-
-    def test_permanently_delete_preserves_structural_annotations(self):
-        """Test that structural annotations (in StructuralAnnotationSet) are preserved."""
-        from opencontractserver.annotations.models import StructuralAnnotationSet
-
-        # Create structural annotation set
-        structural_set = StructuralAnnotationSet.objects.create(
-            content_hash="test_hash_123",
-            creator=self.user,
-        )
-
-        # Create structural annotation (belongs to set, not document directly)
-        # Note: structural=True is required by DB constraint when structural_set is set
-        structural_annotation = Annotation.objects.create(
-            structural_set=structural_set,
-            annotation_label=self.label,
-            creator=self.user,
-            raw_text="Structural annotation",
-            page=1,
-            json={},
-            structural=True,
-        )
-
-        # Soft delete then permanent delete the document
-        delete_document(self.corpus, "/cascade_doc.pdf", self.user)
-        success, _ = permanently_delete_document(self.corpus, self.doc, self.user)
-        self.assertTrue(success)
-
-        # Verify structural annotation still exists
-        self.assertTrue(Annotation.objects.filter(id=structural_annotation.id).exists())
-
-    def test_permanently_delete_preserves_structural_annotation_set(self):
-        """Test that StructuralAnnotationSet is preserved after document deletion."""
-        from opencontractserver.annotations.models import StructuralAnnotationSet
-
-        # Create structural annotation set
-        structural_set = StructuralAnnotationSet.objects.create(
-            content_hash="test_hash_456",
-            creator=self.user,
-        )
-
-        # Soft delete then permanent delete
-        delete_document(self.corpus, "/cascade_doc.pdf", self.user)
-        success, _ = permanently_delete_document(self.corpus, self.doc, self.user)
-        self.assertTrue(success)
-
-        # Verify structural set still exists
-        self.assertTrue(
-            StructuralAnnotationSet.objects.filter(id=structural_set.id).exists()
         )
 
 

@@ -221,67 +221,6 @@ class BaseFixtureTestCase(TransactionTestCase):
             self.doc3 = self.docs[2]
 
         # ------------------------------------------------------------------ #
-        # 0. Migrate old-style structural annotations to StructuralAnnotationSet
-        # ------------------------------------------------------------------ #
-        from opencontractserver.annotations.models import (
-            Annotation,
-            Relationship,
-            StructuralAnnotationSet,
-        )
-
-        for doc in self.docs:
-            # Check if document has old-style structural annotations (document FK set)
-            old_structural = Annotation.objects.filter(
-                document=doc, structural=True, structural_set__isnull=True
-            )
-
-            if old_structural.exists() and not doc.structural_annotation_set:
-                # Create a StructuralAnnotationSet for this document
-                content_hash = doc.pdf_file_hash or f"test_doc_{doc.pk}"
-                struct_set, created = StructuralAnnotationSet.objects.get_or_create(
-                    content_hash=content_hash,
-                    defaults={
-                        "creator": self.user,
-                        "parser_name": "FixtureMigration",
-                        "parser_version": "1.0",
-                        "page_count": doc.page_count,
-                        "pawls_parse_file": doc.pawls_parse_file,
-                        "txt_extract_file": doc.txt_extract_file,
-                    },
-                )
-
-                # Migrate annotations to the structural set
-                for annot in old_structural:
-                    annot.structural_set = struct_set
-                    annot.document = None  # Remove document link (XOR constraint)
-                    annot.save()
-
-                # Migrate relationships between structural annotations
-                # Get relationships where both source and target are structural annotations
-                old_structural_ids = set(old_structural.values_list("id", flat=True))
-                old_relationships = Relationship.objects.filter(
-                    document=doc, structural_set__isnull=True
-                ).filter(
-                    source_annotations__id__in=old_structural_ids,
-                    target_annotations__id__in=old_structural_ids,
-                )
-
-                for rel in old_relationships:
-                    rel.structural_set = struct_set
-                    rel.document = None  # Remove document link (XOR constraint)
-                    rel.save()
-
-                # Update document to reference the structural set
-                doc.structural_annotation_set = struct_set
-                doc.save()
-
-                logger.info(
-                    f"Migrated {old_structural.count()} structural annotations "
-                    f"and {old_relationships.count()} relationships "
-                    f"from doc {doc.pk} to StructuralAnnotationSet {struct_set.pk}"
-                )
-
-        # ------------------------------------------------------------------ #
         # 1. Copy existing fixture files  +  ensure md_summary_file is copied #
         # ------------------------------------------------------------------ #
         FILE_FIELDS: tuple[str, ...] = (

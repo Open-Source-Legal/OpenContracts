@@ -156,9 +156,8 @@ class AnnotationQueryOptimizer:
         Get annotations with permission filtering and optimized queries.
         Permissions are computed at document+corpus level and applied to all annotations.
 
-        IMPORTANT: Returns annotations from BOTH:
-        1. Direct document annotations (document FK) - corpus-specific annotations
-        2. Structural annotations via document's structural_annotation_set (structural_set FK) - shared annotations
+        Returns all annotations for the document (both structural and non-structural).
+        Structural annotations are identified by the structural=True flag.
         """
         from opencontractserver.annotations.models import Annotation
         from opencontractserver.documents.models import Document
@@ -186,30 +185,12 @@ class AnnotationQueryOptimizer:
                 # Document is deleted or not current in corpus
                 return Annotation.objects.none()
 
-        # Fetch document to check for structural_annotation_set
-        # Use select_related for efficiency to avoid N+1 queries
-        try:
-            document = Document.objects.select_related("structural_annotation_set").get(
-                pk=document_id
-            )
-        except Document.DoesNotExist:
+        # Verify document exists
+        if not Document.objects.filter(pk=document_id).exists():
             return Annotation.objects.none()
 
-        # Build base filter for annotations from BOTH sources:
-        # 1. Direct document annotations (corpus-specific, user-created)
-        # 2. Structural annotations via document's structural_annotation_set (shared)
-        doc_filters = Q(document_id=document_id)
-
-        if document.structural_annotation_set_id:
-            # Include structural annotations from the shared set
-            # These annotations have document_id=NULL but structural_set_id=X
-            doc_filters |= Q(
-                structural_set_id=document.structural_annotation_set_id,
-                structural=True,  # Safety check - structural_set annotations must be structural
-            )
-
-        # Build optimized query with combined document filters
-        qs = Annotation.objects.filter(doc_filters)
+        # Build optimized query - all annotations now use document FK directly
+        qs = Annotation.objects.filter(document_id=document_id)
 
         # Apply privacy filtering for created_by_* fields
         if not user.is_superuser:
@@ -271,22 +252,11 @@ class AnnotationQueryOptimizer:
 
         # Add filters
         if corpus_id:
-            # Filter by corpus (permissions already checked)
-            # IMPORTANT: Structural_set annotations have corpus_id=NULL (they're shared across corpuses)
-            # So we need to keep BOTH:
-            # 1. Corpus-specific annotations where corpus_id matches
-            # 2. Structural_set annotations (which have corpus_id=NULL but structural_set_id set)
-            corpus_filter = Q(corpus_id=corpus_id)
-
-            if document.structural_annotation_set_id:
-                # Also keep structural annotations from this document's set
-                # (already filtered in base query, but corpus_id=NULL so we must explicitly allow them)
-                corpus_filter |= Q(
-                    structural_set_id=document.structural_annotation_set_id,
-                    structural=True,
-                )
-
-            qs = qs.filter(corpus_filter)
+            # Filter by corpus - structural annotations on corpus documents
+            # have the corpus_id of the document they were copied to
+            qs = qs.filter(
+                Q(corpus_id=corpus_id) | Q(corpus_id__isnull=True, structural=True)
+            )
 
             # Apply structural filter if specified
             if structural is not None:
@@ -521,9 +491,8 @@ class RelationshipQueryOptimizer:
         Get relationships with optimized prefetching.
         Permissions are computed at document+corpus level.
 
-        IMPORTANT: Returns relationships from BOTH:
-        1. Direct document relationships (document FK) - corpus-specific relationships
-        2. Structural relationships via document's structural_annotation_set (structural_set FK) - shared relationships
+        Returns all relationships for the document, including structural relationships
+        (identified by structural=True flag).
         """
         from opencontractserver.annotations.models import Relationship
         from opencontractserver.documents.models import Document
@@ -538,30 +507,12 @@ class RelationshipQueryOptimizer:
         if not can_read:
             return Relationship.objects.none()
 
-        # Fetch document to check for structural_annotation_set
-        # Use select_related for efficiency
-        try:
-            document = Document.objects.select_related("structural_annotation_set").get(
-                pk=document_id
-            )
-        except Document.DoesNotExist:
+        # Verify document exists
+        if not Document.objects.filter(pk=document_id).exists():
             return Relationship.objects.none()
 
-        # Build base filter for relationships from BOTH sources:
-        # 1. Direct document relationships (corpus-specific, user-created)
-        # 2. Structural relationships via document's structural_annotation_set (shared)
-        doc_filters = Q(document_id=document_id)
-
-        if document.structural_annotation_set_id:
-            # Include structural relationships from the shared set
-            # These relationships have document_id=NULL but structural_set_id=X
-            doc_filters |= Q(
-                structural_set_id=document.structural_annotation_set_id,
-                structural=True,  # Safety check - structural_set relationships must be structural
-            )
-
-        # Build query with combined document filters
-        qs = Relationship.objects.filter(doc_filters)
+        # Build optimized query - all relationships now use document FK directly
+        qs = Relationship.objects.filter(document_id=document_id)
 
         # Apply privacy filtering for created_by_* fields (same pattern as Annotations)
         if not user.is_superuser:
@@ -622,22 +573,11 @@ class RelationshipQueryOptimizer:
             )
 
         if corpus_id:
-            # Filter by corpus (permissions already checked)
-            # IMPORTANT: Structural_set relationships have corpus_id=NULL (they're shared across corpuses)
-            # So we need to keep BOTH:
-            # 1. Corpus-specific relationships where corpus_id matches
-            # 2. Structural_set relationships (which have corpus_id=NULL but structural_set_id set)
-            corpus_filter = Q(corpus_id=corpus_id)
-
-            if document.structural_annotation_set_id:
-                # Also keep structural relationships from this document's set
-                # (already filtered in base query, but corpus_id=NULL so we must explicitly allow them)
-                corpus_filter |= Q(
-                    structural_set_id=document.structural_annotation_set_id,
-                    structural=True,
-                )
-
-            qs = qs.filter(corpus_filter)
+            # Filter by corpus - structural relationships on corpus documents
+            # have the corpus_id of the document they were copied to
+            qs = qs.filter(
+                Q(corpus_id=corpus_id) | Q(corpus_id__isnull=True, structural=True)
+            )
         else:
             # No corpus = structural only (always readable if doc is readable)
             qs = qs.filter(structural=True)

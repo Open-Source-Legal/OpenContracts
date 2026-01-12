@@ -37,7 +37,6 @@ from opencontractserver.utils.export_v2 import (
     package_document_paths,
     package_md_description_revisions,
     package_relationships,
-    package_structural_annotation_set,
 )
 from opencontractserver.utils.packaging import (
     package_corpus_for_export,
@@ -102,7 +101,6 @@ def package_corpus_export_v2(
 
         # ===== PART 1: Export Documents (V1 compatible) =====
         annotated_docs = {}
-        structural_sets_seen = set()
 
         for doc in documents:
             logger.info(f"Exporting document {doc.id}")
@@ -126,13 +124,6 @@ def package_corpus_export_v2(
                 logger.warning(f"Skipping document {doc.id} - export failed")
                 continue
 
-            # Add structural set reference if present
-            if doc.structural_annotation_set:
-                doc_export_data["structural_set_hash"] = (
-                    doc.structural_annotation_set.content_hash
-                )
-                structural_sets_seen.add(doc.structural_annotation_set)
-
             # Add PDF to ZIP
             if pdf_base64:
                 base64_img_bytes = pdf_base64.encode("utf-8")
@@ -143,35 +134,26 @@ def package_corpus_export_v2(
 
             annotated_docs[doc_filename] = doc_export_data
 
-        # ===== PART 2: Export Structural Annotation Sets =====
-        structural_annotation_sets = {}
-
-        for struct_set in structural_sets_seen:
-            logger.info(f"Exporting structural set {struct_set.content_hash}")
-            struct_export = package_structural_annotation_set(struct_set)
-            if struct_export:
-                structural_annotation_sets[struct_set.content_hash] = struct_export
-
-        # ===== PART 3: Export Corpus Metadata (V2 enhanced) =====
+        # ===== PART 2: Export Corpus Metadata (V2 enhanced) =====
         corpus_export = package_corpus_for_export(corpus, v2_format=True)
         label_set_export = package_label_set_for_export(corpus.label_set)
 
-        # ===== PART 4: Export Folders =====
+        # ===== PART 3: Export Folders =====
         folders_export = package_corpus_folders(corpus)
 
-        # ===== PART 5: Export DocumentPath Trees =====
+        # ===== PART 4: Export DocumentPath Trees =====
         document_paths_export = package_document_paths(corpus)
 
-        # ===== PART 6: Export Relationships =====
+        # ===== PART 5: Export Relationships (including structural) =====
         relationships_export = package_relationships(corpus, document_ids)
 
-        # ===== PART 7: Export Agent Config =====
+        # ===== PART 6: Export Agent Config =====
         agent_config_export = package_agent_config(corpus)
 
-        # ===== PART 8: Export Markdown Description & Revisions =====
+        # ===== PART 7: Export Markdown Description & Revisions =====
         md_description, md_revisions = package_md_description_revisions(corpus)
 
-        # ===== PART 9: Export Conversations (Optional) =====
+        # ===== PART 8: Export Conversations (Optional) =====
         conversations_export = []
         messages_export = []
         votes_export = []
@@ -182,7 +164,7 @@ def package_corpus_export_v2(
                 corpus
             )
 
-        # ===== PART 10: Export Action Trail (Optional) =====
+        # ===== PART 9: Export Action Trail (Optional) =====
         action_trail_export = None
 
         if include_action_trail:
@@ -193,7 +175,9 @@ def package_corpus_export_v2(
                 execution_limit=action_trail_limit,
             )
 
-        # ===== PART 11: Assemble Final V2 Export =====
+        # ===== PART 10: Assemble Final V2 Export =====
+        # Note: structural_annotation_sets removed - structural annotations are now
+        # exported directly with documents (marked with structural=True flag)
         export_data: OpenContractsExportDataJsonV2Type = {
             "version": "2.0",
             # V1 fields
@@ -203,7 +187,7 @@ def package_corpus_export_v2(
             "corpus": corpus_export,
             "label_set": label_set_export,
             # V2 fields
-            "structural_annotation_sets": structural_annotation_sets,
+            "structural_annotation_sets": {},  # Deprecated - kept for backward compat
             "folders": folders_export,
             "document_paths": document_paths_export,
             "relationships": relationships_export,

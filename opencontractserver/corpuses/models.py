@@ -410,8 +410,11 @@ class Corpus(TreeNode):
         Returns:
             Tuple of (document, status, document_path) where:
             - document: The NEW corpus-isolated document (NOT the original)
-            - status: 'added' (new copy created) or 'already_exists' (content already in corpus)
-            - document_path: The DocumentPath record created or existing
+            - status: 'added' (always - no content-based deduplication)
+            - document_path: The DocumentPath record created
+
+        Note: No content-based deduplication is performed. Each call creates
+        a new corpus-isolated document regardless of content hash.
 
         Raises:
             ValueError: If user or document is not provided
@@ -445,33 +448,8 @@ class Corpus(TreeNode):
                 path = f"/documents/doc_{document.pk}"
 
         with transaction.atomic():
-            # Check if this content already exists in THIS corpus (by hash)
-            # This implements corpus isolation - we check within corpus, not globally
-            # IMPORTANT: Only deduplicate if hash is not None (avoid treating all NULL hashes as same)
-            corpus_doc_with_hash = None
-            if document.pdf_file_hash is not None:
-                corpus_doc_with_hash = (
-                    DocumentPath.objects.filter(
-                        corpus=self,
-                        document__pdf_file_hash=document.pdf_file_hash,
-                        is_current=True,
-                        is_deleted=False,
-                    )
-                    .select_related("document")
-                    .first()
-                )
-
-            if corpus_doc_with_hash:
-                # Content already exists in THIS corpus
-                existing_doc = corpus_doc_with_hash.document
-                logger.info(
-                    f"Content from doc {document.pk} already exists in corpus {self.pk} "
-                    f"as doc {existing_doc.pk}"
-                )
-                # Return the existing corpus-isolated document
-                return existing_doc, "already_exists", corpus_doc_with_hash
-
-            # Create corpus-isolated copy with new version tree
+            # Always create corpus-isolated copy (no content-based deduplication)
+            # Each add_document() call creates a new document regardless of content hash
             tree_id = uuid.uuid4()
             corpus_copy = Document.objects.create(
                 title=doc_kwargs.get("title", document.title),
@@ -490,7 +468,6 @@ class Corpus(TreeNode):
                 is_current=True,
                 parent=None,  # Root of NEW content tree
                 source_document=document,  # Provenance tracking (Rule I2)
-                structural_annotation_set=document.structural_annotation_set,  # Share structural annotations
                 creator=user,
                 **{
                     k: v
@@ -499,9 +476,64 @@ class Corpus(TreeNode):
                 },
             )
 
+            # Copy structural annotations for corpus isolation (per-corpus embeddings)
+            # Annotations are copied without embeddings - they'll be regenerated per-corpus
+            from opencontractserver.annotations.models import Annotation, Relationship
+
+            structural_annots = Annotation.objects.filter(
+                document=document, structural=True
+            )
+            annot_id_map = {}  # Map old annotation IDs to new ones for relationships
+
+            for annot in structural_annots:
+                old_id = annot.pk
+                annot.pk = None
+                annot.document = corpus_copy
+                annot.corpus = self  # Associate with this corpus
+                annot.embedding = None  # Clear legacy embedding field
+                annot.embeddings = None  # Clear new embedding FK
+                annot.save()
+                annot_id_map[old_id] = annot.pk
+
+            # Copy structural relationships, remapping annotation references
+            structural_rels = Relationship.objects.filter(
+                document=document, structural=True
+            ).prefetch_related("source_annotations", "target_annotations")
+
+            for rel in structural_rels:
+                old_source_ids = list(
+                    rel.source_annotations.values_list("id", flat=True)
+                )
+                old_target_ids = list(
+                    rel.target_annotations.values_list("id", flat=True)
+                )
+
+                rel.pk = None
+                rel.document = corpus_copy
+                rel.corpus = self  # Associate with this corpus
+                rel.save()
+
+                # Remap source and target annotations to the copied annotations
+                new_source_ids = [
+                    annot_id_map.get(sid)
+                    for sid in old_source_ids
+                    if sid in annot_id_map
+                ]
+                new_target_ids = [
+                    annot_id_map.get(tid)
+                    for tid in old_target_ids
+                    if tid in annot_id_map
+                ]
+
+                if new_source_ids:
+                    rel.source_annotations.set(new_source_ids)
+                if new_target_ids:
+                    rel.target_annotations.set(new_target_ids)
+
+            structural_count = len(annot_id_map)
             logger.info(
                 f"Created corpus-isolated copy {corpus_copy.pk} from doc {document.pk} "
-                f"in corpus {self.pk} (structural_set={document.structural_annotation_set_id})"
+                f"in corpus {self.pk} (copied {structural_count} structural annotations)"
             )
 
             # Check if path is occupied

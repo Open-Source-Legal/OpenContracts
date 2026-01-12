@@ -1,5 +1,4 @@
 import difflib
-import functools
 import hashlib
 import uuid
 
@@ -8,6 +7,7 @@ from typing import Union, cast
 
 import django
 from django.contrib.auth import get_user_model
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -168,18 +168,9 @@ class Relationship(BaseOCModel):
     document = django.db.models.ForeignKey(
         "documents.Document",
         related_name="relationships",
-        null=True,  # Nullable for structural relationships in shared sets
-        blank=True,
-        on_delete=django.db.models.CASCADE,
-    )
-    # Link to shared structural annotation set (mutually exclusive with document)
-    structural_set = django.db.models.ForeignKey(
-        "annotations.StructuralAnnotationSet",
-        on_delete=django.db.models.CASCADE,
         null=True,
         blank=True,
-        related_name="structural_relationships",
-        help_text="For structural relationships shared across documents",
+        on_delete=django.db.models.CASCADE,
     )
     source_annotations = django.db.models.ManyToManyField(
         "annotations.Annotation",
@@ -266,7 +257,6 @@ class Relationship(BaseOCModel):
             django.db.models.Index(fields=["analysis"]),
             django.db.models.Index(fields=["created_by_analysis"]),
             django.db.models.Index(fields=["created_by_extract"]),
-            django.db.models.Index(fields=["structural_set"]),
             django.db.models.Index(fields=["creator"]),
             django.db.models.Index(fields=["created"]),
             django.db.models.Index(fields=["modified"]),
@@ -281,34 +271,6 @@ class Relationship(BaseOCModel):
                 ),
                 name="relationship_created_by_only_one_source",
                 violation_error_message="A relationship cannot be created by both an analysis and an extract",
-            ),
-            # Ensure relationship has EITHER document OR structural_set (XOR)
-            django.db.models.CheckConstraint(
-                check=(
-                    django.db.models.Q(
-                        document__isnull=False, structural_set__isnull=True
-                    )
-                    | django.db.models.Q(
-                        document__isnull=True, structural_set__isnull=False
-                    )
-                ),
-                name="relationship_has_single_parent",
-                violation_error_message=(
-                    "A relationship must belong to either a document or a "
-                    "structural set, not both or neither"
-                ),
-            ),
-            # Ensure relationships in a structural_set must have structural=True
-            # This enforces data integrity consistent with Annotation model
-            django.db.models.CheckConstraint(
-                check=(
-                    django.db.models.Q(structural_set__isnull=True)
-                    | django.db.models.Q(structural=True)
-                ),
-                name="rel_structural_set_requires_structural_flag",
-                violation_error_message=(
-                    "Relationships in a structural_set must have structural=True"
-                ),
             ),
         ]
 
@@ -341,24 +303,6 @@ class Relationship(BaseOCModel):
                         f"(2) analysis=None, created_by_analysis=A for manual mode with privacy, "
                         f"(3) analysis=None, created_by_analysis=None for public manual relationship."
                     )
-                }
-            )
-
-        # Validate mutual exclusivity of document vs structural_set
-        has_document = self.document_id is not None
-        has_structural_set = getattr(self, "structural_set_id", None) is not None
-        if has_document and has_structural_set:
-            raise ValidationError(
-                {
-                    "document": "A relationship cannot belong to both a document and a structural set.",
-                    "structural_set": "A relationship cannot belong to both a document and a structural set.",
-                }
-            )
-        if not has_document and not has_structural_set:
-            raise ValidationError(
-                {
-                    "document": "A relationship must belong to either a document or a structural set.",
-                    "structural_set": "A relationship must belong to either a document or a structural set.",
                 }
             )
 
@@ -505,91 +449,6 @@ class Embedding(BaseOCModel):
         return f"Embedding (ID={self.pk}) [{self.embedder_path or 'Unknown Model'}]"
 
 
-class StructuralAnnotationSet(BaseOCModel):
-    """
-    Immutable set of structural annotations for a specific document content.
-    Multiple Document instances can reference the same set, avoiding duplication.
-
-    Structural annotations represent the inherent document structure (headers,
-    paragraphs, sections, etc.) created during parsing. They are:
-    - Immutable: Cannot be modified per-corpus
-    - Shared: All corpus-isolated documents with same content share them
-    - Content-bound: Tied to the document content hash, not document instances
-    """
-
-    # Unique identifier based on content
-    content_hash = django.db.models.CharField(
-        max_length=64,
-        unique=True,
-        db_index=True,
-        help_text="SHA-256 hash of the document content this set belongs to",
-    )
-
-    # Parser metadata
-    parser_name = django.db.models.CharField(
-        max_length=255, null=True, blank=True, help_text="Parser class used"
-    )
-    parser_version = django.db.models.CharField(
-        max_length=50, null=True, blank=True, help_text="Parser version"
-    )
-
-    # Document metadata
-    page_count = django.db.models.IntegerField(
-        null=True, blank=True, help_text="Number of pages in the document"
-    )
-    token_count = django.db.models.IntegerField(
-        null=True, blank=True, help_text="Total number of tokens extracted"
-    )
-
-    # PAWLS data for PDFs (shared across all documents with this content)
-    pawls_parse_file = django.db.models.FileField(
-        upload_to=functools.partial(calc_oc_file_path, sub_folder="pawls_layers_files"),
-        null=True,
-        blank=True,
-        max_length=1024,
-        help_text="PAWLS JSON parse data for this content",
-    )
-
-    # Text extract for text-based documents
-    txt_extract_file = django.db.models.FileField(
-        upload_to=functools.partial(calc_oc_file_path, sub_folder="txt_layers_files"),
-        null=True,
-        blank=True,
-        max_length=1024,
-        help_text="Plain text extraction for this content",
-    )
-
-    # Sharing - structural annotations are always public as they're inherent to content
-    is_public = django.db.models.BooleanField(default=True)
-    creator = django.db.models.ForeignKey(
-        get_user_model(),
-        on_delete=django.db.models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="User who first parsed this content",
-    )
-
-    class Meta:
-        indexes = [
-            django.db.models.Index(fields=["content_hash"]),
-            django.db.models.Index(fields=["parser_name"]),
-            django.db.models.Index(fields=["created"]),
-        ]
-
-    def __str__(self):
-        return f"StructuralAnnotationSet({self.content_hash[:12]}...)"
-
-    @property
-    def annotation_count(self):
-        """Get the count of structural annotations in this set."""
-        return self.structural_annotations.count()
-
-    @property
-    def relationship_count(self):
-        """Get the count of structural relationships in this set."""
-        return self.structural_relationships.count()
-
-
 class Annotation(BaseOCModel, HasEmbeddingMixin):
     """
     The Annotation model represents annotations within documents.
@@ -630,7 +489,7 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     )
     document = django.db.models.ForeignKey(
         "documents.Document",
-        null=True,  # Nullable for structural annotations in shared sets
+        null=True,
         blank=True,
         on_delete=django.db.models.CASCADE,
         related_name="doc_annotations",
@@ -642,15 +501,6 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         blank=True,
         on_delete=django.db.models.SET_NULL,
         related_name="annotations",
-    )
-    # Link to shared structural annotation set (mutually exclusive with document)
-    structural_set = django.db.models.ForeignKey(
-        "annotations.StructuralAnnotationSet",
-        on_delete=django.db.models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="structural_annotations",
-        help_text="For structural annotations shared across documents",
     )
 
     # Vector for vector search - legacy field, will be deprecated
@@ -695,6 +545,14 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
 
     # Mark structural / layout annotations explicitly.
     structural = django.db.models.BooleanField(default=False)
+
+    # Content modalities present in this annotation (TEXT, IMAGE, etc.)
+    content_modalities = ArrayField(
+        django.db.models.CharField(max_length=20),
+        default=list,
+        blank=True,
+        help_text="Content modalities present in this annotation: TEXT, IMAGE, etc.",
+    )
 
     # Sharing
     is_public = django.db.models.BooleanField(default=False)
@@ -816,24 +674,6 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 }
             )
 
-        # Validate mutual exclusivity of document vs structural_set
-        has_document = self.document_id is not None
-        has_structural_set = getattr(self, "structural_set_id", None) is not None
-        if has_document and has_structural_set:
-            raise ValidationError(
-                {
-                    "document": "An annotation cannot belong to both a document and a structural set.",
-                    "structural_set": "An annotation cannot belong to both a document and a structural set.",
-                }
-            )
-        if not has_document and not has_structural_set:
-            raise ValidationError(
-                {
-                    "document": "An annotation must belong to either a document or a structural set.",
-                    "structural_set": "An annotation must belong to either a document or a structural set.",
-                }
-            )
-
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
@@ -883,7 +723,6 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
             django.db.models.Index(fields=["analysis"]),
             django.db.models.Index(fields=["created_by_analysis"]),
             django.db.models.Index(fields=["created_by_extract"]),
-            django.db.models.Index(fields=["structural_set"]),
             django.db.models.Index(fields=["creator"]),
             django.db.models.Index(fields=["created"]),
             django.db.models.Index(fields=["modified"]),
@@ -898,34 +737,6 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 ),
                 name="annotation_created_by_only_one_source",
                 violation_error_message="An annotation cannot be created by both an analysis and an extract",
-            ),
-            # Ensure annotation has EITHER document OR structural_set (XOR)
-            django.db.models.CheckConstraint(
-                check=(
-                    django.db.models.Q(
-                        document__isnull=False, structural_set__isnull=True
-                    )
-                    | django.db.models.Q(
-                        document__isnull=True, structural_set__isnull=False
-                    )
-                ),
-                name="annotation_has_single_parent",
-                violation_error_message=(
-                    "An annotation must belong to either a document or a "
-                    "structural set, not both or neither"
-                ),
-            ),
-            # Ensure annotations in a structural_set must have structural=True
-            # This enforces data integrity for the assumption in query_optimizer.py
-            django.db.models.CheckConstraint(
-                check=(
-                    django.db.models.Q(structural_set__isnull=True)
-                    | django.db.models.Q(structural=True)
-                ),
-                name="structural_set_requires_structural_flag",
-                violation_error_message=(
-                    "Annotations in a structural_set must have structural=True"
-                ),
             ),
         ]
 

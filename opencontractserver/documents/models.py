@@ -116,16 +116,6 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         help_text="Original document this was copied from (cross-corpus provenance). Implements Rule I2.",
     )
 
-    # Shared structural annotations (Phase 2.5)
-    structural_annotation_set = django.db.models.ForeignKey(
-        "annotations.StructuralAnnotationSet",
-        on_delete=django.db.models.PROTECT,  # Never delete if documents reference it
-        null=True,
-        blank=True,
-        related_name="documents",
-        help_text="Shared structural annotations for this document's content",
-    )
-
     processing_started = django.db.models.DateTimeField(null=True)
     processing_finished = django.db.models.DateTimeField(null=True)
 

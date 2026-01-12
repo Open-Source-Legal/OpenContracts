@@ -2,18 +2,19 @@
 Export utilities for V2 corpus export format.
 
 Handles export of new features added since original export design:
-- Structural annotation sets
 - Corpus folders hierarchy
 - DocumentPath version trees
-- Relationships
+- Relationships (including structural)
 - Agent configurations
 - Markdown descriptions with revisions
 - Conversations and messages (optional)
+
+Note: StructuralAnnotationSet was removed in favor of direct structural annotations
+on documents (identified by structural=True flag).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 
 from django.contrib.auth import get_user_model
@@ -31,94 +32,12 @@ from opencontractserver.types.dicts import (
     DescriptionRevisionExport,
     DocumentPathExport,
     OpenContractsRelationshipPythonType,
-    StructuralAnnotationSetExport,
 )
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 User = get_user_model()
-
-
-def package_structural_annotation_set(
-    structural_set,
-) -> StructuralAnnotationSetExport | None:
-    """
-    Package a StructuralAnnotationSet for export.
-
-    Args:
-        structural_set: StructuralAnnotationSet instance
-
-    Returns:
-        StructuralAnnotationSetExport dict or None if error
-    """
-    try:
-        # Read PAWLS file content
-        pawls_content = []
-        if structural_set.pawls_parse_file:
-            with structural_set.pawls_parse_file.open("r") as f:
-                pawls_content = json.load(f)
-
-        # Read text extract
-        txt_content = ""
-        if structural_set.txt_extract_file:
-            with structural_set.txt_extract_file.open("r") as f:
-                txt_content = f.read()
-
-        # Get structural annotations
-        structural_annotations = []
-        for annot in structural_set.structural_annotations.all():
-            structural_annotations.append(
-                {
-                    "id": str(annot.id),
-                    "annotationLabel": (
-                        annot.annotation_label.text if annot.annotation_label else ""
-                    ),
-                    "rawText": annot.raw_text or "",
-                    "page": annot.page or 0,
-                    "annotation_json": annot.json or {},
-                    "parent_id": str(annot.parent_id) if annot.parent_id else None,
-                    "annotation_type": annot.annotation_type or "",
-                    "structural": True,
-                }
-            )
-
-        # Get structural relationships
-        structural_relationships = []
-        for rel in structural_set.structural_relationships.all():
-            structural_relationships.append(
-                {
-                    "id": str(rel.id),
-                    "relationshipLabel": (
-                        rel.relationship_label.text if rel.relationship_label else ""
-                    ),
-                    "source_annotation_ids": [
-                        str(a.id) for a in rel.source_annotations.all()
-                    ],
-                    "target_annotation_ids": [
-                        str(a.id) for a in rel.target_annotations.all()
-                    ],
-                    "structural": True,
-                }
-            )
-
-        return {
-            "content_hash": structural_set.content_hash,
-            "parser_name": structural_set.parser_name,
-            "parser_version": structural_set.parser_version,
-            "page_count": structural_set.page_count,
-            "token_count": structural_set.token_count,
-            "pawls_file_content": pawls_content,
-            "txt_content": txt_content,
-            "structural_annotations": structural_annotations,
-            "structural_relationships": structural_relationships,
-        }
-
-    except Exception as e:
-        logger.error(
-            f"Error packaging structural annotation set {structural_set.id}: {e}"
-        )
-        return None
 
 
 def package_corpus_folders(corpus: Corpus) -> list[CorpusFolderExport]:

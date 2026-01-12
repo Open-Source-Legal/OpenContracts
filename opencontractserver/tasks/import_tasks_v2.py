@@ -29,7 +29,6 @@ from opencontractserver.utils.import_v2 import (
     import_document_paths,
     import_md_description_revisions,
     import_relationships,
-    import_structural_annotation_set,
 )
 from opencontractserver.utils.importing import import_annotations, load_or_create_labels
 from opencontractserver.utils.packaging import (
@@ -291,20 +290,10 @@ def _import_corpus_v2(
         label_lookup = {**existing_text_labels, **existing_doc_labels}
         doc_label_lookup = {label.text: label for label in existing_doc_labels.values()}
 
-        # ===== PART 3: Import Structural Annotation Sets =====
-        structural_sets = {}
-        struct_sets_data = data_json.get("structural_annotation_sets", {})
-
-        for content_hash, struct_data in struct_sets_data.items():
-            struct_set = import_structural_annotation_set(
-                struct_data, label_lookup, user_obj
-            )
-            if struct_set:
-                structural_sets[content_hash] = struct_set
-
-        logger.info(f"Imported {len(structural_sets)} structural annotation sets")
-
-        # ===== PART 4: Import Documents =====
+        # ===== PART 3: Import Documents =====
+        # Note: Legacy structural_annotation_sets data is ignored - structural
+        # annotations are now stored directly on documents with structural=True flag.
+        # Legacy imports will have structural annotations embedded in document data.
         document_map = {}  # document_ref -> Document
         annot_id_map = {}  # old_annot_id -> new_annot_id
 
@@ -315,24 +304,15 @@ def _import_corpus_v2(
                 with import_zip.open(doc_filename) as pdf_file_handle:
                     pdf_file = File(pdf_file_handle, doc_filename)
 
-                    # Get structural annotation set if referenced
-                    structural_set = None
-                    struct_hash = doc_data.get("structural_set_hash")
-                    if struct_hash and struct_hash in structural_sets:
-                        structural_set = structural_sets[struct_hash]
-                        # Use files from structural set
-                        pawls_parse_file = None
-                        txt_extract_file = None
-                    else:
-                        # Inline files (V1 style)
-                        pawls_parse_file = ContentFile(
-                            json.dumps(doc_data["pawls_file_content"]).encode("utf-8"),
-                            name="pawls_tokens.json",
-                        )
-                        txt_extract_file = ContentFile(
-                            doc_data["content"].encode("utf-8"),
-                            name="extracted_text.txt",
-                        )
+                    # Create files from document data
+                    pawls_parse_file = ContentFile(
+                        json.dumps(doc_data["pawls_file_content"]).encode("utf-8"),
+                        name="pawls_tokens.json",
+                    )
+                    txt_extract_file = ContentFile(
+                        doc_data["content"].encode("utf-8"),
+                        name="extracted_text.txt",
+                    )
 
                     # Create Document
                     doc_obj = Document.objects.create(
@@ -341,31 +321,31 @@ def _import_corpus_v2(
                         pdf_file=pdf_file,
                         pawls_parse_file=pawls_parse_file,
                         txt_extract_file=txt_extract_file,
-                        structural_annotation_set=structural_set,
                         backend_lock=True,
                         creator=user_obj,
                         page_count=doc_data["page_count"],
                     )
 
-                    # Set PDF hash - use structural set content_hash if available,
-                    # otherwise calculate from PDF content
-                    if not doc_obj.pdf_file_hash:
-                        if structural_set:
-                            # Use structural set's content hash as document hash
-                            doc_obj.pdf_file_hash = structural_set.content_hash
-                        else:
-                            # Calculate from PDF content
-                            doc_obj.pdf_file.open("rb")
-                            pdf_content = doc_obj.pdf_file.read()
-                            doc_obj.pdf_file_hash = hashlib.md5(pdf_content).hexdigest()
-                            doc_obj.pdf_file.close()
-                        doc_obj.save()
+                    # Use original hash from export if available (V2 format)
+                    # The exported PDF may be modified (annotations burned in),
+                    # so we use the original hash for DocumentPath matching
+                    original_hash = doc_data.get("pdf_file_hash")
+                    if original_hash:
+                        doc_obj.pdf_file_hash = original_hash
+                        doc_obj.save(update_fields=["pdf_file_hash"])
+                    elif not doc_obj.pdf_file_hash:
+                        # Fall back to calculating from imported content
+                        doc_obj.pdf_file.open("rb")
+                        pdf_content = doc_obj.pdf_file.read()
+                        doc_obj.pdf_file_hash = hashlib.md5(pdf_content).hexdigest()
+                        doc_obj.pdf_file.close()
+                        doc_obj.save(update_fields=["pdf_file_hash"])
 
                     set_permissions_for_obj_to_user(
                         user_obj, doc_obj, [PermissionTypes.ALL]
                     )
 
-                    # Track for DocumentPath import
+                    # Track for DocumentPath import using original hash
                     doc_ref = doc_obj.pdf_file_hash or str(doc_obj.id)
                     document_map[doc_ref] = doc_obj
 
@@ -411,17 +391,17 @@ def _import_corpus_v2(
             except Exception as e:
                 logger.error(f"Error importing document {doc_filename}: {e}")
 
-        # ===== PART 5: Import Folders =====
+        # ===== PART 4: Import Folders =====
         folders_data = data_json.get("folders", [])
         folder_map = import_corpus_folders(folders_data, corpus_obj, user_obj)
 
-        # ===== PART 6: Import DocumentPaths =====
+        # ===== PART 5: Import DocumentPaths =====
         paths_data = data_json.get("document_paths", [])
         import_document_paths(
             paths_data, corpus_obj, document_map, folder_map, user_obj
         )
 
-        # ===== PART 7: Import Relationships =====
+        # ===== PART 6: Import Relationships (including structural) =====
         relationships_data = data_json.get("relationships", [])
         import_relationships(
             relationships_data,
@@ -432,12 +412,12 @@ def _import_corpus_v2(
             user_obj,
         )
 
-        # ===== PART 8: Import Agent Config =====
+        # ===== PART 7: Import Agent Config =====
         agent_config = data_json.get("agent_config", {})
         if agent_config:
             import_agent_config(agent_config, corpus_obj)
 
-        # ===== PART 9: Import Markdown Description =====
+        # ===== PART 8: Import Markdown Description =====
         md_description = data_json.get("md_description")
         md_revisions = data_json.get("md_description_revisions", [])
         if md_description or md_revisions:
@@ -445,7 +425,7 @@ def _import_corpus_v2(
                 md_description, md_revisions, corpus_obj, user_obj
             )
 
-        # ===== PART 10: Import Conversations (if present) =====
+        # ===== PART 9: Import Conversations (if present) =====
         if "conversations" in data_json:
             conversations = data_json.get("conversations", [])
             messages = data_json.get("messages", [])

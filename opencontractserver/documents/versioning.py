@@ -226,7 +226,6 @@ def import_document(
                     version_tree_id=old_doc.version_tree_id,  # Same tree
                     parent=old_doc,  # Rule C2
                     is_current=True,  # Rule C3
-                    structural_annotation_set=old_doc.structural_annotation_set,  # Inherit structural annotations
                     creator=user,
                     **{
                         k: v
@@ -234,6 +233,56 @@ def import_document(
                         if k not in ["title", "description", "file_type"]
                     },
                 )
+
+            # Copy structural annotations from old document to new version
+            from opencontractserver.annotations.models import Annotation, Relationship
+
+            structural_annots = Annotation.objects.filter(
+                document=old_doc, structural=True
+            )
+            annot_id_map = {}
+
+            for annot in structural_annots:
+                old_id = annot.pk
+                annot.pk = None
+                annot.document = new_doc
+                annot.embedding = None  # Clear legacy embedding field
+                annot.embeddings = None  # Clear new embedding FK
+                annot.save()
+                annot_id_map[old_id] = annot.pk
+
+            # Copy structural relationships
+            structural_rels = Relationship.objects.filter(
+                document=old_doc, structural=True
+            ).prefetch_related("source_annotations", "target_annotations")
+
+            for rel in structural_rels:
+                old_source_ids = list(
+                    rel.source_annotations.values_list("id", flat=True)
+                )
+                old_target_ids = list(
+                    rel.target_annotations.values_list("id", flat=True)
+                )
+
+                rel.pk = None
+                rel.document = new_doc
+                rel.save()
+
+                new_source_ids = [
+                    annot_id_map.get(sid)
+                    for sid in old_source_ids
+                    if sid in annot_id_map
+                ]
+                new_target_ids = [
+                    annot_id_map.get(tid)
+                    for tid in old_target_ids
+                    if tid in annot_id_map
+                ]
+
+                if new_source_ids:
+                    rel.source_annotations.set(new_source_ids)
+                if new_target_ids:
+                    rel.target_annotations.set(new_target_ids)
 
             # Apply Rules P1, P2, P3
             current_path.is_current = False
@@ -323,7 +372,6 @@ def import_document(
                     is_current=True,
                     parent=None,  # Root of NEW content tree
                     source_document=existing_doc_with_hash,  # Rule I2: provenance
-                    structural_annotation_set=existing_doc_with_hash.structural_annotation_set,
                     creator=user,
                     **{
                         k: v
@@ -331,11 +379,67 @@ def import_document(
                         if k not in ["title", "description", "file_type", "is_public"]
                     },
                 )
+
+                # Copy structural annotations from source document
+                from opencontractserver.annotations.models import (
+                    Annotation as AnnotationModel,
+                )
+                from opencontractserver.annotations.models import (
+                    Relationship as RelationshipModel,
+                )
+
+                structural_annots = AnnotationModel.objects.filter(
+                    document=existing_doc_with_hash, structural=True
+                )
+                annot_id_map = {}
+
+                for annot in structural_annots:
+                    old_id = annot.pk
+                    annot.pk = None
+                    annot.document = doc
+                    annot.embedding = None
+                    annot.embeddings = None
+                    annot.save()
+                    annot_id_map[old_id] = annot.pk
+
+                structural_rels = RelationshipModel.objects.filter(
+                    document=existing_doc_with_hash, structural=True
+                ).prefetch_related("source_annotations", "target_annotations")
+
+                for rel in structural_rels:
+                    old_source_ids = list(
+                        rel.source_annotations.values_list("id", flat=True)
+                    )
+                    old_target_ids = list(
+                        rel.target_annotations.values_list("id", flat=True)
+                    )
+
+                    rel.pk = None
+                    rel.document = doc
+                    rel.save()
+
+                    new_source_ids = [
+                        annot_id_map.get(sid)
+                        for sid in old_source_ids
+                        if sid in annot_id_map
+                    ]
+                    new_target_ids = [
+                        annot_id_map.get(tid)
+                        for tid in old_target_ids
+                        if tid in annot_id_map
+                    ]
+
+                    if new_source_ids:
+                        rel.source_annotations.set(new_source_ids)
+                    if new_target_ids:
+                        rel.target_annotations.set(new_target_ids)
+
                 version = 1
                 status = "created"
                 logger.info(
                     f"Created new doc {doc.id} at {path} in corpus {corpus.id} "
-                    f"(shared artifacts from doc {existing_doc_with_hash.id})"
+                    f"(shared artifacts from doc {existing_doc_with_hash.id}, "
+                    f"copied {len(annot_id_map)} structural annotations)"
                 )
             else:
                 # Brand new content globally (Rule C1)
@@ -715,28 +819,25 @@ def permanently_delete_document(
         ).delete()[0]
         logger.debug(f"Deleted {summary_count} DocumentSummaryRevision records")
 
-        # Step 4: Delete user annotations (non-structural) for this document
-        # Structural annotations live in StructuralAnnotationSet and are shared
-        user_annotations = Annotation.objects.filter(
-            document=document,
-            structural_set__isnull=True,  # Only user annotations, not structural
-        )
+        # Step 4: Delete all annotations for this document (including structural)
+        # Structural annotations are now stored directly on documents, not shared
+        all_annotations = Annotation.objects.filter(document=document)
 
         # Step 5: Delete relationships involving these annotations first (FK constraint)
         # Use Q objects to delete in one operation to avoid counting duplicates
         # (same relationship could have both source and target in annotation_ids)
         from django.db.models import Q
 
-        annotation_ids = list(user_annotations.values_list("id", flat=True))
+        annotation_ids = list(all_annotations.values_list("id", flat=True))
         relationship_count = Relationship.objects.filter(
             Q(source_annotations__id__in=annotation_ids)
             | Q(target_annotations__id__in=annotation_ids)
         ).delete()[0]
         logger.debug(f"Deleted {relationship_count} Relationship records")
 
-        # Step 6: Delete the user annotations
-        annotation_count = user_annotations.delete()[0]
-        logger.debug(f"Deleted {annotation_count} user Annotation records")
+        # Step 6: Delete all annotations
+        annotation_count = all_annotations.delete()[0]
+        logger.debug(f"Deleted {annotation_count} Annotation records")
 
         # Step 7: Delete all DocumentPath records for this document in corpus
         DocumentPath.objects.filter(id__in=path_ids).delete()

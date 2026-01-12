@@ -248,6 +248,9 @@ class BaseParser(PipelineComponentBase, ABC):
                 annotation_id_map=annotation_id_map,
             )
 
+        # Note: Structural annotations now stay on the Document with structural=True flag.
+        # No need to create a StructuralAnnotationSet - they're just regular annotations.
+
         logger.info(
             f"Document {doc_id} parsed (with annotations & relationships) and saved successfully."
         )
