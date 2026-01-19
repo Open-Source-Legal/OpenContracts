@@ -950,6 +950,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
     @login_required
     def mutate(root, info, corpus_id, document_ids_to_remove):
         from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.documents.models import DocumentPath
 
         try:
             user = info.context.user
@@ -957,6 +958,28 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
                 int(from_global_id(doc_id)[1]) for doc_id in document_ids_to_remove
             ]
             corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+
+            # Check if any document would become orphaned (no longer in any corpus)
+            for doc_pk in doc_pks:
+                # Count active corpuses for this document, excluding the current corpus
+                other_corpus_count = (
+                    DocumentPath.objects.filter(
+                        document_id=doc_pk,
+                        is_current=True,
+                        is_deleted=False,
+                    )
+                    .exclude(corpus=corpus)
+                    .values("corpus")
+                    .distinct()
+                    .count()
+                )
+
+                if other_corpus_count == 0:
+                    return RemoveDocumentsFromCorpus(
+                        message="Cannot remove document from its last corpus. "
+                        "Documents must belong to at least one corpus.",
+                        ok=False,
+                    )
 
             # Delegate to service - handles permission checks, soft-delete, audit trail
             removed_count, error = DocumentFolderService.remove_documents_from_corpus(
@@ -1565,9 +1588,9 @@ class UploadDocument(graphene.Mutation):
         )
         custom_meta = GenericScalar(required=False, description="")
         add_to_corpus_id = graphene.ID(
-            required=False,
-            description="If provided, successfully uploaded document will "
-            "be uploaded to corpus with specified id",
+            required=True,
+            description="Corpus to add the uploaded document to. "
+            "Documents must always belong to at least one corpus.",
         )
         add_to_extract_id = graphene.ID(
             required=False,
@@ -1600,17 +1623,13 @@ class UploadDocument(graphene.Mutation):
         description,
         custom_meta,
         make_public,
-        add_to_corpus_id=None,
+        add_to_corpus_id,
         add_to_extract_id=None,
         add_to_folder_id=None,
         slug=None,
     ):
-        if add_to_corpus_id is not None and add_to_extract_id is not None:
-            return UploadDocument(
-                message="Cannot simultaneously add document to both corpus and extract",
-                ok=False,
-                document=None,
-            )
+        # Note: add_to_extract_id is deprecated but kept for backwards compatibility
+        # Documents must always belong to a corpus
 
         ok = False
         document = None
@@ -1652,28 +1671,29 @@ class UploadDocument(graphene.Mutation):
 
             user = info.context.user
 
-            # If uploading directly to a corpus, use import_content() for deduplication
-            if add_to_corpus_id is not None and kind in [
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ]:
-                try:
-                    corpus = Corpus.objects.get(id=from_global_id(add_to_corpus_id)[1])
+            # All documents must belong to a corpus
+            try:
+                corpus = Corpus.objects.get(id=from_global_id(add_to_corpus_id)[1])
 
-                    # Resolve folder if provided
-                    folder = None
-                    if add_to_folder_id is not None:
-                        folder_pk = from_global_id(add_to_folder_id)[1]
-                        folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
+                # Resolve folder if provided
+                folder = None
+                if add_to_folder_id is not None:
+                    folder_pk = from_global_id(add_to_folder_id)[1]
+                    folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
 
-                    # Generate path from filename
-                    safe_filename = "".join(
-                        c if c.isalnum() or c in "-_." else "_" for c in filename[:100]
-                    )
-                    doc_path = f"/documents/{safe_filename}"
+                # Generate path from filename
+                safe_filename = "".join(
+                    c if c.isalnum() or c in "-_." else "_" for c in filename[:100]
+                )
+                doc_path = f"/documents/{safe_filename}"
 
+                # For binary document types, use import_content for deduplication
+                if kind in [
+                    "application/pdf",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ]:
                     # Use import_content for content-based deduplication
                     document, status, path_record = corpus.import_content(
                         content=file_bytes,
@@ -1689,11 +1709,6 @@ class UploadDocument(graphene.Mutation):
                         slug=slug,
                     )
 
-                    # Set permissions on the document (may be new or reused)
-                    set_permissions_for_obj_to_user(
-                        user, document, [PermissionTypes.CRUD]
-                    )
-
                     if status == "created":
                         logger.info(
                             f"[UPLOAD] Created new document {document.id} in corpus {corpus.id}"
@@ -1707,35 +1722,8 @@ class UploadDocument(graphene.Mutation):
                             f"[UPLOAD] Document {document.id} status: {status} in corpus {corpus.id}"
                         )
 
-                    # Note: folder assignment is already handled by corpus.import_content()
-                    # which passes folder to import_document() -> DocumentPath creation
-
-                except Exception as e:
-                    logger.error(f"[UPLOAD] Error importing to corpus: {e}")
-                    message = f"Importing to corpus failed due to error: {e}"
-                    return UploadDocument(message=message, ok=False, document=None)
-            else:
-                # Standalone document upload (no corpus) - create directly
-                if kind in [
-                    "application/pdf",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ]:
-                    pdf_file = ContentFile(file_bytes, name=filename)
-                    document = Document(
-                        creator=user,
-                        title=title,
-                        description=description,
-                        custom_meta=custom_meta,
-                        pdf_file=pdf_file,
-                        backend_lock=True,
-                        is_public=make_public,
-                        file_type=kind,
-                        slug=slug,
-                    )
-                    document.save()
                 elif kind in ["text/plain", "application/txt"]:
+                    # For text files, create document and add to corpus via DocumentPath
                     txt_extract_file = ContentFile(file_bytes, name=filename)
                     document = Document(
                         creator=user,
@@ -1750,22 +1738,45 @@ class UploadDocument(graphene.Mutation):
                     )
                     document.save()
 
-                set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
+                    # Create DocumentPath to link document to corpus
+                    from opencontractserver.documents.models import DocumentPath
 
-                # Handle linking to extract (corpus case already handled above)
-                if add_to_extract_id is not None:
-                    try:
-                        extract = Extract.objects.get(
-                            Q(pk=from_global_id(add_to_extract_id)[1])
-                            & (Q(creator=user) | Q(is_public=True))
-                        )
-                        if extract.finished is not None:
-                            raise ValueError(
-                                "Cannot add document to a finished extract"
-                            )
-                        transaction.on_commit(lambda: extract.documents.add(document))
-                    except Exception as e:
-                        message = f"Adding to extract failed due to error: {e}"
+                    DocumentPath.objects.create(
+                        document=document,
+                        corpus=corpus,
+                        folder=folder,
+                        path=doc_path,
+                        version_number=1,
+                        is_current=True,
+                        is_deleted=False,
+                        creator=user,
+                    )
+                    logger.info(
+                        f"[UPLOAD] Created text document {document.id} in corpus {corpus.id}"
+                    )
+
+                else:
+                    return UploadDocument(
+                        message=f"Unsupported file type: {kind}",
+                        ok=False,
+                        document=None,
+                    )
+
+                # Set permissions on the document (may be new or reused)
+                set_permissions_for_obj_to_user(
+                    user, document, [PermissionTypes.CRUD]
+                )
+
+            except Corpus.DoesNotExist:
+                return UploadDocument(
+                    message="Specified corpus not found",
+                    ok=False,
+                    document=None,
+                )
+            except Exception as e:
+                logger.error(f"[UPLOAD] Error importing to corpus: {e}")
+                message = f"Importing to corpus failed due to error: {e}"
+                return UploadDocument(message=message, ok=False, document=None)
 
             ok = True
 
@@ -1799,8 +1810,9 @@ class UploadDocumentsZip(graphene.Mutation):
             required=False, description="Optional metadata to apply to all documents"
         )
         add_to_corpus_id = graphene.ID(
-            required=False,
-            description="If provided, successfully uploaded documents will be added to corpus with specified id",
+            required=True,
+            description="Corpus to add the uploaded documents to. "
+            "Documents must always belong to at least one corpus.",
         )
         make_public = graphene.Boolean(
             required=True,
@@ -1818,10 +1830,10 @@ class UploadDocumentsZip(graphene.Mutation):
         info,
         base64_file_string,
         make_public,
+        add_to_corpus_id,
         title_prefix=None,
         description=None,
         custom_meta=None,
-        add_to_corpus_id=None,
     ):
         # Was going to user a user_passes_test decorator, but I wanted a custom error message
         # that could be easily reflected to user in the GUI.
@@ -3585,6 +3597,31 @@ class DeleteCorpusMutation(DRFDeletion):
 
     class Arguments:
         id = graphene.String(required=True)
+
+    @classmethod
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(cls, root, info, id):
+        """Override to add system corpus and document checks."""
+        corpus_pk = from_global_id(id)[1]
+        corpus = Corpus.objects.get(pk=corpus_pk)
+
+        # Prevent deletion of system corpuses
+        if corpus.is_system_corpus:
+            raise PermissionError(
+                "System corpuses cannot be deleted. "
+                "These are auto-managed corpuses like 'My Documents'."
+            )
+
+        # Prevent deletion if corpus has documents
+        if corpus.document_count() > 0:
+            raise PermissionError(
+                "Cannot delete corpus containing documents. "
+                "Remove or reassign all documents first."
+            )
+
+        # Delegate to parent class for standard deletion logic
+        return super().mutate(root, info, id=id)
 
 
 class CreateLabelMutation(DRFMutation):

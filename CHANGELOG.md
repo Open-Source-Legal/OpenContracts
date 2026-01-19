@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Documents Must Belong to Corpus Constraint
+- **Enforces that all documents must belong to at least one corpus**
+  - Documents can no longer exist without a corpus association
+  - Upload mutations now require `add_to_corpus_id` parameter
+  - Removal from last corpus is prevented
+  - System corpuses cannot be deleted
+  - Files: `config/graphql/mutations.py` (lines 1567-1571, 950-1002, 3593-3624)
+- **`is_system_corpus` field on Corpus model**
+  - Identifies system-managed corpuses like "My Documents" and "Shared With Me"
+  - Prevents accidental deletion of system corpuses
+  - Files: `opencontractserver/corpuses/models.py` (lines 197-201)
+  - Migration: `opencontractserver/corpuses/migrations/0037_add_is_system_corpus_field.py`
+- **`migrate_orphaned_documents` management command**
+  - Migrates orphaned documents to per-user system corpuses
+  - Creates "My Documents" corpus for users with edit access
+  - Creates "Shared With Me" corpus for users with read-only access
+  - Cleans up non-default embeddings during migration
+  - Usage: `python manage.py migrate_orphaned_documents [--dry-run] [--verbose]`
+  - Files: `opencontractserver/documents/management/commands/migrate_orphaned_documents.py`
+- **Tests for document-corpus constraints**
+  - Tests for orphan migration, removal constraints, deletion constraints
+  - Files: `opencontractserver/tests/test_orphan_document_migration.py`
+
+### Changed
+- **Frontend UploadModal now requires corpus selection**
+  - Removed "Skip Corpus" button from upload flow
+  - Corpus selection step subtitle changed to "Select a corpus for your documents"
+  - Upload button disabled until corpus is selected
+  - Files: `frontend/src/components/widgets/modals/UploadModal/UploadModal.tsx`
+
 #### Unified Upload Modal with @os-legal/ui Design System
 - **Consolidated `BulkUploadModal` and `DocumentUploadModal`** into single `UploadModal` component
   - Auto-detects upload mode: ZIP files → bulk mode, PDFs → single mode

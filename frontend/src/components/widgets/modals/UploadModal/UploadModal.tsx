@@ -316,12 +316,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     onClose,
   ]);
 
-  // Handle skip corpus
-  const handleSkipCorpus = useCallback(() => {
-    setStep("uploading");
-    uploadMutations.uploadFiles(uploadState.files, null);
-  }, [uploadState.files, uploadMutations]);
-
   // Get header content
   const getHeaderTitle = () => {
     if (mode === "bulk") {
@@ -354,7 +348,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       case "details":
         return "Review and edit document details";
       case "corpus":
-        return "Optionally add to a corpus";
+        return "Select a corpus for your documents";
       case "uploading":
         return "Processing your uploads...";
       default:
@@ -609,25 +603,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       Upload
                     </Button>
                   ) : (
-                    <>
-                      <Button
-                        variant="secondary"
-                        onClick={handleSkipCorpus}
-                        disabled={!isFormValid()}
-                      >
-                        Skip Corpus
-                      </Button>
-                      <Button
-                        variant="primary"
-                        onClick={handleContinue}
-                        disabled={!isFormValid()}
-                      >
-                        Continue
-                        <ArrowRight
-                          style={{ width: 16, height: 16, marginLeft: 8 }}
-                        />
-                      </Button>
-                    </>
+                    <Button
+                      variant="primary"
+                      onClick={handleContinue}
+                      disabled={!isFormValid()}
+                    >
+                      Continue
+                      <ArrowRight
+                        style={{ width: 16, height: 16, marginLeft: 8 }}
+                      />
+                    </Button>
                   )}
                 </>
               )}
@@ -640,10 +625,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     />
                     Back
                   </Button>
-                  <Button variant="secondary" onClick={handleSkipCorpus}>
-                    Skip
-                  </Button>
-                  <Button variant="primary" onClick={handleContinue}>
+                  <Button
+                    variant="primary"
+                    onClick={handleContinue}
+                    disabled={!selectedCorpus}
+                  >
                     <Upload style={{ width: 16, height: 16, marginRight: 8 }} />
                     Upload
                   </Button>

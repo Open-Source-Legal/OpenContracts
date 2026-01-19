@@ -194,6 +194,12 @@ class Corpus(TreeNode):
     # Error status
     error = django.db.models.BooleanField(default=False)
 
+    # System corpus flag - used for auto-created corpuses like "My Documents"
+    is_system_corpus = django.db.models.BooleanField(
+        default=False,
+        help_text="System-managed corpus (e.g., 'My Documents'). Cannot be deleted by users.",
+    )
+
     # Timing variables
     created = django.db.models.DateTimeField(default=timezone.now)
     modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
