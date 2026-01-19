@@ -1,7 +1,8 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Header, Segment, Card, Icon } from "semantic-ui-react";
+import { Header, Card } from "semantic-ui-react";
 import styled from "styled-components";
+import { Settings, Trophy, Bot, Cog, Users, LucideIcon } from "lucide-react";
 
 const Container = styled.div`
   padding: 2rem;
@@ -172,7 +173,7 @@ interface SettingItem {
   id: string;
   title: string;
   description: string;
-  icon: string;
+  Icon: LucideIcon;
   color: string;
   route?: string;
   comingSoon?: boolean;
@@ -184,7 +185,7 @@ const settingsItems: SettingItem[] = [
     title: "Badge Management",
     description:
       "Create and manage badges that can be awarded to users for achievements and contributions.",
-    icon: "trophy",
+    Icon: Trophy,
     color: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
     route: "/admin/badges",
   },
@@ -193,7 +194,7 @@ const settingsItems: SettingItem[] = [
     title: "Global Agents",
     description:
       "Configure global AI agents available across all corpuses for document and corpus analysis.",
-    icon: "robot",
+    Icon: Bot,
     color: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
     route: "/admin/agents",
   },
@@ -202,7 +203,7 @@ const settingsItems: SettingItem[] = [
     title: "System Settings",
     description:
       "Configure system-wide settings including defaults, limits, and feature flags.",
-    icon: "cog",
+    Icon: Cog,
     color: "linear-gradient(135deg, #64748b 0%, #475569 100%)",
     comingSoon: true,
   },
@@ -211,7 +212,7 @@ const settingsItems: SettingItem[] = [
     title: "User Management",
     description:
       "View and manage user accounts, permissions, and access controls.",
-    icon: "users",
+    Icon: Users,
     color: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
     comingSoon: true,
   },
@@ -230,7 +231,11 @@ export const GlobalSettingsPanel: React.FC = () => {
     <Container>
       <PageHeader>
         <PageTitle as="h1">
-          <Icon name="settings" /> Admin Settings
+          <Settings
+            size={24}
+            style={{ marginRight: "0.5em", verticalAlign: "middle" }}
+          />{" "}
+          Admin Settings
         </PageTitle>
         <PageDescription>
           Manage global settings, configurations, and administrative features
@@ -247,7 +252,7 @@ export const GlobalSettingsPanel: React.FC = () => {
           >
             <Card.Content>
               <CardIcon $color={item.color}>
-                <Icon name={item.icon as any} size="large" />
+                <item.Icon size={24} color="white" />
               </CardIcon>
               <CardTitle>
                 {item.title}

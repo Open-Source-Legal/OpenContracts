@@ -1,7 +1,13 @@
 import React from "react";
-import { Label, Button, Popup, Icon } from "semantic-ui-react";
+import { Label, Button, Popup, Icon as SemanticIcon } from "semantic-ui-react";
 import styled from "styled-components";
-import { Trash2, ArrowRight, ArrowLeft } from "lucide-react";
+import {
+  Trash2,
+  ArrowRight,
+  ArrowLeft,
+  CheckSquare,
+  Square,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { HorizontallyJustifiedDiv } from "./common";
 import { useAnnotationRefs } from "../hooks/useAnnotationRefs";
@@ -202,23 +208,35 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
       onClick={handleClick}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        {onToggleMultiSelect && (
-          <Icon
-            name={isMultiSelected ? "check square" : "square outline"}
-            size="large"
-            style={{
-              cursor: "pointer",
-              color: isMultiSelected ? "#3b82f6" : "#94a3b8",
-            }}
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              onToggleMultiSelect();
-            }}
-          />
-        )}
+        {onToggleMultiSelect &&
+          (isMultiSelected ? (
+            <CheckSquare
+              size={20}
+              style={{
+                cursor: "pointer",
+                color: "#3b82f6",
+              }}
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                onToggleMultiSelect();
+              }}
+            />
+          ) : (
+            <Square
+              size={20}
+              style={{
+                cursor: "pointer",
+                color: "#94a3b8",
+              }}
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                onToggleMultiSelect();
+              }}
+            />
+          ))}
         <AnnotationLabel $labelColor={annotation.annotationLabel.color}>
           {annotation.annotationLabel.icon && (
-            <Icon name={annotation.annotationLabel.icon} />
+            <SemanticIcon name={annotation.annotationLabel.icon} />
           )}
           {annotation.annotationLabel.text}
         </AnnotationLabel>

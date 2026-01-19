@@ -1,7 +1,12 @@
 // src/RadialButtonCloud.tsx
 import React, { useState, useRef, useEffect } from "react";
 import styled, { createGlobalStyle, css, keyframes } from "styled-components";
-import { Button, Icon, SemanticICONS, Modal } from "semantic-ui-react";
+import {
+  Button,
+  Icon as SemanticIcon,
+  SemanticICONS,
+  Modal,
+} from "semantic-ui-react";
 import { getLuminance } from "polished";
 
 // Helper function to ensure valid hex color
@@ -314,7 +319,7 @@ const RadialButtonCloud: React.FC<RadialButtonCloudProps> = ({
               position={buttonPositions[index]}
               backgroundColor={buttonColors[index % buttonColors.length]}
             >
-              <Icon name={btn.name} />
+              <SemanticIcon name={btn.name} />
             </CloudButton>
           ))}
         </CloudContainer>

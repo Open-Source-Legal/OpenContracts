@@ -1,5 +1,5 @@
 import styled, { css, keyframes } from "styled-components";
-import { Modal, Button, Segment, List, Progress } from "semantic-ui-react";
+import { Modal, Button, List, Progress } from "semantic-ui-react";
 
 // Breakpoints for responsive design
 const breakpoints = {
@@ -299,38 +299,36 @@ export const DropZoneButton = styled(Button)`
 `;
 
 // File list container
-export const FileListContainer = styled(Segment)`
-  &.ui.segment {
-    border-radius: 12px !important;
-    border: 1px solid #e9ecef !important;
-    box-shadow: none !important;
-    max-height: 300px;
-    overflow-y: auto;
-    padding: 0.5rem !important;
-    margin: 0 !important;
+export const FileListContainer = styled.div`
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 12px;
+  padding: 0.5rem;
+  margin: 0;
+  max-height: 300px;
+  overflow-y: auto;
 
-    @media (max-width: ${breakpoints.mobile}) {
-      max-height: 250px;
-    }
+  @media (max-width: ${breakpoints.mobile}) {
+    max-height: 250px;
+  }
 
-    /* Custom scrollbar */
-    &::-webkit-scrollbar {
-      width: 6px;
-    }
+  /* Custom scrollbar */
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
 
-    &::-webkit-scrollbar-track {
-      background: #f1f3f5;
-      border-radius: 3px;
-    }
+  &::-webkit-scrollbar-track {
+    background: #f1f3f5;
+    border-radius: 3px;
+  }
 
-    &::-webkit-scrollbar-thumb {
-      background: #ced4da;
-      border-radius: 3px;
-    }
+  &::-webkit-scrollbar-thumb {
+    background: #ced4da;
+    border-radius: 3px;
+  }
 
-    &::-webkit-scrollbar-thumb:hover {
-      background: #adb5bd;
-    }
+  &::-webkit-scrollbar-thumb:hover {
+    background: #adb5bd;
   }
 `;
 
@@ -499,17 +497,27 @@ export const EditPanelHeader = styled.h4`
   border-bottom: 2px solid #667eea;
 `;
 
-export const FormContainer = styled(Segment)`
-  &.ui.segment {
-    border-radius: 12px !important;
-    border: 1px solid #e9ecef !important;
-    box-shadow: none !important;
-    padding: 1.5rem !important;
-    height: 100%;
+export const FormContainer = styled.div<{ placeholder?: boolean }>`
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 1rem 0;
+  height: 100%;
 
-    @media (max-width: ${breakpoints.mobile}) {
-      padding: 1rem !important;
-    }
+  ${({ placeholder }) =>
+    placeholder &&
+    css`
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 200px;
+      color: rgba(0, 0, 0, 0.6);
+    `}
+
+  @media (max-width: ${breakpoints.mobile}) {
+    padding: 1rem;
   }
 `;
 

@@ -1,10 +1,11 @@
 import React from "react";
-import { Icon, Button } from "semantic-ui-react";
+import { Button } from "semantic-ui-react";
 import styled from "styled-components";
 import { useQuery } from "@apollo/client";
 import { FEATURE_FLAGS, FeatureKey } from "../../config/features";
 import { GET_MY_CORPUSES, GetMyCorpusesOutput } from "../../graphql/queries";
 import { useFeatureAvailability } from "../../hooks/useFeatureAvailability";
+import { FolderOpen, Plus } from "lucide-react";
 
 const Container = styled.div`
   display: flex;
@@ -60,14 +61,14 @@ export const FeatureUnavailable: React.FC<FeatureUnavailableProps> = ({
   return (
     <Container className={className}>
       <IconWrapper>
-        <Icon name="folder open outline" size="huge" />
+        <FolderOpen size={48} />
       </IconWrapper>
       <FeatureName>{status.config.displayName}</FeatureName>
       <Message>{status.message}</Message>
 
       {hasEditableCorpuses && onAddToCorpus && (
         <Button size="small" primary onClick={onAddToCorpus}>
-          <Icon name="plus" /> Add to Corpus
+          <Plus size={16} style={{ marginRight: "0.5em" }} /> Add to Corpus
         </Button>
       )}
     </Container>

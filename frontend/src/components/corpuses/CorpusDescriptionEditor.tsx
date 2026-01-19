@@ -1,12 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Modal,
-  Header,
-  Button,
-  Icon,
-  Message,
-  Loader,
-} from "semantic-ui-react";
+import { Modal, Header, Button, Message } from "semantic-ui-react";
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery } from "@apollo/client";

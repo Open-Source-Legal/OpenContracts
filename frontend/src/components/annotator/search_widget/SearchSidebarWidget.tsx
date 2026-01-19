@@ -1,11 +1,28 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Header, Segment, Icon, Message, Form } from "semantic-ui-react";
+import { Header, Message, Form } from "semantic-ui-react";
+import styled from "styled-components";
+import { Search, X } from "lucide-react";
 import _ from "lodash";
 import "./SearchWidgetStyles.css";
 import { TextSearchSpanResult, TextSearchTokenResult } from "../../types";
 import { TruncatedText } from "../../widgets/data-display/TruncatedText";
 import { useAnnotationRefs } from "../hooks/useAnnotationRefs";
 import { useSearchText, useTextSearchState } from "../context/DocumentAtom";
+
+const SearchInputSection = styled.div`
+  background-color: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 1rem;
+`;
+
+const ResultsSection = styled.div`
+  height: 100%;
+  overflow-y: auto;
+  background-color: #ffffff;
+  border: none;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+`;
 
 /**
  * Displays the page header based on the type of search result.
@@ -180,30 +197,33 @@ export const SearchSidebarWidget: React.FC = () => {
         backgroundColor: "#f0f2f5",
       }}
     >
-      <Segment
-        secondary
-        attached
-        style={{
-          backgroundColor: "#ffffff",
-          borderBottom: "1px solid #e0e0e0",
-          flex: "unset",
-          WebkitBoxFlex: "unset",
-        }}
-      >
+      <SearchInputSection>
         <Form>
           <Form.Input
             iconPosition="left"
             icon={
-              <Icon
-                name={searchText ? "cancel" : "search"}
-                link={!!searchText}
+              <i
+                className="icon"
                 onClick={() => {
-                  // Cancel any pending debounced updates and clear the search text
-                  debouncedSetSearchText.cancel();
-                  setSearchText("");
+                  if (searchText) {
+                    // Cancel any pending debounced updates and clear the search text
+                    debouncedSetSearchText.cancel();
+                    setSearchText("");
+                  }
                 }}
-                style={{ color: searchText ? "#db2828" : "#2185d0" }}
-              />
+                style={{
+                  cursor: searchText ? "pointer" : "default",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {searchText ? (
+                  <X size={16} color="#db2828" />
+                ) : (
+                  <Search size={16} color="#2185d0" />
+                )}
+              </i>
             }
             placeholder="Search document..."
             onChange={(e) => {
@@ -214,17 +234,8 @@ export const SearchSidebarWidget: React.FC = () => {
             style={{ boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}
           />
         </Form>
-      </Segment>
-      <Segment
-        style={{
-          height: "100%",
-          overflowY: "auto",
-          backgroundColor: "#ffffff",
-          border: "none",
-          boxShadow: "inset 0 2px 4px rgba(0,0,0,0.1)",
-        }}
-        attached="bottom"
-      >
+      </SearchInputSection>
+      <ResultsSection>
         <div style={{ overflowY: "auto", height: "100%" }}>
           {searchResults.length > 0 ? (
             searchResults.map(
@@ -245,7 +256,7 @@ export const SearchSidebarWidget: React.FC = () => {
             <PlaceholderSearchResultCard />
           )}
         </div>
-      </Segment>
+      </ResultsSection>
     </div>
   );
 };

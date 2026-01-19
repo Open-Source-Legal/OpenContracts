@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useQuery } from "@apollo/client";
 import styled from "styled-components";
-import { Loader } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
 import { Home, Trash2 } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { FolderTreeNode } from "./FolderTreeNode";
@@ -300,7 +300,7 @@ export const FolderTreeSidebar: React.FC<FolderTreeSidebarProps> = ({
         {/* Loading State */}
         {loading && (
           <LoadingContainer>
-            <Loader active inline size="small" />
+            <Spinner size={16} />
             <div style={{ marginTop: "12px" }}>Loading folders...</div>
           </LoadingContainer>
         )}

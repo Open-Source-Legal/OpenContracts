@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import _ from "lodash";
 import styled from "styled-components";
-
-import { Icon } from "semantic-ui-react";
+import { Pencil, Trash2 } from "lucide-react";
 
 import { VerticallyJustifiedEndDiv } from "../../sidebar/common";
 
@@ -336,18 +335,18 @@ export const Selection: React.FC<SelectionProps> = ({
                       PermissionTypes.CAN_UPDATE
                     ) &&
                       !annotation.annotationLabel.readonly && (
-                        <Icon
+                        <Pencil
+                          size={14}
                           style={{
                             marginLeft: ".25rem",
                             marginRight: ".125rem",
                             cursor: "pointer",
                           }}
-                          name="pencil"
-                          onClick={(e: React.SyntheticEvent) => {
+                          onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
                             setIsEditLabelModalVisible(true);
                           }}
-                          onMouseDown={(e: React.SyntheticEvent) => {
+                          onMouseDown={(e: React.MouseEvent) => {
                             e.stopPropagation();
                           }}
                         />
@@ -356,21 +355,21 @@ export const Selection: React.FC<SelectionProps> = ({
                       PermissionTypes.CAN_REMOVE
                     ) &&
                       !annotation.annotationLabel.readonly && (
-                        <Icon
+                        <Trash2
+                          size={14}
                           style={{
                             marginLeft: ".125rem",
                             marginRight: ".25rem",
                             cursor: "pointer",
                           }}
-                          name="trash alternate outline"
-                          onClick={(e: React.SyntheticEvent) => {
+                          onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
                             removeAnnotation();
                           }}
                           // We have to prevent the default behaviour for
                           // the pdf canvas here, in order to be able to capture
                           // the click event.
-                          onMouseDown={(e: React.SyntheticEvent) => {
+                          onMouseDown={(e: React.MouseEvent) => {
                             e.stopPropagation();
                           }}
                         />

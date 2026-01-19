@@ -1,6 +1,14 @@
 import React, { useState } from "react";
 import { useQuery } from "@apollo/client";
-import { Header, Icon, SemanticICONS } from "semantic-ui-react";
+import { Header } from "semantic-ui-react";
+import {
+  FileText,
+  MessageSquare,
+  BarChart2,
+  Table,
+  MessagesSquare,
+  LucideIcon,
+} from "lucide-react";
 import {
   CorpusStats,
   GET_CORPUS_STATS,
@@ -20,18 +28,17 @@ interface NewQuerySearchProps {
 const StatisticWithAnimation = ({
   value,
   label,
-  icon,
+  Icon,
 }: {
   value: number;
   label: string;
-  icon: SemanticICONS;
+  Icon: LucideIcon;
 }) => {
-  const { width } = useWindowDimensions();
-  const isDesktop = width > MOBILE_VIEW_BREAKPOINT;
-
   return (
     <StatisticWrapper>
-      <StatisticIcon name={icon} />
+      <StatisticIconWrapper>
+        <Icon size={24} />
+      </StatisticIconWrapper>
       <StatisticContent>
         <StatisticValue>
           <CountUp end={value} duration={1.5} />
@@ -64,15 +71,21 @@ const StatisticWrapper = styled.div`
   }
 `;
 
-const StatisticIcon = styled(Icon)`
-  font-size: 1.75rem !important;
-  margin: 0 1rem 0 0 !important;
+const StatisticIconWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 1rem 0 0;
   opacity: 0.8;
   color: #4a90e2;
 
   @media (min-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    font-size: 2.5rem !important;
-    margin: 0 0 0.75rem 0 !important;
+    margin: 0 0 0.75rem 0;
+
+    svg {
+      width: 32px;
+      height: 32px;
+    }
   }
 `;
 
@@ -184,27 +197,27 @@ export const CorpusDashboard: React.FC<{ corpus: CorpusType }> = ({
         <StatisticWithAnimation
           value={stats.totalDocs}
           label="Documents"
-          icon="file text"
+          Icon={FileText}
         />
         <StatisticWithAnimation
           value={stats.totalAnnotations}
           label="Annotations"
-          icon="comment"
+          Icon={MessageSquare}
         />
         <StatisticWithAnimation
           value={stats.totalAnalyses}
           label="Analyses"
-          icon="chart bar"
+          Icon={BarChart2}
         />
         <StatisticWithAnimation
           value={stats.totalExtracts}
           label="Extracts"
-          icon="table"
+          Icon={Table}
         />
         <StatisticWithAnimation
           value={stats.totalComments}
           label="Comments"
-          icon="comments"
+          Icon={MessagesSquare}
         />
       </StatsGrid>
     </DashboardContainer>

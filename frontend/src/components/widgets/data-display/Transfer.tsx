@@ -1,5 +1,5 @@
 import { FC, ReactNode } from "react";
-import { Segment, Grid } from "semantic-ui-react";
+import { Grid } from "semantic-ui-react";
 import {
   DragDropContext,
   Droppable,
@@ -40,6 +40,26 @@ const DraggableItem = styled.div<{ isDragging: boolean }>`
   background: ${(props) => (props.isDragging ? "lightgreen" : "white")};
   padding: 8px;
   border: 1px solid #ccc;
+`;
+
+const ColumnHeader = styled.div`
+  padding: 0.78571429em 1em;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-bottom: none;
+  border-radius: 0.28571429rem 0.28571429rem 0 0;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.87);
+`;
+
+const ColumnContent = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  background: #fff;
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-top: none;
+  border-radius: 0 0 0.28571429rem 0.28571429rem;
 `;
 
 export const DraggableList: FC<DraggableListProps> = ({
@@ -163,13 +183,8 @@ export const Transfer: FC<TransferProps> = ({
               paddingLeft: "10px",
             }}
           >
-            <Segment secondary attached="top">
-              Source Annotation(s):
-            </Segment>
-            <Segment
-              attached="bottom"
-              style={{ flex: 1, overflowY: "auto", padding: 0 }}
-            >
+            <ColumnHeader>Source Annotation(s):</ColumnHeader>
+            <ColumnContent>
               <DraggableList
                 id="source_annotations"
                 value_list={source_list}
@@ -177,7 +192,7 @@ export const Transfer: FC<TransferProps> = ({
                   <AnnotationSummary annotationId={item.annotation} />
                 )}
               />
-            </Segment>
+            </ColumnContent>
           </Grid.Column>
           <Grid.Column
             style={{
@@ -188,13 +203,8 @@ export const Transfer: FC<TransferProps> = ({
               paddingRight: "10px",
             }}
           >
-            <Segment secondary attached="top">
-              Target Annotation(s):
-            </Segment>
-            <Segment
-              attached="bottom"
-              style={{ flex: 1, overflowY: "auto", padding: 0 }}
-            >
+            <ColumnHeader>Target Annotation(s):</ColumnHeader>
+            <ColumnContent>
               <DraggableList
                 id="target_annotations"
                 value_list={target_list}
@@ -202,7 +212,7 @@ export const Transfer: FC<TransferProps> = ({
                   <AnnotationSummary annotationId={item.annotation} />
                 )}
               />
-            </Segment>
+            </ColumnContent>
           </Grid.Column>
         </Grid.Row>
       </Grid>

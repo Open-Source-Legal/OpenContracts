@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Transfer as SemanticTransfer } from "../../../widgets/data-display/Transfer";
-import { Modal, Button, Label, Icon } from "semantic-ui-react";
+import { Modal, Button, Label } from "semantic-ui-react";
 import { RelationGroup } from "../../types/annotations";
 import { AnnotationLabelType } from "../../../../types/graphql-api";
 import styled from "styled-components";
 import { useCreateRelationship } from "../../hooks/AnnotationHooks";
 import { useCorpusState } from "../../context/CorpusAtom";
+import { Tag } from "lucide-react";
 
 interface RelationModalProps {
   visible: boolean;
@@ -75,7 +76,7 @@ export const RelationModal = ({
               /* TODO: lift active-label state */
             }}
           >
-            <Icon name={relation.icon ?? "tag"} />
+            <Tag size={16} style={{ marginRight: "0.5em" }} />
             {relation.text}
           </RelationLabel>
         ))}

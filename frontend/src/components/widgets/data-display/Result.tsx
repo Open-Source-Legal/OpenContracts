@@ -1,6 +1,6 @@
-import { Header, Icon, SemanticCOLORS } from "semantic-ui-react";
+import { Header } from "semantic-ui-react";
 import styled from "styled-components";
-import { SemanticICONS } from "semantic-ui-react/dist/commonjs/generic";
+import { ThumbsUp, AlertTriangle, HelpCircle, LucideIcon } from "lucide-react";
 
 export const Result = ({
   status,
@@ -10,40 +10,40 @@ export const Result = ({
   title: string;
 }) => {
   function convertStatusToIcon(status: string): {
-    icon: SemanticICONS;
-    color: SemanticCOLORS;
+    Icon: LucideIcon;
+    color: string;
   } {
     switch (status) {
       case "success":
         return {
-          icon: "thumbs up outline",
+          Icon: ThumbsUp,
           color: "green",
         };
       case "warning":
         return {
-          icon: "warning sign",
-          color: "yellow",
+          Icon: AlertTriangle,
+          color: "#fbbd08",
         };
       case "unknown":
         return {
-          icon: "question circle outline",
+          Icon: HelpCircle,
           color: "black",
         };
       default:
         return {
-          icon: "question circle outline",
+          Icon: HelpCircle,
           color: "black",
         };
     }
   }
 
-  const { icon, color } = convertStatusToIcon(status);
+  const { Icon, color } = convertStatusToIcon(status);
 
   return (
     <ResultIndicatorContainer>
       <InnerContainer>
         <div style={{ marginBottom: "2vh" }}>
-          <Icon name={icon} color={color} size="massive" />
+          <Icon size={64} color={color} />
         </div>
         <div>
           <Header as="h1" textAlign="center">

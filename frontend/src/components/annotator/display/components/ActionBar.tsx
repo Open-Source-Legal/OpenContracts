@@ -1,5 +1,11 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Form, Icon, Popup, Menu, SemanticICONS } from "semantic-ui-react";
+import React, { useState, useRef, useEffect } from "react";
+import {
+  Form,
+  Icon as SemanticIcon,
+  Popup,
+  Menu,
+  SemanticICONS,
+} from "semantic-ui-react";
 import { Search, X } from "lucide-react";
 import styled from "styled-components";
 import _ from "lodash";
@@ -176,7 +182,7 @@ export const PDFActionBar: React.FC<PDFActionBarProps> = ({
           key={item.key}
           onClick={() => handleMenuItemClick(item.value)}
         >
-          {item.icon && <Icon name={item.icon} />}
+          {item.icon && <SemanticIcon name={item.icon} />}
           {item.text}
         </Menu.Item>
       ))}
@@ -205,12 +211,22 @@ export const PDFActionBar: React.FC<PDFActionBarProps> = ({
         />
         <StyledSearchInput
           icon={
-            <Icon
-              name={localSearchText ? "cancel" : "search"}
-              link={!!localSearchText}
+            <span
+              className="icon"
+              style={{
+                cursor: localSearchText ? "pointer" : "default",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
               onClick={() => (localSearchText ? clearSearch() : undefined)}
-              style={{ color: localSearchText ? "#db2828" : "#2185d0" }}
-            />
+            >
+              {localSearchText ? (
+                <X size={16} style={{ color: "#db2828" }} />
+              ) : (
+                <Search size={16} style={{ color: "#2185d0" }} />
+              )}
+            </span>
           }
           iconPosition="left"
           placeholder="Search document..."

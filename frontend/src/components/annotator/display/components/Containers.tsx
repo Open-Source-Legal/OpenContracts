@@ -1,9 +1,6 @@
-import React from "react";
 import styled, { css } from "styled-components";
-import { Icon } from "semantic-ui-react";
 import { LabelDisplayBehavior } from "../../../../types/graphql-api";
 import { getContrastColor } from "../../../../utils/transform";
-import { pulseGreen, pulseMaroon } from "../effects";
 
 // ... (keep the existing interfaces)
 
@@ -113,16 +110,4 @@ export const LabelTagContainer = styled.div<{
   padding: 2px 6px;
   border-radius: 3px;
   position: relative;
-`;
-
-export const StyledIcon = styled(Icon)<{ $color: string }>`
-  color: ${(props) => getContrastColor(props.$color)} !important;
-  margin-left: 0.25rem !important;
-  cursor: pointer;
-  opacity: 0.7;
-  transition: opacity 0.2s ease;
-
-  &:hover {
-    opacity: 1;
-  }
 `;

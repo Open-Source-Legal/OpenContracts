@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Modal, Icon, Header } from "semantic-ui-react";
+import { Button, Modal, Header } from "semantic-ui-react";
 import _ from "lodash";
+import { Box, X, Check } from "lucide-react";
 import { CRUDWidget } from "./CRUDWidget";
 import { LoadingOverlay } from "../../common/LoadingOverlay";
 import { CRUDProps, LooseObject, PropertyWidgets } from "../../types";
@@ -132,7 +133,10 @@ export function CRUDModal({
         <HorizontallyCenteredDiv>
           <div style={{ marginTop: "1rem", textAlign: "left", width: "100%" }}>
             <Header as="h2">
-              <Icon name="box" />
+              <Box
+                size={24}
+                style={{ marginRight: "0.5rem", verticalAlign: "middle" }}
+              />
               <Header.Content>
                 {headerText}
                 <Header.Subheader>{`Values for: ${descriptiveName}`}</Header.Subheader>
@@ -164,7 +168,7 @@ export function CRUDModal({
       <Modal.Actions>
         <HorizontallyCenteredDiv>
           <Button basic color="grey" onClick={onClose} disabled={loading}>
-            <Icon name="remove" /> Close
+            <X size={16} style={{ marginRight: "0.5rem" }} /> Close
           </Button>
           {canWrite && onSubmit && !_.isEqual(oldInstance, instanceObj) && (
             <Button
@@ -176,7 +180,8 @@ export function CRUDModal({
                 onSubmit(mode === "EDIT" ? updatedFieldsObj : instanceObj);
               }}
             >
-              <Icon name="checkmark" /> {mode === "EDIT" ? "Update" : "Create"}
+              <Check size={16} style={{ marginRight: "0.5rem" }} />{" "}
+              {mode === "EDIT" ? "Update" : "Create"}
             </Button>
           )}
         </HorizontallyCenteredDiv>

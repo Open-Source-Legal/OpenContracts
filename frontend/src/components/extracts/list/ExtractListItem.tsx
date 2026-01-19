@@ -1,4 +1,5 @@
-import { Table, Icon, Button } from "semantic-ui-react";
+import { Table, Button } from "semantic-ui-react";
+import { Settings, Eye, Trash2 } from "lucide-react";
 import { ExtractType } from "../../../types/graphql-api";
 import { DateTimeWidget } from "../../widgets/data-display/DateTimeWidget";
 
@@ -46,14 +47,20 @@ export function ExtractItemRow({
       </Table.Cell>
       <Table.Cell textAlign="center">
         {!item.started ? (
-          <Icon size="large" loading name="cog" />
+          <Settings
+            size={20}
+            style={{ animation: "spin 2s linear infinite" }}
+          />
         ) : (
           <DateTimeWidget timeString={startedTime} dateString={startedDate} />
         )}
       </Table.Cell>
       <Table.Cell textAlign="center">
         {!item.finished || !item.started ? (
-          <Icon size="large" loading name="cog" />
+          <Settings
+            size={20}
+            style={{ animation: "spin 2s linear infinite" }}
+          />
         ) : (
           <DateTimeWidget timeString={finishedTime} dateString={finishedDate} />
         )}
@@ -63,17 +70,14 @@ export function ExtractItemRow({
           <Button
             circular
             size="mini"
-            icon="eye"
             color="grey"
             {...(onSelect ? { onClick: () => onSelect(item) } : {})}
-          />
-          <Button
-            circular
-            size="mini"
-            icon="trash"
-            color="red"
-            onClick={onDelete}
-          />
+          >
+            <Eye size={12} />
+          </Button>
+          <Button circular size="mini" color="red" onClick={onDelete}>
+            <Trash2 size={12} />
+          </Button>
         </div>
       </Table.Cell>
     </Table.Row>

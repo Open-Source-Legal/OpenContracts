@@ -1,9 +1,17 @@
 // frontend/src/components/widgets/modals/BulkUploadModal.tsx
 import React, { useState, useRef } from "react";
 import { useMutation, useReactiveVar } from "@apollo/client";
-import { Button, Form, Message, FormField, Icon } from "semantic-ui-react";
+import { Button, Form, Message, FormField } from "semantic-ui-react";
 import { toast } from "react-toastify";
 import { gql } from "@apollo/client";
+import {
+  FileArchive,
+  AlertCircle,
+  ArrowLeftRight,
+  CloudUpload,
+  FolderOpen,
+  Loader2,
+} from "lucide-react";
 
 import { showBulkUploadModal } from "../../../graphql/cache";
 import { CorpusType } from "../../../types/graphql-api";
@@ -205,7 +213,7 @@ export const BulkUploadModal = () => {
     <StyledUploadModal open={visible} onClose={handleClose} size="small">
       <StyledUploadModal.Header>
         <ModalHeader>
-          <Icon name="file archive" size="large" />
+          <FileArchive size={24} />
           <ModalHeaderContent>
             <span className="title">Bulk Upload Documents</span>
             <span className="subtitle">
@@ -219,7 +227,7 @@ export const BulkUploadModal = () => {
           {/* Error Message Display */}
           {error && (
             <ErrorMessage>
-              <Icon name="exclamation circle" size="large" className="icon" />
+              <AlertCircle size={24} className="icon" />
               <div className="content">
                 <div className="header">Upload Error</div>
                 <div className="message">{error}</div>
@@ -246,7 +254,7 @@ export const BulkUploadModal = () => {
             {selectedFile ? (
               <>
                 <DropZoneIcon>
-                  <Icon name="file archive" />
+                  <FileArchive size={32} />
                 </DropZoneIcon>
                 <DropZoneText>
                   <div className="primary-text">{selectedFile.name}</div>
@@ -262,13 +270,13 @@ export const BulkUploadModal = () => {
                     }
                   }}
                 >
-                  <Icon name="exchange" /> Change File
+                  <ArrowLeftRight size={16} /> Change File
                 </DropZoneButton>
               </>
             ) : (
               <>
                 <DropZoneIcon>
-                  <Icon name="cloud upload" />
+                  <CloudUpload size={32} />
                 </DropZoneIcon>
                 <DropZoneText>
                   <div className="primary-text">Click to select a ZIP file</div>
@@ -277,7 +285,7 @@ export const BulkUploadModal = () => {
                   </div>
                 </DropZoneText>
                 <DropZoneButton>
-                  <Icon name="folder open" /> Browse Files
+                  <FolderOpen size={16} /> Browse Files
                 </DropZoneButton>
               </>
             )}
@@ -325,11 +333,11 @@ export const BulkUploadModal = () => {
         >
           {loading && uploadProgress < 100 ? (
             <>
-              <Icon name="spinner" loading /> Uploading...
+              <Loader2 size={16} className="animate-spin" /> Uploading...
             </>
           ) : (
             <>
-              <Icon name="cloud upload" /> Upload ZIP
+              <CloudUpload size={16} /> Upload ZIP
             </>
           )}
         </ActionButton>

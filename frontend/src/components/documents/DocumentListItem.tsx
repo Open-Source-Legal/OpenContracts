@@ -1,4 +1,4 @@
-import { Icon } from "semantic-ui-react";
+import { CheckCircle, XCircle, Loader2, FileText, Trash2 } from "lucide-react";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 
 import {
@@ -35,13 +35,15 @@ export const ContractListItem = ({
   const getStatusIcon = () => {
     switch (status) {
       case SUCCESS:
-        return "check circle";
+        return <CheckCircle size={16} />;
       case FAILED:
-        return "times circle";
+        return <XCircle size={16} />;
       case UPLOADING:
-        return "spinner";
+        return (
+          <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+        );
       default:
-        return "file pdf outline";
+        return <FileText size={16} />;
     }
   };
 
@@ -71,9 +73,7 @@ export const ContractListItem = ({
         content="Uploading..."
       />
       <FileItemContent>
-        <FileItemIcon $status={status}>
-          <Icon name={getStatusIcon()} loading={status === UPLOADING} />
-        </FileItemIcon>
+        <FileItemIcon $status={status}>{getStatusIcon()}</FileItemIcon>
         <FileItemDetails>
           <div className="file-name">
             {document?.title || "Untitled Document"}
@@ -94,7 +94,7 @@ export const ContractListItem = ({
             onClick={handleRemoveClick}
             aria-label="Remove file"
           >
-            <Icon name="trash alternate outline" />
+            <Trash2 size={14} />
           </DeleteButton>
         </FileItemActions>
       )}

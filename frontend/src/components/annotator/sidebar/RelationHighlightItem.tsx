@@ -1,6 +1,7 @@
-import { List, Icon, Label, Button } from "semantic-ui-react";
+import { List, Icon as SemanticIcon, Label, Button } from "semantic-ui-react";
 import styled from "styled-components";
 import _ from "lodash";
+import { X } from "lucide-react";
 
 // Restore standard imports
 import source_icon from "../../../assets/icons/noun-bow-and-arrow-559923.png";
@@ -65,7 +66,7 @@ export const RelationHighlightItem = ({
         <Button
           circular
           inverted
-          icon="remove"
+          icon={<X size={12} />}
           size="mini"
           floated="right"
           color="red"
@@ -86,7 +87,7 @@ export const RelationHighlightItem = ({
         }}
       >
         {annotation.annotationLabel.icon ? (
-          <Icon name={annotation.annotationLabel.icon} />
+          <SemanticIcon name={annotation.annotationLabel.icon} />
         ) : (
           <></>
         )}

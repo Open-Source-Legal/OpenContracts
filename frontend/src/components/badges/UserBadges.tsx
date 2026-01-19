@@ -1,6 +1,7 @@
 import React from "react";
 import { useQuery } from "@apollo/client";
-import { Header, Message, Dimmer, Loader, Segment } from "semantic-ui-react";
+import { Header, Message } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
 import styled from "styled-components";
 import { Badge, BadgeData } from "./Badge";
 import {
@@ -27,24 +28,24 @@ const BadgesContainer = styled.div`
   }
 `;
 
-const StyledSegment = styled(Segment)`
-  &.ui.segment {
-    border-radius: 16px;
-    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-    border: 1px solid rgba(226, 232, 240, 0.8);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+const StyledSegment = styled.div`
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 16px;
+  padding: 1rem;
+  margin: 1rem 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 
+  @media (max-width: 768px) {
+    border-radius: 12px;
+    margin: 0.5em 0;
+  }
+
+  /* Responsive header inside segment */
+  h3.ui.header {
     @media (max-width: 768px) {
-      border-radius: 12px;
-      margin: 0.5em 0;
-    }
-
-    /* Responsive header inside segment */
-    h3.ui.header {
-      @media (max-width: 768px) {
-        font-size: 1.1em;
-        text-align: center;
-      }
+      font-size: 1.1em;
+      text-align: center;
     }
   }
 `;
@@ -89,10 +90,16 @@ export const UserBadges: React.FC<UserBadgesProps> = ({
   if (loading) {
     return (
       <StyledSegment>
-        <Dimmer active inverted>
-          <Loader>Loading badges...</Loader>
-        </Dimmer>
-        <div style={{ minHeight: "100px" }} />
+        <div
+          style={{
+            minHeight: "100px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Spinner size={24} />
+        </div>
       </StyledSegment>
     );
   }

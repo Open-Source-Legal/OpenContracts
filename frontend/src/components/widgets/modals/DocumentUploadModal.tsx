@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { gql, useReactiveVar } from "@apollo/client";
-import { Icon, Header } from "semantic-ui-react";
+import { Header } from "semantic-ui-react";
 import _ from "lodash";
+import {
+  CloudUpload,
+  FileEdit,
+  File,
+  Pencil,
+  FolderOpen,
+  X,
+  ArrowRight,
+  ArrowLeft,
+} from "lucide-react";
 
 import Form from "@rjsf/semantic-ui";
 import validator from "@rjsf/validator-ajv8";
@@ -86,7 +96,10 @@ function RightCol({ files, selected_file_num, handleChange }: RightColProps) {
   return (
     <FormContainer placeholder>
       <Header icon>
-        <Icon name="edit outline" style={{ color: "#667eea" }} />
+        <FileEdit
+          size={32}
+          style={{ color: "#667eea", marginBottom: "0.5rem" }}
+        />
         <Header.Content style={{ color: "#495057", fontSize: "1rem" }}>
           Click on a document to edit its details
         </Header.Content>
@@ -429,7 +442,7 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
     <StyledUploadModal open={open} onClose={() => onClose()}>
       <StyledUploadModal.Header>
         <ModalHeader>
-          <Icon name="cloud upload" size="large" />
+          <CloudUpload size={24} />
           <ModalHeaderContent>
             <span className="title">Upload Documents</span>
             <span className="subtitle">
@@ -445,26 +458,26 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
         {!corpusId && step !== "uploading" && (
           <StepIndicator>
             <Step $active={currentStep === 1} $completed={currentStep > 1}>
-              <Icon name="file" /> Select
+              <File size={16} /> Select
             </Step>
             <StepConnector $completed={currentStep > 1} />
             <Step $active={currentStep === 2} $completed={currentStep > 2}>
-              <Icon name="edit" /> Details
+              <Pencil size={16} /> Details
             </Step>
             <StepConnector $completed={currentStep > 2} />
             <Step $active={currentStep === 3} $completed={currentStep > 3}>
-              <Icon name="folder open" /> Corpus
+              <FolderOpen size={16} /> Corpus
             </Step>
           </StepIndicator>
         )}
         {corpusId && step !== "uploading" && (
           <StepIndicator>
             <Step $active={currentStep === 1} $completed={currentStep > 1}>
-              <Icon name="file" /> Select
+              <File size={16} /> Select
             </Step>
             <StepConnector $completed={currentStep > 1} />
             <Step $active={currentStep === 2} $completed={currentStep > 2}>
-              <Icon name="edit" /> Details
+              <Pencil size={16} /> Details
             </Step>
           </StepIndicator>
         )}
@@ -489,11 +502,11 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
       </StyledUploadModal.Content>
       <StyledUploadModal.Actions>
         <ActionButton $variant="secondary" onClick={() => onClose()}>
-          <Icon name="remove" /> Close
+          <X size={16} /> Close
         </ActionButton>
         {step === "upload" && files.length > 0 && (
           <ActionButton $variant="primary" onClick={() => setStep("edit")}>
-            Continue <Icon name="arrow right" />
+            Continue <ArrowRight size={16} />
           </ActionButton>
         )}
         {step === "edit" && (
@@ -502,11 +515,11 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
               $variant="secondary"
               onClick={() => setStep("upload")}
             >
-              <Icon name="arrow left" /> Back
+              <ArrowLeft size={16} /> Back
             </ActionButton>
             {corpusId ? (
               <ActionButton $variant="primary" onClick={() => uploadFiles()}>
-                <Icon name="cloud upload" /> Upload
+                <CloudUpload size={16} /> Upload
               </ActionButton>
             ) : (
               <>
@@ -520,7 +533,7 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
                   $variant="primary"
                   onClick={() => setStep("corpus")}
                 >
-                  Continue <Icon name="arrow right" />
+                  Continue <ArrowRight size={16} />
                 </ActionButton>
               </>
             )}
@@ -529,13 +542,13 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
         {step === "corpus" && !corpusId && (
           <>
             <ActionButton $variant="secondary" onClick={() => setStep("edit")}>
-              <Icon name="arrow left" /> Back
+              <ArrowLeft size={16} /> Back
             </ActionButton>
             <ActionButton $variant="secondary" onClick={() => uploadFiles()}>
               Skip
             </ActionButton>
             <ActionButton $variant="primary" onClick={() => uploadFiles()}>
-              <Icon name="cloud upload" /> Upload
+              <CloudUpload size={16} /> Upload
             </ActionButton>
           </>
         )}

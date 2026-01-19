@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useLazyQuery, useMutation, gql } from "@apollo/client";
 import styled from "styled-components";
-import { Modal, Button, Icon, Loader, Message } from "semantic-ui-react";
+import { Modal, Button, Message } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
+import {
+  GitBranch,
+  User,
+  Clock,
+  Calendar,
+  File,
+  Undo2,
+  Download,
+  Info,
+} from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 
 // GraphQL query for fetching version history
@@ -345,10 +356,18 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
   const renderVersionList = () => {
     if (loading) {
       return (
-        <div style={{ padding: "40px", textAlign: "center" }}>
-          <Loader active inline="centered" size="medium">
-            Loading version history...
-          </Loader>
+        <div
+          style={{
+            padding: "40px",
+            textAlign: "center",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+          }}
+        >
+          <Spinner size={24} />
+          <span>Loading version history...</span>
         </div>
       );
     }
@@ -365,7 +384,7 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
     if (!versionHistory || versionHistory.versions.length === 0) {
       return (
         <EmptyState>
-          <Icon name="code branch" />
+          <GitBranch size={48} className="icon" />
           <h3>No Version History</h3>
           <p>This document has no previous versions.</p>
         </EmptyState>
@@ -407,21 +426,21 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
 
                 <VersionMeta>
                   <div className="meta-item">
-                    <Icon name="user" />
+                    <User size={11} />
                     {version.createdBy.username}
                   </div>
                   <div className="meta-item">
-                    <Icon name="clock" />
+                    <Clock size={11} />
                     {formatDistanceToNow(new Date(version.createdAt), {
                       addSuffix: true,
                     })}
                   </div>
                   <div className="meta-item">
-                    <Icon name="calendar" />
+                    <Calendar size={11} />
                     {format(new Date(version.createdAt), "MMM d, yyyy h:mm a")}
                   </div>
                   <div className="meta-item">
-                    <Icon name="file" />
+                    <File size={11} />
                     {formatBytes(version.sizeBytes)}
                   </div>
                 </VersionMeta>
@@ -438,7 +457,7 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
                         handleRestore(version.id);
                       }}
                     >
-                      <Icon name="undo" />
+                      <Undo2 size={11} style={{ marginRight: "4px" }} />
                       Restore This Version
                     </ActionButton>
                     {onDownload && (
@@ -450,7 +469,7 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
                           onDownload(version.id);
                         }}
                       >
-                        <Icon name="download" />
+                        <Download size={11} style={{ marginRight: "4px" }} />
                         Download
                       </ActionButton>
                     )}
@@ -460,7 +479,7 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
                 {isSelected && isCurrent && (
                   <VersionActions>
                     <Message info size="tiny" style={{ margin: "8px 0 0" }}>
-                      <Icon name="info circle" />
+                      <Info size={11} style={{ marginRight: "4px" }} />
                       This is the current version
                     </Message>
                   </VersionActions>
@@ -482,7 +501,10 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
       closeOnEscape
     >
       <Modal.Header>
-        <Icon name="code branch" style={{ marginRight: "8px" }} />
+        <GitBranch
+          size={18}
+          style={{ marginRight: "8px", display: "inline" }}
+        />
         Version History
         <div
           style={{

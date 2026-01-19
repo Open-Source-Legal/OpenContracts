@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Button, Popup, Icon, Modal } from "semantic-ui-react";
+import { Button, Popup, Modal } from "semantic-ui-react";
+import { Code, Check, Pencil, Eye, X } from "lucide-react";
 import { CellStatus } from "../../../types/extract-grid";
 import styled from "styled-components";
 import { JSONSchema7 } from "json-schema";
@@ -285,7 +286,7 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
             alignItems: "center",
           }}
         >
-          <Icon name="code" />
+          <Code size={14} />
           <span style={{ marginLeft: "5px" }}>View/Edit JSON</span>
         </div>
       );
@@ -344,7 +345,6 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
               <ButtonContainer>
                 <div className="buttons">
                   <Button
-                    icon="check"
                     color="green"
                     size="tiny"
                     onClick={() => {
@@ -355,9 +355,10 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                       cellStatus?.isApproved || readOnly || !isExtractComplete
                     }
                     title="Approve"
-                  />
+                  >
+                    <Check size={12} />
+                  </Button>
                   <Button
-                    icon="edit"
                     color="grey"
                     size="tiny"
                     onClick={() => {
@@ -373,9 +374,10 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                     }}
                     disabled={readOnly || !isExtractComplete}
                     title="Edit"
-                  />
+                  >
+                    <Pencil size={12} />
+                  </Button>
                   <Button
-                    icon="eye"
                     color="blue"
                     size="tiny"
                     onClick={() => {
@@ -394,9 +396,10 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                       !cell?.fullSourceList || cell.fullSourceList.length === 0
                     }
                     title="View Sources"
-                  />
+                  >
+                    <Eye size={12} />
+                  </Button>
                   <Button
-                    icon="close"
                     color="red"
                     size="tiny"
                     onClick={() => {
@@ -407,7 +410,9 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                       cellStatus?.isRejected || readOnly || !isExtractComplete
                     }
                     title="Reject"
-                  />
+                  >
+                    <X size={12} />
+                  </Button>
                 </div>
                 {cellStatus?.isApproved && (
                   <div className="status-message">

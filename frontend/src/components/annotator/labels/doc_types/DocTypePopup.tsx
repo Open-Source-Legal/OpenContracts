@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Button, Input, Icon } from "semantic-ui-react";
+import { Button, Input } from "semantic-ui-react";
 import styled from "styled-components";
 import Fuse from "fuse.js";
+import { Search, Tag, SearchX } from "lucide-react";
 import { AnnotationLabelType } from "../../../../types/graphql-api";
 
 const PopupContainer = styled.div`
@@ -163,7 +164,7 @@ export const DocTypePopup = ({ labels, onAdd }: DocTypePopupProps) => {
           placeholder="Search labels..."
           value={searchString}
           onChange={handleChange}
-          icon={<Icon name="search" color="grey" />}
+          icon={<Search size={16} style={{ color: "grey" }} />}
         />
       </SearchContainer>
 
@@ -177,11 +178,10 @@ export const DocTypePopup = ({ labels, onAdd }: DocTypePopupProps) => {
             >
               <LabelHeader>
                 <LabelTitle>{label.text}</LabelTitle>
-                <Icon
-                  name={label.icon || "tag"}
+                <Tag
+                  size={16}
                   style={{
                     color: label.color || "#00b09b",
-                    fontSize: "1.1em",
                     opacity: 0.8,
                   }}
                 />
@@ -195,7 +195,7 @@ export const DocTypePopup = ({ labels, onAdd }: DocTypePopupProps) => {
           <LabelCard selected={false}>
             <LabelHeader>
               <LabelTitle>No Matching Labels</LabelTitle>
-              <Icon name="search minus" color="grey" />
+              <SearchX size={16} style={{ color: "grey" }} />
             </LabelHeader>
             <LabelDescription>
               No labels match your search criteria. Try adjusting your search

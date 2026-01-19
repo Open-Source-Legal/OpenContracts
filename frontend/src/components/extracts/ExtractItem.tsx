@@ -1,6 +1,7 @@
 import { useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
-import { Button, Card, Icon, Label } from "semantic-ui-react";
+import { Button, Card, Label } from "semantic-ui-react";
+import { Settings, Trash2, LayoutGrid, FileText, Table2 } from "lucide-react";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import {
   RequestDeleteExtractInputType,
@@ -236,24 +237,26 @@ export const ExtractItem: React.FC<ExtractItemProps> = ({
 
       {extract.corpusAction && (
         <ActionBadge size="tiny">
-          <Icon name="cog" /> {extract.corpusAction.name}
+          <Settings size={12} style={{ marginRight: "0.375rem" }} />{" "}
+          {extract.corpusAction.name}
         </ActionBadge>
       )}
 
       {!read_only && can_delete && (
         <DeleteButton
           circular
-          icon="trash"
           onClick={(e: { stopPropagation: () => void }) => {
             e.stopPropagation();
             requestDeleteExtract();
           }}
-        />
+        >
+          <Trash2 size={14} />
+        </DeleteButton>
       )}
 
       <CardHeader>
         <div className="icon-wrapper">
-          <Icon name="grid layout" />
+          <LayoutGrid size={20} />
         </div>
         <div className="text">
           <h3>{extract.name}</h3>
@@ -271,11 +274,11 @@ export const ExtractItem: React.FC<ExtractItemProps> = ({
 
       <MetadataBadges>
         <Badge>
-          <Icon name="file" />
+          <FileText size={12} style={{ marginRight: "0.375rem" }} />
           {extract.fullDocumentList?.length || 0} Documents
         </Badge>
         <Badge>
-          <Icon name="table" />
+          <Table2 size={12} style={{ marginRight: "0.375rem" }} />
           {extract.fieldset?.fullColumnList?.length || 0} Columns
         </Badge>
       </MetadataBadges>

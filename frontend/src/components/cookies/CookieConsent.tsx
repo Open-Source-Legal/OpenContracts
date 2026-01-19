@@ -1,6 +1,16 @@
-import { List, Modal, Header, Icon, Button } from "semantic-ui-react";
+import { List, Modal, Header, Button } from "semantic-ui-react";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import { toast } from "react-toastify";
+import {
+  AlertTriangle,
+  Users,
+  Settings,
+  Monitor,
+  LineChart,
+  MousePointer,
+  Bug,
+  Check,
+} from "lucide-react";
 
 import { showCookieAcceptModal, authToken } from "../../graphql/cache";
 import {
@@ -70,7 +80,7 @@ export const CookieConsentDialog = () => {
           }}
         >
           <div>
-            <Icon name="warning" />
+            <AlertTriangle size={32} />
           </div>
         </div>
         <div style={{ marginTop: ".5em" }}>DEMO SYSTEM</div>
@@ -110,15 +120,21 @@ export const CookieConsentDialog = () => {
         </Header>
         <List>
           <List.Item>
-            <List.Icon name="users" />
+            <span style={{ marginRight: "0.5em" }}>
+              <Users size={16} />
+            </span>
             <List.Content>User Information (email, name, ip)</List.Content>
           </List.Item>
           <List.Item>
-            <List.Icon name="settings" />
+            <span style={{ marginRight: "0.5em" }}>
+              <Settings size={16} />
+            </span>
             <List.Content>Usage Information</List.Content>
           </List.Item>
           <List.Item>
-            <List.Icon name="computer" />
+            <span style={{ marginRight: "0.5em" }}>
+              <Monitor size={16} />
+            </span>
             <List.Content>System Information</List.Content>
           </List.Item>
         </List>
@@ -133,11 +149,15 @@ export const CookieConsentDialog = () => {
         </p>
         <List>
           <List.Item>
-            <List.Icon name="users" />
+            <span style={{ marginRight: "0.5em" }}>
+              <Users size={16} />
+            </span>
             <List.Content>Labelsets & Labels</List.Content>
           </List.Item>
           <List.Item>
-            <List.Icon name="computer" />
+            <span style={{ marginRight: "0.5em" }}>
+              <Monitor size={16} />
+            </span>
             <List.Content>Configured Data Extractors</List.Content>
           </List.Item>
         </List>
@@ -155,15 +175,21 @@ export const CookieConsentDialog = () => {
             </p>
             <List>
               <List.Item>
-                <List.Icon name="chart line" />
+                <span style={{ marginRight: "0.5em" }}>
+                  <LineChart size={16} />
+                </span>
                 <List.Content>Page views and navigation patterns</List.Content>
               </List.Item>
               <List.Item>
-                <List.Icon name="mouse pointer" />
+                <span style={{ marginRight: "0.5em" }}>
+                  <MousePointer size={16} />
+                </span>
                 <List.Content>Feature usage statistics</List.Content>
               </List.Item>
               <List.Item>
-                <List.Icon name="bug" />
+                <span style={{ marginRight: "0.5em" }}>
+                  <Bug size={16} />
+                </span>
                 <List.Content>Error tracking for debugging</List.Content>
               </List.Item>
             </List>
@@ -183,7 +209,7 @@ export const CookieConsentDialog = () => {
           disabled={loading}
           onClick={handleAccept}
         >
-          <Icon name="checkmark" /> Accept
+          <Check size={16} style={{ marginRight: "0.5em" }} /> Accept
         </Button>
       </Modal.Actions>
     </Modal>

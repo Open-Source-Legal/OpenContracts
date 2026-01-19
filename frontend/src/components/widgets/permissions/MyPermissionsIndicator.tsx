@@ -1,4 +1,5 @@
-import { Statistic, Icon } from "semantic-ui-react";
+import { Statistic } from "semantic-ui-react";
+import { Share2, Lock, Pencil, ShieldOff } from "lucide-react";
 import { getPermissions } from "../../../utils/transform";
 import { PermissionTypes } from "../../types";
 
@@ -16,7 +17,7 @@ export const MyPermissionsIndicator = ({
     stats.push(
       <Statistic key={`stat_${stats.length}`}>
         <Statistic.Value>
-          <Icon name="external share" color="green" />
+          <Share2 size={24} color="#21ba45" />
         </Statistic.Value>
         <Statistic.Label>Public</Statistic.Label>
       </Statistic>
@@ -25,7 +26,7 @@ export const MyPermissionsIndicator = ({
     stats.push(
       <Statistic key={`stat_${stats.length}`}>
         <Statistic.Value>
-          <Icon name="privacy" color="brown" />
+          <ShieldOff size={24} color="#a5673f" />
         </Statistic.Value>
         <Statistic.Label>Private</Statistic.Label>
       </Statistic>
@@ -36,7 +37,7 @@ export const MyPermissionsIndicator = ({
     stats.push(
       <Statistic key={`stat_${stats.length}`}>
         <Statistic.Value>
-          <Icon name="write" color="green" />
+          <Pencil size={24} color="#21ba45" />
         </Statistic.Value>
         <Statistic.Label>Can Edit</Statistic.Label>
       </Statistic>
@@ -45,7 +46,7 @@ export const MyPermissionsIndicator = ({
     stats.push(
       <Statistic key={`stat_${stats.length}`}>
         <Statistic.Value>
-          <Icon name="lock" color="red" />
+          <Lock size={24} color="#db2828" />
         </Statistic.Value>
         <Statistic.Label>Read Only</Statistic.Label>
       </Statistic>

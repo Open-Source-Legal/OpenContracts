@@ -1,5 +1,5 @@
 import { useQuery } from "@apollo/client";
-import { Header, Segment, Dropdown, Message } from "semantic-ui-react";
+import { Header, Dropdown, Message } from "semantic-ui-react";
 import styled from "styled-components";
 import {
   GetEmbeddersInput,
@@ -25,17 +25,20 @@ const MobileFriendlyWrapper = styled.div`
       padding: 0.75rem 1rem;
     }
 
-    /* Add padding to segment for better mobile spacing */
-    .ui.segment {
-      padding: 1rem;
-    }
-
     /* Ensure dropdown options are large enough to tap */
     .ui.dropdown .menu > .item {
       padding: 0.875rem 1rem !important;
       min-height: 44px;
     }
   }
+`;
+
+const AttachedContainer = styled.div`
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-top: none;
+  border-radius: 0 0 0.28571429rem 0.28571429rem;
 `;
 
 interface EmbedderSelectorProps {
@@ -109,7 +112,7 @@ export const EmbedderSelector = ({
       <Header as="h5" attached="top">
         Preferred Embedder:
       </Header>
-      <Segment attached>
+      <AttachedContainer>
         {error && (
           <Message negative compact size="tiny">
             <Message.Header>Failed to load embedders</Message.Header>
@@ -141,7 +144,7 @@ export const EmbedderSelector = ({
           noResultsMessage="No embedders match your search"
           loading={loading}
         />
-      </Segment>
+      </AttachedContainer>
     </MobileFriendlyWrapper>
   );
 };

@@ -1,45 +1,64 @@
 import React, { useState } from "react";
-import { Icon, Label } from "semantic-ui-react";
+import { Label } from "semantic-ui-react";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
+import {
+  ChevronDown,
+  Clock,
+  Loader2,
+  Check,
+  X,
+  FastForward,
+  Pause,
+  Play,
+} from "lucide-react";
 import { CorpusActionExecutionNode } from "../../graphql/queries";
 import { getDocumentUrl } from "../../utils/navigationUtils";
+
+import type { LucideIcon } from "lucide-react";
 
 /**
  * Status configuration
  */
 const STATUS_CONFIG: Record<
   string,
-  { color: string; bgColor: string; icon: string; label: string }
+  {
+    color: string;
+    bgColor: string;
+    Icon: LucideIcon;
+    isSpinner?: boolean;
+    label: string;
+  }
 > = {
   queued: {
     color: "#d97706",
     bgColor: "#fef3c7",
-    icon: "clock outline",
+    Icon: Clock,
     label: "Queued",
   },
   running: {
     color: "#2563eb",
     bgColor: "#dbeafe",
-    icon: "spinner",
+    Icon: Loader2,
+    isSpinner: true,
     label: "Running",
   },
   completed: {
     color: "#059669",
     bgColor: "#d1fae5",
-    icon: "check",
+    Icon: Check,
     label: "Completed",
   },
   failed: {
     color: "#dc2626",
     bgColor: "#fee2e2",
-    icon: "times",
+    Icon: X,
     label: "Failed",
   },
   skipped: {
     color: "#6b7280",
     bgColor: "#f3f4f6",
-    icon: "forward",
+    Icon: FastForward,
     label: "Skipped",
   },
 };
@@ -304,7 +323,7 @@ export const ActionExecutionRow: React.FC<ActionExecutionRowProps> = ({
         <TypeBadge>{typeLabel}</TypeBadge>
         <TimeInfo>{formatRelativeTime(execution.queuedAt)}</TimeInfo>
         <ExpandIcon $expanded={expanded}>
-          <Icon name="chevron down" size="small" />
+          <ChevronDown size={12} />
         </ExpandIcon>
       </RowHeader>
 
@@ -320,9 +339,15 @@ export const ActionExecutionRow: React.FC<ActionExecutionRowProps> = ({
                     background: status.bgColor,
                     color: status.color,
                     fontWeight: 500,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
                   }}
                 >
-                  <Icon name={status.icon as any} />
+                  <status.Icon
+                    size={12}
+                    className={status.isSpinner ? "animate-spin" : undefined}
+                  />
                   {status.label}
                 </Label>
               </div>

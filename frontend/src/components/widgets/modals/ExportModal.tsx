@@ -2,8 +2,9 @@
  * A modal for viewing and searching exports, with lazy loading and infinite scroll.
  */
 import { useEffect, useRef, useState } from "react";
-import { Button, Modal, Icon, Header } from "semantic-ui-react";
+import { Button, Modal, Header } from "semantic-ui-react";
 import _ from "lodash";
+import { FileArchive, X } from "lucide-react";
 import { CreateAndSearchBar } from "../../layout/CreateAndSearchBar";
 import { LoadingOverlay } from "../../common/LoadingOverlay";
 import { ExportList } from "../../exports/ExportList";
@@ -165,7 +166,7 @@ export function ExportModal({ visible, toggleModal }: ExportModalProps) {
         >
           <div>
             <Header as="h2" icon>
-              <Icon name="zip" />
+              <FileArchive size={32} style={{ marginBottom: "0.5rem" }} />
               Corpus Exports
               <Header.Subheader>
                 WARNING - If you have a free account, your exports will be
@@ -208,7 +209,7 @@ export function ExportModal({ visible, toggleModal }: ExportModalProps) {
       </Modal.Content>
       <Modal.Actions>
         <Button basic color="grey" onClick={() => toggleModal()}>
-          <Icon name="remove" /> Close
+          <X size={16} style={{ marginRight: "0.5rem" }} /> Close
         </Button>
       </Modal.Actions>
     </Modal>

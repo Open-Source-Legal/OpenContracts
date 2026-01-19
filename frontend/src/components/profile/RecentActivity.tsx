@@ -13,7 +13,8 @@ import React from "react";
 import { useQuery } from "@apollo/client";
 import styled from "styled-components";
 import { MessageSquare, FileText, Tag, Clock } from "lucide-react";
-import { Dimmer, Loader, Message } from "semantic-ui-react";
+import { Message } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
 import { formatDistanceToNow } from "date-fns";
 import { gql } from "@apollo/client";
 import { color } from "../../theme/colors";
@@ -139,10 +140,15 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ userId }) => {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "200px", position: "relative" }}>
-        <Dimmer active inverted>
-          <Loader>Loading activity...</Loader>
-        </Dimmer>
+      <div
+        style={{
+          minHeight: "200px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Spinner size={24} />
       </div>
     );
   }

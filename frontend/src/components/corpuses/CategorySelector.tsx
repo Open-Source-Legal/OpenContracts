@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery } from "@apollo/client";
 import styled from "styled-components";
-import { Icon } from "semantic-ui-react";
+import { Check } from "lucide-react";
 import {
   GET_CORPUS_CATEGORIES,
   GetCorpusCategoriesOutput,
@@ -178,7 +178,7 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
               title={category.description}
             >
               {!isSelected && <ColorDot $color={category.color} />}
-              {isSelected && <Icon name="check" />}
+              {isSelected && <Check size={14} />}
               {category.name}
             </CategoryChip>
           );

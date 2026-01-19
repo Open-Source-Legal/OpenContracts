@@ -13,8 +13,21 @@
  */
 import React, { useState, useRef, useCallback } from "react";
 import { useMutation, useReactiveVar } from "@apollo/client";
-import { Modal, Icon, Message } from "semantic-ui-react";
+import { Modal, Message } from "semantic-ui-react";
 import { toast } from "react-toastify";
+import {
+  CheckCircle,
+  FileArchive,
+  CloudUpload,
+  AlertTriangle,
+  Info,
+  AlertCircle,
+  RefreshCw,
+  FolderOpen,
+  ArrowRight,
+  ArrowLeft,
+  Loader2,
+} from "lucide-react";
 
 import {
   showBulkImportModal,
@@ -247,17 +260,17 @@ export const BulkImportModal: React.FC = () => {
   const renderStepIndicator = () => (
     <StepIndicator>
       <Step $active={step === "confirm"} $completed={step !== "confirm"}>
-        <Icon name="check circle" />
+        <CheckCircle size={16} style={{ marginRight: "0.25em" }} />
         Confirm
       </Step>
       <StepConnector $completed={step !== "confirm"} />
       <Step $active={step === "upload"} $completed={step === "progress"}>
-        <Icon name="file archive" />
+        <FileArchive size={16} style={{ marginRight: "0.25em" }} />
         Select File
       </Step>
       <StepConnector $completed={step === "progress"} />
       <Step $active={step === "progress"}>
-        <Icon name="cloud upload" />
+        <CloudUpload size={16} style={{ marginRight: "0.25em" }} />
         Import
       </Step>
     </StepIndicator>
@@ -269,7 +282,7 @@ export const BulkImportModal: React.FC = () => {
   const renderConfirmStep = () => (
     <div>
       <Message warning icon>
-        <Icon name="warning sign" />
+        <AlertTriangle size={32} style={{ marginRight: "1rem" }} />
         <Message.Content>
           <Message.Header>
             Important: Bulk Import Cannot Be Easily Undone
@@ -299,7 +312,7 @@ export const BulkImportModal: React.FC = () => {
       </Message>
 
       <Message info icon>
-        <Icon name="info circle" />
+        <Info size={32} style={{ marginRight: "1rem" }} />
         <Message.Content>
           <Message.Header>Supported Format</Message.Header>
           <p style={{ marginTop: "0.5rem" }}>
@@ -319,7 +332,7 @@ export const BulkImportModal: React.FC = () => {
       {error && (
         <ErrorMessage>
           <div className="icon">
-            <Icon name="exclamation circle" size="large" />
+            <AlertCircle size={24} />
           </div>
           <div className="content">
             <div className="header">Error</div>
@@ -348,7 +361,7 @@ export const BulkImportModal: React.FC = () => {
         {selectedFile ? (
           <>
             <DropZoneIcon>
-              <Icon name="file archive outline" size="huge" />
+              <FileArchive size={48} />
             </DropZoneIcon>
             <DropZoneText>
               <div className="primary-text">{selectedFile.name}</div>
@@ -357,13 +370,14 @@ export const BulkImportModal: React.FC = () => {
               </div>
             </DropZoneText>
             <DropZoneButton onClick={handleBrowseClick}>
-              <Icon name="refresh" /> Choose Different File
+              <RefreshCw size={16} style={{ marginRight: "0.5em" }} /> Choose
+              Different File
             </DropZoneButton>
           </>
         ) : (
           <>
             <DropZoneIcon>
-              <Icon name="cloud upload" size="huge" />
+              <CloudUpload size={48} />
             </DropZoneIcon>
             <DropZoneText>
               <div className="primary-text">
@@ -374,7 +388,8 @@ export const BulkImportModal: React.FC = () => {
               <div className="secondary-text">or click to browse</div>
             </DropZoneText>
             <DropZoneButton onClick={handleBrowseClick}>
-              <Icon name="folder open" /> Browse Files
+              <FolderOpen size={16} style={{ marginRight: "0.5em" }} /> Browse
+              Files
             </DropZoneButton>
           </>
         )}
@@ -387,10 +402,9 @@ export const BulkImportModal: React.FC = () => {
    */
   const renderProgressStep = () => (
     <div style={{ textAlign: "center", padding: "2rem" }}>
-      <Icon
-        name="spinner"
-        loading
-        size="huge"
+      <Loader2
+        size={48}
+        className="animate-spin"
         style={{ marginBottom: "1rem" }}
       />
       <h3>Importing Documents...</h3>
@@ -418,7 +432,7 @@ export const BulkImportModal: React.FC = () => {
               Cancel
             </ActionButton>
             <ActionButton $variant="primary" onClick={handleConfirm}>
-              <Icon name="arrow right" /> Continue
+              <ArrowRight size={16} style={{ marginRight: "0.5em" }} /> Continue
             </ActionButton>
           </>
         );
@@ -426,14 +440,15 @@ export const BulkImportModal: React.FC = () => {
         return (
           <>
             <ActionButton $variant="secondary" onClick={handleBack}>
-              <Icon name="arrow left" /> Back
+              <ArrowLeft size={16} style={{ marginRight: "0.5em" }} /> Back
             </ActionButton>
             <ActionButton
               $variant="primary"
               onClick={handleImport}
               disabled={!selectedFile || !base64File || loading}
             >
-              <Icon name="cloud upload" /> Start Import
+              <CloudUpload size={16} style={{ marginRight: "0.5em" }} /> Start
+              Import
             </ActionButton>
           </>
         );
@@ -452,7 +467,7 @@ export const BulkImportModal: React.FC = () => {
     <StyledUploadModal open={visible} onClose={handleClose} size="small">
       <Modal.Header>
         <ModalHeader>
-          <Icon name="file archive" size="large" />
+          <FileArchive size={24} style={{ marginRight: "0.5em" }} />
           <ModalHeaderContent>
             <div className="title">Bulk Import Documents</div>
             <div className="subtitle">

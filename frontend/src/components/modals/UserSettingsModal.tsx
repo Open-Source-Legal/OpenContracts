@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Header, Icon, Button, Form, Divider } from "semantic-ui-react";
+import { Modal, Header, Button, Form, Divider } from "semantic-ui-react";
 import { useMutation, useReactiveVar } from "@apollo/client";
+import { UserCircle, X, Check } from "lucide-react";
 import styled from "styled-components";
 
 import { backendUserObj, showUserSettingsModal } from "../../graphql/cache";
@@ -136,7 +137,7 @@ const UserSettingsModal: React.FC = () => {
       data-testid="user-settings-modal"
     >
       <Header icon data-testid="user-settings-header">
-        <Icon name="user circle" />
+        <UserCircle size={32} />
         User Settings
         <Header.Subheader>Update your profile and public slug</Header.Subheader>
       </Header>
@@ -212,7 +213,7 @@ const UserSettingsModal: React.FC = () => {
           onClick={() => showUserSettingsModal(false)}
           disabled={loading}
         >
-          <Icon name="remove" /> Close
+          <X size={16} style={{ marginRight: "0.5em" }} /> Close
         </Button>
         <Button
           color="green"
@@ -221,7 +222,7 @@ const UserSettingsModal: React.FC = () => {
           loading={loading}
           onClick={() => updateMe({ variables: form })}
         >
-          <Icon name="check" /> Save
+          <Check size={16} style={{ marginRight: "0.5em" }} /> Save
         </Button>
       </Modal.Actions>
     </StyledModal>

@@ -1,4 +1,5 @@
-import { Card, Icon, Popup, Header } from "semantic-ui-react";
+import { Card, Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Ban } from "lucide-react";
 import { AnnotationLabelType } from "../../../../types/graphql-api";
 
 interface LabelCardProps {
@@ -59,7 +60,10 @@ export const SpanLabelCard = ({ label }: LabelCardProps) => {
             >
               <div>
                 <Header as="h5">
-                  <Icon name={label.icon} style={{ color: label.color }} />
+                  <SemanticIcon
+                    name={label.icon}
+                    style={{ color: label.color }}
+                  />
                   <Header.Content>{label.text}</Header.Content>
                 </Header>
               </div>
@@ -94,7 +98,7 @@ export const BlankLabelElement = () => {
       >
         <Card.Header style={{ textAlign: "left" }}>
           <Header as="h5">
-            <Icon name="dont" />
+            <Ban size={16} style={{ marginRight: "0.5rem" }} />
             <Header.Content>No Label Selected</Header.Content>
           </Header>
         </Card.Header>

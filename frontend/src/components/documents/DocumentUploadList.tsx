@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef } from "react";
-import { Icon, List } from "semantic-ui-react";
+import { List } from "semantic-ui-react";
+import { FileText, FolderOpen } from "lucide-react";
 import { DropEvent, FileRejection, useDropzone } from "react-dropzone";
 import { ContractListItem } from "./DocumentListItem";
 import { FileUploadPackageProps } from "../widgets/modals/DocumentUploadModal";
@@ -104,7 +105,7 @@ export function DocumentUploadList(props: DocumentUploadListProps) {
         ) : (
           <DropZone $isDragActive={isDragActive} $hasFiles={false}>
             <DropZoneIcon>
-              <Icon name="file pdf outline" />
+              <FileText size={48} />
             </DropZoneIcon>
             <DropZoneText>
               <div className="primary-text">
@@ -117,7 +118,8 @@ export function DocumentUploadList(props: DocumentUploadListProps) {
               </div>
             </DropZoneText>
             <DropZoneButton onClick={() => fileInputRef.current.click()}>
-              <Icon name="folder open" /> Browse Files
+              <FolderOpen size={16} style={{ marginRight: "0.5rem" }} /> Browse
+              Files
             </DropZoneButton>
           </DropZone>
         )}

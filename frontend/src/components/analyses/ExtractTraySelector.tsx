@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import Fuse from "fuse.js";
-import { Form, Segment } from "semantic-ui-react";
+import { Form } from "semantic-ui-react";
 import { ExtractType } from "../../types/graphql-api";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { useCorpusState } from "../annotator/context/CorpusAtom";
@@ -27,42 +27,42 @@ interface ExtractTraySelectorProps {
   extracts: ExtractType[];
 }
 
-const TrayContainer = styled(Segment.Group)`
+const TrayContainer = styled.div`
   height: 100%;
-  display: flex !important;
-  flex-direction: column !important;
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  box-shadow: none;
+  background: transparent;
   overflow: hidden;
 `;
 
-const SearchSegment = styled(Segment)`
-  flex: 0 0 auto !important;
-  padding: 1.25rem !important;
-  background: white !important;
-  border: 1px solid #e2e8f0 !important;
-  border-bottom: none !important;
-  border-radius: 12px 12px 0 0 !important;
+const SearchSection = styled.div`
+  flex: 0 0 auto;
+  padding: 1.25rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
   z-index: 1;
 
   .ui.input {
     width: 100%;
 
     input {
-      border-radius: 10px !important;
-      border: 1px solid #e2e8f0 !important;
-      padding: 0.75rem 1rem !important;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      padding: 0.75rem 1rem;
       font-size: 0.875rem;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 
       &::placeholder {
         color: #94a3b8;
       }
 
       &:focus {
-        border-color: #4a90e2 !important;
-        box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.08) !important;
+        border-color: #4a90e2;
+        box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.08);
       }
     }
 
@@ -80,14 +80,14 @@ const SearchSegment = styled(Segment)`
   }
 `;
 
-const ExtractListSegment = styled(Segment)`
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
-  overflow-y: auto !important;
-  background: white !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 0 0 12px 12px !important;
-  padding: 1rem !important;
+const ExtractListSection = styled.div`
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 0 0 12px 12px;
+  padding: 1rem;
 
   &::-webkit-scrollbar {
     width: 4px;
@@ -104,14 +104,14 @@ const ExtractListSegment = styled(Segment)`
   }
 `;
 
-const EmptyState = styled(Segment)`
-  margin: 2rem 0 !important;
-  padding: 2.5rem !important;
-  text-align: center !important;
-  background: linear-gradient(165deg, #f8fafc, #fff) !important;
-  border: 1px dashed #e2e8f0 !important;
-  border-radius: 16px !important;
-  box-shadow: none !important;
+const EmptyStateContainer = styled.div`
+  margin: 2rem 0;
+  padding: 2.5rem;
+  text-align: center;
+  background: linear-gradient(165deg, #f8fafc, #fff);
+  border: 1px dashed #e2e8f0;
+  border-radius: 16px;
+  box-shadow: none;
 
   h4 {
     color: #1e293b;
@@ -177,13 +177,13 @@ const ExtractTraySelector: React.FC<ExtractTraySelectorProps> = ({
   const renderItems = useCallback(() => {
     if (filteredItems.length === 0) {
       return (
-        <EmptyState key="no_extracts_placeholder">
+        <EmptyStateContainer key="no_extracts_placeholder">
           <h4>No Extracts Available</h4>
           <p>
             If you have sufficient privileges, try creating a new extract from
             the corpus page.
           </p>
-        </EmptyState>
+        </EmptyStateContainer>
       );
     }
     return filteredItems.map((item) => (
@@ -212,7 +212,7 @@ const ExtractTraySelector: React.FC<ExtractTraySelectorProps> = ({
 
   return (
     <TrayContainer>
-      <SearchSegment>
+      <SearchSection>
         <Form>
           <Form.Input
             icon={{
@@ -225,10 +225,10 @@ const ExtractTraySelector: React.FC<ExtractTraySelectorProps> = ({
             value={searchTerm}
           />
         </Form>
-      </SearchSegment>
-      <ExtractListSegment>
+      </SearchSection>
+      <ExtractListSection>
         {mountedRef.current && renderItems()}
-      </ExtractListSegment>
+      </ExtractListSection>
     </TrayContainer>
   );
 };

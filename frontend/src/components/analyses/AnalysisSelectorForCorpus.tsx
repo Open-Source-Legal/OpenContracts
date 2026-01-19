@@ -5,14 +5,15 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import { Segment, Form, Button, Icon } from "semantic-ui-react";
+import { Form, Button } from "semantic-ui-react";
 import Fuse from "fuse.js";
+import styled from "styled-components";
 import { AnalysisType, ExtractType } from "../../types/graphql-api";
 import { AnalysisItem } from "./AnalysisItem";
 import { PlaceholderCard } from "../placeholders/PlaceholderCard";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { ExtractItem } from "../extracts/ExtractItem";
-import { X } from "lucide-react";
+import { X, Search } from "lucide-react";
 import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
 import {
   useAnalysisManager,
@@ -20,6 +21,41 @@ import {
 } from "../annotator/hooks/AnalysisHooks";
 import { useAdditionalUIStates } from "../annotator/context/UISettingsAtom";
 import { useCorpusState } from "../annotator/context/CorpusAtom";
+
+const SelectorContainer = styled.div`
+  height: 300px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-radius: 0.28571429rem;
+  box-shadow: 0 1px 2px 0 rgba(34, 36, 38, 0.15);
+  background: #fff;
+`;
+
+const MenuSection = styled.div`
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  border-radius: 0px;
+  height: 60px;
+  padding: 1rem;
+  background: #fff;
+  border-bottom: 1px solid rgba(34, 36, 38, 0.15);
+`;
+
+const CardSection = styled.div`
+  max-height: 240px;
+  overflow: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: 0px;
+  padding: 1rem;
+  background: #fff;
+  position: relative;
+`;
 
 interface HorizontalSelectorForCorpusProps {
   read_only: boolean;
@@ -157,26 +193,8 @@ export const ExtractAndAnalysisHorizontalSelector: React.FC<
   ]);
 
   return (
-    <Segment.Group
-      id="HorizontalSelectorForCorpus"
-      style={{
-        height: "300px",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-      }}
-    >
-      <Segment
-        id="HorizontalSelectorForCorpus_Menu"
-        attached="top"
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          justifyContent: "flex-start",
-          borderRadius: "0px",
-          height: "60px",
-        }}
-      >
+    <SelectorContainer id="HorizontalSelectorForCorpus">
+      <MenuSection id="HorizontalSelectorForCorpus_Menu">
         <div style={{ marginRight: "10px" }}>
           <Button.Group>
             <Button
@@ -205,11 +223,18 @@ export const ExtractAndAnalysisHorizontalSelector: React.FC<
           <Form>
             <Form.Input
               icon={
-                <Icon
-                  name={searchTerm ? "cancel" : "search"}
-                  link
+                <i
+                  className="icon"
                   onClick={searchTerm ? () => handleSearchChange("") : () => {}}
-                />
+                  style={{
+                    cursor: searchTerm ? "pointer" : "default",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {searchTerm ? <X size={16} /> : <Search size={16} />}
+                </i>
               }
               placeholder={`Search for ${activeTab}...`}
               onChange={(e) => handleSearchChange(e.target.value)}
@@ -217,20 +242,8 @@ export const ExtractAndAnalysisHorizontalSelector: React.FC<
             />
           </Form>
         </div>
-      </Segment>
-      <Segment
-        id="HorizontalSelectorForCorpus_CardSegment"
-        attached="bottom"
-        style={{
-          maxHeight: "240px",
-          overflow: "auto",
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          borderRadius: "0px",
-        }}
-      >
+      </MenuSection>
+      <CardSection id="HorizontalSelectorForCorpus_CardSegment">
         {use_mobile_layout && topbarVisible && (
           <div
             onClick={() => {
@@ -271,7 +284,7 @@ export const ExtractAndAnalysisHorizontalSelector: React.FC<
         >
           {mountedRef.current && renderItems()}
         </div>
-      </Segment>
-    </Segment.Group>
+      </CardSection>
+    </SelectorContainer>
   );
 };

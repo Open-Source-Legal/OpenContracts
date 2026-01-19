@@ -1,5 +1,7 @@
 import React, { useCallback, useMemo } from "react";
-import { Header, Icon, Segment, Label, Grid } from "semantic-ui-react";
+import { Header, Label, Grid } from "semantic-ui-react";
+import styled from "styled-components";
+import { Box } from "lucide-react";
 import Form from "@rjsf/semantic-ui";
 import validator from "@rjsf/validator-ajv8";
 import {
@@ -8,6 +10,16 @@ import {
 } from "../../layout/Wrappers";
 import { FilePreviewAndUpload } from "../file-controls/FilePreviewAndUpload";
 import { CRUDProps, LooseObject } from "../../types";
+
+const RaisedSegment = styled.div`
+  background: #fff;
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 1rem 0;
+  box-shadow: 0 2px 4px 0 rgba(34, 36, 38, 0.12), 0 2px 5px rgba(0, 0, 0, 0.1);
+  width: 100%;
+`;
 
 /**
  * Props for the CRUDWidget component.
@@ -102,10 +114,14 @@ export const CRUDWidget = <T extends Record<string, any>>({
         <HorizontallyCenteredDiv>
           <div style={{ marginTop: "1rem", textAlign: "left", width: "100%" }}>
             <Header as="h2" textAlign="center">
-              <Icon
-                name="box"
-                size="large"
-                style={{ maxWidth: "50px", height: "auto", margin: "0 auto" }}
+              <Box
+                size={32}
+                style={{
+                  maxWidth: "50px",
+                  height: "auto",
+                  margin: "0 auto",
+                  marginBottom: "0.5rem",
+                }}
                 className="responsive-icon"
               />
               <Header.Content>
@@ -118,15 +134,7 @@ export const CRUDWidget = <T extends Record<string, any>>({
       )}
       <HorizontallyCenteredDiv>
         <VerticallyCenteredDiv>
-          <Segment
-            raised
-            style={{
-              width: "100%",
-              padding: "1.5rem",
-              boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
-              borderRadius: "8px",
-            }}
-          >
+          <RaisedSegment>
             <Grid stackable>
               {hasFile && (
                 <Grid.Row>
@@ -176,7 +184,7 @@ export const CRUDWidget = <T extends Record<string, any>>({
                 </Grid.Column>
               </Grid.Row>
             </Grid>
-          </Segment>
+          </RaisedSegment>
         </VerticallyCenteredDiv>
       </HorizontallyCenteredDiv>
     </div>

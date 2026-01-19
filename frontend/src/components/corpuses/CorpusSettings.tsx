@@ -4,7 +4,6 @@ import {
   Button,
   Divider,
   Header,
-  Icon,
   Table,
   Confirm,
 } from "semantic-ui-react";
@@ -12,6 +11,23 @@ import { useQuery, useReactiveVar, useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
+import {
+  Pencil,
+  Lock,
+  Unlock,
+  MessageSquare,
+  Save,
+  Plus,
+  Cpu,
+  TableIcon,
+  Settings,
+  User,
+  Calendar,
+  CheckCircle,
+  Pause,
+  Play,
+  Trash2,
+} from "lucide-react";
 import { editingCorpus, backendUserObj } from "../../graphql/cache";
 import {
   GET_CORPUS_ACTIONS,
@@ -847,11 +863,10 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
             </CorpusDescription>
           </TitleArea>
           <EditButton
-            icon
-            labelPosition="left"
             onClick={() => editingCorpus(corpus as unknown as CorpusType)}
+            style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
           >
-            <Icon name="edit outline" />
+            <Pencil size={16} />
             Edit
           </EditButton>
         </CorpusHeader>
@@ -911,10 +926,11 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                       corpus.isPublic ? "public" : "private"
                     }`}
                   >
-                    <Icon
-                      name={corpus.isPublic ? "unlock" : "lock"}
-                      size="small"
-                    />
+                    {corpus.isPublic ? (
+                      <Unlock size={12} />
+                    ) : (
+                      <Lock size={12} />
+                    )}
                     {corpus.isPublic ? "Public" : "Private"}
                   </span>
                 </div>
@@ -925,7 +941,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                   <div className="label">Comments</div>
                   <div className="value">
                     <span className="badge public">
-                      <Icon name="comments" size="small" />
+                      <MessageSquare size={12} />
                       Enabled
                     </span>
                   </div>
@@ -1183,7 +1199,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                       : {}),
                   }}
                 >
-                  <Icon name="save" /> Save Changes
+                  <Save size={14} style={{ marginRight: "6px" }} /> Save Changes
                 </Button>
               </div>
             </div>
@@ -1298,7 +1314,8 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                   transition: "all 0.3s ease",
                 }}
               >
-                <Icon name="save" /> Save Categories
+                <Save size={14} style={{ marginRight: "6px" }} /> Save
+                Categories
               </Button>
             </div>
           </MetadataContent>
@@ -1308,7 +1325,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
           <ActionHeader>
             <SectionTitle>Corpus Actions</SectionTitle>
             <AddActionButton onClick={() => setIsModalOpen(true)}>
-              <Icon name="plus" />
+              <Plus size={16} />
               Add Action
             </AddActionButton>
           </ActionHeader>
@@ -1370,28 +1387,44 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                           flexWrap: "wrap",
                         }}
                       >
-                        <div>
-                          <Icon
-                            name={
-                              action.agentConfig
-                                ? "microchip"
-                                : action.fieldset
-                                ? "table"
-                                : "cogs"
-                            }
-                          />
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          {action.agentConfig ? (
+                            <Cpu size={14} />
+                          ) : action.fieldset ? (
+                            <TableIcon size={14} />
+                          ) : (
+                            <Settings size={14} />
+                          )}
                           {action.agentConfig
                             ? `Agent: ${action.agentConfig.name}`
                             : action.fieldset
                             ? `Fieldset: ${action.fieldset.name}`
                             : `Analyzer: ${action.analyzer?.name}`}
                         </div>
-                        <div>
-                          <Icon name="user" />
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          <User size={14} />
                           {action.creator.username}
                         </div>
-                        <div>
-                          <Icon name="calendar" />
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          <Calendar size={14} />
                           {new Date(action.created).toLocaleDateString()}
                         </div>
                       </div>
@@ -1435,9 +1468,12 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                                   marginTop: "0.5rem",
                                   fontSize: "0.8rem",
                                   color: "#64748b",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "4px",
                                 }}
                               >
-                                <Icon name="check circle" color="green" />
+                                <CheckCircle size={14} color="#16a34a" />
                                 Pre-authorized tools:{" "}
                                 {action.preAuthorizedTools.join(", ")}
                               </div>
@@ -1466,11 +1502,11 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                           boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
                         }}
                       >
-                        <Icon
-                          name={
-                            action.disabled ? "pause circle" : "play circle"
-                          }
-                        />
+                        {action.disabled ? (
+                          <Pause size={14} />
+                        ) : (
+                          <Play size={14} />
+                        )}
                         {action.disabled ? "Disabled" : "Active"}
                       </div>
 
@@ -1483,7 +1519,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                         }}
                         title="Edit action"
                       >
-                        <Icon name="edit" />
+                        <Pencil size={14} />
                       </Button>
 
                       <Button
@@ -1493,7 +1529,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
                         onClick={() => setActionToDelete(action.id)}
                         title="Delete action"
                       >
-                        <Icon name="trash" />
+                        <Trash2 size={14} />
                       </Button>
                     </div>
                   </div>

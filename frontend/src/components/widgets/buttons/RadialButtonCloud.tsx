@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import styled, { createGlobalStyle, keyframes } from "styled-components";
 import {
   Button,
-  Icon,
+  Icon as SemanticIcon,
   SemanticICONS,
   ButtonProps,
   Modal,
@@ -307,7 +307,7 @@ const RadialButtonCloud: React.FC<RadialButtonCloudProps> = ({
               $delay={index * 0.1}
               $position={buttonPositions[index]}
             >
-              <Icon name={btn.name} />
+              <SemanticIcon name={btn.name} />
             </CloudButton>
           ))}
         </CloudContainer>

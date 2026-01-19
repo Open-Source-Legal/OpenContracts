@@ -33,7 +33,8 @@ import {
   Home,
   CheckCircle,
 } from "lucide-react";
-import { Button, Loader } from "semantic-ui-react";
+import { Button } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
 import styled from "styled-components";
 
 import {
@@ -460,13 +461,6 @@ const ProcessingIndicator = styled(motion.div)`
     50% {
       transform: scale(1.5);
       opacity: 0.4;
-    }
-  }
-
-  /* Loader color override */
-  .ui.loader {
-    &:after {
-      border-color: #4a90e2 transparent transparent !important;
     }
   }
 `;
@@ -1656,7 +1650,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       }}
                     >
                       <div className="pulse-dot" />
-                      <Loader active inline size="small" inverted />
+                      <Spinner size={16} />
                       <span>AI Assistant is thinking...</span>
                       <div
                         className="pulse-dot"

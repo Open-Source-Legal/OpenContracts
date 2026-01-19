@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Table, Icon, Popup, Modal, Button, Loader } from "semantic-ui-react";
+import { Table, Popup, Modal, Button } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
+import { MoreVertical, Eye, ThumbsDown, ThumbsUp, Pencil } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   getDocumentUrl,
@@ -182,7 +184,7 @@ export const ExtractDatacell = ({
     <>
       <Table.Cell key={cellData.id} style={{ backgroundColor: color }}>
         {cellData.started && !cellData.completed && !cellData.failed ? (
-          <Loader />
+          <Spinner />
         ) : (
           <div style={{ position: "relative" }}>
             {renderJsonPreview(
@@ -191,11 +193,12 @@ export const ExtractDatacell = ({
             {!readOnly && (
               <div style={{ position: "absolute", top: "5px", right: "5px" }}>
                 <Popup
-                  trigger={<Icon name="ellipsis vertical" />}
+                  trigger={
+                    <MoreVertical size={16} style={{ cursor: "pointer" }} />
+                  }
                   content={
                     <Button.Group vertical>
                       <Button
-                        icon="eye"
                         primary
                         onClick={
                           cellData?.fullSourceList &&
@@ -208,22 +211,24 @@ export const ExtractDatacell = ({
                               }
                             : () => {}
                         }
-                      />
+                      >
+                        <Eye size={14} />
+                      </Button>
                       <Button
-                        icon="thumbs down"
                         color="red"
                         onClick={() => onReject && onReject(cellData.id)}
-                      />
+                      >
+                        <ThumbsDown size={14} />
+                      </Button>
                       <Button
-                        icon="thumbs up"
                         color="green"
                         onClick={() => onApprove && onApprove(cellData.id)}
-                      />
-                      <Button
-                        icon="edit"
-                        color="grey"
-                        onClick={() => setModalOpen(true)}
-                      />
+                      >
+                        <ThumbsUp size={14} />
+                      </Button>
+                      <Button color="grey" onClick={() => setModalOpen(true)}>
+                        <Pencil size={14} />
+                      </Button>
                     </Button.Group>
                   }
                   on="click"

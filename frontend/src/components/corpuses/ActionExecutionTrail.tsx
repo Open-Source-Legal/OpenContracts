@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery } from "@apollo/client";
 import styled from "styled-components";
-import { Dropdown, Icon, Loader } from "semantic-ui-react";
+import { Dropdown } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
+import { AlertTriangle, History, RefreshCw } from "lucide-react";
 import { ActionExecutionRow } from "./ActionExecutionRow";
 import {
   GET_CORPUS_ACTION_EXECUTIONS,
@@ -385,7 +387,7 @@ export const ActionExecutionTrail: React.FC<ActionExecutionTrailProps> = ({
       {/* Loading State */}
       {executionsLoading && executions.length === 0 && !executionsError && (
         <LoadingContainer role="status">
-          <Loader active inline="centered" size="small" />
+          <Spinner size={16} />
           <p style={{ marginTop: "12px" }}>Loading executions...</p>
         </LoadingContainer>
       )}
@@ -393,13 +395,13 @@ export const ActionExecutionTrail: React.FC<ActionExecutionTrailProps> = ({
       {/* Error State */}
       {executionsError && (
         <ErrorState role="alert">
-          <Icon name="exclamation triangle" className="error-icon" />
+          <AlertTriangle size={32} className="error-icon" />
           <div className="error-title">Error Loading Executions</div>
           <div className="error-description">
             Unable to load execution history. Please try again later.
           </div>
           <RetryButton onClick={() => refetch()} aria-label="Retry loading">
-            <Icon name="refresh" />
+            <RefreshCw size={14} />
             Retry
           </RetryButton>
         </ErrorState>
@@ -408,7 +410,7 @@ export const ActionExecutionTrail: React.FC<ActionExecutionTrailProps> = ({
       {/* Empty State */}
       {!executionsLoading && !executionsError && executions.length === 0 && (
         <EmptyState role="status">
-          <Icon name="history" className="empty-icon" />
+          <History size={32} className="empty-icon" />
           <div className="empty-title">No Executions Found</div>
           <div className="empty-description">
             {statusFilter || typeFilter || actionFilter || timeRangeHours
@@ -431,7 +433,7 @@ export const ActionExecutionTrail: React.FC<ActionExecutionTrailProps> = ({
           {/* Loading more indicator */}
           {executionsLoading && executions.length > 0 && (
             <LoadingMore>
-              <Loader active inline size="tiny" />
+              <Spinner size={16} />
               Loading more...
             </LoadingMore>
           )}

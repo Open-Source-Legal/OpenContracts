@@ -1,7 +1,8 @@
 import React from "react";
 import _ from "lodash";
 import styled from "styled-components";
-import { Card, Popup, Icon, Statistic, Menu } from "semantic-ui-react";
+import { Card, Popup, Statistic, Menu } from "semantic-ui-react";
+import { CheckCircle } from "lucide-react";
 
 import default_icon from "../../assets/images/defaults/default_tag.png";
 import { LabelSetType } from "../../types/graphql-api";
@@ -158,7 +159,7 @@ const AnnotationLabelItem = ({
             />
             {selected ? (
               <div style={{ float: "right" }}>
-                <Icon name="check circle" color="green" />
+                <CheckCircle size={20} color="green" />
               </div>
             ) : (
               <></>

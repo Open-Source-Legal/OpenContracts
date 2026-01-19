@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Icon as SemanticIcon, Loader, Modal, Button } from "semantic-ui-react";
+import { Modal, Button } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
 import {
   Eye,
   Trash2,
@@ -395,7 +396,7 @@ export function ExtractList({
 
         {loading && items?.length === 0 && (
           <div style={styles.loadingOverlay}>
-            <Loader active inline="centered" content="Loading Extracts..." />
+            <Spinner size={24} />
           </div>
         )}
 

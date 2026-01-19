@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Dimmer, Loader, Message } from "semantic-ui-react";
+import { Message } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
 import Fuse from "fuse.js";
 import { useQuery, useMutation, useReactiveVar } from "@apollo/client";
 import {
@@ -480,9 +481,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
     return (
       <PageContainer>
         <LoadingContainer>
-          <Dimmer active inverted>
-            <Loader size="large">Loading label set...</Loader>
-          </Dimmer>
+          <Spinner size={32} />
         </LoadingContainer>
       </PageContainer>
     );
@@ -982,11 +981,9 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
   return (
     <PageContainer>
       {(label_set_loading || delete_loading) && (
-        <Dimmer active inverted>
-          <Loader size="large">
-            {delete_loading ? "Deleting..." : "Loading..."}
-          </Loader>
-        </Dimmer>
+        <LoadingContainer>
+          <Spinner size={32} />
+        </LoadingContainer>
       )}
 
       <PageLayout>

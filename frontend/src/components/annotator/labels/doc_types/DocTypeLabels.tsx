@@ -1,4 +1,5 @@
-import { Card, Icon, Popup, Header } from "semantic-ui-react";
+import { Card, Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Trash2, Ban } from "lucide-react";
 import { AnnotationLabelType } from "../../../../types/graphql-api";
 import useWindowDimensions from "../../../hooks/WindowDimensionHook";
 import { TruncatedText } from "../../../widgets/data-display/TruncatedText";
@@ -20,11 +21,15 @@ export const DocTypeLabel = ({ label, onRemove }: DocTypeLabelProps) => {
   return (
     <Card className="DocTypeLabelCard" raised>
       {onRemove ? (
-        <Icon
-          link
-          color="red"
-          name="trash"
-          style={{ position: "absolute", right: ".25vw", top: ".25vw" }}
+        <Trash2
+          size={16}
+          style={{
+            position: "absolute",
+            right: ".25vw",
+            top: ".25vw",
+            color: "#db2828",
+            cursor: "pointer",
+          }}
           onClick={() => onRemove()}
         />
       ) : (
@@ -58,7 +63,7 @@ export const DocTypeLabel = ({ label, onRemove }: DocTypeLabelProps) => {
             >
               <div>
                 <Header as="h5">
-                  <Icon
+                  <SemanticIcon
                     className="DocTypeLabelIcon"
                     name={label.icon}
                     style={{ color: label.color }}
@@ -105,7 +110,7 @@ export const BlankDocTypeLabel = () => {
       >
         <Card.Header style={{ textAlign: "left" }}>
           <Header as="h5">
-            <Icon name="dont" />
+            <Ban size={16} style={{ marginRight: "0.5rem" }} />
             <Header.Content>No Label</Header.Content>
           </Header>
         </Card.Header>

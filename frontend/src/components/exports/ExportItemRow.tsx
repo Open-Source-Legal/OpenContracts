@@ -1,6 +1,7 @@
-import { Table, Icon, Button } from "semantic-ui-react";
+import { Table, Button } from "semantic-ui-react";
 import { ExportObject } from "../../types/graphql-api";
 import { DateTimeWidget } from "../widgets/data-display/DateTimeWidget";
+import { Loader2, Trash2, Download } from "lucide-react";
 
 interface ExportItemRowProps {
   style?: Record<string, any>;
@@ -42,14 +43,14 @@ export function ExportItemRow({ onDelete, item, key }: ExportItemRowProps) {
       </Table.Cell>
       <Table.Cell textAlign="center">
         {!item.started ? (
-          <Icon size="large" loading name="cog" />
+          <Loader2 size={20} className="animate-spin" />
         ) : (
           <DateTimeWidget timeString={startedTime} dateString={startedDate} />
         )}
       </Table.Cell>
       <Table.Cell textAlign="center">
         {!item.finished || !item.started ? (
-          <Icon size="large" loading name="cog" />
+          <Loader2 size={20} className="animate-spin" />
         ) : (
           <DateTimeWidget
             timeString={completedTime}
@@ -62,20 +63,22 @@ export function ExportItemRow({ onDelete, item, key }: ExportItemRowProps) {
           <Button
             circular
             size="mini"
-            icon="trash"
             color="red"
             onClick={() => onDelete(item.id)}
-          />
+          >
+            <Trash2 size={12} />
+          </Button>
           {item.finished ? (
             <Button
               circular
               size="mini"
-              icon="download"
               color="blue"
               onClick={() => {
                 window.location.href = item.file;
               }}
-            />
+            >
+              <Download size={12} />
+            </Button>
           ) : (
             <></>
           )}

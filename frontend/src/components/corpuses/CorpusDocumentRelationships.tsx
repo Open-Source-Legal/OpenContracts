@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import styled from "styled-components";
-import { Icon, Dropdown, Button, Confirm } from "semantic-ui-react";
+import { Dropdown, Button, Confirm } from "semantic-ui-react";
 import { toast } from "react-toastify";
 import {
   Link2,
@@ -10,6 +10,9 @@ import {
   ChevronRight,
   Filter,
   RefreshCw,
+  AlertCircle,
+  Loader2,
+  StickyNote,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -419,16 +422,19 @@ export const CorpusDocumentRelationships: React.FC<
     return (
       <Container>
         <EmptyState>
-          <Icon name="warning circle" size="huge" />
+          <AlertCircle size={48} />
           <h3>Error Loading Relationships</h3>
           <p>{error.message}</p>
           <Button
             onClick={() => refetch()}
-            style={{ marginTop: 16 }}
-            icon
-            labelPosition="left"
+            style={{
+              marginTop: 16,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
           >
-            <Icon name="refresh" />
+            <RefreshCw size={16} />
             Retry
           </Button>
         </EmptyState>
@@ -466,7 +472,7 @@ export const CorpusDocumentRelationships: React.FC<
       <TableContainer>
         {loading && !data ? (
           <LoadingState>
-            <Icon name="spinner" loading />
+            <Loader2 size={20} className="animate-spin" />
             Loading relationships...
           </LoadingState>
         ) : relationships.length === 0 ? (
@@ -534,7 +540,7 @@ export const CorpusDocumentRelationships: React.FC<
                         </>
                       ) : (
                         <>
-                          <Icon name="sticky note outline" size="small" />
+                          <StickyNote size={12} />
                           Notes
                         </>
                       )}

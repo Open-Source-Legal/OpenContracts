@@ -1,7 +1,6 @@
 import React, { useMemo, useEffect, useRef } from "react";
 import { useQuery, useReactiveVar } from "@apollo/client";
 import styled from "styled-components";
-import { Icon } from "semantic-ui-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   FileText,
@@ -9,12 +8,14 @@ import {
   ChevronDown,
   ListTree,
   AlertTriangle,
+  AlertCircle,
   File,
   FileSpreadsheet,
   FileImage,
   FileCode,
   ChevronsUpDown,
   ChevronsDownUp,
+  Loader2,
 } from "lucide-react";
 
 import {
@@ -818,7 +819,7 @@ export const DocumentTableOfContents: React.FC<
     return (
       <Wrapper>
         <LoadingState>
-          <Icon name="spinner" loading size="big" />
+          <Loader2 size={32} className="animate-spin" />
           <span>Loading document structure...</span>
         </LoadingState>
       </Wrapper>
@@ -829,7 +830,7 @@ export const DocumentTableOfContents: React.FC<
     return (
       <Wrapper>
         <ErrorState>
-          <Icon name="warning circle" size="big" className="error-icon" />
+          <AlertCircle size={32} className="error-icon" />
           <div>Failed to load document structure</div>
         </ErrorState>
       </Wrapper>

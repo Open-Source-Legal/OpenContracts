@@ -1,4 +1,5 @@
-import { Card, Icon } from "semantic-ui-react";
+import { Card, Icon as SemanticIcon } from "semantic-ui-react";
+import { Ban } from "lucide-react";
 import { AnnotationLabelType } from "../../../types/graphql-api";
 
 interface LabelListItemProps {
@@ -24,7 +25,7 @@ export const LabelListItem = ({
     >
       <Card.Content>
         <div style={{ float: "right" }}>
-          <Icon name={label?.icon ? label.icon : "tag"} />
+          <SemanticIcon name={label?.icon ? label.icon : "tag"} />
         </div>
 
         <Card.Header>{label.text}</Card.Header>
@@ -42,7 +43,9 @@ export const EmptyLabelListItem = () => {
     <Card fluid key={-1} style={{ margin: "5px" }}>
       <Card.Content>
         <Card.Header>
-          <Icon floated="right" name="cancel" />
+          <span style={{ float: "right" }}>
+            <Ban size={16} />
+          </span>
           No Matching Labels
         </Card.Header>
         <Card.Meta>

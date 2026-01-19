@@ -1,6 +1,6 @@
 import React, { useRef, useLayoutEffect, useState } from "react";
 import styled, { keyframes } from "styled-components";
-import { Icon } from "semantic-ui-react";
+import { ChevronUp } from "lucide-react";
 import { AnalysisType, ExtractType } from "../../../types/graphql-api";
 import { ExtractAndAnalysisHorizontalSelector } from "../../analyses/AnalysisSelectorForCorpus";
 import { useAdditionalUIStates } from "../context/UISettingsAtom";
@@ -107,7 +107,7 @@ export const AnnotatorTopbar: React.FC<AnnotatorTopbarProps> = ({
         visible={topbarVisible}
         topbarHeight={topbarHeight}
       >
-        <Icon name="chevron up" size="large" className="icon" />
+        <ChevronUp size={20} className="icon" />
       </ToggleButton>
     </div>
   );

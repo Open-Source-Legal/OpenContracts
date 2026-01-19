@@ -1,4 +1,5 @@
-import { Label, Icon, Modal, Header, Button } from "semantic-ui-react";
+import { Label, Modal, Header, Button } from "semantic-ui-react";
+import { X, AlertCircle, Check } from "lucide-react";
 
 interface ConfirmModalProps {
   message: string;
@@ -29,19 +30,24 @@ export function ConfirmModal({
       <Label
         corner="right"
         color="grey"
-        icon="cancel"
         onClick={() => toggleModal()}
+        style={{ cursor: "pointer" }}
+      >
+        <X size={12} />
+      </Label>
+      <Header
+        icon={<AlertCircle size={32} style={{ marginRight: "0.5rem" }} />}
+        content="ARE YOU SURE?"
       />
-      <Header icon="exclamation circle" content="ARE YOU SURE?" />
       <Modal.Content>
         <p>{message}</p>
       </Modal.Content>
       <Modal.Actions>
         <Button basic color="red" inverted onClick={() => onNoClick()}>
-          <Icon name="remove" /> No
+          <X size={16} style={{ marginRight: "0.5rem" }} /> No
         </Button>
         <Button color="green" inverted onClick={() => onYesClick()}>
-          <Icon name="checkmark" /> Yes
+          <Check size={16} style={{ marginRight: "0.5rem" }} /> Yes
         </Button>
       </Modal.Actions>
     </Modal>

@@ -1,6 +1,32 @@
 import React, { useEffect, useRef } from "react";
 import styled, { keyframes } from "styled-components";
-import { Icon } from "semantic-ui-react";
+import {
+  BookOpen,
+  Eye,
+  Loader2,
+  Download,
+  Pencil,
+  Link,
+  GitBranch,
+  Trash2,
+  CheckSquare,
+  Square,
+  LucideIcon,
+} from "lucide-react";
+
+// Mapping from semantic-ui icon names to lucide-react components
+const iconMap: Record<string, LucideIcon> = {
+  book: BookOpen,
+  eye: Eye,
+  spinner: Loader2,
+  download: Download,
+  edit: Pencil,
+  linkify: Link,
+  "code branch": GitBranch,
+  trash: Trash2,
+  "check square outline": CheckSquare,
+  "square outline": Square,
+};
 
 const slideIn = keyframes`
   from {
@@ -204,7 +230,12 @@ export const ModernContextMenu: React.FC<ModernContextMenuProps> = ({
             }}
             disabled={item.disabled}
           >
-            <Icon name={item.icon as any} className="icon" />
+            {(() => {
+              const IconComponent = iconMap[item.icon];
+              return IconComponent ? (
+                <IconComponent size={16} className="icon" />
+              ) : null;
+            })()}
             {item.label}
           </MenuItem>
           {item.dividerAfter && <MenuDivider />}
