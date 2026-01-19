@@ -38,6 +38,66 @@ import "semantic-ui-css/semantic.min.css";
 
 ---
 
+## Component Mapping: Semantic UI → OS-Legal-Style
+
+The [OS-Legal-Style](https://github.com/Open-Source-Legal/OS-Legal-Style) library provides replacements for most Semantic UI components. Icons will migrate to `lucide-react`.
+
+### Direct Replacements (1:1 mapping)
+
+| Semantic UI | OS-Legal-Style | Coverage | Notes |
+|-------------|----------------|----------|-------|
+| `Icon` | `lucide-react` | ✅ Full | Already in use, direct swap |
+| `Button` | `Button`, `IconButton` | ✅ Full | Multiple variants (primary, secondary, ghost, danger) |
+| `Modal` | `Modal` (+ Header, Body, Footer) | ✅ Full | Subcomponent pattern |
+| `Loader` | `Spinner` | ✅ Full | Direct replacement |
+| `Card` | `Card`, `CollectionCard` | ✅ Full | Card has Header/Body/Footer subcomponents |
+| `Label` | `Chip`, `ChipGroup` | ✅ Full | Tags, labels, filter chips |
+| `Checkbox` | `Checkbox`, `CheckboxGroup` | ✅ Full | With labels and grouping |
+| `Input` | `Input` | ✅ Full | With label, helper text, error states |
+| `TextArea` | `Textarea` | ✅ Full | Auto-resize support |
+| `Form` | `FormField` | ✅ Full | Wrapper with label and validation |
+| `Statistic` | `StatBlock`, `StatGrid` | ✅ Full | Large number stats |
+| `Progress` | `Progress`, `ProgressCircle` | ✅ Full | Linear and circular |
+| `Placeholder` | `Skeleton` | ✅ Full | Loading placeholders |
+| `Tab` | `Tabs` | ✅ Full | Tab navigation with panels |
+| `Message` | `Alert`, `Banner` | ✅ Full | Alert messages |
+| `Popup` | `Tooltip`, `Popover` | ✅ Full | Hover vs click triggered |
+
+### Partial Replacements (needs adaptation)
+
+| Semantic UI | OS-Legal-Style | Coverage | Migration Notes |
+|-------------|----------------|----------|-----------------|
+| `Dropdown` | `Select` + `Popover` | ⚠️ Partial | Native select for simple cases; Popover for complex dropdowns with search/multi-select |
+| `Menu` | `ActionList`, `Tabs`, `FilterTabs` | ⚠️ Partial | Depends on menu type (navigation vs actions) |
+| `Header` | `PageHeader` or styled text | ⚠️ Partial | PageHeader for page titles; use typography for inline headers |
+| `Segment` | `Card` or styled div | ⚠️ Partial | Card for distinct sections; plain div with CSS for simple containers |
+| `Grid` | `Stack`, `HStack`, `VStack` | ⚠️ Partial | Flexbox utilities; use CSS Grid for complex layouts |
+| `Container` | `AppShell` or styled div | ⚠️ Partial | AppShell for page layout; div for content containers |
+| `List` | `ActionList`, `ActivityFeed` | ⚠️ Partial | ActionList for clickable items; ActivityFeed for timelines |
+| `Confirm` | `Modal` with confirm pattern | ⚠️ Partial | Build confirmation modal using Modal components |
+| `Dimmer` | Modal backdrop or custom | ⚠️ Partial | Use Modal's built-in backdrop |
+
+### No Direct Replacement (build custom or use alternatives)
+
+| Semantic UI | Recommendation | Priority |
+|-------------|----------------|----------|
+| `Table` | Use `@tanstack/react-table` or build with CSS Grid | Medium |
+| `Divider` | CSS `border` or `<hr>` with styling | Low |
+| `Radio` | `Radio`, `RadioGroup` in OS-Legal-Style | ✅ Available |
+| `Toggle` | `Toggle`, `Switch` in OS-Legal-Style | ✅ Available |
+| `Item` | Build custom or use `CollectionCard` | Low |
+| `DropdownProps` (type) | Define custom type matching new Select API | Low |
+
+### Special Case: @rjsf/semantic-ui
+
+For React JSON Schema Forms, options:
+
+1. **Create custom RJSF theme** using OS-Legal-Style components
+2. **Use `@rjsf/core`** with custom widget overrides
+3. **Build manual forms** for simpler cases (recommended for new features)
+
+---
+
 ## Difficulty Rating Scale
 
 | Rating | Description | Typical Effort |
@@ -459,51 +519,69 @@ Four files use React JSON Schema Forms with the Semantic UI theme. This is a **c
 
 ## Component Usage Frequency
 
-| Component | Import Count | Replacement Priority |
-|-----------|--------------|---------------------|
-| Icon | 54 | HIGH - `lucide-react` available |
-| Button | 48 | HIGH - `@os-legal/ui` has Button |
-| Modal | 29 | HIGH - Create custom Modal |
-| Header | 27 | MEDIUM - Styled component |
-| Label | 20 | MEDIUM - Chip/Badge in @os-legal/ui |
-| Form | 20 | HIGH - Complex, needs careful migration |
-| Message | 18 | MEDIUM - Toast/Alert component |
-| Dropdown | 17 | HIGH - Complex, many variants |
-| Popup | 16 | MEDIUM - Tooltip replacement |
-| Segment | 15 | LOW - Styled div |
-| Loader | 15 | LOW - Simple spinner |
-| Card | 14 | MEDIUM - @os-legal/ui has CollectionCard |
-| Menu | 10 | MEDIUM - Navigation component |
-| Grid | 9 | LOW - CSS Grid/Flexbox |
+| Semantic UI | Count | OS-Legal-Style Replacement | Effort |
+|-------------|-------|---------------------------|--------|
+| Icon | 54 | `lucide-react` | ✅ Easy |
+| Button | 48 | `Button`, `IconButton` | ✅ Easy |
+| Modal | 29 | `Modal` (Header/Body/Footer) | ✅ Direct |
+| Header | 27 | `PageHeader` or styled text | ⚠️ Adapt |
+| Label | 20 | `Chip`, `ChipGroup` | ✅ Direct |
+| Form | 20 | `FormField` + form components | ⚠️ Adapt |
+| Message | 18 | `Alert`, `Banner`, `Toast` | ✅ Direct |
+| Dropdown | 17 | `Select` + `Popover` | ⚠️ Complex |
+| Popup | 16 | `Tooltip`, `Popover` | ✅ Direct |
+| Segment | 15 | `Card` or styled div | ✅ Easy |
+| Loader | 15 | `Spinner` | ✅ Direct |
+| Card | 14 | `Card`, `CollectionCard` | ✅ Direct |
+| Menu | 10 | `ActionList`, `Tabs`, `FilterTabs` | ⚠️ Adapt |
+| Grid | 9 | `Stack`, `HStack`, `VStack` | ✅ Easy |
+| Checkbox | 6 | `Checkbox`, `CheckboxGroup` | ✅ Direct |
+| Input | 6 | `Input` | ✅ Direct |
+| Statistic | 4 | `StatBlock`, `StatGrid` | ✅ Direct |
+| Table | 4 | Build custom or `@tanstack/react-table` | ⚠️ Build |
+| Progress | 2 | `Progress`, `ProgressCircle` | ✅ Direct |
 
 ---
 
 ## Migration Recommendations
 
-### Phase 1: Quick Wins (1-2 weeks)
-1. **Delete dead code** - Remove 12 unused components
-2. **Replace type imports** - Create custom icon types
-3. **Icon migration** - Swap `<Icon>` with `lucide-react`
-4. **Loader migration** - Create simple spinner component
-5. **Segment removal** - Replace with styled divs
+### Phase 1: Quick Wins & Cleanup
+1. **Delete dead code** - Remove 12 unused components (0 risk)
+2. **Replace type imports** - Create custom icon type union for `lucide-react`
+3. **Icon migration** - Swap `<Icon name="x">` → `<X />` from lucide-react (54 files)
+4. **Spinner** → `Spinner` from OS-Legal-Style (15 files)
+5. **Segment** → `Card` or styled div (15 files)
 
-### Phase 2: Component Replacements (4-6 weeks)
-1. **Button** - Extend `@os-legal/ui` Button
-2. **Label/Badge** - Use `@os-legal/ui` Chip
-3. **Card** - Extend CollectionCard
-4. **Message** - Create Alert component (or use toast)
-5. **Header** - Styled typography components
+### Phase 2: Direct Replacements (OS-Legal-Style)
+1. **Button** → `Button`, `IconButton` from OS-Legal-Style
+2. **Label** → `Chip`, `ChipGroup` from OS-Legal-Style
+3. **Card** → `Card`, `CollectionCard` from OS-Legal-Style
+4. **Message** → `Alert`, `Banner`, or `Toast` from OS-Legal-Style
+5. **Loader** → `Spinner` from OS-Legal-Style
+6. **Checkbox** → `Checkbox`, `CheckboxGroup` from OS-Legal-Style
+7. **Statistic** → `StatBlock`, `StatGrid` from OS-Legal-Style
+8. **Progress** → `Progress`, `ProgressCircle` from OS-Legal-Style
+9. **Placeholder** → `Skeleton` from OS-Legal-Style
 
-### Phase 3: Complex Components (8-12 weeks)
-1. **Modal** - Build custom Modal with `@floating-ui`
-2. **Dropdown** - Use `react-select` (already a dependency)
-3. **Popup/Tooltip** - Use `@floating-ui` or build custom
-4. **Form components** - Build form primitives
+### Phase 3: Form & Layout Components (OS-Legal-Style)
+1. **Input** → `Input` from OS-Legal-Style
+2. **TextArea** → `Textarea` from OS-Legal-Style
+3. **Form** → `FormField` wrapper from OS-Legal-Style
+4. **Tab** → `Tabs` from OS-Legal-Style
+5. **Container** → `AppShell` or styled div
+6. **Segment** → `Card` or styled div
+7. **Grid** → `Stack`, `HStack`, `VStack` from OS-Legal-Style
 
-### Phase 4: RJSF Migration (4-6 weeks)
-1. Evaluate RJSF alternatives or custom theme
-2. Create custom widgets matching new design system
-3. Migrate CRUD forms incrementally
+### Phase 4: Complex Components (OS-Legal-Style)
+1. **Modal** → `Modal` (with Header, Body, Footer) from OS-Legal-Style
+2. **Popup** → `Tooltip` (hover) or `Popover` (click) from OS-Legal-Style
+3. **Dropdown** → `Select` for simple cases; `Popover` + custom for complex
+4. **Menu** → `ActionList`, `Tabs`, or `FilterTabs` from OS-Legal-Style
+
+### Phase 5: RJSF Migration
+1. Create custom RJSF theme using OS-Legal-Style form components
+2. Or use `@rjsf/core` with custom widget overrides
+3. Migrate CRUD forms incrementally, testing each
 
 ---
 
