@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Form, Grid } from "semantic-ui-react";
-import { IconButton } from "@os-legal/ui";
+import { Dropdown } from "semantic-ui-react";
+import { IconButton, HStack, Input, FormField } from "@os-legal/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trash2 } from "lucide-react";
 import styled from "styled-components";
@@ -146,28 +146,30 @@ export const ModelFieldBuilder: React.FC<ModelFieldBuilderProps> = ({
       animate="visible"
       exit="hidden"
     >
-      <Form>
+      <form>
         <AnimatePresence>
           {fields.map((field, index) => (
             <FieldRow key={field.id} variants={fieldVariants} layout>
-              <Grid>
-                <Grid.Row verticalAlign="middle">
-                  <Grid.Column width={6}>
-                    <Form.Input
-                      placeholder="Field Name"
-                      value={field.fieldName}
-                      onChange={(e, { value }) =>
-                        updateField(index, "fieldName", value)
-                      }
-                      required
-                      fluid
-                      label="Field Name"
-                    />
-                  </Grid.Column>
-                  <Grid.Column width={6}>
-                    <Form.Select
+              <HStack gap="md" style={{ alignItems: "flex-end" }}>
+                <div style={{ flex: "0 0 37.5%" }}>
+                  <Input
+                    placeholder="Field Name"
+                    value={field.fieldName}
+                    onChange={(e) =>
+                      updateField(index, "fieldName", e.target.value)
+                    }
+                    required
+                    label="Field Name"
+                    fullWidth
+                  />
+                </div>
+                <div style={{ flex: "0 0 37.5%" }}>
+                  <FormField label="Field Type">
+                    <Dropdown
                       placeholder="Field Type"
                       value={field.fieldType}
+                      selection
+                      fluid
                       options={[
                         { key: "int", text: "Integer", value: "int" },
                         { key: "float", text: "Float", value: "float" },
@@ -177,39 +179,43 @@ export const ModelFieldBuilder: React.FC<ModelFieldBuilderProps> = ({
                       onChange={(e, data) =>
                         updateField(index, "fieldType", data.value as string)
                       }
-                      required
-                      fluid
-                      label="Field Type"
                     />
-                  </Grid.Column>
-                  <Grid.Column width={4} textAlign="center">
-                    <DeleteButtonWrapper
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
+                  </FormField>
+                </div>
+                <div
+                  style={{
+                    flex: "0 0 25%",
+                    display: "flex",
+                    justifyContent: "center",
+                  }}
+                >
+                  <DeleteButtonWrapper
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <IconButton
+                      variant="danger"
+                      onClick={() => removeField(index)}
+                      aria-label="Delete field"
                     >
-                      <IconButton
-                        variant="danger"
-                        onClick={() => removeField(index)}
-                        aria-label="Delete field"
-                      >
-                        <Trash2 size={16} />
-                      </IconButton>
-                    </DeleteButtonWrapper>
-                  </Grid.Column>
-                </Grid.Row>
-              </Grid>
+                      <Trash2 size={16} />
+                    </IconButton>
+                  </DeleteButtonWrapper>
+                </div>
+              </HStack>
             </FieldRow>
           ))}
         </AnimatePresence>
 
         <AddFieldButton
           onClick={addField}
+          type="button"
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >
           Add Field
         </AddFieldButton>
-      </Form>
+      </form>
     </motion.div>
   );
 };

@@ -5,8 +5,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import { Form } from "semantic-ui-react";
-import { Button, ButtonGroup } from "@os-legal/ui";
+import { Button, ButtonGroup, SearchInput } from "@os-legal/ui";
 import Fuse from "fuse.js";
 import styled from "styled-components";
 import { AnalysisType, ExtractType } from "../../types/graphql-api";
@@ -14,7 +13,7 @@ import { AnalysisItem } from "./AnalysisItem";
 import { PlaceholderCard } from "../placeholders/PlaceholderCard";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { ExtractItem } from "../extracts/ExtractItem";
-import { X, Search } from "lucide-react";
+import { X } from "lucide-react";
 import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
 import {
   useAnalysisManager,
@@ -221,27 +220,12 @@ export const ExtractAndAnalysisHorizontalSelector: React.FC<
             justifyContent: "center",
           }}
         >
-          <Form>
-            <Form.Input
-              icon={
-                <i
-                  className="icon"
-                  onClick={searchTerm ? () => handleSearchChange("") : () => {}}
-                  style={{
-                    cursor: searchTerm ? "pointer" : "default",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {searchTerm ? <X size={16} /> : <Search size={16} />}
-                </i>
-              }
-              placeholder={`Search for ${activeTab}...`}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              value={searchTerm}
-            />
-          </Form>
+          <SearchInput
+            placeholder={`Search for ${activeTab}...`}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            value={searchTerm}
+            onClear={searchTerm ? () => handleSearchChange("") : undefined}
+          />
         </div>
       </MenuSection>
       <CardSection id="HorizontalSelectorForCorpus_CardSegment">

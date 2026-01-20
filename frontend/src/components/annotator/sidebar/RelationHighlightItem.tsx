@@ -1,7 +1,6 @@
-import { List, Icon as SemanticIcon } from "semantic-ui-react";
+import { Icon as SemanticIcon } from "semantic-ui-react";
 import { IconButton, Chip } from "@os-legal/ui";
 import styled from "styled-components";
-import _ from "lodash";
 import { X } from "lucide-react";
 
 // Restore standard imports
@@ -27,11 +26,19 @@ interface HasColor {
 }
 
 export const RelationHighlightContainer = styled.div<HasColor>(
-  ({ theme, color }) => `
+  ({ color }) => `
     border: 2px solid ${color};
     border-bottom: 0px;
 `
 );
+
+const RelationListItem = styled.div`
+  padding: 0.5rem;
+`;
+
+const RelationListContent = styled.div`
+  margin-top: 0.25rem;
+`;
 
 interface RelationHighlightItemProps {
   annotation: ServerTokenAnnotation;
@@ -57,7 +64,7 @@ export const RelationHighlightItem = ({
   }
 
   return (
-    <List.Item key={annotation.id} className={prepared_className}>
+    <RelationListItem className={prepared_className}>
       {type === "SOURCE" ? (
         <AvatarImage src={source_icon} alt="Source" />
       ) : (
@@ -98,8 +105,7 @@ export const RelationHighlightItem = ({
           | Page {annotation.page}
         </span>
       </Chip>
-      <List.Content>
-        <List.Header></List.Header>
+      <RelationListContent>
         {annotation?.rawText ? (
           <TruncatedText
             text={annotation.rawText}
@@ -107,7 +113,7 @@ export const RelationHighlightItem = ({
             style={{ marginTop: "0.5rem" }}
           />
         ) : null}
-      </List.Content>
-    </List.Item>
+      </RelationListContent>
+    </RelationListItem>
   );
 };

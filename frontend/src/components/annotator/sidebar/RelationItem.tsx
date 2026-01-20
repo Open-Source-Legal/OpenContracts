@@ -1,10 +1,7 @@
 import React from "react";
-import { Divider, List } from "semantic-ui-react";
 import { Card, IconButton } from "@os-legal/ui";
 import { Trash2 } from "lucide-react";
 import styled from "styled-components";
-
-import _ from "lodash";
 
 import "./AnnotatorSidebar.css";
 import { RelationHighlightItem } from "./RelationHighlightItem";
@@ -24,6 +21,46 @@ const RelationCard = styled(Card)<{ $selected?: boolean }>`
   cursor: pointer;
   background-color: ${(props) => (props.$selected ? "#e2ffdb" : "#fff")};
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+`;
+
+const RelationList = styled.div`
+  margin: 0;
+  font-size: 0.85rem;
+
+  & > * {
+    border-bottom: 1px solid rgba(34, 36, 38, 0.15);
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+`;
+
+const HorizontalDivider = styled.div`
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 1rem 0;
+  font-size: 0.85714286rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(0, 0, 0, 0.85);
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    border-bottom: 1px solid rgba(34, 36, 38, 0.15);
+  }
+
+  &::before {
+    margin-right: 1rem;
+  }
+
+  &::after {
+    margin-left: 1rem;
+  }
 `;
 
 export function RelationItem({
@@ -94,23 +131,11 @@ export function RelationItem({
         </DeleteButton>
       )}
 
-      <List
-        style={{ marginTop: "0px", marginBottom: "0px" }}
-        celled
-        size="mini"
-      >
-        {source_cards}
-      </List>
-      <Divider horizontal>
+      <RelationList>{source_cards}</RelationList>
+      <HorizontalDivider>
         <strong>{relation.label.text}:</strong>
-      </Divider>
-      <List
-        style={{ marginTop: "0px", marginBottom: "0px" }}
-        celled
-        size="mini"
-      >
-        {target_cards}
-      </List>
+      </HorizontalDivider>
+      <RelationList>{target_cards}</RelationList>
     </RelationCard>
   );
 }

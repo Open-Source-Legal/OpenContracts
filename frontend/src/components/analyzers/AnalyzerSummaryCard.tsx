@@ -1,6 +1,6 @@
-import { List, Header } from "semantic-ui-react";
 import { Card, CardBody } from "@os-legal/ui";
 import styled from "styled-components";
+import { Users, Mail } from "lucide-react";
 import analyzer_icon from "../../assets/icons/noun-epicyclic-gearing-800132.png";
 import { AnalyzerType, CorpusType } from "../../types/graphql-api";
 import { LoadingOverlay } from "../common/LoadingOverlay";
@@ -37,6 +37,24 @@ const CardDescription = styled.div`
 const ExtraContent = styled(CardBody)`
   background: #f9f9f9;
   border-top: 1px solid #e0e0e0;
+`;
+
+const InfoList = styled.ul`
+  list-style: none;
+  padding: 0;
+  margin: 0;
+`;
+
+const InfoListItem = styled.li`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+`;
+
+const DependencyList = styled.ol`
+  padding-left: 1.5rem;
+  margin: 0.5rem 0 0 0;
 `;
 
 export interface AnalyzerSummaryCardInputs {
@@ -91,31 +109,29 @@ export const AnalyzerSummaryCard = ({
         <CardDescription>{analyzer.description}</CardDescription>
       </CardBody>
       <CardBody>
-        <List>
-          <List.Item>
-            <List.Icon name="users" />
-            <List.Content>
+        <InfoList>
+          <InfoListItem>
+            <Users size={16} />
+            <span>
               Creator: {analyzer?.manifest?.metadata?.author_name ?? "Unknown"}
-            </List.Content>
-          </List.Item>
+            </span>
+          </InfoListItem>
           {analyzer?.manifest?.metadata?.author_email && (
-            <List.Item>
-              <List.Icon name="mail" />
-              <List.Content>
-                Email: {analyzer.manifest.metadata.author_email}
-              </List.Content>
-            </List.Item>
+            <InfoListItem>
+              <Mail size={16} />
+              <span>Email: {analyzer.manifest.metadata.author_email}</span>
+            </InfoListItem>
           )}
-        </List>
+        </InfoList>
       </CardBody>
       {dependency_list ? (
         <ExtraContent>
           <strong>Python Dependencies</strong>
-          <List ordered>
+          <DependencyList>
             {dependency_list.map((dependency, index) => (
-              <List.Item key={index}>{dependency}</List.Item>
+              <li key={index}>{dependency}</li>
             ))}
-          </List>
+          </DependencyList>
         </ExtraContent>
       ) : (
         <></>

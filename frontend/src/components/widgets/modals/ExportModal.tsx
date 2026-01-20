@@ -2,8 +2,9 @@
  * A modal for viewing and searching exports, with lazy loading and infinite scroll.
  */
 import { useEffect, useRef, useState } from "react";
-import { Modal, Header } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
 import { Button } from "@os-legal/ui";
+import styled from "styled-components";
 import _ from "lodash";
 import { FileArchive, X } from "lucide-react";
 import { CreateAndSearchBar } from "../../layout/CreateAndSearchBar";
@@ -24,6 +25,25 @@ import {
 import { ExportObject } from "../../../types/graphql-api";
 import { exportSearchTerm, showExportModal } from "../../../graphql/cache";
 import { toast } from "react-toastify";
+
+const ExportHeader = styled.h2`
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+`;
+
+const ExportSubheader = styled.span`
+  display: block;
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 400;
+  margin-top: 0.5rem;
+`;
 
 export interface ExportModalProps {
   /**
@@ -166,14 +186,14 @@ export function ExportModal({ visible, toggleModal }: ExportModalProps) {
           }}
         >
           <div>
-            <Header as="h2" icon>
+            <ExportHeader>
               <FileArchive size={32} style={{ marginBottom: "0.5rem" }} />
               Corpus Exports
-              <Header.Subheader>
+              <ExportSubheader>
                 WARNING - If you have a free account, your exports will be
                 deleted within 24 hours of completion.
-              </Header.Subheader>
-            </Header>
+              </ExportSubheader>
+            </ExportHeader>
           </div>
         </div>
       </Modal.Header>

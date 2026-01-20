@@ -1,5 +1,5 @@
 import styled, { css, keyframes } from "styled-components";
-import { Modal, List } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
 import { Button, Progress } from "@os-legal/ui";
 
 // Breakpoints for responsive design
@@ -334,56 +334,70 @@ export const FileListContainer = styled.div`
   }
 `;
 
+// Styled list to replace Semantic UI List with divided/relaxed props
+export const StyledFileList = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #e9ecef;
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+`;
+
 // File list item
-export const FileListItem = styled(List.Item)<{
+export const FileListItem = styled.div<{
   $selected?: boolean;
   $status?: string;
 }>`
-  &.item {
-    padding: 0.875rem 1rem !important;
-    margin: 0.25rem 0 !important;
-    border-radius: 8px !important;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    position: relative;
-    display: flex !important;
-    align-items: center !important;
-    min-height: 56px; /* Touch target size */
+  padding: 0.875rem 1rem;
+  margin: 0.25rem 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 56px; /* Touch target size */
 
-    @media (max-width: ${breakpoints.mobile}) {
-      padding: 1rem !important;
-      min-height: 64px;
-    }
+  @media (max-width: ${breakpoints.mobile}) {
+    padding: 1rem;
+    min-height: 64px;
+  }
 
-    ${({ $selected }) =>
-      $selected &&
-      css`
-        background: linear-gradient(
-          135deg,
-          rgba(102, 126, 234, 0.1) 0%,
-          rgba(118, 75, 162, 0.1) 100%
-        ) !important;
-        border: 1px solid rgba(102, 126, 234, 0.3);
-      `}
+  ${({ $selected }) =>
+    $selected &&
+    css`
+      background: linear-gradient(
+        135deg,
+        rgba(102, 126, 234, 0.1) 0%,
+        rgba(118, 75, 162, 0.1) 100%
+      );
+      border: 1px solid rgba(102, 126, 234, 0.3);
+    `}
 
-    ${({ $status }) =>
-      $status === "SUCCESS" &&
-      css`
-        background: #e8f5e9 !important;
-        border: 1px solid #c8e6c9;
-      `}
+  ${({ $status }) =>
+    $status === "SUCCESS" &&
+    css`
+      background: #e8f5e9;
+      border: 1px solid #c8e6c9;
+    `}
 
-    ${({ $status }) =>
-      $status === "FAILED" &&
-      css`
-        background: #ffebee !important;
-        border: 1px solid #ffcdd2;
-      `}
+  ${({ $status }) =>
+    $status === "FAILED" &&
+    css`
+      background: #ffebee;
+      border: 1px solid #ffcdd2;
+    `}
 
-    &:hover {
-      background: ${({ $selected }) =>
-        $selected ? "rgba(102, 126, 234, 0.15)" : "#f8f9fa"};
-    }
+  &:hover {
+    background: ${({ $selected }) =>
+      $selected ? "rgba(102, 126, 234, 0.15)" : "#f8f9fa"};
   }
 `;
 

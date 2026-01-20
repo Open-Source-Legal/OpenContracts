@@ -6,7 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import Fuse from "fuse.js";
-import { Form } from "semantic-ui-react";
+import { SearchInput } from "@os-legal/ui";
 import { AnalysisType } from "../../types/graphql-api";
 import styled from "styled-components";
 import {
@@ -650,18 +650,12 @@ const AnalysisTraySelector: React.FC<AnalysisTraySelectorProps> = ({
     <TrayContainer>
       {externalSearchTerm === undefined && (
         <SearchSection>
-          <Form>
-            <Form.Input
-              icon={{
-                name: searchTerm ? "cancel" : "search",
-                link: true,
-                onClick: searchTerm ? () => handleSearchChange("") : undefined,
-              }}
-              placeholder="Search analyses..."
-              onChange={(e) => handleSearchChange(e.target.value)}
-              value={searchTerm}
-            />
-          </Form>
+          <SearchInput
+            placeholder="Search analyses..."
+            onChange={(e) => handleSearchChange(e.target.value)}
+            value={searchTerm}
+            onClear={searchTerm ? () => handleSearchChange("") : undefined}
+          />
         </SearchSection>
       )}
 

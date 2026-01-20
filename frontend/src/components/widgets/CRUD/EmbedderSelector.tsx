@@ -1,5 +1,5 @@
 import { useQuery } from "@apollo/client";
-import { Header, Dropdown } from "semantic-ui-react";
+import { Dropdown } from "semantic-ui-react";
 import { Alert } from "@os-legal/ui";
 import styled from "styled-components";
 import {
@@ -40,6 +40,29 @@ const AttachedContainer = styled.div`
   border: 1px solid rgba(34, 36, 38, 0.15);
   border-top: none;
   border-radius: 0 0 0.28571429rem 0.28571429rem;
+`;
+
+const AttachedHeader = styled.h5`
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-radius: 0.28571429rem 0.28571429rem 0 0;
+`;
+
+const DropdownOptionHeader = styled.div`
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1e293b;
+`;
+
+const DropdownOptionSubheader = styled.div`
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 400;
 `;
 
 interface EmbedderSelectorProps {
@@ -98,21 +121,22 @@ export const EmbedderSelector = ({
     text: embedder.title || embedder.name,
     value: embedder.className,
     content: (
-      <Header
-        image={embedder.author ? undefined : undefined} // Could add an icon based on author if needed
-        content={embedder.title || embedder.name}
-        subheader={`${embedder.description || ""} (${
-          embedder.vectorSize || "Unknown"
-        } dimensions)`}
-      />
+      <div>
+        <DropdownOptionHeader>
+          {embedder.title || embedder.name}
+        </DropdownOptionHeader>
+        <DropdownOptionSubheader>
+          {`${embedder.description || ""} (${
+            embedder.vectorSize || "Unknown"
+          } dimensions)`}
+        </DropdownOptionSubheader>
+      </div>
     ),
   }));
 
   return (
     <MobileFriendlyWrapper>
-      <Header as="h5" attached="top">
-        Preferred Embedder:
-      </Header>
+      <AttachedHeader>Preferred Embedder:</AttachedHeader>
       <AttachedContainer>
         {error && (
           <Alert variant="error" title="Failed to load embedders">

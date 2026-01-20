@@ -10,11 +10,22 @@ import {
   useLocation,
 } from "react-router-dom";
 
-import _ from "lodash";
-
-import { Container } from "semantic-ui-react";
+import styled from "styled-components";
 
 import { toast, ToastContainer } from "react-toastify";
+
+const AppContainer = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  min-width: 100vw;
+  min-height: 0;
+  overflow: hidden;
+`;
 
 import { useQuery, useReactiveVar } from "@apollo/client";
 
@@ -320,21 +331,7 @@ export const App = () => {
             }}
           >
             <NavMenu />
-            <Container
-              id="AppContainer"
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "flex-start",
-                width: "100% !important",
-                margin: "0px !important",
-                padding: "0px !important",
-                minWidth: "100vw",
-                minHeight: 0,
-                overflow: "hidden",
-              }}
-            >
+            <AppContainer id="AppContainer">
               {opened_corpus && (
                 <SelectAnalyzerOrFieldsetModal
                   open={show_corpus_analyzer_fieldset_modal}
@@ -496,7 +493,7 @@ export const App = () => {
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </AuthGate>
-            </Container>
+            </AppContainer>
           </div>
           <div
             style={{

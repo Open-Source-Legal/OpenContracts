@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import Fuse from "fuse.js";
-import { Form } from "semantic-ui-react";
+import { SearchInput } from "@os-legal/ui";
 import { ExtractType } from "../../types/graphql-api";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { useCorpusState } from "../annotator/context/CorpusAtom";
@@ -213,18 +213,12 @@ const ExtractTraySelector: React.FC<ExtractTraySelectorProps> = ({
   return (
     <TrayContainer>
       <SearchSection>
-        <Form>
-          <Form.Input
-            icon={{
-              name: searchTerm ? "cancel" : "search",
-              link: true,
-              onClick: searchTerm ? () => handleSearchChange("") : undefined,
-            }}
-            placeholder="Search for extracts..."
-            onChange={(e) => handleSearchChange(e.target.value)}
-            value={searchTerm}
-          />
-        </Form>
+        <SearchInput
+          placeholder="Search for extracts..."
+          onChange={(e) => handleSearchChange(e.target.value)}
+          value={searchTerm}
+          onClear={searchTerm ? () => handleSearchChange("") : undefined}
+        />
       </SearchSection>
       <ExtractListSection>
         {mountedRef.current && renderItems()}

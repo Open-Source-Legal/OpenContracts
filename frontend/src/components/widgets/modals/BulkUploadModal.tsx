@@ -1,7 +1,7 @@
 // frontend/src/components/widgets/modals/BulkUploadModal.tsx
 import React, { useState, useRef } from "react";
 import { useMutation, useReactiveVar } from "@apollo/client";
-import { Form, FormField } from "semantic-ui-react";
+import { FormField } from "@os-legal/ui";
 import { toast } from "react-toastify";
 import { gql } from "@apollo/client";
 import {
@@ -26,7 +26,6 @@ import {
   DropZoneButton,
   UploadProgress,
   ActionButton,
-  FieldLabel,
   ErrorMessage,
 } from "./UploadModalStyles";
 
@@ -223,7 +222,7 @@ export const BulkUploadModal = () => {
         </ModalHeader>
       </StyledUploadModal.Header>
       <StyledUploadModal.Content>
-        <Form loading={loading} error={!!error}>
+        <form style={{ opacity: loading ? 0.6 : 1 }}>
           {/* Error Message Display */}
           {error && (
             <ErrorMessage>
@@ -292,13 +291,7 @@ export const BulkUploadModal = () => {
           </DropZone>
 
           {/* Corpus Selection Field */}
-          <FormField>
-            <FieldLabel>
-              Add to Corpus{" "}
-              <span style={{ color: "#868e96", fontWeight: 400 }}>
-                (Optional)
-              </span>
-            </FieldLabel>
+          <FormField label="Add to Corpus" optional>
             <CorpusDropdown
               value={targetCorpus?.id ?? null}
               onChange={setTargetCorpus}
@@ -315,7 +308,7 @@ export const BulkUploadModal = () => {
               showLabel
             />
           )}
-        </Form>
+        </form>
       </StyledUploadModal.Content>
       <StyledUploadModal.Actions>
         <ActionButton

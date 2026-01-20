@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom";
-import { Modal, Form, Grid } from "semantic-ui-react";
-import { Button } from "@os-legal/ui";
+import { Button, VStack } from "@os-legal/ui";
 import { BasicConfigSection } from "./sections/BasicConfigSection";
 import { OutputTypeSection } from "./sections/OutputTypeSection";
 import { ExtractionConfigSection } from "./sections/ExtractionConfigSection";
@@ -25,10 +24,6 @@ interface RequiredFields {
   taskName: string;
   name: string;
 }
-
-const StyledGrid = styled(Grid)`
-  margin: 0 !important;
-`;
 
 const ModalWrapper = styled.div`
   position: fixed;
@@ -262,8 +257,8 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
           <CloseButton onClick={handleClose}>&times;</CloseButton>
         </ModalHeader>
         <ModalBody>
-          <Form>
-            <StyledGrid>
+          <form>
+            <VStack gap="md">
               <BasicConfigSection
                 name={formData.name || ""}
                 taskName={formData.taskName || ""}
@@ -291,8 +286,8 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
                 limitToLabel={formData.limitToLabel || ""}
                 handleChange={handleChange}
               />
-            </StyledGrid>
-          </Form>
+            </VStack>
+          </form>
         </ModalBody>
         <ModalFooter>
           <Button

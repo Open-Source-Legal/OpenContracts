@@ -1,4 +1,4 @@
-import { Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Icon as SemanticIcon, Popup } from "semantic-ui-react";
 import { Card, CardBody } from "@os-legal/ui";
 import styled from "styled-components";
 import { Ban } from "lucide-react";
@@ -37,6 +37,19 @@ const CardHeaderStyled = styled.div`
   margin: 0px;
 `;
 
+const SmallHeader = styled.h5`
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+`;
+
+const HeaderContent = styled.span`
+  word-break: break-all;
+`;
+
 interface LabelCardProps {
   label: AnnotationLabelType;
 }
@@ -68,13 +81,13 @@ export const SpanLabelCard = ({ label }: LabelCardProps) => {
           trigger={
             <CardHeaderStyled>
               <div>
-                <Header as="h5">
+                <SmallHeader>
                   <SemanticIcon
                     name={label.icon}
                     style={{ color: label.color }}
                   />
-                  <Header.Content>{label.text}</Header.Content>
-                </Header>
+                  <HeaderContent>{label.text}</HeaderContent>
+                </SmallHeader>
               </div>
             </CardHeaderStyled>
           }
@@ -96,10 +109,10 @@ export const BlankLabelElement = () => {
         }}
       >
         <div style={{ textAlign: "left" }}>
-          <Header as="h5">
+          <SmallHeader>
             <Ban size={16} style={{ marginRight: "0.5rem" }} />
-            <Header.Content>No Label Selected</Header.Content>
-          </Header>
+            <HeaderContent>No Label Selected</HeaderContent>
+          </SmallHeader>
         </div>
       </CardBody>
     </BlankCard>

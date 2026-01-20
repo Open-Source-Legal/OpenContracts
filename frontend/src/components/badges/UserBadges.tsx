@@ -1,6 +1,5 @@
 import React from "react";
 import { useQuery } from "@apollo/client";
-import { Header } from "semantic-ui-react";
 import { Alert, Spinner } from "@os-legal/ui";
 import styled from "styled-components";
 import { Badge, BadgeData } from "./Badge";
@@ -40,13 +39,17 @@ const StyledSegment = styled.div`
     border-radius: 12px;
     margin: 0.5em 0;
   }
+`;
 
-  /* Responsive header inside segment */
-  h3.ui.header {
-    @media (max-width: 768px) {
-      font-size: 1.1em;
-      text-align: center;
-    }
+const SectionHeader = styled.h3`
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 0.5rem 0;
+
+  @media (max-width: 768px) {
+    font-size: 1.1rem;
+    text-align: center;
   }
 `;
 
@@ -117,7 +120,7 @@ export const UserBadges: React.FC<UserBadgesProps> = ({
   if (userBadges.length === 0) {
     return (
       <StyledSegment>
-        {showTitle && <Header as="h3">{title}</Header>}
+        {showTitle && <SectionHeader>{title}</SectionHeader>}
         <EmptyState>No badges earned yet. Keep contributing!</EmptyState>
       </StyledSegment>
     );
@@ -139,9 +142,9 @@ export const UserBadges: React.FC<UserBadgesProps> = ({
   return (
     <StyledSegment>
       {showTitle && (
-        <Header as="h3">
+        <SectionHeader>
           {title} ({userBadges.length})
-        </Header>
+        </SectionHeader>
       )}
       <BadgesContainer>
         {badgeData.map((badge) => (

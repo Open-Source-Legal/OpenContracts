@@ -1,6 +1,7 @@
 import React from "react";
-import { Grid, Form } from "semantic-ui-react";
-import { FormSection, SectionTitle, StyledFormField } from "../styled";
+import { Dropdown } from "semantic-ui-react";
+import { VStack, Radio, RadioGroup, Checkbox, FormField } from "@os-legal/ui";
+import { FormSection, SectionTitle } from "../styled";
 import { FieldType, ModelFieldBuilder } from "../../ModelFieldBuilder";
 
 interface OutputTypeSectionProps {
@@ -73,73 +74,66 @@ export const OutputTypeSection: React.FC<OutputTypeSectionProps> = ({
   return (
     <FormSection>
       <SectionTitle>Output Type Configuration</SectionTitle>
-      <Grid>
-        <Grid.Row>
-          <Grid.Column width={16}>
-            <Form.Group inline>
-              <label>Select Type:</label>
-              <Form.Radio
-                label="Primitive Type"
-                value="primitive"
-                checked={outputTypeOption === "primitive"}
-                onChange={handleOutputTypeChange}
-              />
-              <Form.Radio
-                label="Custom Model"
-                value="custom"
-                checked={outputTypeOption === "custom"}
-                onChange={handleOutputTypeChange}
-              />
-            </Form.Group>
-          </Grid.Column>
-        </Grid.Row>
+      <VStack gap="md">
+        <FormField label="Select Type:">
+          <RadioGroup
+            orientation="horizontal"
+            value={outputTypeOption}
+            onChange={(value) => {
+              // Create a minimal synthetic event with required properties
+              const syntheticEvent = {
+                target: { value },
+              } as unknown as React.FormEvent<HTMLInputElement>;
+              handleOutputTypeChange(syntheticEvent, { value });
+            }}
+          >
+            <Radio label="Primitive Type" value="primitive" />
+            <Radio label="Custom Model" value="custom" />
+          </RadioGroup>
+        </FormField>
 
-        <Grid.Row>
-          <Grid.Column width={16}>
-            <Form.Checkbox
-              label="List of Values"
-              checked={extractIsList}
-              onChange={(e, data) => handleChange(e, data, "extractIsList")}
-            />
-          </Grid.Column>
-        </Grid.Row>
+        <Checkbox
+          label="List of Values"
+          checked={extractIsList}
+          onChange={(e) => {
+            const syntheticData = { checked: e.target.checked };
+            handleChange(e as any, syntheticData, "extractIsList");
+          }}
+        />
 
         {outputTypeOption === "primitive" && (
-          <Grid.Row>
-            <Grid.Column width={8}>
-              <StyledFormField>
-                <label>Primitive Type</label>
-                <Form.Select
-                  options={[
-                    { key: "str", text: "String", value: "str" },
-                    { key: "int", text: "Integer", value: "int" },
-                    { key: "float", text: "Float", value: "float" },
-                    { key: "bool", text: "Boolean", value: "bool" },
-                  ]}
-                  value={primitiveType}
-                  onChange={(e, data) => {
-                    if (data.value) {
-                      handlePrimitiveTypeChange(String(data.value));
-                    }
-                  }}
-                  placeholder="Select primitive type"
-                />
-              </StyledFormField>
-            </Grid.Column>
-          </Grid.Row>
+          <div style={{ width: "50%" }}>
+            <FormField label="Primitive Type">
+              <Dropdown
+                selection
+                fluid
+                options={[
+                  { key: "str", text: "String", value: "str" },
+                  { key: "int", text: "Integer", value: "int" },
+                  { key: "float", text: "Float", value: "float" },
+                  { key: "bool", text: "Boolean", value: "bool" },
+                ]}
+                value={primitiveType}
+                onChange={(e, data) => {
+                  if (data.value) {
+                    handlePrimitiveTypeChange(String(data.value));
+                  }
+                }}
+                placeholder="Select primitive type"
+              />
+            </FormField>
+          </div>
         )}
 
         {outputTypeOption === "custom" && (
-          <Grid.Row>
-            <Grid.Column width={16}>
-              <ModelFieldBuilder
-                onFieldsChange={handleFieldsChange}
-                initialFields={initialFields}
-              />
-            </Grid.Column>
-          </Grid.Row>
+          <div style={{ width: "100%" }}>
+            <ModelFieldBuilder
+              onFieldsChange={handleFieldsChange}
+              initialFields={initialFields}
+            />
+          </div>
         )}
-      </Grid>
+      </VStack>
     </FormSection>
   );
 };

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Header, Form, Divider } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import { UserCircle, X, Check } from "lucide-react";
-import { Button } from "@os-legal/ui";
+import { Button, Input, FormField, Toggle } from "@os-legal/ui";
 import styled from "styled-components";
 
 import { backendUserObj, showUserSettingsModal } from "../../graphql/cache";
@@ -54,20 +54,25 @@ const StyledModal = styled(Modal)`
   }
 `;
 
-const ResponsiveFormGroup = styled(Form.Group)`
-  &.fields {
-    @media (max-width: 480px) {
-      flex-direction: column !important;
+const ResponsiveFormGroup = styled.div`
+  display: flex;
+  gap: 1rem;
 
-      .field {
-        width: 100% !important;
-        margin-bottom: 1em !important;
+  @media (max-width: 480px) {
+    flex-direction: column;
 
-        &:last-child {
-          margin-bottom: 0 !important;
-        }
+    > * {
+      width: 100%;
+      margin-bottom: 1em;
+
+      &:last-child {
+        margin-bottom: 0;
       }
     }
+  }
+
+  > * {
+    flex: 1;
   }
 `;
 
@@ -79,6 +84,35 @@ const ProfileVisibilityHint = styled.div`
   @media (max-width: 768px) {
     font-size: 11px;
   }
+`;
+
+const ModalHeaderWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: white;
+  border-bottom: 1px solid #e2e8f0;
+`;
+
+const ModalHeaderTitle = styled.h2`
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0.5rem 0 0 0;
+`;
+
+const ModalHeaderSubtitle = styled.span`
+  font-size: 0.875rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+`;
+
+const StyledDivider = styled.hr`
+  border: none;
+  border-top: 1px solid rgba(34, 36, 38, 0.15);
+  margin: 1.5rem 0;
 `;
 
 interface EditableProfileState {
@@ -137,54 +171,58 @@ const UserSettingsModal: React.FC = () => {
       closeIcon
       data-testid="user-settings-modal"
     >
-      <Header icon data-testid="user-settings-header">
+      <ModalHeaderWrapper data-testid="user-settings-header">
         <UserCircle size={32} />
-        User Settings
-        <Header.Subheader>Update your profile and public slug</Header.Subheader>
-      </Header>
+        <ModalHeaderTitle>User Settings</ModalHeaderTitle>
+        <ModalHeaderSubtitle>
+          Update your profile and public slug
+        </ModalHeaderSubtitle>
+      </ModalHeaderWrapper>
       <Modal.Content>
-        <Form>
-          <Form.Input
+        <form>
+          <Input
             label="Public Slug"
             placeholder="your-slug"
             value={form.slug || ""}
-            onChange={(_, data) => onChange("slug", String(data.value || ""))}
+            onChange={(e) => onChange("slug", e.target.value)}
+            fullWidth
           />
-          <Form.Input
+          <Input
             label="Name"
             placeholder="Display name"
             value={form.name || ""}
-            onChange={(_, data) => onChange("name", String(data.value || ""))}
+            onChange={(e) => onChange("name", e.target.value)}
+            fullWidth
           />
-          <ResponsiveFormGroup widths="equal">
-            <Form.Input
+          <ResponsiveFormGroup>
+            <Input
               label="First Name"
               value={form.firstName || ""}
-              onChange={(_, data) =>
-                onChange("firstName", String(data.value || ""))
-              }
+              onChange={(e) => onChange("firstName", e.target.value)}
+              fullWidth
             />
-            <Form.Input
+            <Input
               label="Last Name"
               value={form.lastName || ""}
-              onChange={(_, data) =>
-                onChange("lastName", String(data.value || ""))
-              }
+              onChange={(e) => onChange("lastName", e.target.value)}
+              fullWidth
             />
           </ResponsiveFormGroup>
-          <Form.Input
+          <Input
             label="Phone"
             value={form.phone || ""}
-            onChange={(_, data) => onChange("phone", String(data.value || ""))}
+            onChange={(e) => onChange("phone", e.target.value)}
+            fullWidth
           />
-          <Form.Field>
-            <label>Profile Visibility</label>
-            <Form.Checkbox
-              toggle
+          <FormField label="Profile Visibility">
+            <Toggle
               label="Public Profile"
               checked={form.isProfilePublic ?? true}
-              onChange={(_, data) => {
-                setForm((prev) => ({ ...prev, isProfilePublic: data.checked }));
+              onChange={(e) => {
+                setForm((prev) => ({
+                  ...prev,
+                  isProfilePublic: e.target.checked,
+                }));
                 setDirty(true);
               }}
             />
@@ -193,12 +231,12 @@ const UserSettingsModal: React.FC = () => {
                 ? "Your profile is visible to all users"
                 : "Your profile is only visible to you"}
             </ProfileVisibilityHint>
-          </Form.Field>
-        </Form>
+          </FormField>
+        </form>
 
         {user && (user as any).id && (
           <>
-            <Divider />
+            <StyledDivider />
             <UserBadges
               userId={(user as any).id}
               showTitle={true}

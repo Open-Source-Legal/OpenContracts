@@ -1,4 +1,3 @@
-import { Header } from "semantic-ui-react";
 import styled from "styled-components";
 import { ThumbsUp, AlertTriangle, HelpCircle, LucideIcon } from "lucide-react";
 
@@ -46,15 +45,32 @@ export const Result = ({
           <Icon size={64} color={color} />
         </div>
         <div>
-          <Header as="h1" textAlign="center">
+          <ResultHeader>
             {status}
-            <Header.Subheader>{title}</Header.Subheader>
-          </Header>
+            <ResultSubheader>{title}</ResultSubheader>
+          </ResultHeader>
         </div>
       </InnerContainer>
     </ResultIndicatorContainer>
   );
 };
+
+const ResultHeader = styled.h1`
+  font-size: 2rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  text-align: center;
+  text-transform: capitalize;
+`;
+
+const ResultSubheader = styled.span`
+  display: block;
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 400;
+  margin-top: 0.5rem;
+`;
 
 const ResultIndicatorContainer = styled.div`
   height: 100%;

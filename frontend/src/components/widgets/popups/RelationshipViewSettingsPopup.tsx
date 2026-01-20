@@ -1,8 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { Popup, Grid, Header } from "semantic-ui-react";
-import { IconButton, Toggle } from "@os-legal/ui";
+import { Popup } from "semantic-ui-react";
+import { IconButton, Toggle, VStack } from "@os-legal/ui";
+import styled from "styled-components";
 import { SlidersHorizontal } from "lucide-react";
 import { useAnnotationDisplay } from "../../annotator/hooks/useAnnotationDisplay"; // Adjusted path
+
+const SettingsHeader = styled.h4`
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 0.8em 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+`;
 
 interface RelationshipViewSettingsPopupProps {
   // No specific props needed for now, but can be extended
@@ -48,31 +59,27 @@ export const RelationshipViewSettingsPopup: React.FC<
       style={{ padding: "1em", zIndex: "2100 !important" }} // Ensure it's above other elements
       position="bottom left" // Example position, adjust as needed
     >
-      <Grid
-        celled="internally"
-        columns="equal"
+      <VStack
+        gap="sm"
         style={{
-          width: `220px`, // Adjusted width for a single setting
+          width: "220px",
           background: "#f9f9f9",
           borderRadius: "8px",
+          padding: "1em",
+          textAlign: "center",
         }}
       >
-        <Grid.Row>
-          <Grid.Column textAlign="center" verticalAlign="middle">
-            <Header size="tiny" style={{ marginBottom: "0.8em" }}>
-              <i className="icon sitemap" />{" "}
-              {/* Icon for structural/hierarchy */}
-              Show Structural Groups
-            </Header>
-            <Toggle
-              onChange={(e) =>
-                handleShowStructuralRelationshipsChange(e.target.checked)
-              }
-              checked={localShowStructuralRelationships}
-            />
-          </Grid.Column>
-        </Grid.Row>
-      </Grid>
+        <SettingsHeader>
+          <i className="icon sitemap" /> {/* Icon for structural/hierarchy */}
+          Show Structural Groups
+        </SettingsHeader>
+        <Toggle
+          onChange={(e) =>
+            handleShowStructuralRelationshipsChange(e.target.checked)
+          }
+          checked={localShowStructuralRelationships}
+        />
+      </VStack>
     </Popup>
   );
 };

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Header } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
 import { Button } from "@os-legal/ui";
 import _ from "lodash";
+import styled from "styled-components";
 import { Box, X, Check } from "lucide-react";
 import { CRUDWidget } from "./CRUDWidget";
 import { LoadingOverlay } from "../../common/LoadingOverlay";
@@ -10,6 +11,27 @@ import {
   HorizontallyCenteredDiv,
   VerticallyCenteredDiv,
 } from "../../layout/Wrappers";
+
+const ModalTitleHeader = styled.h2`
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+`;
+
+const HeaderContent = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+const HeaderSubtext = styled.span`
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 400;
+  margin-top: 0.25rem;
+`;
 
 /**
  * Props for the ObjectCRUDModal component.
@@ -133,16 +155,16 @@ export function CRUDModal({
       <Modal.Header>
         <HorizontallyCenteredDiv>
           <div style={{ marginTop: "1rem", textAlign: "left", width: "100%" }}>
-            <Header as="h2">
+            <ModalTitleHeader>
               <Box
                 size={24}
                 style={{ marginRight: "0.5rem", verticalAlign: "middle" }}
               />
-              <Header.Content>
+              <HeaderContent>
                 {headerText}
-                <Header.Subheader>{`Values for: ${descriptiveName}`}</Header.Subheader>
-              </Header.Content>
-            </Header>
+                <HeaderSubtext>{`Values for: ${descriptiveName}`}</HeaderSubtext>
+              </HeaderContent>
+            </ModalTitleHeader>
           </div>
         </HorizontallyCenteredDiv>
       </Modal.Header>

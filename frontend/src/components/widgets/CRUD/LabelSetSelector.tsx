@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery, useReactiveVar } from "@apollo/client";
-import { Header, Dropdown } from "semantic-ui-react";
+import { Dropdown } from "semantic-ui-react";
 import styled from "styled-components";
 import _ from "lodash";
 import { labelsetSearchTerm } from "../../../graphql/cache";
@@ -45,6 +45,29 @@ const AttachedContainer = styled.div`
   border-top: none;
   border-radius: 0 0 0.28571429rem 0.28571429rem;
   position: relative;
+`;
+
+const AttachedHeader = styled.h5`
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-radius: 0.28571429rem 0.28571429rem 0 0;
+`;
+
+const DropdownOptionHeader = styled.div`
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1e293b;
+`;
+
+const DropdownOptionSubheader = styled.div`
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 400;
 `;
 
 interface LabelSetSelectorProps {
@@ -102,21 +125,17 @@ export const LabelSetSelector = ({
       text: node.title,
       value: node.id,
       content: (
-        <Header
-          key={index}
-          image={node.icon}
-          content={node.title}
-          subheader={node.description}
-        />
+        <div key={index}>
+          <DropdownOptionHeader>{node.title}</DropdownOptionHeader>
+          <DropdownOptionSubheader>{node.description}</DropdownOptionSubheader>
+        </div>
       ),
     };
   });
 
   return (
     <MobileFriendlyWrapper>
-      <Header as="h5" attached="top">
-        Label Set:
-      </Header>
+      <AttachedHeader>Label Set:</AttachedHeader>
       <AttachedContainer>
         <LoadingOverlay active={loading} content="Loading Label Sets..." />
         <Dropdown

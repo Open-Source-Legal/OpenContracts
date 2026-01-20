@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { gql, useReactiveVar } from "@apollo/client";
-import { Header } from "semantic-ui-react";
+import styled from "styled-components";
 import _ from "lodash";
 import {
   CloudUpload,
@@ -55,6 +55,18 @@ import {
   ActionButton,
 } from "./UploadModalStyles";
 
+const PlaceholderHeader = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+`;
+
+const PlaceholderText = styled.span`
+  color: #495057;
+  font-size: 1rem;
+`;
+
 export const NOT_STARTED = "NOT_STARTED";
 export const SUCCESS = "SUCCESS";
 export const FAILED = "FAILED";
@@ -95,15 +107,15 @@ function RightCol({ files, selected_file_num, handleChange }: RightColProps) {
   }
   return (
     <FormContainer placeholder>
-      <Header icon>
+      <PlaceholderHeader>
         <FileEdit
           size={32}
           style={{ color: "#667eea", marginBottom: "0.5rem" }}
         />
-        <Header.Content style={{ color: "#495057", fontSize: "1rem" }}>
+        <PlaceholderText>
           Click on a document to edit its details
-        </Header.Content>
-      </Header>
+        </PlaceholderText>
+      </PlaceholderHeader>
     </FormContainer>
   );
 }

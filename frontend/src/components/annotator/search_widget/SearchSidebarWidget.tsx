@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Header, Form } from "semantic-ui-react";
-import { Alert } from "@os-legal/ui";
+import { Alert, SearchInput } from "@os-legal/ui";
 import styled from "styled-components";
-import { Search, X } from "lucide-react";
 import _ from "lodash";
 import "./SearchWidgetStyles.css";
 import { TextSearchSpanResult, TextSearchTokenResult } from "../../types";
@@ -56,24 +54,38 @@ const SearchResultContent = styled.div`
   line-height: 1.4;
 `;
 
+const SmallHeaderText = styled.h4`
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+`;
+
+const TinyHeaderText = styled.h5`
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  margin: 0;
+`;
+
 /**
  * Displays the page header based on the type of search result.
  */
-const PageHeader: React.FC<{
+const PageHeaderDisplay: React.FC<{
   result: TextSearchTokenResult | TextSearchSpanResult;
 }> = ({ result }) => {
   if ("start_page" in result && "end_page" in result) {
     // TextSearchTokenResult
     return result.start_page === result.end_page ? (
-      <Header size="small">Page {result.end_page}</Header>
+      <SmallHeaderText>Page {result.end_page}</SmallHeaderText>
     ) : (
-      <Header size="small">
+      <SmallHeaderText>
         Page {result.start_page} to Page {result.end_page}
-      </Header>
+      </SmallHeaderText>
     );
   } else {
     // TextSearchSpanResult
-    return <Header size="small">Text Match</Header>;
+    return <SmallHeaderText>Text Match</SmallHeaderText>;
   }
 };
 
@@ -115,10 +127,10 @@ const SearchResultCard: React.FC<{
             alignItems: "center",
           }}
         >
-          <PageHeader result={res} />
-          <Header size="tiny" style={{ margin: 0 }}>
+          <PageHeaderDisplay result={res} />
+          <TinyHeaderText>
             {index + 1} of {totalMatches}
-          </Header>
+          </TinyHeaderText>
         </div>
       </SearchResultHeader>
       <SearchResultContent>
@@ -210,42 +222,22 @@ export const SearchSidebarWidget: React.FC = () => {
       }}
     >
       <SearchInputSection>
-        <Form>
-          <Form.Input
-            iconPosition="left"
-            icon={
-              <i
-                className="icon"
-                onClick={() => {
-                  if (searchText) {
-                    // Cancel any pending debounced updates and clear the search text
-                    debouncedSetSearchText.cancel();
-                    setSearchText("");
-                  }
-                }}
-                style={{
-                  cursor: searchText ? "pointer" : "default",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {searchText ? (
-                  <X size={16} color="#db2828" />
-                ) : (
-                  <Search size={16} color="#2185d0" />
-                )}
-              </i>
-            }
-            placeholder="Search document..."
-            onChange={(e) => {
-              setLocalInput(e.target.value);
-              debouncedSetSearchText(e.target.value);
-            }}
-            value={localInput}
-            style={{ boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}
-          />
-        </Form>
+        <SearchInput
+          placeholder="Search document..."
+          onChange={(e) => {
+            setLocalInput(e.target.value);
+            debouncedSetSearchText(e.target.value);
+          }}
+          value={localInput}
+          onClear={
+            searchText
+              ? () => {
+                  debouncedSetSearchText.cancel();
+                  setSearchText("");
+                }
+              : undefined
+          }
+        />
       </SearchInputSection>
       <ResultsSection>
         <div style={{ overflowY: "auto", height: "100%" }}>

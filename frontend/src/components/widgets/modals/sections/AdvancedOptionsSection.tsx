@@ -1,12 +1,12 @@
 import React from "react";
-import { Grid, Popup } from "semantic-ui-react";
+import { Popup } from "semantic-ui-react";
 import { HelpCircle } from "lucide-react";
+import { VStack } from "@os-legal/ui";
 import {
   FormSection,
   StyledFormField,
   StyledTextArea,
   StyledInput,
-  StyledCheckbox,
 } from "../styled";
 import { SectionTitle } from "../styled";
 
@@ -28,57 +28,46 @@ export const AdvancedOptionsSection: React.FC<AdvancedOptionsSectionProps> = ({
   return (
     <FormSection>
       <SectionTitle>Advanced Options</SectionTitle>
-      <Grid>
-        <Grid.Row>
-          <Grid.Column width={16}>
-            <StyledFormField>
-              <label>Parser Instructions</label>
-              <StyledTextArea
-                rows={3}
-                name="instructions"
-                placeholder="Provide detailed instructions for extracting object properties here..."
-                value={instructions}
-                onChange={(
-                  e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-                  data: any
-                ) => handleChange(e, data, "instructions")}
-              />
-            </StyledFormField>
-          </Grid.Column>
-        </Grid.Row>
-        <Grid.Row>
-          <Grid.Column width={16}>
-            <StyledFormField>
-              <label>
-                Limit Search to Label
-                <Popup
-                  trigger={
-                    <HelpCircle
-                      size={14}
-                      style={{
-                        marginLeft: "0.25rem",
-                        verticalAlign: "middle",
-                        cursor: "pointer",
-                      }}
-                    />
-                  }
-                  content="Specify a label name to limit the search scope"
+      <VStack gap="md">
+        <StyledFormField>
+          <label>Parser Instructions</label>
+          <StyledTextArea
+            rows={3}
+            name="instructions"
+            placeholder="Provide detailed instructions for extracting object properties here..."
+            value={instructions}
+            onChange={(e) =>
+              handleChange(e, { value: e.target.value }, "instructions")
+            }
+          />
+        </StyledFormField>
+        <StyledFormField>
+          <label>
+            Limit Search to Label
+            <Popup
+              trigger={
+                <HelpCircle
+                  size={14}
+                  style={{
+                    marginLeft: "0.25rem",
+                    verticalAlign: "middle",
+                    cursor: "pointer",
+                  }}
                 />
-              </label>
-              <StyledInput
-                placeholder="Enter label name"
-                name="limitToLabel"
-                value={limitToLabel}
-                onChange={(
-                  e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-                  data: any
-                ) => handleChange(e, data, "limitToLabel")}
-                fluid
-              />
-            </StyledFormField>
-          </Grid.Column>
-        </Grid.Row>
-      </Grid>
+              }
+              content="Specify a label name to limit the search scope"
+            />
+          </label>
+          <StyledInput
+            placeholder="Enter label name"
+            name="limitToLabel"
+            value={limitToLabel}
+            onChange={(e) =>
+              handleChange(e, { value: e.target.value }, "limitToLabel")
+            }
+          />
+        </StyledFormField>
+      </VStack>
     </FormSection>
   );
 };

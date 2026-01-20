@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Modal, Header } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
 import { Button } from "@os-legal/ui";
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
@@ -715,6 +715,17 @@ const EditingIndicator = styled(motion.div)`
   }
 `;
 
+const ModalTitleHeader = styled.h2`
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+`;
+
 interface CorpusDescriptionEditorProps {
   corpusId: string;
   isOpen: boolean;
@@ -915,16 +926,7 @@ export const CorpusDescriptionEditor: React.FC<
   return (
     <StyledModal open={isOpen} onClose={handleClose} closeIcon>
       <ModalHeader>
-        <Header
-          as="h2"
-          style={{
-            margin: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            minWidth: 0,
-          }}
-        >
+        <ModalTitleHeader>
           <BookOpen size={20} />
           <span
             style={{
@@ -956,7 +958,7 @@ export const CorpusDescriptionEditor: React.FC<
               Editing from v{editingFromVersion}
             </EditingIndicator>
           )}
-        </Header>
+        </ModalTitleHeader>
       </ModalHeader>
 
       <ModalContent>

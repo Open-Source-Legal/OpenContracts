@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from "react";
-import { Header, Grid } from "semantic-ui-react";
 import styled from "styled-components";
 import { Box } from "lucide-react";
+import { VStack } from "@os-legal/ui";
 import Form from "@rjsf/semantic-ui";
 import validator from "@rjsf/validator-ajv8";
 import {
@@ -27,6 +27,30 @@ const FormLabel = styled.span`
   font-size: 0.875rem;
   color: #333;
   margin-bottom: 0.5rem;
+`;
+
+const WidgetHeader = styled.h2`
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+`;
+
+const HeaderContent = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+`;
+
+const HeaderSubtext = styled.span`
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 400;
+  margin-top: 0.25rem;
 `;
 
 /**
@@ -121,7 +145,7 @@ export const CRUDWidget = <T extends Record<string, any>>({
       {showHeader && (
         <HorizontallyCenteredDiv>
           <div style={{ marginTop: "1rem", textAlign: "left", width: "100%" }}>
-            <Header as="h2" textAlign="center">
+            <WidgetHeader>
               <Box
                 size={32}
                 style={{
@@ -132,66 +156,54 @@ export const CRUDWidget = <T extends Record<string, any>>({
                 }}
                 className="responsive-icon"
               />
-              <Header.Content>
+              <HeaderContent>
                 {headerText}
-                <Header.Subheader>{`Values for: ${descriptiveName}`}</Header.Subheader>
-              </Header.Content>
-            </Header>
+                <HeaderSubtext>{`Values for: ${descriptiveName}`}</HeaderSubtext>
+              </HeaderContent>
+            </WidgetHeader>
           </div>
         </HorizontallyCenteredDiv>
       )}
       <HorizontallyCenteredDiv>
         <VerticallyCenteredDiv>
           <RaisedSegment>
-            <Grid stackable>
+            <VStack gap="md">
               {hasFile && (
-                <Grid.Row>
-                  <Grid.Column width={16}>
-                    <FormLabel>{fileLabel}</FormLabel>
-                    <FilePreviewAndUpload
-                      readOnly={!canWrite}
-                      isImage={fileIsImage}
-                      acceptedTypes={acceptedFileTypes}
-                      disabled={!canWrite}
-                      file={instance?.[fileField] || null}
-                      onChange={({ data, filename }) =>
-                        handleInstanceChange({
-                          ...instance,
-                          [fileField]: data,
-                          filename,
-                        } as T)
-                      }
-                    />
-                  </Grid.Column>
-                </Grid.Row>
+                <div style={{ width: "100%" }}>
+                  <FormLabel>{fileLabel}</FormLabel>
+                  <FilePreviewAndUpload
+                    readOnly={!canWrite}
+                    isImage={fileIsImage}
+                    acceptedTypes={acceptedFileTypes}
+                    disabled={!canWrite}
+                    file={instance?.[fileField] || null}
+                    onChange={({ data, filename }) =>
+                      handleInstanceChange({
+                        ...instance,
+                        [fileField]: data,
+                        filename,
+                      } as T)
+                    }
+                  />
+                </div>
               )}
-              <Grid.Row>
-                <Grid.Column width={16}>
-                  <Form
-                    schema={dataSchema}
-                    uiSchema={uiSchema}
-                    validator={validator}
-                    onChange={handleChange}
-                    formData={formData}
-                    noHtml5Validate
-                    liveValidate
-                    showErrorList={false}
-                    className="responsive-form"
-                  >
-                    <Grid columns={2} stackable>
-                      <Grid.Row>
-                        <Grid.Column>
-                          <></>
-                        </Grid.Column>
-                        <Grid.Column>
-                          <></>
-                        </Grid.Column>
-                      </Grid.Row>
-                    </Grid>
-                  </Form>
-                </Grid.Column>
-              </Grid.Row>
-            </Grid>
+              <div style={{ width: "100%" }}>
+                <Form
+                  schema={dataSchema}
+                  uiSchema={uiSchema}
+                  validator={validator}
+                  onChange={handleChange}
+                  formData={formData}
+                  noHtml5Validate
+                  liveValidate
+                  showErrorList={false}
+                  className="responsive-form"
+                >
+                  {/* Empty children - form renders its own fields */}
+                  <></>
+                </Form>
+              </div>
+            </VStack>
           </RaisedSegment>
         </VerticallyCenteredDiv>
       </HorizontallyCenteredDiv>

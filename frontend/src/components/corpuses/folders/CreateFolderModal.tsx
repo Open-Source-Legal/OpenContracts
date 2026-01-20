@@ -1,8 +1,8 @@
 import React, { useCallback, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useMutation } from "@apollo/client";
-import { Modal, Form } from "semantic-ui-react";
-import { Alert, Button } from "@os-legal/ui";
+import { Modal } from "semantic-ui-react";
+import { Alert, Button, Input, Textarea, FormField } from "@os-legal/ui";
 import styled from "styled-components";
 import { X } from "lucide-react";
 import {
@@ -101,12 +101,6 @@ const ColorInput = styled.input`
     outline: none;
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-`;
-
-const TagInput = styled(Form.Input)`
-  .ui.input input {
-    font-size: 14px;
   }
 `;
 
@@ -237,36 +231,35 @@ export const CreateFolderModal: React.FC = () => {
       </ModalHeader>
 
       <Modal.Content>
-        <Form onSubmit={handleSubmit} error={!!validationError || !!error}>
+        <form onSubmit={handleSubmit}>
           {parentFolder && (
             <Alert variant="info">
               Creating folder inside: <strong>{parentFolder.name}</strong>
             </Alert>
           )}
 
-          <Form.Field required>
-            <label>Folder Name</label>
-            <Form.Input
+          <FormField label="Folder Name" required>
+            <Input
               placeholder="Enter folder name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
               maxLength={255}
+              fullWidth
             />
-          </Form.Field>
+          </FormField>
 
-          <Form.Field>
-            <label>Description</label>
-            <Form.TextArea
+          <FormField label="Description">
+            <Textarea
               placeholder="Optional description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
+              fullWidth
             />
-          </Form.Field>
+          </FormField>
 
-          <Form.Field>
-            <label>Color</label>
+          <FormField label="Color">
             <ColorPickerWrapper>
               <ColorPreview
                 $color={color}
@@ -288,38 +281,32 @@ export const CreateFolderModal: React.FC = () => {
                 maxLength={7}
               />
             </ColorPickerWrapper>
-          </Form.Field>
+          </FormField>
 
-          <Form.Field>
-            <label>Icon</label>
-            <Form.Input
+          <FormField
+            label="Icon"
+            helperText="Use Lucide React icon names (e.g., folder, file-text, star)"
+          >
+            <Input
               placeholder="folder"
               value={icon}
               onChange={(e) => setIcon(e.target.value)}
               maxLength={50}
+              fullWidth
             />
-            <div
-              style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}
-            >
-              Use Lucide React icon names (e.g., folder, file-text, star)
-            </div>
-          </Form.Field>
+          </FormField>
 
-          <Form.Field>
-            <label>Tags</label>
-            <TagInput
+          <FormField
+            label="Tags"
+            helperText="Comma-separated tags for organization"
+          >
+            <Input
               placeholder="tag1, tag2, tag3"
               value={tags}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setTags(e.target.value)
-              }
+              onChange={(e) => setTags(e.target.value)}
+              fullWidth
             />
-            <div
-              style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}
-            >
-              Comma-separated tags for organization
-            </div>
-          </Form.Field>
+          </FormField>
 
           {validationError && (
             <Alert variant="error" title="Validation Error">
@@ -332,7 +319,7 @@ export const CreateFolderModal: React.FC = () => {
               {error.message}
             </Alert>
           )}
-        </Form>
+        </form>
       </Modal.Content>
 
       <Modal.Actions>

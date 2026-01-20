@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { Input } from "semantic-ui-react";
 import { Button } from "@os-legal/ui";
 import styled from "styled-components";
 import Fuse from "fuse.js";
@@ -21,21 +20,32 @@ const SearchContainer = styled.div`
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 `;
 
-const StyledInput = styled(Input)`
-  &.ui.input {
-    width: 100%;
+const SearchInputWrapper = styled.div`
+  position: relative;
+  width: 100%;
+`;
 
-    input {
-      border-radius: 8px !important;
-      border: 1px solid rgba(0, 0, 0, 0.1) !important;
-      padding: 8px 16px !important;
-      transition: all 0.2s ease !important;
+const SearchIconWrapper = styled.div`
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: grey;
+`;
 
-      &:focus {
-        border-color: #00b09b !important;
-        box-shadow: 0 0 0 2px rgba(0, 176, 155, 0.2) !important;
-      }
-    }
+const StyledInput = styled.input`
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 8px 40px 8px 16px;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+
+  &:focus {
+    outline: none;
+    border-color: #00b09b;
+    box-shadow: 0 0 0 2px rgba(0, 176, 155, 0.2);
   }
 `;
 
@@ -161,12 +171,16 @@ export const DocTypePopup = ({ labels, onAdd }: DocTypePopupProps) => {
   return (
     <PopupContainer>
       <SearchContainer>
-        <StyledInput
-          placeholder="Search labels..."
-          value={searchString}
-          onChange={handleChange}
-          icon={<Search size={16} style={{ color: "grey" }} />}
-        />
+        <SearchInputWrapper>
+          <StyledInput
+            placeholder="Search labels..."
+            value={searchString}
+            onChange={handleChange}
+          />
+          <SearchIconWrapper>
+            <Search size={16} />
+          </SearchIconWrapper>
+        </SearchInputWrapper>
       </SearchContainer>
 
       <LabelsContainer>

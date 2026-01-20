@@ -1,4 +1,4 @@
-import { Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Icon as SemanticIcon, Popup } from "semantic-ui-react";
 import { Card, CardBody } from "@os-legal/ui";
 import styled from "styled-components";
 import { Trash2, Ban } from "lucide-react";
@@ -31,6 +31,19 @@ const FluidCard = styled(Card)`
   align-items: flex-start;
   margin: 0.25vw;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+`;
+
+const SmallHeader = styled.h5`
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+`;
+
+const HeaderContent = styled.span`
+  word-break: break-all;
 `;
 
 interface DocTypeLabelProps {
@@ -79,22 +92,19 @@ export const DocTypeLabel = ({ label, onRemove }: DocTypeLabelProps) => {
           trigger={
             <CardHeaderStyled>
               <div>
-                <Header as="h5">
+                <SmallHeader>
                   <SemanticIcon
                     className="DocTypeLabelIcon"
                     name={label.icon}
                     style={{ color: label.color }}
                   />
-                  <Header.Content
-                    className="DocTypeLabelHeader"
-                    style={{ wordBreak: "break-all" }}
-                  >
+                  <HeaderContent className="DocTypeLabelHeader">
                     <TruncatedText
                       text={label?.text ? label.text : "MISSING"}
                       limit={width <= 400 ? 20 : width <= 768 ? 36 : 64}
                     />
-                  </Header.Content>
-                </Header>
+                  </HeaderContent>
+                </SmallHeader>
               </div>
             </CardHeaderStyled>
           }
@@ -116,10 +126,10 @@ export const BlankDocTypeLabel = () => {
         }}
       >
         <div style={{ textAlign: "left" }}>
-          <Header as="h5">
+          <SmallHeader>
             <Ban size={16} style={{ marginRight: "0.5rem" }} />
-            <Header.Content>No Label</Header.Content>
-          </Header>
+            <HeaderContent>No Label</HeaderContent>
+          </SmallHeader>
         </div>
       </CardBody>
     </FluidCard>

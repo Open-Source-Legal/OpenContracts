@@ -15,7 +15,6 @@
 import React from "react";
 import styled from "styled-components";
 import { User, Settings, TrendingUp } from "lucide-react";
-import { Container } from "semantic-ui-react";
 import { Button } from "@os-legal/ui";
 import { UserBadges } from "../components/badges/UserBadges";
 import { UserProfileReputation } from "../components/threads/UserProfileReputation";

@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useQuery } from "@apollo/client";
-import { Header } from "semantic-ui-react";
 import {
   FileText,
   MessageSquare,
@@ -146,19 +145,17 @@ const StatsGrid = styled.div`
   }
 `;
 
-const DashboardHeader = styled(Header)`
-  &.ui.header {
-    color: #4a90e2;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    font-size: 1.5rem;
-    margin: 0 0 0.5rem 0;
-    text-align: center;
+const DashboardHeader = styled.h2`
+  color: #4a90e2;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  font-size: 1.5rem;
+  margin: 0 0 0.5rem 0;
+  text-align: center;
 
-    @media (min-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      font-size: 2rem;
-      margin: 0 0 1rem 0;
-    }
+  @media (min-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    font-size: 2rem;
+    margin: 0 0 1rem 0;
   }
 `;
 
@@ -189,7 +186,7 @@ export const CorpusDashboard: React.FC<{ corpus: CorpusType }> = ({
 
   return (
     <DashboardContainer>
-      <DashboardHeader as="h2">
+      <DashboardHeader>
         {isDesktop ? "Corpus Dashboard" : corpus.title}
       </DashboardHeader>
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Modal, Form } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
 import styled from "styled-components";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
@@ -120,12 +120,10 @@ const ModalBody = styled.div`
   }
 `;
 
-const StyledForm = styled(Form)`
-  && {
-    display: flex;
-    flex-direction: column;
-    gap: 1.75rem;
-  }
+const StyledForm = styled.form`
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
 `;
 
 const FormSection = styled.div`

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useQuery } from "@apollo/client";
-import { Form, Dropdown, Input } from "semantic-ui-react";
-import { Alert } from "@os-legal/ui";
+import { Dropdown } from "semantic-ui-react";
+import { Alert, FormField, Input } from "@os-legal/ui";
 import {
   GET_BADGE_CRITERIA_TYPES,
   GetBadgeCriteriaTypesInput,
@@ -214,8 +214,7 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
 
   return (
     <div>
-      <Form.Field required>
-        <label>Auto-Award Criteria Type</label>
+      <FormField label="Auto-Award Criteria Type" required>
         <Dropdown
           placeholder="Select criteria type"
           fluid
@@ -225,7 +224,7 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
           value={selectedType}
           onChange={(_, { value }) => handleTypeChange(value as string)}
         />
-      </Form.Field>
+      </FormField>
 
       {currentType && (
         <>
@@ -234,31 +233,13 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
           </Alert>
 
           {currentType.fields.map((field) => (
-            <Form.Field
+            <FormField
               key={field.name}
+              label={field.label}
               required={field.required}
-              error={
-                validationErrors[field.name]
-                  ? {
-                      content: validationErrors[field.name],
-                      pointing: "below",
-                    }
-                  : undefined
-              }
+              helperText={field.description}
+              error={validationErrors[field.name]}
             >
-              <label>{field.label}</label>
-              {field.description && (
-                <p
-                  style={{
-                    fontSize: "0.9em",
-                    color: "#666",
-                    marginBottom: "0.5em",
-                  }}
-                >
-                  {field.description}
-                </p>
-              )}
-
               {field.fieldType === "number" && (
                 <Input
                   type="number"
@@ -324,7 +305,7 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
                   error={!!validationErrors[field.name]}
                 />
               )}
-            </Form.Field>
+            </FormField>
           ))}
 
           {Object.keys(validationErrors).length > 0 && (

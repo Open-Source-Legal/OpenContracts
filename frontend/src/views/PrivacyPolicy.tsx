@@ -1,15 +1,21 @@
 import { Component } from "react";
-import { Container } from "semantic-ui-react";
+import styled from "styled-components";
 
 import { privacy_page_html } from "../assets/templates/privacy";
 
+const Container = styled.div`
+  max-width: 700px;
+  margin: 5em auto 10em;
+  padding: 0 1rem;
+`;
+
 export class PrivacyPolicy extends Component {
   render() {
-    var template = { __html: privacy_page_html };
+    const template = { __html: privacy_page_html };
 
     return (
       <div>
-        <Container text style={{ marginTop: "5em", marginBottom: "10em" }}>
+        <Container>
           <div dangerouslySetInnerHTML={template} />
         </Container>
       </div>

@@ -1,5 +1,5 @@
 import { FC, ReactNode } from "react";
-import { Grid } from "semantic-ui-react";
+import { HStack } from "@os-legal/ui";
 import {
   DragDropContext,
   Droppable,
@@ -172,50 +172,51 @@ export const Transfer: FC<TransferProps> = ({
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <Grid centered divided>
-        <Grid.Row columns={2}>
-          <Grid.Column
-            style={{
-              height: "40vh",
-              display: "flex",
-              flexDirection: "column",
-              paddingRight: "2vw",
-              paddingLeft: "10px",
-            }}
-          >
-            <ColumnHeader>Source Annotation(s):</ColumnHeader>
-            <ColumnContent>
-              <DraggableList
-                id="source_annotations"
-                value_list={source_list}
-                render={(item: DataSourceItem) => (
-                  <AnnotationSummary annotationId={item.annotation} />
-                )}
-              />
-            </ColumnContent>
-          </Grid.Column>
-          <Grid.Column
-            style={{
-              height: "40vh",
-              display: "flex",
-              flexDirection: "column",
-              paddingLeft: "2vw",
-              paddingRight: "10px",
-            }}
-          >
-            <ColumnHeader>Target Annotation(s):</ColumnHeader>
-            <ColumnContent>
-              <DraggableList
-                id="target_annotations"
-                value_list={target_list}
-                render={(item: DataSourceItem) => (
-                  <AnnotationSummary annotationId={item.annotation} />
-                )}
-              />
-            </ColumnContent>
-          </Grid.Column>
-        </Grid.Row>
-      </Grid>
+      <HStack gap="lg" style={{ justifyContent: "center" }}>
+        <div
+          style={{
+            flex: 1,
+            height: "40vh",
+            display: "flex",
+            flexDirection: "column",
+            paddingRight: "2vw",
+            paddingLeft: "10px",
+            borderRight: "1px solid rgba(34, 36, 38, 0.15)",
+          }}
+        >
+          <ColumnHeader>Source Annotation(s):</ColumnHeader>
+          <ColumnContent>
+            <DraggableList
+              id="source_annotations"
+              value_list={source_list}
+              render={(item: DataSourceItem) => (
+                <AnnotationSummary annotationId={item.annotation} />
+              )}
+            />
+          </ColumnContent>
+        </div>
+        <div
+          style={{
+            flex: 1,
+            height: "40vh",
+            display: "flex",
+            flexDirection: "column",
+            paddingLeft: "2vw",
+            paddingRight: "10px",
+          }}
+        >
+          <ColumnHeader>Target Annotation(s):</ColumnHeader>
+          <ColumnContent>
+            <DraggableList
+              id="target_annotations"
+              value_list={target_list}
+              render={(item: DataSourceItem) => (
+                <AnnotationSummary annotationId={item.annotation} />
+              )}
+            />
+          </ColumnContent>
+        </div>
+      </HStack>
     </DragDropContext>
   );
 };

@@ -1,5 +1,4 @@
 import React, { Component, ReactNode } from "react";
-import { Container } from "semantic-ui-react";
 import { Alert, Button } from "@os-legal/ui";
 import styled from "styled-components";
 
@@ -15,8 +14,10 @@ interface ErrorBoundaryState {
   errorInfo: React.ErrorInfo | null;
 }
 
-const ErrorContainer = styled(Container)`
-  padding: 2rem;
+const ErrorContainer = styled.div`
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
   margin-top: 2rem;
 `;
 

@@ -1,6 +1,5 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Header } from "semantic-ui-react";
 import { Card, CardBody } from "@os-legal/ui";
 import styled from "styled-components";
 import { Settings, Trophy, Bot, Cog, Users, LucideIcon } from "lucide-react";
@@ -28,18 +27,20 @@ const PageHeader = styled.div`
   }
 `;
 
-const PageTitle = styled(Header)`
-  &.ui.header {
-    margin-bottom: 0.5rem;
-    color: #1e293b;
+const PageTitle = styled.h1`
+  font-size: 2rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
 
-    @media (max-width: 768px) {
-      font-size: 1.5rem !important;
-    }
+  @media (max-width: 768px) {
+    font-size: 1.5rem;
+  }
 
-    @media (max-width: 480px) {
-      font-size: 1.3rem !important;
-    }
+  @media (max-width: 480px) {
+    font-size: 1.3rem;
   }
 `;
 
@@ -229,7 +230,7 @@ export const GlobalSettingsPanel: React.FC = () => {
   return (
     <Container>
       <PageHeader>
-        <PageTitle as="h1">
+        <PageTitle>
           <Settings
             size={24}
             style={{ marginRight: "0.5em", verticalAlign: "middle" }}

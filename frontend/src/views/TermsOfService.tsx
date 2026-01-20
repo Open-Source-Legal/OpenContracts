@@ -1,20 +1,39 @@
-import _ from "lodash";
 import { Component } from "react";
-import { Container, Header, List } from "semantic-ui-react";
+import styled from "styled-components";
+
+const Container = styled.div`
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 0 1rem;
+`;
+
+const PageTitle = styled.h1`
+  font-size: 2rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+`;
+
+const SectionHeader = styled.h2`
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 1rem 0 0.5rem 0;
+`;
 
 export class TermsOfService extends Component {
   render() {
     return (
       <div>
-        <Container text style={{ marginTop: "2em" }}>
+        <Container style={{ marginTop: "2em" }}>
           <br />
           <p>
-            <Header as="h1">Open Contracts - Terms of Service</Header>
+            <PageTitle>Open Contracts - Terms of Service</PageTitle>
             <strong>Last Updated: March 20, 2021</strong>
           </p>
           <br />
         </Container>
-        <Container text>
+        <Container>
           <p>
             This Terms of Service ("Agreement") is a legal agreement between you
             (referred to herein as "you" or "your") and Gordium Knot, Inc.
@@ -34,7 +53,7 @@ export class TermsOfService extends Component {
             AGREEMENT, WILL INDICATE ACCEPTANCE AND AGREEMENT BY YOU OF SUCH
             CHANGES.
           </p>
-          <Header as="h2">Your Use of the OpenContracts Service</Header>
+          <SectionHeader>Your Use of the OpenContracts Service</SectionHeader>
           <p>
             We provide the Service for experimentation purposes only. You may
             not rely on any information, data, contract, label set, markup
@@ -47,25 +66,25 @@ export class TermsOfService extends Component {
           </p>
           <p>
             <u>You further agree that:</u>
-            <List as="ol">
-              <List.Item as="li">
+            <ol>
+              <li>
                 you will use the Service solely for your own, non­commercial,
                 personal use in accordance with this Agreement and in accordance
                 with any specific rules or usage provisions specified by us on
                 the Service,
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 all information supplied by you to us will be true, accurate,
                 current and complete. We retain the right at our sole discretion
                 to deny or suspend access to the Service to anyone, at any time
                 and for any reason, without liability, and
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 you understand that the OpenContracts service is provided as-is
                 and with no gaurantees on reliability, uptime, fitness for
                 purpose or any other warranties, express or implied.
-              </List.Item>
-            </List>
+              </li>
+            </ol>
           </p>
           <p>
             You acknowledge and agree that your use of the Service, including,
@@ -92,14 +111,14 @@ export class TermsOfService extends Component {
           </p>
           <p>
             <u>You represent, warrant, and agree that you will not:</u>
-            <List as="ol">
-              <List.Item as="li">
+            <ol>
+              <li>
                 Use the Service in any unlawful manner, for any unlawful
                 purpose, or in any manner inconsistent with this Agreement
                 and/or any and all applicable local, state, national and
                 international laws and regulations and treaties;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 Use the Service for the distribution, housing, processing,
                 propagation, storage, or other handling of, any Content (as
                 defined below) or other material prohibited by this Agreement,
@@ -108,16 +127,16 @@ export class TermsOfService extends Component {
                 without limitation, links to such material) that we deem, in our
                 sole discretion, to be objectionable whether or not such
                 material is unlawful;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 permit or otherwise enable unauthorized users to access and/or
                 use the Service;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 use the Service to export software or data in violation of
                 applicable U.S. laws or regulations;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 sell, copy, duplicate, rent, lease, loan, distribute, transfer,
                 or sublicense the Service, or otherwise permit any third party
                 to use or have access to the Service for any purpose (except as
@@ -128,62 +147,60 @@ export class TermsOfService extends Component {
                 any part of the Service, except to the extent expressly
                 permitted by any any licenses attached to any source code for
                 the technology powering the Service published by us;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 remove any copyright, trademark, patent or other proprietary
                 notices from the Service or any Content on the Service;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 distribute, publish, exhibit, or otherwise use the Service, in
                 any manner and for any purpose not expressly permitted under
                 this Agreement;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 exploit the Service or collect any data incorporated in the
                 Service in any automated manner through the use of bots,
                 metaspiders, crawlers or any other automated means;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 register as a user of the Service by providing false,
                 inaccurate, or misleading information;
-              </List.Item>
-              <List.Item as="li">
-                post hyperlinks to commercial services or Websites;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>post hyperlinks to commercial services or Websites;</li>
+              <li>
                 collect personal data about other users of the Service for
                 commercial or any other purposes;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 post or otherwise make available irrelevant Content (as defined
                 below), repeatedly post or make available the same or similar
                 Content or otherwise impose an unreasonable or
                 disproportionately large load on our infrastructure;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 attempt to gain unauthorized access to our computer systems
                 (including any non­public areas of the Service) or engage in any
                 activity that disrupts, diminishes the quality of, probes for
                 vulnerability, interferes with the performance of, or impairs
                 the functionality of, the Service (or the servers and networks
                 which are connected to the Service);
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 make available Content (as defined below) that in our opinion
                 constitutes or contains "affiliate marketing," "link referral
                 codes," "junk mail," "spam," "chain letters," "pyramid schemes,"
                 or unsolicited commercial advertisement, except to the extent
                 such Content is provided to you by us or one of our affiliates
                 for a purpose specifically authorized by us in writing;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 access or use the Service if you have been previously removed
                 from the Service by us;
-              </List.Item>
-            </List>
+              </li>
+            </ol>
           </p>
           <p>
-            <Header as="h2">Provision of Service by Us</Header>
+            <SectionHeader>Provision of Service by Us</SectionHeader>
             You acknowledge and agree that the form and nature of the Service
             which we provide may change from time to time without prior notice
             to you. You acknowledge and agree that we may decline to provide you
@@ -194,7 +211,7 @@ export class TermsOfService extends Component {
           </p>
 
           <p>
-            <Header as="h2">Content in the Service.</Header>
+            <SectionHeader>Content in the Service.</SectionHeader>
             You understand that all information and materials (including,
             without limitation, data files, written text, computer software,
             music, audio files or other sounds, photographs, videos or other
@@ -216,7 +233,7 @@ export class TermsOfService extends Component {
             modify, refuse or remove any or all Content.
           </p>
           <p>
-            <Header as="h2">Intellectual Property</Header>
+            <SectionHeader>Intellectual Property</SectionHeader>
             You acknowledge and agree that we (or our licensors) own all legal
             right, title and interest in and to the Service, including, without
             limitation, any intellectual property rights which subsist in the
@@ -231,7 +248,7 @@ export class TermsOfService extends Component {
             such marks, names or logos.
           </p>
           <p>
-            <Header as="h2">Privacy Policy</Header>
+            <SectionHeader>Privacy Policy</SectionHeader>
             For information about our data protection practices, please read our
             privacy policy available{" "}
             <a href="https://opencontracts.extract.legal/privacy">here</a>. This
@@ -240,7 +257,7 @@ export class TermsOfService extends Component {
             of your data in accordance with our privacy policy.
           </p>
           <p>
-            <Header as="h2">No Warranties</Header>
+            <SectionHeader>No Warranties</SectionHeader>
             THE SERVICE IS PROVIDED TO YOU ON AN "AS IS" AND "AS AVAILABLE"
             BASIS, WITHOUT WARRANTY OR REPRESENTATION OF ANY KIND. TO THE
             FULLEST EXTENT PERMITTED BY LAW, WE EXPRESSLY DISCLAIM ALL
@@ -262,7 +279,7 @@ export class TermsOfService extends Component {
             PUBLICATION OF CONTENT PROVIDED BY YOU AND THEM.
           </p>
           <p>
-            <Header as="h2">Disclaimer of Liability</Header>
+            <SectionHeader>Disclaimer of Liability</SectionHeader>
             TO THE FULLEST EXTENT PERMITTED BY LAW, IN NO EVENT SHALL WE, OUR
             PARENTS, SUBSIDIARIES, AFFILIATES, OR ANY OF THEIR DIRECTORS,
             MEMBERS, MANAGERS, OFFICERS, EMPLOYEES, AGENTS OR THIRD PARTY
@@ -295,26 +312,26 @@ export class TermsOfService extends Component {
             information or services.
           </p>
           <p>
-            <Header as="h2">Release and Indemnification</Header>
+            <SectionHeader>Release and Indemnification</SectionHeader>
             You agree to release, indemnify and hold harmless us, our parents,
             subsidiaries, affiliates, directors, members, officers, employees,
             agents and third party licensors, third­party publishers, necessary
             third­party platform providers, from and against any and all
             liabilities, losses, damages, claims and expenses, including,
             without limitation, attorneys’ fees, with respect to:
-            <List as="ol">
-              <List.Item as="li">
+            <ol>
+              <li>
                 your access, use or misuse of, or reliance upon, the Service;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 your actual or alleged violation or breach of this Agreement or
                 rights of another;
-              </List.Item>
-              <List.Item as="li">
+              </li>
+              <li>
                 Content provided by you or through use of your account, and/or
-              </List.Item>
-              <List.Item as="li">your acts or omissions.</List.Item>
-            </List>
+              </li>
+              <li>your acts or omissions.</li>
+            </ol>
             <br />
             You agree to cooperate fully with us in the defense of any claim
             that is the subject of your obligations hereunder. For the avoidance
@@ -322,7 +339,7 @@ export class TermsOfService extends Component {
             Agreement.
           </p>
           <p>
-            <Header as="h2">Term and Termination.</Header>
+            <SectionHeader>Term and Termination.</SectionHeader>
             This Agreement is effective until terminated by us or you. We shall
             have the right to terminate this Agreement including, without
             limitation, your right to access and use the Service, at any time in
@@ -335,7 +352,7 @@ export class TermsOfService extends Component {
             reason, you shall immediately cease using the Service.
           </p>
           <p>
-            <Header as="h2">Governing Law and Venue for Disputes.</Header>
+            <SectionHeader>Governing Law and Venue for Disputes.</SectionHeader>
             This Agreement, and your relationship with us under this Agreement,
             shall be governed by the laws of the State of New York without
             regard to its conflict or choice of laws provisions. Any dispute
@@ -350,7 +367,7 @@ export class TermsOfService extends Component {
             costs of arbitration.
           </p>
           <p>
-            <Header as="h2">No Class Acton.</Header>
+            <SectionHeader>No Class Acton.</SectionHeader>
             You agree to resolve any disputes related to this Agreement as an
             individual and not as a class or join any class. You understand
             that, in return for agreement to this provision and the dispute
@@ -361,20 +378,18 @@ export class TermsOfService extends Component {
             agents or affiliates, arising out of or relating to your use of the
             Service or this Agreement:
             <br />
-            <List>
-              <List.Item as="li">
-                YOU ARE GIVING UP YOUR RIGHT TO HAVE A TRIAL BY JURY;
-              </List.Item>
-              <List.Item as="li">
+            <ol>
+              <li>YOU ARE GIVING UP YOUR RIGHT TO HAVE A TRIAL BY JURY;</li>
+              <li>
                 YOU ARE GIVING UP YOUR RIGHT TO SERVE AS A REPRESENTATIVE, AS A
                 PRIVATE ATTORNEY GENERAL, OR IN ANY OTHER REPRESENTATIVE
                 CAPACITY, OR TO PARTICIPATE AS A MEMBER OF A CLASS OF CLAIMANTS,
                 IN ANY LAWSUIT INVOLVING ANY SUCH DISPUTE.
-              </List.Item>
-            </List>
+              </li>
+            </ol>
           </p>
           <p>
-            <Header as="h2">Severability</Header>
+            <SectionHeader>Severability</SectionHeader>
             If any provision in this Agreement is invalid or unenforceable or
             contrary to applicable law, such provision shall be construed,
             limited, or altered, as necessary, to eliminate the invalidity or
@@ -382,7 +397,7 @@ export class TermsOfService extends Component {
             provisions of this Agreement shall remain in effect.
           </p>
           <p>
-            <Header as="h2">Assignment, Sublease and/or Transfer</Header>
+            <SectionHeader>Assignment, Sublease and/or Transfer</SectionHeader>
             You may not assign, sublicense, or transfer this Agreement or any
             rights or obligations hereunder without our prior written consent.
             Any such attempted assignment, sublicense, or transfer will be null
@@ -390,7 +405,7 @@ export class TermsOfService extends Component {
             immediately terminate this Agreement.
           </p>
           <p>
-            <Header as="h2">Entire Agreement</Header>
+            <SectionHeader>Entire Agreement</SectionHeader>
             This Agreement sets forth the entire understanding and agreement
             between the parties relating to its subject matter. All provisions
             that should by their nature survive the termination of this

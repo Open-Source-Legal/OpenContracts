@@ -1,5 +1,4 @@
 import React, { useCallback, useMemo, useRef } from "react";
-import { List } from "semantic-ui-react";
 import { FileText, FolderOpen } from "lucide-react";
 import { DropEvent, FileRejection, useDropzone } from "react-dropzone";
 import { ContractListItem } from "./DocumentListItem";
@@ -10,6 +9,7 @@ import {
   DropZoneText,
   DropZoneButton,
   FileListContainer,
+  StyledFileList,
 } from "../widgets/modals/UploadModalStyles";
 
 interface DocumentUploadListProps {
@@ -98,9 +98,7 @@ export function DocumentUploadList(props: DocumentUploadListProps) {
       <div {...getRootProps()}>
         {documents && documents.length > 0 ? (
           <FileListContainer>
-            <List divided relaxed>
-              {grid}
-            </List>
+            <StyledFileList>{grid}</StyledFileList>
           </FileListContainer>
         ) : (
           <DropZone $isDragActive={isDragActive} $hasFiles={false}>
