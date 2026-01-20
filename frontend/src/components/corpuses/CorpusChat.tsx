@@ -33,8 +33,7 @@ import {
   Home,
   CheckCircle,
 } from "lucide-react";
-import { Button } from "semantic-ui-react";
-import { Spinner } from "@os-legal/ui";
+import { Spinner, Button } from "@os-legal/ui";
 import styled from "styled-components";
 
 import {
@@ -1678,14 +1677,11 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                         >
                           {wsError}
                           <Button
-                            size="small"
+                            size="sm"
+                            variant="danger"
                             onClick={() => window.location.reload()}
                             style={{
                               marginLeft: "0.75rem",
-                              background: "#dc3545",
-                              color: "white",
-                              border: "none",
-                              boxShadow: "0 2px 4px rgba(220,53,69,0.2)",
                             }}
                           >
                             Reconnect
@@ -1897,11 +1893,10 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                     Start a new conversation to ask questions about this corpus.
                   </p>
                   <Button
-                    primary
-                    icon="plus"
-                    content="Start New Conversation"
+                    variant="primary"
+                    leftIcon={<Plus size={16} />}
                     onClick={startNewChat}
-                    size="large"
+                    size="lg"
                     style={{
                       background: "linear-gradient(90deg, #4299E1, #2B6CB0)",
                       color: "white",
@@ -1909,7 +1904,9 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       boxShadow: "0 2px 8px rgba(66, 153, 225, 0.3)",
                       padding: "0.75rem 1.5rem",
                     }}
-                  />
+                  >
+                    Start New Conversation
+                  </Button>
                 </EmptyStateContainer>
               )}
             </motion.div>
@@ -2025,33 +2022,17 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                   }}
                 >
                   <Button
-                    size="medium"
+                    variant="danger"
                     onClick={() => sendApprovalDecision(false)}
-                    style={{
-                      backgroundColor: "#dc2626",
-                      color: "white",
-                      border: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                    }}
+                    leftIcon={<X size={16} />}
                   >
-                    <X size={16} />
                     Reject
                   </Button>
                   <Button
-                    size="medium"
+                    variant="primary"
                     onClick={() => sendApprovalDecision(true)}
-                    style={{
-                      backgroundColor: "#059669",
-                      color: "white",
-                      border: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                    }}
+                    leftIcon={<CheckCircle size={16} />}
                   >
-                    <CheckCircle size={16} />
                     Approve
                   </Button>
                 </div>

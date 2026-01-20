@@ -5,7 +5,8 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import { Form, Button } from "semantic-ui-react";
+import { Form } from "semantic-ui-react";
+import { Button, ButtonGroup } from "@os-legal/ui";
 import Fuse from "fuse.js";
 import styled from "styled-components";
 import { AnalysisType, ExtractType } from "../../types/graphql-api";
@@ -196,20 +197,20 @@ export const ExtractAndAnalysisHorizontalSelector: React.FC<
     <SelectorContainer id="HorizontalSelectorForCorpus">
       <MenuSection id="HorizontalSelectorForCorpus_Menu">
         <div style={{ marginRight: "10px" }}>
-          <Button.Group>
+          <ButtonGroup>
             <Button
-              active={activeTab === "analyses"}
+              variant={activeTab === "analyses" ? "primary" : "secondary"}
               onClick={() => setActiveTab("analyses")}
             >
               Analyses
             </Button>
             <Button
-              active={activeTab === "extracts"}
+              variant={activeTab === "extracts" ? "primary" : "secondary"}
               onClick={() => setActiveTab("extracts")}
             >
               Extracts
             </Button>
-          </Button.Group>
+          </ButtonGroup>
         </div>
         <div
           style={{

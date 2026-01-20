@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useQuery } from "@apollo/client";
-import { Form, Dropdown, Input, Message } from "semantic-ui-react";
+import { Form, Dropdown, Input } from "semantic-ui-react";
+import { Alert } from "@os-legal/ui";
 import {
   GET_BADGE_CRITERIA_TYPES,
   GetBadgeCriteriaTypesInput,
@@ -176,20 +177,18 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
   // Show loading state
   if (loading) {
     return (
-      <Message info>
-        <Message.Header>Loading Criteria Types</Message.Header>
-        <p>Fetching available auto-award criteria...</p>
-      </Message>
+      <Alert variant="info" title="Loading Criteria Types">
+        Fetching available auto-award criteria...
+      </Alert>
     );
   }
 
   // Show error state
   if (error) {
     return (
-      <Message negative>
-        <Message.Header>Error Loading Criteria Types</Message.Header>
-        <p>{error.message}</p>
-      </Message>
+      <Alert variant="error" title="Error Loading Criteria Types">
+        {error.message}
+      </Alert>
     );
   }
 
@@ -198,13 +197,10 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
 
   if (implementedTypes.length === 0) {
     return (
-      <Message warning>
-        <Message.Header>No Criteria Types Available</Message.Header>
-        <p>
-          There are no criteria types available for {badgeType.toLowerCase()}{" "}
-          badges yet.
-        </p>
-      </Message>
+      <Alert variant="warning" title="No Criteria Types Available">
+        There are no criteria types available for {badgeType.toLowerCase()}{" "}
+        badges yet.
+      </Alert>
     );
   }
 
@@ -233,10 +229,9 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
 
       {currentType && (
         <>
-          <Message info>
-            <Message.Header>{currentType.name}</Message.Header>
-            <p>{currentType.description}</p>
-          </Message>
+          <Alert variant="info" title={currentType.name}>
+            {currentType.description}
+          </Alert>
 
           {currentType.fields.map((field) => (
             <Form.Field
@@ -333,14 +328,13 @@ export const BadgeCriteriaConfig: React.FC<BadgeCriteriaConfigProps> = ({
           ))}
 
           {Object.keys(validationErrors).length > 0 && (
-            <Message negative>
-              <Message.Header>Validation Errors</Message.Header>
+            <Alert variant="error" title="Validation Errors">
               <ul>
                 {Object.values(validationErrors).map((error, idx) => (
                   <li key={idx}>{error}</li>
                 ))}
               </ul>
-            </Message>
+            </Alert>
           )}
         </>
       )}

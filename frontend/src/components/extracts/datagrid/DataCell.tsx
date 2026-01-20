@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Table, Popup, Modal, Button } from "semantic-ui-react";
+import { Table, Popup, Modal } from "semantic-ui-react";
+import { Button, IconButton } from "@os-legal/ui";
 import { Spinner } from "@os-legal/ui";
 import { MoreVertical, Eye, ThumbsDown, ThumbsUp, Pencil } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -197,9 +198,16 @@ export const ExtractDatacell = ({
                     <MoreVertical size={16} style={{ cursor: "pointer" }} />
                   }
                   content={
-                    <Button.Group vertical>
-                      <Button
-                        primary
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                      }}
+                    >
+                      <IconButton
+                        variant="primary"
+                        aria-label="View source annotations"
                         onClick={
                           cellData?.fullSourceList &&
                           cellData.fullSourceList !== undefined
@@ -213,23 +221,29 @@ export const ExtractDatacell = ({
                         }
                       >
                         <Eye size={14} />
-                      </Button>
-                      <Button
-                        color="red"
+                      </IconButton>
+                      <IconButton
+                        variant="danger"
+                        aria-label="Reject"
                         onClick={() => onReject && onReject(cellData.id)}
                       >
                         <ThumbsDown size={14} />
-                      </Button>
-                      <Button
-                        color="green"
+                      </IconButton>
+                      <IconButton
+                        variant="primary"
+                        aria-label="Approve"
                         onClick={() => onApprove && onApprove(cellData.id)}
                       >
                         <ThumbsUp size={14} />
-                      </Button>
-                      <Button color="grey" onClick={() => setModalOpen(true)}>
+                      </IconButton>
+                      <IconButton
+                        variant="secondary"
+                        aria-label="Edit"
+                        onClick={() => setModalOpen(true)}
+                      >
                         <Pencil size={14} />
-                      </Button>
-                    </Button.Group>
+                      </IconButton>
+                    </div>
                   }
                   on="click"
                   position="top right"
@@ -246,10 +260,12 @@ export const ExtractDatacell = ({
           <JSONTree data={editData} hideRoot />
         </Modal.Content>
         <Modal.Actions>
-          <Button onClick={handleCancel}>Cancel</Button>
+          <Button variant="secondary" onClick={handleCancel}>
+            Cancel
+          </Button>
           <Button
             disabled={Boolean(editData)}
-            primary
+            variant="primary"
             onClick={
               onEdit && editData
                 ? () => onEdit(cellData.id, editData)

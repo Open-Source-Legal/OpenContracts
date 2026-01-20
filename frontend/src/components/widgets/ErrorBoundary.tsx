@@ -1,5 +1,6 @@
 import React, { Component, ReactNode } from "react";
-import { Message, Button, Container } from "semantic-ui-react";
+import { Container } from "semantic-ui-react";
+import { Alert, Button } from "@os-legal/ui";
 import styled from "styled-components";
 
 interface ErrorBoundaryProps {
@@ -82,8 +83,7 @@ export class ErrorBoundary extends Component<
       // Default error UI
       return (
         <ErrorContainer>
-          <Message negative>
-            <Message.Header>Something went wrong</Message.Header>
+          <Alert variant="error" title="Something went wrong">
             <p>{this.state.error.message}</p>
 
             {process.env.NODE_ENV === "development" && this.state.errorInfo && (
@@ -95,13 +95,13 @@ export class ErrorBoundary extends Component<
             )}
 
             <Button
-              primary
+              variant="primary"
               onClick={this.resetError}
               style={{ marginTop: "1rem" }}
             >
               Try Again
             </Button>
-          </Message>
+          </Alert>
         </ErrorContainer>
       );
     }

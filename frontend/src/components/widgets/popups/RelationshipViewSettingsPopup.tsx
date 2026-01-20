@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Popup, Grid, Checkbox, Header, Label } from "semantic-ui-react";
+import { Popup, Grid, Header } from "semantic-ui-react";
+import { IconButton, Toggle } from "@os-legal/ui";
+import { SlidersHorizontal } from "lucide-react";
 import { useAnnotationDisplay } from "../../annotator/hooks/useAnnotationDisplay"; // Adjusted path
 
 interface RelationshipViewSettingsPopupProps {
@@ -34,7 +36,14 @@ export const RelationshipViewSettingsPopup: React.FC<
       on="click"
       trigger={
         // Using a similar trigger style to ViewSettingsPopup
-        <Label as="a" corner="left" icon="sliders horizontal" color="blue" />
+        <IconButton
+          variant="primary"
+          size="sm"
+          aria-label="Relationship settings"
+          style={{ position: "absolute", left: 0, top: 0 }}
+        >
+          <SlidersHorizontal size={16} />
+        </IconButton>
       }
       style={{ padding: "1em", zIndex: "2100 !important" }} // Ensure it's above other elements
       position="bottom left" // Example position, adjust as needed
@@ -55,13 +64,11 @@ export const RelationshipViewSettingsPopup: React.FC<
               {/* Icon for structural/hierarchy */}
               Show Structural Groups
             </Header>
-            <Checkbox
-              toggle
-              onChange={(e, data) =>
-                handleShowStructuralRelationshipsChange(data?.checked ?? false)
+            <Toggle
+              onChange={(e) =>
+                handleShowStructuralRelationshipsChange(e.target.checked)
               }
               checked={localShowStructuralRelationships}
-              style={{ transform: "scale(1.1)" }}
             />
           </Grid.Column>
         </Grid.Row>

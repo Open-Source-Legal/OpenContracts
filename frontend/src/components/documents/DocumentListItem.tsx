@@ -89,11 +89,7 @@ export const ContractListItem = ({
       </FileItemContent>
       {status === NOT_STARTED && (
         <FileItemActions>
-          <DeleteButton
-            icon
-            onClick={handleRemoveClick}
-            aria-label="Remove file"
-          >
+          <DeleteButton onClick={handleRemoveClick} aria-label="Remove file">
             <Trash2 size={14} />
           </DeleteButton>
         </FileItemActions>

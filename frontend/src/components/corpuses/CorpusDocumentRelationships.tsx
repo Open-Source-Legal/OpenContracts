@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import styled from "styled-components";
-import { Dropdown, Button, Confirm } from "semantic-ui-react";
+import { Dropdown, Confirm } from "semantic-ui-react";
+import { Button, IconButton } from "@os-legal/ui";
 import { toast } from "react-toastify";
 import {
   Link2,
@@ -427,14 +428,9 @@ export const CorpusDocumentRelationships: React.FC<
           <p>{error.message}</p>
           <Button
             onClick={() => refetch()}
-            style={{
-              marginTop: 16,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-            }}
+            leftIcon={<RefreshCw size={16} />}
+            style={{ marginTop: 16 }}
           >
-            <RefreshCw size={16} />
             Retry
           </Button>
         </EmptyState>
@@ -457,15 +453,15 @@ export const CorpusDocumentRelationships: React.FC<
             value={filterType}
             onChange={(_, { value }) => setFilterType(value as FilterType)}
           />
-          <Button
-            icon
-            basic
+          <IconButton
+            variant="ghost"
             onClick={() => refetch()}
             loading={loading}
             title="Refresh"
+            aria-label="Refresh relationships"
           >
             <RefreshCw size={16} />
-          </Button>
+          </IconButton>
         </FilterBar>
       </Header>
 

@@ -1,5 +1,6 @@
 import styled, { css, keyframes } from "styled-components";
-import { Modal, Button, List, Progress } from "semantic-ui-react";
+import { Modal, List } from "semantic-ui-react";
+import { Button, Progress } from "@os-legal/ui";
 
 // Breakpoints for responsive design
 const breakpoints = {
@@ -272,19 +273,20 @@ export const DropZoneText = styled.div`
 `;
 
 export const DropZoneButton = styled(Button)`
-  &.ui.button {
+  && {
     margin-top: 1rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-    color: white !important;
-    border-radius: 8px !important;
-    padding: 0.875rem 1.5rem !important;
-    font-weight: 500 !important;
-    transition: all 0.2s ease !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    padding: 0.875rem 1.5rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
     min-height: 44px; /* Touch target size */
+    border: none;
 
     @media (max-width: ${breakpoints.mobile}) {
       width: 100%;
-      padding: 1rem !important;
+      padding: 1rem;
     }
 
     &:hover {
@@ -443,17 +445,18 @@ export const FileItemActions = styled.div`
 `;
 
 export const DeleteButton = styled(Button)`
-  &.ui.button {
-    padding: 0.5rem !important;
-    margin: 0 !important;
-    background: transparent !important;
-    color: #868e96 !important;
-    border-radius: 6px !important;
+  && {
+    padding: 0.5rem;
+    margin: 0;
+    background: transparent;
+    color: #868e96;
+    border-radius: 6px;
     min-width: 36px;
     min-height: 36px;
-    display: flex !important;
+    display: flex;
     align-items: center;
     justify-content: center;
+    border: none;
 
     @media (max-width: ${breakpoints.mobile}) {
       min-width: 44px;
@@ -461,12 +464,8 @@ export const DeleteButton = styled(Button)`
     }
 
     &:hover {
-      background: #ffebee !important;
-      color: #c62828 !important;
-    }
-
-    i.icon {
-      margin: 0 !important;
+      background: #ffebee;
+      color: #c62828;
     }
   }
 `;
@@ -523,49 +522,31 @@ export const FormContainer = styled.div<{ placeholder?: boolean }>`
 
 // Progress indicator
 export const UploadProgress = styled(Progress)`
-  &.ui.progress {
-    margin: 1rem 0 !important;
-    border-radius: 8px !important;
-    overflow: hidden;
-
-    .bar {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-      border-radius: 8px !important;
-      min-width: 0 !important;
-    }
-
-    .label {
-      font-size: 0.875rem !important;
-      color: #495057 !important;
-    }
-  }
+  margin: 1rem 0 !important;
 `;
 
 // Action buttons
 export const ActionButton = styled(Button)<{
   $variant?: "primary" | "secondary" | "danger";
 }>`
-  &.ui.button {
-    border-radius: 8px !important;
-    font-weight: 500 !important;
+  && {
+    border-radius: 8px;
+    font-weight: 500;
     min-height: 44px;
-    padding: 0.875rem 1.5rem !important;
-    transition: all 0.2s ease !important;
+    padding: 0.875rem 1.5rem;
+    transition: all 0.2s ease;
+    border: none;
 
     @media (max-width: ${breakpoints.mobile}) {
       width: 100%;
-      padding: 1rem !important;
+      padding: 1rem;
     }
 
     ${({ $variant }) =>
       $variant === "primary" &&
       css`
-        background: linear-gradient(
-          135deg,
-          #667eea 0%,
-          #764ba2 100%
-        ) !important;
-        color: white !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
 
         &:hover {
           transform: translateY(-1px);
@@ -576,22 +557,22 @@ export const ActionButton = styled(Button)<{
     ${({ $variant }) =>
       $variant === "secondary" &&
       css`
-        background: #f1f3f5 !important;
-        color: #495057 !important;
+        background: #f1f3f5;
+        color: #495057;
 
         &:hover {
-          background: #e9ecef !important;
+          background: #e9ecef;
         }
       `}
 
     ${({ $variant }) =>
       $variant === "danger" &&
       css`
-        background: #ffebee !important;
-        color: #c62828 !important;
+        background: #ffebee;
+        color: #c62828;
 
         &:hover {
-          background: #ffcdd2 !important;
+          background: #ffcdd2;
         }
       `}
   }

@@ -1,5 +1,5 @@
 import React from "react";
-import { Button } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import styled from "styled-components";
 import { useQuery } from "@apollo/client";
 import { FEATURE_FLAGS, FeatureKey } from "../../config/features";
@@ -67,8 +67,13 @@ export const FeatureUnavailable: React.FC<FeatureUnavailableProps> = ({
       <Message>{status.message}</Message>
 
       {hasEditableCorpuses && onAddToCorpus && (
-        <Button size="small" primary onClick={onAddToCorpus}>
-          <Plus size={16} style={{ marginRight: "0.5em" }} /> Add to Corpus
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={onAddToCorpus}
+          leftIcon={<Plus size={16} />}
+        >
+          Add to Corpus
         </Button>
       )}
     </Container>

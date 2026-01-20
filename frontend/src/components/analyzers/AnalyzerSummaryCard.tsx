@@ -1,4 +1,5 @@
-import { Card, Button, List, Header } from "semantic-ui-react";
+import { List, Header } from "semantic-ui-react";
+import { Card, CardBody } from "@os-legal/ui";
 import styled from "styled-components";
 import analyzer_icon from "../../assets/icons/noun-epicyclic-gearing-800132.png";
 import { AnalyzerType, CorpusType } from "../../types/graphql-api";
@@ -9,6 +10,33 @@ const MiniImage = styled.img`
   height: 35px;
   float: right;
   object-fit: contain;
+`;
+
+const AnalyzerCard = styled(Card)`
+  position: relative;
+  cursor: pointer;
+`;
+
+const CardHeader = styled.div`
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+`;
+
+const CardMeta = styled.div`
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+`;
+
+const CardDescription = styled.div`
+  color: #333;
+  margin-bottom: 1rem;
+`;
+
+const ExtraContent = styled(CardBody)`
+  background: #f9f9f9;
+  border-top: 1px solid #e0e0e0;
 `;
 
 export interface AnalyzerSummaryCardInputs {
@@ -35,13 +63,9 @@ export const AnalyzerSummaryCard = ({
     : false;
 
   return (
-    <Card
+    <AnalyzerCard
       onClick={() => (onSelect && !already_used ? onSelect() : {})}
-      style={
-        selected
-          ? { backgroundColor: "#e2ffdb", position: "relative" }
-          : { position: "relative" }
-      }
+      style={selected ? { backgroundColor: "#e2ffdb" } : {}}
     >
       {already_used && (
         <LoadingOverlay
@@ -56,17 +80,17 @@ export const AnalyzerSummaryCard = ({
           }
         />
       )}
-      <Card.Content>
+      <CardBody>
         <MiniImage src={analyzer_icon} alt="Analyzer Icon" />
-        <Card.Header>
+        <CardHeader>
           {analyzer.manifest?.metadata?.title
             ? analyzer.manifest.metadata.title
             : ""}
-        </Card.Header>
-        <Card.Meta>{analyzer.analyzerId}</Card.Meta>
-        <Card.Description>{analyzer.description}</Card.Description>
-      </Card.Content>
-      <Card.Content>
+        </CardHeader>
+        <CardMeta>{analyzer.analyzerId}</CardMeta>
+        <CardDescription>{analyzer.description}</CardDescription>
+      </CardBody>
+      <CardBody>
         <List>
           <List.Item>
             <List.Icon name="users" />
@@ -83,19 +107,19 @@ export const AnalyzerSummaryCard = ({
             </List.Item>
           )}
         </List>
-      </Card.Content>
+      </CardBody>
       {dependency_list ? (
-        <Card.Content extra>
+        <ExtraContent>
           <strong>Python Dependencies</strong>
           <List ordered>
-            {dependency_list.map((dependency) => (
-              <List.Item>{dependency}</List.Item>
+            {dependency_list.map((dependency, index) => (
+              <List.Item key={index}>{dependency}</List.Item>
             ))}
           </List>
-        </Card.Content>
+        </ExtraContent>
       ) : (
         <></>
       )}
-    </Card>
+    </AnalyzerCard>
   );
 };

@@ -1,4 +1,5 @@
-import { List, Icon as SemanticIcon, Label, Button } from "semantic-ui-react";
+import { List, Icon as SemanticIcon } from "semantic-ui-react";
+import { IconButton, Chip } from "@os-legal/ui";
 import styled from "styled-components";
 import _ from "lodash";
 import { X } from "lucide-react";
@@ -63,20 +64,19 @@ export const RelationHighlightItem = ({
         <AvatarImage src={target_icon} alt="Target" />
       )}
       {!read_only && onRemoveAnnotationFromRelation ? (
-        <Button
-          circular
-          inverted
-          icon={<X size={12} />}
-          size="mini"
-          floated="right"
-          color="red"
+        <IconButton
+          variant="danger"
+          size="sm"
+          style={{ float: "right" }}
+          aria-label="Remove from relation"
           onClick={() => onRemoveAnnotationFromRelation(annotation.id)}
-        />
+        >
+          <X size={12} />
+        </IconButton>
       ) : (
         <></>
       )}
-      <Label
-        horizontal
+      <Chip
         onClick={() => {
           onSelect(annotation.id);
         }}
@@ -84,16 +84,20 @@ export const RelationHighlightItem = ({
           color: annotation.annotationLabel.color
             ? annotation.annotationLabel.color
             : "grey",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.4em",
         }}
       >
         {annotation.annotationLabel.icon ? (
           <SemanticIcon name={annotation.annotationLabel.icon} />
-        ) : (
-          <></>
-        )}
+        ) : null}
         <strong>{annotation.annotationLabel.text}</strong>
-        <Label.Detail>| Page {annotation.page}</Label.Detail>
-      </Label>
+        <span style={{ marginLeft: "0.5em", opacity: 0.7 }}>
+          | Page {annotation.page}
+        </span>
+      </Chip>
       <List.Content>
         <List.Header></List.Header>
         {annotation?.rawText ? (

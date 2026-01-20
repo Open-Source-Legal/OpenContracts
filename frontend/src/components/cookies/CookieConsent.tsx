@@ -1,4 +1,5 @@
-import { List, Modal, Header, Button } from "semantic-ui-react";
+import { List, Modal, Header } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import { toast } from "react-toastify";
 import {
@@ -203,13 +204,13 @@ export const CookieConsentDialog = () => {
       </Modal.Content>
       <Modal.Actions>
         <Button
-          color="green"
-          inverted
+          variant="primary"
           loading={loading}
           disabled={loading}
           onClick={handleAccept}
+          leftIcon={<Check size={16} />}
         >
-          <Check size={16} style={{ marginRight: "0.5em" }} /> Accept
+          Accept
         </Button>
       </Modal.Actions>
     </Modal>

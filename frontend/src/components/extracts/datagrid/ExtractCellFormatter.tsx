@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Button, Popup, Modal } from "semantic-ui-react";
+import { Popup, Modal } from "semantic-ui-react";
+import { Button, IconButton } from "@os-legal/ui";
 import { Code, Check, Pencil, Eye, X } from "lucide-react";
 import { CellStatus } from "../../../types/extract-grid";
 import styled from "styled-components";
@@ -93,54 +94,6 @@ const ButtonContainer = styled.div`
     text-align: center;
     margin-top: 4px;
     font-weight: 500;
-  }
-
-  .ui.button {
-    margin: 0;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    border-radius: 8px;
-    min-width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-
-    &:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-    }
-
-    &.green {
-      background: linear-gradient(135deg, #22c55e, #16a34a);
-
-      &:hover:not(:disabled) {
-        background: linear-gradient(135deg, #16a34a, #15803d);
-      }
-    }
-
-    &.red {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-
-      &:hover:not(:disabled) {
-        background: linear-gradient(135deg, #dc2626, #b91c1c);
-      }
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      filter: grayscale(40%);
-    }
-
-    i.icon {
-      margin: 0 !important;
-      font-size: 0.9em;
-    }
   }
 `;
 
@@ -344,9 +297,9 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
             content={
               <ButtonContainer>
                 <div className="buttons">
-                  <Button
-                    color="green"
-                    size="tiny"
+                  <IconButton
+                    variant="primary"
+                    size="sm"
                     onClick={() => {
                       onApprove();
                       setIsPopupOpen(false);
@@ -355,12 +308,13 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                       cellStatus?.isApproved || readOnly || !isExtractComplete
                     }
                     title="Approve"
+                    aria-label="Approve"
                   >
                     <Check size={12} />
-                  </Button>
-                  <Button
-                    color="grey"
-                    size="tiny"
+                  </IconButton>
+                  <IconButton
+                    variant="secondary"
+                    size="sm"
                     onClick={() => {
                       if (
                         typeof displayedValue === "object" &&
@@ -374,12 +328,13 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                     }}
                     disabled={readOnly || !isExtractComplete}
                     title="Edit"
+                    aria-label="Edit"
                   >
                     <Pencil size={12} />
-                  </Button>
-                  <Button
-                    color="blue"
-                    size="tiny"
+                  </IconButton>
+                  <IconButton
+                    variant="primary"
+                    size="sm"
                     onClick={() => {
                       if (
                         cell?.fullSourceList &&
@@ -396,12 +351,13 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                       !cell?.fullSourceList || cell.fullSourceList.length === 0
                     }
                     title="View Sources"
+                    aria-label="View Sources"
                   >
                     <Eye size={12} />
-                  </Button>
-                  <Button
-                    color="red"
-                    size="tiny"
+                  </IconButton>
+                  <IconButton
+                    variant="danger"
+                    size="sm"
                     onClick={() => {
                       onReject();
                       setIsPopupOpen(false);
@@ -410,9 +366,10 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                       cellStatus?.isRejected || readOnly || !isExtractComplete
                     }
                     title="Reject"
+                    aria-label="Reject"
                   >
                     <X size={12} />
-                  </Button>
+                  </IconButton>
                 </div>
                 {cellStatus?.isApproved && (
                   <div className="status-message">
@@ -468,7 +425,9 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
               />
             </Modal.Content>
             <Modal.Actions>
-              <Button onClick={closeModal}>Close</Button>
+              <Button variant="secondary" onClick={closeModal}>
+                Close
+              </Button>
             </Modal.Actions>
           </Modal>
           <Modal
@@ -491,7 +450,9 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
               )}
             </Modal.Content>
             <Modal.Actions>
-              <Button onClick={closeOriginalModal}>Close</Button>
+              <Button variant="secondary" onClick={closeOriginalModal}>
+                Close
+              </Button>
             </Modal.Actions>
           </Modal>
         </>

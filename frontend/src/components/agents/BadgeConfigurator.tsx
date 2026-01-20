@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { Form, Input, Label } from "semantic-ui-react";
+import { Form, Input } from "semantic-ui-react";
 import {
   Bot,
   Brain,

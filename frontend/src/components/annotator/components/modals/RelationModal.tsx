@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Transfer as SemanticTransfer } from "../../../widgets/data-display/Transfer";
-import { Modal, Button, Label } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
+import { Button, Chip } from "@os-legal/ui";
 import { RelationGroup } from "../../types/annotations";
 import { AnnotationLabelType } from "../../../../types/graphql-api";
 import styled from "styled-components";
@@ -16,15 +17,27 @@ interface RelationModalProps {
 }
 
 /* ------------------------------------------------------------------ */
-/*     NEW  —  theme-aware label                                      */
+/*     NEW  —  theme-aware chip                                       */
 /* ------------------------------------------------------------------ */
-const RelationLabel = styled(Label)<{ $selected: boolean }>`
-  &&& {
-    cursor: pointer;
-    background-color: ${(props): string =>
-      props.$selected ? props.theme.color.G6 : props.theme.color.N6};
-    color: ${(props): string =>
-      props.$selected ? props.theme.color.N1 : props.theme.color.N10};
+const RelationChip = styled.div<{ $selected: boolean }>`
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.4em 0.75em;
+  border-radius: 16px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  margin-right: 0.5rem;
+  margin-bottom: 0.5rem;
+  transition: all 0.15s ease;
+  background-color: ${(props): string =>
+    props.$selected ? props.theme.color.G6 : props.theme.color.N6};
+  color: ${(props): string =>
+    props.$selected ? props.theme.color.N1 : props.theme.color.N10};
+
+  &:hover {
+    opacity: 0.85;
   }
 `;
 
@@ -69,7 +82,7 @@ export const RelationModal = ({
       </Modal.Header>
       <Modal.Content>
         {relationLabels.map((relation) => (
-          <RelationLabel
+          <RelationChip
             key={relation.text}
             $selected={relation.id === label.id}
             onClick={() => {
@@ -78,7 +91,7 @@ export const RelationModal = ({
           >
             <Tag size={16} style={{ marginRight: "0.5em" }} />
             {relation.text}
-          </RelationLabel>
+          </RelationChip>
         ))}
         <Divider />
         <TransferContainer>
@@ -90,10 +103,10 @@ export const RelationModal = ({
         </TransferContainer>
       </Modal.Content>
       <Modal.Actions>
-        <Button color="green" onClick={handleOk}>
+        <Button variant="primary" onClick={handleOk}>
           Save Change
         </Button>
-        <Button color="black" onClick={handleCancel}>
+        <Button variant="secondary" onClick={handleCancel}>
           Cancel
         </Button>
       </Modal.Actions>

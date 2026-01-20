@@ -1,4 +1,4 @@
-import { Statistic } from "semantic-ui-react";
+import { StatBlock } from "@os-legal/ui";
 
 export function DateTimeWidget({
   timeString,
@@ -7,10 +7,5 @@ export function DateTimeWidget({
   timeString: string;
   dateString: string;
 }) {
-  return (
-    <Statistic size="mini">
-      <Statistic.Value>{timeString}</Statistic.Value>
-      <Statistic.Label>{dateString}</Statistic.Label>
-    </Statistic>
-  );
+  return <StatBlock value={timeString} label={dateString} size="sm" />;
 }

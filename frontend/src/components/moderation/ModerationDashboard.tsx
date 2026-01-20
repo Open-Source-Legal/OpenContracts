@@ -6,7 +6,6 @@ import {
   Icon,
   Table,
   Dropdown,
-  Checkbox,
   Button,
   Modal,
   Form,
@@ -14,9 +13,9 @@ import {
   Label,
   Loader,
   Dimmer,
-  Statistic,
   Grid,
 } from "semantic-ui-react";
+import { Checkbox, StatBlock } from "@os-legal/ui";
 import { toast } from "react-toastify";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -286,30 +285,34 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
             )}
             <Grid columns={4} stackable>
               <Grid.Column>
-                <Statistic size="small">
-                  <Statistic.Value>{metrics.totalActions}</Statistic.Value>
-                  <Statistic.Label>Total Actions</Statistic.Label>
-                </Statistic>
+                <StatBlock
+                  value={metrics.totalActions}
+                  label="Total Actions"
+                  size="sm"
+                />
               </Grid.Column>
               <Grid.Column>
-                <Statistic size="small" color="blue">
-                  <Statistic.Value>{metrics.automatedActions}</Statistic.Value>
-                  <Statistic.Label>Automated</Statistic.Label>
-                </Statistic>
+                <StatBlock
+                  value={metrics.automatedActions}
+                  label="Automated"
+                  size="sm"
+                  variant="accent"
+                />
               </Grid.Column>
               <Grid.Column>
-                <Statistic size="small" color="green">
-                  <Statistic.Value>{metrics.manualActions}</Statistic.Value>
-                  <Statistic.Label>Manual</Statistic.Label>
-                </Statistic>
+                <StatBlock
+                  value={metrics.manualActions}
+                  label="Manual"
+                  size="sm"
+                  variant="accent"
+                />
               </Grid.Column>
               <Grid.Column>
-                <Statistic size="small">
-                  <Statistic.Value>
-                    {metrics.hourlyActionRate.toFixed(1)}
-                  </Statistic.Value>
-                  <Statistic.Label>Actions/Hour</Statistic.Label>
-                </Statistic>
+                <StatBlock
+                  value={metrics.hourlyActionRate.toFixed(1)}
+                  label="Actions/Hour"
+                  size="sm"
+                />
               </Grid.Column>
             </Grid>
           </>
@@ -341,7 +344,7 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
               <Checkbox
                 label="Automated actions only"
                 checked={automatedOnly}
-                onChange={(_, { checked }) => setAutomatedOnly(!!checked)}
+                onChange={(e) => setAutomatedOnly(e.target.checked)}
               />
             </Form.Field>
           </Form.Group>

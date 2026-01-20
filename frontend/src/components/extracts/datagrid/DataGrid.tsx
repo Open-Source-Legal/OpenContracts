@@ -17,9 +17,9 @@ import {
   Loader,
   Modal,
   Message,
-  Checkbox,
   Table,
 } from "semantic-ui-react";
+import { Checkbox } from "@os-legal/ui";
 import {
   REQUEST_APPROVE_DATACELL,
   REQUEST_EDIT_DATACELL,
@@ -896,7 +896,7 @@ export const ExtractDataGrid = forwardRef<ExtractDataGridHandle, DataGridProps>(
                             selectedRows.size > 0 &&
                             selectedRows.size < gridRows.length
                           }
-                          onChange={handleSelectAll}
+                          onChange={() => handleSelectAll()}
                           disabled={loading}
                         />
                       </Table.HeaderCell>
@@ -1040,7 +1040,7 @@ export const ExtractDataGrid = forwardRef<ExtractDataGridHandle, DataGridProps>(
                             <Checkbox
                               checked={isSelected}
                               onChange={() => handleRowSelect(row.id)}
-                              disabled={loading}
+                              disabled={loading ?? false}
                             />
                           </Table.Cell>
                         )}

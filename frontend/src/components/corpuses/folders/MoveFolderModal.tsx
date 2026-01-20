@@ -1,7 +1,8 @@
 import React, { useCallback, useState, useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useMutation } from "@apollo/client";
-import { Modal, Button, Message, Dropdown } from "semantic-ui-react";
+import { Modal, Dropdown } from "semantic-ui-react";
+import { Alert, Button } from "@os-legal/ui";
 import styled from "styled-components";
 import { X, Folder, Home } from "lucide-react";
 import {
@@ -276,26 +277,24 @@ export const MoveFolderModal: React.FC = () => {
         </div>
 
         {validationError && (
-          <Message error>
-            <Message.Header>Cannot Move Folder</Message.Header>
-            <p>{validationError}</p>
-          </Message>
+          <Alert variant="error" title="Cannot Move Folder">
+            {validationError}
+          </Alert>
         )}
 
         {error && (
-          <Message error>
-            <Message.Header>Error Moving Folder</Message.Header>
-            <p>{error.message}</p>
-          </Message>
+          <Alert variant="error" title="Error Moving Folder">
+            {error.message}
+          </Alert>
         )}
       </Modal.Content>
 
       <Modal.Actions>
-        <Button onClick={handleClose} disabled={loading}>
+        <Button variant="secondary" onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
         <Button
-          primary
+          variant="primary"
           onClick={handleSubmit}
           loading={loading}
           disabled={loading || newParentId === undefined}

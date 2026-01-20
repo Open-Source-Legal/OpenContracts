@@ -1,6 +1,8 @@
 import React, { useState } from "react";
-import { Button, Form, Grid } from "semantic-ui-react";
+import { Form, Grid } from "semantic-ui-react";
+import { IconButton } from "@os-legal/ui";
 import { motion, AnimatePresence } from "framer-motion";
+import { Trash2 } from "lucide-react";
 import styled from "styled-components";
 
 export interface FieldType {
@@ -65,8 +67,10 @@ const AddFieldButton = styled(motion.button)`
   margin-top: 1rem;
 `;
 
-const DeleteButton = styled(Button)`
-  &.ui.button {
+const DeleteButtonWrapper = styled(motion.div)`
+  display: inline-flex;
+
+  button {
     border-radius: 50%;
     width: 40px;
     height: 40px;
@@ -179,15 +183,18 @@ export const ModelFieldBuilder: React.FC<ModelFieldBuilderProps> = ({
                     />
                   </Grid.Column>
                   <Grid.Column width={4} textAlign="center">
-                    <DeleteButton
-                      icon="trash"
-                      color="red"
-                      circular
-                      onClick={() => removeField(index)}
-                      as={motion.button}
+                    <DeleteButtonWrapper
                       whileHover={{ scale: 1.1 }}
                       whileTap={{ scale: 0.95 }}
-                    />
+                    >
+                      <IconButton
+                        variant="danger"
+                        onClick={() => removeField(index)}
+                        aria-label="Delete field"
+                      >
+                        <Trash2 size={16} />
+                      </IconButton>
+                    </DeleteButtonWrapper>
                   </Grid.Column>
                 </Grid.Row>
               </Grid>

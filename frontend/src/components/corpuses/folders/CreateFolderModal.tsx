@@ -1,7 +1,8 @@
 import React, { useCallback, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useMutation } from "@apollo/client";
-import { Modal, Form, Button, Message } from "semantic-ui-react";
+import { Modal, Form } from "semantic-ui-react";
+import { Alert, Button } from "@os-legal/ui";
 import styled from "styled-components";
 import { X } from "lucide-react";
 import {
@@ -238,9 +239,9 @@ export const CreateFolderModal: React.FC = () => {
       <Modal.Content>
         <Form onSubmit={handleSubmit} error={!!validationError || !!error}>
           {parentFolder && (
-            <Message info>
+            <Alert variant="info">
               Creating folder inside: <strong>{parentFolder.name}</strong>
-            </Message>
+            </Alert>
           )}
 
           <Form.Field required>
@@ -321,27 +322,25 @@ export const CreateFolderModal: React.FC = () => {
           </Form.Field>
 
           {validationError && (
-            <Message error>
-              <Message.Header>Validation Error</Message.Header>
-              <p>{validationError}</p>
-            </Message>
+            <Alert variant="error" title="Validation Error">
+              {validationError}
+            </Alert>
           )}
 
           {error && (
-            <Message error>
-              <Message.Header>Error Creating Folder</Message.Header>
-              <p>{error.message}</p>
-            </Message>
+            <Alert variant="error" title="Error Creating Folder">
+              {error.message}
+            </Alert>
           )}
         </Form>
       </Modal.Content>
 
       <Modal.Actions>
-        <Button onClick={handleClose} disabled={loading}>
+        <Button variant="secondary" onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
         <Button
-          primary
+          variant="primary"
           onClick={handleSubmit}
           loading={loading}
           disabled={loading || !name.trim()}

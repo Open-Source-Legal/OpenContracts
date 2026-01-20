@@ -17,7 +17,8 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import styled, { keyframes, css } from "styled-components";
-import { Modal, Button, Dropdown } from "semantic-ui-react";
+import { Modal, Dropdown } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 
 import { AnnotationLabelType } from "../../../../types/graphql-api";
 import { ServerSpanAnnotation } from "../../types/annotations";
@@ -951,6 +952,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
         </Modal.Content>
         <Modal.Actions>
           <Button
+            variant="secondary"
             onClick={() => {
               setEditModalOpen(false);
               setAnnotationToEdit(null);

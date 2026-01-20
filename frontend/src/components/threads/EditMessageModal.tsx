@@ -15,7 +15,8 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Modal, Button } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import styled from "styled-components";
 import { useMutation } from "@apollo/client";
 import { X, Save, AlertCircle } from "lucide-react";
@@ -174,7 +175,7 @@ const ModalFooter = styled.div`
 `;
 
 const ActionButton = styled(Button)<{ $variant?: "primary" | "secondary" }>`
-  &&& {
+  && {
     display: flex;
     align-items: center;
     justify-content: center;

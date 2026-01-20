@@ -1,9 +1,20 @@
-import { Label, Card } from "semantic-ui-react";
+import { Card, CardBody, Chip } from "@os-legal/ui";
+import styled from "styled-components";
 import _ from "lodash";
 import { TruncatedText } from "../widgets/data-display/TruncatedText";
 import { ServerTokenAnnotation } from "./types/annotations";
 import { usePages } from "./context/DocumentAtom";
 import { usePdfAnnotations } from "./hooks/AnnotationHooks";
+
+const CardHeader = styled.div`
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+`;
+
+const CardDescription = styled.div`
+  color: #333;
+`;
 
 interface AnnotationSummaryProps {
   annotationId: string;
@@ -25,10 +36,10 @@ export const AnnotationSummary = ({ annotationId }: AnnotationSummaryProps) => {
     );
     return (
       <Card style={{ width: "50vw", border: "1px dashed red" }}>
-        <Card.Content>
-          <Card.Header>Annotation Not Found</Card.Header>
-          <Card.Description>ID: {annotationId}</Card.Description>
-        </Card.Content>
+        <CardBody>
+          <CardHeader>Annotation Not Found</CardHeader>
+          <CardDescription>ID: {annotationId}</CardDescription>
+        </CardBody>
       </Card>
     );
   }
@@ -43,8 +54,8 @@ export const AnnotationSummary = ({ annotationId }: AnnotationSummaryProps) => {
 
   return (
     <Card style={{ width: "50vw" }}>
-      <Card.Content>
-        <Card.Header>
+      <CardBody>
+        <CardHeader>
           <div
             style={{
               display: "flex",
@@ -52,20 +63,19 @@ export const AnnotationSummary = ({ annotationId }: AnnotationSummaryProps) => {
               flexDirection: "row",
             }}
           >
-            <Label
-              size="mini"
+            <Chip
+              size="sm"
               style={{
-                backgroundColor: `${
-                  this_annotation?.annotationLabel?.color
-                    ? this_annotation.annotationLabel.color
-                    : "gray"
-                }`,
+                backgroundColor: this_annotation?.annotationLabel?.color
+                  ? this_annotation.annotationLabel.color
+                  : "gray",
+                color: "white",
               }}
             >
               {this_annotation?.annotationLabel?.text
                 ? this_annotation.annotationLabel.text
                 : ""}
-            </Label>
+            </Chip>
             <div>
               <b>
                 Page{" "}
@@ -73,11 +83,11 @@ export const AnnotationSummary = ({ annotationId }: AnnotationSummaryProps) => {
               </b>
             </div>
           </div>
-        </Card.Header>
-        <Card.Description>
+        </CardHeader>
+        <CardDescription>
           <TruncatedText text={text} limit={128} />
-        </Card.Description>
-      </Card.Content>
+        </CardDescription>
+      </CardBody>
     </Card>
   );
 };

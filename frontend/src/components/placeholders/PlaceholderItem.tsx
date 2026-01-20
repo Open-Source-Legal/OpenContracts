@@ -1,4 +1,5 @@
-import { Item, Placeholder } from "semantic-ui-react";
+import { Item } from "semantic-ui-react";
+import { Skeleton, SkeletonText } from "@os-legal/ui";
 
 interface PlaceholderItemProps {
   title?: string;
@@ -18,26 +19,22 @@ export const PlaceholderItem = ({
       {image_src ? (
         <Item.Image size="tiny" src={image_src} />
       ) : (
-        <Placeholder>
-          <Placeholder.Image square />
-        </Placeholder>
+        <Skeleton variant="rectangular" width={80} height={80} />
       )}
 
       <Item.Content>
-        <Item.Header>{title ? title : <Placeholder.Line />}</Item.Header>
+        <Item.Header>
+          {title ? title : <Skeleton variant="text" width="60%" />}
+        </Item.Header>
         <Item.Meta>
-          {subtitle ? <span>{subtitle}</span> : <Placeholder.Line />}
+          {subtitle ? (
+            <span>{subtitle}</span>
+          ) : (
+            <Skeleton variant="text" width="40%" />
+          )}
         </Item.Meta>
         <Item.Description>
-          {description ? (
-            description
-          ) : (
-            <Placeholder.Paragraph>
-              <Placeholder.Line />
-              <Placeholder.Line />
-              <Placeholder.Line />
-            </Placeholder.Paragraph>
-          )}
+          {description ? description : <SkeletonText lines={3} />}
         </Item.Description>
       </Item.Content>
     </Item>

@@ -2,12 +2,12 @@ import React, { useState, useEffect } from "react";
 import {
   Popup,
   Grid,
-  Checkbox,
   Header,
   Dropdown,
   Label,
   DropdownItemProps,
 } from "semantic-ui-react";
+import { Toggle } from "@os-legal/ui";
 import { ViewLabelSelector } from "../../annotator/labels/view_labels_selector/ViewLabelSelector";
 import { LabelDisplayBehavior } from "../../../types/graphql-api";
 import { useAnnotationDisplay } from "../../annotator/context/UISettingsAtom";
@@ -116,14 +116,10 @@ export const ViewSettingsPopup: React.FC<ViewSettingsPopupProps> = ({
               <i className="icon user outline" />
               Show Only Selected
             </Header>
-            <Checkbox
-              toggle
-              onChange={(e, data) =>
-                handleShowSelectedChange(data?.checked ?? false)
-              }
+            <Toggle
+              onChange={(e) => handleShowSelectedChange(e.target.checked)}
               checked={localShowSelected}
               disabled={localShowStructural}
-              style={{ transform: "scale(1.1)" }}
             />
           </Grid.Column>
 
@@ -132,13 +128,9 @@ export const ViewSettingsPopup: React.FC<ViewSettingsPopupProps> = ({
               <i className="icon square outline" />
               Show Bounding Boxes
             </Header>
-            <Checkbox
-              toggle
-              onChange={(e, data) =>
-                handleShowBoundingBoxesChange(data?.checked ?? false)
-              }
+            <Toggle
+              onChange={(e) => handleShowBoundingBoxesChange(e.target.checked)}
               checked={localShowBoundingBoxes}
-              style={{ transform: "scale(1.1)" }}
             />
           </Grid.Column>
         </Grid.Row>
@@ -148,12 +140,10 @@ export const ViewSettingsPopup: React.FC<ViewSettingsPopupProps> = ({
               <i className="icon sitemap" />
               Show Structural
             </Header>
-            <Checkbox
+            <Toggle
               data-testid="toggle-show-structural"
-              toggle
               onChange={handleShowStructuralChange}
               checked={localShowStructural}
-              style={{ transform: "scale(1.1)" }}
             />
           </Grid.Column>
           <Grid.Column textAlign="center" verticalAlign="middle">

@@ -483,16 +483,20 @@ export function DocumentUploadModal(props: DocumentUploadModalProps) {
         )}
         {step === "uploading" && (
           <UploadProgress
-            percent={
+            value={
               (upload_state.filter((s) => s === SUCCESS || s === FAILED)
                 .length /
                 upload_state.length) *
               100
             }
-            indicating={upload_status === UPLOADING}
-            success={upload_status === SUCCESS}
-            error={upload_status === FAILED}
-            progress
+            color={
+              upload_status === FAILED
+                ? "error"
+                : upload_status === SUCCESS
+                ? "success"
+                : "accent"
+            }
+            showLabel
           />
         )}
         {step === "upload" && renderUploadStep()}

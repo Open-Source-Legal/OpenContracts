@@ -1,4 +1,5 @@
-import { Table, Button } from "semantic-ui-react";
+import { Table } from "semantic-ui-react";
+import { IconButton } from "@os-legal/ui";
 import { ExportObject } from "../../types/graphql-api";
 import { DateTimeWidget } from "../widgets/data-display/DateTimeWidget";
 import { Loader2, Trash2, Download } from "lucide-react";
@@ -60,25 +61,25 @@ export function ExportItemRow({ onDelete, item, key }: ExportItemRowProps) {
       </Table.Cell>
       <Table.Cell textAlign="center">
         <div>
-          <Button
-            circular
-            size="mini"
-            color="red"
+          <IconButton
+            variant="danger"
+            size="sm"
             onClick={() => onDelete(item.id)}
+            aria-label="Delete export"
           >
             <Trash2 size={12} />
-          </Button>
+          </IconButton>
           {item.finished ? (
-            <Button
-              circular
-              size="mini"
-              color="blue"
+            <IconButton
+              variant="primary"
+              size="sm"
               onClick={() => {
                 window.location.href = item.file;
               }}
+              aria-label="Download export"
             >
               <Download size={12} />
-            </Button>
+            </IconButton>
           ) : (
             <></>
           )}

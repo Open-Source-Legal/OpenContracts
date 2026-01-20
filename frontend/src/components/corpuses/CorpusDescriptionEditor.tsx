@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Modal, Header, Button, Message } from "semantic-ui-react";
+import { Modal, Header } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery } from "@apollo/client";
@@ -585,13 +586,15 @@ const ActionGroup = styled.div`
   }
 `;
 
-interface StyledButtonProps {
+interface StyledButtonWrapperProps {
   $variant?: "primary" | "secondary" | "danger" | "success";
   $size?: "small" | "medium";
 }
 
-const StyledButton = styled(Button)<StyledButtonProps>`
-  &&& {
+const StyledButtonWrapper = styled.div<StyledButtonWrapperProps>`
+  display: inline-block;
+
+  button {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -608,10 +611,10 @@ const StyledButton = styled(Button)<StyledButtonProps>`
     ${(props) =>
       props.$variant === "primary" &&
       `
-      background: #4a90e2;
-      color: white;
+      background: #4a90e2 !important;
+      color: white !important;
       &:hover {
-        background: #357abd;
+        background: #357abd !important;
         transform: translateY(-1px);
       }
     `}
@@ -619,22 +622,22 @@ const StyledButton = styled(Button)<StyledButtonProps>`
     ${(props) =>
       props.$variant === "secondary" &&
       `
-      background: white;
-      color: #64748b;
-      border: 1px solid #e2e8f0;
+      background: white !important;
+      color: #64748b !important;
+      border: 1px solid #e2e8f0 !important;
       &:hover {
-        background: #f8fafc;
-        border-color: #cbd5e1;
+        background: #f8fafc !important;
+        border-color: #cbd5e1 !important;
       }
     `}
 
     ${(props) =>
       props.$variant === "success" &&
       `
-      background: #10b981;
-      color: white;
+      background: #10b981 !important;
+      color: white !important;
       &:hover {
-        background: #059669;
+        background: #059669 !important;
         transform: translateY(-1px);
       }
     `}
@@ -642,12 +645,12 @@ const StyledButton = styled(Button)<StyledButtonProps>`
     ${(props) =>
       props.$variant === "danger" &&
       `
-      background: white;
-      color: #ef4444;
-      border: 1px solid #fecaca;
+      background: white !important;
+      color: #ef4444 !important;
+      border: 1px solid #fecaca !important;
       &:hover {
-        background: #fef2f2;
-        border-color: #f87171;
+        background: #fef2f2 !important;
+        border-color: #f87171 !important;
       }
     `}
 
@@ -660,6 +663,30 @@ const StyledButton = styled(Button)<StyledButtonProps>`
     }
   }
 `;
+
+interface StyledButtonProps {
+  $variant?: "primary" | "secondary" | "danger" | "success";
+  $size?: "small" | "medium";
+  onClick?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  children: React.ReactNode;
+}
+
+const StyledButton: React.FC<StyledButtonProps> = ({
+  $variant,
+  $size,
+  onClick,
+  disabled,
+  loading,
+  children,
+}) => (
+  <StyledButtonWrapper $variant={$variant} $size={$size}>
+    <Button onClick={onClick} disabled={disabled} loading={loading}>
+      {children}
+    </Button>
+  </StyledButtonWrapper>
+);
 
 const EditingIndicator = styled(motion.div)`
   display: inline-flex;

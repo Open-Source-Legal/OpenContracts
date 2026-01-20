@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Header, Message, Form } from "semantic-ui-react";
+import { Header, Form } from "semantic-ui-react";
+import { Alert } from "@os-legal/ui";
 import styled from "styled-components";
 import { Search, X } from "lucide-react";
 import _ from "lodash";
@@ -22,6 +23,37 @@ const ResultsSection = styled.div`
   border: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
   padding: 1rem;
+`;
+
+const SearchResultCardContainer = styled.div`
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+  margin-right: 0.5vw;
+  margin-bottom: 0.75rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid rgba(34, 36, 38, 0.15);
+  border-radius: 0.28571429rem;
+
+  &:hover {
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16), 0 3px 6px rgba(0, 0, 0, 0.23);
+    transform: translateY(-1px);
+  }
+`;
+
+const SearchResultHeader = styled.div`
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+`;
+
+const SearchResultContent = styled.div`
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8f8f8;
+  border-radius: 5px;
+  font-size: 0.9em;
+  line-height: 1.4;
 `;
 
 /**
@@ -49,13 +81,10 @@ const PageHeader: React.FC<{
  * Placeholder card displayed when there are no search results.
  */
 const PlaceholderSearchResultCard: React.FC = () => (
-  <Message warning>
-    <Message.Header>No Matching Results</Message.Header>
-    <p>
-      Try changing your query. Also be aware that OCR quality issues may cause
-      slight changes to the characters in the PDF text layer.
-    </p>
-  </Message>
+  <Alert variant="warning" title="No Matching Results">
+    Try changing your query. Also be aware that OCR quality issues may cause
+    slight changes to the characters in the PDF text layer.
+  </Alert>
 );
 
 /**
@@ -70,21 +99,15 @@ const SearchResultCard: React.FC<{
   const isTokenResult = "tokens" in res;
 
   return (
-    <Message
+    <SearchResultCardContainer
       key={index}
-      style={{
-        cursor: "pointer",
-        transition: "all 0.3s ease",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)",
-        marginRight: ".5vw",
-      }}
       onClick={() => {
         console.log("Clicked on result", index);
         onResultClick(index);
       }}
       className="hover-effect"
     >
-      <Message.Header>
+      <SearchResultHeader>
         <div
           style={{
             display: "flex",
@@ -97,26 +120,15 @@ const SearchResultCard: React.FC<{
             {index + 1} of {totalMatches}
           </Header>
         </div>
-      </Message.Header>
-      <Message.Content>
-        <div
-          style={{
-            marginTop: "10px",
-            padding: "10px",
-            backgroundColor: "#f8f8f8",
-            borderRadius: "5px",
-            fontSize: "0.9em",
-            lineHeight: "1.4",
-          }}
-        >
-          {isTokenResult ? (
-            res.fullContext
-          ) : (
-            <TruncatedText text={res.text} limit={64} />
-          )}
-        </div>
-      </Message.Content>
-    </Message>
+      </SearchResultHeader>
+      <SearchResultContent>
+        {isTokenResult ? (
+          res.fullContext
+        ) : (
+          <TruncatedText text={res.text} limit={64} />
+        )}
+      </SearchResultContent>
+    </SearchResultCardContainer>
   );
 };
 

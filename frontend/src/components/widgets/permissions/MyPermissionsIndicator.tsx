@@ -1,4 +1,4 @@
-import { Statistic } from "semantic-ui-react";
+import { StatBlock } from "@os-legal/ui";
 import { Share2, Lock, Pencil, ShieldOff } from "lucide-react";
 import { getPermissions } from "../../../utils/transform";
 import { PermissionTypes } from "../../types";
@@ -15,41 +15,45 @@ export const MyPermissionsIndicator = ({
 
   if (isPublic) {
     stats.push(
-      <Statistic key={`stat_${stats.length}`}>
-        <Statistic.Value>
-          <Share2 size={24} color="#21ba45" />
-        </Statistic.Value>
-        <Statistic.Label>Public</Statistic.Label>
-      </Statistic>
+      <StatBlock
+        key={`stat_${stats.length}`}
+        value=""
+        label="Public"
+        icon={<Share2 size={24} color="#21ba45" />}
+        size="sm"
+      />
     );
   } else {
     stats.push(
-      <Statistic key={`stat_${stats.length}`}>
-        <Statistic.Value>
-          <ShieldOff size={24} color="#a5673f" />
-        </Statistic.Value>
-        <Statistic.Label>Private</Statistic.Label>
-      </Statistic>
+      <StatBlock
+        key={`stat_${stats.length}`}
+        value=""
+        label="Private"
+        icon={<ShieldOff size={24} color="#a5673f" />}
+        size="sm"
+      />
     );
   }
 
   if (perms.includes(PermissionTypes.CAN_UPDATE)) {
     stats.push(
-      <Statistic key={`stat_${stats.length}`}>
-        <Statistic.Value>
-          <Pencil size={24} color="#21ba45" />
-        </Statistic.Value>
-        <Statistic.Label>Can Edit</Statistic.Label>
-      </Statistic>
+      <StatBlock
+        key={`stat_${stats.length}`}
+        value=""
+        label="Can Edit"
+        icon={<Pencil size={24} color="#21ba45" />}
+        size="sm"
+      />
     );
   } else {
     stats.push(
-      <Statistic key={`stat_${stats.length}`}>
-        <Statistic.Value>
-          <Lock size={24} color="#db2828" />
-        </Statistic.Value>
-        <Statistic.Label>Read Only</Statistic.Label>
-      </Statistic>
+      <StatBlock
+        key={`stat_${stats.length}`}
+        value=""
+        label="Read Only"
+        icon={<Lock size={24} color="#db2828" />}
+        size="sm"
+      />
     );
   }
 

@@ -1,4 +1,3 @@
-import { Card } from "semantic-ui-react";
 import { useMemo } from "react";
 import styled from "styled-components";
 
@@ -51,6 +50,12 @@ const RelationshipListContainer = styled.div`
       background: #94a3b8; /* Darker grey thumb on hover */
     }
   }
+`;
+
+const CardGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 `;
 
 export const RelationshipList = ({ read_only }: { read_only: boolean }) => {
@@ -157,7 +162,7 @@ export const RelationshipList = ({ read_only }: { read_only: boolean }) => {
     >
       <RelationshipViewSettingsPopup />
       <RelationshipListContainer>
-        <Card.Group key="relationship_card_group">
+        <CardGroup>
           {relationsToDisplay && relationsToDisplay.length > 0 ? (
             relationsToDisplay.map((relation, index) => (
               <RelationItem
@@ -184,12 +189,12 @@ export const RelationshipList = ({ read_only }: { read_only: boolean }) => {
             ))
           ) : (
             <PlaceholderCard
-              style={{ flex: 1 }} // Placeholder takes available space within Card.Group
+              style={{ flex: 1 }}
               title="No Relations Found"
               description="Either no matching relations were created or you didn't create them yet."
             />
           )}
-        </Card.Group>
+        </CardGroup>
       </RelationshipListContainer>
     </div>
   );

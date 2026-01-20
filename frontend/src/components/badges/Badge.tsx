@@ -1,43 +1,55 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Label } from "semantic-ui-react";
 import * as LucideIcons from "lucide-react";
 import styled from "styled-components";
-import { computePosition, flip, shift, offset, arrow } from "@floating-ui/dom";
+import { computePosition, flip, shift, offset } from "@floating-ui/dom";
 
-const StyledBadge = styled(Label)<{ $badgeColor: string }>`
-  &.ui.label {
-    display: inline-flex !important;
-    align-items: center;
-    gap: 0.4em;
-    padding: 0.4em 0.75em;
-    border-radius: 20px;
-    font-weight: 600;
-    font-size: 0.85em;
-    background: ${(props) => props.$badgeColor} !important;
-    color: #ffffff !important;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    transition: all 0.2s ease;
-    cursor: default;
+interface StyledBadgeProps {
+  $badgeColor: string;
+  size?: "mini" | "tiny" | "small" | "medium" | "large";
+}
 
-    /* Touch-friendly tap target */
-    @media (max-width: 768px) {
-      padding: 0.5em 0.85em;
-      min-height: 36px;
-      cursor: pointer;
-    }
+const StyledBadge = styled.div<StyledBadgeProps>`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: ${(props) =>
+    props.size === "mini"
+      ? "0.3em 0.5em"
+      : props.size === "tiny"
+      ? "0.35em 0.6em"
+      : "0.4em 0.75em"};
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: ${(props) =>
+    props.size === "mini"
+      ? "0.7em"
+      : props.size === "tiny"
+      ? "0.75em"
+      : "0.85em"};
+  background: ${(props) => props.$badgeColor};
+  color: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+  cursor: default;
 
+  /* Touch-friendly tap target */
+  @media (max-width: 768px) {
+    padding: 0.5em 0.85em;
+    min-height: 36px;
+    cursor: pointer;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Disable hover transforms on touch devices */
+  @media (hover: none) {
     &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
-
-    /* Disable hover transforms on touch devices */
-    @media (hover: none) {
-      &:hover {
-        transform: none;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-      }
+      transform: none;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
   }
 `;

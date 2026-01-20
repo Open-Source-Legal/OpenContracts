@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Modal, Header } from "semantic-ui-react";
+import { Modal, Header } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import _ from "lodash";
 import { Box, X, Check } from "lucide-react";
 import { CRUDWidget } from "./CRUDWidget";
@@ -167,20 +168,24 @@ export function CRUDModal({
       </Modal.Content>
       <Modal.Actions>
         <HorizontallyCenteredDiv>
-          <Button basic color="grey" onClick={onClose} disabled={loading}>
-            <X size={16} style={{ marginRight: "0.5rem" }} /> Close
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            disabled={loading}
+            leftIcon={<X size={16} />}
+          >
+            Close
           </Button>
           {canWrite && onSubmit && !_.isEqual(oldInstance, instanceObj) && (
             <Button
-              color="green"
-              inverted
+              variant="primary"
               loading={loading}
               disabled={loading}
               onClick={() => {
                 onSubmit(mode === "EDIT" ? updatedFieldsObj : instanceObj);
               }}
+              leftIcon={<Check size={16} />}
             >
-              <Check size={16} style={{ marginRight: "0.5rem" }} />{" "}
               {mode === "EDIT" ? "Update" : "Create"}
             </Button>
           )}

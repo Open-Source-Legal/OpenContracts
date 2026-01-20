@@ -1,7 +1,7 @@
 import React from "react";
-import { Button } from "semantic-ui-react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
+import { Button } from "@os-legal/ui";
 
 export const NotFound: React.FC = () => {
   const navigate = useNavigate();
@@ -13,7 +13,7 @@ export const NotFound: React.FC = () => {
         The page you requested does not exist or the resource is not publicly
         accessible.
       </p>
-      <Button primary onClick={() => navigate("/corpuses")}>
+      <Button variant="primary" onClick={() => navigate("/corpuses")}>
         Go to Corpuses
       </Button>
     </div>

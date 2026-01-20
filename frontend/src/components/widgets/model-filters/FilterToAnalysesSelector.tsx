@@ -2,9 +2,22 @@ import { useQuery, useReactiveVar } from "@apollo/client";
 import { useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
-import { Label } from "semantic-ui-react";
 import Select, { SelectOption } from "../../common/Select";
 import { MultiValue, SingleValue } from "react-select";
+import styled from "styled-components";
+
+const FilterLabel = styled.span`
+  display: inline-block;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 8px;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px rgba(245, 87, 108, 0.2);
+`;
 import {
   authToken,
   selectedAnalyses,
@@ -126,23 +139,7 @@ export const FilterToAnalysesSelector = ({
         ...style,
       }}
     >
-      <Label
-        style={{
-          margin: "0",
-          background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
-          color: "white",
-          fontWeight: "600",
-          fontSize: "0.75rem",
-          padding: "0.375rem 0.625rem",
-          borderRadius: "8px",
-          border: "none",
-          letterSpacing: "0.025em",
-          textTransform: "uppercase",
-          boxShadow: "0 2px 4px rgba(245, 87, 108, 0.2)",
-        }}
-      >
-        Created by Analysis
-      </Label>
+      <FilterLabel>Created by Analysis</FilterLabel>
       <div style={{ position: "relative", zIndex: 10 }}>
         <Select
           isMulti

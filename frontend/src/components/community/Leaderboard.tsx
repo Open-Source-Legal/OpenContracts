@@ -12,8 +12,8 @@ import {
   Label,
   Button,
   Grid,
-  Statistic,
 } from "semantic-ui-react";
+import { StatBlock } from "@os-legal/ui";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
 import {
@@ -285,42 +285,42 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
         <Grid columns={4} stackable style={{ marginBottom: "2em" }}>
           <Grid.Column>
             <StatsCard>
-              <Statistic inverted size="small">
-                <Statistic.Value>
-                  {stats.totalUsers.toLocaleString()}
-                </Statistic.Value>
-                <Statistic.Label>Active Users</Statistic.Label>
-              </Statistic>
+              <StatBlock
+                value={stats.totalUsers.toLocaleString()}
+                label="Active Users"
+                size="sm"
+                align="center"
+              />
             </StatsCard>
           </Grid.Column>
           <Grid.Column>
             <StatsCard>
-              <Statistic inverted size="small">
-                <Statistic.Value>
-                  {stats.totalMessages.toLocaleString()}
-                </Statistic.Value>
-                <Statistic.Label>Messages</Statistic.Label>
-              </Statistic>
+              <StatBlock
+                value={stats.totalMessages.toLocaleString()}
+                label="Messages"
+                size="sm"
+                align="center"
+              />
             </StatsCard>
           </Grid.Column>
           <Grid.Column>
             <StatsCard>
-              <Statistic inverted size="small">
-                <Statistic.Value>
-                  {stats.totalBadgesAwarded.toLocaleString()}
-                </Statistic.Value>
-                <Statistic.Label>Badges Awarded</Statistic.Label>
-              </Statistic>
+              <StatBlock
+                value={stats.totalBadgesAwarded.toLocaleString()}
+                label="Badges Awarded"
+                size="sm"
+                align="center"
+              />
             </StatsCard>
           </Grid.Column>
           <Grid.Column>
             <StatsCard>
-              <Statistic inverted size="small">
-                <Statistic.Value>
-                  {stats.activeUsersThisWeek.toLocaleString()}
-                </Statistic.Value>
-                <Statistic.Label>Active This Week</Statistic.Label>
-              </Statistic>
+              <StatBlock
+                value={stats.activeUsersThisWeek.toLocaleString()}
+                label="Active This Week"
+                size="sm"
+                align="center"
+              />
             </StatsCard>
           </Grid.Column>
         </Grid>

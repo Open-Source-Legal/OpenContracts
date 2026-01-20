@@ -1,10 +1,30 @@
-import { Label, Card, Divider, List } from "semantic-ui-react";
+import React from "react";
+import { Divider, List } from "semantic-ui-react";
+import { Card, IconButton } from "@os-legal/ui";
+import { Trash2 } from "lucide-react";
+import styled from "styled-components";
 
 import _ from "lodash";
 
 import "./AnnotatorSidebar.css";
 import { RelationHighlightItem } from "./RelationHighlightItem";
 import { RelationGroup, ServerTokenAnnotation } from "../types/annotations";
+
+const DeleteButton = styled.div`
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+`;
+
+const RelationCard = styled(Card)<{ $selected?: boolean }>`
+  position: relative;
+  width: 100%;
+  user-select: none;
+  cursor: pointer;
+  background-color: ${(props) => (props.$selected ? "#e2ffdb" : "#fff")};
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+`;
 
 export function RelationItem({
   relation,
@@ -57,24 +77,21 @@ export function RelationItem({
   ));
 
   return (
-    <Card
-      style={{
-        ...(selected ? { backgroundColor: "#e2ffdb" } : {}),
-        userSelect: "none",
-        MsUserSelect: "none",
-        MozUserSelect: "none",
-      }}
-      fluid
-      raised
-      onClick={onSelectRelation}
-    >
+    <RelationCard $selected={selected} onClick={onSelectRelation}>
       {!relation.structural && (
-        <Label
-          corner="right"
-          icon="trash"
-          color="red"
-          onClick={() => onDeleteRelation(relation.id)}
-        />
+        <DeleteButton>
+          <IconButton
+            variant="danger"
+            size="sm"
+            aria-label="Delete relation"
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              onDeleteRelation(relation.id);
+            }}
+          >
+            <Trash2 size={14} />
+          </IconButton>
+        </DeleteButton>
       )}
 
       <List
@@ -94,6 +111,6 @@ export function RelationItem({
       >
         {target_cards}
       </List>
-    </Card>
+    </RelationCard>
   );
 }

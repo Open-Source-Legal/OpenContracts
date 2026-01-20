@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Message } from "semantic-ui-react";
-import { Spinner } from "@os-legal/ui";
+import { Alert, Spinner } from "@os-legal/ui";
 import Fuse from "fuse.js";
 import { useQuery, useMutation, useReactiveVar } from "@apollo/client";
 import {
@@ -492,10 +491,9 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
     return (
       <PageContainer>
         <MainContent>
-          <Message negative>
-            <Message.Header>Error loading label set</Message.Header>
-            <p>{label_set_fetch_error.message}</p>
-          </Message>
+          <Alert variant="error" title="Error loading label set">
+            {label_set_fetch_error.message}
+          </Alert>
         </MainContent>
       </PageContainer>
     );
@@ -967,10 +965,9 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
 
       case "sharing":
         return (
-          <Message info>
-            <Message.Header>Sharing Settings</Message.Header>
-            <p>Sharing configuration will be available here.</p>
-          </Message>
+          <Alert variant="info" title="Sharing Settings">
+            Sharing configuration will be available here.
+          </Alert>
         );
 
       default:

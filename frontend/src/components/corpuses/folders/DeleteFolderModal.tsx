@@ -1,7 +1,8 @@
 import React, { useCallback } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useMutation } from "@apollo/client";
-import { Modal, Button, Message } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
+import { Alert, Button } from "@os-legal/ui";
 import styled from "styled-components";
 import { X, AlertTriangle } from "lucide-react";
 import {
@@ -244,19 +245,18 @@ export const DeleteFolderModal: React.FC = () => {
         </FolderInfo>
 
         {error && (
-          <Message error>
-            <Message.Header>Error Deleting Folder</Message.Header>
-            <p>{error.message}</p>
-          </Message>
+          <Alert variant="error" title="Error Deleting Folder">
+            {error.message}
+          </Alert>
         )}
       </Modal.Content>
 
       <Modal.Actions>
-        <Button onClick={handleClose} disabled={loading}>
+        <Button variant="secondary" onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
         <Button
-          negative
+          variant="danger"
           onClick={handleConfirmDelete}
           loading={loading}
           disabled={loading}

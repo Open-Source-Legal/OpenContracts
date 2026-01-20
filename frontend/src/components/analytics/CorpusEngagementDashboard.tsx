@@ -1,7 +1,6 @@
 import React from "react";
 import { useQuery } from "@apollo/client";
-import { Message } from "semantic-ui-react";
-import { Spinner } from "@os-legal/ui";
+import { Alert, Spinner } from "@os-legal/ui";
 import styled from "styled-components";
 import CountUp from "react-countup";
 import {
@@ -92,10 +91,9 @@ export const CorpusEngagementDashboard: React.FC<
   if (error) {
     return (
       <ErrorContainer>
-        <Message error>
-          <Message.Header>Error Loading Metrics</Message.Header>
-          <p>{error.message}</p>
-        </Message>
+        <Alert variant="error" title="Error Loading Metrics">
+          {error.message}
+        </Alert>
       </ErrorContainer>
     );
   }
@@ -105,13 +103,10 @@ export const CorpusEngagementDashboard: React.FC<
   if (!metrics) {
     return (
       <EmptyStateContainer>
-        <Message info>
-          <Message.Header>No Engagement Data Available</Message.Header>
-          <p>
-            Engagement metrics haven't been calculated for this corpus yet. They
-            will be available once the background task has run.
-          </p>
-        </Message>
+        <Alert variant="info" title="No Engagement Data Available">
+          Engagement metrics haven't been calculated for this corpus yet. They
+          will be available once the background task has run.
+        </Alert>
       </EmptyStateContainer>
     );
   }

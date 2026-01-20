@@ -1,10 +1,23 @@
 import { useEffect } from "react";
 import { useQuery, useReactiveVar } from "@apollo/client";
-import { Label } from "semantic-ui-react";
 import Select, { SelectOption } from "../../common/Select";
 import { SingleValue, MultiValue } from "react-select";
+import styled from "styled-components";
 
 import _ from "lodash";
+
+const FilterLabel = styled.span`
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 8px;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+`;
 
 import {
   filterToLabelId,
@@ -138,23 +151,7 @@ export const FilterToLabelSelector = ({
         ...style,
       }}
     >
-      <Label
-        style={{
-          margin: "0",
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          color: "white",
-          fontWeight: "600",
-          fontSize: "0.75rem",
-          padding: "0.375rem 0.625rem",
-          borderRadius: "8px",
-          border: "none",
-          letterSpacing: "0.025em",
-          textTransform: "uppercase",
-          boxShadow: "0 2px 4px rgba(102, 126, 234, 0.2)",
-        }}
-      >
-        Filter by Label
-      </Label>
+      <FilterLabel>Filter by Label</FilterLabel>
       <div style={{ position: "relative", zIndex: 10 }}>
         <Select
           isClearable

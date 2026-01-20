@@ -1,10 +1,37 @@
-import { Card, Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Card, CardBody } from "@os-legal/ui";
+import styled from "styled-components";
 import { Trash2, Ban } from "lucide-react";
 import { AnnotationLabelType } from "../../../../types/graphql-api";
 import useWindowDimensions from "../../../hooks/WindowDimensionHook";
 import { TruncatedText } from "../../../widgets/data-display/TruncatedText";
 
 import "./DocTypeLabels.css";
+
+const DocTypeLabelCard = styled(Card)`
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+`;
+
+const CardHeaderStyled = styled.div`
+  text-align: left;
+  word-break: break-all;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  height: 100%;
+  margin: 0px;
+`;
+
+const FluidCard = styled(Card)`
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  margin: 0.25vw;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+`;
 
 interface DocTypeLabelProps {
   label: AnnotationLabelType;
@@ -19,7 +46,7 @@ export const DocTypeLabel = ({ label, onRemove }: DocTypeLabelProps) => {
   }
 
   return (
-    <Card className="DocTypeLabelCard" raised>
+    <DocTypeLabelCard className="DocTypeLabelCard">
       {onRemove ? (
         <Trash2
           size={16}
@@ -35,7 +62,7 @@ export const DocTypeLabel = ({ label, onRemove }: DocTypeLabelProps) => {
       ) : (
         <></>
       )}
-      <Card.Content className="DocTypeLabelContent">
+      <CardBody className="DocTypeLabelContent">
         <Popup
           style={{ textAlign: "left" }}
           content={
@@ -50,17 +77,7 @@ export const DocTypeLabel = ({ label, onRemove }: DocTypeLabelProps) => {
             </p>
           }
           trigger={
-            <Card.Header
-              style={{
-                textAlign: "left",
-                wordBreak: "break-all",
-                display: "flex",
-                flexDirection: "row",
-                justifyContent: "flex-start",
-                height: "100%",
-                margin: "0px",
-              }}
-            >
+            <CardHeaderStyled>
               <div>
                 <Header as="h5">
                   <SemanticIcon
@@ -79,28 +96,18 @@ export const DocTypeLabel = ({ label, onRemove }: DocTypeLabelProps) => {
                   </Header.Content>
                 </Header>
               </div>
-            </Card.Header>
+            </CardHeaderStyled>
           }
         />
-      </Card.Content>
-    </Card>
+      </CardBody>
+    </DocTypeLabelCard>
   );
 };
 
 export const BlankDocTypeLabel = () => {
   return (
-    <Card
-      fluid
-      raised
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        margin: ".25vw",
-      }}
-    >
-      <Card.Content
+    <FluidCard>
+      <CardBody
         style={{
           width: "100%",
           display: "flex",
@@ -108,13 +115,13 @@ export const BlankDocTypeLabel = () => {
           justifyContent: "center",
         }}
       >
-        <Card.Header style={{ textAlign: "left" }}>
+        <div style={{ textAlign: "left" }}>
           <Header as="h5">
             <Ban size={16} style={{ marginRight: "0.5rem" }} />
             <Header.Content>No Label</Header.Content>
           </Header>
-        </Card.Header>
-      </Card.Content>
-    </Card>
+        </div>
+      </CardBody>
+    </FluidCard>
   );
 };

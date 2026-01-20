@@ -1,5 +1,14 @@
-import { Label, Modal, Header, Button } from "semantic-ui-react";
+import { Modal, Header } from "semantic-ui-react";
 import { X, AlertCircle, Check } from "lucide-react";
+import { Button, IconButton } from "@os-legal/ui";
+import styled from "styled-components";
+
+const CloseButtonWrapper = styled.div`
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+`;
 
 interface ConfirmModalProps {
   message: string;
@@ -27,14 +36,17 @@ export function ConfirmModal({
 
   return (
     <Modal open={visible} basic size="small">
-      <Label
-        corner="right"
-        color="grey"
-        onClick={() => toggleModal()}
-        style={{ cursor: "pointer" }}
-      >
-        <X size={12} />
-      </Label>
+      <CloseButtonWrapper>
+        <IconButton
+          variant="ghost"
+          size="sm"
+          aria-label="Close modal"
+          onClick={() => toggleModal()}
+          style={{ color: "white" }}
+        >
+          <X size={16} />
+        </IconButton>
+      </CloseButtonWrapper>
       <Header
         icon={<AlertCircle size={32} style={{ marginRight: "0.5rem" }} />}
         content="ARE YOU SURE?"
@@ -43,11 +55,19 @@ export function ConfirmModal({
         <p>{message}</p>
       </Modal.Content>
       <Modal.Actions>
-        <Button basic color="red" inverted onClick={() => onNoClick()}>
-          <X size={16} style={{ marginRight: "0.5rem" }} /> No
+        <Button
+          variant="danger"
+          onClick={() => onNoClick()}
+          leftIcon={<X size={16} />}
+        >
+          No
         </Button>
-        <Button color="green" inverted onClick={() => onYesClick()}>
-          <Check size={16} style={{ marginRight: "0.5rem" }} /> Yes
+        <Button
+          variant="primary"
+          onClick={() => onYesClick()}
+          leftIcon={<Check size={16} />}
+        >
+          Yes
         </Button>
       </Modal.Actions>
     </Modal>

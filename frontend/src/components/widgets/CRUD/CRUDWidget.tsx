@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from "react";
-import { Header, Label, Grid } from "semantic-ui-react";
+import { Header, Grid } from "semantic-ui-react";
 import styled from "styled-components";
 import { Box } from "lucide-react";
 import Form from "@rjsf/semantic-ui";
@@ -19,6 +19,14 @@ const RaisedSegment = styled.div`
   margin: 1rem 0;
   box-shadow: 0 2px 4px 0 rgba(34, 36, 38, 0.12), 0 2px 5px rgba(0, 0, 0, 0.1);
   width: 100%;
+`;
+
+const FormLabel = styled.span`
+  display: inline-block;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #333;
+  margin-bottom: 0.5rem;
 `;
 
 /**
@@ -139,7 +147,7 @@ export const CRUDWidget = <T extends Record<string, any>>({
               {hasFile && (
                 <Grid.Row>
                   <Grid.Column width={16}>
-                    <Label>{fileLabel}</Label>
+                    <FormLabel>{fileLabel}</FormLabel>
                     <FilePreviewAndUpload
                       readOnly={!canWrite}
                       isImage={fileIsImage}

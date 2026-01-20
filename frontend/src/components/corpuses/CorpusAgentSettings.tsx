@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Form, Button, Message, TextArea, Header } from "semantic-ui-react";
+import { Form, TextArea, Header } from "semantic-ui-react";
+import { Alert, Button } from "@os-legal/ui";
 import { useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
 import styled from "styled-components";
@@ -116,10 +117,10 @@ export const CorpusAgentSettings: React.FC<CorpusAgentSettingsProps> = ({
   if (!canUpdate) {
     return (
       <Container>
-        <Message info>
+        <Alert variant="info">
           You do not have permission to update agent instructions for this
           corpus.
-        </Message>
+        </Alert>
       </Container>
     );
   }
@@ -174,10 +175,14 @@ export const CorpusAgentSettings: React.FC<CorpusAgentSettingsProps> = ({
 
         {hasChanges && (
           <ButtonGroup>
-            <Button primary onClick={handleSave} loading={loading}>
+            <Button variant="primary" onClick={handleSave} loading={loading}>
               Save Changes
             </Button>
-            <Button onClick={handleReset} disabled={loading}>
+            <Button
+              variant="secondary"
+              onClick={handleReset}
+              disabled={loading}
+            >
               Reset
             </Button>
           </ButtonGroup>

@@ -13,8 +13,7 @@ import React from "react";
 import { useQuery } from "@apollo/client";
 import styled from "styled-components";
 import { MessageSquare, FileText, Tag, Clock } from "lucide-react";
-import { Message } from "semantic-ui-react";
-import { Spinner } from "@os-legal/ui";
+import { Alert, Spinner } from "@os-legal/ui";
 import { formatDistanceToNow } from "date-fns";
 import { gql } from "@apollo/client";
 import { color } from "../../theme/colors";
@@ -155,10 +154,9 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ userId }) => {
 
   if (error) {
     return (
-      <Message negative>
-        <Message.Header>Error loading activity</Message.Header>
-        <p>{error.message}</p>
-      </Message>
+      <Alert variant="error" title="Error loading activity">
+        {error.message}
+      </Alert>
     );
   }
 

@@ -1,4 +1,5 @@
-import { Table, Button } from "semantic-ui-react";
+import { Table } from "semantic-ui-react";
+import { IconButton } from "@os-legal/ui";
 import { Settings, Eye, Trash2 } from "lucide-react";
 import { ExtractType } from "../../../types/graphql-api";
 import { DateTimeWidget } from "../../widgets/data-display/DateTimeWidget";
@@ -67,17 +68,22 @@ export function ExtractItemRow({
       </Table.Cell>
       <Table.Cell textAlign="center">
         <div>
-          <Button
-            circular
-            size="mini"
-            color="grey"
+          <IconButton
+            variant="secondary"
+            size="sm"
+            aria-label="View extract"
             {...(onSelect ? { onClick: () => onSelect(item) } : {})}
           >
             <Eye size={12} />
-          </Button>
-          <Button circular size="mini" color="red" onClick={onDelete}>
+          </IconButton>
+          <IconButton
+            variant="danger"
+            size="sm"
+            aria-label="Delete extract"
+            onClick={onDelete}
+          >
             <Trash2 size={12} />
-          </Button>
+          </IconButton>
         </div>
       </Table.Cell>
     </Table.Row>

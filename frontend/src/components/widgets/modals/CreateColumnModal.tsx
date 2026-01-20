@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom";
-import { Modal, Form, Grid, Button } from "semantic-ui-react";
+import { Modal, Form, Grid } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import { BasicConfigSection } from "./sections/BasicConfigSection";
 import { OutputTypeSection } from "./sections/OutputTypeSection";
 import { ExtractionConfigSection } from "./sections/ExtractionConfigSection";
@@ -294,18 +295,21 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
           </Form>
         </ModalBody>
         <ModalFooter>
-          <Button color="black" onClick={handleClose} disabled={isSubmitting}>
+          <Button
+            variant="secondary"
+            onClick={handleClose}
+            disabled={isSubmitting}
+          >
             Cancel
           </Button>
           <Button
-            content="Submit"
-            labelPosition="right"
-            icon="checkmark"
+            variant="primary"
             onClick={handleSubmit}
-            positive
             loading={isSubmitting}
             disabled={isSubmitting || !isFormValid()}
-          />
+          >
+            Submit
+          </Button>
         </ModalFooter>
       </ModalDialog>
     </ModalWrapper>,

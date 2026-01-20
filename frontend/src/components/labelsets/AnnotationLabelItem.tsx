@@ -1,7 +1,8 @@
 import React from "react";
 import _ from "lodash";
 import styled from "styled-components";
-import { Card, Popup, Statistic, Menu } from "semantic-ui-react";
+import { Popup, Menu } from "semantic-ui-react";
+import { Card, CardBody, StatBlock, StatGrid } from "@os-legal/ui";
 import { CheckCircle } from "lucide-react";
 
 import default_icon from "../../assets/images/defaults/default_tag.png";
@@ -10,11 +11,37 @@ import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
 import { MyPermissionsIndicator } from "../widgets/permissions/MyPermissionsIndicator";
 
+const StyledCard = styled(Card)<{ $opened?: boolean }>`
+  cursor: pointer;
+  background-color: ${(props) => (props.$opened ? "#e2ffdb" : "#fff")};
+`;
+
 const CardImage = styled.img`
   width: 100%;
   height: 200px;
   object-fit: cover;
   display: block;
+`;
+
+const CardHeaderWrapper = styled.div`
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+`;
+
+const CardMeta = styled.div`
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+`;
+
+const CardDescription = styled.div`
+  color: #333;
+`;
+
+const ExtraContent = styled(CardBody)`
+  background: #f9f9f9;
+  border-top: 1px solid #e0e0e0;
 `;
 
 interface AnnotationLabelItemProps {
@@ -57,8 +84,7 @@ const AnnotationLabelItem = ({
   } = item;
 
   const cardClickHandler = (
-    event: React.MouseEvent<HTMLAnchorElement, MouseEvent>,
-    value: any
+    event: React.MouseEvent<HTMLDivElement, MouseEvent>
   ) => {
     event.stopPropagation();
     if (event.shiftKey) {
@@ -130,10 +156,10 @@ const AnnotationLabelItem = ({
 
   return (
     <>
-      <Card
+      <StyledCard
         className="noselect"
         key={id}
-        style={opened ? { backgroundColor: "#e2ffdb" } : {}}
+        $opened={opened}
         onClick={cardClickHandler}
         onContextMenu={(e: React.MouseEvent<HTMLElement>) => {
           e.preventDefault();
@@ -151,8 +177,8 @@ const AnnotationLabelItem = ({
         }}
       >
         <CardImage src={icon ? icon : default_icon} alt="Label Set Icon" />
-        <Card.Content>
-          <Card.Header>
+        <CardBody>
+          <CardHeaderWrapper>
             <Popup
               content={`Full Title: ${title ? title : "None Provided"}`}
               trigger={<span>{title ? title.substring(0, 48) : ""}</span>}
@@ -164,25 +190,26 @@ const AnnotationLabelItem = ({
             ) : (
               <></>
             )}
-          </Card.Header>
-          <Card.Meta>{`Created by: ${creator?.email}`}</Card.Meta>
-          <Card.Description>{description}</Card.Description>
-        </Card.Content>
-        <Card.Content extra>
-          <Statistic.Group size="mini" widths="3">
-            <Statistic>
-              <Statistic.Value>
-                {annotationLabels?.edges ? annotationLabels.edges.length : 0}
-              </Statistic.Value>
-              <Statistic.Label>Labels</Statistic.Label>
-            </Statistic>
+          </CardHeaderWrapper>
+          <CardMeta>{`Created by: ${creator?.email}`}</CardMeta>
+          <CardDescription>{description}</CardDescription>
+        </CardBody>
+        <ExtraContent>
+          <StatGrid columns={3} gap="sm">
+            <StatBlock
+              value={
+                annotationLabels?.edges ? annotationLabels.edges.length : 0
+              }
+              label="Labels"
+              size="sm"
+            />
             <MyPermissionsIndicator
               myPermissions={myPermissions}
               isPublic={isPublic}
             />
-          </Statistic.Group>
-        </Card.Content>
-      </Card>
+          </StatGrid>
+        </ExtraContent>
+      </StyledCard>
       <Popup
         basic
         context={contextRef}

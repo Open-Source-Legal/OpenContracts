@@ -1,9 +1,24 @@
 import React from "react";
 import { useReactiveVar } from "@apollo/client";
-import { Checkbox, Menu, Label } from "semantic-ui-react";
+import { Checkbox } from "semantic-ui-react";
 import { showCorpusActionOutputs } from "../../../graphql/cache";
 import useWindowDimensions from "../../hooks/WindowDimensionHook";
 import { MOBILE_VIEW_BREAKPOINT } from "../../../assets/configurations/constants";
+import styled from "styled-components";
+
+const FilterLabel = styled.span`
+  display: inline-block;
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  color: white;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 8px;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 4px rgba(79, 172, 254, 0.2);
+  flex-shrink: 0;
+`;
 
 export const FilterToCorpusActionOutputs: React.FC = () => {
   const { width } = useWindowDimensions();
@@ -25,24 +40,7 @@ export const FilterToCorpusActionOutputs: React.FC = () => {
         width: "100%",
       }}
     >
-      <Label
-        style={{
-          margin: "0",
-          background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
-          color: "white",
-          fontWeight: "600",
-          fontSize: "0.75rem",
-          padding: "0.375rem 0.625rem",
-          borderRadius: "8px",
-          border: "none",
-          letterSpacing: "0.025em",
-          textTransform: "uppercase",
-          boxShadow: "0 2px 4px rgba(79, 172, 254, 0.2)",
-          flexShrink: 0,
-        }}
-      >
-        Corpus Actions
-      </Label>
+      <FilterLabel>Corpus Actions</FilterLabel>
       <Checkbox
         toggle
         checked={show_corpus_action_analyses}

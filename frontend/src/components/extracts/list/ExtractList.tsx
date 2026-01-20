@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Modal, Button } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import { Spinner } from "@os-legal/ui";
 import {
   Eye,
@@ -434,22 +435,20 @@ export function ExtractList({
           style={{ borderTop: "1px solid #f1f5f9", paddingTop: "1rem" }}
         >
           <Button
-            basic
+            variant="ghost"
             onClick={() => setDeleteModalOpen(false)}
             style={{
               borderRadius: "6px",
-              boxShadow: "none",
               border: "1px solid #e2e8f0",
             }}
           >
             Cancel
           </Button>
           <Button
-            negative
+            variant="danger"
             onClick={handleConfirmDelete}
             style={{
               borderRadius: "6px",
-              backgroundColor: "#ef4444",
               marginLeft: "0.75rem",
             }}
           >

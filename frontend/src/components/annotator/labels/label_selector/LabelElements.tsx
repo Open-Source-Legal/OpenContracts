@@ -1,6 +1,41 @@
-import { Card, Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Icon as SemanticIcon, Popup, Header } from "semantic-ui-react";
+import { Card, CardBody } from "@os-legal/ui";
+import styled from "styled-components";
 import { Ban } from "lucide-react";
 import { AnnotationLabelType } from "../../../../types/graphql-api";
+
+const StyledCard = styled(Card)`
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  margin: 0;
+  flex: 1;
+  max-width: 200px;
+  min-width: 100px;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+`;
+
+const BlankCard = styled(Card)`
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  margin: 0.25vw;
+  width: 100%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+`;
+
+const CardHeaderStyled = styled.div`
+  text-align: left;
+  word-break: break-all;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  height: 100%;
+  margin: 0px;
+`;
 
 interface LabelCardProps {
   label: AnnotationLabelType;
@@ -8,24 +43,8 @@ interface LabelCardProps {
 
 export const SpanLabelCard = ({ label }: LabelCardProps) => {
   return (
-    <Card
-      raised
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        margin: "0",
-        flex: 1,
-        maxWidth: "200px",
-        minWidth: "100px",
-        userSelect: "none",
-        MsUserSelect: "none",
-        MozUserSelect: "none",
-      }}
-    >
-      <Card.Content
-        raised
+    <StyledCard>
+      <CardBody
         style={{
           width: "100%",
           display: "flex",
@@ -47,17 +66,7 @@ export const SpanLabelCard = ({ label }: LabelCardProps) => {
             </p>
           }
           trigger={
-            <Card.Header
-              style={{
-                textAlign: "left",
-                wordBreak: "break-all",
-                display: "flex",
-                flexDirection: "row",
-                justifyContent: "flex-start",
-                height: "100%",
-                margin: "0px",
-              }}
-            >
+            <CardHeaderStyled>
               <div>
                 <Header as="h5">
                   <SemanticIcon
@@ -67,28 +76,18 @@ export const SpanLabelCard = ({ label }: LabelCardProps) => {
                   <Header.Content>{label.text}</Header.Content>
                 </Header>
               </div>
-            </Card.Header>
+            </CardHeaderStyled>
           }
         />
-      </Card.Content>
-    </Card>
+      </CardBody>
+    </StyledCard>
   );
 };
 
 export const BlankLabelElement = () => {
   return (
-    <Card
-      raised
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        margin: ".25vw",
-        width: "100%",
-      }}
-    >
-      <Card.Content
+    <BlankCard>
+      <CardBody
         style={{
           flex: 1,
           display: "flex",
@@ -96,13 +95,13 @@ export const BlankLabelElement = () => {
           justifyContent: "center",
         }}
       >
-        <Card.Header style={{ textAlign: "left" }}>
+        <div style={{ textAlign: "left" }}>
           <Header as="h5">
             <Ban size={16} style={{ marginRight: "0.5rem" }} />
             <Header.Content>No Label Selected</Header.Content>
           </Header>
-        </Card.Header>
-      </Card.Content>
-    </Card>
+        </div>
+      </CardBody>
+    </BlankCard>
   );
 };

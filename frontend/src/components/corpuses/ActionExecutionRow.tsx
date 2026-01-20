@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Label } from "semantic-ui-react";
+import { Chip } from "@os-legal/ui";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
 import {
@@ -333,8 +333,8 @@ export const ActionExecutionRow: React.FC<ActionExecutionRowProps> = ({
             <DetailItem>
               <div className="label">Status</div>
               <div className="value">
-                <Label
-                  size="tiny"
+                <Chip
+                  size="sm"
                   style={{
                     background: status.bgColor,
                     color: status.color,
@@ -349,7 +349,7 @@ export const ActionExecutionRow: React.FC<ActionExecutionRowProps> = ({
                     className={status.isSpinner ? "animate-spin" : undefined}
                   />
                   {status.label}
-                </Label>
+                </Chip>
               </div>
             </DetailItem>
             <DetailItem>

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useLazyQuery, useMutation, gql } from "@apollo/client";
 import styled from "styled-components";
-import { Modal, Button, Message } from "semantic-ui-react";
-import { Spinner } from "@os-legal/ui";
+import { Modal } from "semantic-ui-react";
+import { Alert, Button, Spinner } from "@os-legal/ui";
 import {
   GitBranch,
   User,
@@ -199,10 +199,8 @@ const VersionActions = styled.div`
 `;
 
 const ActionButton = styled(Button)`
-  &.ui.button {
-    padding: 6px 12px;
-    font-size: 11px;
-  }
+  padding: 6px 12px !important;
+  font-size: 11px !important;
 `;
 
 const EmptyState = styled.div`
@@ -374,10 +372,9 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
 
     if (error) {
       return (
-        <Message negative>
-          <Message.Header>Failed to load version history</Message.Header>
-          <p>{error.message}</p>
-        </Message>
+        <Alert variant="error" title="Failed to load version history">
+          {error.message}
+        </Alert>
       );
     }
 
@@ -448,28 +445,28 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
                 {isSelected && !isCurrent && (
                   <VersionActions>
                     <ActionButton
-                      primary
-                      size="tiny"
+                      variant="primary"
+                      size="sm"
                       loading={restoreLoading}
                       disabled={restoreLoading}
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
                         handleRestore(version.id);
                       }}
+                      leftIcon={<Undo2 size={11} />}
                     >
-                      <Undo2 size={11} style={{ marginRight: "4px" }} />
                       Restore This Version
                     </ActionButton>
                     {onDownload && (
                       <ActionButton
-                        basic
-                        size="tiny"
+                        variant="ghost"
+                        size="sm"
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           onDownload(version.id);
                         }}
+                        leftIcon={<Download size={11} />}
                       >
-                        <Download size={11} style={{ marginRight: "4px" }} />
                         Download
                       </ActionButton>
                     )}
@@ -478,10 +475,10 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
 
                 {isSelected && isCurrent && (
                   <VersionActions>
-                    <Message info size="tiny" style={{ margin: "8px 0 0" }}>
+                    <Alert variant="info">
                       <Info size={11} style={{ marginRight: "4px" }} />
                       This is the current version
-                    </Message>
+                    </Alert>
                   </VersionActions>
                 )}
               </VersionCard>
@@ -521,31 +518,35 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
       <Modal.Content scrolling>
         <PanelContainer>
           {restoreSuccess && (
-            <Message
-              positive
+            <Alert
+              variant="success"
+              title="Version Restored"
+              dismissible
               onDismiss={() => setRestoreSuccess(null)}
               style={{ marginBottom: "16px" }}
             >
-              <Message.Header>Version Restored</Message.Header>
-              <p>{restoreSuccess}</p>
-            </Message>
+              {restoreSuccess}
+            </Alert>
           )}
           {restoreError && (
-            <Message
-              negative
+            <Alert
+              variant="error"
+              title="Restore Failed"
+              dismissible
               onDismiss={() => setRestoreError(null)}
               style={{ marginBottom: "16px" }}
             >
-              <Message.Header>Restore Failed</Message.Header>
-              <p>{restoreError}</p>
-            </Message>
+              {restoreError}
+            </Alert>
           )}
           {renderVersionList()}
         </PanelContainer>
       </Modal.Content>
 
       <Modal.Actions>
-        <Button onClick={onClose}>Close</Button>
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
       </Modal.Actions>
     </Modal>
   );

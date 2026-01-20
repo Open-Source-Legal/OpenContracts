@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Header, Card } from "semantic-ui-react";
+import { Header } from "semantic-ui-react";
+import { Card, CardBody } from "@os-legal/ui";
 import styled from "styled-components";
 import { Settings, Trophy, Bot, Cog, Users, LucideIcon } from "lucide-react";
 
@@ -69,41 +70,39 @@ const SettingsGrid = styled.div`
 `;
 
 const SettingsCard = styled(Card)`
-  &.ui.card {
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
-    cursor: pointer;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  cursor: pointer;
 
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Disable hover transforms on touch devices */
+  @media (hover: none) {
     &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      transform: none;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
 
-    /* Disable hover transforms on touch devices */
-    @media (hover: none) {
-      &:hover {
-        transform: none;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      }
-
-      &:active {
-        transform: scale(0.98);
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-      }
+    &:active {
+      transform: scale(0.98);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
     }
+  }
+`;
 
-    .content {
-      padding: 1.5rem;
+const SettingsCardBody = styled(CardBody)`
+  padding: 1.5rem;
 
-      @media (max-width: 768px) {
-        padding: 1.25rem;
-      }
+  @media (max-width: 768px) {
+    padding: 1.25rem;
+  }
 
-      @media (max-width: 480px) {
-        padding: 1rem;
-      }
-    }
+  @media (max-width: 480px) {
+    padding: 1rem;
   }
 `;
 
@@ -250,7 +249,7 @@ export const GlobalSettingsPanel: React.FC = () => {
             onClick={() => handleCardClick(item)}
             style={{ opacity: item.comingSoon ? 0.7 : 1 }}
           >
-            <Card.Content>
+            <SettingsCardBody>
               <CardIcon $color={item.color}>
                 <item.Icon size={24} color="white" />
               </CardIcon>
@@ -261,7 +260,7 @@ export const GlobalSettingsPanel: React.FC = () => {
                 )}
               </CardTitle>
               <CardDescription>{item.description}</CardDescription>
-            </Card.Content>
+            </SettingsCardBody>
           </SettingsCard>
         ))}
       </SettingsGrid>

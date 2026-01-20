@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Button, Input } from "semantic-ui-react";
+import { Input } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import styled from "styled-components";
 import Fuse from "fuse.js";
 import { Search, Tag, SearchX } from "lucide-react";
@@ -107,8 +108,8 @@ const FooterContainer = styled.div`
   justify-content: flex-end;
 `;
 
-const AddButton = styled(Button)`
-  &.ui.button {
+const AddButtonWrapper = styled.div`
+  button {
     background: linear-gradient(135deg, #00b09b, #96c93d) !important;
     color: white !important;
     border: none !important;
@@ -206,12 +207,14 @@ export const DocTypePopup = ({ labels, onAdd }: DocTypePopupProps) => {
       </LabelsContainer>
 
       <FooterContainer>
-        <AddButton
-          disabled={!selectedLabel}
-          onClick={selectedLabel ? () => onAdd(selectedLabel) : undefined}
-        >
-          Add Label
-        </AddButton>
+        <AddButtonWrapper>
+          <Button
+            disabled={!selectedLabel}
+            onClick={selectedLabel ? () => onAdd(selectedLabel) : undefined}
+          >
+            Add Label
+          </Button>
+        </AddButtonWrapper>
       </FooterContainer>
     </PopupContainer>
   );

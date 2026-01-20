@@ -13,7 +13,8 @@
  */
 import React, { useState, useRef, useCallback } from "react";
 import { useMutation, useReactiveVar } from "@apollo/client";
-import { Modal, Message } from "semantic-ui-react";
+import { Modal } from "semantic-ui-react";
+import { Alert } from "@os-legal/ui";
 import { toast } from "react-toastify";
 import {
   CheckCircle,
@@ -281,46 +282,51 @@ export const BulkImportModal: React.FC = () => {
    */
   const renderConfirmStep = () => (
     <div>
-      <Message warning icon>
-        <AlertTriangle size={32} style={{ marginRight: "1rem" }} />
-        <Message.Content>
-          <Message.Header>
-            Important: Bulk Import Cannot Be Easily Undone
-          </Message.Header>
-          <p style={{ marginTop: "0.5rem" }}>
-            This will import all documents from the ZIP file into the current
-            corpus, preserving the folder structure. Consider the following:
-          </p>
-          <ul style={{ marginTop: "0.5rem", marginBottom: 0 }}>
-            <li>
-              Documents will be created with the folder structure from the ZIP
-            </li>
-            <li>
-              If a <strong>relationships.csv</strong> file is included, document
-              relationships will be automatically created
-            </li>
-            <li>
-              Duplicate file paths will create new versions of existing
-              documents
-            </li>
-            <li>
-              Removing imported documents requires deleting them individually or
-              in batches
-            </li>
-          </ul>
-        </Message.Content>
-      </Message>
+      <Alert
+        variant="warning"
+        title="Important: Bulk Import Cannot Be Easily Undone"
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+          <AlertTriangle size={32} style={{ flexShrink: 0 }} />
+          <div>
+            <p style={{ marginTop: "0.5rem" }}>
+              This will import all documents from the ZIP file into the current
+              corpus, preserving the folder structure. Consider the following:
+            </p>
+            <ul style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+              <li>
+                Documents will be created with the folder structure from the ZIP
+              </li>
+              <li>
+                If a <strong>relationships.csv</strong> file is included,
+                document relationships will be automatically created
+              </li>
+              <li>
+                Duplicate file paths will create new versions of existing
+                documents
+              </li>
+              <li>
+                Removing imported documents requires deleting them individually
+                or in batches
+              </li>
+            </ul>
+          </div>
+        </div>
+      </Alert>
 
-      <Message info icon>
-        <Info size={32} style={{ marginRight: "1rem" }} />
-        <Message.Content>
-          <Message.Header>Supported Format</Message.Header>
+      <Alert
+        variant="info"
+        title="Supported Format"
+        style={{ marginTop: "1rem" }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+          <Info size={32} style={{ flexShrink: 0 }} />
           <p style={{ marginTop: "0.5rem" }}>
             Upload a ZIP file containing PDF, DOCX, PPTX, XLSX, or TXT files.
             The folder structure within the ZIP will be preserved in the corpus.
           </p>
-        </Message.Content>
-      </Message>
+        </div>
+      </Alert>
     </div>
   );
 
@@ -411,12 +417,7 @@ export const BulkImportModal: React.FC = () => {
       <p style={{ color: "#666", marginBottom: "1.5rem" }}>
         This may take a few moments depending on the size of your ZIP file.
       </p>
-      <UploadProgress
-        percent={uploadProgress}
-        progress="percent"
-        indicating
-        size="medium"
-      />
+      <UploadProgress value={uploadProgress} showLabel size="md" />
     </div>
   );
 

@@ -1,5 +1,6 @@
 import React from "react";
-import { Label, Button, Popup, Icon as SemanticIcon } from "semantic-ui-react";
+import { Popup, Icon as SemanticIcon } from "semantic-ui-react";
+import { IconButton, Chip } from "@os-legal/ui";
 import styled from "styled-components";
 import {
   Trash2,
@@ -51,30 +52,29 @@ const HighlightContainer = styled.div<HighlightContainerProps>`
   }
 `;
 
-interface AnnotationLabelProps {
+interface AnnotationChipProps {
   $labelColor?: string;
 }
 
-const AnnotationLabel = styled(Label)<AnnotationLabelProps>`
-  &&& {
-    background-color: ${(props) => props.$labelColor || "#e0e1e2"};
-    color: white;
-    margin: 0 0.5rem 0.5rem 0;
-    padding: 0.5em 1em;
-    font-weight: 500;
-    font-size: 0.85rem;
-    border-radius: 99px;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4em;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
+const AnnotationChip = styled.div<AnnotationChipProps>`
+  background-color: ${(props) => props.$labelColor || "#e0e1e2"};
+  color: white;
+  margin: 0 0.5rem 0.5rem 0;
+  padding: 0.5em 1em;
+  font-weight: 500;
+  font-size: 0.85rem;
+  border-radius: 99px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 `;
 
-const DeleteButton = styled(Button)`
-  &&& {
+const DeleteButtonWrapper = styled.div`
+  margin-left: 0.5rem;
+
+  button {
     padding: 0.4em;
-    margin-left: 0.5rem;
     background-color: transparent;
     color: #99a1a7;
     transition: all 0.2s ease;
@@ -106,29 +106,24 @@ const BlockQuote = styled.blockquote`
   }
 `;
 
-const RelationshipLabel = styled(Label)`
-  &&& {
-    margin-top: 0.75rem;
-    font-size: 0.75rem;
-    padding: 0.4em 0.8em;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4em;
-    border-radius: 4px;
-    font-weight: 500;
+interface RelationshipChipProps {
+  $direction: "right" | "left";
+}
 
-    &[pointing="right"] {
-      background-color: #eff6ff;
-      color: #3b82f6;
-      border: 1px solid #bfdbfe;
-    }
-
-    &[pointing="left"] {
-      background-color: #f0fdf4;
-      color: #22c55e;
-      border: 1px solid #bbf7d0;
-    }
-  }
+const RelationshipChip = styled.div<RelationshipChipProps>`
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  padding: 0.4em 0.8em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: ${(props) =>
+    props.$direction === "right" ? "#eff6ff" : "#f0fdf4"};
+  color: ${(props) => (props.$direction === "right" ? "#3b82f6" : "#22c55e")};
+  border: 1px solid
+    ${(props) => (props.$direction === "right" ? "#bfdbfe" : "#bbf7d0")};
 `;
 
 const LocationText = styled.div`
@@ -234,26 +229,30 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
               }}
             />
           ))}
-        <AnnotationLabel $labelColor={annotation.annotationLabel.color}>
+        <AnnotationChip $labelColor={annotation.annotationLabel.color}>
           {annotation.annotationLabel.icon && (
             <SemanticIcon name={annotation.annotationLabel.icon} />
           )}
           {annotation.annotationLabel.text}
-        </AnnotationLabel>
+        </AnnotationChip>
         <ModalityBadge modalities={contentModalities || []} />
         {!read_only &&
           !annotation.structural &&
           annotation.myPermissions.includes(PermissionTypes.CAN_REMOVE) &&
           onDelete && (
-            <DeleteButton
-              icon={<Trash2 size={16} />}
-              size="mini"
-              circular
-              onClick={(e: { stopPropagation: () => void }) => {
-                e.stopPropagation();
-                onDelete(annotation.id);
-              }}
-            />
+            <DeleteButtonWrapper>
+              <IconButton
+                variant="ghost"
+                size="sm"
+                aria-label="Delete annotation"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  onDelete(annotation.id);
+                }}
+              >
+                <Trash2 size={16} />
+              </IconButton>
+            </DeleteButtonWrapper>
           )}
       </div>
       {/* Show content based on modality:
@@ -306,16 +305,16 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
       })()}
       <HorizontallyJustifiedDiv>
         {my_output_relationships.length > 0 && (
-          <RelationshipLabel pointing="right" basic color="blue">
+          <RelationshipChip $direction="right">
             <ArrowRight size={14} />
             Points To {my_output_relationships.length}
-          </RelationshipLabel>
+          </RelationshipChip>
         )}
         {my_input_relationships.length > 0 && (
-          <RelationshipLabel pointing="left" basic color="green">
+          <RelationshipChip $direction="left">
             <ArrowLeft size={14} />
             {my_input_relationships.length} Referencing
-          </RelationshipLabel>
+          </RelationshipChip>
         )}
       </HorizontallyJustifiedDiv>
       <LocationText>Page {annotation.page}</LocationText>

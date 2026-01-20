@@ -1,5 +1,6 @@
 import { useQuery } from "@apollo/client";
-import { Header, Dropdown, Message } from "semantic-ui-react";
+import { Header, Dropdown } from "semantic-ui-react";
+import { Alert } from "@os-legal/ui";
 import styled from "styled-components";
 import {
   GetEmbeddersInput,
@@ -114,17 +115,15 @@ export const EmbedderSelector = ({
       </Header>
       <AttachedContainer>
         {error && (
-          <Message negative compact size="tiny">
-            <Message.Header>Failed to load embedders</Message.Header>
-            <p>{error.message}</p>
-          </Message>
+          <Alert variant="error" title="Failed to load embedders">
+            {error.message}
+          </Alert>
         )}
 
         {!loading && !error && !hasEmbedders && (
-          <Message info compact size="tiny">
-            <Message.Header>No embedders available</Message.Header>
-            <p>There are currently no embedders configured in the system.</p>
-          </Message>
+          <Alert variant="info" title="No embedders available">
+            There are currently no embedders configured in the system.
+          </Alert>
         )}
 
         <Dropdown

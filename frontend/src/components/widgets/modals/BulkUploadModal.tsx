@@ -1,7 +1,7 @@
 // frontend/src/components/widgets/modals/BulkUploadModal.tsx
 import React, { useState, useRef } from "react";
 import { useMutation, useReactiveVar } from "@apollo/client";
-import { Button, Form, Message, FormField } from "semantic-ui-react";
+import { Form, FormField } from "semantic-ui-react";
 import { toast } from "react-toastify";
 import { gql } from "@apollo/client";
 import {
@@ -310,10 +310,9 @@ export const BulkUploadModal = () => {
           {/* Loading Progress */}
           {loading && uploadProgress > 0 && (
             <UploadProgress
-              percent={uploadProgress}
-              indicating={uploadProgress < 100}
-              success={uploadProgress === 100}
-              progress
+              value={uploadProgress}
+              color={uploadProgress === 100 ? "success" : "accent"}
+              showLabel
             />
           )}
         </Form>

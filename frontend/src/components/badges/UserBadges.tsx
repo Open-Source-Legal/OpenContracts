@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery } from "@apollo/client";
-import { Header, Message } from "semantic-ui-react";
-import { Spinner } from "@os-legal/ui";
+import { Header } from "semantic-ui-react";
+import { Alert, Spinner } from "@os-legal/ui";
 import styled from "styled-components";
 import { Badge, BadgeData } from "./Badge";
 import {
@@ -106,10 +106,9 @@ export const UserBadges: React.FC<UserBadgesProps> = ({
 
   if (error) {
     return (
-      <Message negative>
-        <Message.Header>Error loading badges</Message.Header>
-        <p>{error.message}</p>
-      </Message>
+      <Alert variant="error" title="Error loading badges">
+        {error.message}
+      </Alert>
     );
   }
 

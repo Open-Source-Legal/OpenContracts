@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Header, Button, Form, Divider } from "semantic-ui-react";
+import { Modal, Header, Form, Divider } from "semantic-ui-react";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import { UserCircle, X, Check } from "lucide-react";
+import { Button } from "@os-legal/ui";
 import styled from "styled-components";
 
 import { backendUserObj, showUserSettingsModal } from "../../graphql/cache";
@@ -208,21 +209,21 @@ const UserSettingsModal: React.FC = () => {
       </Modal.Content>
       <Modal.Actions>
         <Button
-          basic
-          color="grey"
+          variant="ghost"
           onClick={() => showUserSettingsModal(false)}
           disabled={loading}
+          leftIcon={<X size={16} />}
         >
-          <X size={16} style={{ marginRight: "0.5em" }} /> Close
+          Close
         </Button>
         <Button
-          color="green"
-          inverted
+          variant="primary"
           disabled={!canSave}
           loading={loading}
           onClick={() => updateMe({ variables: form })}
+          leftIcon={<Check size={16} />}
         >
-          <Check size={16} style={{ marginRight: "0.5em" }} /> Save
+          Save
         </Button>
       </Modal.Actions>
     </StyledModal>

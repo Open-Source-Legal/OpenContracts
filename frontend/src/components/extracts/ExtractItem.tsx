@@ -1,6 +1,6 @@
 import { useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
-import { Button, Card, Label } from "semantic-ui-react";
+import { Card, IconButton } from "@os-legal/ui";
 import { Settings, Trash2, LayoutGrid, FileText, Table2 } from "lucide-react";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import {
@@ -111,39 +111,34 @@ const MetadataBadges = styled.div`
   gap: 0.75rem;
 `;
 
-const Badge = styled(Label)`
-  background: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #64748b !important;
-  border-radius: 8px !important;
-  padding: 0.5rem 0.75rem !important;
-  font-size: 0.75rem !important;
-  font-weight: 500 !important;
-
-  i.icon {
-    margin-right: 0.375rem !important;
-    opacity: 0.7;
-  }
+const MetadataBadge = styled.div`
+  display: inline-flex;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
 `;
 
-const ActionBadge = styled(Label)`
-  position: absolute !important;
-  top: -0.5rem !important;
-  right: 1rem !important;
-  background: #22c55e !important;
-  color: white !important;
-  border-radius: 20px !important;
-  padding: 0.375rem 0.75rem !important;
-  font-size: 0.75rem !important;
-  font-weight: 500 !important;
-  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.15) !important;
-
-  i.icon {
-    margin-right: 0.375rem !important;
-  }
+const ActionBadge = styled.div`
+  position: absolute;
+  top: -0.5rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  background: #22c55e;
+  color: white;
+  border-radius: 20px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.15);
 `;
 
-const DeleteButton = styled(Button)`
+const DeleteButton = styled(IconButton)`
   position: absolute !important;
   top: 1rem !important;
   right: 1rem !important;
@@ -159,11 +154,6 @@ const DeleteButton = styled(Button)`
   &:hover {
     background: rgba(239, 68, 68, 0.15) !important;
     transform: scale(1.05);
-  }
-
-  i.icon {
-    margin: 0 !important;
-    font-size: 0.875rem !important;
   }
 `;
 
@@ -236,7 +226,7 @@ export const ExtractItem: React.FC<ExtractItemProps> = ({
       />
 
       {extract.corpusAction && (
-        <ActionBadge size="tiny">
+        <ActionBadge>
           <Settings size={12} style={{ marginRight: "0.375rem" }} />{" "}
           {extract.corpusAction.name}
         </ActionBadge>
@@ -244,7 +234,8 @@ export const ExtractItem: React.FC<ExtractItemProps> = ({
 
       {!read_only && can_delete && (
         <DeleteButton
-          circular
+          variant="danger"
+          aria-label="Delete extract"
           onClick={(e: { stopPropagation: () => void }) => {
             e.stopPropagation();
             requestDeleteExtract();
@@ -273,14 +264,14 @@ export const ExtractItem: React.FC<ExtractItemProps> = ({
       )}
 
       <MetadataBadges>
-        <Badge>
+        <MetadataBadge>
           <FileText size={12} style={{ marginRight: "0.375rem" }} />
           {extract.fullDocumentList?.length || 0} Documents
-        </Badge>
-        <Badge>
+        </MetadataBadge>
+        <MetadataBadge>
           <Table2 size={12} style={{ marginRight: "0.375rem" }} />
           {extract.fieldset?.fullColumnList?.length || 0} Columns
-        </Badge>
+        </MetadataBadge>
       </MetadataBadges>
     </ExtractCard>
   );

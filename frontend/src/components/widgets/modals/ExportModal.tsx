@@ -2,7 +2,8 @@
  * A modal for viewing and searching exports, with lazy loading and infinite scroll.
  */
 import { useEffect, useRef, useState } from "react";
-import { Button, Modal, Header } from "semantic-ui-react";
+import { Modal, Header } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import _ from "lodash";
 import { FileArchive, X } from "lucide-react";
 import { CreateAndSearchBar } from "../../layout/CreateAndSearchBar";
@@ -208,8 +209,12 @@ export function ExportModal({ visible, toggleModal }: ExportModalProps) {
         />
       </Modal.Content>
       <Modal.Actions>
-        <Button basic color="grey" onClick={() => toggleModal()}>
-          <X size={16} style={{ marginRight: "0.5rem" }} /> Close
+        <Button
+          variant="ghost"
+          onClick={() => toggleModal()}
+          leftIcon={<X size={16} />}
+        >
+          Close
         </Button>
       </Modal.Actions>
     </Modal>
