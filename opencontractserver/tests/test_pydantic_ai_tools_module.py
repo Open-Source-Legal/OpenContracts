@@ -8,11 +8,13 @@ from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIDependencies,
     PydanticAIToolFactory,
     PydanticAIToolWrapper,
     _check_user_permissions,
+    _validate_resource_id_params,
     create_pydantic_ai_tool_from_func,
     create_typed_pydantic_ai_tool,
     pydantic_ai_tool,
@@ -922,6 +924,16 @@ def sync_tool_that_raises_type_error(x: int) -> int:
     raise TypeError("bad argument type")
 
 
+def sync_tool_raises_confirmation(x: int) -> int:
+    """A sync tool that raises ToolConfirmationRequired from body."""
+    raise ToolConfirmationRequired(tool_name="sync_confirm", tool_args={"x": x})
+
+
+async def async_tool_raises_confirmation(x: int) -> int:
+    """An async tool that raises ToolConfirmationRequired from body."""
+    raise ToolConfirmationRequired(tool_name="async_confirm", tool_args={"x": x})
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
 class TestToolFaultTolerance(TestCase):
@@ -1015,12 +1027,9 @@ class TestToolFaultTolerance(TestCase):
         """Test that PermissionError from pre-execution checks still raises.
 
         Security-critical permission checks happen BEFORE tool execution and
-        must NOT be swallowed by fault tolerance.
+        must NOT be swallowed by fault tolerance.  We test via the sync
+        _validate_resource_id_params helper directly to avoid any DB access.
         """
-        core_tool = CoreTool.from_function(async_add)
-        wrapped = PydanticAIToolWrapper(core_tool).callable_function
-
-        # Create deps with mismatched document_id to trigger _validate_resource_id_params
         deps = PydanticAIDependencies(
             user_id=None,
             document_id=100,
@@ -1028,6 +1037,32 @@ class TestToolFaultTolerance(TestCase):
         )
         ctx = MagicMock(deps=deps)
 
-        # Should still raise PermissionError (not swallowed)
+        # Mismatched document_id should raise PermissionError
         with self.assertRaises(PermissionError):
-            await wrapped(ctx, document_id=999, a=1, b=2)
+            _validate_resource_id_params(ctx, document_id=999)
+
+    async def test_async_tool_confirmation_required_propagates(self):
+        """Test that ToolConfirmationRequired from async tool body propagates.
+
+        The fault-tolerance handler must NOT swallow ToolConfirmationRequired
+        since pydantic-ai uses it for the approval flow.
+        """
+        core_tool = CoreTool.from_function(async_tool_raises_confirmation)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        ctx = MagicMock(deps=None)
+        with self.assertRaises(ToolConfirmationRequired):
+            await wrapped(ctx, x=1)
+
+    async def test_sync_tool_confirmation_required_propagates(self):
+        """Test that ToolConfirmationRequired from sync tool body propagates.
+
+        The fault-tolerance handler must NOT swallow ToolConfirmationRequired
+        since pydantic-ai uses it for the approval flow.
+        """
+        core_tool = CoreTool.from_function(sync_tool_raises_confirmation)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        ctx = MagicMock(deps=None)
+        with self.assertRaises(ToolConfirmationRequired):
+            await wrapped(ctx, x=1)
