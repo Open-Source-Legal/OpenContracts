@@ -1,0 +1,125 @@
+name: Integration Tests
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+defaults:
+  run:
+    working-directory: ./
+
+on:
+  pull_request:
+    branches: ["master", "main", "v*"]
+    paths-ignore: ["docs/**"]
+
+  push:
+    branches: ["master", "main", "v*"]
+    paths-ignore: ["docs/**"]
+
+concurrency:
+  group: integration-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: yuge
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v6
+
+      - name: Build the Stack
+        run: docker compose -f test.yml build
+
+      - name: Start Services
+        run: docker compose -f test.yml up -d
+
+      - name: Wait for Postgres
+        run: |
+          echo "Waiting for Postgres to be healthy..."
+          for i in $(seq 1 30); do
+            if docker compose -f test.yml exec -T postgres pg_isready -U oc_user -d opencontractserver >/dev/null 2>&1; then
+              echo "Postgres is ready."
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Postgres did not become ready in time."
+              docker compose -f test.yml logs postgres
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Run Database Migrations
+        run: docker compose -f test.yml run --rm django python manage.py migrate --noinput
+
+      - name: Create Superuser
+        run: |
+          docker compose -f test.yml run --rm django python manage.py shell -c "
+          from django.contrib.auth import get_user_model
+          User = get_user_model()
+          if not User.objects.filter(username='admin').exists():
+              User.objects.create_superuser(
+                  username='admin',
+                  password='Openc0ntracts_def@ult',
+                  email='admin@test.local',
+              )
+              print('Superuser created.')
+          else:
+              print('Superuser already exists.')
+          "
+
+      - name: Start Django Dev Server
+        run: |
+          docker compose -f test.yml exec -d django python manage.py runserver 0.0.0.0:8000
+          echo "Waiting for Django to respond..."
+          for i in $(seq 1 60); do
+            status=$(docker compose -f test.yml exec -T django \
+              python -c "
+          import requests
+          try:
+              r = requests.get('http://localhost:8000/api/health/', timeout=3)
+              print(r.status_code)
+          except Exception:
+              print('0')
+          " 2>/dev/null || echo "0")
+            if [ "$status" = "200" ]; then
+              echo "Django is healthy."
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "Django did not become healthy."
+              docker compose -f test.yml logs django
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Run Integration Tests
+        timeout-minutes: 10
+        run: |
+          docker compose -f test.yml exec -T django \
+            python -m pytest opencontractserver/tests/integration/test_api_flows.py \
+              -v \
+              --tb=short \
+              --no-header
+
+      - name: Capture Logs on Failure
+        if: failure()
+        run: |
+          docker compose -f test.yml logs --no-color > integration-test-logs.txt
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: integration-test-logs
+          path: integration-test-logs.txt
+
+      - name: Tear Down Stack
+        if: always()
+        run: docker compose -f test.yml down -v
