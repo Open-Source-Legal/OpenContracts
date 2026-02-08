@@ -900,3 +900,134 @@ class TestSyncToAsyncDatabaseWrapping(TransactionTestCase):
 
         self.assertEqual(result["id"], fresh_doc.id)
         self.assertEqual(result["title"], "Fresh Test Doc")
+
+
+# ---------------------------------------------------------------------------
+# Tests for fault-tolerant tool error handling (#820)
+# ---------------------------------------------------------------------------
+
+
+def sync_tool_that_raises(x: int) -> int:
+    """A sync tool that always raises ValueError."""
+    raise ValueError("Something went wrong in sync tool")
+
+
+async def async_tool_that_raises(x: int) -> int:
+    """An async tool that always raises RuntimeError."""
+    raise RuntimeError("Something went wrong in async tool")
+
+
+def sync_tool_that_raises_type_error(x: int) -> int:
+    """A sync tool that raises TypeError."""
+    raise TypeError("bad argument type")
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+class TestToolFaultTolerance(TestCase):
+    """Tests verifying that tool errors are returned as strings instead of raising.
+
+    Issue #820: When tools fail, the agent should receive an error message as the
+    tool result so the LLM can inform the user, rather than crashing the agent loop
+    and leaving an empty response.
+    """
+
+    async def test_sync_tool_error_returns_string(self):
+        """Test that a failing sync tool returns an error string instead of raising."""
+        core_tool = CoreTool.from_function(sync_tool_that_raises)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        ctx = MagicMock(deps=None)
+        result = await wrapped(ctx, x=42)
+
+        # Should return a string error, not raise
+        self.assertIsInstance(result, str)
+        self.assertIn("ERROR", result)
+        self.assertIn("sync_tool_that_raises", result)
+        self.assertIn("ValueError", result)
+        self.assertIn("Something went wrong in sync tool", result)
+
+    async def test_async_tool_error_returns_string(self):
+        """Test that a failing async tool returns an error string instead of raising."""
+        core_tool = CoreTool.from_function(async_tool_that_raises)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        ctx = MagicMock(deps=None)
+        result = await wrapped(ctx, x=42)
+
+        # Should return a string error, not raise
+        self.assertIsInstance(result, str)
+        self.assertIn("ERROR", result)
+        self.assertIn("async_tool_that_raises", result)
+        self.assertIn("RuntimeError", result)
+        self.assertIn("Something went wrong in async tool", result)
+
+    async def test_sync_tool_type_error_returns_string(self):
+        """Test that TypeError from sync tool is also returned gracefully."""
+        core_tool = CoreTool.from_function(sync_tool_that_raises_type_error)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        ctx = MagicMock(deps=None)
+        result = await wrapped(ctx, x=42)
+
+        self.assertIsInstance(result, str)
+        self.assertIn("ERROR", result)
+        self.assertIn("TypeError", result)
+        self.assertIn("bad argument type", result)
+
+    async def test_error_string_suggests_alternatives(self):
+        """Test that the error string includes guidance for the LLM."""
+        core_tool = CoreTool.from_function(sync_tool_that_raises)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        ctx = MagicMock(deps=None)
+        result = await wrapped(ctx, x=1)
+
+        self.assertIn("alternative", result.lower())
+
+    async def test_successful_tool_still_returns_normally(self):
+        """Test that successful tools are NOT affected by error handling."""
+        core_tool = CoreTool.from_function(sync_multiply)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        ctx = MagicMock(deps=None)
+        result = await wrapped(ctx, 3, 7)
+
+        # Normal result, not an error string
+        self.assertEqual(result, 21)
+
+    async def test_factory_from_function_fault_tolerant(self):
+        """Test that tools created via factory are also fault-tolerant."""
+        wrapped = PydanticAIToolFactory.from_function(
+            async_tool_that_raises,
+            name="failing_tool",
+            description="A tool that always fails",
+        )
+
+        ctx = MagicMock(deps=None)
+        result = await wrapped(ctx, x=1)
+
+        self.assertIsInstance(result, str)
+        self.assertIn("ERROR", result)
+        self.assertIn("failing_tool", result)
+
+    async def test_permission_errors_still_propagate(self):
+        """Test that PermissionError from pre-execution checks still raises.
+
+        Security-critical permission checks happen BEFORE tool execution and
+        must NOT be swallowed by fault tolerance.
+        """
+        core_tool = CoreTool.from_function(async_add)
+        wrapped = PydanticAIToolWrapper(core_tool).callable_function
+
+        # Create deps with mismatched document_id to trigger _validate_resource_id_params
+        deps = PydanticAIDependencies(
+            user_id=None,
+            document_id=100,
+            corpus_id=None,
+        )
+        ctx = MagicMock(deps=deps)
+
+        # Should still raise PermissionError (not swallowed)
+        with self.assertRaises(PermissionError):
+            await wrapped(ctx, document_id=999, a=1, b=2)

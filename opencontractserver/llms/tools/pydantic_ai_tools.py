@@ -383,9 +383,19 @@ class PydanticAIToolWrapper:
 
                 try:
                     return await original_func(*args, **kwargs)
+                except ToolConfirmationRequired:
+                    raise  # Must propagate for approval flow
                 except Exception as e:
                     logger.error(f"Error in tool {func_name}: {e}")
-                    raise
+                    # Return error as a string result instead of raising, so the
+                    # LLM receives it as the tool output and can inform the user
+                    # gracefully rather than crashing the agent loop (see #820).
+                    return (
+                        f"ERROR: Tool '{func_name}' failed with "
+                        f"{type(e).__name__}: {e}. "
+                        f"Please inform the user about this error and suggest "
+                        f"alternative approaches if possible."
+                    )
 
             # Set proper metadata
             async_wrapper.__name__ = func_name
@@ -430,9 +440,19 @@ class PydanticAIToolWrapper:
 
                 try:
                     return await async_original_func(*args, **kwargs)
+                except ToolConfirmationRequired:
+                    raise  # Must propagate for approval flow
                 except Exception as e:
                     logger.error(f"Error in tool {func_name}: {e}")
-                    raise
+                    # Return error as a string result instead of raising, so the
+                    # LLM receives it as the tool output and can inform the user
+                    # gracefully rather than crashing the agent loop (see #820).
+                    return (
+                        f"ERROR: Tool '{func_name}' failed with "
+                        f"{type(e).__name__}: {e}. "
+                        f"Please inform the user about this error and suggest "
+                        f"alternative approaches if possible."
+                    )
 
             # Set proper metadata
             sync_to_async_wrapper.__name__ = func_name

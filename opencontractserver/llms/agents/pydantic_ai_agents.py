@@ -2278,13 +2278,24 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
                     description="Event timeline (thoughts, tool calls, etc.) from the document agent run",
                 )
 
-            # Guard against cross-corpus leakage
+            # Guard against cross-corpus leakage – return an error payload
+            # instead of raising so the LLM can inform the user gracefully (#820).
             if document_id not in {d.id for d in context.documents}:
+                available_ids = [d.id for d in context.documents]
                 logger.warning(
                     f"[ask_document] Document {document_id} not found in corpus documents. "
-                    f"Available document IDs: {[d.id for d in context.documents]}"
+                    f"Available document IDs: {available_ids}"
                 )
-                raise ValueError("Document does not belong to current corpus")
+                return {
+                    "answer": (
+                        f"Error: Document {document_id} does not belong to the "
+                        f"current corpus. Available document IDs: {available_ids}. "
+                        f"Use list_documents to see all available documents and "
+                        f"their titles."
+                    ),
+                    "sources": [],
+                    "timeline": [],
+                }
 
             doc_agent = await _agents_api.for_document(
                 document=document_id,

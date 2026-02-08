@@ -5,6 +5,20 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-02-08
+
+### Fixed
+
+#### Agent Tools Fault Tolerance (#820)
+- **Tool wrapper error handling**: Tool execution errors are now caught and returned as descriptive error strings instead of re-raising, allowing the LLM to inform users gracefully rather than crashing the agent loop and leaving empty responses
+  - Files: `opencontractserver/llms/tools/pydantic_ai_tools.py` (async wrapper lines 384-398, sync wrapper lines 431-445)
+  - `ToolConfirmationRequired` exceptions still propagate correctly for the approval flow
+  - Security-critical `PermissionError` checks (pre-execution) remain unaffected
+- **`ask_document_tool` graceful error**: Cross-corpus document access now returns a structured error payload with available document IDs instead of raising `ValueError`
+  - File: `opencontractserver/llms/agents/pydantic_ai_agents.py` lines 2281-2298
+- **New tests**: Added `TestToolFaultTolerance` test class with 7 tests covering sync/async error handling, error message format, and permission propagation
+  - File: `opencontractserver/tests/test_pydantic_ai_tools_module.py`
+
 ## [Unreleased] - 2026-01-31
 
 ### ⚠️ Important Migration Notes
