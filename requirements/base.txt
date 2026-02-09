@@ -23,7 +23,7 @@ django-model-utils==4.3.1  # https://github.com/jazzband/django-model-utils
 django-crispy-forms==2.4  # https://github.com/django-crispy-forms/django-crispy-forms
 crispy-bootstrap5==2025.6  # https://github.com/django-crispy-forms/crispy-bootstrap5
 django-redis==6.0.0  # https://github.com/jazzband/django-redis
-django-filter==24.3  # https://github.com/carltongibson/django-filter
+django-filter==25.2  # https://github.com/carltongibson/django-filter
 django-storages[boto3,google]==1.14.6  # https://github.com/jschneier/django-storages
 django-extensions==4.1  # https://github.com/django-extensions/django-extensions
 whitenoise==6.11.0
