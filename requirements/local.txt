@@ -53,7 +53,7 @@ python-pptx
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
-django==4.2.24  # pyup: < 4.0  # https://www.djangoproject.com/
+django==6.0.2  # pyup: < 4.0  # https://www.djangoproject.com/
 twisted>=24.7.0rc1 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=8.10.0 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.32.2 # not directly required, pinned by Snyk to avoid a vulnerability
