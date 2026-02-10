@@ -22,9 +22,15 @@ CSRF_TRUSTED_ORIGINS = [
 DATABASES["default"] = env.db("DATABASE_URL")  # noqa F405
 DATABASES["default"]["ATOMIC_REQUESTS"] = True  # noqa F405
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)  # noqa F405
-DATABASES["default"]["OPTIONS"] = {
-    "sslmode": env("DATABASE_SSL_MODE", default="require")
-}  # Want to use SSL in our connection
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  # noqa F405
+DATABASES["default"]["OPTIONS"] = {  # noqa F405
+    "sslmode": env("DATABASE_SSL_MODE", default="require"),
+    "connect_timeout": env.int("DATABASE_CONNECT_TIMEOUT", default=10),
+    "keepalives": 1,
+    "keepalives_idle": env.int("DATABASE_KEEPALIVES_IDLE", default=30),
+    "keepalives_interval": env.int("DATABASE_KEEPALIVES_INTERVAL", default=10),
+    "keepalives_count": env.int("DATABASE_KEEPALIVES_COUNT", default=5),
+}
 
 # CACHES
 # ------------------------------------------------------------------------------
