@@ -10,7 +10,7 @@ ipdb==0.13.13  # https://github.com/gotcha/ipdb
 
 mypy==1.18.2  # https://github.com/python/mypy
 django-stubs==4.2.7  # https://github.com/typeddjango/django-stubs
-pytest==8.4.2  # https://github.com/pytest-dev/pytest
+pytest==9.0.2  # https://github.com/pytest-dev/pytest
 pytest-cov==7.0.0  # https://github.com/pytest-dev/pytest-cov
 pytest-sugar==1.1.1  # https://github.com/Frozenball/pytest-sugar
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
