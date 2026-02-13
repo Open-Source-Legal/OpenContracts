@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Optional, Union
 
+from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 from pydantic import BaseModel
 from pydantic_ai.tools import RunContext
@@ -388,7 +389,7 @@ async def create_vector_search_tool(
     Returns:
         Async function that can be used as a PydanticAI tool
     """
-    vector_store = PydanticAIAnnotationVectorStore(
+    vector_store = await sync_to_async(PydanticAIAnnotationVectorStore)(
         user_id=user_id,
         corpus_id=corpus_id,
         document_id=document_id,

@@ -407,7 +407,9 @@ class TestPydanticAIAgents(TransactionTestCase):
 
     async def test_pydantic_ai_vector_store_search(self) -> None:
         """Test vector search functionality with PydanticAI vector store."""
-        vector_store = PydanticAIAnnotationVectorStore(
+        from asgiref.sync import sync_to_async
+
+        vector_store = await sync_to_async(PydanticAIAnnotationVectorStore)(
             user_id=self.user.id,
             corpus_id=self.corpus.id,
         )
