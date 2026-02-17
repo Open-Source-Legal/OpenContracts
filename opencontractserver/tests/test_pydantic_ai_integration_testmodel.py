@@ -376,9 +376,27 @@ class TestPydanticAIAgentsWithTestModel(TransactionTestCase):
         - SourceEvent is emitted with sources
 
         TestModel executes tools, so we can test the search functionality.
+        Only call read-only tools to avoid ToolConfirmationRequired from
+        approval-gated tools (e.g. update_document_description) which would
+        abort the stream with ApprovalNeededEvent instead of FinalEvent.
         """
+        safe_document_tools = [
+            "similarity_search",
+            "load_document_summary",
+            "get_summary_token_length",
+            "get_document_text_length",
+            "load_document_text",
+            "search_exact_text",
+            "get_document_description",
+            "get_document_notes",
+            "search_document_notes",
+            "get_document_summary",
+            "get_document_summary_versions",
+            "get_document_summary_diff",
+        ]
         test_model = TestModel(
-            custom_output_text="Found the text 'Party A agrees to pay' in the document on page 1."
+            call_tools=safe_document_tools,
+            custom_output_text="Found the text 'Party A agrees to pay' in the document on page 1.",
         )
 
         config = AgentConfig(

@@ -16,6 +16,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 // Keep query/mutation imports needed for mocks
 
 import { Page } from "@playwright/test";
+import { docScreenshot } from "./utils/docScreenshot";
 
 // Import the new Wrapper component
 import { DocumentKnowledgeBaseTestWrapper } from "./DocumentKnowledgeBaseTestWrapper";
@@ -555,6 +556,8 @@ test("PDF document renders PDF annotator component", async ({
   await expect(page.locator("#pdf-container canvas").first()).toBeVisible({
     timeout: LONG_TIMEOUT,
   });
+
+  await docScreenshot(page, "readme--document-annotator--with-pdf");
 });
 
 test("TXT document renders TXT annotator component", async ({

@@ -58,7 +58,7 @@ shapely>=2.0.0  # https://github.com/shapely/shapely - spatial operations for bb
 
 # Data Processing Tools
 # -------------------------------------------------------------------------------
-opencv-python==4.12.0.88 # https://github.com/opencv/opencv-python
+opencv-python-headless==4.13.0.92 # https://github.com/opencv/opencv-python (headless: no GUI deps needed for server)
 filetype==1.2.0  # https://github.com/h2non/filetype.py
 
 # Permissioning

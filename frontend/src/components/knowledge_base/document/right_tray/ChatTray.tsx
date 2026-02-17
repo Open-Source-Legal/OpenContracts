@@ -115,6 +115,8 @@ export interface MessageData {
     | "ASYNC_THOUGHT"
     | "ASYNC_SOURCES"
     | "ASYNC_APPROVAL_NEEDED"
+    | "ASYNC_APPROVAL_RESULT"
+    | "ASYNC_RESUME"
     | "ASYNC_ERROR";
   content: string;
   data?: {
@@ -705,6 +707,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       text: thoughtText,
       tool: data?.tool_name,
       args: data?.args,
+      result: data?.tool_result,
     };
 
     // Update chat UI timeline
@@ -932,6 +935,28 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 )
               );
             }
+            break;
+          case "ASYNC_APPROVAL_RESULT":
+            // Informational – backend echoes the user's decision.
+            if (
+              pendingApproval &&
+              data?.message_id === pendingApproval.messageId
+            ) {
+              setPendingApproval(null);
+              setShowApprovalModal(false);
+              if (data?.decision) {
+                updateMessageApprovalStatus(
+                  pendingApproval.messageId,
+                  data.decision as "approved" | "rejected"
+                );
+              }
+            }
+            break;
+          case "ASYNC_RESUME":
+            // Agent is resuming after approval.  Unlike CorpusChat (which has
+            // an explicit isProcessing state), ChatTray derives its processing
+            // indicator from message state (isAssistantResponding), so no
+            // additional state update is needed here.
             break;
           case "ASYNC_FINISH":
             finalizeStreamingResponse(

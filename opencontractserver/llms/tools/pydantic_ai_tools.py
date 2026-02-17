@@ -44,7 +44,7 @@ async def _check_user_permissions(
     Raises:
         PermissionError: If user lacks READ permission on document or corpus
     """
-    from channels.db import database_sync_to_async
+    from asgiref.sync import sync_to_async
 
     deps = ctx.deps
     if deps is None:
@@ -59,8 +59,6 @@ async def _check_user_permissions(
 
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
-    from opencontractserver.types.enums import PermissionTypes
-    from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
     User = get_user_model()
 
@@ -97,36 +95,35 @@ async def _check_user_permissions(
         raise PermissionError(f"User {user_id} not found")
 
     if document_id:
-        try:
-            doc = await Document.objects.aget(pk=document_id)
-            has_perm = await database_sync_to_async(user_has_permission_for_obj)(
-                user, doc, PermissionTypes.READ
+        # Use visible_to_user() queryset which properly handles creator access,
+        # public status, and guardian permissions — unlike user_has_permission_for_obj
+        # which misses creator-based access (see its docstring warning).
+        # Use Django's native aexists() to avoid thread-hopping via
+        # database_sync_to_async, which breaks under TestCase transaction isolation.
+        has_perm = await sync_to_async(
+            lambda: Document.objects.visible_to_user(user)
+            .filter(pk=document_id)
+            .exists()
+        )()
+        if not has_perm:
+            logger.warning(
+                f"User {user_id} tool access denied - lacks READ on document {document_id}"
             )
-            if not has_perm:
-                logger.warning(
-                    f"User {user_id} tool access denied - lacks READ on document {document_id}"
-                )
-                raise PermissionError(
-                    f"User {user_id} lacks READ permission on document {document_id}"
-                )
-        except Document.DoesNotExist:
-            raise PermissionError(f"Document {document_id} not found")
+            raise PermissionError(
+                f"User {user_id} lacks READ permission on document {document_id}"
+            )
 
     if corpus_id:
-        try:
-            corpus = await Corpus.objects.aget(pk=corpus_id)
-            has_perm = await database_sync_to_async(user_has_permission_for_obj)(
-                user, corpus, PermissionTypes.READ
+        has_perm = await sync_to_async(
+            lambda: Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists()
+        )()
+        if not has_perm:
+            logger.warning(
+                f"User {user_id} tool access denied - lacks READ on corpus {corpus_id}"
             )
-            if not has_perm:
-                logger.warning(
-                    f"User {user_id} tool access denied - lacks READ on corpus {corpus_id}"
-                )
-                raise PermissionError(
-                    f"User {user_id} lacks READ permission on corpus {corpus_id}"
-                )
-        except Corpus.DoesNotExist:
-            raise PermissionError(f"Corpus {corpus_id} not found")
+            raise PermissionError(
+                f"User {user_id} lacks READ permission on corpus {corpus_id}"
+            )
 
 
 def _validate_resource_id_params(

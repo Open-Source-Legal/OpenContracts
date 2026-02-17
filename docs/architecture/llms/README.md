@@ -921,6 +921,91 @@ return  # No further execution
 - Custom framework adapters should implement approval handling in their `_stream_raw()` method
 - Code paths: `tools/pydantic_ai_tools.py` (veto-gate), `agents/pydantic_ai_agents.py` (pause/resume)
 - All events include `user_message_id` and `llm_message_id` for tracking
+
+##### Nested Approval Gates (Corpus → Document Sub-Agents)
+
+When a corpus agent delegates a question to a document sub-agent via
+`ask_document`, the sub-agent may itself encounter tools that require
+approval. These nested approval events propagate up to the corpus agent
+and ultimately to the user through the following mechanism:
+
+**Propagation Flow:**
+
+```
+User ──▶ CorpusAgent ──ask_document──▶ DocumentSubAgent
+                                            │
+                        ┌───────────────────┘
+                        ▼
+           Sub-agent tool requires approval
+                        │
+                        ▼
+           ApprovalNeededEvent emitted in sub-agent stream
+                        │
+                        ▼
+           ask_document_tool detects event, raises
+           ToolConfirmationRequired with nested metadata
+                        │
+                        ▼
+           Corpus agent pauses, surfaces to user via WebSocket
+                        │
+                        ▼
+           User approves/rejects via frontend modal
+                        │
+                        ▼
+           resume_with_approval() re-invokes ask_document
+           with config._approval_bypass_allowed = True
+                        │
+                        ▼
+           Sub-agent created with skip_approval_gate=True
+           (tool executes without re-prompting)
+```
+
+**Metadata Preservation:**
+
+The `ToolConfirmationRequired` exception carries sub-agent tool details
+in `_`-prefixed keys for frontend display:
+
+```python
+raise ToolConfirmationRequired(
+    tool_name="ask_document",
+    tool_args={
+        "document_id": document_id,
+        "question": question,
+        # Metadata for UI display (stripped before execution):
+        "_sub_tool_name": "update_document_summary",
+        "_sub_tool_arguments": {"new_content": "..."},
+    },
+)
+```
+
+The frontend (CorpusChat) unwraps these to show the actual sub-tool name
+and arguments in the approval modal, rather than the generic
+`ask_document` wrapper.
+
+**Security: Approval Bypass Protection:**
+
+The `skip_approval` mechanism uses `config._approval_bypass_allowed`
+(a runtime flag on `AgentConfig`) rather than a function parameter, to
+prevent LLM prompt injection from bypassing approval gates:
+
+- Normal execution: `_approval_bypass_allowed` is `False` (default)
+- Post-approval resume: `resume_with_approval()` sets it to `True` in a
+  `try/finally` block, ensuring it is always reset
+- The flag is read inside `ask_document_tool`'s closure and passed to
+  `_agents_api.for_document(skip_approval_gate=bypass)`
+
+**Defensive Handling:**
+
+Malformed `approval_needed` events (missing `name`, non-dict
+`pending_tool_call`, empty strings) are logged and skipped rather than
+crashing the tool. The sub-agent stream continues normally.
+
+**Key Files:**
+- `agents/pydantic_ai_agents.py`: `ask_document_tool()` closure,
+  `resume_with_approval()` bypass flag
+- `frontend/src/components/corpuses/CorpusChat.tsx`: Sub-tool unwrapping
+  in `ASYNC_APPROVAL_NEEDED` handler
+- `tests/test_nested_approval_gates.py`: Comprehensive test suite
 - The method always returns an async generator (even for rejection) for consistent API
 ```
 

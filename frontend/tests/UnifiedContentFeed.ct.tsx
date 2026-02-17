@@ -311,8 +311,9 @@ test.describe("UnifiedContentFeed - Read-only Mode", () => {
       <UnifiedContentFeedTestWrapper readOnly={true} />
     );
 
-    // Get the PostItNote button
+    // Get the PostItNote button — wait for visibility so styled-components CSS is applied
     const firstNote = page.locator("button").filter({ hasText: "Test Note 1" });
+    await expect(firstNote).toBeVisible();
 
     // Check cursor style
     const cursor = await firstNote.evaluate(

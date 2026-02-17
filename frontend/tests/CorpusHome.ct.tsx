@@ -14,6 +14,7 @@ import {
   CORPUS_DOCUMENTS_TOC_LIMIT,
 } from "../src/assets/configurations/constants";
 import { PermissionTypes } from "../src/components/types";
+import { docScreenshot } from "./utils/docScreenshot";
 
 /* --------------------------------------------------------------------------
  * Mock data & helpers
@@ -320,6 +321,8 @@ test("renders landing view with chat bar and quick actions", async ({
   await expect(chatBar.locator("text=Summarize")).toBeVisible();
   await expect(chatBar.locator("text=Search")).toBeVisible();
   await expect(chatBar.locator("text=Analyze")).toBeVisible();
+
+  await docScreenshot(page, "readme--corpus-home--with-chat");
 });
 
 test("renders landing view with description as subtitle", async ({

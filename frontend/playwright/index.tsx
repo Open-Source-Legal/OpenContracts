@@ -1,5 +1,6 @@
 // Import styles, initialize component theme here.
 import "../src/App.css";
+import "../src/index.css";
 import "semantic-ui-css/semantic.min.css";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -9,10 +10,12 @@ import {
   afterMount,
 } from "@playwright/experimental-ct-react/hooks";
 import { Provider as JotaiProvider, createStore } from "jotai";
+import { MotionConfig } from "framer-motion";
 import workerSrc from "pdfjs-dist/build/pdf.worker?worker&url";
 import * as pdfjs from "pdfjs-dist";
 import { ApolloClient, InMemoryCache, ApolloProvider } from "@apollo/client";
 import { ThemeProvider } from "../src/theme/ThemeProvider";
+import { allStyles } from "@os-legal/ui";
 
 // Create a type for the Jotai Store
 type Store = ReturnType<typeof createStore>;
@@ -25,8 +28,11 @@ declare global {
   }
 }
 
-// Optional: Import global styles if needed by components
-// import '../src/index.css';
+// Inject @os-legal/ui component library styles (mirrors src/index.tsx)
+const styleElement = document.createElement("style");
+styleElement.id = "opencontracts-ui-styles";
+styleElement.textContent = allStyles;
+document.head.appendChild(styleElement);
 
 // Explicitly type the parameter for beforeMount
 type BeforeMountParams = {
@@ -56,13 +62,15 @@ beforeMount(async ({ App }: BeforeMountParams) => {
   // Return the Provider wrapping the component
   // Nest ApolloProvider inside JotaiProvider (or vice-versa, order usually doesn't matter)
   return (
-    <JotaiProvider store={window.jotaiStore}>
-      <ApolloProvider client={window.apolloClient}>
-        <ThemeProvider>
-          <App />
-        </ThemeProvider>
-      </ApolloProvider>
-    </JotaiProvider>
+    <MotionConfig reducedMotion="always">
+      <JotaiProvider store={window.jotaiStore}>
+        <ApolloProvider client={window.apolloClient}>
+          <ThemeProvider>
+            <App />
+          </ThemeProvider>
+        </ApolloProvider>
+      </JotaiProvider>
+    </MotionConfig>
   );
 });
 

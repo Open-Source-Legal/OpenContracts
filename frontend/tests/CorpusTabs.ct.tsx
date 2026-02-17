@@ -36,6 +36,7 @@ import {
   GET_BADGES,
 } from "../src/graphql/queries";
 import { CorpusType } from "../src/types/graphql-api";
+import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 
 /* -------------------------------------------------------------------------- */
 /* Mock Data Factories                                                         */
@@ -547,6 +548,35 @@ const createCorpusConversationsMock = (corpusId: string): MockedResponse => ({
   },
 });
 
+const createEngagementMetricsMock = (corpusId: string): MockedResponse => ({
+  request: {
+    query: GET_CORPUS_ENGAGEMENT_METRICS,
+    variables: { corpusId },
+  },
+  result: {
+    data: {
+      corpus: {
+        id: corpusId,
+        title: "Test Corpus for Tab Testing",
+        engagementMetrics: {
+          totalThreads: 12,
+          activeThreads: 5,
+          totalMessages: 87,
+          messagesLast7Days: 23,
+          messagesLast30Days: 65,
+          uniqueContributors: 8,
+          activeContributors30Days: 4,
+          totalUpvotes: 34,
+          avgMessagesPerThread: 7.25,
+          lastUpdated: new Date().toISOString(),
+          __typename: "EngagementMetricsType",
+        },
+        __typename: "CorpusType",
+      },
+    },
+  },
+});
+
 const createCorpusActionsMock = (corpusId: string): MockedResponse => ({
   request: {
     query: GET_CORPUS_ACTIONS,
@@ -606,6 +636,7 @@ const createAllTabMocks = (corpus: CorpusType): MockedResponse[] => [
   createConversationsMock(corpus.id),
   createCorpusConversationsMock(corpus.id),
   createCorpusActionsMock(corpus.id),
+  createEngagementMetricsMock(corpus.id),
   createEmptyDocumentsMock(),
 ];
 
@@ -1312,8 +1343,12 @@ test.describe("Corpus Tabs - Analytics", () => {
 
     await page.locator('[data-item-id="analytics"]').click();
 
-    // Analytics tab should load (component may show loading or content)
-    // The analytics dashboard renders its own content
-    await page.waitForTimeout(1000);
+    // Wait for engagement metrics to render
+    await expect(page.locator("text=Total Threads").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    await docScreenshot(page, "corpus--analytics--dashboard");
+    await releaseScreenshot(page, "v3.0.0.b3", "analytics");
   });
 });

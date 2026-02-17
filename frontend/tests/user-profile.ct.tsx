@@ -4,8 +4,10 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { UserProfileRoute } from "../src/components/routes/UserProfileRoute";
+import { UserProfile } from "../src/views/UserProfile";
 import { UserLink } from "../src/components/widgets/UserLink";
-import { GET_USER } from "../src/graphql/queries";
+import { GET_USER, GET_USER_BADGES } from "../src/graphql/queries";
+import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 
 // Mock user data
 const mockPublicUser = {
@@ -149,6 +151,77 @@ test.describe("UserProfile View - Loading and Error States", () => {
 
     // Check error message is displayed
     await expect(page.locator("text=User not found")).toBeVisible();
+
+    await component.unmount();
+  });
+});
+
+test.describe("UserProfile View - Rendered Profile", () => {
+  test("should render public user profile", async ({ mount, page }) => {
+    const badgesMock = {
+      request: {
+        query: GET_USER_BADGES,
+        variables: {
+          userId: "VXNlclR5cGU6MQ==",
+          limit: 100,
+        },
+      },
+      result: {
+        data: {
+          userBadges: {
+            edges: [
+              {
+                node: {
+                  id: "UB1",
+                  awardedAt: "2025-01-15T10:00:00Z",
+                  user: {
+                    id: "VXNlclR5cGU6MQ==",
+                    username: "publicuser",
+                    email: "public@example.com",
+                  },
+                  badge: {
+                    id: "B1",
+                    name: "First Annotation",
+                    description: "Created your first annotation",
+                    icon: "tag",
+                    color: "#10B981",
+                    badgeType: "AUTOMATIC",
+                  },
+                  awardedBy: null,
+                  corpus: null,
+                },
+              },
+            ],
+            pageInfo: {
+              hasNextPage: false,
+              hasPreviousPage: false,
+              startCursor: null,
+              endCursor: null,
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <MockedProvider mocks={[badgesMock]} addTypename={false}>
+        <MemoryRouter initialEntries={["/users/publicuser-123"]}>
+          <UserProfile user={mockPublicUser} isOwnProfile={false} />
+        </MemoryRouter>
+      </MockedProvider>
+    );
+
+    // Wait for profile to render with user info
+    await expect(page.locator("text=Public User")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator("text=@publicuser")).toBeVisible();
+
+    // Stats should be visible
+    await expect(page.locator("text=150")).toBeVisible(); // reputation
+
+    await docScreenshot(page, "users--profile--public");
+    await releaseScreenshot(page, "v3.0.0.b3", "user-profile");
 
     await component.unmount();
   });

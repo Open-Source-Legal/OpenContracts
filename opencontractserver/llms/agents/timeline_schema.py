@@ -39,6 +39,9 @@ TIMELINE_ENTRY_SCHEMA: dict[str, Any] = {
         "text": {"type": "string"},
         "tool": {"type": "string"},
         "args": {},
+        # Truncated tool output (max 500 chars). Present on tool_result entries
+        # when the backend captures the tool's return value.
+        "result": {"type": "string"},
         "count": {"type": "integer", "minimum": 0},
         "metadata": {"type": "object"},
         "msg": {"type": "string"},
@@ -62,6 +65,7 @@ class TimelineEntry(TypedDict, total=False):
     text: NotRequired[str]
     tool: NotRequired[str]
     args: NotRequired[Any]
+    result: NotRequired[str]  # Truncated tool output (tool_result entries only)
     count: NotRequired[int]
     metadata: NotRequired[dict[str, Any]]
     msg: NotRequired[str]

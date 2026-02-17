@@ -36,6 +36,7 @@ import {
   SpanAnnotationJson,
 } from "../../types";
 import { AnnotationLabelType } from "../../../types/graphql-api";
+import { TOOL_UNKNOWN_LABEL } from "../../../assets/configurations/constants";
 
 // Timeline entry type based on the schema
 export interface TimelineEntry {
@@ -48,10 +49,20 @@ export interface TimelineEntry {
     | "status";
   text?: string;
   tool?: string;
-  args?: any;
+  args?: Record<string, unknown>;
+  result?: string;
   count?: number;
   metadata?: Record<string, any>;
   msg?: string;
+}
+
+// Paired tool call info extracted from timeline for the tool usage popover
+interface ToolCallInfo {
+  /** Stable identifier for React keys (tool name + ordinal index) */
+  id: string;
+  tool: string;
+  args?: Record<string, unknown>;
+  result?: string;
 }
 
 export interface ChatMessageProps {
@@ -192,9 +203,8 @@ const MessageContent = styled.div<{ $isAssistant: boolean }>`
       props.$isAssistant
         ? "rgba(255, 255, 255, 0.5)"
         : "rgba(247, 248, 249, 0.3)"};
-  word-wrap: break-word;
   overflow-wrap: break-word;
-  word-break: break-all;
+  word-break: break-word;
 
   &::before {
     content: "";
@@ -677,6 +687,175 @@ const TimelineItemArgs = styled.div`
   overflow-x: auto;
 `;
 
+// Tool Usage Badge & Popover styled components
+const ToolBadgeWrapper = styled.div`
+  position: relative;
+  display: inline-flex;
+`;
+
+const ToolBadge = styled.div<{ $isSelected?: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.35rem 0.7rem;
+  background: ${(props) =>
+    props.$isSelected ? "#3b82f6" : "rgba(59, 130, 246, 0.1)"};
+  color: ${(props) => (props.$isSelected ? "white" : "#3b82f6")};
+  border-radius: 1rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  border: 1px solid
+    ${(props) =>
+      props.$isSelected ? "transparent" : "rgba(59, 130, 246, 0.2)"};
+  transition: all 0.2s ease;
+  white-space: nowrap;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  &:hover {
+    background: ${(props) =>
+      props.$isSelected ? "#2563eb" : "rgba(59, 130, 246, 0.18)"};
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  }
+
+  @media (max-width: 768px) {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+`;
+
+const ToolPopover = styled(motion.div)`
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 100;
+  min-width: 320px;
+  max-width: 440px;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(59, 130, 246, 0.08);
+  overflow: hidden;
+
+  @media (max-width: 768px) {
+    min-width: 260px;
+    max-width: 320px;
+    right: -1rem;
+  }
+`;
+
+const ToolPopoverHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(59, 130, 246, 0.05);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1e40af;
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+`;
+
+const ToolPopoverBody = styled.div`
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 0.5rem;
+`;
+
+const ToolCallCard = styled.div`
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem;
+  background: rgba(248, 250, 252, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  transition: all 0.15s ease;
+
+  & + & {
+    margin-top: 0.5rem;
+  }
+
+  &:hover {
+    background: rgba(248, 250, 252, 1);
+    border-color: rgba(59, 130, 246, 0.2);
+  }
+`;
+
+const ToolCallName = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 0.375rem;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: #3b82f6;
+  }
+`;
+
+const ToolCallSection = styled.div`
+  margin-top: 0.375rem;
+`;
+
+const ToolCallSectionLabel = styled.div`
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
+`;
+
+const ToolCallCodeBlock = styled.pre`
+  margin: 0;
+  padding: 0.375rem 0.5rem;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0.375rem;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-size: 0.6875rem;
+  color: #374151;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+`;
+
+// XSS safety note: Tool result and argument content is rendered as React text
+// nodes (not via dangerouslySetInnerHTML), so HTML entities are auto-escaped.
+// Content originates from backend agent tool execution, not user input.
+const ToolCallResultBlock = styled.div`
+  margin: 0;
+  padding: 0.375rem 0.5rem;
+  background: rgba(34, 197, 94, 0.05);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  color: #166534;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+`;
+
 interface SourceItemProps {
   messageId: string;
   text: string;
@@ -938,6 +1117,173 @@ const getTimelineTitle = (entry: TimelineEntry) => {
     default:
       return "Timeline Entry";
   }
+};
+
+/**
+ * Extract paired tool call/result info from timeline entries.
+ *
+ * Uses a consumed-set approach: each tool_result is matched to the first
+ * unconsumed tool_call with the same tool name, preventing incorrect pairing
+ * when the same tool is called multiple times.
+ *
+ * **Ordering assumption**: The backend always emits a tool_result *after* its
+ * corresponding tool_call in the timeline, so forward-only search is correct.
+ */
+export const extractToolCalls = (timeline: TimelineEntry[]): ToolCallInfo[] => {
+  const calls: ToolCallInfo[] = [];
+  // Track which tool_result indices have been consumed
+  const consumedResults = new Set<number>();
+
+  for (let i = 0; i < timeline.length; i++) {
+    const entry = timeline[i];
+    if (entry.type !== "tool_call") continue;
+
+    const call: ToolCallInfo = {
+      // Use timeline index for stable, unique React keys
+      id: `${entry.tool ?? TOOL_UNKNOWN_LABEL}-${i}`,
+      tool: entry.tool || TOOL_UNKNOWN_LABEL,
+      args: entry.args,
+    };
+
+    // Find the first unconsumed tool_result with the same tool name
+    for (let j = i + 1; j < timeline.length; j++) {
+      if (
+        !consumedResults.has(j) &&
+        timeline[j].type === "tool_result" &&
+        timeline[j].tool === entry.tool
+      ) {
+        call.result = timeline[j].result;
+        consumedResults.add(j);
+        break;
+      }
+    }
+    calls.push(call);
+  }
+  return calls;
+};
+
+/**
+ * Formats a snake_case tool name for display (e.g. "similarity_search" -> "Similarity Search").
+ */
+export const formatToolName = (name: string): string => {
+  return name
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
+
+/**
+ * Displays a tool usage badge next to assistant messages. On hover, opens a
+ * popover listing each tool call with its input arguments and output result.
+ */
+const ToolUsageIndicator: React.FC<{
+  timeline: TimelineEntry[];
+}> = ({ timeline }) => {
+  const toolCalls = useMemo(() => extractToolCalls(timeline), [timeline]);
+  const [isOpen, setIsOpen] = useState(false);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timeout on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current) {
+        clearTimeout(closeTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  if (toolCalls.length === 0) return null;
+
+  const handleMouseEnter = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+    setIsOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    closeTimeoutRef.current = setTimeout(() => setIsOpen(false), 200);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setIsOpen((prev) => !prev);
+    } else if (e.key === "Escape" && isOpen) {
+      setIsOpen(false);
+    }
+  };
+
+  const popoverId = `tool-popover-${toolCalls.length}`;
+
+  return (
+    <ToolBadgeWrapper
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+    >
+      <ToolBadge
+        $isSelected={isOpen}
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-describedby={isOpen ? popoverId : undefined}
+        onKeyDown={handleKeyDown}
+      >
+        <Wrench size={14} />
+        {toolCalls.length} {toolCalls.length === 1 ? "tool" : "tools"} used
+      </ToolBadge>
+      <AnimatePresence>
+        {isOpen && (
+          <ToolPopover
+            id={popoverId}
+            role="dialog"
+            aria-label={`Tool usage details: ${toolCalls.length} ${
+              toolCalls.length === 1 ? "call" : "calls"
+            }`}
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+          >
+            <ToolPopoverHeader>
+              <Wrench />
+              Tool Usage ({toolCalls.length}{" "}
+              {toolCalls.length === 1 ? "call" : "calls"})
+            </ToolPopoverHeader>
+            <ToolPopoverBody>
+              {toolCalls.map((call) => (
+                <ToolCallCard key={call.id}>
+                  <ToolCallName>
+                    <Wrench />
+                    {formatToolName(call.tool)}
+                  </ToolCallName>
+                  {call.args !== undefined && (
+                    <ToolCallSection>
+                      <ToolCallSectionLabel>Input</ToolCallSectionLabel>
+                      <ToolCallCodeBlock>
+                        {typeof call.args === "string"
+                          ? call.args
+                          : JSON.stringify(call.args, null, 2)}
+                      </ToolCallCodeBlock>
+                    </ToolCallSection>
+                  )}
+                  {call.result && (
+                    <ToolCallSection>
+                      <ToolCallSectionLabel>Output</ToolCallSectionLabel>
+                      <ToolCallResultBlock>{call.result}</ToolCallResultBlock>
+                    </ToolCallSection>
+                  )}
+                </ToolCallCard>
+              ))}
+            </ToolPopoverBody>
+          </ToolPopover>
+        )}
+      </AnimatePresence>
+    </ToolBadgeWrapper>
+  );
 };
 
 interface TimelinePreviewProps {
@@ -1421,17 +1767,28 @@ const ProcessingIndicator: React.FC = () => (
   </ProcessingContainer>
 );
 
+const MessageHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+  flex-wrap: wrap;
+
+  @media (max-width: 480px) {
+    margin-bottom: 0.25rem;
+    gap: 0.375rem;
+  }
+`;
+
 const UserName = styled.div`
   font-size: 0.875rem;
   font-weight: 600;
   color: #1a1a1a;
-  margin-bottom: 0.375rem;
   padding-left: 0.25rem;
   letter-spacing: -0.01em;
 
   @media (max-width: 480px) {
     font-size: 0.8rem;
-    margin-bottom: 0.25rem;
   }
 `;
 
@@ -1504,6 +1861,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     }
   };
 
+  // Check if any tools were actually used in the timeline
+  const hasToolUsage = useMemo(
+    () => timeline.some((e) => e.type === "tool_call"),
+    [timeline]
+  );
+
   const showTimelineOnly =
     isAssistant &&
     effectiveHasTimeline &&
@@ -1538,7 +1901,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >
-      {effectiveHasTimeline && (
+      {effectiveHasTimeline && !hasToolUsage && (
         <TimelineIndicator $isSelected={isSelected}>
           <Clock size={14} />
           {timeline.length} {timeline.length === 1 ? "step" : "steps"}
@@ -1563,7 +1926,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         {isAssistant ? <Bot /> : <User />}
       </Avatar>
       <ContentContainer>
-        <UserName>{isAssistant ? "AI Assistant" : user}</UserName>
+        <MessageHeader>
+          <UserName>{isAssistant ? "AI Assistant" : user}</UserName>
+          {isAssistant && hasToolUsage && (
+            <ToolUsageIndicator timeline={timeline} />
+          )}
+        </MessageHeader>
         {/* Processing indicator - shown when agent is working but no content/timeline yet */}
         {showProcessingIndicator && <ProcessingIndicator />}
         {/* Standard message content bubble */}

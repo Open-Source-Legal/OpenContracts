@@ -36,6 +36,9 @@ export default defineConfig({
     /* Port to use for Playwright component endpoint. */
     ctPort: 3100,
 
+    /* Skip framer-motion animations so screenshots capture final state. */
+    reducedMotion: "reduce",
+
     /* Navigation timeout - give Vite more time to serve dynamically imported modules */
     navigationTimeout: process.env.CI ? 30 * 1000 : 10 * 1000,
 

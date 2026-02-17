@@ -5,7 +5,30 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-02-10
+## [Unreleased] - 2026-02-12
+
+### Added
+
+#### Nested Approval Gates for Corpus Agent Sub-Agents
+- **Sub-agent approval propagation**: When a corpus agent delegates a question to a document sub-agent via `ask_document`, and the sub-agent encounters a tool requiring approval, the approval request now propagates up to the corpus agent level and is surfaced to the user via WebSocket (`ASYNC_APPROVAL_NEEDED`)
+  - File: `opencontractserver/llms/agents/pydantic_ai_agents.py` (ask_document_tool closure)
+- **Frontend sub-tool unwrapping**: CorpusChat's approval modal now displays the actual sub-tool name/arguments instead of the generic `ask_document` wrapper, with validation for malformed metadata
+  - File: `frontend/src/components/corpuses/CorpusChat.tsx` (ASYNC_APPROVAL_NEEDED handler)
+- **Comprehensive nested approval test suite**: 10 async tests covering approval propagation, metadata stripping, bypass flag lifecycle, malformed event handling, and schema safety
+  - File: `opencontractserver/tests/test_nested_approval_gates.py`
+- **Architecture documentation**: Added "Nested Approval Gates" section to LLM framework docs with flow diagrams and security notes
+  - File: `docs/architecture/llms/README.md`
+
+### Added
+
+#### Expose Tool Usage in Chat UI
+- **Tool Usage Badge** (`frontend/src/components/widgets/chat/ChatMessage.tsx:1180-1288`): Assistant messages that use tools now display a wrench icon badge ("X tools used") in the message header, visible in both document and corpus chat views. Users can quickly see AI tool usage without expanding the full timeline, improving agent transparency.
+- **Tool Call Popover** (`ChatMessage.tsx:1222-1286`): Hovering over the badge opens a popover listing each tool call's formatted name, JSON input arguments, and output result. Keyboard accessible (Enter/Space to toggle, Escape to close) with full ARIA attributes.
+- **Tool result content in timeline**: Backend now captures tool result/output content in timeline `tool_result` entries (previously only stored tool name)
+  - `opencontractserver/llms/agents/timeline_schema.py:52` — added `result` field
+  - `opencontractserver/llms/agents/timeline_utils.py:77-92` — captures result from metadata, truncated to 500 chars
+  - `opencontractserver/llms/agents/pydantic_ai_agents.py:123-155` — `_extract_tool_result_summary()` extracts and truncates at source
+- **Tool result entries for search tools** (`pydantic_ai_agents.py:642-657, 686-702, 807-813`): `similarity_search`, `search_exact_text`, and `ask_document` now emit `tool_result` timeline entries with result summaries (e.g., "Found 3 matching annotations"). Other tools use a generic extractor with "Completed" fallback.
 
 ### Fixed
 
@@ -13,6 +36,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enabled `CONN_HEALTH_CHECKS`** (`config/settings/production.py`): Django 4.1+ feature that validates persistent connections are still alive before reuse. Without this, stale connections (closed by Cloud SQL proxy or PostgreSQL idle timeout) caused errors on use, forcing Django to open replacements and creating TIME_WAIT churn.
 - **Added TCP keepalive OPTIONS to production database config** (`config/settings/production.py`): Added `connect_timeout`, `keepalives`, `keepalives_idle`, `keepalives_interval`, and `keepalives_count` to prevent intermediate infrastructure (Cloud SQL proxy, firewalls, load balancers) from silently dropping idle connections. These settings were already present in test config but missing from production.
 - **Added Celery `worker_process_init` signal to close inherited DB connections** (`config/celery_app.py`): When Celery forks a worker child process, it inherits the parent's database connections which are invalid in the child. Explicitly closing them on init prevents stale connection accumulation and errors.
+#### Security: LLM Prompt Injection Protection for Approval Bypass
+- **Replaced `skip_approval` function parameter with `config._approval_bypass_allowed` flag**: The previous design exposed a `skip_approval` parameter in `ask_document_tool`'s function signature that a malicious LLM could set to `True` to bypass approval gates. Now uses a runtime flag on `AgentConfig` that only `resume_with_approval()` can set, wrapped in a `try/finally` block to guarantee reset
+  - File: `opencontractserver/llms/agents/pydantic_ai_agents.py`
+
+#### Inconsistent Approval Status Handling in CorpusChat
+- **Added `updateMessageApprovalStatus` to CorpusChat**: Previously, `ASYNC_APPROVAL_RESULT` handler in CorpusChat only cleared pending state without updating message `approvalStatus`, unlike ChatTray and useAgentChat which both call `updateMessageApprovalStatus`. Now consistent across all components
+  - File: `frontend/src/components/corpuses/CorpusChat.tsx`
+- **Added message `approvalStatus: "awaiting"` on ASYNC_APPROVAL_NEEDED**: CorpusChat now marks messages as awaiting approval in both `chat` and `serverMessages` state arrays, matching ChatTray/useAgentChat behavior
+  - File: `frontend/src/components/corpuses/CorpusChat.tsx`
+
+#### Defensive Handling of Malformed Approval Events
+- **Backend**: `ask_document_tool` now validates `pending_tool_call` is a dict with a non-empty `name` key before raising `ToolConfirmationRequired`; malformed events are logged and skipped
+  - File: `opencontractserver/llms/agents/pydantic_ai_agents.py`
+- **Frontend**: `_sub_tool_name` validation checks type is string and non-empty; `_sub_tool_arguments` validates type is object before use
+  - File: `frontend/src/components/corpuses/CorpusChat.tsx`
 
 #### Corpus Agent Action Failure: griffe/pydantic-ai Incompatibility
 - **Pin `griffe>=1.3.2,<2`** (`requirements/base.txt`): griffe 2.0.0 (released 2026-02-09) removed the `**options` catch-all from all docstring parsers. pydantic-ai 0.2.x unconditionally passes `returns_named_value` and `returns_multiple_items` as parser options to all parsers (including numpy), causing `TypeError: parse_numpy() got an unexpected keyword argument 'returns_named_value'`. This broke all `run_agent_corpus_action` tasks during agent creation. Pinning griffe below 2.0 restores the `**options` parameter that absorbs these Google-specific options harmlessly.
@@ -39,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deleted empty `opencontractserver/utils/export.py`**
 
 ### Added
+
+#### Automated Documentation Screenshots
+- **Screenshot capture utility** (`frontend/tests/utils/docScreenshot.ts`): Captures screenshots during Playwright component tests using an enforced `{area}--{component}--{state}` naming convention
+- **CI workflow** (`.github/workflows/screenshots.yml`): Automatically runs component tests on PRs touching `frontend/` or `docs/`, then commits updated screenshots back to the PR branch
+- **Initial screenshot coverage**: Landing page components (hero, stats bar, trending corpuses, call-to-action) and badge components (celebration modal, toast)
 
 #### V2 Export Format
 - **`OPEN_CONTRACTS_V2` export format**: New export type available in `StartCorpusExport` mutation that includes structural annotation sets, folder hierarchy, relationships, agent config, markdown descriptions, and conversations

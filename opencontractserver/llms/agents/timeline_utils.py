@@ -16,6 +16,10 @@ from .core_agents import FinalEvent, SourceEvent, ThoughtEvent
 
 __all__ = ["TimelineBuilder"]
 
+# Maximum characters of tool result content to store in the timeline.
+# Keeps the payload lightweight while giving users useful visibility.
+MAX_TOOL_RESULT_LENGTH = 500
+
 
 class TimelineBuilder:
     """Incrementally build a reasoning timeline from streamed events.
@@ -70,7 +74,21 @@ class TimelineBuilder:
                     item.thought.lower().startswith("tool ")
                     and "returned" in item.thought.lower()
                 ):
-                    self._timeline.append({"type": "tool_result", "tool": tool_name})
+                    entry: dict[str, Any] = {
+                        "type": "tool_result",
+                        "tool": tool_name,
+                    }
+                    tool_result_content = meta.get("tool_result")
+                    if tool_result_content:
+                        result_str = str(tool_result_content)
+                        original_len = len(result_str)
+                        if original_len > MAX_TOOL_RESULT_LENGTH:
+                            result_str = (
+                                result_str[:MAX_TOOL_RESULT_LENGTH]
+                                + f"... (truncated from {original_len} chars)"
+                            )
+                        entry["result"] = result_str
+                    self._timeline.append(entry)
                     return
 
             # Fallback: regular thought entry

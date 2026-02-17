@@ -6,53 +6,123 @@ import { DocumentDiscussionsContent } from "../src/components/discussions/Docume
 import { GET_CONVERSATIONS } from "../src/graphql/queries";
 import { selectedThreadId } from "../src/graphql/cache";
 import { DocumentDiscussionsContentTestWrapper } from "./DocumentDiscussionsContentTestWrapper";
+import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 
-// Mock thread data
+// Helper to build a mock thread node
+const mockThread = (
+  id: string,
+  title: string,
+  description: string,
+  overrides?: Record<string, unknown>
+) => ({
+  __typename: "ConversationTypeEdge" as const,
+  node: {
+    __typename: "ConversationType" as const,
+    id,
+    conversationType: "THREAD",
+    title,
+    description,
+    createdAt: "2025-01-15T10:00:00Z",
+    updatedAt: "2025-01-16T15:30:00Z",
+    creator: {
+      __typename: "UserType" as const,
+      id: "user-1",
+      username: "testuser",
+      email: "test@example.com",
+    },
+    chatWithCorpus: {
+      __typename: "CorpusType" as const,
+      id: "corpus-1",
+      title: "Test Corpus",
+    },
+    chatWithDocument: {
+      __typename: "DocumentType" as const,
+      id: "doc-1",
+      title: "Test Document",
+    },
+    chatMessages: {
+      __typename: "ChatMessageTypeConnection" as const,
+      totalCount: 5,
+    },
+    isPublic: true,
+    myPermissions: ["read", "create", "update"],
+    isLocked: false,
+    lockedBy: null,
+    lockedAt: null,
+    isPinned: false,
+    pinnedBy: null,
+    pinnedAt: null,
+    deletedAt: null,
+    upvoteCount: 0,
+    downvoteCount: 0,
+    userVote: null,
+    ...overrides,
+  },
+});
+
+// Mock thread data — multiple threads for a richer screenshot
 const mockThreads = {
   conversations: {
     __typename: "ConversationTypeConnection",
     edges: [
-      {
-        __typename: "ConversationTypeEdge",
-        node: {
-          __typename: "ConversationType",
-          id: "thread-1",
-          conversationType: "THREAD",
-          title: "Test Discussion Thread",
-          description: "A test thread for discussions",
-          createdAt: "2025-01-01T10:00:00Z",
-          updatedAt: "2025-01-02T15:30:00Z",
-          creator: {
+      mockThread(
+        "thread-1",
+        "Is the indemnification clause in Section 12.3 standard?",
+        "Comparing this against the ISDA master template — the carve-outs seem broader than usual.",
+        {
+          isPinned: true,
+          pinnedBy: {
             __typename: "UserType",
             id: "user-1",
             username: "testuser",
-            email: "test@example.com",
           },
-          chatWithCorpus: {
-            __typename: "CorpusType",
-            id: "corpus-1",
-            title: "Test Corpus",
-          },
-          chatWithDocument: {
-            __typename: "DocumentType",
-            id: "doc-1",
-            title: "Test Document",
-          },
+          pinnedAt: "2025-01-16T12:00:00Z",
+          upvoteCount: 7,
           chatMessages: {
             __typename: "ChatMessageTypeConnection",
-            totalCount: 5,
+            totalCount: 12,
           },
-          isPublic: true,
-          myPermissions: ["read", "create", "update"],
-          isLocked: false,
-          lockedBy: null,
-          lockedAt: null,
-          isPinned: false,
-          pinnedBy: null,
-          pinnedAt: null,
-          deletedAt: null,
-        },
-      },
+          creator: {
+            __typename: "UserType",
+            id: "user-2",
+            username: "sarah.chen",
+            email: "sarah@example.com",
+          },
+        }
+      ),
+      mockThread(
+        "thread-2",
+        "Force majeure scope needs review",
+        "The pandemic language was added in the 2021 amendment but conflicts with the original limitation period.",
+        {
+          upvoteCount: 3,
+          chatMessages: {
+            __typename: "ChatMessageTypeConnection",
+            totalCount: 8,
+          },
+          creator: {
+            __typename: "UserType",
+            id: "user-3",
+            username: "m.rodriguez",
+            email: "mrod@example.com",
+          },
+          createdAt: "2025-01-14T09:00:00Z",
+        }
+      ),
+      mockThread(
+        "thread-3",
+        "@ResearchBot — summarize the termination provisions across all vendor contracts",
+        "Let's see how termination-for-convenience compares across the portfolio.",
+        {
+          upvoteCount: 5,
+          downvoteCount: 1,
+          chatMessages: {
+            __typename: "ChatMessageTypeConnection",
+            totalCount: 4,
+          },
+          createdAt: "2025-01-13T14:00:00Z",
+        }
+      ),
     ],
     pageInfo: {
       __typename: "PageInfo",
@@ -61,7 +131,7 @@ const mockThreads = {
       startCursor: "",
       endCursor: "",
     },
-    totalCount: 1,
+    totalCount: 3,
   },
 };
 
@@ -98,8 +168,7 @@ test.describe("DocumentDiscussionsContent", () => {
           variables: {
             documentId: "doc-1",
             conversationType: "THREAD",
-            onThreadClick: expect.any(Function),
-            embedded: true,
+            limit: 20,
           },
         },
         result: { data: mockThreads },
@@ -120,6 +189,12 @@ test.describe("DocumentDiscussionsContent", () => {
       name: /start new discussion/i,
     });
     await expect(createButton).toBeVisible();
+
+    // Wait for thread cards to render
+    await expect(page.getByText("indemnification clause")).toBeVisible();
+
+    await docScreenshot(page, "discussions--thread-list--with-threads");
+    await releaseScreenshot(page, "v3.0.0.b3", "discussion-thread");
   });
 
   // Note: Thread detail view tests are handled by actual integration in DocumentKnowledgeBase

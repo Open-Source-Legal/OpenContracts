@@ -2453,9 +2453,9 @@ Each `CoreTool` has three permission-related flags:
 The `_check_user_permissions()` function runs **before every tool execution** as a defense-in-depth measure:
 
 ```python
-# Lines 20-111 in pydantic_ai_tools.py
+# Lines 20-127 in pydantic_ai_tools.py
 
-def _check_user_permissions(ctx: RunContext[PydanticAIDependencies]) -> None:
+async def _check_user_permissions(ctx: RunContext[PydanticAIDependencies]) -> None:
     """
     Validate that the user in context has permission to access the resources.
 
@@ -2471,26 +2471,33 @@ def _check_user_permissions(ctx: RunContext[PydanticAIDependencies]) -> None:
     if user_id is None:
         # Anonymous user - only allow if resources are public
         if document_id:
-            doc = Document.objects.get(pk=document_id)
+            doc = await Document.objects.aget(pk=document_id)
             if not doc.is_public:
                 raise PermissionError("Anonymous access denied to private document")
         if corpus_id:
-            corpus = Corpus.objects.get(pk=corpus_id)
+            corpus = await Corpus.objects.aget(pk=corpus_id)
             if not corpus.is_public:
                 raise PermissionError("Anonymous access denied to private corpus")
         return
 
-    # Authenticated user - check actual permissions
-    user = User.objects.get(pk=user_id)
+    # Authenticated user - uses visible_to_user() which properly handles
+    # creator access, public status, and guardian permissions
+    user = await User.objects.aget(pk=user_id)
 
     if document_id:
-        doc = Document.objects.get(pk=document_id)
-        if not user_has_permission_for_obj(user, doc, PermissionTypes.READ):
+        has_perm = await database_sync_to_async(
+            lambda: Document.objects.visible_to_user(user)
+            .filter(pk=document_id).exists()
+        )()
+        if not has_perm:
             raise PermissionError(f"User {user_id} lacks READ permission on document")
 
     if corpus_id:
-        corpus = Corpus.objects.get(pk=corpus_id)
-        if not user_has_permission_for_obj(user, corpus, PermissionTypes.READ):
+        has_perm = await database_sync_to_async(
+            lambda: Corpus.objects.visible_to_user(user)
+            .filter(pk=corpus_id).exists()
+        )()
+        if not has_perm:
             raise PermissionError(f"User {user_id} lacks READ permission on corpus")
 ```
 

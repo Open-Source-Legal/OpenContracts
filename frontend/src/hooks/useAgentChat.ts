@@ -62,6 +62,8 @@ export interface AgentMessageData {
     | "ASYNC_THOUGHT"
     | "ASYNC_SOURCES"
     | "ASYNC_APPROVAL_NEEDED"
+    | "ASYNC_APPROVAL_RESULT"
+    | "ASYNC_RESUME"
     | "ASYNC_ERROR";
   content: string;
   data?: {
@@ -668,6 +670,28 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
                 )
               );
             }
+            break;
+
+          case "ASYNC_APPROVAL_RESULT":
+            // Informational – backend echoes the user's decision.
+            if (
+              pendingApproval &&
+              data?.message_id === pendingApproval.messageId
+            ) {
+              setPendingApproval(null);
+              setShowApprovalModal(false);
+              if (data?.decision) {
+                updateMessageApprovalStatus(
+                  pendingApproval.messageId,
+                  data.decision as "approved" | "rejected"
+                );
+              }
+            }
+            break;
+
+          case "ASYNC_RESUME":
+            // Agent is resuming after approval – keep processing indicator.
+            setIsProcessing(true);
             break;
 
           case "ASYNC_FINISH":

@@ -297,7 +297,8 @@ class TestCheckUserPermissions(TestCase):
     async def test_authenticated_user_nonexistent_document_raises_error(self):
         """Test that authenticated user accessing non-existent document raises PermissionError.
 
-        Line 113 coverage: Document.DoesNotExist for authenticated user.
+        Uses visible_to_user() which returns empty queryset for non-existent docs,
+        resulting in a "lacks READ permission" error (consistent with IDOR prevention).
         """
         deps = PydanticAIDependencies(
             user_id=self.user.id,
@@ -308,12 +309,13 @@ class TestCheckUserPermissions(TestCase):
 
         with self.assertRaises(PermissionError) as context:
             await _check_user_permissions(ctx)
-        self.assertIn("not found", str(context.exception))
+        self.assertIn("lacks READ permission", str(context.exception))
 
     async def test_authenticated_user_nonexistent_corpus_raises_error(self):
         """Test that authenticated user accessing non-existent corpus raises PermissionError.
 
-        Line 129 coverage: Corpus.DoesNotExist for authenticated user.
+        Uses visible_to_user() which returns empty queryset for non-existent corpuses,
+        resulting in a "lacks READ permission" error (consistent with IDOR prevention).
         """
         deps = PydanticAIDependencies(
             user_id=self.user.id,
@@ -324,7 +326,7 @@ class TestCheckUserPermissions(TestCase):
 
         with self.assertRaises(PermissionError) as context:
             await _check_user_permissions(ctx)
-        self.assertIn("not found", str(context.exception))
+        self.assertIn("lacks READ permission", str(context.exception))
 
 
 # ---------------------------------------------------------------------------

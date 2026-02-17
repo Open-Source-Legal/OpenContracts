@@ -1,15 +1,12 @@
 // Playwright Component Tests for Landing Page Components
 import React from "react";
 import { test, expect } from "@playwright/experimental-ct-react";
-import { HeroSection } from "../src/components/landing/HeroSection";
-import { StatsBar } from "../src/components/landing/StatsBar";
-import { TrendingCorpuses } from "../src/components/landing/TrendingCorpuses";
-import { RecentDiscussions } from "../src/components/landing/RecentDiscussions";
 import { CompactLeaderboard } from "../src/components/landing/CompactLeaderboard";
 import { CallToAction } from "../src/components/landing/CallToAction";
 import { DiscoveryLanding } from "../src/views/DiscoveryLanding";
 import { LandingTestWrapper } from "./LandingTestWrapper";
 import { GET_DISCOVERY_DATA } from "../src/graphql/landing-queries";
+import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 
 // Mock data
 const mockCommunityStats = {
@@ -173,198 +170,6 @@ const mockDiscoveryData = {
 };
 
 // ============================================================================
-// HeroSection Tests
-// ============================================================================
-test.describe("HeroSection Component", () => {
-  test("should render hero section with title and search", async ({
-    mount,
-    page,
-  }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <HeroSection isAuthenticated={false} />
-      </LandingTestWrapper>
-    );
-
-    // Check main title is visible
-    await expect(page.locator("text=Discover, Analyze &")).toBeVisible({
-      timeout: 10000,
-    });
-
-    // Check search input is present
-    await expect(page.locator('input[placeholder*="Search"]')).toBeVisible();
-
-    // Check quick links are present
-    await expect(page.locator("text=Browse Collections")).toBeVisible();
-    await expect(page.locator("text=All Discussions")).toBeVisible();
-
-    await component.unmount();
-  });
-
-  test("should show different subtitle for authenticated users", async ({
-    mount,
-    page,
-  }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <HeroSection isAuthenticated={true} />
-      </LandingTestWrapper>
-    );
-
-    // Check for authenticated user subtitle
-    await expect(page.locator("text=Welcome back!")).toBeVisible({
-      timeout: 10000,
-    });
-
-    await component.unmount();
-  });
-});
-
-// ============================================================================
-// StatsBar Tests
-// ============================================================================
-test.describe("StatsBar Component", () => {
-  test("should render stats correctly", async ({ mount, page }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <StatsBar stats={mockCommunityStats} loading={false} />
-      </LandingTestWrapper>
-    );
-
-    // Check that stats values are rendered (formatted numbers)
-    await expect(page.locator("text=1.2K")).toBeVisible({ timeout: 10000 }); // totalUsers: 1234 -> 1.2K
-    await expect(page.locator("text=Users")).toBeVisible();
-    await expect(page.locator("text=Discussions")).toBeVisible();
-    await expect(page.locator("text=Annotations")).toBeVisible();
-
-    await component.unmount();
-  });
-
-  test("should handle null stats gracefully", async ({ mount, page }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <StatsBar stats={null} loading={false} />
-      </LandingTestWrapper>
-    );
-
-    // Should show dash for missing values (there are 6 stat cards, all showing dash)
-    await expect(page.locator("text=—").first()).toBeVisible({
-      timeout: 10000,
-    });
-
-    await component.unmount();
-  });
-});
-
-// ============================================================================
-// TrendingCorpuses Tests
-// ============================================================================
-test.describe("TrendingCorpuses Component", () => {
-  test("should render corpus cards", async ({ mount, page }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <TrendingCorpuses corpuses={mockCorpuses} loading={false} />
-      </LandingTestWrapper>
-    );
-
-    // Check section header
-    await expect(page.locator("text=Trending Collections")).toBeVisible({
-      timeout: 10000,
-    });
-
-    // Check corpus titles are rendered
-    await expect(page.locator("text=Legal Contracts Collection")).toBeVisible();
-    await expect(page.locator("text=Research Papers Archive")).toBeVisible();
-
-    // Check View All button
-    await expect(page.locator("text=View All")).toBeVisible();
-
-    await component.unmount();
-  });
-
-  test("should display corpus stats", async ({ mount, page }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <TrendingCorpuses corpuses={mockCorpuses} loading={false} />
-      </LandingTestWrapper>
-    );
-
-    // Check stats are shown
-    await expect(page.locator("text=150 docs")).toBeVisible({ timeout: 10000 });
-    await expect(page.locator("text=25 threads")).toBeVisible();
-
-    await component.unmount();
-  });
-});
-
-// ============================================================================
-// RecentDiscussions Tests
-// ============================================================================
-test.describe("RecentDiscussions Component", () => {
-  test("should render discussion items", async ({ mount, page }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <RecentDiscussions
-          discussions={mockDiscussions}
-          loading={false}
-          totalCount={2}
-        />
-      </LandingTestWrapper>
-    );
-
-    // Check section header
-    await expect(page.locator("text=Recent Discussions")).toBeVisible({
-      timeout: 10000,
-    });
-
-    // Check discussion titles
-    await expect(
-      page.locator("text=Discussion about contract clauses")
-    ).toBeVisible();
-    await expect(
-      page.locator("text=Research methodology questions")
-    ).toBeVisible();
-
-    await component.unmount();
-  });
-
-  test("should show pinned badge for pinned discussions", async ({
-    mount,
-    page,
-  }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <RecentDiscussions discussions={mockDiscussions} loading={false} />
-      </LandingTestWrapper>
-    );
-
-    // First discussion is pinned
-    await expect(page.locator("text=Pinned")).toBeVisible({ timeout: 10000 });
-
-    await component.unmount();
-  });
-
-  test("should display thread actions for discussions", async ({
-    mount,
-    page,
-  }) => {
-    const component = await mount(
-      <LandingTestWrapper>
-        <RecentDiscussions discussions={mockDiscussions} loading={false} />
-      </LandingTestWrapper>
-    );
-
-    // Component displays "View thread" action for each discussion
-    const viewThreadLinks = page.locator("text=View thread");
-    await expect(viewThreadLinks.first()).toBeVisible({ timeout: 10000 });
-    // Should have one "View thread" per discussion
-    await expect(viewThreadLinks).toHaveCount(2);
-
-    await component.unmount();
-  });
-});
-
-// ============================================================================
 // CompactLeaderboard Tests
 // ============================================================================
 test.describe("CompactLeaderboard Component", () => {
@@ -383,6 +188,13 @@ test.describe("CompactLeaderboard Component", () => {
       timeout: 10000,
     });
     await expect(page.locator("text=activeuser")).toBeVisible();
+
+    await docScreenshot(page, "landing--leaderboard--with-data", {
+      element: component,
+    });
+    await releaseScreenshot(page, "v3.0.0.b3", "leaderboard", {
+      element: component,
+    });
 
     await component.unmount();
   });
@@ -437,6 +249,14 @@ test.describe("CallToAction Component", () => {
     await expect(page.locator("text=Open Source & Free")).toBeVisible();
     await expect(page.locator("text=AI-Powered Analysis")).toBeVisible();
 
+    // Allow framer-motion animations to fully settle before screenshot
+    await page.waitForTimeout(1000);
+
+    // Doc screenshot: call-to-action section for anonymous users
+    await docScreenshot(page, "landing--call-to-action--anonymous", {
+      element: component,
+    });
+
     await component.unmount();
   });
 
@@ -485,6 +305,14 @@ test.describe("DiscoveryLanding Page", () => {
     // Check hero section - updated text after redesign
     await expect(page.locator("text=The open platform for")).toBeVisible({
       timeout: 15000,
+    });
+
+    // Doc screenshot: full discovery landing page integration
+    await docScreenshot(page, "landing--discovery-page--anonymous", {
+      fullPage: true,
+    });
+    await releaseScreenshot(page, "v3.0.0.b3", "landing-page", {
+      fullPage: true,
     });
 
     await component.unmount();

@@ -6,6 +6,7 @@ import {
   createMockFolderHierarchy,
 } from "./utils/mockFolderData";
 import { GET_CORPUS_FOLDERS } from "../../src/graphql/queries/folders";
+import { docScreenshot, releaseScreenshot } from "../utils/docScreenshot";
 
 test.describe("FolderTreeSidebar", () => {
   test("renders with mocked folder data", async ({ mount }) => {
@@ -135,7 +136,7 @@ test.describe("FolderTreeSidebar", () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
-  test("renders folder tree with nested structure", async ({ mount }) => {
+  test("renders folder tree with nested structure", async ({ mount, page }) => {
     const { allFolders } = createMockFolderHierarchy();
 
     const mocks = [
@@ -166,6 +167,13 @@ test.describe("FolderTreeSidebar", () => {
     });
     await expect(component.getByText("Research")).toBeVisible({
       timeout: 5000,
+    });
+
+    await docScreenshot(page, "folders--tree-sidebar--nested", {
+      element: component,
+    });
+    await releaseScreenshot(page, "v3.0.0.b3", "folder-tree", {
+      element: component,
     });
   });
 
