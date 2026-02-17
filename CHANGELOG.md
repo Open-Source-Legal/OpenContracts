@@ -33,9 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 #### High Database Connection Count and Churn in Production
-- **Enabled `CONN_HEALTH_CHECKS`** (`config/settings/production.py`): Django 4.1+ feature that validates persistent connections are still alive before reuse. Without this, stale connections (closed by Cloud SQL proxy or PostgreSQL idle timeout) caused errors on use, forcing Django to open replacements and creating TIME_WAIT churn.
-- **Added TCP keepalive OPTIONS to production database config** (`config/settings/production.py`): Added `connect_timeout`, `keepalives`, `keepalives_idle`, `keepalives_interval`, and `keepalives_count` to prevent intermediate infrastructure (Cloud SQL proxy, firewalls, load balancers) from silently dropping idle connections. These settings were already present in test config but missing from production.
-- **Added Celery `worker_process_init` signal to close inherited DB connections** (`config/celery_app.py`): When Celery forks a worker child process, it inherits the parent's database connections which are invalid in the child. Explicitly closing them on init prevents stale connection accumulation and errors.
+- **Enabled `CONN_HEALTH_CHECKS`** to validate persistent connections before reuse (`config/settings/production.py:25`)
+- **Added TCP keepalive settings** to prevent Cloud SQL proxy from dropping idle connections (`config/settings/production.py:27-32`)
+- **Added Celery `worker_process_init` signal** to close inherited connections in forked workers (`config/celery_app.py:21-37`)
+
 #### Security: LLM Prompt Injection Protection for Approval Bypass
 - **Replaced `skip_approval` function parameter with `config._approval_bypass_allowed` flag**: The previous design exposed a `skip_approval` parameter in `ask_document_tool`'s function signature that a malicious LLM could set to `True` to bypass approval gates. Now uses a runtime flag on `AgentConfig` that only `resume_with_approval()` can set, wrapped in a `try/finally` block to guarantee reset
   - File: `opencontractserver/llms/agents/pydantic_ai_agents.py`

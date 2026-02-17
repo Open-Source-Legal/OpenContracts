@@ -22,10 +22,15 @@ app.autodiscover_tasks()
 def close_db_connections_on_worker_init(**kwargs):
     """Close database connections inherited from the parent (prefork) process.
 
-    When Celery forks a worker child, it inherits the parent's DB connections.
-    These inherited connections are invalid in the child and must be closed so
-    Django opens fresh ones. Without this, stale inherited connections can cause
+    This handler is designed for the prefork pool (the default pool type used in
+    production — see CELERY_MAX_TASKS_PER_CHILD and CELERY_WORKER_MAX_MEMORY_PER_CHILD
+    in base settings). When Celery forks a worker child, it inherits the parent's DB
+    connections. These inherited connections are invalid in the child and must be closed
+    so Django opens fresh ones. Without this, stale inherited connections can cause
     errors and contribute to connection churn (TIME_WAIT accumulation).
+
+    For other pool types (solo, threads, gevent/eventlet) this signal still fires
+    but is harmless — closing connections that don't exist is a no-op.
     """
     from django.db import connections
 

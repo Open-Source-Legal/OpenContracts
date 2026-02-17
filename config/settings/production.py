@@ -28,7 +28,7 @@ DATABASES["default"]["OPTIONS"] = {  # noqa F405
     "connect_timeout": env.int("DATABASE_CONNECT_TIMEOUT", default=10),
     "keepalives": 1,
     "keepalives_idle": env.int("DATABASE_KEEPALIVES_IDLE", default=30),
-    "keepalives_interval": env.int("DATABASE_KEEPALIVES_INTERVAL", default=10),
+    "keepalives_interval": env.int("DATABASE_KEEPALIVES_INTERVAL", default=5),
     "keepalives_count": env.int("DATABASE_KEEPALIVES_COUNT", default=5),
 }
 
