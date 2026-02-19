@@ -646,6 +646,9 @@ MODEL_PATH = pathlib.Path(BASE_PATH, "model")
 # Start with the base middleware that we always want
 GRAPHENE_MIDDLEWARE = [
     "config.graphql.permissioning.permission_annotator.middleware.PermissionAnnotatingMiddleware",
+    # Workstation key middleware runs before JWT so that wsk_ tokens
+    # are consumed here and don't reach JSONWebTokenMiddleware.
+    "opencontractserver.bulk_ingestion.middleware.WorkstationKeyMiddleware",
 ]
 
 # Add JWT middleware if using Auth0

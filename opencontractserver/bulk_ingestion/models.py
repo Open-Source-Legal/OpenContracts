@@ -12,7 +12,11 @@ OpenContracts. Supports three ingestion modes:
 The architecture uses a two-level job/item model:
 - BulkIngestionJob: Orchestrates the overall import, tracks progress
 - BulkIngestionItem: Tracks individual document state through the pipeline
+- WorkstationApiKey: Revokable API keys for workstation authentication
 """
+
+import hashlib
+import secrets
 
 import django
 from django.contrib.auth import get_user_model
@@ -23,6 +27,9 @@ from opencontractserver.shared.fields import NullableJSONField
 from opencontractserver.shared.Models import BaseOCModel
 
 User = get_user_model()
+
+WORKSTATION_KEY_PREFIX = "wsk_"
+WORKSTATION_KEY_BYTES = 32  # 64 hex chars → 68 total with prefix
 
 
 class IngestionSourceType(models.TextChoices):
@@ -369,3 +376,99 @@ class BulkIngestionItem(models.Model):
             f"BulkIngestionItem({self.id}) job={self.job_id} "
             f"ext_id={self.external_id} status={self.status}"
         )
+
+
+class WorkstationApiKey(models.Model):
+    """
+    Revokable API key for workstation authentication.
+
+    Workstations use these keys to authenticate GraphQL requests without
+    needing a full user login flow. Keys are scoped to a user (creator)
+    and optionally to a specific BulkIngestionJob.
+
+    The raw key is shown exactly once at creation time. Only a SHA-256
+    hash is stored; the first 12 characters are kept as a display prefix
+    for key identification in management UIs.
+
+    Key format: ``wsk_{64 hex chars}`` (68 characters total).
+    Auth header: ``Authorization: WSK wsk_<hex>``
+    """
+
+    creator = django.db.models.ForeignKey(
+        User,
+        on_delete=django.db.models.CASCADE,
+        related_name="workstation_api_keys",
+        help_text="User this key authenticates as",
+    )
+
+    name = django.db.models.CharField(
+        max_length=255,
+        help_text="Human-readable label (e.g. 'gpu-workstation-01')",
+    )
+
+    key_prefix = django.db.models.CharField(
+        max_length=12,
+        help_text="First 12 characters of the raw key, for display only",
+    )
+
+    key_hash = django.db.models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="SHA-256 hex digest of the full raw key",
+    )
+
+    job = django.db.models.ForeignKey(
+        BulkIngestionJob,
+        null=True,
+        blank=True,
+        on_delete=django.db.models.SET_NULL,
+        related_name="workstation_api_keys",
+        help_text="Optional: restrict this key to a single job",
+    )
+
+    is_active = django.db.models.BooleanField(
+        default=True,
+        help_text="Set to False to revoke this key",
+    )
+
+    expires_at = django.db.models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Optional expiry timestamp; null means no expiry",
+    )
+
+    last_used_at = django.db.models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the most recent successful authentication",
+    )
+
+    created_at = django.db.models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            django.db.models.Index(fields=["key_hash"]),
+            django.db.models.Index(fields=["creator", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"WorkstationApiKey({self.key_prefix}...) user={self.creator_id}"
+
+    @staticmethod
+    def generate_key() -> tuple[str, str]:
+        """
+        Generate a new raw key and its SHA-256 hash.
+
+        Returns:
+            (raw_key, key_hash) — raw_key is shown once to the user;
+            key_hash is stored in the database.
+        """
+        raw = WORKSTATION_KEY_PREFIX + secrets.token_hex(WORKSTATION_KEY_BYTES)
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        return raw, digest
+
+    @staticmethod
+    def hash_key(raw_key: str) -> str:
+        """Hash a raw key for database lookup."""
+        return hashlib.sha256(raw_key.encode()).hexdigest()

@@ -21,6 +21,7 @@ from opencontractserver.bulk_ingestion.models import (
     BulkIngestionJobStatus,
     IngestionSourceType,
     ParsingStrategy,
+    WorkstationApiKey,
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -602,6 +603,146 @@ class CompleteBulkIngestionBatch(graphene.Mutation):
             ok=True,
             message="Results submitted for import",
         )
+
+
+# ============================================================================
+# Workstation API Key Mutations
+# ============================================================================
+
+
+class WorkstationApiKeyType(DjangoObjectType):
+    """GraphQL type for WorkstationApiKey (never exposes the raw key)."""
+
+    class Meta:
+        model = WorkstationApiKey
+        fields = [
+            "id",
+            "name",
+            "key_prefix",
+            "job",
+            "is_active",
+            "expires_at",
+            "last_used_at",
+            "created_at",
+            "creator",
+        ]
+
+
+class CreateWorkstationApiKey(graphene.Mutation):
+    """
+    Generate a new revokable API key for workstation authentication.
+
+    The raw key is returned exactly once in the ``raw_key`` field.
+    Store it securely — it cannot be retrieved again.
+
+    Keys authenticate as the creating user. Optionally scope a key
+    to a single BulkIngestionJob by passing ``job_id``.
+    """
+
+    class Arguments:
+        name = graphene.String(
+            required=True,
+            description="Human-readable label (e.g. 'gpu-workstation-01')",
+        )
+        job_id = graphene.ID(
+            required=False,
+            description="Optional: restrict key to a specific bulk ingestion job",
+        )
+        expires_in_hours = graphene.Int(
+            required=False,
+            description="Optional: key expiry in hours from now (null = no expiry)",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    api_key = graphene.Field(WorkstationApiKeyType)
+    raw_key = graphene.String(
+        description="The full secret key — shown exactly once, store securely"
+    )
+
+    @staticmethod
+    @login_required
+    def mutate(root, info, name, job_id=None, expires_in_hours=None):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        user = info.context.user
+
+        # Validate job access if scoped
+        job = None
+        if job_id:
+            try:
+                job = BulkIngestionJob.objects.get(pk=job_id, creator=user)
+            except BulkIngestionJob.DoesNotExist:
+                return CreateWorkstationApiKey(
+                    ok=False, message="Job not found", api_key=None, raw_key=None
+                )
+
+        raw_key, key_hash = WorkstationApiKey.generate_key()
+
+        expires_at = None
+        if expires_in_hours is not None:
+            expires_at = timezone.now() + timedelta(hours=expires_in_hours)
+
+        api_key = WorkstationApiKey.objects.create(
+            creator=user,
+            name=name,
+            key_prefix=raw_key[:12],
+            key_hash=key_hash,
+            job=job,
+            expires_at=expires_at,
+        )
+
+        logger.info(
+            f"Created workstation API key {api_key.key_prefix}... "
+            f"for user {user.id}"
+        )
+
+        return CreateWorkstationApiKey(
+            ok=True,
+            message="Key created — store the raw_key securely, it cannot be retrieved again",
+            api_key=api_key,
+            raw_key=raw_key,
+        )
+
+
+class RevokeWorkstationApiKey(graphene.Mutation):
+    """
+    Revoke a workstation API key.
+
+    The key is deactivated immediately. Subsequent requests using
+    this key will fail authentication.
+    """
+
+    class Arguments:
+        key_id = graphene.ID(required=True, description="WorkstationApiKey ID")
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @login_required
+    def mutate(root, info, key_id):
+        user = info.context.user
+
+        try:
+            api_key = WorkstationApiKey.objects.get(pk=key_id, creator=user)
+        except WorkstationApiKey.DoesNotExist:
+            return RevokeWorkstationApiKey(ok=False, message="Key not found")
+
+        if not api_key.is_active:
+            return RevokeWorkstationApiKey(ok=False, message="Key is already revoked")
+
+        api_key.is_active = False
+        api_key.save(update_fields=["is_active"])
+
+        logger.info(
+            f"Revoked workstation API key {api_key.key_prefix}... "
+            f"for user {user.id}"
+        )
+
+        return RevokeWorkstationApiKey(ok=True, message="Key revoked")
 
 
 # ============================================================================

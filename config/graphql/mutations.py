@@ -42,8 +42,10 @@ from config.graphql.bulk_ingestion_mutations import (
     ClaimBulkIngestionBatch,
     CompleteBulkIngestionBatch,
     CreateBulkIngestionJob,
+    CreateWorkstationApiKey,
     PauseBulkIngestionJob,
     ResumeBulkIngestionJob,
+    RevokeWorkstationApiKey,
     StartBulkIngestionJob,
 )
 
@@ -6070,3 +6072,5 @@ class Mutation(graphene.ObjectType):
     cancel_bulk_ingestion_job = CancelBulkIngestionJob.Field()
     claim_bulk_ingestion_batch = ClaimBulkIngestionBatch.Field()
     complete_bulk_ingestion_batch = CompleteBulkIngestionBatch.Field()
+    create_workstation_api_key = CreateWorkstationApiKey.Field()
+    revoke_workstation_api_key = RevokeWorkstationApiKey.Field()
