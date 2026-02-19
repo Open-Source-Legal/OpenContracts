@@ -38,9 +38,12 @@ COPY ./requirements ./requirements
 
 RUN pip install --upgrade pip
 
-# Build wheels for all requirements files found in the requirements directory and subdirectories
-RUN find ./requirements -type f -name "*.txt" -exec echo "-r" {} \; | \
-  xargs pip wheel --wheel-dir /usr/src/app/wheels
+# Build wheels for local requirements + pluggable pipeline extras.
+# Excludes docs.txt and production.txt which are not needed for local/test builds
+# and would add unnecessary packages that slow or break pip dependency resolution.
+RUN pip wheel --wheel-dir /usr/src/app/wheels \
+  -r ./requirements/local.txt \
+  $(find ./requirements -mindepth 2 -type f -name "*.txt" -print | sed 's/^/-r /')
 
 # Python 'run' stage
 FROM python as python-run-stage
@@ -89,23 +92,6 @@ RUN pip install --upgrade pip
 # use wheels to install python dependencies first
 RUN pip install --no-cache-dir --no-index --find-links=/wheels/ /wheels/* \
 	&& rm -rf /wheels/
-
-# PyTorch is already installed in the base image, so we skip torch installation
-# Install sentence-transformers AFTER other requirements to avoid conflicts
-# Pin tokenizers version to avoid compatibility issues with transformers
-RUN pip install 'tokenizers>=0.21,<0.22' sentence-transformers
-
-# Create the /models directory and set permissions
-RUN mkdir -p /models && chmod -R 755 /models
-
-# Copy the model_preloaders directory
-COPY ./model_preloaders ./model_preloaders
-
-# Run all Python scripts in the model_preloaders directory to download models to /models
-RUN for script in ./model_preloaders/*.py; do \
-      echo "Running $script"; \
-      python "$script"; \
-    done
 
 # Download spacy models with retry logic and direct pip installation
 # Using pip directly is more reliable than spacy download command in Docker

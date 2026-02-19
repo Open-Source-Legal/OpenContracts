@@ -33,9 +33,9 @@ COPY ./requirements ./requirements
 # Upgrade pip
 RUN pip install --upgrade pip
 
-# Build wheels for production requirements plus scoped extras
+# Build wheels for production requirements plus pluggable pipeline extras
 RUN (find ./requirements -mindepth 2 -type f -name "*.txt" -print; \
-     printf '%s\n' ./requirements/production.txt ./requirements/model_preloaders.txt) \
+     printf '%s\n' ./requirements/production.txt) \
     | sort -u \
     | sed 's/^/-r /' \
     | xargs -r pip wheel --wheel-dir /usr/src/app/wheels
@@ -89,26 +89,9 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir --no-index --find-links=/wheels/ /wheels/* \
     && rm -rf /wheels/
 
-# PyTorch is already installed in the base image with CUDA support
-# Install sentence-transformers AFTER other requirements to avoid conflicts
-# Pin tokenizers version to avoid compatibility issues with transformers
-RUN pip install 'tokenizers>=0.21,<0.22' sentence-transformers
-
-# Create /models, copy model preloaders from the build context, and run them
-RUN mkdir -p /models
-RUN chown django:django /models
-COPY ./model_preloaders ./model_preloaders
-RUN for script in ./model_preloaders/*.py; do \
-      echo "Running $script"; \
-      python "$script"; \
-    done
-
-# Download spacy models
+# Download spacy models (used by TxtParser for sentence tokenization)
 RUN python -m spacy download en_core_web_sm
 RUN python -m spacy download en_core_web_lg
-
-# Change ownership of the entire /models directory AFTER models are downloaded
-RUN chown -R django:django /models
 
 COPY --chown=django:django ./compose/production/django/entrypoint /entrypoint
 RUN sed -i 's/\r$//g' /entrypoint

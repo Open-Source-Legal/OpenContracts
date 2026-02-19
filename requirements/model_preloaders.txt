@@ -1,4 +1,5 @@
-# Model preloader dependencies
-# These are required for the model preloader scripts that run during Docker build
-docling
-easyocr
+# Model preloader dependencies (DEPRECATED)
+# ML model downloading has been migrated to dedicated microservice containers:
+#   - docling-parser: handles PDF parsing (docling + easyocr models)
+#   - vector-embedder: handles text embeddings (sentence-transformers models)
+# Only spacy models are still installed directly (see Dockerfiles).
