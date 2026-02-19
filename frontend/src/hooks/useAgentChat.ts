@@ -578,7 +578,7 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
         )
       );
     },
-    []
+    [setPendingApproval, setMessages]
   );
 
   // ========================================================================

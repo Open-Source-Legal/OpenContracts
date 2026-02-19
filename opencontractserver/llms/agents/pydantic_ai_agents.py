@@ -320,7 +320,8 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         force_llm_id: int | None = None,
         force_user_msg_id: int | None = None,
         initial_timeline: list[dict] | None = None,
-        **kwargs,
+        deps: Any = None,
+        message_history: list[Any] | None = None,
     ) -> AsyncGenerator[UnifiedStreamEvent, None]:
         """Internal streaming generator – TimelineStreamMixin adds timeline."""
 
@@ -356,7 +357,11 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         final_usage_data: dict[str, Any] | None = None
 
         # Re-hydrate the historical context for Pydantic-AI, if any exists.
-        message_history = await self._get_message_history()
+        # Callers (e.g. resume_with_approval) may provide an explicit
+        # message_history containing injected tool-call entries; use that
+        # when supplied instead of computing from the DB.
+        if message_history is None:
+            message_history = await self._get_message_history()
 
         # CRITICAL FIX: Exclude the most recent HUMAN message from history since
         # pydantic_ai.iter() will automatically add the current `message` parameter.
@@ -376,10 +381,12 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             if not message_history:
                 message_history = None
 
-        stream_kwargs: dict[str, Any] = {"deps": self.agent_deps}
+        # Use caller-provided deps or fall back to the agent's own deps.
+        effective_deps = deps if deps is not None else self.agent_deps
+
+        stream_kwargs: dict[str, Any] = {"deps": effective_deps}
         if message_history:
             stream_kwargs["message_history"] = message_history
-        stream_kwargs.update(kwargs)
 
         # Timeline builder – captures reasoning steps for persistence/UI
         builder = TimelineBuilder()

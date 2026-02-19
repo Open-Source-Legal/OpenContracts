@@ -295,7 +295,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         })
       );
     },
-    []
+    [setPendingApproval, setServerMessages, setChat]
   );
 
   // Flag so we only run initial scroll restore once

@@ -73,6 +73,19 @@ class _FakeFinalEvent:
     metadata: dict = field(default_factory=dict)
 
 
+@dataclass
+class _ToolCallCtx:
+    """Lightweight stand-in for the RunContext passed to tool callables.
+
+    PydanticAI provides a RunContext with ``tool_call_id`` and ``deps``,
+    plus other fields.  Tests only inspect a small subset so we keep this
+    deliberately minimal.
+    """
+
+    tool_call_id: str = "test-call"
+    deps: Any = field(default=None)
+
+
 class _IterCtx:
     """Async context manager mimicking a successful agent.iter() call."""
 
@@ -221,17 +234,14 @@ class TestNestedApprovalGates(TransactionTestCase):
 
     def _make_ctx(self, *, skip_approval_gate: bool = False):
         """Build a lightweight tool-call context stub for ask_document tests."""
-
-        class _Ctx:
-            tool_call_id = "test-call"
-            deps = types.SimpleNamespace(
+        return _ToolCallCtx(
+            deps=types.SimpleNamespace(
                 skip_approval_gate=skip_approval_gate,
                 user_id=self.user.id,
                 document_id=self.document.id,
                 corpus_id=self.corpus.id,
-            )
-
-        return _Ctx()
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Tests: ask_document_tool approval propagation
@@ -969,14 +979,18 @@ class TestNestedApprovalGates(TransactionTestCase):
             tool_fn, "update_corpus_description tool not found in effective_tools"
         )
 
-        # The tool callable should carry requires_approval via core_tool
+        # The tool callable must carry requires_approval via core_tool AND
+        # the direct wrapper attribute.  Assert both unconditionally so that
+        # a regression where either attribute is dropped causes a test failure.
         core_tool = getattr(tool_fn, "core_tool", None)
-        if core_tool is not None:
-            self.assertTrue(
-                core_tool.requires_approval,
-                "update_corpus_description core_tool.requires_approval should be True",
-            )
-        # Also check the direct attribute set by the wrapper
+        self.assertIsNotNone(
+            core_tool,
+            "update_corpus_description should expose a core_tool attribute",
+        )
+        self.assertTrue(
+            core_tool.requires_approval,
+            "update_corpus_description core_tool.requires_approval should be True",
+        )
         self.assertTrue(
             getattr(tool_fn, "requires_approval", False),
             "update_corpus_description should have requires_approval=True",

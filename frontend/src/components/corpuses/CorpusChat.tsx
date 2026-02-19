@@ -860,7 +860,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       setChat((prev) => prev.map(mapper));
       setServerMessages((prev) => prev.map(mapper));
     },
-    []
+    [setChat, setServerMessages]
   );
 
   // Query for listing CORPUS conversations
