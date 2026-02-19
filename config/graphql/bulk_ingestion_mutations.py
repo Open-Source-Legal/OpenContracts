@@ -10,15 +10,13 @@ from graphql_jwt.decorators import login_required
 
 from opencontractserver.bulk_ingestion.models import (
     BulkIngestionItem,
-    BulkIngestionItemStatus,
     BulkIngestionJob,
     BulkIngestionJobStatus,
     IngestionSourceType,
     ParsingStrategy,
 )
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 from opencontractserver.types.enums import PermissionTypes
-
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 # ============================================================================
 # GraphQL Types
@@ -31,9 +29,7 @@ class BulkIngestionJobType(DjangoObjectType):
     progress_fraction = graphene.Float(
         description="Overall progress as a float from 0.0 to 1.0"
     )
-    is_terminal = graphene.Boolean(
-        description="Whether the job is in a terminal state"
-    )
+    is_terminal = graphene.Boolean(description="Whether the job is in a terminal state")
     item_summary = graphene.Field(
         "config.graphql.bulk_ingestion_mutations.BulkIngestionItemSummaryType",
         description="Summary counts of items by status",
@@ -240,9 +236,7 @@ class StartBulkIngestionJob(graphene.Mutation):
         try:
             job = BulkIngestionJob.objects.get(pk=job_id, creator=user)
         except BulkIngestionJob.DoesNotExist:
-            return StartBulkIngestionJob(
-                ok=False, message="Job not found", job=None
-            )
+            return StartBulkIngestionJob(ok=False, message="Job not found", job=None)
 
         if job.status != BulkIngestionJobStatus.CREATED:
             return StartBulkIngestionJob(
@@ -274,9 +268,7 @@ class PauseBulkIngestionJob(graphene.Mutation):
         try:
             job = BulkIngestionJob.objects.get(pk=job_id, creator=user)
         except BulkIngestionJob.DoesNotExist:
-            return PauseBulkIngestionJob(
-                ok=False, message="Job not found", job=None
-            )
+            return PauseBulkIngestionJob(ok=False, message="Job not found", job=None)
 
         from opencontractserver.bulk_ingestion.tasks import pause_bulk_ingestion
 
@@ -303,9 +295,7 @@ class ResumeBulkIngestionJob(graphene.Mutation):
         try:
             job = BulkIngestionJob.objects.get(pk=job_id, creator=user)
         except BulkIngestionJob.DoesNotExist:
-            return ResumeBulkIngestionJob(
-                ok=False, message="Job not found", job=None
-            )
+            return ResumeBulkIngestionJob(ok=False, message="Job not found", job=None)
 
         if job.status != BulkIngestionJobStatus.PAUSED:
             return ResumeBulkIngestionJob(
@@ -339,9 +329,7 @@ class CancelBulkIngestionJob(graphene.Mutation):
         try:
             job = BulkIngestionJob.objects.get(pk=job_id, creator=user)
         except BulkIngestionJob.DoesNotExist:
-            return CancelBulkIngestionJob(
-                ok=False, message="Job not found", job=None
-            )
+            return CancelBulkIngestionJob(ok=False, message="Job not found", job=None)
 
         if job.is_terminal:
             return CancelBulkIngestionJob(
@@ -373,9 +361,7 @@ def _dispatch_job(job: BulkIngestionJob):
             orchestrate_preparsed_ingestion,
         )
 
-        transaction.on_commit(
-            lambda: orchestrate_preparsed_ingestion.delay(job.id)
-        )
+        transaction.on_commit(lambda: orchestrate_preparsed_ingestion.delay(job.id))
     else:
         # For non-pre-parsed types, mark as downloading
         # (download tasks would be dispatched here in a future phase)

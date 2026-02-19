@@ -14,6 +14,24 @@ from typing_extensions import NotRequired, TypedDict
 from opencontractserver.types.dicts import OpenContractDocExport
 
 
+class EmbeddingExport(TypedDict):
+    """
+    A single embedding vector with its provenance.
+
+    The embedder_path must match the identifier used by OpenContracts
+    to find the right vector field during search. Typically this is the
+    fully-qualified class path of the embedder component, e.g.:
+        "opencontractserver.pipeline.embedders.sent_transformer_microservice.MicroserviceEmbedder"
+
+    The dimension determines which vector_XXX column the embedding is
+    stored in. Supported: 384, 768, 1024, 1536, 2048, 3072, 4096.
+    """
+
+    embedder_path: str  # Embedder identifier (must match server config)
+    dimension: int  # Vector dimension (384, 768, 1024, 1536, 2048, 3072, 4096)
+    vector: list[float]  # The embedding vector
+
+
 class PreParsedDocumentBundle(TypedDict):
     """
     Output format from an offline parser. Contains everything needed
@@ -25,6 +43,23 @@ class PreParsedDocumentBundle(TypedDict):
 
     File format: One JSON object per document, typically batched
     into JSONL files (one JSON per line) for streaming reads.
+
+    Embedding Support:
+        When embeddings are included, the server skips embedding task
+        dispatch entirely. This enables GPU workstations to generate
+        embeddings alongside parsing, eliminating both expensive phases
+        from the server-side pipeline.
+
+        document_embeddings: Embeddings for the document's full text.
+            Typically one per embedder (default + corpus-specific).
+
+        annotation_embeddings: Keyed by annotation index (position in
+            parsed_data["labelled_text"]). Each annotation can have
+            multiple embeddings (one per embedder).
+
+        The embedder_path in each EmbeddingExport MUST match the
+        embedder configured on the target corpus (corpus.preferred_embedder)
+        and/or the server's DEFAULT_EMBEDDER setting for search to work.
     """
 
     # Format version for forward compatibility
@@ -58,6 +93,12 @@ class PreParsedDocumentBundle(TypedDict):
     # Error marker (for tracking parse failures in batch output)
     error: NotRequired[str]  # If present, indicates parse failure
 
+    # Pre-computed embeddings (skip server-side embedding generation)
+    # When present, the server stores these directly and skips
+    # dispatching embedding Celery tasks.
+    document_embeddings: NotRequired[list[EmbeddingExport]]
+    annotation_embeddings: NotRequired[dict[str, list[EmbeddingExport]]]
+
 
 class BatchManifest(TypedDict):
     """
@@ -78,6 +119,11 @@ class BatchManifest(TypedDict):
     parser_name: str
     parser_version: str
     parser_config: NotRequired[dict]
+
+    # Embedder info (when bundles include pre-computed embeddings)
+    embedder_paths: NotRequired[list[str]]  # Embedders used
+    embedding_dimensions: NotRequired[list[int]]  # Dimensions produced
+    includes_embeddings: NotRequired[bool]  # True if bundles contain embeddings
 
     # Timing
     created_at: str  # ISO 8601

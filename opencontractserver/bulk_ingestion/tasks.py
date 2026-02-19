@@ -25,10 +25,8 @@ from django.utils import timezone
 
 from opencontractserver.bulk_ingestion.constants import (
     BULK_INGESTION_BACKPRESSURE_DELAY,
-    BULK_INGESTION_CHECKPOINT_INTERVAL,
     BULK_INGESTION_IMPORT_BATCH_SIZE,
     BULK_INGESTION_MAX_PARSE_QUEUE_DEPTH,
-    BULK_INGESTION_PARSE_BATCH_SIZE,
     QUEUE_BULK_DISPATCH,
     QUEUE_BULK_IMPORT,
     QUEUE_BULK_ORCHESTRATE,
@@ -37,6 +35,7 @@ from opencontractserver.bulk_ingestion.constants import (
 from opencontractserver.bulk_ingestion.utils import (
     bulk_create_document_path_permissions,
     bulk_create_document_permissions,
+    bulk_store_embeddings,
     read_batch_manifest,
     read_jsonl_batch,
     read_staged_file,
@@ -62,9 +61,8 @@ def _get_redis_queue_depth(queue_name: str) -> int:
     connection error, etc.) - this disables backpressure gracefully.
     """
     try:
-        from django.conf import settings
-
         import redis
+        from django.conf import settings
 
         r = redis.Redis.from_url(settings.CELERY_BROKER_URL)
         return r.llen(queue_name)
@@ -84,7 +82,6 @@ def orchestrate_preparsed_ingestion(job_id: int):
         job_id: The BulkIngestionJob ID.
     """
     BulkIngestionJob = apps.get_model("bulk_ingestion", "BulkIngestionJob")
-    BulkIngestionItem = apps.get_model("bulk_ingestion", "BulkIngestionItem")
 
     job = BulkIngestionJob.objects.get(id=job_id)
 
@@ -100,7 +97,9 @@ def orchestrate_preparsed_ingestion(job_id: int):
         source_config = job.source_config or {}
         manifest_path = source_config.get("manifest_path", "")
         if not manifest_path:
-            raise ValueError("source_config.manifest_path is required for pre_parsed ingestion")
+            raise ValueError(
+                "source_config.manifest_path is required for pre_parsed ingestion"
+            )
 
         manifest = read_batch_manifest(manifest_path)
 
@@ -169,7 +168,9 @@ def batch_import_preparsed(self, job_id: int, batch_path: str, batch_index: int 
     job = BulkIngestionJob.objects.get(id=job_id)
 
     if job.is_terminal:
-        logger.warning(f"Job {job_id} is in terminal state, skipping batch {batch_index}")
+        logger.warning(
+            f"Job {job_id} is in terminal state, skipping batch {batch_index}"
+        )
         return
 
     try:
@@ -353,10 +354,99 @@ def batch_import_preparsed(self, job_id: int, batch_path: str, batch_index: int 
         parsed_count=F("parsed_count") + parsed_success
     )
 
-    # Phase 3: Dispatch embedding tasks with backpressure
+    # Phase 3: Store pre-computed embeddings from bundles (if present)
+    # When GPU workstations produce embeddings alongside parsing, the
+    # bundles contain document_embeddings and annotation_embeddings.
+    # Storing them here avoids dispatching Celery embedding tasks entirely.
+    Annotation = apps.get_model("annotations", "Annotation")
+
+    embedding_records = []
+    docs_with_embeddings = set()
+
+    for doc, bundle in zip(created_docs, bundle_map):
+        if doc.processing_status != DocumentProcessingStatus.COMPLETED:
+            continue
+
+        doc_embeddings = bundle.get("document_embeddings", [])
+        annot_embeddings = bundle.get("annotation_embeddings", {})
+
+        # Document-level embeddings
+        for emb_export in doc_embeddings:
+            embedding_records.append(
+                {
+                    "embedder_path": emb_export["embedder_path"],
+                    "dimension": emb_export["dimension"],
+                    "vector": emb_export["vector"],
+                    "document_id": doc.id,
+                }
+            )
+
+        # Annotation-level embeddings (keyed by index in labelled_text)
+        if annot_embeddings:
+            doc.refresh_from_db(fields=["structural_annotation_set_id"])
+            if doc.structural_annotation_set_id:
+                annotation_ids = list(
+                    Annotation.objects.filter(
+                        structural_set_id=doc.structural_annotation_set_id
+                    )
+                    .order_by("id")
+                    .values_list("id", flat=True)
+                )
+
+                for idx_str, emb_exports in annot_embeddings.items():
+                    try:
+                        idx = int(idx_str)
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            f"Invalid annotation index '{idx_str}', skipping"
+                        )
+                        continue
+
+                    if idx >= len(annotation_ids):
+                        logger.warning(
+                            f"Annotation index {idx} out of range "
+                            f"(only {len(annotation_ids)} annotations), skipping"
+                        )
+                        continue
+
+                    annotation_id = annotation_ids[idx]
+                    for emb_export in emb_exports:
+                        embedding_records.append(
+                            {
+                                "embedder_path": emb_export["embedder_path"],
+                                "dimension": emb_export["dimension"],
+                                "vector": emb_export["vector"],
+                                "annotation_id": annotation_id,
+                            }
+                        )
+
+        if doc_embeddings or annot_embeddings:
+            docs_with_embeddings.add(doc.id)
+
+    if embedding_records:
+        stored = bulk_store_embeddings(embedding_records, user)
+        logger.info(
+            f"Stored {stored} pre-computed embeddings for "
+            f"{len(docs_with_embeddings)} documents in batch {batch_index}"
+        )
+
+        # Update progress for documents with pre-computed embeddings
+        BulkIngestionJob.objects.filter(id=job_id).update(
+            embedded_count=F("embedded_count") + len(docs_with_embeddings)
+        )
+
+        # Mark fully-embedded items as completed
+        BulkIngestionItem.objects.filter(
+            job_id=job_id,
+            document_id__in=docs_with_embeddings,
+        ).update(status="completed")
+
+    # Phase 4: Dispatch embedding tasks for documents WITHOUT pre-computed embeddings
     skip_embeddings = source_config.get("skip_embeddings", False)
     if not skip_embeddings:
         for doc in created_docs:
+            if doc.id in docs_with_embeddings:
+                continue  # Already stored pre-computed embeddings
             if doc.processing_status == DocumentProcessingStatus.COMPLETED:
                 dispatch_embedding_with_backpressure.apply_async(
                     args=[doc.id, corpus.id, job_id],
@@ -372,7 +462,8 @@ def batch_import_preparsed(self, job_id: int, batch_path: str, batch_index: int 
 
     logger.info(
         f"Batch {batch_index} complete for job {job_id}: "
-        f"{len(created_docs)} imported, {parsed_success} parsed"
+        f"{len(created_docs)} imported, {parsed_success} parsed, "
+        f"{len(docs_with_embeddings)} pre-embedded"
     )
 
     # Check if job is complete
@@ -381,7 +472,9 @@ def batch_import_preparsed(self, job_id: int, batch_path: str, batch_index: int 
 
 @shared_task(queue=QUEUE_BULK_IMPORT, bind=True, max_retries=2, default_retry_delay=30)
 def batch_import_documents(
-    self, job_id: int, item_ids: list[int],
+    self,
+    job_id: int,
+    item_ids: list[int],
 ):
     """
     Import a batch of already-downloaded documents into the database.
@@ -401,11 +494,7 @@ def batch_import_documents(
     if job.is_terminal:
         return
 
-    items = list(
-        BulkIngestionItem.objects.filter(
-            id__in=item_ids, status="downloaded"
-        )
-    )
+    items = list(BulkIngestionItem.objects.filter(id__in=item_ids, status="downloaded"))
 
     corpus = job.corpus
     user = job.creator
@@ -482,7 +571,8 @@ def batch_import_documents(
             item.content_hash = doc.pdf_file_hash
             item.status = "imported"
         BulkIngestionItem.objects.bulk_update(
-            valid_items, ["document", "content_hash", "status"],
+            valid_items,
+            ["document", "content_hash", "status"],
             batch_size=BULK_INGESTION_IMPORT_BATCH_SIZE,
         )
 
@@ -504,7 +594,9 @@ def batch_import_documents(
 
 @shared_task(queue=QUEUE_BULK_DISPATCH)
 def dispatch_processing_with_backpressure(
-    doc_id: int, user_id: int, job_id: int,
+    doc_id: int,
+    user_id: int,
+    job_id: int,
 ):
     """
     Dispatch the standard parsing chain for a document with backpressure.
@@ -550,7 +642,9 @@ def dispatch_processing_with_backpressure(
 
 @shared_task(queue=QUEUE_BULK_DISPATCH)
 def dispatch_embedding_with_backpressure(
-    doc_id: int, corpus_id: int, job_id: int,
+    doc_id: int,
+    corpus_id: int,
+    job_id: int,
 ):
     """
     Dispatch embedding generation for a document with backpressure.
@@ -590,9 +684,9 @@ def _mark_item_parsed(doc_id: int, job_id: int):
     BulkIngestionJob = apps.get_model("bulk_ingestion", "BulkIngestionJob")
     BulkIngestionItem = apps.get_model("bulk_ingestion", "BulkIngestionItem")
 
-    BulkIngestionItem.objects.filter(
-        job_id=job_id, document_id=doc_id
-    ).update(status="parsed")
+    BulkIngestionItem.objects.filter(job_id=job_id, document_id=doc_id).update(
+        status="parsed"
+    )
 
     BulkIngestionJob.objects.filter(id=job_id).update(
         parsed_count=F("parsed_count") + 1
@@ -607,9 +701,9 @@ def _mark_item_embedded(doc_id: int, job_id: int):
     BulkIngestionJob = apps.get_model("bulk_ingestion", "BulkIngestionJob")
     BulkIngestionItem = apps.get_model("bulk_ingestion", "BulkIngestionItem")
 
-    BulkIngestionItem.objects.filter(
-        job_id=job_id, document_id=doc_id
-    ).update(status="completed")
+    BulkIngestionItem.objects.filter(job_id=job_id, document_id=doc_id).update(
+        status="completed"
+    )
 
     BulkIngestionJob.objects.filter(id=job_id).update(
         embedded_count=F("embedded_count") + 1

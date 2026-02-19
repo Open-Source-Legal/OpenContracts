@@ -3,6 +3,7 @@ Utility functions for bulk ingestion operations.
 
 Provides bulk versions of expensive per-document operations:
 - Permission assignment (bypassing guardian's per-object overhead)
+- Embedding storage (bypassing per-object store_embedding() overhead)
 - Staging file I/O (reading from S3/GCS/local staging areas)
 - Thumbnail handling
 """
@@ -22,6 +23,18 @@ from opencontractserver.bulk_ingestion.constants import (
     BULK_INGESTION_PERMISSION_BATCH_SIZE,
     BULK_INGESTION_STAGING_PREFIX,
 )
+
+# Vector field name lookup by dimension.
+# Must match the VectorField definitions on the Embedding model.
+DIMENSION_TO_FIELD = {
+    384: "vector_384",
+    768: "vector_768",
+    1024: "vector_1024",
+    1536: "vector_1536",
+    2048: "vector_2048",
+    3072: "vector_3072",
+    4096: "vector_4096",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +96,9 @@ def bulk_create_document_permissions(documents, user) -> int:
     )
 
     count = len(created)
-    logger.info(f"Bulk-created {count} permission rows for {len(list(documents))} documents")
+    logger.info(
+        f"Bulk-created {count} permission rows for {len(list(documents))} documents"
+    )
     return count
 
 
@@ -144,6 +159,74 @@ def bulk_create_document_path_permissions(document_paths, user) -> int:
         f"Bulk-created {count} permission rows for "
         f"{len(list(document_paths))} document paths"
     )
+    return count
+
+
+def bulk_store_embeddings(embedding_records: list[dict], creator) -> int:
+    """
+    Store pre-computed embeddings in bulk via bulk_create.
+
+    Replaces per-object EmbeddingManager.store_embedding() calls which do
+    individual existence checks and upserts. For large imports, this
+    reduces thousands of round-trips to a single bulk INSERT.
+
+    Uses ignore_conflicts=True so that duplicate (embedder_path, parent)
+    pairs are silently skipped rather than raising errors.
+
+    Args:
+        embedding_records: List of dicts, each containing:
+            - embedder_path (str): Embedder identifier
+            - dimension (int): Vector dimension (384, 768, 1024, 1536, 2048, 3072, 4096)
+            - vector (list[float]): The embedding vector
+            - document_id (int, optional): FK to Document
+            - annotation_id (int, optional): FK to Annotation
+        creator: User instance to set as creator on each Embedding.
+
+    Returns:
+        Number of embedding records created.
+    """
+    Embedding = apps.get_model("annotations", "Embedding")
+
+    objects_to_create = []
+    for record in embedding_records:
+        dimension = record.get("dimension")
+        field_name = DIMENSION_TO_FIELD.get(dimension)
+        if not field_name:
+            logger.warning(f"Unsupported embedding dimension {dimension}, skipping")
+            continue
+
+        vector = record.get("vector")
+        if not vector:
+            continue
+
+        kwargs = {
+            "creator": creator,
+            "embedder_path": record["embedder_path"],
+            field_name: vector,
+        }
+
+        # Set exactly one parent FK
+        if record.get("document_id"):
+            kwargs["document_id"] = record["document_id"]
+        elif record.get("annotation_id"):
+            kwargs["annotation_id"] = record["annotation_id"]
+        else:
+            logger.warning("Embedding record has no parent FK, skipping")
+            continue
+
+        objects_to_create.append(Embedding(**kwargs))
+
+    if not objects_to_create:
+        return 0
+
+    created = Embedding.objects.bulk_create(
+        objects_to_create,
+        batch_size=BULK_INGESTION_PERMISSION_BATCH_SIZE,
+        ignore_conflicts=True,
+    )
+
+    count = len(created)
+    logger.info(f"Bulk-stored {count} pre-computed embeddings")
     return count
 
 
