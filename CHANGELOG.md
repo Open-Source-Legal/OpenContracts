@@ -5,6 +5,38 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-02-19
+
+### Added
+
+#### Bulk Ingestion Architecture
+- **New `bulk_ingestion` Django app** for orchestrating large-scale document imports (100K+ documents)
+  - `BulkIngestionJob` model: Tracks overall ingestion progress across download, import, parse, and embed phases with pause/resume/cancel support
+  - `BulkIngestionItem` model: Lightweight per-document tracking through the pipeline (PENDING → DOWNLOADED → IMPORTED → PARSED → COMPLETED)
+  - Files: `opencontractserver/bulk_ingestion/models.py`, `migrations/0001_initial.py`
+- **Pre-parsed document import pipeline**: Supports offline parsing on GPU workstations
+  - `PreParsedDocumentBundle` schema for interchange format between offline parsers and OpenContracts
+  - `PreParsedParserStub` (`opencontractserver/pipeline/parsers/pre_parsed_stub.py`): Minimal BaseParser subclass for importing pre-computed `OpenContractDocExport` data without re-parsing
+  - `BatchManifest` schema for coordinating multi-workstation parsing batches
+  - Files: `opencontractserver/bulk_ingestion/schemas.py`
+- **Batch import Celery tasks** with backpressure and queue isolation
+  - `batch_import_preparsed`: Imports pre-parsed JSONL batches using `bulk_create()` (bypasses per-document signals)
+  - `batch_import_documents`: Imports staged documents with parsing dispatch
+  - `dispatch_processing_with_backpressure`: Monitors Redis queue depth to prevent memory exhaustion
+  - `dispatch_embedding_with_backpressure`: Same pattern for embedding tasks
+  - `orchestrate_preparsed_ingestion`: Reads batch manifests and dispatches import tasks
+  - `resume_bulk_ingestion` / `pause_bulk_ingestion`: Job lifecycle management
+  - File: `opencontractserver/bulk_ingestion/tasks.py`
+- **Bulk permission creation utility** (`opencontractserver/bulk_ingestion/utils.py`): Replaces per-document `set_permissions_for_obj_to_user()` (7+ DB queries each) with `bulk_create` + `ignore_conflicts` for documents and document paths
+- **Celery queue routing** for bulk operations: Dedicated queues (`bulk_orchestrate`, `bulk_import`, `bulk_dispatch`, `parsing`, `embedding`) prevent bulk imports from starving normal operations
+  - File: `config/settings/base.py` (CELERY_TASK_ROUTES)
+- **GraphQL API** for bulk ingestion management
+  - Mutations: `createBulkIngestionJob`, `startBulkIngestionJob`, `pauseBulkIngestionJob`, `resumeBulkIngestionJob`, `cancelBulkIngestionJob`
+  - Queries: `bulkIngestionJob`, `bulkIngestionJobs`, `bulkIngestionItems`
+  - File: `config/graphql/bulk_ingestion_mutations.py`
+- **Configurable constants** for batch sizes, backpressure limits, download settings
+  - File: `opencontractserver/bulk_ingestion/constants.py`
+
 ## [Unreleased] - 2026-02-12
 
 ### Added

@@ -36,6 +36,15 @@ from config.graphql.badge_mutations import (
 )
 from config.graphql.base import DRFDeletion, DRFMutation
 
+# Import bulk ingestion mutations
+from config.graphql.bulk_ingestion_mutations import (
+    CancelBulkIngestionJob,
+    CreateBulkIngestionJob,
+    PauseBulkIngestionJob,
+    ResumeBulkIngestionJob,
+    StartBulkIngestionJob,
+)
+
 # Import conversation mutations
 from config.graphql.conversation_mutations import (
     CreateThreadMessageMutation,
@@ -6050,3 +6059,10 @@ class Mutation(graphene.ObjectType):
     reset_pipeline_settings = ResetPipelineSettingsMutation.Field()
     update_component_secrets = UpdateComponentSecretsMutation.Field()
     delete_component_secrets = DeleteComponentSecretsMutation.Field()
+
+    # BULK INGESTION MUTATIONS ###################################################
+    create_bulk_ingestion_job = CreateBulkIngestionJob.Field()
+    start_bulk_ingestion_job = StartBulkIngestionJob.Field()
+    pause_bulk_ingestion_job = PauseBulkIngestionJob.Field()
+    resume_bulk_ingestion_job = ResumeBulkIngestionJob.Field()
+    cancel_bulk_ingestion_job = CancelBulkIngestionJob.Field()

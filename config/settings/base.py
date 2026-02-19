@@ -156,6 +156,7 @@ LOCAL_APPS = [
     "opencontractserver.badges",
     "opencontractserver.notifications",
     "opencontractserver.agents",
+    "opencontractserver.bulk_ingestion",
 ]
 
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -584,6 +585,35 @@ CELERY_WORKER_MAX_MEMORY_PER_CHILD = 14240000  # 14 GB (thousands of kilobytes)
 CELERY_MAX_TASKS_PER_CHILD = 4
 CELERY_PREFETCH_MULTIPLIER = 1
 CELERY_RESULT_BACKEND_MAX_RETRIES = 10
+
+# Celery task routing for bulk ingestion
+# Bulk tasks use dedicated queues to avoid starving normal operations.
+# Workers must be started with -Q flag to consume from these queues.
+# Example: celery -A config.celery_app worker -Q bulk_import,bulk_dispatch -l INFO
+CELERY_TASK_ROUTES = {
+    "opencontractserver.bulk_ingestion.tasks.orchestrate_preparsed_ingestion": {
+        "queue": "bulk_orchestrate"
+    },
+    "opencontractserver.bulk_ingestion.tasks.batch_import_preparsed": {
+        "queue": "bulk_import"
+    },
+    "opencontractserver.bulk_ingestion.tasks.batch_import_documents": {
+        "queue": "bulk_import"
+    },
+    "opencontractserver.bulk_ingestion.tasks.dispatch_processing_with_backpressure": {
+        "queue": "bulk_dispatch"
+    },
+    "opencontractserver.bulk_ingestion.tasks.dispatch_embedding_with_backpressure": {
+        "queue": "bulk_dispatch"
+    },
+    "opencontractserver.bulk_ingestion.tasks.resume_bulk_ingestion": {
+        "queue": "bulk_orchestrate"
+    },
+    "opencontractserver.bulk_ingestion.tasks.pause_bulk_ingestion": {
+        "queue": "bulk_orchestrate"
+    },
+}
+
 # django-rest-framework
 # -------------------------------------------------------------------------------
 # django-rest-framework - https://www.django-rest-framework.org/api-guide/settings/

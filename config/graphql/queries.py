@@ -4358,6 +4358,70 @@ class Query(graphene.ObjectType):
             modified_by=settings_instance.modified_by,
         )
 
+    # BULK INGESTION QUERIES ####################################
+    bulk_ingestion_job = graphene.Field(
+        "config.graphql.bulk_ingestion_mutations.BulkIngestionJobType",
+        id=graphene.ID(required=True),
+        description="Get a single bulk ingestion job by ID",
+    )
+
+    bulk_ingestion_jobs = graphene.List(
+        "config.graphql.bulk_ingestion_mutations.BulkIngestionJobType",
+        corpus_id=graphene.ID(required=False),
+        status=graphene.String(required=False),
+        description="List bulk ingestion jobs, optionally filtered by corpus and/or status",
+    )
+
+    bulk_ingestion_items = graphene.List(
+        "config.graphql.bulk_ingestion_mutations.BulkIngestionItemType",
+        job_id=graphene.ID(required=True),
+        status=graphene.String(required=False),
+        limit=graphene.Int(required=False, default_value=100),
+        offset=graphene.Int(required=False, default_value=0),
+        description="List items for a bulk ingestion job, optionally filtered by status",
+    )
+
+    @login_required
+    def resolve_bulk_ingestion_job(self, info, id):
+        from opencontractserver.bulk_ingestion.models import BulkIngestionJob
+
+        user = info.context.user
+        try:
+            return BulkIngestionJob.objects.get(pk=id, creator=user)
+        except BulkIngestionJob.DoesNotExist:
+            return None
+
+    @login_required
+    def resolve_bulk_ingestion_jobs(self, info, corpus_id=None, status=None):
+        from opencontractserver.bulk_ingestion.models import BulkIngestionJob
+
+        user = info.context.user
+        qs = BulkIngestionJob.objects.filter(creator=user)
+        if corpus_id:
+            qs = qs.filter(corpus_id=corpus_id)
+        if status:
+            qs = qs.filter(status=status)
+        return qs.order_by("-created")[:50]
+
+    @login_required
+    def resolve_bulk_ingestion_items(
+        self, info, job_id, status=None, limit=100, offset=0
+    ):
+        from opencontractserver.bulk_ingestion.models import (
+            BulkIngestionItem,
+            BulkIngestionJob,
+        )
+
+        user = info.context.user
+        # Verify job ownership
+        if not BulkIngestionJob.objects.filter(pk=job_id, creator=user).exists():
+            return []
+
+        qs = BulkIngestionItem.objects.filter(job_id=job_id)
+        if status:
+            qs = qs.filter(status=status)
+        return qs.order_by("created_at")[offset : offset + min(limit, 500)]
+
     # DEBUG FIELD ########################################
     if settings.ALLOW_GRAPHQL_DEBUG:
         debug = graphene.Field(DjangoDebug, name="_debug")
