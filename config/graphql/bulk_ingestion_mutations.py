@@ -139,6 +139,9 @@ class ClaimedItemType(graphene.ObjectType):
     id = graphene.ID(description="BulkIngestionItem ID")
     external_id = graphene.String(description="External document identifier")
     staged_path = graphene.String(description="Storage path to the source PDF")
+    download_url = graphene.String(
+        description="Pre-signed URL for downloading the source file (24h expiry)"
+    )
     source_url = graphene.String(description="Source URL if applicable")
     file_type = graphene.String(description="Detected MIME type")
 
@@ -382,8 +385,10 @@ class ClaimBulkIngestionBatch(graphene.Mutation):
     with a claim timestamp for TTL-based expiry. Expired claims are
     automatically released back to pending before each new claim.
 
-    Returns the claimed items with their storage paths so the
-    workstation can download and process the source documents.
+    Returns the claimed items with pre-signed download URLs (24h expiry)
+    so the workstation can fetch source documents without needing
+    separate bucket credentials. Also returns a pre-signed upload URL
+    for submitting JSONL results back to staging storage.
     """
 
     class Arguments:
@@ -402,15 +407,28 @@ class ClaimBulkIngestionBatch(graphene.Mutation):
     ok = graphene.Boolean()
     message = graphene.String()
     items = graphene.List(ClaimedItemType, description="Claimed items")
+    results_upload_url = graphene.String(
+        description="Pre-signed PUT URL for uploading JSONL results (24h expiry)"
+    )
+    results_upload_path = graphene.String(
+        description="Storage path to pass to completeBulkIngestionBatch"
+    )
 
     @staticmethod
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(root, info, job_id, batch_size=100, workstation_id=""):
+        import uuid
+
         from django.db import transaction
         from django.utils import timezone
 
         from opencontractserver.bulk_ingestion.tasks import release_expired_claims
+        from opencontractserver.bulk_ingestion.utils import (
+            generate_download_url,
+            generate_upload_url,
+            staging_path_for_job,
+        )
 
         user = info.context.user
 
@@ -465,20 +483,43 @@ class ClaimBulkIngestionBatch(graphene.Mutation):
                 claimed_by=workstation_id or "",
             )
 
-        # Fetch claimed items for the response
+        # Fetch claimed items and generate pre-signed download URLs
         claimed = BulkIngestionItem.objects.filter(id__in=locked_ids).values(
             "id", "external_id", "staged_path", "source_url", "file_type"
         )
-        items = [
-            ClaimedItemType(
-                id=item["id"],
-                external_id=item["external_id"],
-                staged_path=item["staged_path"],
-                source_url=item["source_url"],
-                file_type=item["file_type"],
+        items = []
+        for item in claimed:
+            download_url = ""
+            if item["staged_path"]:
+                try:
+                    download_url = generate_download_url(item["staged_path"])
+                except Exception:
+                    logger.warning(
+                        f"Failed to generate download URL for {item['staged_path']}",
+                        exc_info=True,
+                    )
+            items.append(
+                ClaimedItemType(
+                    id=item["id"],
+                    external_id=item["external_id"],
+                    staged_path=item["staged_path"],
+                    download_url=download_url,
+                    source_url=item["source_url"],
+                    file_type=item["file_type"],
+                )
             )
-            for item in claimed
-        ]
+
+        # Generate a pre-signed upload URL for the results JSONL
+        batch_id = uuid.uuid4().hex[:12]
+        upload_path = staging_path_for_job(job.id, f"results/{batch_id}.jsonl")
+        try:
+            upload_url = generate_upload_url(upload_path)
+        except Exception:
+            logger.warning(
+                "Failed to generate upload URL for results",
+                exc_info=True,
+            )
+            upload_url = ""
 
         logger.info(
             f"Workstation '{workstation_id}' claimed {len(items)} items "
@@ -489,6 +530,8 @@ class ClaimBulkIngestionBatch(graphene.Mutation):
             ok=True,
             message=f"Claimed {len(items)} items",
             items=items,
+            results_upload_url=upload_url,
+            results_upload_path=upload_path,
         )
 
 

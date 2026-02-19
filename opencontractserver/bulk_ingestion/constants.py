@@ -94,6 +94,12 @@ BULK_INGESTION_MAX_CLAIM_BATCH_SIZE = getattr(
     settings, "BULK_INGESTION_MAX_CLAIM_BATCH_SIZE", 500
 )
 
+# Expiry for pre-signed download/upload URLs returned to workstations (seconds).
+# Longer than standard token life to cover overnight parsing runs.
+BULK_INGESTION_CLAIM_URL_EXPIRY_SECONDS = getattr(
+    settings, "BULK_INGESTION_CLAIM_URL_EXPIRY_SECONDS", 86400  # 24 hours
+)
+
 # ============================================================================
 # Celery queue names
 # ============================================================================

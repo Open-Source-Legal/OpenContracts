@@ -5,21 +5,25 @@ Provides bulk versions of expensive per-document operations:
 - Permission assignment (bypassing guardian's per-object overhead)
 - Embedding storage (bypassing per-object store_embedding() overhead)
 - Staging file I/O (reading from S3/GCS/local staging areas)
+- Pre-signed URL generation (for workstation download/upload without bucket credentials)
 - Thumbnail handling
 """
 
 import base64
 import json
 import logging
+from datetime import timedelta
 from io import BytesIO
 
 from django.apps import apps
+from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
 from opencontractserver.bulk_ingestion.constants import (
+    BULK_INGESTION_CLAIM_URL_EXPIRY_SECONDS,
     BULK_INGESTION_PERMISSION_BATCH_SIZE,
     BULK_INGESTION_STAGING_PREFIX,
 )
@@ -341,3 +345,106 @@ def write_to_staging(path: str, content: bytes) -> str:
         The actual path where the file was saved.
     """
     return default_storage.save(path, BytesIO(content))
+
+
+# ============================================================================
+# Pre-signed URL generation
+# ============================================================================
+
+
+def _get_storage_key(storage_path: str) -> str:
+    """
+    Resolve a django-storage relative path to the actual object key.
+
+    Prepends the storage location prefix (e.g. ``media/``) to match
+    how ``default_storage`` stores files in S3/GCS.
+    """
+    location = getattr(default_storage, "location", "")
+    if location:
+        # Avoid double-slash
+        return f"{location.rstrip('/')}/{storage_path.lstrip('/')}"
+    return storage_path
+
+
+def generate_download_url(
+    storage_path: str,
+    expiry_seconds: int = BULK_INGESTION_CLAIM_URL_EXPIRY_SECONDS,
+) -> str:
+    """
+    Generate a pre-signed GET URL for downloading a file from storage.
+
+    The returned URL embeds authentication tokens so the caller
+    does not need separate bucket credentials.
+
+    Args:
+        storage_path: Path relative to the storage root
+            (same value accepted by ``default_storage.open``).
+        expiry_seconds: URL lifetime in seconds (default: 24 hours).
+
+    Returns:
+        A pre-signed HTTPS URL (S3/GCS) or a plain URL (local).
+    """
+    backend = getattr(settings, "STORAGE_BACKEND", "LOCAL").upper()
+
+    if backend == "AWS":
+        # S3Boto3Storage.url() accepts an ``expire`` parameter (seconds)
+        return default_storage.url(storage_path, expire=expiry_seconds)
+
+    elif backend == "GCP":
+        key = _get_storage_key(storage_path)
+        blob = default_storage.bucket.blob(key)
+        return blob.generate_signed_url(
+            expiration=timedelta(seconds=expiry_seconds),
+            method="GET",
+        )
+
+    else:
+        # LOCAL — no signing, return the standard media URL
+        return default_storage.url(storage_path)
+
+
+def generate_upload_url(
+    storage_path: str,
+    expiry_seconds: int = BULK_INGESTION_CLAIM_URL_EXPIRY_SECONDS,
+    content_type: str = "application/octet-stream",
+) -> str:
+    """
+    Generate a pre-signed PUT URL for uploading a file to storage.
+
+    Workstations use this to write JSONL result bundles directly to
+    S3/GCS without needing bucket credentials.
+
+    Args:
+        storage_path: Target path relative to the storage root.
+        expiry_seconds: URL lifetime in seconds (default: 24 hours).
+        content_type: Expected Content-Type header for the upload.
+
+    Returns:
+        A pre-signed HTTPS PUT URL (S3/GCS) or the plain path (local).
+    """
+    backend = getattr(settings, "STORAGE_BACKEND", "LOCAL").upper()
+    key = _get_storage_key(storage_path)
+
+    if backend == "AWS":
+        client = default_storage.connection.meta.client
+        return client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": default_storage.bucket_name,
+                "Key": key,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expiry_seconds,
+        )
+
+    elif backend == "GCP":
+        blob = default_storage.bucket.blob(key)
+        return blob.generate_signed_url(
+            expiration=timedelta(seconds=expiry_seconds),
+            method="PUT",
+            content_type=content_type,
+        )
+
+    else:
+        # LOCAL — workstation writes to the path directly
+        return storage_path

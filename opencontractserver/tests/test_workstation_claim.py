@@ -88,10 +88,13 @@ class ClaimBulkIngestionBatchTest(TestCase):
             ) {
                 ok
                 message
+                resultsUploadUrl
+                resultsUploadPath
                 items {
                     id
                     externalId
                     stagedPath
+                    downloadUrl
                     sourceUrl
                     fileType
                 }
@@ -258,6 +261,65 @@ class ClaimBulkIngestionBatchTest(TestCase):
 
         item = BulkIngestionItem.objects.get(job=self.job, status="parsing")
         self.assertEqual(item.claimed_by, "")
+
+    def test_claim_returns_download_urls(self):
+        """Claimed items include pre-signed download URLs."""
+        result = self.client.execute(
+            self.CLAIM_MUTATION,
+            variable_values={
+                "jobId": str(self.job.id),
+                "batchSize": 2,
+            },
+        )
+
+        data = result["data"]["claimBulkIngestionBatch"]
+        self.assertTrue(data["ok"])
+
+        # Each item should have a downloadUrl populated
+        for item in data["items"]:
+            self.assertIsNotNone(item["downloadUrl"])
+            self.assertNotEqual(item["downloadUrl"], "")
+
+    def test_claim_returns_upload_url(self):
+        """Claim response includes a pre-signed upload URL for results."""
+        result = self.client.execute(
+            self.CLAIM_MUTATION,
+            variable_values={
+                "jobId": str(self.job.id),
+                "batchSize": 1,
+            },
+        )
+
+        data = result["data"]["claimBulkIngestionBatch"]
+        self.assertTrue(data["ok"])
+
+        # Upload URL and path should be populated
+        self.assertIsNotNone(data["resultsUploadUrl"])
+        self.assertNotEqual(data["resultsUploadUrl"], "")
+        self.assertIsNotNone(data["resultsUploadPath"])
+        self.assertIn("results/", data["resultsUploadPath"])
+        self.assertTrue(data["resultsUploadPath"].endswith(".jsonl"))
+
+    def test_sequential_claims_get_different_upload_paths(self):
+        """Each claim generates a unique upload path."""
+        result1 = self.client.execute(
+            self.CLAIM_MUTATION,
+            variable_values={
+                "jobId": str(self.job.id),
+                "batchSize": 1,
+            },
+        )
+        result2 = self.client.execute(
+            self.CLAIM_MUTATION,
+            variable_values={
+                "jobId": str(self.job.id),
+                "batchSize": 1,
+            },
+        )
+
+        path1 = result1["data"]["claimBulkIngestionBatch"]["resultsUploadPath"]
+        path2 = result2["data"]["claimBulkIngestionBatch"]["resultsUploadPath"]
+        self.assertNotEqual(path1, path2, "Each claim should get a unique upload path")
 
 
 class ReleaseExpiredClaimsTest(TestCase):
