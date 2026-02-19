@@ -333,6 +333,19 @@ class BulkIngestionItem(models.Model):
         help_text="SHA-256 hash of file content",
     )
 
+    # Workstation claim tracking
+    claimed_at = django.db.models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this item was claimed by a workstation for processing",
+    )
+    claimed_by = django.db.models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Identifier of the workstation that claimed this item",
+    )
+
     # Timestamps (no auto_now_add to keep model lightweight)
     created_at = django.db.models.DateTimeField(auto_now_add=True)
     updated_at = django.db.models.DateTimeField(auto_now=True)

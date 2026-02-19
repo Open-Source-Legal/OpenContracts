@@ -1,13 +1,20 @@
 """
 GraphQL mutations for bulk ingestion operations.
 
-Provides mutations to create, pause, resume, and cancel bulk ingestion jobs.
+Provides mutations to create, pause, resume, and cancel bulk ingestion jobs,
+as well as workstation claim/complete mutations for distributed processing.
 """
+
+import logging
 
 import graphene
 from graphene_django import DjangoObjectType
 from graphql_jwt.decorators import login_required
 
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from opencontractserver.bulk_ingestion.constants import (
+    BULK_INGESTION_MAX_CLAIM_BATCH_SIZE,
+)
 from opencontractserver.bulk_ingestion.models import (
     BulkIngestionItem,
     BulkIngestionJob,
@@ -17,6 +24,8 @@ from opencontractserver.bulk_ingestion.models import (
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # GraphQL Types
@@ -117,9 +126,21 @@ class BulkIngestionItemType(DjangoObjectType):
             "file_type",
             "file_size_bytes",
             "content_hash",
+            "claimed_at",
+            "claimed_by",
             "created_at",
             "updated_at",
         ]
+
+
+class ClaimedItemType(graphene.ObjectType):
+    """An item claimed by a workstation for external processing."""
+
+    id = graphene.ID(description="BulkIngestionItem ID")
+    external_id = graphene.String(description="External document identifier")
+    staged_path = graphene.String(description="Storage path to the source PDF")
+    source_url = graphene.String(description="Source URL if applicable")
+    file_type = graphene.String(description="Detected MIME type")
 
 
 # ============================================================================
@@ -345,6 +366,199 @@ class CancelBulkIngestionJob(graphene.Mutation):
         job.save(update_fields=["status", "completed_at"])
 
         return CancelBulkIngestionJob(ok=True, message="Job cancelled", job=job)
+
+
+# ============================================================================
+# Workstation Claim / Complete Mutations
+# ============================================================================
+
+
+class ClaimBulkIngestionBatch(graphene.Mutation):
+    """
+    Claim a batch of pending items for external processing.
+
+    Used by GPU workstations to pull work from a bulk ingestion job.
+    Items are atomically transitioned from pending to parsing status,
+    with a claim timestamp for TTL-based expiry. Expired claims are
+    automatically released back to pending before each new claim.
+
+    Returns the claimed items with their storage paths so the
+    workstation can download and process the source documents.
+    """
+
+    class Arguments:
+        job_id = graphene.ID(required=True, description="Bulk ingestion job ID")
+        batch_size = graphene.Int(
+            required=False,
+            default_value=100,
+            description="Number of items to claim (max 500)",
+        )
+        workstation_id = graphene.String(
+            required=False,
+            default_value="",
+            description="Identifier for the claiming workstation",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    items = graphene.List(ClaimedItemType, description="Claimed items")
+
+    @staticmethod
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(root, info, job_id, batch_size=100, workstation_id=""):
+        from django.db import transaction
+        from django.utils import timezone
+
+        from opencontractserver.bulk_ingestion.tasks import release_expired_claims
+
+        user = info.context.user
+
+        try:
+            job = BulkIngestionJob.objects.get(pk=job_id, creator=user)
+        except BulkIngestionJob.DoesNotExist:
+            return ClaimBulkIngestionBatch(ok=False, message="Job not found", items=[])
+
+        if job.is_terminal:
+            return ClaimBulkIngestionBatch(
+                ok=False,
+                message=f"Job is in terminal state '{job.status}'",
+                items=[],
+            )
+
+        # Clamp batch size
+        batch_size = max(1, min(batch_size, BULK_INGESTION_MAX_CLAIM_BATCH_SIZE))
+
+        # Release expired claims first
+        release_expired_claims(job.id)
+
+        # Atomically claim items using SELECT FOR UPDATE with skip_locked
+        # to allow concurrent workstation claims without blocking
+        with transaction.atomic():
+            candidate_ids = list(
+                BulkIngestionItem.objects.filter(job_id=job.id, status="pending")
+                .order_by("id")
+                .values_list("id", flat=True)[:batch_size]
+            )
+
+            if not candidate_ids:
+                return ClaimBulkIngestionBatch(
+                    ok=True, message="No items available to claim", items=[]
+                )
+
+            # Lock rows — skip_locked avoids contention with concurrent claims
+            locked_ids = list(
+                BulkIngestionItem.objects.select_for_update(skip_locked=True)
+                .filter(id__in=candidate_ids, status="pending")
+                .values_list("id", flat=True)
+            )
+
+            if not locked_ids:
+                return ClaimBulkIngestionBatch(
+                    ok=True, message="No items available to claim", items=[]
+                )
+
+            now = timezone.now()
+            BulkIngestionItem.objects.filter(id__in=locked_ids).update(
+                status="parsing",
+                claimed_at=now,
+                claimed_by=workstation_id or "",
+            )
+
+        # Fetch claimed items for the response
+        claimed = BulkIngestionItem.objects.filter(id__in=locked_ids).values(
+            "id", "external_id", "staged_path", "source_url", "file_type"
+        )
+        items = [
+            ClaimedItemType(
+                id=item["id"],
+                external_id=item["external_id"],
+                staged_path=item["staged_path"],
+                source_url=item["source_url"],
+                file_type=item["file_type"],
+            )
+            for item in claimed
+        ]
+
+        logger.info(
+            f"Workstation '{workstation_id}' claimed {len(items)} items "
+            f"from job {job.id}"
+        )
+
+        return ClaimBulkIngestionBatch(
+            ok=True,
+            message=f"Claimed {len(items)} items",
+            items=items,
+        )
+
+
+class CompleteBulkIngestionBatch(graphene.Mutation):
+    """
+    Submit processed results from a workstation.
+
+    The workstation writes a JSONL file of PreParsedDocumentBundle objects
+    to staging storage, then calls this mutation with the file path.
+    The server dispatches an import task to create Documents from the
+    bundles and link them to the pre-existing BulkIngestionItems.
+
+    The JSONL bundles must include `external_id` values matching the
+    items originally returned by ClaimBulkIngestionBatch.
+    """
+
+    class Arguments:
+        job_id = graphene.ID(required=True, description="Bulk ingestion job ID")
+        results_path = graphene.String(
+            required=True,
+            description="Path to the JSONL results file in staging storage",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(root, info, job_id, results_path):
+        from django.db import transaction
+        from django.utils import timezone
+
+        user = info.context.user
+
+        try:
+            job = BulkIngestionJob.objects.get(pk=job_id, creator=user)
+        except BulkIngestionJob.DoesNotExist:
+            return CompleteBulkIngestionBatch(ok=False, message="Job not found")
+
+        if job.is_terminal:
+            return CompleteBulkIngestionBatch(
+                ok=False,
+                message=f"Job is in terminal state '{job.status}'",
+            )
+
+        if not results_path or not results_path.strip():
+            return CompleteBulkIngestionBatch(
+                ok=False, message="results_path is required"
+            )
+
+        # Transition job to importing if it hasn't started yet
+        if job.status == BulkIngestionJobStatus.CREATED:
+            job.status = BulkIngestionJobStatus.IMPORTING
+            job.started_at = timezone.now()
+            job.save(update_fields=["status", "started_at"])
+
+        # Dispatch the import task
+        from opencontractserver.bulk_ingestion.tasks import batch_import_preparsed
+
+        transaction.on_commit(
+            lambda: batch_import_preparsed.delay(job.id, results_path, 0)
+        )
+
+        logger.info(f"Workstation submitted results for job {job.id}: {results_path}")
+
+        return CompleteBulkIngestionBatch(
+            ok=True,
+            message="Results submitted for import",
+        )
 
 
 # ============================================================================

@@ -75,6 +75,26 @@ BULK_INGESTION_DOWNLOAD_RATE_LIMIT = getattr(
 )
 
 # ============================================================================
+# Workstation claim settings
+# ============================================================================
+
+# How long a claimed item remains reserved before expiring (seconds).
+# Expired claims are released back to pending on the next claim request.
+BULK_INGESTION_CLAIM_TTL_SECONDS = getattr(
+    settings, "BULK_INGESTION_CLAIM_TTL_SECONDS", 3600
+)
+
+# Default number of items returned per claim request
+BULK_INGESTION_DEFAULT_CLAIM_BATCH_SIZE = getattr(
+    settings, "BULK_INGESTION_DEFAULT_CLAIM_BATCH_SIZE", 100
+)
+
+# Maximum items a workstation can claim in a single request
+BULK_INGESTION_MAX_CLAIM_BATCH_SIZE = getattr(
+    settings, "BULK_INGESTION_MAX_CLAIM_BATCH_SIZE", 500
+)
+
+# ============================================================================
 # Celery queue names
 # ============================================================================
 

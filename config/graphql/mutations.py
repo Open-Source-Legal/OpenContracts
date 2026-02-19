@@ -39,6 +39,8 @@ from config.graphql.base import DRFDeletion, DRFMutation
 # Import bulk ingestion mutations
 from config.graphql.bulk_ingestion_mutations import (
     CancelBulkIngestionJob,
+    ClaimBulkIngestionBatch,
+    CompleteBulkIngestionBatch,
     CreateBulkIngestionJob,
     PauseBulkIngestionJob,
     ResumeBulkIngestionJob,
@@ -6066,3 +6068,5 @@ class Mutation(graphene.ObjectType):
     pause_bulk_ingestion_job = PauseBulkIngestionJob.Field()
     resume_bulk_ingestion_job = ResumeBulkIngestionJob.Field()
     cancel_bulk_ingestion_job = CancelBulkIngestionJob.Field()
+    claim_bulk_ingestion_batch = ClaimBulkIngestionBatch.Field()
+    complete_bulk_ingestion_batch = CompleteBulkIngestionBatch.Field()

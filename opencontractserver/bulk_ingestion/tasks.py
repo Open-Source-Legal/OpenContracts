@@ -15,6 +15,7 @@ memory exhaustion during large imports.
 
 import logging
 import uuid
+from datetime import timedelta
 
 from celery import chain, shared_task
 from django.apps import apps
@@ -25,6 +26,7 @@ from django.utils import timezone
 
 from opencontractserver.bulk_ingestion.constants import (
     BULK_INGESTION_BACKPRESSURE_DELAY,
+    BULK_INGESTION_CLAIM_TTL_SECONDS,
     BULK_INGESTION_IMPORT_BATCH_SIZE,
     BULK_INGESTION_MAX_PARSE_QUEUE_DEPTH,
     QUEUE_BULK_DISPATCH,
@@ -288,10 +290,22 @@ def batch_import_preparsed(self, job_id: int, batch_path: str, batch_index: int 
                     content_hash=bundle.get("pdf_sha256", ""),
                 )
             )
+        # update_conflicts handles both flows:
+        #   - Original: items don't exist → creates them
+        #   - Workstation: items exist (claimed) → updates document link + status
         BulkIngestionItem.objects.bulk_create(
             items_to_create,
             batch_size=BULK_INGESTION_IMPORT_BATCH_SIZE,
-            ignore_conflicts=True,
+            update_conflicts=True,
+            update_fields=[
+                "source_url",
+                "staged_path",
+                "document",
+                "status",
+                "file_type",
+                "content_hash",
+            ],
+            unique_fields=["job", "external_id"],
         )
 
     # Update job progress
@@ -875,3 +889,37 @@ def _check_job_completion(job_id: int):
             f"Job {job_id} {final_status}: "
             f"{terminal_count} items processed, {failed} failed"
         )
+
+
+def release_expired_claims(job_id: int) -> int:
+    """
+    Release items whose workstation claims have expired back to pending.
+
+    Called before each claim request to recycle abandoned work.
+    Uses a single UPDATE query for efficiency.
+
+    Args:
+        job_id: The BulkIngestionJob ID.
+
+    Returns:
+        Number of items released.
+    """
+    BulkIngestionItem = apps.get_model("bulk_ingestion", "BulkIngestionItem")
+
+    threshold = timezone.now() - timedelta(seconds=BULK_INGESTION_CLAIM_TTL_SECONDS)
+
+    released = BulkIngestionItem.objects.filter(
+        job_id=job_id,
+        status="parsing",
+        claimed_at__isnull=False,
+        claimed_at__lt=threshold,
+    ).update(
+        status="pending",
+        claimed_at=None,
+        claimed_by="",
+    )
+
+    if released:
+        logger.info(f"Released {released} expired claims for job {job_id}")
+
+    return released
