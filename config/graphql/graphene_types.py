@@ -238,6 +238,7 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = User
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -245,6 +246,7 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 class AssignmentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = Assignment
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -252,6 +254,7 @@ class AssignmentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 class RelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = Relationship
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -614,6 +617,7 @@ class DocumentPathType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = DocumentPath
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -665,6 +669,7 @@ class DocumentRelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType
 
     class Meta:
         model = DocumentRelationship
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -689,6 +694,7 @@ class PageAwareAnnotationType(graphene.ObjectType):
 class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = AnnotationLabel
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -742,6 +748,7 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = LabelSet
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -1916,6 +1923,7 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = CorpusFolder
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2135,6 +2143,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Corpus
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2155,6 +2164,7 @@ class CorpusActionType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = CorpusAction
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
         filter_fields = {
@@ -2184,6 +2194,7 @@ class AgentActionResultType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.agents.models import AgentActionResult
 
         model = AgentActionResult
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
         filter_fields = {
@@ -2220,6 +2231,7 @@ class CorpusActionExecutionType(AnnotatePermissionsForReadMixin, DjangoObjectTyp
 
     class Meta:
         model = CorpusActionExecution
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
         filter_fields = {
@@ -2271,6 +2283,7 @@ class UserExportType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = UserExport
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2295,6 +2308,7 @@ class UserImportType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = UserImport
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2321,6 +2335,7 @@ class AnalyzerType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Analyzer
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2336,6 +2351,7 @@ class GremlinEngineType_READ(AnnotatePermissionsForReadMixin, DjangoObjectType):
 class GremlinEngineType_WRITE(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = GremlinEngine
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2376,6 +2392,7 @@ class AnalysisType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Analysis
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2386,6 +2403,7 @@ class ColumnType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Column
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2398,6 +2416,7 @@ class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Fieldset
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2421,6 +2440,7 @@ class DatacellType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Datacell
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2443,6 +2463,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Extract
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2476,6 +2497,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 class DocumentAnalysisRowType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = DocumentAnalysisRow
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2782,6 +2804,7 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = ChatMessage
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2843,6 +2866,7 @@ class ConversationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     class Meta:
         model = Conversation
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -2868,6 +2892,7 @@ class ConversationConnection(CountableConnection):
 class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = UserFeedback
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -3008,6 +3033,7 @@ class CorpusDescriptionRevisionType(AnnotatePermissionsForReadMixin, DjangoObjec
 
     class Meta:
         model = CorpusDescriptionRevision
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
@@ -3017,6 +3043,7 @@ class DocumentSummaryRevisionType(AnnotatePermissionsForReadMixin, DjangoObjectT
 
     class Meta:
         model = DocumentSummaryRevision
+        fields = "__all__"
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
