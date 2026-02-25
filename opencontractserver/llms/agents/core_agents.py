@@ -522,27 +522,14 @@ class CoreAgentBase(ABC):
         metadata: dict[str, Any] = None,
     ) -> None:
         """Complete a message atomically with content, sources, and metadata."""
-        logger.error("[DIAGNOSTIC complete_message] Called with:")
-        logger.error(f"[DIAGNOSTIC complete_message]   message_id: {message_id}")
-        logger.error(f"[DIAGNOSTIC complete_message]   content length: {len(content)}")
-        logger.error(
-            f"[DIAGNOSTIC complete_message]   sources: {sources is not None} (count: {len(sources) if sources else 0})"
-        )
-        if sources:
-            logger.error(
-                f"[DIAGNOSTIC complete_message]   First source: {sources[0].to_dict()}"
-            )
-        logger.error(
-            f"[DIAGNOSTIC complete_message]   metadata keys: {metadata.keys() if metadata else 'None'}"
-        )
-        logger.error(
-            "[DIAGNOSTIC complete_message]   Calling conversation_manager.complete_message()..."
+        logger.debug(
+            "complete_message: message_id=%s, content_len=%d, sources=%d",
+            message_id,
+            len(content),
+            len(sources) if sources else 0,
         )
         await self.conversation_manager.complete_message(
             message_id, content, sources, metadata
-        )
-        logger.error(
-            "[DIAGNOSTIC complete_message]   conversation_manager.complete_message() returned successfully"
         )
 
     async def cancel_message(self, message_id: int, reason: str = "Cancelled") -> None:
@@ -841,6 +828,19 @@ class CoreAgentBase(ABC):
                     await self.conversation_manager.update_message_content(
                         llm_msg_id, accumulated_content
                     )
+
+                # If the inner generator produced a FinalEvent with empty
+                # content but we accumulated content from ContentEvents,
+                # patch the FinalEvent so that the consumer (and the
+                # WebSocket ASYNC_FINISH message) carry the response text.
+                # This can happen when _stream_core's internal accumulation
+                # diverges from the wrapper's (e.g. after tool-call cycles
+                # or for anonymous users).
+                if isinstance(evt, FinalEvent) and accumulated_content:
+                    if not evt.accumulated_content:
+                        evt.accumulated_content = accumulated_content
+                    if not evt.content:
+                        evt.content = accumulated_content
 
                 # Side-channel: forward to observer if configured.
                 await self._emit_observer_event(evt)

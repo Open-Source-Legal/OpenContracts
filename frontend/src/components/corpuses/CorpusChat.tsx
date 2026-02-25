@@ -1380,9 +1380,14 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       const assistantMsg = updatedMessages[forwardIndex];
       lastMsgId = assistantMsg.messageId;
 
+      // Keep the streamed content if the final content is empty.
+      // This prevents losing text that was displayed during streaming
+      // when the backend's accumulated_content fails to propagate.
+      const finalContent = content || assistantMsg.content;
+
       updatedMessages[forwardIndex] = {
         ...assistantMsg,
-        content,
+        content: finalContent,
         isComplete: true,
         hasSources:
           assistantMsg.hasSources ??
@@ -1399,7 +1404,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     // to avoid React's "setState inside render" warning.
     if (lastMsgId) {
       handleCompleteMessage(
-        content,
+        content || "",
         sourcesData,
         lastMsgId,
         overrideId,

@@ -787,12 +787,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     overrideId?: string,
     timelineData?: TimelineEntry[]
   ): void => {
-    console.log("finalizeStreamingResponse", {
-      content,
-      sourcesData,
-      overrideId,
-    });
-
     let lastMsgId: string | undefined;
     setChat((prev) => {
       if (!prev.length) return prev;
@@ -807,25 +801,23 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
       const updatedMessages = [...prev];
       const assistantMsg = updatedMessages[updateIdx];
-      console.log("XOXO - Found assistant message to update:", {
-        messageId: assistantMsg.messageId,
-        oldContent: assistantMsg.content.substring(0, 50) + "...",
-      });
 
       lastMsgId = assistantMsg.messageId;
 
+      // Keep the streamed content if the final content is empty.
+      // This prevents losing text that was displayed during streaming
+      // when the backend's accumulated_content fails to propagate.
+      const finalContent = content || assistantMsg.content;
+
       updatedMessages[updateIdx] = {
         ...assistantMsg,
-        content,
+        content: finalContent,
         isComplete: true,
       };
-      console.log("Updated message with final content:", {
-        messageId: lastMsgId,
-      });
 
       // Now store the final content + sources in ChatSourceAtom with the same ID
       handleCompleteMessage(
-        content,
+        content || "",
         sourcesData,
         lastMsgId,
         undefined,
@@ -1327,7 +1319,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       );
     }
     const messageId = overrideId ?? `msg_${Date.now()}`; // Only fallback if really needed
-    console.log("XOXO - handleCompleteMessage messageId", messageId);
     const messageTimestamp = overrideCreatedAt
       ? new Date(overrideCreatedAt).toISOString()
       : new Date().toISOString();

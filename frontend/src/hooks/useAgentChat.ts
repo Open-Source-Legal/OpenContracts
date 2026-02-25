@@ -548,9 +548,15 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
         const assistantMsg = updatedMessages[updateIdx];
         lastMsgId = assistantMsg.messageId;
 
+        // Keep the streamed content if the final content is empty.
+        // This prevents losing text that was displayed during streaming
+        // when the backend's accumulated_content fails to propagate
+        // (e.g., for anonymous users or after tool-call cycles).
+        const finalContent = content || assistantMsg.content;
+
         updatedMessages[updateIdx] = {
           ...assistantMsg,
-          content,
+          content: finalContent,
           isComplete: true,
           hasSources: sourcesData
             ? sourcesData.length > 0
@@ -565,7 +571,7 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
 
       if (lastMsgId) {
         handleCompleteMessage(
-          content,
+          content || "",
           sourcesData,
           lastMsgId,
           undefined,
