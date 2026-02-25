@@ -1,5 +1,5 @@
 """
-GraphQL mutations for managing worker accounts and corpus access tokens.
+GraphQL mutations and types for managing worker accounts and corpus access tokens.
 
 Only superusers can create/manage worker accounts and tokens.
 """
@@ -30,18 +30,22 @@ class WorkerAccountType(graphene.ObjectType):
     description = graphene.String()
     is_active = graphene.Boolean()
     created = graphene.DateTime()
+    token_count = graphene.Int()
+    creator_username = graphene.String()
 
 
 class CorpusAccessTokenType(graphene.ObjectType):
     id = graphene.Int()
-    # Only show the full key on creation; afterwards show a masked version
-    key = graphene.String()
+    # Only show the key prefix after creation; full key shown only on creation
+    key_prefix = graphene.String()
     worker_account_name = graphene.String()
     corpus_id = graphene.Int()
+    corpus_title = graphene.String()
     expires_at = graphene.DateTime()
     is_active = graphene.Boolean()
     rate_limit_per_minute = graphene.Int()
     created = graphene.DateTime()
+    upload_count = graphene.Int()
 
 
 class CorpusAccessTokenCreatedType(graphene.ObjectType):
@@ -56,6 +60,18 @@ class CorpusAccessTokenCreatedType(graphene.ObjectType):
     expires_at = graphene.DateTime()
     rate_limit_per_minute = graphene.Int()
     created = graphene.DateTime()
+
+
+class WorkerDocumentUploadType(graphene.ObjectType):
+    id = graphene.String()
+    status = graphene.String()
+    corpus_id = graphene.Int()
+    corpus_title = graphene.String()
+    worker_account_name = graphene.String()
+    error_message = graphene.String()
+    created = graphene.DateTime()
+    processing_started = graphene.DateTime()
+    processing_finished = graphene.DateTime()
 
 
 # ============================================================================

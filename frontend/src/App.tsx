@@ -73,6 +73,7 @@ import {
   GlobalSettingsPanel,
   GlobalAgentManagement,
   SystemSettings,
+  WorkerAccountManagement,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
@@ -517,6 +518,10 @@ export const App = () => {
                   <Route
                     path="/admin/agents"
                     element={<GlobalAgentManagement />}
+                  />
+                  <Route
+                    path="/admin/workers"
+                    element={<WorkerAccountManagement />}
                   />
                   <Route path="/system_settings" element={<SystemSettings />} />
 

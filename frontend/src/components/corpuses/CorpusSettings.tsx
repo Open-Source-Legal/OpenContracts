@@ -44,6 +44,7 @@ import {
   VisibilitySlugSection,
   CategoriesSection,
   CorpusActionsSection,
+  WorkerAccessTokensSection,
 } from "./settings";
 
 // Shared styles
@@ -436,6 +437,21 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
             <CorpusAgentManagement corpusId={corpus.id} canUpdate={canUpdate} />
           </SettingsCardContent>
         </SettingsCard>
+
+        {(isSuperuser || isOwner) && (
+          <SettingsCard id="worker-access-tokens-section">
+            <SettingsCardHeader>
+              <SettingsCardTitle>Worker Access Tokens</SettingsCardTitle>
+            </SettingsCardHeader>
+            <SettingsCardContent>
+              <WorkerAccessTokensSection
+                corpusId={corpus.id}
+                isSuperuser={isSuperuser}
+                isOwner={isOwner}
+              />
+            </SettingsCardContent>
+          </SettingsCard>
+        )}
 
         <CreateCorpusActionModal
           corpusId={corpus.id}

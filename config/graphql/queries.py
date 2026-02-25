@@ -105,6 +105,11 @@ from config.graphql.ratelimits import (
     graphql_ratelimit,
     graphql_ratelimit_dynamic,
 )
+from config.graphql.worker_mutations import (
+    CorpusAccessTokenType,
+    WorkerAccountType,
+    WorkerDocumentUploadType,
+)
 from opencontractserver.analyzer.models import Analyzer, GremlinEngine
 from opencontractserver.annotations.models import (
     Annotation,
@@ -134,6 +139,11 @@ from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.notifications.models import Notification
 from opencontractserver.types.enums import LabelType
 from opencontractserver.users.models import Assignment, UserExport, UserImport
+from opencontractserver.worker_uploads.models import (
+    CorpusAccessToken,
+    WorkerAccount,
+    WorkerDocumentUpload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -4369,6 +4379,129 @@ class Query(graphene.ObjectType):
             modified=settings_instance.modified,
             modified_by=settings_instance.modified_by,
         )
+
+    # WORKER UPLOAD QUERIES (Superuser only) #################
+    worker_accounts = graphene.List(
+        WorkerAccountType,
+        description="List all worker accounts. Superuser only.",
+    )
+    corpus_access_tokens = graphene.List(
+        CorpusAccessTokenType,
+        corpus_id=graphene.Int(required=True),
+        description="List access tokens scoped to a corpus. Superuser or corpus owner.",
+    )
+    worker_document_uploads = graphene.List(
+        WorkerDocumentUploadType,
+        corpus_id=graphene.Int(required=True),
+        status=graphene.String(required=False),
+        description="List worker document uploads for a corpus, with optional status filter.",
+    )
+
+    @login_required
+    def resolve_worker_accounts(self, info):
+        user = info.context.user
+        if not user.is_superuser:
+            raise GraphQLError("Permission denied. Superuser access required.")
+
+        accounts = WorkerAccount.objects.select_related("creator", "user").all()
+        result = []
+        for account in accounts:
+            token_count = CorpusAccessToken.objects.filter(
+                worker_account=account
+            ).count()
+            result.append(
+                WorkerAccountType(
+                    id=account.id,
+                    name=account.name,
+                    description=account.description,
+                    is_active=account.is_active,
+                    created=account.created,
+                    token_count=token_count,
+                    creator_username=(
+                        account.creator.username if account.creator else None
+                    ),
+                )
+            )
+        return result
+
+    @login_required
+    def resolve_corpus_access_tokens(self, info, corpus_id):
+        user = info.context.user
+
+        try:
+            corpus = Corpus.objects.get(id=corpus_id)
+        except Corpus.DoesNotExist:
+            raise GraphQLError("Corpus not found.")
+
+        # Allow superusers and corpus owners
+        if not user.is_superuser and corpus.creator_id != user.id:
+            raise GraphQLError("Permission denied.")
+
+        tokens = (
+            CorpusAccessToken.objects.filter(corpus=corpus)
+            .select_related("worker_account", "corpus")
+            .order_by("-created")
+        )
+        result = []
+        for token in tokens:
+            upload_count = WorkerDocumentUpload.objects.filter(
+                corpus_access_token=token
+            ).count()
+            result.append(
+                CorpusAccessTokenType(
+                    id=token.id,
+                    key_prefix=token.key_prefix,
+                    worker_account_name=token.worker_account.name,
+                    corpus_id=token.corpus_id,
+                    corpus_title=token.corpus.title,
+                    expires_at=token.expires_at,
+                    is_active=token.is_active,
+                    rate_limit_per_minute=token.rate_limit_per_minute,
+                    created=token.created,
+                    upload_count=upload_count,
+                )
+            )
+        return result
+
+    @login_required
+    def resolve_worker_document_uploads(self, info, corpus_id, status=None):
+        user = info.context.user
+
+        try:
+            corpus = Corpus.objects.get(id=corpus_id)
+        except Corpus.DoesNotExist:
+            raise GraphQLError("Corpus not found.")
+
+        # Allow superusers and corpus owners
+        if not user.is_superuser and corpus.creator_id != user.id:
+            raise GraphQLError("Permission denied.")
+
+        qs = WorkerDocumentUpload.objects.filter(corpus=corpus).select_related(
+            "corpus_access_token__worker_account", "corpus"
+        )
+        if status:
+            qs = qs.filter(status=status)
+        qs = qs.order_by("-created")[:100]
+
+        result = []
+        for upload in qs:
+            worker_name = None
+            if upload.corpus_access_token and upload.corpus_access_token.worker_account:
+                worker_name = upload.corpus_access_token.worker_account.name
+            result.append(
+                WorkerDocumentUploadType(
+                    id=str(upload.id),
+                    status=upload.status,
+                    corpus_id=upload.corpus_id,
+                    corpus_title=upload.corpus.title,
+                    worker_account_name=worker_name,
+                    error_message=upload.error_message,
+                    created=upload.created,
+                    processing_started=upload.processing_started,
+                    processing_finished=upload.processing_finished,
+                )
+            )
+        return result
 
     # DEBUG FIELD ########################################
     if settings.ALLOW_GRAPHQL_DEBUG:

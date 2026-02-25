@@ -207,6 +207,15 @@ const settingsItems: SettingItem[] = [
     route: "/system_settings",
   },
   {
+    id: "worker-accounts",
+    title: "Worker Accounts",
+    description:
+      "Manage external worker accounts and access tokens for automated document uploads.",
+    icon: "server",
+    color: "linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)",
+    route: "/admin/workers",
+  },
+  {
     id: "user-management",
     title: "User Management",
     description:

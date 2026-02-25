@@ -5,7 +5,7 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-02-24
+## [Unreleased] - 2026-02-25
 
 ### Fixed
 
@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-computed embedding storage**: workers can include embeddings in upload metadata; stored directly via bulk_create without re-running embedder models. Supports all vector dimensions (384–4096)
 - **Corpus creator ownership**: all documents, annotations, and labels created via worker uploads are owned by the corpus creator (not the service account), ensuring correct permission inheritance
 - **GraphQL management mutations**: `createWorkerAccount`, `deactivateWorkerAccount`, `createCorpusAccessToken`, `revokeCorpusAccessToken` (all superuser-only) in `config/graphql/worker_mutations.py`
+- **GraphQL management queries**: `workerAccounts` (superuser-only list), `corpusAccessTokens(corpusId)` (superuser or corpus owner), `workerDocumentUploads(corpusId, status)` with optional status filtering in `config/graphql/queries.py`
+- **Frontend admin panel**: Worker Accounts management page at `/admin/workers` with table view of all accounts, create/deactivate functionality, and token count display (`frontend/src/components/admin/WorkerAccountManagement.tsx`)
+- **Frontend corpus settings**: Worker Access Tokens section in corpus settings showing scoped tokens with key prefix, worker name, expiry, rate limit, upload count, and status. Includes create token modal with secure one-time key display and revoke functionality (`frontend/src/components/corpuses/settings/WorkerAccessTokensSection.tsx`)
+- **Admin panel navigation**: Worker Accounts card added to Global Settings Panel for superuser access
+- **Documentation**: Comprehensive walkthrough for external worker integration covering setup, API usage, metadata format, rate limiting, error handling, and security model (`docs/walkthrough/advanced/worker-document-uploads.md`)
 - **Celery task routing**: `CELERY_TASK_ROUTES` canonicalized in one place with guard comment (`config/settings/base.py`)
 - **Settings-based Beat schedule**: `CELERY_BEAT_SCHEDULE` for worker upload drain (60s interval), replacing fragile data migration approach
 - **File size limit**: `MAX_WORKER_UPLOAD_SIZE_BYTES` setting (default 256 MB) enforced at upload endpoint
