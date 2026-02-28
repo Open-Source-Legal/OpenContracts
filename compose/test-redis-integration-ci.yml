@@ -1,0 +1,23 @@
+services:
+  # Override django to remove ML service dependencies.
+  # Redis integration tests only need postgres + redis.
+  django:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Stub out ML services so they don't start
+  vector-embedder:
+    image: busybox
+    command: "true"
+  multimodal-embedder:
+    image: busybox
+    command: "true"
+  docling-parser:
+    image: busybox
+    command: "true"
+  celeryworker:
+    image: busybox
+    command: "true"

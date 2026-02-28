@@ -294,8 +294,6 @@ class TestPostProcessor(BasePostProcessor):
         result = self.client.execute(query)
         self.assertIsNone(result.get("errors"))
 
-        print(f"Query result: {result['data']}")
-
         data = result["data"]["pipelineComponents"]
         parsers = data["parsers"]
         embedders = data["embedders"]
@@ -389,7 +387,6 @@ class TestPostProcessor(BasePostProcessor):
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["pipelineComponents"]
-        print(f"test_pipeline_components_query_with_mimetype - Data: {data}")
         parsers = data["parsers"]
         embedders = data["embedders"]
         thumbnailers = data["thumbnailers"]
@@ -407,7 +404,6 @@ class TestPostProcessor(BasePostProcessor):
         self.assertIn("Test Embedder", embedder_titles)
 
         post_processor_titles = [pp["title"] for pp in post_processors]
-        print(f"Post processor titles: {post_processor_titles}")
         self.assertIn("Test PostProcessor", post_processor_titles)
 
     def test_pipeline_components_query_with_mimetype_no_components(self):

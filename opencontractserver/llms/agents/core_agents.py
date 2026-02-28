@@ -639,7 +639,7 @@ class CoreAgentBase(ABC):
                 **kwargs,
             )
             return result
-        except Exception:
+        except Exception:  # pragma: no cover -- defensive; requires mock failure
             # Log the error but don't raise - return None per spec
             logger.error("Error in structured_response", exc_info=True)
             return None

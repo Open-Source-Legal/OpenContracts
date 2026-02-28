@@ -379,7 +379,6 @@ class PermissioningTestCase(TestCase):
         for ann in user_one_corpus_response["data"]["corpuses"]["edges"][0]["node"][
             "annotations"
         ]["edges"]:
-            print("Ann response in __test_user_retrieval_permissions: ", ann)
             ann_permissions = ann["node"]["myPermissions"]
             # Annotations inherit minimum of document (READ) and corpus (ALL) = READ
             self.assertIn(

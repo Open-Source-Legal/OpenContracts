@@ -48,8 +48,6 @@ class ApiTokenAuthTestCase(GraphQLTestCase):
         with transaction.atomic():
             self.token = Token.objects.create(user=self.user)
 
-        print(f"Token: {self.token}")
-
     def test_token_create_corpus(self):
         """
         Test that we can import an OpenContracts export via GraphQL and get back the expected
@@ -87,8 +85,6 @@ class ApiTokenAuthTestCase(GraphQLTestCase):
 
         # Now, check without auth token for corpus... should be NONE
         response = self.query(self.REQUEST_CORPUSES_MUTATION)
-        print(f"Response: {response}")
-        print(f"Response content: {response.content}")
         response_json = json.loads(response.content)
         retrieved_corpuses = response_json["data"]["corpuses"]["edges"]
         self.assertTrue(len(retrieved_corpuses) == 0)

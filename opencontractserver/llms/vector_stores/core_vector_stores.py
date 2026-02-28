@@ -445,10 +445,7 @@ class CoreAnnotationVectorStore:
                 )
             )
 
-        # Print the SQL query for inspection
-        print("-------------------- GENERATED SQL QUERY --------------------")
-        print(str(queryset.query))
-        print("-------------------------------------------------------------")
+        _logger.debug("Generated SQL query: %s", queryset.query)
 
         return queryset
 

@@ -162,6 +162,10 @@ export interface MentionPickerProps {
   users: MentionUser[];
   onSelect: (user: MentionUser) => void;
   selectedIndex: number;
+  loading?: boolean;
+  error?: string | null;
+  /** Optional hint shown when the user list is empty (e.g. "Type 2+ characters to search"). */
+  hint?: string;
 }
 
 export interface MentionPickerRef {
@@ -169,11 +173,15 @@ export interface MentionPickerRef {
 }
 
 /**
- * Mention picker component for @username autocomplete
- * Used with TipTap's Mention extension
+ * Mention picker component for @username autocomplete.
+ * Used with TipTap's Mention extension.
+ *
+ * NOTE: The primary render path uses `UnifiedMentionPicker` (which handles
+ * users, corpuses, documents, annotations, and agents). This component is
+ * exported as a standalone picker for consumers that only need user mentions.
  */
 export const MentionPicker = forwardRef<MentionPickerRef, MentionPickerProps>(
-  ({ users, onSelect, selectedIndex }, ref) => {
+  ({ users, onSelect, selectedIndex, loading, error, hint }, ref) => {
     const [selected, setSelected] = useState(selectedIndex);
 
     useEffect(() => {
@@ -182,6 +190,12 @@ export const MentionPicker = forwardRef<MentionPickerRef, MentionPickerProps>(
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }: { event: KeyboardEvent }) => {
+        // Guard: prevent phantom navigation when users array is empty
+        // (e.g. during loading or error states).
+        if (users.length === 0) {
+          return false;
+        }
+
         if (event.key === "ArrowUp") {
           setSelected((selected - 1 + users.length) % users.length);
           return true;
@@ -207,10 +221,26 @@ export const MentionPicker = forwardRef<MentionPickerRef, MentionPickerProps>(
       return username.substring(0, 2).toUpperCase();
     };
 
+    if (loading) {
+      return (
+        <Container>
+          <NoResults>Searching users…</NoResults>
+        </Container>
+      );
+    }
+
+    if (error) {
+      return (
+        <Container>
+          <NoResults>Failed to load users</NoResults>
+        </Container>
+      );
+    }
+
     if (users.length === 0) {
       return (
         <Container>
-          <NoResults>No users found</NoResults>
+          <NoResults>{hint ?? "No users found"}</NoResults>
         </Container>
       );
     }

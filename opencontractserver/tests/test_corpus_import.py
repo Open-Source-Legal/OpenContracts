@@ -26,10 +26,6 @@ class ImportCorpusTestCase:
 
     def test_import(self):
 
-        print(
-            "# TEST CORPUS IMPORT PIPELINE #########################################################################"
-        )
-
         export_zip_base64_file_string = package_zip_into_base64(
             self.fixtures_path / "Test_Corpus_EXPORT.zip"
         )

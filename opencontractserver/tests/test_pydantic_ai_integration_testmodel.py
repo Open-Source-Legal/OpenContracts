@@ -206,8 +206,6 @@ class TestPydanticAIAgentsWithTestModel(TransactionTestCase):
                 else final_content
             )
 
-            print(f"Actual content: {actual_content}")
-
             # TestModel should return the custom_output_text we provided
             # This verifies the agent framework completes successfully
             self.assertIsNotNone(actual_content)
@@ -289,16 +287,11 @@ class TestPydanticAIAgentsWithTestModel(TransactionTestCase):
                 final_event, "accumulated_content", ""
             )
 
-            print(f"Final content with tool execution: {final_content}")
-
             # Verify agent produced output (may include tool results)
             self.assertIsNotNone(final_content)
 
             # Check that we got thought events indicating tool usage
             # (TestModel generates tool calls which should produce thoughts)
-            print(f"Number of thought events: {len(thought_events)}")
-            print(f"Total events: {len(events)}")
-
             # The agent framework should have processed events successfully
             self.assertGreater(
                 len(events), 0, "Should have multiple events from tool execution"
@@ -482,7 +475,6 @@ class TestPydanticAIAgentsWithTestModel(TransactionTestCase):
                     tool_name = tool.name if hasattr(tool, "name") else str(tool)
                     if "similarity" in tool_name.lower():
                         tools_called.append(tool_name)
-                    print(f"Available tool: {tool_name}")
 
             # Return structured data (this is what a real LLM would return)
             # In a real scenario, the LLM would call tools first, then extract data
@@ -512,14 +504,9 @@ class TestPydanticAIAgentsWithTestModel(TransactionTestCase):
             model=function_model,  # Use FunctionModel for control
         )
 
-        print(f"Structured response result: {result}")
-        print(f"Tools that were checked: {tools_called}")
-
         # Verify we got structured results
         self.assertIsNotNone(result, "Should return structured data")
         self.assertIsInstance(result, PaymentInfo)
         self.assertEqual(result.amount, "$10,000")
         self.assertEqual(result.deadline, "30 days")
         self.assertEqual(result.method, "wire transfer")
-
-        print("✓ Structured extraction with FunctionModel succeeded")

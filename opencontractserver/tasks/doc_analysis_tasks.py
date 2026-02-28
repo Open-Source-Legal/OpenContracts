@@ -616,7 +616,9 @@ def pii_highlighter_claude(
         return ([], [], [{"data": {"error": "Empty response from Claude"}}], False)
 
     # Split response by line to get each snippet
-    print(f"Claude response ({type(claude_response)}): {claude_response}")
+    logger.debug(  # pragma: no cover -- requires live Claude API
+        "Claude response (%s): %s", type(claude_response), claude_response
+    )
     lines_to_redact = []
     for line in claude_response.splitlines():
         if line.strip().lower() != "none" and line.strip():

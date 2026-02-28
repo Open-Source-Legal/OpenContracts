@@ -100,7 +100,6 @@ class NonPDFExportTestCase(TestCase):
 
     def test_pdf_export_still_works(self):
         """Test that PDF export still works as before (backward compatibility)"""
-        print("\n# TEST PDF EXPORT BACKWARD COMPATIBILITY ##")
 
         # Create a PDF document
         pdf_doc = self.create_document(file_type="application/pdf")
@@ -117,20 +116,14 @@ class NonPDFExportTestCase(TestCase):
             label_lookups=label_lookups, doc_id=pdf_doc.id, corpus_id=self.corpus.id
         )
 
-        print(f"PDF export - doc_name: {doc_name}")
-        print(f"PDF export - has base64_pdf: {bool(base64_pdf)}")
-        print(f"PDF export - has doc_json: {bool(doc_json)}")
-
         # For PDFs, we should get the PDF bytes (though they might fail if not a real PDF)
         # The important thing is that it doesn't crash
         assert doc_name is not None
         assert doc_json is not None
         assert doc_json["title"] == "Test Document"
-        print("\t\tSUCCESS - PDF export works")
 
     def test_non_pdf_text_export(self):
         """Test that non-PDF text documents can be exported"""
-        print("\n# TEST NON-PDF TEXT DOCUMENT EXPORT ##")
 
         # Create a text document
         text_doc = self.create_document(file_type="text/plain")
@@ -154,10 +147,6 @@ class NonPDFExportTestCase(TestCase):
             label_lookups=label_lookups, doc_id=text_doc.id, corpus_id=self.corpus.id
         )
 
-        print(f"Text export - doc_name: {doc_name}")
-        print(f"Text export - base64_pdf: '{base64_pdf}' (should be empty)")
-        print(f"Text export - has doc_json: {bool(doc_json)}")
-
         # For non-PDFs, we should get empty PDF bytes but valid JSON
         assert doc_name is not None
         assert base64_pdf == "", "Non-PDF should have empty base64_pdf string"
@@ -166,11 +155,9 @@ class NonPDFExportTestCase(TestCase):
         assert doc_json["content"] == "Extracted text content"
         assert len(doc_json["labelled_text"]) == 1
         assert len(doc_json["doc_labels"]) == 1
-        print("\t\tSUCCESS - Non-PDF text export works correctly")
 
     def test_non_pdf_docx_export(self):
         """Test that DOCX documents can be exported"""
-        print("\n# TEST DOCX DOCUMENT EXPORT ##")
 
         # Create a DOCX document
         docx_doc = self.create_document(
@@ -189,21 +176,15 @@ class NonPDFExportTestCase(TestCase):
             label_lookups=label_lookups, doc_id=docx_doc.id, corpus_id=self.corpus.id
         )
 
-        print(f"DOCX export - doc_name: {doc_name}")
-        print(f"DOCX export - base64_pdf: '{base64_pdf}' (should be empty)")
-        print(f"DOCX export - has doc_json: {bool(doc_json)}")
-
         # For non-PDFs, we should get empty PDF bytes but valid JSON
         assert doc_name is not None
         assert base64_pdf == "", "Non-PDF should have empty base64_pdf string"
         assert doc_json is not None
         assert doc_json["title"] == "Test Document"
         assert len(doc_json["labelled_text"]) == 1
-        print("\t\tSUCCESS - DOCX export works correctly")
 
     def test_non_pdf_without_pdf_file(self):
         """Test that documents without pdf_file can be exported"""
-        print("\n# TEST DOCUMENT WITHOUT PDF FILE ##")
 
         # Create a document without a pdf_file
         doc = self.create_document(file_type="text/plain", has_pdf_file=False)
@@ -220,13 +201,8 @@ class NonPDFExportTestCase(TestCase):
             label_lookups=label_lookups, doc_id=doc.id, corpus_id=self.corpus.id
         )
 
-        print(f"No PDF file export - doc_name: {doc_name}")
-        print(f"No PDF file export - base64_pdf: '{base64_pdf}' (should be empty)")
-        print(f"No PDF file export - has doc_json: {bool(doc_json)}")
-
         # Should still work with empty PDF bytes
         assert doc_name == "document"
         assert base64_pdf == ""
         assert doc_json is not None
         assert len(doc_json["labelled_text"]) == 1
-        print("\t\tSUCCESS - Export without PDF file works correctly")

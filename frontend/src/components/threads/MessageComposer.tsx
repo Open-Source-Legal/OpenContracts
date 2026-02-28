@@ -337,7 +337,7 @@ export function MessageComposer({
   const [characterCount, setCharacterCount] = React.useState(0);
 
   // Unified mention search for all resource types
-  const { allResults, loading } = useUnifiedMentionSearch(
+  const { allResults, loading, hint } = useUnifiedMentionSearch(
     mentionSearchQuery,
     corpusId // Context-aware annotation search
   );
@@ -345,20 +345,23 @@ export function MessageComposer({
   // Use ref to always get latest results (TipTap captures closure)
   const allResultsRef = useRef(allResults);
   const loadingRef = useRef(loading);
+  const hintRef = useRef(hint);
   const mentionComponentRef = useRef<any>(null);
 
   useEffect(() => {
     allResultsRef.current = allResults;
     loadingRef.current = loading;
+    hintRef.current = hint;
 
     // Update the component props when results arrive
     if (mentionComponentRef.current) {
       mentionComponentRef.current.updateProps({
         resources: allResults,
         loading,
+        hint,
       });
     }
-  }, [allResults, loading]);
+  }, [allResults, loading, hint]);
   const editor = useEditor({
     // Use TipTap's built-in autofocus - handles mount timing correctly
     autofocus: autoFocus,
@@ -528,6 +531,7 @@ export function MessageComposer({
                           ...props,
                           resources: allResultsRef.current,
                           loading: loadingRef.current,
+                          hint: hintRef.current,
                           onSelect: (resource: UnifiedMentionResource) => {
                             // Generate mention with deep link as markdown [text](url)
                             const mentionData = getMentionData(resource);
@@ -579,6 +583,7 @@ export function MessageComposer({
                         ...props,
                         resources: allResultsRef.current,
                         loading: loadingRef.current,
+                        hint: hintRef.current,
                         onSelect: (resource: UnifiedMentionResource) => {
                           const mentionData = getMentionData(resource);
 

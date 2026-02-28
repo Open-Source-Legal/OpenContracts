@@ -101,18 +101,12 @@ class BulkDocumentUploadTests(TestCase):
             variables["addToCorpusId"] = add_to_corpus_id
 
         # Execute the mutation
-        try:
-            response = client.execute(mutation, variable_values=variables)
-            # Debug output
-            print(f"GraphQL Response: {response}")
-            # Safely access nested dictionary
-            mutation_result = response.get("data", {}).get("uploadDocumentsZip")
-            if mutation_result:
-                return response["data"]["uploadDocumentsZip"]
-            return None
-        except Exception as e:
-            print(f"Exception executing mutation: {e}")
-            return None
+        response = client.execute(mutation, variable_values=variables)
+        # Safely access nested dictionary
+        mutation_result = response.get("data", {}).get("uploadDocumentsZip")
+        if mutation_result:
+            return response["data"]["uploadDocumentsZip"]
+        return None
 
     def execute_status_query(self, job_id: str) -> dict:
         """Execute the bulkDocumentUploadStatus query with a given job_id and return the result dict."""
@@ -136,20 +130,14 @@ class BulkDocumentUploadTests(TestCase):
         variables = {"jobId": job_id}
 
         # Execute the query
-        try:
-            response = client.execute(query, variable_values=variables)
-            # Debug output
-            print(f"GraphQL Status Query Response: {response}")
-            if (
-                response
-                and "data" in response
-                and "bulkDocumentUploadStatus" in response["data"]
-            ):
-                return response["data"]["bulkDocumentUploadStatus"]
-            return None
-        except Exception as e:
-            print(f"Exception executing status query: {e}")
-            return None
+        response = client.execute(query, variable_values=variables)
+        if (
+            response
+            and "data" in response
+            and "bulkDocumentUploadStatus" in response["data"]
+        ):
+            return response["data"]["bulkDocumentUploadStatus"]
+        return None
 
     @override_settings(
         CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_STORE_EAGER_RESULT=True
@@ -226,7 +214,6 @@ class BulkDocumentUploadTests(TestCase):
         )
 
         # Use our known task ID to perform the status query
-        print(f"Querying status with job_id: {test_task_id}")
         response = self.execute_status_query(test_task_id)
         self.assertIsNotNone(
             response, "Response from execute_status_query should not be None"
@@ -272,84 +259,73 @@ class BulkDocumentUploadTests(TestCase):
         # Create the zip file
         base64_zip = self.create_test_zip()
 
-        # Ensure the zip contains expected files
-        print(
-            f"Created test zip with content: {list(zipfile.ZipFile(io.BytesIO(base64.b64decode(base64_zip))).namelist())}"  # noqa: E501
-        )
-
         # Execute the mutation with corpus ID
         corpus_id = to_global_id("CorpusType", self.corpus.id)
-        try:
-            response = self.execute_mutation(base64_zip, corpus_id)
-            self.assertIsNotNone(
-                response, "Response from execute_mutation should not be None"
+        response = self.execute_mutation(base64_zip, corpus_id)
+        self.assertIsNotNone(
+            response, "Response from execute_mutation should not be None"
+        )
+
+        # Check response structure
+        self.assertIn("ok", response, f"Response should have 'ok' key: {response}")
+        self.assertTrue(response["ok"])
+
+        # NOTE: In CELERY_TASK_ALWAYS_EAGER mode, the task runs synchronously
+        # before control returns here. Querying status immediately can be unreliable.
+        # We will rely on checking the final DB state instead.
+
+        # Check if new documents were created
+        new_doc_count = Document.objects.count()
+        self.assertGreater(new_doc_count, initial_doc_count)
+
+        # Verify documents are associated with the corpus
+        corpus_docs = self.corpus.get_documents().count()
+        self.assertGreater(corpus_docs, 0)
+
+        # Verify document titles and content
+        # With corpus isolation, we need to check corpus copies (have DocumentPath), not originals
+        from opencontractserver.documents.models import DocumentPath
+
+        corpus_doc_ids = DocumentPath.objects.filter(
+            corpus=self.corpus, is_current=True, is_deleted=False
+        ).values_list("document_id", flat=True)
+        documents = Document.objects.filter(
+            id__in=corpus_doc_ids, creator=self.user
+        ).order_by("-created")
+
+        # Filter to only documents that should match the pattern and check the first 3 of those
+        test_docs = [doc for doc in documents if doc.title.startswith("test_document")][
+            :3
+        ]
+        self.assertEqual(
+            len(test_docs),
+            3,
+            "Should have found 3 documents starting with 'test_document'",
+        )
+        for doc in test_docs:
+            self.assertTrue(doc.title.startswith("test_document"))
+            self.assertIn(
+                doc.file_type,
+                [
+                    "application/pdf",
+                    "text/plain",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ],
             )
 
-            # Check response structure
-            self.assertIn("ok", response, f"Response should have 'ok' key: {response}")
-            self.assertTrue(response["ok"])
-
-            # NOTE: In CELERY_TASK_ALWAYS_EAGER mode, the task runs synchronously
-            # before control returns here. Querying status immediately can be unreliable.
-            # We will rely on checking the final DB state instead.
-
-            # Check if new documents were created
-            new_doc_count = Document.objects.count()
-            self.assertGreater(new_doc_count, initial_doc_count)
-
-            # Verify documents are associated with the corpus
-            corpus_docs = self.corpus.get_documents().count()
-            self.assertGreater(corpus_docs, 0)
-
-            # Verify document titles and content
-            # With corpus isolation, we need to check corpus copies (have DocumentPath), not originals
-            from opencontractserver.documents.models import DocumentPath
-
-            corpus_doc_ids = DocumentPath.objects.filter(
-                corpus=self.corpus, is_current=True, is_deleted=False
-            ).values_list("document_id", flat=True)
-            documents = Document.objects.filter(
-                id__in=corpus_doc_ids, creator=self.user
-            ).order_by("-created")
-
-            # Filter to only documents that should match the pattern and check the first 3 of those
-            test_docs = [
-                doc for doc in documents if doc.title.startswith("test_document")
-            ][:3]
-            self.assertEqual(
-                len(test_docs),
-                3,
-                "Should have found 3 documents starting with 'test_document'",
+        # Verify the documents are linked to the corpus via DocumentPath
+        for doc in test_docs:
+            # Check that a DocumentPath exists linking the document to the corpus
+            doc_path_exists = DocumentPath.objects.filter(
+                document=doc,
+                corpus=self.corpus,
+                is_current=True,
+                is_deleted=False,
+            ).exists()
+            self.assertTrue(
+                doc_path_exists,
+                f"Document {doc.id} should have a DocumentPath to corpus {self.corpus.id}",
             )
-            for doc in test_docs:
-                self.assertTrue(doc.title.startswith("test_document"))
-                self.assertIn(
-                    doc.file_type,
-                    [
-                        "application/pdf",
-                        "text/plain",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    ],
-                )
-
-            # Verify the documents are linked to the corpus via DocumentPath
-            from opencontractserver.documents.models import DocumentPath
-
-            for doc in test_docs:
-                # Check that a DocumentPath exists linking the document to the corpus
-                doc_path_exists = DocumentPath.objects.filter(
-                    document=doc,
-                    corpus=self.corpus,
-                    is_current=True,
-                    is_deleted=False,
-                ).exists()
-                self.assertTrue(
-                    doc_path_exists,
-                    f"Document {doc.id} should have a DocumentPath to corpus {self.corpus.id}",
-                )
-        except Exception as e:
-            print(f"Exception in end-to-end test: {e}")
-            raise
 
     @override_settings(
         CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_STORE_EAGER_RESULT=True

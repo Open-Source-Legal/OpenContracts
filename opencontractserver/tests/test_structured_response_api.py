@@ -189,7 +189,6 @@ class TestStructuredResponseAPI(BaseFixtureTestCase):
 
         assert isinstance(result, str) or result is None
         if result:
-            print(f"Result: {result}")
             assert len(result) > 0
             # Should contain document title
             assert "USC Title 1 - Chapter 1".lower() in result.lower()

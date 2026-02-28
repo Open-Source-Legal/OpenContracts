@@ -96,16 +96,9 @@ class TestCreateCorpusFolderMutation(TestCase):
         client = Client(schema, context_value=TestContext(user))
         result = client.execute(self.MUTATION, variable_values=variables)
 
-        # Debug: print full result
-        if result.get("errors"):
-            print(f"GraphQL Errors: {result['errors']}")
-        if not result.get("data", {}).get("createCorpusFolder", {}).get("ok"):
-            print(f"Full result: {result}")
-            print(
-                f"Message: {result.get('data', {}).get('createCorpusFolder', {}).get('message')}"
-            )
-
-        assert result["data"]["createCorpusFolder"]["ok"] is True
+        assert result["data"]["createCorpusFolder"]["ok"] is True, result["data"][
+            "createCorpusFolder"
+        ].get("message", "")
         folder_data = result["data"]["createCorpusFolder"]["folder"]
         assert folder_data["name"] == "Research"
         assert folder_data["description"] == "Research documents"

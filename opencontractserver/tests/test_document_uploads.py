@@ -102,7 +102,6 @@ class UploadDocumentMutationTestCase(TestCase):
 
         for file_ext, mime_type in file_types_to_test.items():
             with self.subTest(file_type=file_ext):
-                print(f"\nTesting file type: {file_ext} ({mime_type})")
                 file_content = self.generate_file_content(file_ext)
                 base64_content = base_64_encode_bytes(file_content)
 
@@ -118,7 +117,6 @@ class UploadDocumentMutationTestCase(TestCase):
                     },
                 )
 
-                print(f"GraphQL Result: {result}")
                 self.assertIsNone(
                     result.get("errors"), f"GraphQL errors found for {file_ext}"
                 )
@@ -127,7 +125,6 @@ class UploadDocumentMutationTestCase(TestCase):
                 is_allowed = mime_type in allowed_mimetypes
 
                 if is_allowed:
-                    print(f"Expected outcome for {file_ext}: Allowed -> Success")
                     self.assertTrue(
                         upload_result["ok"],
                         f"Upload should succeed for allowed type {mime_type}",
@@ -170,7 +167,6 @@ class UploadDocumentMutationTestCase(TestCase):
                             bool(doc.pdf_file), f"pdf_file should exist for {file_ext}"
                         )
                 else:
-                    print(f"Expected outcome for {file_ext}: Disallowed -> Failure")
                     self.assertFalse(
                         upload_result["ok"],
                         f"Upload should fail for disallowed type {mime_type}",

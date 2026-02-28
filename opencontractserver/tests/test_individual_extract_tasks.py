@@ -94,32 +94,22 @@ class TestDocExtractQueryTask(TransactionTestCase):
             creator=self.user,
         )
 
-        try:
-            # Invoke the Celery task synchronously
-            doc_extract_query_task.si(
-                cell_id=datacell.id, similarity_top_k=3, max_token_length=1000
-            ).apply()
+        # Invoke the Celery task synchronously
+        doc_extract_query_task.si(
+            cell_id=datacell.id, similarity_top_k=3, max_token_length=1000
+        ).apply()
 
-            # Refresh datacell from database
-            datacell.refresh_from_db()
-            result = datacell.data
+        # Refresh datacell from database
+        datacell.refresh_from_db()
+        result = datacell.data
 
-            # Assert the result is valid
-            self.assertIsNotNone(
-                result, "Expected a non-None result from doc_extract_query_task."
-            )
+        # Assert the result is valid
+        self.assertIsNotNone(
+            result, "Expected a non-None result from doc_extract_query_task."
+        )
 
-            # Optionally, assert structure/contents of 'result' as appropriate for your logic
-            self.assertIn("data", result, "Expected 'data' key in result")
-
-            logger.debug("Synchronous doc_extract_query_task result: %s", result)
-        except Exception as e:
-            logger.error(
-                "Exception in test_doc_extract_query_task_synchronously: %s",
-                e,
-                exc_info=True,
-            )
-            raise
+        # Optionally, assert structure/contents of 'result' as appropriate for your logic
+        self.assertIn("data", result, "Expected 'data' key in result")
 
 
 class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
@@ -203,45 +193,32 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
                 creator=self.user,
             )
 
-            try:
-                # Call the task synchronously
-                doc_extract_query_task.si(cell.id).apply()
+            # Call the task synchronously
+            doc_extract_query_task.si(cell.id).apply()
 
-                # Reload the Datacell from DB
-                cell.refresh_from_db()
-                result = cell.data
-                logger.debug("Result for cell %s: %s", cell.id, result)
+            # Reload the Datacell from DB
+            cell.refresh_from_db()
+            result = cell.data
 
-                # Basic checks
-                self.assertIsNotNone(
-                    result, f"Expected a non-None result from cell {cell.id}"
-                )
-                self.assertIsNotNone(
-                    cell.data,
-                    f"The Datacell's data (ID: {cell.id}) should not be None after the extraction.",
-                )
+            # Basic checks
+            self.assertIsNotNone(
+                result, f"Expected a non-None result from cell {cell.id}"
+            )
+            self.assertIsNotNone(
+                cell.data,
+                f"The Datacell's data (ID: {cell.id}) should not be None after the extraction.",
+            )
 
-                # Verify the result has the expected structure
-                self.assertIn(
-                    "data", result, "Expected 'data' key in extraction result"
-                )
+            # Verify the result has the expected structure
+            self.assertIn("data", result, "Expected 'data' key in extraction result")
 
-                # Verify completion status
-                self.assertIsNotNone(
-                    cell.completed, f"Cell {cell.id} should be marked as completed"
-                )
-                self.assertIsNone(
-                    cell.failed, f"Cell {cell.id} should not be marked as failed"
-                )
-
-            except Exception as e:
-                logger.error(
-                    "Exception in test_doc_extract_query_task_directly for cell %s: %s",
-                    cell.id,
-                    e,
-                    exc_info=True,
-                )
-                raise
+            # Verify completion status
+            self.assertIsNotNone(
+                cell.completed, f"Cell {cell.id} should be marked as completed"
+            )
+            self.assertIsNone(
+                cell.failed, f"Cell {cell.id} should not be marked as failed"
+            )
 
         # Double-check the number of DocumentAnalysisRows if desired
         rows = DocumentAnalysisRow.objects.filter(extract=self.extract)

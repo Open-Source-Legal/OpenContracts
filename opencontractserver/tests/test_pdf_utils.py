@@ -61,19 +61,15 @@ class PDFUtilsTestCase(TestCase):
     def test_split_pdf_into_images(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Call the function
-            print("Temp dir: ", temp_dir)
             result = split_pdf_into_images(
                 self.need_ocr_pdf_content, temp_dir, force_local=True
             )
-            print("Result: ", result)
-
             # Check the results
             self.assertEqual(len(result), 1)
             self.assertTrue(all(path.endswith(".png") for path in result))
 
             # Verify that files were actually created
             for path in result:
-                print("Check path: ", path)
                 self.assertTrue(os.path.exists(path))
 
     def test_split_pdf_into_images_s3(self) -> None:

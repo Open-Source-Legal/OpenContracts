@@ -79,7 +79,6 @@ class PageImagingToolTestCase(TestCase):
 
     def test_get_page_image_success(self):
         """Test successfully getting a page image from a PDF"""
-        print("\n# TEST GET PAGE IMAGE SUCCESS ##")
 
         pdf_doc = self.create_pdf_document()
 
@@ -90,8 +89,6 @@ class PageImagingToolTestCase(TestCase):
             image_format="jpeg",
             dpi=72,  # Low DPI for faster tests
         )
-
-        print(f"Got base64 image, length: {len(base64_image)}")
 
         # Verify it's valid base64
         assert isinstance(base64_image, str)
@@ -106,13 +103,9 @@ class PageImagingToolTestCase(TestCase):
 
         image = Image.open(io.BytesIO(image_bytes))
         assert image.format == "JPEG"
-        print(f"Image dimensions: {image.size}")
-
-        print("\t\tSUCCESS - Page image rendered correctly")
 
     def test_get_page_image_png_format(self):
         """Test getting a page image in PNG format"""
-        print("\n# TEST GET PAGE IMAGE PNG FORMAT ##")
 
         pdf_doc = self.create_pdf_document()
 
@@ -128,11 +121,8 @@ class PageImagingToolTestCase(TestCase):
         image = Image.open(io.BytesIO(image_bytes))
         assert image.format == "PNG"
 
-        print("\t\tSUCCESS - PNG format works correctly")
-
     def test_get_page_image_different_dpi(self):
         """Test that different DPI values work"""
-        print("\n# TEST GET PAGE IMAGE DIFFERENT DPI ##")
 
         pdf_doc = self.create_pdf_document()
 
@@ -142,38 +132,25 @@ class PageImagingToolTestCase(TestCase):
         # Test with higher DPI
         high_dpi_image = get_page_image(document_id=pdf_doc.id, page_number=1, dpi=150)
 
-        # Higher DPI should generally produce larger images
-        print(f"Low DPI image size: {len(low_dpi_image)}")
-        print(f"High DPI image size: {len(high_dpi_image)}")
-
         assert len(low_dpi_image) > 0
         assert len(high_dpi_image) > 0
 
-        print("\t\tSUCCESS - Different DPI values work")
-
     def test_get_page_image_invalid_document(self):
         """Test error handling for non-existent document"""
-        print("\n# TEST GET PAGE IMAGE INVALID DOCUMENT ##")
 
         with pytest.raises(ValueError, match="does not exist"):
             get_page_image(document_id=99999, page_number=1)
 
-        print("\t\tSUCCESS - Raises error for non-existent document")
-
     def test_get_page_image_non_pdf_document(self):
         """Test error handling for non-PDF documents"""
-        print("\n# TEST GET PAGE IMAGE NON-PDF DOCUMENT ##")
 
         text_doc = self.create_non_pdf_document()
 
         with pytest.raises(ValueError, match="is not a PDF"):
             get_page_image(document_id=text_doc.id, page_number=1)
 
-        print("\t\tSUCCESS - Raises error for non-PDF document")
-
     def test_get_page_image_invalid_page_number(self):
         """Test error handling for invalid page numbers"""
-        print("\n# TEST GET PAGE IMAGE INVALID PAGE NUMBER ##")
 
         pdf_doc = self.create_pdf_document()
 
@@ -185,11 +162,8 @@ class PageImagingToolTestCase(TestCase):
         with pytest.raises(ValueError, match="exceeds document page count"):
             get_page_image(document_id=pdf_doc.id, page_number=999)
 
-        print("\t\tSUCCESS - Raises error for invalid page numbers")
-
     def test_get_page_image_invalid_format(self):
         """Test error handling for unsupported image formats"""
-        print("\n# TEST GET PAGE IMAGE INVALID FORMAT ##")
 
         pdf_doc = self.create_pdf_document()
 
@@ -200,11 +174,8 @@ class PageImagingToolTestCase(TestCase):
                 image_format="bmp",  # Unsupported format
             )
 
-        print("\t\tSUCCESS - Raises error for unsupported format")
-
     def test_get_page_image_no_pdf_file(self):
         """Test error handling for documents without PDF files"""
-        print("\n# TEST GET PAGE IMAGE NO PDF FILE ##")
 
         doc = Document.objects.create(
             title="Document Without PDF",
@@ -215,5 +186,3 @@ class PageImagingToolTestCase(TestCase):
 
         with pytest.raises(ValueError, match="has no PDF file attached"):
             get_page_image(document_id=doc.id, page_number=1)
-
-        print("\t\tSUCCESS - Raises error for documents without PDF file")

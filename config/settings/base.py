@@ -2,7 +2,6 @@
 Base settings to build other settings files upon.
 """
 
-import pathlib
 from datetime import timedelta
 from pathlib import Path
 
@@ -659,8 +658,8 @@ REST_FRAMEWORK = {
 
 # Base configuration
 BASE_PATH = "./"
-DATA_PATH = pathlib.Path(BASE_PATH, "data")
-MODEL_PATH = pathlib.Path(BASE_PATH, "model")
+DATA_PATH = Path(BASE_PATH, "data")
+MODEL_PATH = Path(BASE_PATH, "model")
 
 # Graphene
 # ------------------------------------------------------------------------------

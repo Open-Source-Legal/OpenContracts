@@ -1,37 +1,81 @@
 import { useState, useEffect } from "react";
+import { useLazyQuery } from "@apollo/client";
+import {
+  SEARCH_USERS_FOR_MENTION,
+  SearchUsersForMentionInput,
+  SearchUsersForMentionOutput,
+} from "../../../graphql/queries";
 import { MentionUser } from "../MentionPicker";
+import {
+  MENTION_SEARCH_DEBOUNCE_MS,
+  MENTION_SEARCH_MIN_CHARS,
+} from "../../../assets/configurations/constants";
 
 /**
- * Hook to fetch users for @mention autocomplete.
+ * Standalone hook to fetch users for @mention autocomplete via GraphQL.
  *
- * NOTE(deferred): Returns mock data. Replace with a real GraphQL query
- * (e.g. GET_USERS with a `textSearch` variable) once the backend exposes
- * a user-search endpoint.
+ * Uses SEARCH_USERS_FOR_MENTION query with debounced input.
+ * Backend filters results by privacy settings via UserQueryOptimizer.
+ *
+ * NOTE: The primary render path uses `useUnifiedMentionSearch` +
+ * `UnifiedMentionPicker` (which search users, corpuses, documents,
+ * annotations, and agents in parallel). This hook and the companion
+ * `MentionPicker` component are exported for consumers that only need
+ * user-only mention support.
+ *
+ * @param query - Search query string
+ * @param debounceMs - Debounce delay in milliseconds (default: MENTION_SEARCH_DEBOUNCE_MS)
+ * @param minChars - Minimum characters before searching (default: MENTION_SEARCH_MIN_CHARS)
  */
-export function useMentionUsers(query: string): MentionUser[] {
-  const [users, setUsers] = useState<MentionUser[]>([]);
+export function useMentionUsers(
+  query: string,
+  debounceMs: number = MENTION_SEARCH_DEBOUNCE_MS,
+  minChars: number = MENTION_SEARCH_MIN_CHARS
+) {
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
 
+  const [searchUsers, { data, loading, error }] = useLazyQuery<
+    SearchUsersForMentionOutput,
+    SearchUsersForMentionInput
+  >(SEARCH_USERS_FOR_MENTION, {
+    fetchPolicy: "network-only",
+  });
+
+  // Debounce the query
   useEffect(() => {
-    // Mock users - in production, this would be a GraphQL query
-    const mockUsers: MentionUser[] = [
-      { id: "1", username: "admin", email: "admin@example.com" },
-      { id: "2", username: "moderator", email: "moderator@example.com" },
-      { id: "3", username: "analyst", email: "analyst@example.com" },
-      { id: "4", username: "reviewer", email: "reviewer@example.com" },
-      { id: "5", username: "contributor", email: "contributor@example.com" },
-    ];
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, debounceMs);
 
-    // Filter users based on query
-    const filtered = query
-      ? mockUsers.filter(
-          (user) =>
-            user.username.toLowerCase().includes(query.toLowerCase()) ||
-            user.email?.toLowerCase().includes(query.toLowerCase())
-        )
-      : mockUsers;
+    return () => clearTimeout(timer);
+  }, [query, debounceMs]);
 
-    setUsers(filtered.slice(0, 5)); // Limit to 5 results
-  }, [query]);
+  // Execute search when debounced query changes
+  useEffect(() => {
+    if (debouncedQuery.length < minChars) {
+      return;
+    }
 
-  return users;
+    searchUsers({ variables: { textSearch: debouncedQuery } });
+  }, [debouncedQuery, minChars, searchUsers]);
+
+  // Map GraphQL response to MentionUser[].
+  // Guard: return empty when the live query is below minChars so stale
+  // results from a previous (longer) query are not shown after backspace.
+  const belowMinChars = debouncedQuery.length < minChars;
+  const users: MentionUser[] = belowMinChars
+    ? []
+    : data?.searchUsersForMention?.edges?.map((edge) => ({
+        id: edge.node.id,
+        username: edge.node.username,
+        email: edge.node.email ?? undefined,
+      })) ?? [];
+
+  return {
+    users,
+    // When query is below minChars we haven't fired a search, so any
+    // lingering `loading` from a previous in-flight query is stale.
+    loading: !belowMinChars && (loading ?? false),
+    error: error?.message ?? null,
+  };
 }

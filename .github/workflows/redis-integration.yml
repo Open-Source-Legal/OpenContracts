@@ -1,0 +1,77 @@
+name: Redis Integration Tests
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+on:
+  workflow_dispatch: {}
+
+  pull_request:
+    branches: ["master", "main", "v*"]
+    paths:
+      - "requirements/*.txt"
+      - "config/settings/base.py"
+      - "config/settings/test.py"
+      - "config/settings/test_integration.py"
+      - "opencontractserver/tests/test_redis_integration.py"
+      - "test.yml"
+      - "compose/test-redis-integration-ci.yml"
+      - ".github/workflows/redis-integration.yml"
+
+  push:
+    branches: ["master", "main", "v*"]
+    paths:
+      - "requirements/*.txt"
+      - "config/settings/base.py"
+      - "config/settings/test.py"
+      - "config/settings/test_integration.py"
+      - "opencontractserver/tests/test_redis_integration.py"
+      - "test.yml"
+      - "compose/test-redis-integration-ci.yml"
+      - ".github/workflows/redis-integration.yml"
+
+concurrency:
+  group: redis-integration-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  redis-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Build Stack (django + postgres + redis only)
+        run: |
+          docker compose -f test.yml -f compose/test-redis-integration-ci.yml build django
+
+      - name: Run DB Migrations
+        run: |
+          docker compose -f test.yml -f compose/test-redis-integration-ci.yml run --rm django python manage.py migrate
+
+      - name: Run Redis Integration Tests
+        run: |
+          docker compose -f test.yml -f compose/test-redis-integration-ci.yml run --rm \
+            django pytest opencontractserver/tests/test_redis_integration.py -v \
+            --ds=config.settings.test_integration
+
+      - name: Capture Logs on Failure
+        if: failure()
+        run: |
+          docker compose -f test.yml -f compose/test-redis-integration-ci.yml logs --no-color > redis-integration-logs.txt
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redis-integration-logs
+          path: redis-integration-logs.txt
+
+      - name: Tear Down Stack
+        if: always()
+        run: docker compose -f test.yml -f compose/test-redis-integration-ci.yml down -v

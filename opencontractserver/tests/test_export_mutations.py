@@ -101,10 +101,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "exportFormat": ExportType.OPEN_CONTRACTS.value,
         }
 
-        print("\n=== Test: Basic export without analysis parameters ===")
-        print(f"Corpus ID: {self.corpus.id}")
-        print(f"Documents in corpus: {self.corpus.document_count()}")
-
         response = client.execute(mutation, variables=variables)
 
         # Check for errors
@@ -117,8 +113,6 @@ class TestExportMutations(BaseFixtureTestCase):
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
         self.assertIsNotNone(result["export"]["id"])
-
-        print("✅ Basic export completed successfully")
 
     def test_export_with_empty_analysis_list(self):
         """
@@ -155,8 +149,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "analysesIds": [],  # Empty list
         }
 
-        print("\n=== Test: Export with empty analysis list ===")
-
         response = client.execute(mutation, variables=variables)
 
         self.assertNotIn(
@@ -166,8 +158,6 @@ class TestExportMutations(BaseFixtureTestCase):
         result = response["data"]["exportCorpus"]
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
-
-        print("✅ Export with empty analysis list works correctly")
 
     def test_export_with_corpus_labelset_only_mode(self):
         """
@@ -204,8 +194,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "annotationFilterMode": "CORPUS_LABELSET_ONLY",
         }
 
-        print("\n=== Test: Export with CORPUS_LABELSET_ONLY mode ===")
-
         response = client.execute(mutation, variables=variables)
 
         self.assertNotIn(
@@ -215,8 +203,6 @@ class TestExportMutations(BaseFixtureTestCase):
         result = response["data"]["exportCorpus"]
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
-
-        print("✅ CORPUS_LABELSET_ONLY mode works correctly")
 
     def test_export_with_corpus_plus_analyses_mode(self):
         """
@@ -256,8 +242,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "analysesIds": [],  # Empty for this test, but would normally contain analysis IDs
         }
 
-        print("\n=== Test: Export with CORPUS_LABELSET_PLUS_ANALYSES mode ===")
-
         response = client.execute(mutation, variables=variables)
 
         self.assertNotIn(
@@ -267,8 +251,6 @@ class TestExportMutations(BaseFixtureTestCase):
         result = response["data"]["exportCorpus"]
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
-
-        print("✅ CORPUS_LABELSET_PLUS_ANALYSES mode works correctly")
 
     def test_export_with_analyses_only_mode(self):
         """
@@ -308,8 +290,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "analysesIds": [],  # Empty list means no annotations will be included
         }
 
-        print("\n=== Test: Export with ANALYSES_ONLY mode ===")
-
         response = client.execute(mutation, variables=variables)
 
         self.assertNotIn(
@@ -319,8 +299,6 @@ class TestExportMutations(BaseFixtureTestCase):
         result = response["data"]["exportCorpus"]
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
-
-        print("✅ ANALYSES_ONLY mode works correctly")
 
     def test_funsd_export_format(self):
         """
@@ -354,8 +332,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "exportFormat": ExportType.FUNSD.value,
         }
 
-        print("\n=== Test: FUNSD export format ===")
-
         response = client.execute(mutation, variables=variables)
 
         self.assertNotIn(
@@ -365,8 +341,6 @@ class TestExportMutations(BaseFixtureTestCase):
         result = response["data"]["exportCorpus"]
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
-
-        print("✅ FUNSD export format works correctly")
 
     def test_funsd_export_with_analysis_filter(self):
         """
@@ -403,8 +377,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "analysesIds": [],  # Empty analysis list
         }
 
-        print("\n=== Test: FUNSD export with analysis filter ===")
-
         response = client.execute(mutation, variables=variables)
 
         self.assertNotIn(
@@ -414,8 +386,6 @@ class TestExportMutations(BaseFixtureTestCase):
         result = response["data"]["exportCorpus"]
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
-
-        print("✅ FUNSD export with filtering works correctly")
 
     def test_export_with_post_processors(self):
         """
@@ -452,8 +422,6 @@ class TestExportMutations(BaseFixtureTestCase):
             "postProcessors": [],  # Empty list of post-processors
         }
 
-        print("\n=== Test: Export with post-processors parameter ===")
-
         response = client.execute(mutation, variables=variables)
 
         self.assertNotIn(
@@ -463,5 +431,3 @@ class TestExportMutations(BaseFixtureTestCase):
         result = response["data"]["exportCorpus"]
         self.assertTrue(result["ok"], f"Export failed: {result['message']}")
         self.assertEqual(result["message"], "SUCCESS")
-
-        print("✅ Export with post-processors parameter works correctly")

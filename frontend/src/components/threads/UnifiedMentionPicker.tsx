@@ -186,6 +186,8 @@ export interface UnifiedMentionPickerProps {
   onSelect: (resource: UnifiedMentionResource) => void;
   selectedIndex: number;
   loading?: boolean;
+  /** Optional hint shown when resources list is empty (e.g. "Type 2+ characters to search"). */
+  hint?: string;
 }
 
 export interface UnifiedMentionPickerRef {
@@ -205,7 +207,7 @@ export interface UnifiedMentionPickerRef {
 export const UnifiedMentionPicker = forwardRef<
   UnifiedMentionPickerRef,
   UnifiedMentionPickerProps
->(({ resources, onSelect, selectedIndex, loading = false }, ref) => {
+>(({ resources, onSelect, selectedIndex, loading = false, hint }, ref) => {
   const [selected, setSelected] = useState(selectedIndex);
 
   useEffect(() => {
@@ -265,11 +267,16 @@ export const UnifiedMentionPicker = forwardRef<
     return (
       <Container>
         <NoResults>
-          No results found
-          <br />
-          <small>
-            Type to search users, corpuses, documents, annotations, and agents
-          </small>
+          {hint ?? (
+            <>
+              No results found
+              <br />
+              <small>
+                Type to search users, corpuses, documents, annotations, and
+                agents
+              </small>
+            </>
+          )}
         </NoResults>
       </Container>
     );

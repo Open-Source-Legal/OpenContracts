@@ -380,8 +380,8 @@ def build_document_export(
 
                 total_page_count = len(pdf_input.pages)
 
-                print(f"Page_highlights: {page_highlights}")
-                print(f"Page_sizes: {page_sizes}")
+                logger.debug("Page_highlights: %s", page_highlights)
+                logger.debug("Page_sizes: %s", page_sizes)
 
                 for i in range(0, total_page_count):
                     page = pdf_input.pages[i]

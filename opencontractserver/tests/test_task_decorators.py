@@ -120,26 +120,14 @@ class DocAnalyzerTaskTestCase(TestCase):
         self.unlocked_document.backend_lock = False
         self.unlocked_document.save()
 
-        print(f"Before task - Annotation count: {Annotation.objects.count()}")
-
-        result = (
-            test_no_lock.si(
-                doc_id=self.unlocked_document.id, analysis_id=self.analysis.id
-            )
-            .apply()
-            .get()
-        )
-
-        print(f"Task result: {result}")
-        print(f"After task - Annotation count: {Annotation.objects.count()}")
+        test_no_lock.si(
+            doc_id=self.unlocked_document.id, analysis_id=self.analysis.id
+        ).apply().get()
 
         # Verify annotations were created
         annotations = Annotation.objects.filter(
             document=self.unlocked_document, annotation_type=DOC_TYPE_LABEL
         )
-
-        print(f"Found doc type annotations: {annotations.count()}")
-        print(f"All annotations: {Annotation.objects.all().values()}")
 
         # Verify doc label annotation exists and has correct label
         doc_annotation = annotations.first()
@@ -148,7 +136,6 @@ class DocAnalyzerTaskTestCase(TestCase):
 
         # Verify span annotation
         span_annotation = Annotation.objects.filter(annotation_type=TOKEN_LABEL).first()
-        print(f"Span annotation: {span_annotation}")
         self.assertEqual(span_annotation.raw_text, "Exhibit 10")
         self.assertIn("0", span_annotation.json)
         self.assertIn("bounds", span_annotation.json["0"])

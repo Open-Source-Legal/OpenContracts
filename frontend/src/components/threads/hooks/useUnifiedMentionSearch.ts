@@ -17,7 +17,11 @@ import {
   SearchAgentsForMentionInput,
   SearchAgentsForMentionOutput,
 } from "../../../graphql/queries";
-import { MENTION_PREVIEW_LENGTH } from "../../../assets/configurations/constants";
+import {
+  MENTION_PREVIEW_LENGTH,
+  MENTION_SEARCH_DEBOUNCE_MS,
+  MENTION_SEARCH_MIN_CHARS,
+} from "../../../assets/configurations/constants";
 import { sanitizeForMention } from "../../../utils/textSanitization";
 
 export interface UnifiedMentionResource {
@@ -103,15 +107,15 @@ export interface CategorizedResults {
  *
  * @param query - Search query string
  * @param corpusId - Optional corpus ID for context-aware annotation and agent search
- * @param debounceMs - Debounce delay in milliseconds (default: 300)
- * @param minChars - Minimum characters before searching (default: 2)
+ * @param debounceMs - Debounce delay in milliseconds (default: MENTION_SEARCH_DEBOUNCE_MS)
+ * @param minChars - Minimum characters before searching (default: MENTION_SEARCH_MIN_CHARS)
  * @param limitPerCategory - Max results per category (default: 3)
  */
 export function useUnifiedMentionSearch(
   query: string,
   corpusId?: string,
-  debounceMs: number = 300,
-  minChars: number = 2,
+  debounceMs: number = MENTION_SEARCH_DEBOUNCE_MS,
+  minChars: number = MENTION_SEARCH_MIN_CHARS,
   limitPerCategory: number = 3
 ) {
   const [debouncedQuery, setDebouncedQuery] = useState(query);
@@ -394,26 +398,38 @@ export function useUnifiedMentionSearch(
     limitPerCategory,
   ]);
 
-  const loading =
-    usersLoading ||
-    corpusesLoading ||
-    documentsLoading ||
-    annotationsLoading ||
-    agentsLoading;
+  // When query is below minChars we haven't fired a search, so any
+  // lingering loading state from a previous in-flight query is stale.
+  const belowMinChars = debouncedQuery.length < minChars;
+  const loading = belowMinChars
+    ? false
+    : usersLoading ||
+      corpusesLoading ||
+      documentsLoading ||
+      annotationsLoading ||
+      agentsLoading;
 
   // Flatten all results in category order for keyboard navigation
-  const allResults = [
-    ...categorizedResults.users,
-    ...categorizedResults.corpuses,
-    ...categorizedResults.documents,
-    ...categorizedResults.annotations,
-    ...categorizedResults.agents,
-  ];
+  const allResults = belowMinChars
+    ? []
+    : [
+        ...categorizedResults.users,
+        ...categorizedResults.corpuses,
+        ...categorizedResults.documents,
+        ...categorizedResults.annotations,
+        ...categorizedResults.agents,
+      ];
+
+  // Hint shown in the picker when no results and below minChars threshold
+  const hint = belowMinChars
+    ? `Type ${minChars}+ characters to search`
+    : undefined;
 
   return {
     categorizedResults,
     allResults, // Flattened for keyboard nav
     loading,
     hasResults: categorizedResults.total > 0,
+    hint,
   };
 }

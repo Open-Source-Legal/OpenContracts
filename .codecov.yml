@@ -26,7 +26,8 @@ comment:
 
 ignore:
   - "opencontractserver/tasks/data_extract_tasks.py"
-  - "opencontractserver/tests/**/*"
+  - "opencontractserver/tests/**"
   - "**/migrations/**"
   - "opencontractserver/**/migrations/*.py"
   - "opencontractserver/*/migrations/*.py"
+  - "config/settings/test*.py"

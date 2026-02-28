@@ -1,4 +1,3 @@
-import json
 import logging
 
 from django.contrib.auth import get_user_model
@@ -118,12 +117,6 @@ class NoteTreeTestCase(BaseFixtureTestCase):
             },
         ]
 
-        print("\nDescendants Tree Test:")
-        print("Actual (descendants_tree):")
-        print(json.dumps(descendants_tree, indent=2))
-        print("\nExpected (expected_descendants_tree):")
-        print(json.dumps(expected_descendants_tree, indent=2))
-
         self.assertEqual(descendants_tree, expected_descendants_tree)
 
     def test_full_tree(self):
@@ -167,12 +160,6 @@ class NoteTreeTestCase(BaseFixtureTestCase):
                 "children": [],
             },
         ]
-
-        print("\nFull Tree Test:")
-        print("Actual (full_tree):")
-        print(json.dumps(full_tree, indent=2))
-        print("\nExpected (expected_full_tree):")
-        print(json.dumps(expected_full_tree, indent=2))
 
         self.assertEqual(full_tree, expected_full_tree)
 

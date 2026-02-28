@@ -669,13 +669,6 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
         annotations = Annotation.objects.filter(document=self.txt_doc)
         self.assertEqual(annotations.count(), 2)  # doc-level + span-level annotation
 
-        print("Annotations!")
-        for annot in Annotation.objects.all():
-            print(annot.id)
-            print(annot.raw_text)
-
-        print("Annotation Labels done!")
-
         span_annotation = annotations.filter(annotation_type=SPAN_LABEL).first()
         self.assertEqual(span_annotation.raw_text, "Async Span!")
         self.assertDictEqual(span_annotation.json, {"start": 0, "end": 12})

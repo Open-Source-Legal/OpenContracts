@@ -168,7 +168,6 @@ class ComprehensivePermissionTestCase(TestCase):
 
         # Test for owner
         result = self.owner_client.execute(query, variable_values=variables)
-        print("Result: ", result)
         self.assertEqual(len(result["data"]["document"]["docAnnotations"]["edges"]), 2)
 
         # Test for regular user

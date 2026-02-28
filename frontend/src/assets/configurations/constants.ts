@@ -5,6 +5,11 @@ export const TABLET_BREAKPOINT = 768;
 // Desktop breakpoint - minimum width for desktop-only features (TABLET_BREAKPOINT + 1)
 export const DESKTOP_BREAKPOINT = 769;
 
+// Mention search configuration
+// Debounce delay before firing search queries (ms)
+export const MENTION_SEARCH_DEBOUNCE_MS = 300;
+// Minimum characters required before triggering a search
+export const MENTION_SEARCH_MIN_CHARS = 2;
 // Mention preview character limit (Issue #689)
 // Used for truncating annotation text in mention chips and pickers
 export const MENTION_PREVIEW_LENGTH = 24;
