@@ -12,7 +12,7 @@
 | `semantic-ui-css` CSS import | `App.tsx`, `playwright/index.tsx` | Full 40K-line stylesheet loaded globally. Can't remove until all components are migrated. | 1 (blocked) |
 | `semantic.css` custom copy | `src/assets/styles/semantic.css` | 40,701-line compiled SUI v2.4.2 CSS. Deletable only after full migration. | 1 |
 | `@rjsf/semantic-ui` (JSON Schema Forms) | `CRUDWidget.tsx`, `SelectCorpusAnalyzerOrFieldsetAnalyzer.tsx`, `SelectExportTypeModal.tsx` | Swap to `@rjsf/core` with custom theme or `@rjsf/mui`. | 3 |
-| `SemanticICONS` type | `graphql-api.ts`, `types.ts`, `mutations.ts`, `icons.ts`, `ActionBar.tsx`, `RadialButtonCloud.tsx` (x2), `CorpusDashboard.tsx`, `CreateAndSearchBar.tsx`, `CorpusEngagementDashboard.tsx`, `Result.tsx`, `IconPickerModal.tsx` | Used as a type alias for icon name strings. Needs `resolveIcon()` mapping + `<DynamicIcon>` component. See [Icon Converter Strategy](#icon-converter-strategy). | 2–3 |
+| `SemanticICONS` type (type import only) | `graphql-api.ts`, `types.ts`, `mutations.ts`, `icons.ts`, `ActionBar.tsx`, `RadialButtonCloud.tsx` (x2), `CorpusDashboard.tsx`, `CreateAndSearchBar.tsx`, `CorpusEngagementDashboard.tsx`, `Result.tsx`, `IconPickerModal.tsx` | Used as a type alias for icon name strings -- no runtime dependency on SUI, only the TypeScript type is imported. Needs `resolveIcon()` mapping + `<DynamicIcon>` component. See [Icon Converter Strategy](#icon-converter-strategy). | 2–3 |
 | `SemanticCOLORS` type | `Result.tsx` | Single usage. | 1 |
 | `SemanticWIDTHSNUMBER` type | `utils/layout.ts` | Single usage in grid-width helper. Replace with `number`. | 1 |
 | `DropdownNoStrictMode` wrapper | `common/DropdownNoStrictMode.tsx` | StrictMode workaround for SUI Dropdown; deletable once Dropdown is fully replaced. | 1 |
@@ -48,7 +48,7 @@ Key dynamic callsites:
 
 Additional static files using `SemanticICONS` type: `AnnotatorTopbar.tsx`, `Selection.tsx`, `Containers.tsx`, `ActionBar.tsx` (2), `ModernDocumentItem.tsx`, `ModernContextMenu.tsx`, `DocumentTableOfContents.tsx`, `CategorySelector.tsx`, `CorpusDashboard.tsx`, `ActionExecutionRow.tsx`, `CorpusDocumentRelationships.tsx`, `ActionExecutionTrail.tsx`, `CorpusEngagementDashboard.tsx` (2), `FeatureUnavailable.tsx`, `CorpusRequiredEmptyState.tsx`, `NotFound.tsx`, `VisibilitySlugSection.tsx`, `CategoriesSection.tsx`, `CorpusActionsSection.tsx`, `HighlightItem.tsx`, `RelationHighlightItem.tsx`, `LabelListItems.tsx`, `ContextBar.tsx`, `UnifiedKnowledgeLayer.tsx`, `RadialButtonCloud.tsx` (x2), `DocTypePopup.tsx`, `DocTypeLabelDisplay.tsx`, `DocTypeLabels.tsx`, `LabelElements.tsx`, plus hardcoded usages in: `UserSettingsModal.tsx`, `AddToCorpusModal.tsx`, `CookieConsent.tsx`, `MyPermissionsIndicator.tsx`, `Leaderboard.tsx`, `ExtractListItem.tsx`, `GlobalAgentManagement.tsx`, `AwardBadgeModal.tsx`, `BadgeManagement.tsx`, `CorpusActionsSection.tsx`, `MetadataCellEditor.tsx`, `AnalyzerSummaryCard.tsx`, `AnalysisItem.tsx`, `ConfirmModal.tsx`, `BulkImportModal.tsx`, `DocumentItem.tsx`, `VersionHistoryPanel.tsx`, `DocumentRelationshipModal.tsx`, `CorpusSelector.tsx`, `CorpusAgentManagement.tsx`, `CorpusMetadataSettings.tsx`, `CreateCorpusActionModal.tsx`, `ExtractItem.tsx`, `ExtractCellFormatter.tsx`, `DataGrid.tsx`, `DataCell.tsx`, `CRUDModal.tsx`, `MetadataColumnModal.tsx`, `UnifiedContentFeed.tsx`, `NotFound.tsx`, `ViewSettingsPopup.tsx`
 
-### Button (40 files) — Difficulty: 1
+### Button (40 files) — Difficulty: 2
 
 Almost all are straightforward swaps to `@os-legal/ui` `<Button>`. Map `primary`/`secondary`/`basic` to `variant` props.
 
@@ -60,9 +60,9 @@ Flatten `Modal.Content`/`Modal.Actions`/`Modal.Header` → `ModalBody`/`ModalFoo
 
 Files: `CookieConsent.tsx`, `VersionHistoryPanel.tsx`, `UserSettingsModal.tsx`, `AddToCorpusModal.tsx`, `EditLabelModal.tsx`, `RelationModal.tsx`, `TxtAnnotator.tsx`, `RadialButtonCloud.tsx`, `DocumentKnowledgeBase.tsx`, `LayoutComponents.tsx`, `StickyNotes.tsx`, `SelectDocumentFieldsetModal.tsx`, `DocumentModals.tsx`, `NewNoteModal.tsx`, `SummaryEditorModal.tsx`, `SummaryHistoryModal.tsx`, `RelationshipActionModal.tsx`, folder modals (5), `RunCorpusActionModal.tsx`, `CreateCorpusActionModal.tsx` (3), widget modals (10), extract components (3), `UploadModalStyles.ts`
 
-### Dropdown (19 files) — Difficulty: 2–3
+### Dropdown (19 files) — Difficulty: 3–4 (per file: 2–3; collective project: 4)
 
-No direct OS-Legal replacement. Need a custom `<Select>`/`<Combobox>` component or adopt a headless library (Radix, Headless UI). This is the **hardest component category** to migrate.
+No direct OS-Legal replacement. Need a custom `<Select>`/`<Combobox>` component or adopt a headless library (Radix, Headless UI). This is the **hardest component category** to migrate. Before adding a new dependency, verify whether Radix UI or Headless UI is already present in `package.json`.
 
 Files: `PrimitiveTypeDropdown.tsx`, `FieldsetDropdown.tsx`, `CorpusDropdown.tsx`, `ExtractTaskDropdown.tsx`, `IconDropdown.tsx`, `ViewLabelSelector.tsx`, `AnnotationControls.tsx` (3), `CorpusDocumentRelationships.tsx`, `RunCorpusActionModal.tsx`, `ActionExecutionTrail.tsx`, `MoveFolderModal.tsx`, `SidebarControlBar.tsx`, `TxtAnnotator.tsx`, `SelectExportTypeModal.tsx` (3), `FilterToMetadataSelector.tsx`, `CorpusSelector.tsx` (3), `BadgeCriteriaConfig.tsx`, `LabelSetSelector.tsx` (3), `EmbedderSelector.tsx` (3)
 
@@ -163,11 +163,72 @@ A lookup table mapping SUI icon names → Lucide icon names. Only ~65–80 entri
 
 SUI has many aliases (`"remove"` = `"close"` = `"x"`, `"setting"` = `"cog"` = `"configure"`). The mapping must handle all aliases for the commonly-used icons.
 
+**Tree-shaking warning**: `import { icons } from "lucide-react"` imports the entire icon barrel (~1,500 icons, ~200 KB gzipped) and defeats tree-shaking. **Option B (preferred)** below builds a minimal `KNOWN_ICONS` map that imports only the ~100 icons referenced in the mapping table. Consolidate duplicate imports from the same module into a single import statement.
+
+**Option A** -- simple but bloats bundle (NOT recommended for production):
 ```typescript
 // frontend/src/utils/iconCompat.ts
 import { icons, type LucideIcon } from "lucide-react";
 import { HelpCircle } from "lucide-react";
 
+// SEMANTIC_TO_LUCIDE mapping table (same as Option B)...
+
+export function resolveIcon(name: string): LucideIcon {
+  const lucideName = resolveIconName(name);
+  const pascalName = lucideName.split("-").map(
+    s => s.charAt(0).toUpperCase() + s.slice(1)
+  ).join("");
+  return (icons as Record<string, LucideIcon>)[pascalName] ?? HelpCircle;
+}
+```
+
+**Option B** -- preferred, tree-shakeable:
+```typescript
+// frontend/src/utils/iconCompat.ts
+import type { LucideIcon } from "lucide-react";
+import {
+  ArrowLeft, ArrowRight, ArrowUp, ArrowDown,
+  ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
+  Plus, Check, X, Trash2, Pencil, Save, Download, Upload,
+  CloudUpload, Undo2, Redo2, RefreshCw,
+  File, FileText, Folder, FolderOpen,
+  Tags, Tag, Settings, HelpCircle,
+  // ... remaining ~70 icons actually used in the mapping
+} from "lucide-react";
+
+/** Maps Lucide kebab-case name -> Lucide component. Only includes icons actually used. */
+const KNOWN_ICONS: Record<string, LucideIcon> = {
+  "arrow-left": ArrowLeft,
+  "arrow-right": ArrowRight,
+  "arrow-up": ArrowUp,
+  "arrow-down": ArrowDown,
+  "chevron-up": ChevronUp,
+  "chevron-down": ChevronDown,
+  "chevron-left": ChevronLeft,
+  "chevron-right": ChevronRight,
+  "plus": Plus,
+  "check": Check,
+  "x": X,
+  "trash-2": Trash2,
+  "pencil": Pencil,
+  "save": Save,
+  "download": Download,
+  "upload": Upload,
+  "cloud-upload": CloudUpload,
+  "undo-2": Undo2,
+  "redo-2": Redo2,
+  "refresh-cw": RefreshCw,
+  "file": File,
+  "file-text": FileText,
+  "folder": Folder,
+  "folder-open": FolderOpen,
+  "tags": Tags,
+  "tag": Tag,
+  "settings": Settings,
+  // ... remaining entries
+};
+
+/** Maps SUI icon name (with aliases) -> Lucide kebab-case name. */
 const SEMANTIC_TO_LUCIDE: Record<string, string> = {
   // Navigation
   "arrow left": "arrow-left",
@@ -219,11 +280,7 @@ export function resolveIconName(name: string): string {
 
 export function resolveIcon(name: string): LucideIcon {
   const lucideName = resolveIconName(name);
-  // lucide-react's `icons` object is keyed by PascalCase names
-  const pascalName = lucideName.split("-").map(
-    s => s.charAt(0).toUpperCase() + s.slice(1)
-  ).join("");
-  return (icons as Record<string, LucideIcon>)[pascalName] ?? HelpCircle;
+  return KNOWN_ICONS[lucideName] ?? HelpCircle;
 }
 ```
 
@@ -241,14 +298,73 @@ interface DynamicIconProps {
   color?: string;
   className?: string;
   style?: React.CSSProperties;
+  /** For meaningful icons -- describes the icon's purpose to screen readers. */
+  "aria-label"?: string;
+  /** Set to true for decorative icons that should be hidden from screen readers. */
+  "aria-hidden"?: boolean;
 }
 
 export const DynamicIcon: React.FC<DynamicIconProps> = ({
-  name, size = 16, color, className, style
+  name, size = 16, color, className, style,
+  "aria-label": ariaLabel,
+  "aria-hidden": ariaHidden,
 }) => {
   const IconComponent = resolveIcon(name);
-  return <IconComponent size={size} color={color} className={className} style={style} />;
+  return (
+    <IconComponent
+      size={size}
+      color={color}
+      className={className}
+      style={style}
+      aria-label={ariaLabel}
+      aria-hidden={ariaHidden}
+    />
+  );
 };
+```
+
+**Accessibility note**: Decorative icons (next to text labels) should pass `aria-hidden={true}` to avoid redundant screen reader announcements. Icons that convey meaning on their own (e.g., an icon-only button) must include an `aria-label` describing the action or concept.
+
+#### Step 2b: Write unit tests for `resolveIcon()` before migrating dynamic callsites
+
+Before replacing any dynamic `<Icon name={variable}>` usages, build a comprehensive test suite for the icon resolution layer. This ensures the mapping is correct and catches regressions as new entries are added.
+
+Test cases:
+- **Every SEMANTIC_TO_LUCIDE entry**: Iterate over all keys in the mapping table and assert that `resolveIconName()` returns the expected Lucide kebab-case name for each SUI icon name.
+- **Passthrough for Lucide names**: `resolveIconName("arrow-left")` should return `"arrow-left"` unchanged (names already in Lucide format pass through).
+- **Fallback for unknown names**: `resolveIcon("nonexistent-icon-xyz")` should return the `HelpCircle` fallback component.
+- **Alias coverage**: Verify that all known aliases resolve to the same Lucide icon (e.g., `"remove"`, `"close"`, and `"x"` all resolve to `X`; `"setting"`, `"cog"`, and `"configure"` all resolve to `Settings`).
+- **Case sensitivity**: Verify behavior for mixed-case inputs if the mapping is case-sensitive.
+
+Example test structure:
+```typescript
+// frontend/src/utils/__tests__/iconCompat.test.ts
+import { resolveIconName, resolveIcon } from "../iconCompat";
+import { HelpCircle, X, Settings } from "lucide-react";
+
+describe("resolveIconName", () => {
+  it.each(Object.entries(SEMANTIC_TO_LUCIDE))(
+    "maps SUI '%s' to Lucide '%s'",
+    (suiName, expectedLucideName) => {
+      expect(resolveIconName(suiName)).toBe(expectedLucideName);
+    }
+  );
+
+  it("passes through Lucide names unchanged", () => {
+    expect(resolveIconName("arrow-left")).toBe("arrow-left");
+  });
+});
+
+describe("resolveIcon", () => {
+  it("returns HelpCircle for unknown icon names", () => {
+    expect(resolveIcon("nonexistent-icon-xyz")).toBe(HelpCircle);
+  });
+
+  it("resolves SUI aliases to the same component", () => {
+    expect(resolveIcon("remove")).toBe(resolveIcon("close"));
+    expect(resolveIcon("setting")).toBe(resolveIcon("cog"));
+  });
+});
 ```
 
 #### Step 3: Replace hardcoded `<Icon name="...">` with direct Lucide imports
@@ -292,6 +408,16 @@ The `resolveIcon()` converter handles old SUI values at render time forever. New
 | Icons users may have picked via IconPicker | ~20–30 | Subset of the 1,250 catalog entries anyone would realistically use for annotation labels |
 | **Total mapping entries needed** | **~80–110** | Well-bounded |
 
+## CSS Specificity Conflict Risk
+
+During the migration window, both Semantic UI's global stylesheet (`semantic-ui-css`) and `@os-legal/ui` styles will be loaded simultaneously. This creates a risk of **CSS specificity conflicts** where SUI's broad selectors (e.g., `.ui.button`, `.ui.modal`, `.ui.input`) override or interfere with `@os-legal/ui` component styles, or vice versa.
+
+**Mitigation strategies**:
+- Migrate components in batches and test visually after each batch for style regressions.
+- Consider adding a CSS layer (`@layer`) or increased specificity wrapper (e.g., a parent class) for `@os-legal/ui` components during the transition period.
+- When a migrated component looks wrong, inspect for SUI selector conflicts before assuming a bug in the replacement component.
+- Remove SUI CSS imports (`semantic-ui-css` and `semantic.css`) only after **all** SUI components have been fully replaced (step 9 of migration order).
+
 ## Consolidated Difficulty Summary
 
 | Difficulty | Component Categories | Estimated File Count |
@@ -304,11 +430,11 @@ The `resolveIcon()` converter handles old SUI values at render time forever. New
 
 ## Recommended Migration Order
 
-1. **Icon converter foundation** (prerequisite for step 2): Build `resolveIcon()` mapping utility and `<DynamicIcon>` wrapper component. This unblocks all Icon migration work and ensures API-sourced icon names render correctly throughout migration.
+1. **Icon converter foundation** (prerequisite for step 2): Build `resolveIcon()` mapping utility and `<DynamicIcon>` wrapper component. Write unit tests for `resolveIcon()` covering every mapping entry, alias coverage, passthrough behavior, and fallback (see Step 2b in Implementation Plan). This unblocks all Icon migration work and ensures API-sourced icon names render correctly throughout migration.
 2. **Quick wins (Difficulty 1)**: Hardcoded Icon→Lucide direct imports, Header→styled, Segment→div, Container→div, Label→Chip, Loader→Spinner, Message→styled alert, List→`<ul>`. Replace dynamic Icon usages with `<DynamicIcon>`. Clears ~120 files.
 3. **IconPicker rebuild**: Replace 1,250-entry SUI catalog with Lucide catalog. Rebuild `IconPickerModal.tsx` to render Lucide components. New data written after this point uses Lucide names natively.
 4. **Medium tier (Difficulty 2)**: Button→OS-Legal Button, Modal→OS-Legal Modal, Card→styled-components, Popup→Tooltip. Clears ~50 files.
-5. **Build a Select/Combobox component** before tackling Dropdown migration. Adopt Radix UI `Select`/`Combobox` or Headless UI.
+5. **Build a Select/Combobox component** before tackling Dropdown migration. First check whether Radix UI or Headless UI is already in `package.json`. Adopt Radix UI `Select`/`Combobox` or Headless UI accordingly.
 6. **Dropdown migration (Difficulty 3)**: With the Select component built, migrate all 19 Dropdown usages.
 7. **`@rjsf/semantic-ui` → `@rjsf/core`** with custom theme (3 files).
 8. **Remove `SemanticICONS` type** system-wide — replace with `string` or a Lucide icon name union type in `graphql-api.ts`, `mutations.ts`, etc.
