@@ -1,9 +1,11 @@
 # Semantic UI Remaining Usage Audit
 
 **Date**: 2026-02-28
-**Total files importing `semantic-ui-react`**: 190 (189 in `src/`, 1 in `playwright/`)
+**Total files importing `semantic-ui-react`**: 192 (191 in `src/`, 1 in `playwright/`)
 **Total unique Semantic UI components used**: ~35
 **Additional dependency**: `@rjsf/semantic-ui` (3 files)
+
+See also: [OS-Legal Style Migration Guide](./os-legal-style-migration-guide.md) for component-level migration patterns.
 
 ## Global / Infrastructure Dependencies
 
@@ -11,7 +13,7 @@
 |---|---|---|---|
 | `semantic-ui-css` CSS import | `App.tsx`, `playwright/index.tsx` | Full 40K-line stylesheet loaded globally. Can't remove until all components are migrated. | 1 (blocked) |
 | `semantic.css` custom copy | `src/assets/styles/semantic.css` | 40,701-line compiled SUI v2.4.2 CSS. Deletable only after full migration. | 1 |
-| `@rjsf/semantic-ui` (JSON Schema Forms) | `CRUDWidget.tsx`, `SelectCorpusAnalyzerOrFieldsetAnalyzer.tsx`, `SelectExportTypeModal.tsx` | Swap to `@rjsf/core` with custom theme or `@rjsf/mui`. **Note**: `@rjsf/core` is already in `package.json` — this is a theme swap, not a new dependency. | 3 |
+| `@rjsf/semantic-ui` (JSON Schema Forms) | `CRUDWidget.tsx`, `SelectCorpusAnalyzerOrFieldsetAnalyzer.tsx`, `SelectExportTypeModal.tsx` | Swap to `@rjsf/core` with a custom OS-Legal theme. `@rjsf/core` is already in `package.json` — only the theme layer needs to be built. | 3 |
 | `SemanticICONS` type (type import only) | `graphql-api.ts`, `types.ts`, `mutations.ts`, `icons.ts`, `ActionBar.tsx`, `RadialButtonCloud.tsx` (x2), `CorpusDashboard.tsx`, `CreateAndSearchBar.tsx`, `CorpusEngagementDashboard.tsx`, `Result.tsx`, `IconPickerModal.tsx` | Used as a type alias for icon name strings -- no runtime dependency on SUI, only the TypeScript type is imported. Needs `resolveIcon()` mapping + `<DynamicIcon>` component. See [Icon Converter Strategy](#icon-converter-strategy). | 2–3 |
 | `SemanticCOLORS` type | `Result.tsx` | Single usage. | 1 |
 | `SemanticWIDTHSNUMBER` type | `utils/layout.ts` | Single usage in grid-width helper. Replace with `number`. | 1 |
@@ -163,6 +165,8 @@ A lookup table mapping SUI icon names → Lucide icon names. Only ~65–80 entri
 
 SUI has many aliases (`"remove"` = `"close"` = `"x"`, `"setting"` = `"cog"` = `"configure"`). The mapping must handle all aliases for the commonly-used icons.
 
+**Passthrough limitation**: The passthrough only works for kebab-case Lucide names. PascalCase names (e.g., `"Trophy"` from `Badge.icon`) will miss `KNOWN_ICONS` and fall back to `HelpCircle`. `DynamicIcon` should not be used with Badge, CorpusCategory, or CorpusFolder data without adding PascalCase resolution.
+
 **Tree-shaking warning**: `import { icons } from "lucide-react"` imports the entire icon barrel (~1,500 icons, ~200 KB gzipped) and defeats tree-shaking. **Option B (preferred)** below builds a minimal `KNOWN_ICONS` map that imports only the ~100 icons referenced in the mapping table. Consolidate duplicate imports from the same module into a single import statement.
 
 **Option A** -- simple but bloats bundle (NOT recommended for production):
@@ -311,6 +315,7 @@ export const DynamicIcon: React.FC<DynamicIconProps> = ({
   "aria-hidden": ariaHidden,
 }) => {
   const IconComponent = resolveIcon(name);
+  const hidden = ariaHidden ?? (ariaLabel === undefined);
   return (
     <IconComponent
       size={size}
@@ -318,7 +323,7 @@ export const DynamicIcon: React.FC<DynamicIconProps> = ({
       className={className}
       style={style}
       aria-label={ariaLabel}
-      aria-hidden={ariaHidden}
+      aria-hidden={hidden}
     />
   );
 };
@@ -340,7 +345,7 @@ Test cases:
 Example test structure:
 ```typescript
 // frontend/src/utils/__tests__/iconCompat.test.ts
-import { resolveIconName, resolveIcon } from "../iconCompat";
+import { resolveIconName, resolveIcon, SEMANTIC_TO_LUCIDE } from "../iconCompat";
 import { HelpCircle, X, Settings } from "lucide-react";
 
 describe("resolveIconName", () => {
@@ -396,6 +401,8 @@ import { Plus } from "lucide-react";
 
 Replace the 1,250-entry SUI icon catalog (`icons.ts`) with a Lucide catalog. The `IconPickerModal.tsx` must render Lucide components in its grid. New labels written via the picker will store Lucide icon names natively.
 
+**Storage format requirement**: The new picker MUST write **kebab-case** values to the database (e.g., `"arrow-left"`, not `"ArrowLeft"`). This matches the `KNOWN_ICONS` lookup keys and the `resolveIcon()` passthrough behavior, ensuring that newly-picked icons resolve without any additional conversion step.
+
 #### Step 7: No data migration needed
 
 The `resolveIcon()` converter handles old SUI values at render time forever. New values written via the updated IconPicker use Lucide names. Old data degrades gracefully with a fallback icon. A data migration could be added later to normalize old values, but it's not required for correctness.
@@ -429,6 +436,17 @@ During the migration window, both Semantic UI's global stylesheet (`semantic-ui-
 | **3 — Significant** (complex rework) | Dropdown/Select (search, multi-select), Tab, DataGrid (Table compound), `@rjsf/semantic-ui`, CreateCorpusActionModal, CorpusSelector | ~15 files |
 | **4 — Major** (deep integration) | None individually, but the **collective Dropdown migration** across 19 files without a ready replacement is effectively a level-4 project | — |
 
+## Visual Regression Testing Strategy
+
+Before starting each difficulty tier, capture `docScreenshot`-based Playwright component tests as a visual baseline. This uses the existing `screenshots.yml` CI workflow to automatically capture and commit screenshots on every PR.
+
+**Process per tier**:
+1. Before migration: Ensure existing Playwright component tests have `docScreenshot()` calls for all affected components. These screenshots serve as the "before" baseline.
+2. During migration: Run `yarn test:ct --reporter=list` locally after each batch to catch visual regressions immediately.
+3. After migration: CI will auto-commit updated screenshots. Review the screenshot diffs in the PR to verify visual parity.
+
+See `docs/development/screenshots.md` and `frontend/tests/utils/docScreenshot.ts` for the `docScreenshot` API and naming conventions.
+
 ## Recommended Migration Order
 
 1. **Icon converter foundation** (prerequisite for step 2): Build `resolveIcon()` mapping utility and `<DynamicIcon>` wrapper component. Write unit tests for `resolveIcon()` covering every mapping entry, alias coverage, passthrough behavior, and fallback (see Step 3 in Implementation Plan). This unblocks all Icon migration work and ensures API-sourced icon names render correctly throughout migration.
@@ -439,5 +457,5 @@ During the migration window, both Semantic UI's global stylesheet (`semantic-ui-
 6. **Dropdown migration (Difficulty 3)**: With the Select component built, migrate all 19 Dropdown usages.
 7. **`@rjsf/semantic-ui` → `@rjsf/core`** theme swap (3 files). `@rjsf/core` is already a dependency — only the theme layer needs changing.
 8. **Remove `SemanticICONS` type** system-wide — replace with `string` or a Lucide icon name union type in `graphql-api.ts`, `mutations.ts`, etc.
-9. **Delete**: `semantic-ui-css`, `semantic-ui-react`, `@rjsf/semantic-ui` from `package.json`, remove `semantic.css`, `icons.ts` (old catalog), remove CSS imports from `App.tsx` and `playwright/index.tsx`.
+9. **Delete**: `semantic-ui-css`, `semantic-ui-react`, `@rjsf/semantic-ui` from `package.json`, remove `semantic.css`, `icons.ts` (old catalog), remove CSS imports from `App.tsx` and `playwright/index.tsx`. **Note**: `playwright/index.tsx` is the Playwright component test setup file — it imports SUI CSS so that component tests render correctly. The SUI CSS import must remain in `playwright/index.tsx` until the **last** SUI component test has been migrated, which may lag behind the production `App.tsx` removal.
 10. **(Optional, post-migration)**: Data migration to normalize old SUI icon names in `AnnotationLabel` rows to Lucide names, allowing eventual removal of the `resolveIcon()` mapping table.
