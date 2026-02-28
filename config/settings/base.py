@@ -573,11 +573,11 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-result_serializer
 CELERY_RESULT_SERIALIZER = "json"
+# Celery task time limits are intentionally unset — document processing tasks
+# can run for extended periods depending on document size and parser backend.
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#task-time-limit
-# TODO: set to whatever value is adequate in your circumstances
 # CELERY_TASK_TIME_LIMIT = 5 * 3600
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#task-soft-time-limit
-# TODO: set to whatever value is adequate in your circumstances
 # CELERY_TASK_SOFT_TIME_LIMIT = 3600
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#beat-scheduler
 # Uses database scheduler - periodic tasks defined in CELERY_BEAT_SCHEDULE below
@@ -718,7 +718,9 @@ RESERVED_USER_SLUGS = {
 # Constants for Permissioning
 DEFAULT_PERMISSIONS_GROUP = "Public Objects Access"
 
-# Embeddings / Semantic Search - TODO move to EMBEDDER_KWARGS and use like PARSER_KWARGS
+# Embeddings / Semantic Search
+# NOTE(deferred): These could be consolidated into an EMBEDDER_KWARGS dict
+# (similar to PARSER_KWARGS) once all embedder backends are pluggable.
 # Microservice URLs - read from environment with defaults
 EMBEDDINGS_MICROSERVICE_URL = env("EMBEDDINGS_MICROSERVICE_URL")
 VECTOR_EMBEDDER_API_KEY = env("VECTOR_EMBEDDER_API_KEY", default="abc123")

@@ -582,7 +582,7 @@ export const AnnotatorSidebar = ({
               />
             );
           });
-          // TODO - add fetch more on visible.
+          // Pagination / "load more" for relations is not yet implemented.
         } else {
           relation_elements = [
             <PlaceholderCard

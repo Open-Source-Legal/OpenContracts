@@ -192,8 +192,9 @@ class SimpleLLMClient:
 
         Future versions will use native async clients.
         """
-        # For now, just wrap the sync version
-        # TODO: Use native async OpenAI client
+        # NOTE(deferred): Replace with native async OpenAI/Anthropic clients
+        # once provider-specific async support is stabilized. The executor
+        # approach works but adds one thread per call.
         import asyncio
 
         return await asyncio.get_event_loop().run_in_executor(

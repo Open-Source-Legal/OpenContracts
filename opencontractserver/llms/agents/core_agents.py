@@ -522,27 +522,17 @@ class CoreAgentBase(ABC):
         metadata: dict[str, Any] = None,
     ) -> None:
         """Complete a message atomically with content, sources, and metadata."""
-        logger.error("[DIAGNOSTIC complete_message] Called with:")
-        logger.error(f"[DIAGNOSTIC complete_message]   message_id: {message_id}")
-        logger.error(f"[DIAGNOSTIC complete_message]   content length: {len(content)}")
-        logger.error(
-            f"[DIAGNOSTIC complete_message]   sources: {sources is not None} (count: {len(sources) if sources else 0})"
-        )
-        if sources:
-            logger.error(
-                f"[DIAGNOSTIC complete_message]   First source: {sources[0].to_dict()}"
-            )
-        logger.error(
-            f"[DIAGNOSTIC complete_message]   metadata keys: {metadata.keys() if metadata else 'None'}"
-        )
-        logger.error(
-            "[DIAGNOSTIC complete_message]   Calling conversation_manager.complete_message()..."
+        logger.debug(
+            "complete_message called: message_id=%s, content_length=%s, "
+            "has_sources=%s, source_count=%s, metadata_keys=%s",
+            message_id,
+            len(content),
+            sources is not None,
+            len(sources) if sources else 0,
+            metadata.keys() if metadata else None,
         )
         await self.conversation_manager.complete_message(
             message_id, content, sources, metadata
-        )
-        logger.error(
-            "[DIAGNOSTIC complete_message]   conversation_manager.complete_message() returned successfully"
         )
 
     async def cancel_message(self, message_id: int, reason: str = "Cancelled") -> None:
@@ -649,9 +639,9 @@ class CoreAgentBase(ABC):
                 **kwargs,
             )
             return result
-        except Exception as e:
+        except Exception:
             # Log the error but don't raise - return None per spec
-            print(f"Error in structured_response: {e}")
+            logger.error("Error in structured_response", exc_info=True)
             return None
 
     # ------------------------------------------------------------------

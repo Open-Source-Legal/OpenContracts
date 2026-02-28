@@ -554,7 +554,6 @@ export interface GetCorpusLabelsetAndLabelsOutputs {
   corpus: CorpusType;
 }
 
-// TODO - revise this query to permit filtering described above in its inputs.
 export const GET_CORPUS_LABELSET_AND_LABELS = gql`
   query ($corpusId: ID!) {
     corpus(id: $corpusId) {
@@ -2552,7 +2551,7 @@ export const GET_THREAD_DETAIL = gql`
         # Voting
         upvoteCount
         downvoteCount
-        # userVote  # TODO: Backend field not implemented yet
+        # userVote — backend field not yet exposed in the schema
 
         # Soft delete
         deletedAt

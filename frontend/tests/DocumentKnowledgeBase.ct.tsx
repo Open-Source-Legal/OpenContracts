@@ -953,6 +953,13 @@ test("TXT document allows creating annotations via text selection", async ({
 
   console.log("[TEST] Completed text selection");
 
+  // The TXT annotator now shows a context menu after text selection.
+  // Click "Apply Label" to create the annotation.
+  const applyLabelButton = page.getByTestId("txt-apply-label-button");
+  await expect(applyLabelButton).toBeVisible({ timeout: LONG_TIMEOUT });
+  await applyLabelButton.click();
+  console.log("[TEST] Clicked Apply Label from context menu");
+
   // Wait for annotation to be created
   await page.waitForTimeout(2000);
 

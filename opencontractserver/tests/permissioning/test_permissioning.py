@@ -46,7 +46,7 @@ class TestContext:
 class PermissioningTestCase(TestCase):
     """
     Tests that permissioning system works and those who should be able to see things, can, and those
-    who whould not, cannot. TODO - improve the granularity of test cases.
+    who should not, cannot.
     """
 
     fixtures_path = pathlib.Path(__file__).parent / "fixtures"

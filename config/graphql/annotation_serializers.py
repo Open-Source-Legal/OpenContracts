@@ -10,8 +10,8 @@ from opencontractserver.annotations.models import AnnotationLabel
 User = get_user_model()
 
 
-# Why is this here? If placed in serializers, causes circular import error
-# TODO - better solution
+# Placed here (not in serializers.py) to avoid a circular import between
+# the annotations app and the graphql config module.
 class AnnotationLabelSerializer(serializers.ModelSerializer):
     creator_id = serializers.IntegerField(write_only=True)
     description = serializers.CharField(allow_blank=True, default="")

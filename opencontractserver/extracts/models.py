@@ -73,7 +73,10 @@ class Column(BaseOCModel):
         "Fieldset", related_name="columns", on_delete=django.db.models.CASCADE
     )
 
-    # TODO - Should set up validations so EITHER of these can be null but not both.
+    # NOTE(deferred): At least one of `query` or `match_text` should be non-null,
+    # but enforcing at the model level is deferred because existing extract
+    # pipelines may create Columns in stages. Validation lives in the mutation
+    # layer instead.
     query = django.db.models.TextField(null=True, blank=True)
     match_text = django.db.models.TextField(null=True, blank=True)
     must_contain_text = django.db.models.TextField(null=True, blank=True)

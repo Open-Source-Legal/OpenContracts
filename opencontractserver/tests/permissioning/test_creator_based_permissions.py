@@ -184,6 +184,77 @@ class CreatorBasedPermissionsTestCase(TestCase):
             self.assertTrue(has_perm, f"Superuser should have {perm} permission")
 
 
+class GuardianModelSuperuserPermissionsTestCase(TestCase):
+    """
+    Tests that superusers get the full extended permission set on
+    guardian-enabled models (comment, publish, permission beyond CRUD).
+    """
+
+    def setUp(self):
+        with transaction.atomic():
+            self.superuser = User.objects.create_superuser(
+                username="guardian_superuser", password="super12345"
+            )
+            self.other_user = User.objects.create_user(
+                username="guardian_other", password="test12345"
+            )
+
+        # Create a corpus owned by a different user
+        from opencontractserver.corpuses.models import Corpus
+
+        with transaction.atomic():
+            self.corpus = Corpus.objects.create(
+                title="Superuser Test Corpus",
+                description="Corpus for testing superuser guardian permissions",
+                creator=self.other_user,
+            )
+
+    def test_superuser_gets_all_guardian_permissions(self):
+        """Superuser who is NOT the creator should get the full 7-permission set."""
+        permissions = get_users_permissions_for_obj(
+            user=self.superuser,
+            instance=self.corpus,
+        )
+
+        expected_perms = {
+            "create_corpus",
+            "read_corpus",
+            "update_corpus",
+            "remove_corpus",
+            "comment_corpus",
+            "publish_corpus",
+            "permission_corpus",
+        }
+
+        self.assertEqual(
+            permissions,
+            expected_perms,
+            f"Superuser should have all 7 guardian permissions, got: {permissions}",
+        )
+
+    def test_superuser_has_each_permission_type(self):
+        """Verify user_has_permission_for_obj returns True for every permission type."""
+        for perm in [
+            PermissionTypes.READ,
+            PermissionTypes.CREATE,
+            PermissionTypes.UPDATE,
+            PermissionTypes.DELETE,
+            PermissionTypes.COMMENT,
+            PermissionTypes.PUBLISH,
+            PermissionTypes.PERMISSION,
+            PermissionTypes.ALL,
+        ]:
+            has_perm = user_has_permission_for_obj(
+                user_val=self.superuser,
+                instance=self.corpus,
+                permission=perm,
+            )
+            self.assertTrue(
+                has_perm,
+                f"Superuser should have {perm} permission on corpus, but got False",
+            )
+
+
 class CreatorBasedPermissionsPublicObjectTestCase(TestCase):
     """
     Tests for public objects with creator-based permissions.

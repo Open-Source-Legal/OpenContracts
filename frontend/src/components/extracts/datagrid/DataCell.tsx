@@ -237,7 +237,7 @@ export const ExtractDatacell = ({
       <Modal open={modalOpen} onClose={handleCancel}>
         <Modal.Header>Edit Data</Modal.Header>
         <Modal.Content>
-          {/**TODO - get data editor setup here*/}
+          {/* Read-only JSON view — inline editing not yet implemented */}
           <JSONTree data={editData} hideRoot />
         </Modal.Content>
         <Modal.Actions>

@@ -7,6 +7,7 @@
  */
 import React from "react";
 import { render, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import TxtAnnotator from "../TxtAnnotator";
@@ -90,12 +91,14 @@ describe("TxtAnnotator annotation ref registration", () => {
     const annotation = makeAnnotation("ann-1", 0, 5); // covers "Hello"
 
     render(
-      <TxtAnnotator
-        {...defaultProps}
-        text={text}
-        annotations={[annotation]}
-        onAnnotationRefChange={onAnnotationRefChange}
-      />
+      <MemoryRouter>
+        <TxtAnnotator
+          {...defaultProps}
+          text={text}
+          annotations={[annotation]}
+          onAnnotationRefChange={onAnnotationRefChange}
+        />
+      </MemoryRouter>
     );
 
     await waitFor(() => {
@@ -112,13 +115,15 @@ describe("TxtAnnotator annotation ref registration", () => {
     const hiddenAnn = makeAnnotation("hidden-1", 6, 11, hiddenLabel);
 
     render(
-      <TxtAnnotator
-        {...defaultProps}
-        text={text}
-        annotations={[visibleAnnotation, hiddenAnn]}
-        visibleLabels={[mockLabel]}
-        onAnnotationRefChange={onAnnotationRefChange}
-      />
+      <MemoryRouter>
+        <TxtAnnotator
+          {...defaultProps}
+          text={text}
+          annotations={[visibleAnnotation, hiddenAnn]}
+          visibleLabels={[mockLabel]}
+          onAnnotationRefChange={onAnnotationRefChange}
+        />
+      </MemoryRouter>
     );
 
     await waitFor(() => {
@@ -139,12 +144,14 @@ describe("TxtAnnotator annotation ref registration", () => {
     const annotation = makeAnnotation("ann-1", 0, 5);
 
     const { rerender } = render(
-      <TxtAnnotator
-        {...defaultProps}
-        text={text}
-        annotations={[annotation]}
-        onAnnotationRefChange={onAnnotationRefChange}
-      />
+      <MemoryRouter>
+        <TxtAnnotator
+          {...defaultProps}
+          text={text}
+          annotations={[annotation]}
+          onAnnotationRefChange={onAnnotationRefChange}
+        />
+      </MemoryRouter>
     );
 
     await waitFor(() => {
@@ -157,12 +164,14 @@ describe("TxtAnnotator annotation ref registration", () => {
     onAnnotationRefChange.mockClear();
 
     rerender(
-      <TxtAnnotator
-        {...defaultProps}
-        text={text}
-        annotations={[]}
-        onAnnotationRefChange={onAnnotationRefChange}
-      />
+      <MemoryRouter>
+        <TxtAnnotator
+          {...defaultProps}
+          text={text}
+          annotations={[]}
+          onAnnotationRefChange={onAnnotationRefChange}
+        />
+      </MemoryRouter>
     );
 
     await waitFor(() => {
@@ -178,13 +187,15 @@ describe("TxtAnnotator annotation ref registration", () => {
     const annotation = makeAnnotation("ann-1", 0, 5);
 
     const { rerender } = render(
-      <TxtAnnotator
-        {...defaultProps}
-        text={text}
-        annotations={[annotation]}
-        visibleLabels={null}
-        onAnnotationRefChange={onAnnotationRefChange}
-      />
+      <MemoryRouter>
+        <TxtAnnotator
+          {...defaultProps}
+          text={text}
+          annotations={[annotation]}
+          visibleLabels={null}
+          onAnnotationRefChange={onAnnotationRefChange}
+        />
+      </MemoryRouter>
     );
 
     await waitFor(() => {
@@ -198,13 +209,15 @@ describe("TxtAnnotator annotation ref registration", () => {
 
     // Hide the label by setting visibleLabels to an empty list
     rerender(
-      <TxtAnnotator
-        {...defaultProps}
-        text={text}
-        annotations={[annotation]}
-        visibleLabels={[]}
-        onAnnotationRefChange={onAnnotationRefChange}
-      />
+      <MemoryRouter>
+        <TxtAnnotator
+          {...defaultProps}
+          text={text}
+          annotations={[annotation]}
+          visibleLabels={[]}
+          onAnnotationRefChange={onAnnotationRefChange}
+        />
+      </MemoryRouter>
     );
 
     await waitFor(() => {

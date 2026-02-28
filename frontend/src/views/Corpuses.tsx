@@ -2089,7 +2089,6 @@ export const Corpuses = () => {
     tryMutateCorpus({ variables });
   };
 
-  // TODO - Improve typing.
   const handleDeleteCorpus = (corpus_id: string | undefined) => {
     if (corpus_id) {
       // console.log("handleDeleteCorpus", corpus_id)

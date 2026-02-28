@@ -21,6 +21,7 @@ import { useAllAnnotations } from "../../hooks/useAllAnnotations";
 import { pendingScrollSearchResultIdAtom } from "../../context/DocumentAtom";
 import { TextSearchTokenResult } from "../../../types";
 import { chatSourcesAtom } from "../../context/ChatSourceAtom";
+import { useClearTextBlockOnInteraction } from "../../hooks/useClearTextBlockOnInteraction";
 
 export class PDFPageRenderer {
   private currentRenderTask?: ReturnType<PDFPageProxy["render"]>;
@@ -136,6 +137,10 @@ export const PDF: React.FC<PDFProps> = ({
     pendingScrollChatSourceKeyAtom
   );
   const { messages, selectedMessageId, selectedSourceIndex } = chatState;
+
+  // Clear ?tb= text block highlight when user selects annotations or chat
+  // (runs once here instead of per-page in PDFPage).
+  useClearTextBlockOnInteraction(selectedAnnotations, selectedMessageId);
 
   // Shared debounce state for coordinated rendering
   const renderQueueRef = useRef<Map<number, PageRenderRequest>>(new Map());

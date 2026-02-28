@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 
 class ApproveDatacell(graphene.Mutation):
-    # TODO - I think permissioning cells makes sense but adds a lot of overhead and probably requires
-    #  some changes like granting permission based on parent corpus / extract.
+    # NOTE(deferred): Datacell-level permissions would add significant overhead.
+    # Current approach relies on parent corpus/extract permissions.
 
     class Arguments:
         datacell_id = graphene.String(required=True)
@@ -69,8 +69,8 @@ class ApproveDatacell(graphene.Mutation):
 
 
 class RejectDatacell(graphene.Mutation):
-    # TODO - I think permissioning cells makes sense but adds a lot of overhead and probably requires
-    #  some changes like granting permission based on parent corpus / extract.
+    # NOTE(deferred): Datacell-level permissions would add significant overhead.
+    # Current approach relies on parent corpus/extract permissions.
 
     class Arguments:
         datacell_id = graphene.String(required=True)
@@ -101,8 +101,8 @@ class RejectDatacell(graphene.Mutation):
 
 
 class EditDatacell(graphene.Mutation):
-    # TODO - I think permissioning cells makes sense but adds a lot of overhead and probably requires
-    #  some changes like granting permission based on parent corpus / extract.
+    # NOTE(deferred): Datacell-level permissions would add significant overhead.
+    # Current approach relies on parent corpus/extract permissions.
 
     class Arguments:
         datacell_id = graphene.String(required=True)

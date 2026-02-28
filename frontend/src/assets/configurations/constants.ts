@@ -58,6 +58,12 @@ export const STATUS_FILTERS = {
 
 export type StatusFilter = (typeof STATUS_FILTERS)[keyof typeof STATUS_FILTERS];
 
+// Selection action menu approximate dimensions (used for viewport clamping)
+export const SELECTION_MENU = {
+  APPROX_WIDTH: 200,
+  APPROX_HEIGHT: 200,
+} as const;
+
 // Debounce timing constants
 export const DEBOUNCE = {
   SEARCH_MS: 1000,

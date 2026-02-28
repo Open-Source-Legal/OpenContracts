@@ -94,22 +94,42 @@ class SlugQueryMixin:
         )
         if not corpus:
             return None
+        # Resolve document via corpus membership (DocumentPath), not by
+        # creator.  Documents in a corpus may have been uploaded by any
+        # user with write access, not necessarily the corpus owner.
+        # Filter by corpus membership to avoid ambiguity when documents
+        # in different corpuses share the same slug.
+        # Explicit ordering ensures deterministic results when multiple
+        # documents share the same slug in this corpus (different creators).
+        #
+        # When version_number is provided, skip is_current=True because the
+        # caller wants a historical version.  The slug may belong to an older
+        # version whose path record has is_current=False; we just need to
+        # confirm the document has *any* non-deleted path in this corpus.
+        path_filter = {
+            "slug": document_slug,
+            "path_records__corpus": corpus,
+            "path_records__is_deleted": False,
+        }
+        if version_number is None:
+            path_filter["path_records__is_current"] = True
+
         doc = (
-            Document.objects.filter(creator=owner, slug=document_slug)
+            Document.objects.filter(**path_filter)
             .visible_to_user(info.context.user)
+            .order_by("pk")
             .first()
         )
         if not doc:
             return None
 
         if version_number is not None:
-            # Resolve a specific historical version in a single query:
-            # Push visibility check into the path query via document__in
-            # subquery, avoiding a separate exists() round-trip.
+            # Resolve a specific historical version via version_tree_id.
+            # A document's slug may change between versions, so we must
+            # traverse by version_tree_id (which groups all versions of
+            # the same logical document) rather than filtering by slug.
             visible_version_docs = (
-                Document.objects.filter(
-                    version_tree_id=doc.version_tree_id,
-                )
+                Document.objects.filter(version_tree_id=doc.version_tree_id)
                 .visible_to_user(info.context.user)
                 .only("pk")
             )
@@ -127,9 +147,6 @@ class SlugQueryMixin:
                 return None
             return path_record.document
 
-        # Default: validate membership via DocumentPath (current version)
-        if not DocumentPath.objects.filter(
-            document=doc, corpus=corpus, is_current=True, is_deleted=False
-        ).exists():
-            return None
+        # Default: doc already satisfies corpus membership, visibility,
+        # and is_current constraints from the initial query above.
         return doc

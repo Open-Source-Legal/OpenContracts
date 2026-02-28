@@ -47,7 +47,6 @@ from .json_types import MultipageAnnotationJson, SpanAnnotationJson
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
-# TODO - can we use the Python enum in data_types.py to drive choices
 RELATIONSHIP_LABEL = "RELATIONSHIP_LABEL"
 DOC_TYPE_LABEL = "DOC_TYPE_LABEL"
 TOKEN_LABEL = "TOKEN_LABEL"
@@ -210,7 +209,6 @@ class Relationship(BaseOCModel):
     )
 
     # If this annotation was created as part of an analysis... track that.
-    # TODO - ensure we actually import relationships (and this attribute) from analyzers
     analysis = django.db.models.ForeignKey(
         "analyzer.Analysis",
         null=True,

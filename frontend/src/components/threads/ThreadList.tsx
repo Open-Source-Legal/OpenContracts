@@ -220,8 +220,8 @@ export function ThreadList({
         }
 
         case "upvoted": {
-          // TODO: Calculate total upvotes from messages when available
-          // For now, fall back to message count as proxy for activity
+          // Per-thread upvote aggregation requires a backend resolver.
+          // Using message count as a proxy for activity until then.
           const aCount = a?.chatMessages?.totalCount || 0;
           const bCount = b?.chatMessages?.totalCount || 0;
           return bCount - aCount;

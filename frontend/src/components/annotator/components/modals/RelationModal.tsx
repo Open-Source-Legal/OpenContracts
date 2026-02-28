@@ -72,7 +72,9 @@ export const RelationModal = ({
             key={relation.text}
             $selected={relation.id === label.id}
             onClick={() => {
-              /* TODO: lift active-label state */
+              /* Label selection is read-only here — the active label is
+                 managed by the parent annotator and would need to be lifted
+                 into shared state to allow changing it from this modal. */
             }}
           >
             <Icon name={relation.icon ?? "tag"} />

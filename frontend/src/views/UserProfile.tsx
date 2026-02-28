@@ -337,8 +337,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
     user.username;
 
-  // Calculate recent change (placeholder - would need backend support for real data)
-  const recentChange = 0; // TODO: Backend would need to track this
+  // Placeholder — reputation change tracking requires a backend time-series model.
+  const recentChange = 0;
 
   return (
     <ProfileContainer>
@@ -388,8 +388,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             <Section>
               <UserProfileReputation
                 globalReputation={user.reputationGlobal}
-                upvotesReceived={0} // TODO: Backend support needed
-                downvotesReceived={0} // TODO: Backend support needed
+                upvotesReceived={0} // Placeholder — backend aggregation not yet implemented
+                downvotesReceived={0} // Placeholder — backend aggregation not yet implemented
                 recentChange={recentChange}
                 changePeriod="this week"
               />

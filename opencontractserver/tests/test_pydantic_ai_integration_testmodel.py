@@ -440,9 +440,9 @@ class TestPydanticAIAgentsWithTestModel(TransactionTestCase):
     # ========================================================================
     # Test: Structured Response with TestModel
     # ========================================================================
-    # SKIPPED: FunctionModel with output_type has compatibility issues
-    # Structured extraction is tested via the streaming tests above
-    # TODO: Revisit when PydanticAI clarifies FunctionModel + output_type usage
+    # SKIPPED: FunctionModel with output_type has compatibility issues.
+    # Structured extraction is tested via the streaming tests above.
+    # Blocked on upstream PydanticAI FunctionModel + output_type clarification.
 
     async def _test_structured_response_testmodel_SKIPPED(self) -> None:
         """

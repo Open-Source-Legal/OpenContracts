@@ -17,6 +17,7 @@ from opencontractserver.tasks.data_extract_tasks import (
 )
 from opencontractserver.tests.base import BaseFixtureTestCase
 
+logger = logging.getLogger(__name__)
 vcr_log = logging.getLogger("vcr")
 vcr_log.setLevel(logging.WARNING)
 
@@ -111,14 +112,13 @@ class TestDocExtractQueryTask(TransactionTestCase):
             # Optionally, assert structure/contents of 'result' as appropriate for your logic
             self.assertIn("data", result, "Expected 'data' key in result")
 
-            print(f"Synchronous doc_extract_query_task result: {result}")
+            logger.debug("Synchronous doc_extract_query_task result: %s", result)
         except Exception as e:
-            logging.error(
-                f"Exception in test_doc_extract_query_task_synchronously: {e}"
+            logger.error(
+                "Exception in test_doc_extract_query_task_synchronously: %s",
+                e,
+                exc_info=True,
             )
-            import traceback
-
-            logging.error(traceback.format_exc())
             raise
 
 
@@ -136,7 +136,7 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
         """
         super().setUp()
 
-        logging.info("Setting up TestDocExtractQueryTaskDirect data.")
+        logger.info("Setting up TestDocExtractQueryTaskDirect data.")
 
         self.fieldset: Fieldset = Fieldset.objects.create(
             name="TestFieldsetForDirectTask",
@@ -178,7 +178,7 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
         self.extract.documents.add(self.doc, self.doc2, self.doc3)
         self.extract.save()
 
-        logging.info("Fixture data set up complete for TestDocExtractQueryTaskDirect.")
+        logger.info("Fixture data set up complete for TestDocExtractQueryTaskDirect.")
 
     @vcr.use_cassette(
         "fixtures/vcr_cassettes/test_doc_extract_query_task_directly.yaml",
@@ -191,7 +191,7 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
         in the extract and calling the task directly against them. This allows more
         focused testing without the extracts orchestration layer.
         """
-        logging.info("Starting test_doc_extract_query_task_directly.")
+        logger.info("Starting test_doc_extract_query_task_directly.")
 
         for doc in self.extract.documents.all():
 
@@ -210,7 +210,7 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
                 # Reload the Datacell from DB
                 cell.refresh_from_db()
                 result = cell.data
-                logging.debug(f"Result for cell {cell.id}: {result}")
+                logger.debug("Result for cell %s: %s", cell.id, result)
 
                 # Basic checks
                 self.assertIsNotNone(
@@ -235,12 +235,12 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
                 )
 
             except Exception as e:
-                logging.error(
-                    f"Exception in test_doc_extract_query_task_directly for cell {cell.id}: {e}"
+                logger.error(
+                    "Exception in test_doc_extract_query_task_directly for cell %s: %s",
+                    cell.id,
+                    e,
+                    exc_info=True,
                 )
-                import traceback
-
-                logging.error(traceback.format_exc())
                 raise
 
         # Double-check the number of DocumentAnalysisRows if desired
@@ -251,4 +251,4 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
             "No DocumentAnalysisRow objects should be created here since we're only calling the single task directly.",
         )
 
-        logging.info("Completed test_doc_extract_query_task_directly.")
+        logger.info("Completed test_doc_extract_query_task_directly.")

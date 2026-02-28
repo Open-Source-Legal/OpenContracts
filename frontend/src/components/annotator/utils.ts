@@ -85,8 +85,8 @@ export function annotationSelectedViaRelationship(
 
 // Given an array of TokenIds, which is what Pawls returns when we annotate tokens,
 // Look up those token indices in the page's token array and then append those tokens
-// together, separating by spaces. It's naive, but a way to get text from our tokens.
-// TODO - look at token y positions and detect newlines.
+// together, separating by spaces. A more sophisticated approach could inspect token
+// y-positions to insert newlines, but space-joining is sufficient for current usage.
 export const convertAnnotationTokensToText = (
   pages: PDFPageInfo[] | undefined,
   page: number,

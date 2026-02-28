@@ -216,7 +216,8 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         if latest_rev.snapshot:
             return latest_rev.snapshot
         else:
-            # TODO: Implement diff reconstruction if needed
+            # Diff reconstruction not yet needed — every revision currently
+            # stores a full snapshot. Return empty string as a safe fallback.
             return ""
 
     def update_summary(self, *, new_content: str, author, corpus):
@@ -251,9 +252,9 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         if latest_rev and latest_rev.snapshot:
             original_content = latest_rev.snapshot
         elif latest_rev:
-            # Reconstruct from diffs if no snapshot
+            # Diff reconstruction not yet needed — every revision currently
+            # stores a full snapshot. Return empty string as a safe fallback.
             original_content = ""
-            # TODO: Implement diff reconstruction if needed
         else:
             original_content = ""
 

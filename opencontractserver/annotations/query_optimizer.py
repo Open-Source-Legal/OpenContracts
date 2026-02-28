@@ -411,7 +411,6 @@ class AnnotationQueryOptimizer:
             **kwargs
         )
 
-    # TODO - in-use?
     @classmethod
     def get_extract_annotation_summary(
         cls, document_id: int, extract_id: int, user, use_cache: bool = True  # Ignored

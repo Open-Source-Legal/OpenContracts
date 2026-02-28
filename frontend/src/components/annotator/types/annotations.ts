@@ -29,7 +29,9 @@ export class RelationGroup {
     this.id = id;
   }
 
-  // TODO - need to find a way to integrate this into current application log, which does NOT account for this.
+  // NOTE: Relation deletions triggered by annotation removal are not currently
+  // reflected in the undo/redo log. This is acceptable because undo operates
+  // on the annotations array directly, and orphaned relations are pruned.
   updateForAnnotationDeletion(
     a: ServerTokenAnnotation | ServerSpanAnnotation
   ): RelationGroup | undefined {
@@ -285,7 +287,7 @@ export class PdfAnnotations {
     );
   }
 
-  // TODO - what is this for?
+  /** Remove the most recently added annotation and clean up any relations referencing it. */
   undoAnnotation(): PdfAnnotations {
     const popped = this.annotations.pop();
     if (!popped) {

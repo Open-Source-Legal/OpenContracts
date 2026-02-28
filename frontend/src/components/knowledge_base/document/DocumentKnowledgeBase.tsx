@@ -1618,7 +1618,8 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
    * the URL which is wrong for modals. Future fix should use a different approach for
    * modal contexts (e.g., navigate to URL when opening modal, restore on close).
    *
-   * TODO: Implement proper modal annotation seeding that doesn't conflict with routing
+   * NOTE(deferred): Modal annotation seeding needs an approach that doesn't conflict
+   * with router-based state — e.g. navigate to URL when opening modal, restore on close.
    */
 
   /* ------------------------------------------------------------------ */

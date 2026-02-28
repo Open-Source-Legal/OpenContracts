@@ -478,7 +478,7 @@ export const GlobalDiscussions: React.FC = () => {
         <Plus size={28} />
       </FAB>
 
-      {/* TODO: Wire up CreateThreadButton modal */}
+      {/* Placeholder — CreateThread modal not yet implemented */}
       {showCreateModal && <div>Create thread modal placeholder</div>}
     </Container>
   );

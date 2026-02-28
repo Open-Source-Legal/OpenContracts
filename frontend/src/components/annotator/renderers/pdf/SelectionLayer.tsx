@@ -3,6 +3,7 @@ import {
   BoundingBox,
   PermissionTypes,
   SinglePageAnnotationJson,
+  TokenId,
 } from "../../../types";
 
 import { normalizeBounds } from "../../../../utils/transform";
@@ -15,9 +16,22 @@ import { useCorpusState } from "../../context/CorpusAtom";
 import { useAnnotationSelection } from "../../context/UISettingsAtom";
 import { useAtom, useAtomValue } from "jotai";
 import { isCreatingAnnotationAtom } from "../../context/UISettingsAtom";
-import styled from "styled-components";
-import { Copy, Tag, X, AlertCircle, Settings } from "lucide-react";
+import { Copy, Tag, X, AlertCircle, Settings, Link } from "lucide-react";
+import {
+  SelectionActionMenu,
+  ActionMenuItem,
+  MenuDivider,
+  ShortcutHint,
+  HelpMessage,
+  HelpText,
+} from "../../components/SelectionActionMenu";
 import { scrollContainerRefAtom } from "../../context/DocumentAtom";
+import { useLocation } from "react-router-dom";
+import {
+  encodeTextBlock,
+  textBlockFromTokensByPage,
+} from "../../../../utils/textBlockEncoding";
+import { clampMenuPosition } from "../../../../utils/layout";
 
 interface SelectionLayerProps {
   pageInfo: PDFPageInfo;
@@ -34,6 +48,7 @@ const SelectionLayer = ({
   createAnnotation,
   pageNumber,
 }: SelectionLayerProps) => {
+  const location = useLocation();
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useAtomValue(scrollContainerRefAtom);
   const {
@@ -74,48 +89,12 @@ const SelectionLayer = ({
 
   // Prevent new selection immediately after menu interaction
   const lastMenuInteractionTime = useRef<number>(0);
+  const menuRef = useRef<HTMLDivElement>(null);
   const MENU_INTERACTION_COOLDOWN = 300; // 300ms cooldown after menu interaction
 
   // Check if corpus has labelset
   const hasLabelset = Boolean(selectedCorpus?.labelSet);
   const hasLabels = humanTokenLabels.length > 0 || humanSpanLabels.length > 0;
-
-  /**
-   * Calculate menu position to ensure it stays within viewport
-   */
-  const calculateMenuPosition = (mouseX: number, mouseY: number) => {
-    // Menu dimensions (approximate based on styled component)
-    const menuWidth = 200; // min-width: 160px + padding + border
-    const menuHeight = 200; // Approximate height for menu with items
-
-    // Get viewport dimensions
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    // Calculate initial position (slightly offset from cursor)
-    let x = mouseX + 10;
-    let y = mouseY + 10;
-
-    // Check right edge
-    if (x + menuWidth > viewportWidth) {
-      // Position menu to the left of cursor if it would go off-screen
-      x = Math.max(10, mouseX - menuWidth - 10);
-    }
-
-    // Check bottom edge
-    if (y + menuHeight > viewportHeight) {
-      // Position menu above cursor if it would go off-screen
-      y = Math.max(10, mouseY - menuHeight - 10);
-    }
-
-    // Ensure menu doesn't go off left edge
-    x = Math.max(10, x);
-
-    // Ensure menu doesn't go off top edge
-    y = Math.max(10, y);
-
-    return { x, y };
-  };
 
   /**
    * Handles the creation of a multi-page annotation.
@@ -188,7 +167,7 @@ const SelectionLayer = ({
     }
 
     if (combinedText.trim()) {
-      navigator.clipboard.writeText(combinedText.trim());
+      navigator.clipboard.writeText(combinedText.trim()).catch(() => {});
     }
 
     // Mark menu interaction time
@@ -199,6 +178,52 @@ const SelectionLayer = ({
     setPendingSelections({});
     setMultiSelections({});
   }, [pendingSelections, pageInfo]);
+
+  /**
+   * Handles copying a deep link to the selected text block.
+   *
+   * Note: pageInfo.getPageAnnotationJson uses this page's token list to
+   * resolve bounding boxes.  This is safe because each SelectionLayer
+   * instance only accumulates selections for its own page — cross-page
+   * selections are handled by separate SelectionLayer instances.
+   */
+  const handleCopyLink = useCallback(() => {
+    const selections = pendingSelections;
+    const pages = Object.keys(selections)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    // Collect token IDs across selected pages.
+    // Note: pendingSelections only contains data for this SelectionLayer's
+    // page (each page gets its own SelectionLayer instance), so the `pages`
+    // array always has exactly one entry.  The loop is kept for structural
+    // consistency with handleCopyText and handleCreateMultiPageAnnotation.
+    const tokensByPage: Record<number, TokenId[]> = {};
+    for (const pageNum of pages) {
+      const pageAnnotation = pageInfo.getPageAnnotationJson(
+        selections[pageNum]
+      );
+      if (pageAnnotation && pageAnnotation.tokensJsons.length > 0) {
+        tokensByPage[pageNum] = pageAnnotation.tokensJsons;
+      }
+    }
+
+    if (Object.keys(tokensByPage).length > 0) {
+      const block = textBlockFromTokensByPage(tokensByPage);
+      const encoded = encodeTextBlock(block);
+      const params = new URLSearchParams(location.search);
+      params.set("tb", encoded);
+      const url = `${window.location.origin}${
+        location.pathname
+      }?${params.toString()}`;
+      navigator.clipboard.writeText(url).catch(() => {});
+    }
+
+    lastMenuInteractionTime.current = Date.now();
+    setShowActionMenu(false);
+    setPendingSelections({});
+    setMultiSelections({});
+  }, [pendingSelections, pageInfo, location]);
 
   /**
    * Handles applying the current label to create an annotation.
@@ -246,7 +271,7 @@ const SelectionLayer = ({
           if (!event.shiftKey) {
             // Instead of immediately creating annotation, show action menu
             setPendingSelections(updatedSelections);
-            const menuPos = calculateMenuPosition(event.clientX, event.clientY);
+            const menuPos = clampMenuPosition(event.clientX, event.clientY);
             setActionMenuPosition(menuPos);
             setShowActionMenu(true);
           }
@@ -340,7 +365,7 @@ const SelectionLayer = ({
 
       // Check if touch target is within the action menu
       const target = event.target as HTMLElement;
-      if (target.closest(".selection-action-menu")) {
+      if (menuRef.current && menuRef.current.contains(target)) {
         return;
       }
 
@@ -490,7 +515,7 @@ const SelectionLayer = ({
           setPendingSelections(updatedSelections);
           // Use last touch position for menu
           const touch = event.changedTouches[0];
-          const menuPos = calculateMenuPosition(touch.clientX, touch.clientY);
+          const menuPos = clampMenuPosition(touch.clientX, touch.clientY);
           setActionMenuPosition(menuPos);
           setShowActionMenu(true);
 
@@ -506,7 +531,6 @@ const SelectionLayer = ({
       localPageSelection,
       pageNumber,
       setIsCreatingAnnotation,
-      calculateMenuPosition,
     ]
   );
 
@@ -557,7 +581,8 @@ const SelectionLayer = ({
 
       const tokens = annotation && annotation.tokens ? annotation.tokens : null;
 
-      // TODO - ensure we WANT random UUID
+      // Random UUID is intentional — this is a transient in-progress selection,
+      // not a persisted annotation, so a stable ID is unnecessary.
       return (
         <>
           <SelectionBoundary
@@ -639,7 +664,10 @@ const SelectionLayer = ({
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (showActionMenu && !target.closest(".selection-action-menu")) {
+      if (
+        showActionMenu &&
+        (!menuRef.current || !menuRef.current.contains(target))
+      ) {
         setShowActionMenu(false);
         setPendingSelections({});
         setMultiSelections({});
@@ -652,6 +680,10 @@ const SelectionLayer = ({
           case "c":
             event.preventDefault();
             handleCopyText();
+            break;
+          case "l":
+            event.preventDefault();
+            handleCopyLink();
             break;
           case "a":
             event.preventDefault();
@@ -677,7 +709,13 @@ const SelectionLayer = ({
         document.removeEventListener("keydown", handleKeyPress);
       };
     }
-  }, [showActionMenu, handleCopyText, handleApplyLabel, activeSpanLabel]);
+  }, [
+    showActionMenu,
+    handleCopyText,
+    handleCopyLink,
+    handleApplyLabel,
+    activeSpanLabel,
+  ]);
 
   return (
     <div
@@ -725,7 +763,7 @@ const SelectionLayer = ({
       {/* Selection Action Menu */}
       {showActionMenu && (
         <SelectionActionMenu
-          className="selection-action-menu"
+          ref={menuRef}
           data-testid="selection-action-menu"
           onTouchStart={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
@@ -752,6 +790,22 @@ const SelectionLayer = ({
             <Copy size={16} />
             <span>Copy Text</span>
             <ShortcutHint>C</ShortcutHint>
+          </ActionMenuItem>
+
+          <ActionMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCopyLink();
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              lastMenuInteractionTime.current = Date.now();
+            }}
+            data-testid="copy-link-button"
+          >
+            <Link size={16} />
+            <span>Copy Link</span>
+            <ShortcutHint>L</ShortcutHint>
           </ActionMenuItem>
 
           {/* Show annotation option or helpful message */}
@@ -845,86 +899,5 @@ const SelectionLayer = ({
     </div>
   );
 };
-
-// Styled components for the action menu
-const SelectionActionMenu = styled.div`
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  padding: 4px;
-  min-width: 160px;
-`;
-
-const ActionMenuItem = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 14px;
-  color: #333;
-  transition: background-color 0.2s;
-
-  &:hover {
-    background-color: #f5f5f5;
-  }
-
-  svg {
-    flex-shrink: 0;
-  }
-`;
-
-const MenuDivider = styled.div`
-  height: 1px;
-  background-color: #e0e0e0;
-  margin: 4px 0;
-`;
-
-const ShortcutHint = styled.span`
-  margin-left: auto;
-  font-size: 12px;
-  color: #666;
-  background-color: #f0f0f0;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-`;
-
-const HelpMessage = styled.div`
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 12px;
-  color: #666;
-  font-size: 14px;
-
-  svg {
-    flex-shrink: 0;
-    margin-top: 2px;
-    color: #f59e0b;
-  }
-
-  div {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  span {
-    font-weight: 500;
-    color: #333;
-  }
-`;
-
-const HelpText = styled.div`
-  font-size: 12px;
-  color: #666;
-  line-height: 1.3;
-`;
 
 export default React.memo(SelectionLayer);

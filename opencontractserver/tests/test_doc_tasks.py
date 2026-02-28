@@ -1,4 +1,6 @@
 #  Copyright (C) 2022  John Scrudato
+import base64
+import io
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -6,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TestCase
+from pypdf import PdfReader
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
@@ -75,11 +78,14 @@ class DocParserTestCase(TestCase):
         self.doc.refresh_from_db()
         self.assertTrue(self.doc.backend_lock)
 
-    def test_burn_doc_annotations(self) -> None:
+    def test_burn_doc_annotations_doc_labels_only(self) -> None:
         """
-        Test burning annotations into the document.
+        Test burning annotations with only doc-level labels (no text labels).
+        Verifies the 5-tuple structure is returned correctly.
         """
-        # TODO - handle text labels and perform a substantive test
+        # NOTE(deferred): Only doc labels are exercised. Text-label burning
+        # and substantive output validation (e.g. checking the resulting PDF
+        # contains the expected highlight overlays) are not covered yet.
         label_lookups = {
             "text_labels": {},
             "doc_labels": {
@@ -97,6 +103,148 @@ class DocParserTestCase(TestCase):
             args=(label_lookups, self.doc.id, self.corpus.id)
         ).get()
         self.assertEqual(len(result), 5)
+
+    def test_burn_doc_annotations_with_text_labels(self) -> None:
+        """
+        Test burning annotations with text labels exercises the PDF highlight
+        code path and produces valid annotated output.
+        """
+        # Create a text-level annotation label in the database
+        text_label = AnnotationLabel.objects.create(
+            text="Important Clause",
+            creator=self.user,
+            label_type=LabelType.TOKEN_LABEL,
+            color="#FF5733",
+            description="Highlights important clauses",
+            icon="tag",
+        )
+
+        # Create a doc-level annotation label in the database
+        doc_label = AnnotationLabel.objects.create(
+            text="Contract",
+            creator=self.user,
+            label_type=LabelType.DOC_TYPE_LABEL,
+            color="#33FF57",
+            description="Marks document as a contract",
+            icon="file",
+        )
+
+        # Create a text annotation on page 1 with bounding-box data.
+        # The JSON keys are 1-based page number strings; bounds use
+        # left/right/top/bottom matching BoundingBoxPythonType.
+        Annotation.objects.create(
+            raw_text="Development Agreement",
+            annotation_label=text_label,
+            annotation_type=LabelType.TOKEN_LABEL,
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.user,
+            page=1,
+            json={
+                "1": {
+                    "bounds": {
+                        "left": 100,
+                        "top": 100,
+                        "right": 300,
+                        "bottom": 120,
+                    },
+                    "tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}],
+                    "rawText": "Development Agreement",
+                }
+            },
+        )
+
+        # Create a doc-level annotation
+        Annotation.objects.create(
+            raw_text="Contract",
+            annotation_label=doc_label,
+            annotation_type=LabelType.DOC_TYPE_LABEL,
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.user,
+        )
+
+        # Build label lookups referencing actual DB primary keys
+        label_lookups = {
+            "text_labels": {
+                str(text_label.pk): {
+                    "id": str(text_label.pk),
+                    "color": "#FF5733",
+                    "description": "Highlights important clauses",
+                    "icon": "tag",
+                    "text": "Important Clause",
+                    "label_type": LabelType.TOKEN_LABEL,
+                }
+            },
+            "doc_labels": {
+                str(doc_label.pk): {
+                    "id": str(doc_label.pk),
+                    "color": "#33FF57",
+                    "description": "Marks document as a contract",
+                    "icon": "file",
+                    "text": "Contract",
+                    "label_type": LabelType.DOC_TYPE_LABEL,
+                }
+            },
+        }
+
+        result = burn_doc_annotations.apply(
+            args=(label_lookups, self.doc.id, self.corpus.id)
+        ).get()
+
+        # Verify 5-tuple structure
+        self.assertEqual(len(result), 5)
+        filename, base64_pdf, doc_export, returned_text_labels, returned_doc_labels = (
+            result
+        )
+
+        # Filename should be the PDF basename
+        self.assertIsNotNone(filename)
+        self.assertTrue(filename.endswith(".pdf"))
+
+        # base64-encoded PDF should be non-empty (annotations were burned in)
+        self.assertIsInstance(base64_pdf, str)
+        self.assertGreater(len(base64_pdf), 0)
+
+        # Decode and verify it's a valid PDF
+        pdf_bytes = base64.b64decode(base64_pdf)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        self.assertGreater(len(reader.pages), 0)
+
+        # The first page should contain our burned-in annotation
+        first_page = reader.pages[0]
+        annots = first_page.get("/Annots")
+        self.assertIsNotNone(annots, "First page should have PDF annotations")
+        self.assertGreater(len(annots), 0)
+
+        # Find the annotation we added by its /Contents field, since the
+        # sample PDF may already contain other annotations.
+        highlight_annot = None
+        for annot_ref in annots:
+            annot_obj = annot_ref.get_object()
+            if annot_obj.get("/Contents") == "Important Clause":
+                highlight_annot = annot_obj
+                break
+        self.assertIsNotNone(
+            highlight_annot,
+            "Expected an annotation with /Contents 'Important Clause'",
+        )
+        self.assertEqual(highlight_annot["/Subtype"], "/Highlight")
+
+        # doc_export should contain the expected annotation data
+        self.assertIsNotNone(doc_export)
+        self.assertIn("Contract", doc_export["doc_labels"])
+        self.assertEqual(len(doc_export["labelled_text"]), 1)
+        self.assertEqual(
+            doc_export["labelled_text"][0]["rawText"], "Development Agreement"
+        )
+        self.assertEqual(
+            doc_export["labelled_text"][0]["annotationLabel"], str(text_label.pk)
+        )
+
+        # Returned label dicts should match what was passed in
+        self.assertIn(str(text_label.pk), returned_text_labels)
+        self.assertIn(str(doc_label.pk), returned_doc_labels)
 
     def test_convert_doc_to_funsd(self) -> None:
         """

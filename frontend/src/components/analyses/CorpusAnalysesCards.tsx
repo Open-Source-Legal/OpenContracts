@@ -88,12 +88,8 @@ export const CorpusAnalysesCards = () => {
     }
   }, [auth_token]);
 
-  // TODO - triggering constant refresh
-  //   useEffect(() => {
-  //     if (analysis_ids_to_display) {
-  //       refetchAnalyses();
-  //     }
-  //   }, [analysis_ids_to_display]);
+  // Disabled: refetching on analysis_ids_to_display caused infinite refresh
+  // because the dependency itself changes on every refetch.
 
   //If we detech user navigated to this page, refetch
   useEffect(() => {

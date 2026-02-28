@@ -5,9 +5,26 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-02-27
+## [Unreleased] - 2026-02-28
+
+### Fixed
+
+#### Tighten JSON Field Validation for Malformed Input (Closes #1001)
+- **Root cause**: `CustomJSONFieldFormTests.TestForm` used `NullableJSONField()` (a model field) instead of `UTF8JSONFormField` (a form field). Django's `Form` metaclass silently ignores model fields, so the form had zero fields and `is_valid()` always returned `True` — masking the fact that malformed JSON was never validated.
+- **Fix**: Changed `TestForm.json_field` to `UTF8JSONFormField(required=False)` so form validation actually runs through Django's `forms.JSONField.to_python()`, which raises `ValidationError` on `json.JSONDecodeError` (`opencontractserver/tests/test_custom_fields.py:76`).
+- **Re-enabled**: `test_form_with_invalid_json` now asserts that `'not json'` is correctly rejected (`opencontractserver/tests/test_custom_fields.py:90-92`).
+- **Added**: `test_formfield_rejects_invalid_json` and `test_formfield_accepts_valid_json` integration tests on `NullableJSONFieldTests` to verify the model field's `formfield()` method produces a form field that properly validates JSON (`opencontractserver/tests/test_custom_fields.py:63-71`).
 
 ### Changed
+
+#### Triage and Clean Up TODO/FIXME Comments (Closes #971)
+- Removed 62 TODO/FIXME/HACK annotations across 43 backend and frontend files
+- Replaced vague TODOs with `NOTE(deferred):` comments explaining deferral reasoning
+- Deleted stale comments referencing non-existent files, already-implemented features, and empty test stubs
+- Fixed typo: "whould" → "should" in `test_permissioning.py`
+- Removed `console.log` debug statement in `ModernDocumentItem.tsx`
+- Deleted empty test stub file `test_doc_analysis_tasks.py`
+- Consolidated redundant `logger.debug()` calls in `utils/files.py`
 
 #### Extract Magic Numbers to Constants Files (Closes #970)
 - Replaced hardcoded upload limit, truncation lengths, DPI, and title limits with named constants in `constants/document_processing.py` and `constants/llm_tools.py`
@@ -22,39 +39,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced inline truncation across `core_tools.py`, `doc_tasks.py`, and `corpuses/models.py`
 
 #### Break Up Large Frontend Components (Closes #977)
-- **StyledContainers.tsx** (2,115 → 12 lines): Split into 9 feature-specific style files under `styled/` directory (HeaderAndLayout, LeftSidebar, RightPanel, ResizeControls, Relationships, LoadingStates, EmptyStates, KnowledgeLayer, SidebarTabs) with barrel `index.ts` for backward compatibility.
-- **SystemSettings.tsx** (2,616 → 1,108 lines): Extracted GraphQL operations (`system_settings/graphql.ts`), types/constants (`types.ts`), styled components (`styles.ts`), and 4 memoized sub-components (PipelineComponentCard, FlowParticles, AdvancedSettingsPanel, PipelineStageSection).
-- **CorpusChat.tsx** (2,347 → 1,346 lines): Extracted styled components (`corpus_chat/styles.ts`), ApprovalModal, and ConversationListView into focused sub-files.
-- **DocumentKnowledgeBase.tsx** (3,363 → 2,322 lines): Extracted styled components (`document_kb/styles.ts`), zoom management hook (`useZoomManager.ts`), RightPanelContent, DocumentModals, and ContextBar components.
-- **ChatTray.tsx** (2,215 → 1,772 lines): Extracted ApprovalOverlay, ConversationListView, and chat utility functions (`chatUtils.ts`).
-- **DRY consolidation**: Extracted shared chat WebSocket types (WebSocketSources, MessageData, ContextStatus, CompactionNotice) from ChatTray and CorpusChat into canonical `components/chat/types.ts`, eliminating duplicate type definitions across 6 files.
-- **ConversationListView naming**: Renamed duplicate `ConversationListView` components to `CorpusConversationListView` (corpus chat) and `DocumentConversationListView` (document chat tray) to eliminate naming collision.
-- **STAGE_CONFIG**: Moved runtime constant from `system_settings/types.ts` to `system_settings/config.ts` (Single Responsibility Principle).
-- **EmptyStates.tsx**: Moved from `styled/` to `document_kb/` since it exports a React component, not just styled-component definitions.
-- **RightPanelContent.tsx**: Converted inline style objects to styled-components (`FlexColumnPanel`, `ExtractHeader`, etc.) for consistency.
-- **useZoomManager**: Extracted `getTouchDistance` to module level; internalized timer cleanup via `useEffect` instead of exposing refs; eliminated stale closure in zoom handlers using `zoomLevelRef`.
-- **chatUtils.ts**: Added empty-array guard in `calculateMessageStats`; replaced `Math.max(...spread)` with `reduce` to prevent stack overflow on large inputs; extracted magic numbers to `MESSAGE_COUNT_COLORS` constant.
-- **chat/types.ts**: Replaced `any` types with explicit typed properties (`args`, `pending_tool_call.arguments`, `decision`, `error`, `context_status`, `compaction`, `approval_decision`).
-- **DocumentKnowledgeBase.tsx**: Memoized `getPanelWidthPercentage` with `useCallback` to prevent auto-zoom effect from re-running on every render.
+- Split 5 large components: StyledContainers (2,115→12), SystemSettings (2,616→1,108), CorpusChat (2,347→1,346), DocumentKnowledgeBase (3,363→2,322), ChatTray (2,215→1,772)
+- Extracted shared chat WebSocket types into canonical `chat/types.ts`; renamed duplicate ConversationListView components; replaced `any` types with explicit typed properties
 
 ### Added
 
+#### Deep Linking and Context Menu for Text/PDF Annotators (Closes #958)
+- Copy Link actions in PDF (`SelectionLayer.tsx`) and TXT (`TxtAnnotator.tsx`) context menus encode selections as `?tb=` deep link URLs
+- URL-driven annotation selection from chat sources (`ChatTray.tsx`); delete button for processing documents (`ModernDocumentItem.tsx`)
+
+#### Corpus Export Test Coverage (Closes #997)
+- Added `test_exported_document_structure` to validate exported document data structure: top-level keys, PAWLS page schema, annotation structure with bounding boxes and token references, and PDF burn-in validity (`opencontractserver/tests/test_corpus_export.py`)
+- Added `test_round_trip_consistency` to compare exported data against original import fixture: document title, content, PAWLS page dimensions and token counts, annotation count, raw text, label names (mapped through label lookups), and bounding box coordinates (`opencontractserver/tests/test_corpus_export.py`)
+- Added `test_exported_label_names_match_fixture` to verify exported label name sets match the labels actually used in the import fixture (`opencontractserver/tests/test_corpus_export.py`)
+- Loaded import fixture data in setUp for round-trip comparison, replacing the previous TODO placeholder (`opencontractserver/tests/test_corpus_export.py:62`)
+- Cleaned up existing tests by removing verbose print statements and TODO comments
+
+#### Expand burn_doc_annotations Test (Closes #1000)
+- Added `test_burn_doc_annotations_with_text_labels` to exercise the text-label PDF burning code path with TOKEN_LABEL fixtures and bounding-box annotation data (`opencontractserver/tests/test_doc_tasks.py`)
+- Validates output PDF contains highlight annotations with correct subtype, label text, and non-empty base64-encoded content
+- Validates `doc_export` JSON contains expected `doc_labels` and `labelled_text` entries
+- Renamed existing test to `test_burn_doc_annotations_doc_labels_only` for clarity
+
 #### Test Coverage for Untested Backend Modules (Closes #975)
-- Unit tests for five previously uncovered modules: feedback, shared (defaults, db_utils, slug_utils, utils, mixins), constants, types (enums, TypedDicts), and MCP extended (telemetry, TTLLRUCache, RateLimiter, formatters, config, permissions, URI parser) (`opencontractserver/tests/`)
+- Unit tests for feedback, shared utils, constants, types, and MCP extended modules (`opencontractserver/tests/`)
 
 ### Fixed
 
-#### Document Version Selector UI Cleanup (Closes #964)
-- **Query overfetching**: Removed unused `versionCount`, `hasVersionHistory`, `isLatestVersion`, and `versionNumber(corpusId:)` fields from `GET_CORPUS_VERSIONS` query (`frontend/src/graphql/queries.ts`). These fields triggered backend resolvers (including database queries for `versionNumber`) but were never consumed by the component, which derives all values from `corpusVersions.length`.
-- **Missing keyboard navigation**: Added full WAI-ARIA listbox keyboard navigation to `DocumentVersionSelector` — Arrow Up/Down to move focus, Home/End to jump to first/last option, Enter/Space to select, Escape to close and return focus to trigger (`frontend/src/components/documents/DocumentVersionSelector.tsx`). Previously keyboard-only users could not navigate the dropdown.
-- **Unsafe displayVersion fallback**: Changed fallback from hardcoded `1` to `null` with conditional rendering (`v?` placeholder) when version data is unavailable, preventing display of incorrect version numbers during initial load (`frontend/src/components/documents/DocumentVersionSelector.tsx:~183`).
-- **Backend validation gap**: Added early return for invalid version numbers (≤ 0) in `resolve_document_in_corpus_by_slugs` to avoid unnecessary database roundtrips (`config/graphql/queries.py`).
-- **isCurrent field clarity**: Added JSDoc comment to `CorpusVersion.isCurrent` interface field documenting that it means "latest (most recent) version" (`frontend/src/components/documents/DocumentVersionSelector.tsx:14`).
-- **Tests**: Updated GraphQL mocks to match trimmed query shape; added new test cases for arrow key navigation, Home/End keys, and Enter-to-select behavior (`frontend/tests/DocumentVersionSelector.ct.tsx`).
+#### Code Review Fixes for Text Block Deep Linking (#958)
+- Document resolution via corpus membership (`DocumentPath`) instead of `creator=owner`; simplified default path to return already-resolved doc
+- Cross-document source click flash fix; `useClearTextBlockOnInteraction` hook consolidation; clipboard `.catch()` for non-HTTPS; dead code removal
 
-#### Rollup Vulnerability - Arbitrary File Write via Path Traversal (Closes #973)
-- **Vulnerability**: `yarn audit` reported 3 high-severity advisories for rollup <4.59.0 (arbitrary file write via path traversal) across dependency chains: `vite > rollup`, `vitest > vite > rollup`, and `@playwright/experimental-ct-react > @playwright/experimental-ct-core > vite > rollup`
-- **Fix**: Added `rollup: "^4.59.0"` to yarn resolutions in `frontend/package.json` to force the patched version across all transitive dependency paths
+#### Document Version Selector UI Cleanup (Closes #964)
+- Removed unused query fields (`versionCount`, `hasVersionHistory`, etc.); added WAI-ARIA keyboard navigation; safe `v?` fallback during load
+- Backend validation for invalid version numbers (≤ 0); isCurrent JSDoc; updated test mocks and new keyboard nav tests
+
+#### Rollup Vulnerability (Closes #973)
+- Pinned `rollup: "^4.59.0"` via yarn resolutions to fix 3 high-severity path traversal advisories
 - **Result**: rollup updated from 4.53.1 to 4.59.0, eliminating all 3 rollup-related audit advisories
 
 ### Added

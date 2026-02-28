@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import { MentionUser } from "../MentionPicker";
 
 /**
- * Hook to fetch users for @mention autocomplete
+ * Hook to fetch users for @mention autocomplete.
  *
- * TODO: Replace with real GraphQL query when backend supports user search
- * For now, returns mock users for demonstration purposes
+ * NOTE(deferred): Returns mock data. Replace with a real GraphQL query
+ * (e.g. GET_USERS with a `textSearch` variable) once the backend exposes
+ * a user-search endpoint.
  */
 export function useMentionUsers(query: string): MentionUser[] {
   const [users, setUsers] = useState<MentionUser[]>([]);

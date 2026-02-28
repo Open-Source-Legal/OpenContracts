@@ -166,7 +166,11 @@ class PermissionQuerySet(models.QuerySet):
         #     has_group_perm=Exists(group_perm)
         # )
 
-        # Filter based on permissions and public status - TODO - make this work for user/obj instance level sharing
+        # Filter based on permissions and public status.
+        # NOTE(deferred): Instance-level sharing (django-guardian user/object
+        # permissions) is not yet wired here. Currently only creator and
+        # is_public are checked. See visible_to_user() on per-model managers
+        # for the full permission-aware pattern.
         # permission_filter = Q(has_user_perm=True) | Q(has_group_perm=True) | Q(is_public=True)
         permission_filter = Q(is_public=True)
         if not user.is_anonymous:

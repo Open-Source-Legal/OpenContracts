@@ -245,6 +245,20 @@ def get_users_permissions_for_obj(
         logger.debug(f"Creator-based permissions: {model_permissions_for_user}")
         return model_permissions_for_user
 
+    # Superusers have all permissions on guardian-enabled models.
+    # Guardian models support richer operations (comment, publish, permission)
+    # beyond the basic CRUD set used for creator-based models above.
+    if user.is_superuser:
+        return {
+            f"create_{model_name}",
+            f"read_{model_name}",
+            f"update_{model_name}",
+            f"remove_{model_name}",
+            f"comment_{model_name}",
+            f"publish_{model_name}",
+            f"permission_{model_name}",
+        }
+
     this_user_perms = getattr(instance, f"{model_name}userobjectpermission_set")
 
     logger.debug(f"get_users_permissions_for_obj - this_user_perms: {this_user_perms}")

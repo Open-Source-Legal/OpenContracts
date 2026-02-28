@@ -565,8 +565,9 @@ def convert_doc_to_funsd(
     )
     logger.info(f"convert_doc_to_funsd() - pdf_images: {pdf_images}")
 
-    # TODO - investigate multi-select of annotations on same page. Code below (and, it seems, entire
-    # application) assume no more than one annotation per page per Annotation obj.
+    # NOTE: Assumes at most one annotation per page per Annotation object.
+    # Multi-page annotations store per-page JSON keyed by page number, and
+    # the FUNSD export iterates those keys independently.
     for annotation in token_annotations:
 
         base_id = f"{annotation.id}"
@@ -638,10 +639,9 @@ def convert_doc_to_funsd(
                 # defined above)
                 expanded_tokens.append(pawls_token_to_funsd_token(token))
 
-            # TODO - build FUNSD annotation here
             funsd_annotation: FunsdAnnotationType = {
                 "id": f"{base_id}-{page}",
-                "linking": [],  # TODO - pull in any relationships for label. This could be pretty complex (actually no)
+                "linking": [],  # Relationship linking is not yet wired into FUNSD export
                 "text": page_annot_json["rawText"],
                 "box": pawls_bbox_to_funsd_box(page_annot_json["bounds"]),
                 "label": f"{label.text}",

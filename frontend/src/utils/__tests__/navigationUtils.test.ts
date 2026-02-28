@@ -86,6 +86,31 @@ describe("buildQueryParams()", () => {
     expect(result).toContain("extract=456");
     expect(result).not.toContain("analysis");
   });
+
+  it("should include textBlock when set to a string", () => {
+    const params: QueryParams = { textBlock: "s100-200" };
+    expect(buildQueryParams(params)).toBe("?tb=s100-200");
+  });
+
+  it("should not include tb param when textBlock is null", () => {
+    const params: QueryParams = { textBlock: null };
+    expect(buildQueryParams(params)).toBe("");
+  });
+
+  it("should not include tb param when textBlock is undefined", () => {
+    const params: QueryParams = { textBlock: undefined };
+    expect(buildQueryParams(params)).toBe("");
+  });
+
+  it("should combine textBlock with other params", () => {
+    const params: QueryParams = {
+      annotationIds: ["123"],
+      textBlock: "p0:45-65",
+    };
+    const result = buildQueryParams(params);
+    expect(result).toContain("ann=123");
+    expect(result).toContain("tb=p0%3A45-65");
+  });
 });
 
 describe("getCorpusUrl()", () => {

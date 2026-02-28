@@ -2725,7 +2725,7 @@ export const CREATE_THREAD_MESSAGE = gql`
         }
         upvoteCount
         downvoteCount
-        # userVote  # TODO: Backend field not implemented yet
+        # userVote — backend field not yet exposed in the schema
       }
     }
   }
@@ -2790,7 +2790,7 @@ export const REPLY_TO_MESSAGE = gql`
         }
         upvoteCount
         downvoteCount
-        # userVote  # TODO: Backend field not implemented yet
+        # userVote — backend field not yet exposed in the schema
       }
     }
   }

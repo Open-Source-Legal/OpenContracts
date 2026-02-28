@@ -55,6 +55,21 @@ export interface QueryParams {
 }
 
 /**
+ * Minimal location shape needed by update*Param utilities.
+ * Accepts React Router's Location or any object with a search string.
+ */
+export type LocationLike = { search: string };
+
+/**
+ * Minimal navigate shape needed by update*Param utilities.
+ * Accepts React Router's NavigateFunction when called with a search-only object.
+ */
+export type NavigateFn = (
+  to: { search: string },
+  options?: { replace?: boolean }
+) => void;
+
+/**
  * Parses a URL pathname into route type and identifiers
  * Supports patterns:
  * - /c/:userIdent/:corpusIdent
@@ -262,7 +277,8 @@ export function buildQueryParams(params: QueryParams): string {
     searchParams.set("labels", params.labelDisplay);
   }
 
-  // Text block deep link (compact-encoded reference to document text)
+  // Text block deep link (compact-encoded reference to document text).
+  // When null/undefined, the param is simply omitted (searchParams is fresh).
   if (params.textBlock) {
     searchParams.set("tb", params.textBlock);
   }
@@ -614,8 +630,8 @@ export function buildRequestKey(
  * });
  */
 export function updateAnnotationDisplayParams(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   settings: {
     showStructural?: boolean;
     showSelectedOnly?: boolean;
@@ -675,8 +691,8 @@ export function updateAnnotationDisplayParams(
  * });
  */
 export function updateAnnotationSelectionParams(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   selection: {
     annotationIds?: string[];
     analysisIds?: string[];
@@ -685,7 +701,8 @@ export function updateAnnotationSelectionParams(
 ) {
   const searchParams = new URLSearchParams(location.search);
 
-  // Update only specified params
+  // Update only specified params.
+  // An empty array removes the param from the URL (clears the selection).
   if (selection.annotationIds !== undefined) {
     if (selection.annotationIds.length > 0) {
       searchParams.set("ann", selection.annotationIds.join(","));
@@ -824,8 +841,8 @@ export function clearThreadSelection(
  *                Pass null to clear tab and use default
  */
 export function updateTabParam(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   tabId: string | null
 ) {
   const searchParams = new URLSearchParams(location.search);
@@ -853,8 +870,8 @@ export function updateTabParam(
  * @param options - Optional navigation options (e.g., `{ replace: true }`)
  */
 export function updateThreadParam(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   threadId: string | null,
   options?: { replace?: boolean }
 ) {
@@ -883,8 +900,8 @@ export function updateThreadParam(
  *                   Pass null to clear and use default (about)
  */
 export function updateHomeViewParam(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   homeView: "about" | "toc" | null
 ) {
   const searchParams = new URLSearchParams(location.search);
@@ -906,8 +923,8 @@ export function updateHomeViewParam(
  *                   Pass false to clear and use default (collapsed)
  */
 export function updateTocExpandedParam(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   expanded: boolean
 ) {
   const searchParams = new URLSearchParams(location.search);
@@ -929,8 +946,8 @@ export function updateTocExpandedParam(
  *               Pass "landing" or null to clear and use default (landing)
  */
 export function updateDetailViewParam(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   view: "landing" | "details" | null
 ) {
   const searchParams = new URLSearchParams(location.search);
@@ -952,8 +969,8 @@ export function updateDetailViewParam(
  * @param messageId - Message identifier, or null to clear
  */
 export function updateMessageParam(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   messageId: string | null
 ) {
   const searchParams = new URLSearchParams(location.search);
@@ -973,8 +990,8 @@ export function updateMessageParam(
  * @param messageId - Optional message ID to highlight
  */
 export function navigateToThreadWithMessage(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   threadId: string,
   messageId?: string
 ) {
@@ -1063,8 +1080,8 @@ export function navigateToRelationshipDocument(
  * @param textBlock - Compact-encoded text block string, or null to clear
  */
 export function updateTextBlockParam(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void,
+  location: LocationLike,
+  navigate: NavigateFn,
   textBlock: string | null
 ) {
   const searchParams = new URLSearchParams(location.search);

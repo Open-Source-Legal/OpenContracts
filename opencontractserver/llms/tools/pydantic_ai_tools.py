@@ -220,10 +220,10 @@ class PydanticAIDependencies(BaseModel):
 
     # Per-agent tool output truncation limit.  Populated from
     # CompactionConfig.max_tool_output_chars at agent construction time.
-    # TODO: Only two agent construction sites (PydanticAIDocumentAgent,
-    # PydanticAICorpusAgent) propagate config.compaction.max_tool_output_chars
-    # here. Other construction sites rely on this default. If per-agent
-    # override is needed elsewhere, wire it through AgentConfig.compaction.
+    # NOTE: Only PydanticAIDocumentAgent and PydanticAICorpusAgent currently
+    # propagate config.compaction.max_tool_output_chars here. Other
+    # construction sites rely on this default. Wire through
+    # AgentConfig.compaction if per-agent override is needed elsewhere.
     max_tool_output_chars: int = Field(
         default=MAX_TOOL_OUTPUT_CHARS,
         description="Maximum characters for tool output before truncation",

@@ -87,9 +87,9 @@ export function useSummaryVersions(
         return;
       }
 
-      // For now, we'll need to fetch the full content of that version
-      // This would require an additional query or storing snapshots
-      // TODO: Implement content fetching for specific version
+      // NOTE(deferred): Reverting to a specific version requires either a
+      // dedicated GraphQL query or storing full snapshots per revision. The
+      // backend currently stores snapshots, but no "revert" mutation exists.
       toast.info("Reverting to previous versions will be implemented soon");
     },
     [data]

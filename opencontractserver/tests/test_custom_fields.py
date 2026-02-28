@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.forms import Form
 from django.test import TestCase
 
@@ -59,10 +60,20 @@ class NullableJSONFieldTests(TestCase):
         self.assertIn([], self.field.empty_values)
         self.assertIn({}, self.field.empty_values)
 
+    def test_formfield_rejects_invalid_json(self):
+        form_field = self.field.formfield()
+        with self.assertRaises(ValidationError):
+            form_field.clean("not json")
+
+    def test_formfield_accepts_valid_json(self):
+        form_field = self.field.formfield()
+        result = form_field.clean('{"key": "value"}')
+        self.assertEqual(result, {"key": "value"})
+
 
 class CustomJSONFieldFormTests(TestCase):
     class TestForm(Form):
-        json_field = NullableJSONField()
+        json_field = UTF8JSONFormField(required=False)
 
     def test_form_with_valid_json(self):
         form = self.TestForm({"json_field": '{"key": "value"}'})
@@ -76,7 +87,6 @@ class CustomJSONFieldFormTests(TestCase):
         form = self.TestForm({"json_field": ""})
         self.assertTrue(form.is_valid())
 
-    # TODO - this test is not quite working as expected. Minimal risk ATM.
-    # def test_form_with_invalid_json(self):
-    #     form = self.TestForm({'json_field': 'not json'})
-    #     self.assertFalse(form.is_valid())
+    def test_form_with_invalid_json(self):
+        form = self.TestForm({"json_field": "not json"})
+        self.assertFalse(form.is_valid())

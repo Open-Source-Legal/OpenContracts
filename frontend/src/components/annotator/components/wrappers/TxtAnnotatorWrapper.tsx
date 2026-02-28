@@ -5,7 +5,7 @@
  * of the parent DocumentViewer component.
  */
 
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback } from "react";
 import { useSetAtom } from "jotai";
 import {
   useApproveAnnotation,
@@ -32,13 +32,12 @@ import {
   unregisterRefAtom,
 } from "../../context/AnnotationRefsAtoms";
 import { useReactiveVar } from "@apollo/client";
-import { useLocation, useNavigate } from "react-router-dom";
 import { highlightedTextBlock } from "../../../../graphql/cache";
 import {
   decodeTextBlock,
   TextSpanBlock,
 } from "../../../../utils/textBlockEncoding";
-import { updateTextBlockParam } from "../../../../utils/navigationUtils";
+import { useClearTextBlockOnInteraction } from "../../hooks/useClearTextBlockOnInteraction";
 import { TEXT_BLOCK_DEEPLINK_ID } from "../../../../assets/configurations/constants";
 
 interface TxtAnnotatorWrapperProps {
@@ -96,21 +95,8 @@ export const TxtAnnotatorWrapper: React.FC<TxtAnnotatorWrapperProps> = ({
   const { messages, selectedMessageId, selectedSourceIndex } =
     useChatSourceState();
 
-  // URL-based clearing: use navigate to remove ?tb= from URL (which also
-  // clears the reactive var via CentralRouteManager's Phase 2 sync).
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  // Clear text block highlight when user selects an annotation or chat source.
-  // This ensures the ?tb= deep link is dismissed once the user moves on.
-  useEffect(() => {
-    if (
-      (selectedAnnotations.length > 0 || selectedMessageId) &&
-      highlightedTextBlock()
-    ) {
-      updateTextBlockParam(location, navigate, null);
-    }
-  }, [selectedAnnotations, selectedMessageId, location, navigate]);
+  // Clear ?tb= text block highlight when user selects annotations or chat.
+  useClearTextBlockOnInteraction(selectedAnnotations, selectedMessageId);
 
   // Text block deep link (from ?tb= URL param)
   const textBlockParam = useReactiveVar(highlightedTextBlock);

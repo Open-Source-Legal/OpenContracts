@@ -31,14 +31,12 @@ import { pendingScrollAnnotationIdAtom } from "../../context/DocumentAtom";
 import { pendingScrollSearchResultIdAtom } from "../../context/DocumentAtom";
 import { pendingScrollChatSourceKeyAtom } from "../../context/DocumentAtom";
 import { useReactiveVar } from "@apollo/client";
-import { useLocation, useNavigate } from "react-router-dom";
 import { highlightedTextBlock } from "../../../../graphql/cache";
 import {
   decodeTextBlock,
   PdfTokenBlock,
   textBlockToBounds,
 } from "../../../../utils/textBlockEncoding";
-import { updateTextBlockParam } from "../../../../utils/navigationUtils";
 
 /**
  * This wrapper is inline-block (shrink-wrapped) and position:relative
@@ -121,24 +119,9 @@ export const PDFPage = ({
   // Derive page index early — needed by text block memo and annotation rendering.
   const pageIndex = pageInfo.page.pageNumber - 1;
 
-  // URL-based clearing: use navigate to remove ?tb= from URL (which also
-  // clears the reactive var via CentralRouteManager's Phase 2 sync).
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  // Clear text block highlight when user interacts with annotations or chat.
-  // This ensures the ?tb= deep link is dismissed once the user moves on,
-  // preventing a stale highlight from persisting indefinitely in the URL.
-  useEffect(() => {
-    if (
-      (selectedAnnotations.length > 0 || selectedMessage) &&
-      highlightedTextBlock()
-    ) {
-      updateTextBlockParam(location, navigate, null);
-    }
-  }, [selectedAnnotations, selectedMessage, location, navigate]);
-
   // Text block deep link (from ?tb= URL param).
+  // NOTE: Clearing of ?tb= on user interaction is handled once in the parent
+  // PDF component via useClearTextBlockOnInteraction (not per-page here).
   // Computed per-page to avoid repeating work for all pages in every
   // virtualized PDFPage instance.
   // NOTE: pageInfo.tokens is reference-stable — it's a readonly property set

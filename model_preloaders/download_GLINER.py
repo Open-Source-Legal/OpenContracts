@@ -1,6 +1,7 @@
-# from gliner import GLiNER
+import logging
 
-# print("X X X PRE INSTALL GLINER")
-# model = GLiNER.from_pretrained("urchade/gliner_base")
-# print("COMPLETE!")
-print("SKIPPING GLINER PRELOAD")
+logger = logging.getLogger(__name__)
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logger.info("SKIPPING GLINER PRELOAD")
