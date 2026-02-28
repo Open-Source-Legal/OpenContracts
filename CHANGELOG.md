@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Expanded corpus forking test suite with field-level data integrity checks (Closes #998)
 
+### Changed
+
+#### Combine Admin Settings and System Settings into a Single View
+- Merged the separate Admin Settings (`/admin/settings`) and System Settings (`/system_settings`) pages into one unified tabbed admin dashboard
+- **Overview tab**: Card grid for Badge Management, Global Agents, Worker Accounts, User Management
+- **Pipeline Configuration tab**: Embeds the pipeline settings directly with a clean card-based layout
+- Redesigned pipeline configuration UI: removed the flow particles, junction dots, and animated channel visualization in favor of clean stage cards using the OS-Legal design system
+- Combined two NavMenu items ("System Settings" and "Admin Settings") into a single "Admin Settings" entry
+- Added redirect from `/system_settings` to `/admin/settings` for backward compatibility
+- Removed dead code: `FlowParticles.tsx` component and unused pipeline UI constants (`CHANNEL_WIDTH_PX`, `JUNCTION_SIZE_PX`, `FLOW_PARTICLE_COUNT`, etc.)
+- Updated test wrappers and all 32 component tests; added `docScreenshot` calls for auto-generated documentation
+- New screenshots: `admin--settings--overview`, `admin--settings--pipeline`, `admin--pipeline-settings--stages`, `admin--pipeline-settings--secrets-modal`
+
 ### Fixed
 
 #### Tighten JSON Field Validation for Malformed Input (Closes #1001)

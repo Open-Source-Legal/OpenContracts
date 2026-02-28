@@ -214,7 +214,7 @@ test.describe("GlobalSettingsPanel - Mobile Responsive", () => {
     await expect(page.getByText("Admin Settings")).toBeVisible();
     await expect(page.getByText("Badge Management")).toBeVisible();
     await expect(page.getByText("Global Agents")).toBeVisible();
-    await expect(page.getByText("System Settings")).toBeVisible();
+    await expect(page.getByText("Worker Accounts")).toBeVisible();
     await expect(page.getByText("User Management")).toBeVisible();
   });
 

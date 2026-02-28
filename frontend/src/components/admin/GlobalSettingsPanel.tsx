@@ -1,13 +1,27 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
-import { Trophy, Bot, Settings, Users, Upload, LucideIcon } from "lucide-react";
+import {
+  Trophy,
+  Bot,
+  Settings,
+  Users,
+  Upload,
+  Workflow,
+  LucideIcon,
+} from "lucide-react";
+import { Tabs, TabList, Tab, TabPanels, TabPanel } from "@os-legal/ui";
 
 import {
   OS_LEGAL_COLORS,
   OS_LEGAL_TYPOGRAPHY,
   OS_LEGAL_SPACING,
 } from "../../assets/configurations/osLegalStyles";
+import { SystemSettings } from "./SystemSettings";
+
+// ============================================================================
+// Styled Components
+// ============================================================================
 
 const Container = styled.div`
   padding: 2rem;
@@ -24,10 +38,10 @@ const Container = styled.div`
 `;
 
 const PageHeader = styled.div`
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 
   @media (max-width: 768px) {
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
     text-align: center;
   }
 `;
@@ -62,6 +76,10 @@ const PageDescription = styled.p`
   @media (max-width: 768px) {
     font-size: 0.9rem;
   }
+`;
+
+const TabContent = styled.div`
+  margin-top: 1.5rem;
 `;
 
 const SettingsGrid = styled.div`
@@ -99,7 +117,6 @@ const SettingsCard = styled.div<{ $disabled?: boolean }>`
       border-color: ${OS_LEGAL_COLORS.borderHover};
     }
 
-    /* Disable hover transforms on touch devices */
     @media (hover: none) {
       &:hover {
         transform: none;
@@ -186,6 +203,10 @@ const ComingSoonBadge = styled.span`
   }
 `;
 
+// ============================================================================
+// Types & Data
+// ============================================================================
+
 interface SettingItem {
   id: string;
   title: string;
@@ -196,7 +217,7 @@ interface SettingItem {
   comingSoon?: boolean;
 }
 
-const settingsItems: SettingItem[] = [
+const overviewItems: SettingItem[] = [
   {
     id: "badges",
     title: "Badge Management",
@@ -225,15 +246,6 @@ const settingsItems: SettingItem[] = [
     route: "/admin/worker-accounts",
   },
   {
-    id: "system-settings",
-    title: "System Settings",
-    description:
-      "Configure system-wide pipeline settings including parsers, embedders, and document processing.",
-    icon: Settings,
-    gradient: "linear-gradient(135deg, #64748b 0%, #475569 100%)",
-    route: "/system_settings",
-  },
-  {
     id: "user-management",
     title: "User Management",
     description:
@@ -244,14 +256,29 @@ const settingsItems: SettingItem[] = [
   },
 ];
 
+const ADMIN_TABS = [
+  { value: "overview", label: "Overview" },
+  { value: "pipeline", label: "Pipeline Configuration" },
+] as const;
+
+type AdminTab = (typeof ADMIN_TABS)[number]["value"];
+
+// ============================================================================
+// Component
+// ============================================================================
+
 export const GlobalSettingsPanel: React.FC = () => {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<AdminTab>("overview");
 
-  const handleCardClick = (item: SettingItem) => {
-    if (item.route && !item.comingSoon) {
-      navigate(item.route);
-    }
-  };
+  const handleCardClick = useCallback(
+    (item: SettingItem) => {
+      if (item.route && !item.comingSoon) {
+        navigate(item.route);
+      }
+    },
+    [navigate]
+  );
 
   return (
     <Container>
@@ -266,30 +293,58 @@ export const GlobalSettingsPanel: React.FC = () => {
         </PageDescription>
       </PageHeader>
 
-      <SettingsGrid>
-        {settingsItems.map((item) => {
-          const IconComponent = item.icon;
-          return (
-            <SettingsCard
-              key={item.id}
-              data-testid={`settings-card-${item.id}`}
-              $disabled={item.comingSoon}
-              onClick={() => handleCardClick(item)}
-            >
-              <CardIconWrapper $gradient={item.gradient}>
-                <IconComponent size={24} color="white" />
-              </CardIconWrapper>
-              <CardTitle>
-                {item.title}
-                {item.comingSoon && (
-                  <ComingSoonBadge>Coming Soon</ComingSoonBadge>
-                )}
-              </CardTitle>
-              <CardDescription>{item.description}</CardDescription>
-            </SettingsCard>
-          );
-        })}
-      </SettingsGrid>
+      <Tabs
+        value={activeTab}
+        onChange={(val: string) => setActiveTab(val as AdminTab)}
+      >
+        <TabList>
+          <Tab value="overview">Overview</Tab>
+          <Tab value="pipeline">
+            <Workflow
+              size={14}
+              style={{ marginRight: 6, verticalAlign: "middle" }}
+            />
+            Pipeline Configuration
+          </Tab>
+        </TabList>
+
+        <TabPanels>
+          <TabPanel value="overview">
+            <TabContent>
+              <SettingsGrid>
+                {overviewItems.map((item) => {
+                  const IconComponent = item.icon;
+                  return (
+                    <SettingsCard
+                      key={item.id}
+                      data-testid={`settings-card-${item.id}`}
+                      $disabled={item.comingSoon}
+                      onClick={() => handleCardClick(item)}
+                    >
+                      <CardIconWrapper $gradient={item.gradient}>
+                        <IconComponent size={24} color="white" />
+                      </CardIconWrapper>
+                      <CardTitle>
+                        {item.title}
+                        {item.comingSoon && (
+                          <ComingSoonBadge>Coming Soon</ComingSoonBadge>
+                        )}
+                      </CardTitle>
+                      <CardDescription>{item.description}</CardDescription>
+                    </SettingsCard>
+                  );
+                })}
+              </SettingsGrid>
+            </TabContent>
+          </TabPanel>
+
+          <TabPanel value="pipeline">
+            <TabContent>
+              <SystemSettings />
+            </TabContent>
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
     </Container>
   );
 };

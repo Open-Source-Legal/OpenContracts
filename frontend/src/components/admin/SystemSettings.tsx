@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@apollo/client";
-import { useNavigate } from "react-router-dom";
 import {
   Button,
   Input,
@@ -11,16 +10,12 @@ import {
   Spinner,
 } from "@os-legal/ui";
 import {
-  Settings,
-  ChevronLeft,
+  Cpu,
+  Info,
   Save,
   RotateCcw,
   AlertTriangle,
-  Cpu,
-  Info,
-  Upload,
   Trash2,
-  Check,
   CircleCheck,
   CircleAlert,
 } from "lucide-react";
@@ -48,29 +43,9 @@ import {
 import { StageType, SettingsSchemaEntry } from "./system_settings/types";
 import { STAGE_CONFIG } from "./system_settings/config";
 import {
-  Container,
-  BackButton,
-  PageHeader,
-  PageTitle,
-  PageDescription,
+  PipelineContainer,
+  PipelineDescription,
   LastModified,
-  PipelineFlowContainer,
-  ChannelTrack,
-  ChannelGlow,
-  ChannelCenterLine,
-  PipelineContentColumn,
-  StageRow,
-  StageRowSpacer,
-  JunctionColumn,
-  ConnectorArm,
-  IntakeCard,
-  IntakeText,
-  IntakeNode,
-  IntakeNodeCenter,
-  OutputCheckmark,
-  OutputInfo,
-  OutputTitle,
-  OutputSubtitle,
   Section,
   SectionHeader,
   SectionTitle,
@@ -94,8 +69,11 @@ import {
   FormField,
   FormLabel,
   FormHelperText,
+  EmbedderOption,
+  EmbedderOptionTitle,
+  EmbedderOptionMeta,
+  EmbedderOptionPath,
 } from "./system_settings/styles";
-import { FlowParticles } from "./system_settings/FlowParticles";
 import { PipelineStageSection } from "./system_settings/PipelineStageSection";
 
 // ============================================================================
@@ -103,8 +81,6 @@ import { PipelineStageSection } from "./system_settings/PipelineStageSection";
 // ============================================================================
 
 export const SystemSettings: React.FC = () => {
-  const navigate = useNavigate();
-
   // Per-stage MIME type selection
   const [selectedMimeTypes, setSelectedMimeTypes] = useState<
     Record<StageType, string>
@@ -134,7 +110,6 @@ export const SystemSettings: React.FC = () => {
   const [deleteSecretsPath, setDeleteSecretsPath] = useState("");
 
   // Ref for tracking pending auto-expand after component selection
-  // This ensures auto-expand only happens after mutation succeeds
   const pendingAutoExpandRef = useRef<{
     stage: StageType;
     mimeType: string;
@@ -339,24 +314,18 @@ export const SystemSettings: React.FC = () => {
     (stage: StageType, mimeType: string): PipelineComponentType[] => {
       const stageComponents = componentsByStage[stage] || [];
 
-      // Pre-compute normalized values for comparison
       const mimeTypeLower = mimeType.toLowerCase();
-      // Use lookup map to get short label (e.g., "text/plain" -> "TXT")
       const mimeShortLower = MIME_TO_SHORT_LABEL[mimeType]?.toLowerCase();
 
-      // Filter by supported file types if available
       return stageComponents.filter((comp) => {
-        // If no supportedFileTypes specified, assume it supports all
         const fileTypes =
           normalizedSupportedFileTypes.get(comp.className) || [];
         if (fileTypes.length === 0) {
           return true;
         }
-        // If MIME type is unknown (no short label mapping), exclude component
         if (!mimeShortLower) {
           return false;
         }
-        // Check if the MIME type matches any supported file type
         return fileTypes.some(
           (ft) => ft === mimeShortLower || ft === mimeTypeLower
         );
@@ -393,7 +362,6 @@ export const SystemSettings: React.FC = () => {
     [getComponentSettingsSchema]
   );
 
-  // Look up a component's display name by className from loaded components data
   const getComponentDisplayNameByClassName = useCallback(
     (className: string): string => {
       const component = componentByClassName.get(className);
@@ -414,7 +382,6 @@ export const SystemSettings: React.FC = () => {
         [mimeType]: className,
       };
 
-      // Store pending auto-expand info (will be processed in mutation onCompleted)
       pendingAutoExpandRef.current = { stage, mimeType, className };
 
       updateSettings({
@@ -472,7 +439,6 @@ export const SystemSettings: React.FC = () => {
       return;
     }
 
-    // Build secrets object from only non-empty values (empty means "don't update")
     const secrets: Record<string, string> = {};
     for (const [key, value] of Object.entries(secretsValues)) {
       if (value.trim()) {
@@ -494,11 +460,9 @@ export const SystemSettings: React.FC = () => {
       return;
     }
 
-    // Check required fields that have no existing value and no new value
     const missingRequired = secretSettings.filter((entry) => {
       if (!entry.required) return false;
       const newValue = secretsValues[entry.name]?.trim();
-      // Missing if no new value provided AND no existing value
       return !newValue && !entry.hasValue;
     });
     if (missingRequired.length > 0) {
@@ -541,13 +505,11 @@ export const SystemSettings: React.FC = () => {
   // Handle saving non-secret component settings
   const handleSaveComponentSettings = useCallback(
     (componentPath: string, values: Record<string, string>) => {
-      // Build the component_settings update: merge with existing
       const existing = settings?.componentSettings ?? {};
       const existingForComponent =
         (existing as Record<string, Record<string, unknown>>)[componentPath] ??
         {};
 
-      // Coerce values to proper types based on schema
       const schema = getNonSecretSettingsForComponent(componentPath);
       const coerced: Record<string, unknown> = {};
       for (const entry of schema) {
@@ -607,7 +569,7 @@ export const SystemSettings: React.FC = () => {
     }
   }, []);
 
-  // Render a pipeline stage using the extracted subcomponent
+  // Render a pipeline stage
   const renderStage = useCallback(
     (stage: StageType, stageIndex: number) => {
       const config = STAGE_CONFIG[stage];
@@ -623,7 +585,6 @@ export const SystemSettings: React.FC = () => {
         ? getSecretSettingsForComponent(currentSelection)
         : [];
 
-      // Filter to ensure components have className defined
       const filteredComponents = stageComponents.filter(
         (comp): comp is PipelineComponentType & { className: string } =>
           Boolean(comp?.className)
@@ -672,63 +633,45 @@ export const SystemSettings: React.FC = () => {
   // Loading state
   if (settingsLoading || componentsLoading) {
     return (
-      <Container>
-        <LoadingContainer>
-          <Spinner size="lg" />
-          <span>Loading pipeline settings...</span>
-        </LoadingContainer>
-      </Container>
+      <LoadingContainer>
+        <Spinner size="lg" />
+        <span>Loading pipeline settings...</span>
+      </LoadingContainer>
     );
   }
 
   // Error state
   if (settingsError) {
     return (
-      <Container>
-        <BackButton onClick={() => navigate("/admin/settings")}>
-          <ChevronLeft />
-          Back to Admin Settings
-        </BackButton>
-        <ErrorContainer>
-          <AlertTriangle />
-          <h3>Error Loading Settings</h3>
-          <ErrorMessage>
-            {settingsError.message ||
-              "Unable to load pipeline settings. You may not have permission to view this page."}
-          </ErrorMessage>
-          <Button variant="primary" onClick={() => refetchSettings()}>
-            Try Again
-          </Button>
-        </ErrorContainer>
-      </Container>
+      <ErrorContainer>
+        <AlertTriangle />
+        <h3>Error Loading Settings</h3>
+        <ErrorMessage>
+          {settingsError.message ||
+            "Unable to load pipeline settings. You may not have permission to view this page."}
+        </ErrorMessage>
+        <Button variant="primary" onClick={() => refetchSettings()}>
+          Try Again
+        </Button>
+      </ErrorContainer>
     );
   }
 
   return (
-    <Container>
-      <BackButton onClick={() => navigate("/admin/settings")}>
-        <ChevronLeft />
-        Back to Admin Settings
-      </BackButton>
+    <>
+      <PipelineDescription>
+        Configure how documents are processed through the ingestion pipeline.
+        Select components for each stage based on file type.
+      </PipelineDescription>
 
-      <PageHeader>
-        <PageTitle>
-          <Settings />
-          Pipeline Configuration
-        </PageTitle>
-        <PageDescription>
-          Configure how documents are processed through the ingestion pipeline.
-          Select components for each stage based on file type.
-        </PageDescription>
-        {settings?.modified && (
-          <LastModified>
-            <Info />
-            Last modified: {formatDate(settings.modified)}
-            {settings.modifiedBy?.username &&
-              ` by ${settings.modifiedBy.username}`}
-          </LastModified>
-        )}
-      </PageHeader>
+      {settings?.modified && (
+        <LastModified>
+          <Info size={14} />
+          Last modified: {formatDate(settings.modified)}
+          {settings.modifiedBy?.username &&
+            ` by ${settings.modifiedBy.username}`}
+        </LastModified>
+      )}
 
       <WarningBanner>
         <AlertTriangle />
@@ -739,55 +682,15 @@ export const SystemSettings: React.FC = () => {
         </WarningText>
       </WarningBanner>
 
-      {/* Pipeline Flow */}
-      <PipelineFlowContainer>
-        <ChannelTrack>
-          <ChannelGlow />
-          <ChannelCenterLine />
-          <FlowParticles />
-        </ChannelTrack>
-
-        <PipelineContentColumn>
-          <StageRow $delay={0}>
-            <JunctionColumn $active>
-              <IntakeNode>
-                <IntakeNodeCenter />
-              </IntakeNode>
-            </JunctionColumn>
-            <ConnectorArm $active />
-            <IntakeCard>
-              <Upload />
-              <IntakeText>Document Upload</IntakeText>
-            </IntakeCard>
-          </StageRow>
-
-          <StageRowSpacer />
-          {renderStage("parsers", 0)}
-
-          <StageRowSpacer />
-          {renderStage("thumbnailers", 1)}
-
-          <StageRowSpacer />
-          {renderStage("embedders", 2)}
-
-          <StageRowSpacer />
-          <StageRow $delay={4}>
-            <JunctionColumn $active>
-              <OutputCheckmark>
-                <Check />
-              </OutputCheckmark>
-            </JunctionColumn>
-            <ConnectorArm />
-            <OutputInfo>
-              <OutputTitle>Ready for Search</OutputTitle>
-              <OutputSubtitle>Pipeline complete</OutputSubtitle>
-            </OutputInfo>
-          </StageRow>
-        </PipelineContentColumn>
-      </PipelineFlowContainer>
+      {/* Pipeline Stages */}
+      <PipelineContainer>
+        {renderStage("parsers", 0)}
+        {renderStage("thumbnailers", 1)}
+        {renderStage("embedders", 2)}
+      </PipelineContainer>
 
       {/* Default Embedder Section */}
-      <Section>
+      <Section style={{ marginTop: "1.25rem" }}>
         <SectionHeader>
           <SectionTitle>
             <Cpu />
@@ -1000,43 +903,19 @@ export const SystemSettings: React.FC = () => {
                     Boolean(e?.className)
                 )
                 .map((e) => (
-                  <div
+                  <EmbedderOption
                     key={e.className}
-                    style={{
-                      padding: "0.75rem",
-                      fontSize: "0.875rem",
-                      cursor: "pointer",
-                      borderRadius: "8px",
-                      marginBottom: "0.5rem",
-                      background:
-                        defaultEmbedderValue === e.className
-                          ? "#e0e7ff"
-                          : "#f8fafc",
-                      border: `1px solid ${
-                        defaultEmbedderValue === e.className
-                          ? "#6366f1"
-                          : "#e2e8f0"
-                      }`,
-                    }}
+                    $selected={defaultEmbedderValue === e.className}
                     onClick={() => setDefaultEmbedderValue(e.className)}
                   >
-                    <strong>{e.title || e.name}</strong>
+                    <EmbedderOptionTitle>
+                      {e.title || e.name}
+                    </EmbedderOptionTitle>
                     {e.vectorSize && (
-                      <span style={{ color: "#64748b", marginLeft: "0.5rem" }}>
-                        ({e.vectorSize}d)
-                      </span>
+                      <EmbedderOptionMeta>({e.vectorSize}d)</EmbedderOptionMeta>
                     )}
-                    <div
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "#64748b",
-                        fontFamily: "monospace",
-                        marginTop: "0.25rem",
-                      }}
-                    >
-                      {e.className}
-                    </div>
-                  </div>
+                    <EmbedderOptionPath>{e.className}</EmbedderOptionPath>
+                  </EmbedderOption>
                 ))}
             </div>
           )}
@@ -1098,7 +977,7 @@ export const SystemSettings: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </Container>
+    </>
   );
 };
 

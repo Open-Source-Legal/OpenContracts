@@ -7,11 +7,20 @@ import { GlobalAgentManagement } from "../src/components/admin/GlobalAgentManage
 import { CorpusAgentManagement } from "../src/components/corpuses/CorpusAgentManagement";
 import { SystemSettings } from "../src/components/admin/SystemSettings";
 
-// Wrapper for GlobalSettingsPanel with routing context
-export const GlobalSettingsPanelWrapper: React.FC = () => (
-  <MemoryRouter>
-    <GlobalSettingsPanel />
-  </MemoryRouter>
+// Wrapper for GlobalSettingsPanel with Apollo mocking and routing context
+interface GlobalSettingsPanelWrapperProps {
+  mocks?: MockedResponse[];
+}
+
+export const GlobalSettingsPanelWrapper: React.FC<
+  GlobalSettingsPanelWrapperProps
+> = ({ mocks = [] }) => (
+  <MockedProvider mocks={mocks} addTypename={false}>
+    <MemoryRouter>
+      <GlobalSettingsPanel />
+      <ToastContainer />
+    </MemoryRouter>
+  </MockedProvider>
 );
 
 // Wrapper for GlobalAgentManagement with Apollo mocking
@@ -42,7 +51,7 @@ export const CorpusAgentManagementWrapper: React.FC<
   </MockedProvider>
 );
 
-// Wrapper for SystemSettings with Apollo mocking and routing
+// Wrapper for SystemSettings (standalone, for unit testing pipeline config)
 interface SystemSettingsWrapperProps {
   mocks?: MockedResponse[];
 }
@@ -52,7 +61,9 @@ export const SystemSettingsWrapper: React.FC<SystemSettingsWrapperProps> = ({
 }) => (
   <MockedProvider mocks={mocks} addTypename={false}>
     <MemoryRouter>
-      <SystemSettings />
+      <div style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
+        <SystemSettings />
+      </div>
       <ToastContainer />
     </MemoryRouter>
   </MockedProvider>

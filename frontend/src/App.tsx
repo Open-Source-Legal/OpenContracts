@@ -72,7 +72,6 @@ import { BadgeManagement } from "./components/badges/BadgeManagement";
 import {
   GlobalSettingsPanel,
   GlobalAgentManagement,
-  SystemSettings,
   WorkerAccountManagement,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
@@ -523,7 +522,10 @@ export const App = () => {
                     path="/admin/worker-accounts"
                     element={<WorkerAccountManagement />}
                   />
-                  <Route path="/system_settings" element={<SystemSettings />} />
+                  <Route
+                    path="/system_settings"
+                    element={<Navigate to="/admin/settings" replace />}
+                  />
 
                   {/* Community Routes (Issue #613) */}
                   <Route path="/leaderboard" element={<LeaderboardRoute />} />

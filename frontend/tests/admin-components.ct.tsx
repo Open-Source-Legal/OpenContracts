@@ -107,7 +107,7 @@ const mockCorpusAgent = {
 };
 
 test.describe("GlobalSettingsPanel Component", () => {
-  test("should render the settings panel with all settings cards", async ({
+  test("should render the admin dashboard with overview tab", async ({
     mount,
     page,
   }) => {
@@ -116,11 +116,17 @@ test.describe("GlobalSettingsPanel Component", () => {
     // Check page title
     await expect(page.locator("text=Admin Settings")).toBeVisible();
 
-    // Check all settings cards are present
+    // Check tab navigation is present
+    await expect(page.locator("text=Overview")).toBeVisible();
+    await expect(page.locator("text=Pipeline Configuration")).toBeVisible();
+
+    // Check overview cards are present (System Settings card is now a tab)
     await expect(page.locator("text=Badge Management")).toBeVisible();
     await expect(page.locator("text=Global Agents")).toBeVisible();
-    await expect(page.locator("text=System Settings")).toBeVisible();
+    await expect(page.locator("text=Worker Accounts")).toBeVisible();
     await expect(page.locator("text=User Management")).toBeVisible();
+
+    await docScreenshot(page, "admin--settings--overview");
 
     await component.unmount();
   });
@@ -151,6 +157,40 @@ test.describe("GlobalSettingsPanel Component", () => {
     await expect(
       page.locator("text=Configure global AI agents available")
     ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should switch to pipeline configuration tab", async ({
+    mount,
+    page,
+  }) => {
+    const settingsMock = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: { data: { pipelineSettings: mockPipelineSettings } },
+    };
+
+    const componentsMock = {
+      request: { query: GET_PIPELINE_COMPONENTS },
+      result: { data: { pipelineComponents: mockPipelineComponents } },
+    };
+
+    const component = await mount(
+      <GlobalSettingsPanelWrapper mocks={[settingsMock, componentsMock]} />
+    );
+
+    // Click on Pipeline Configuration tab
+    await page.locator("text=Pipeline Configuration").first().click();
+
+    // Should show pipeline settings content
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Stage titles should be visible (h3 elements in the new design)
+    await expect(page.locator("h3", { hasText: "Parser" })).toBeVisible();
+
+    await docScreenshot(page, "admin--settings--pipeline");
 
     await component.unmount();
   });
@@ -814,24 +854,23 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
-    // Check pipeline stages are present (new visual flow design)
-    // Stage headers are h2 elements
-    await expect(page.locator("h2", { hasText: "Parser" })).toBeVisible();
-    await expect(page.locator("h2", { hasText: "Thumbnailer" })).toBeVisible();
+    // Check pipeline stages are present (clean card-based design)
+    await expect(page.locator("h3", { hasText: "Parser" })).toBeVisible();
+    await expect(page.locator("h3", { hasText: "Thumbnailer" })).toBeVisible();
     await expect(
-      page.locator("h2", { hasText: "Embedder" }).first()
+      page.locator("h3", { hasText: "Embedder" }).first()
     ).toBeVisible();
 
     // Check bottom sections
     await expect(
-      page.locator("h2", { hasText: "Default Embedder" })
+      page.locator("h3", { hasText: "Default Embedder" })
     ).toBeVisible();
+
+    await docScreenshot(page, "admin--pipeline-settings--stages");
 
     await component.unmount();
   });
@@ -852,9 +891,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -883,9 +920,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -928,9 +963,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -964,9 +997,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -996,9 +1027,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1042,9 +1071,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1063,6 +1090,8 @@ test.describe("SystemSettings Component", () => {
 
     // Security notice should be visible
     await expect(page.locator("text=Security Notice")).toBeVisible();
+
+    await docScreenshot(page, "admin--pipeline-settings--secrets-modal");
 
     await component.unmount();
   });
@@ -1100,9 +1129,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1139,9 +1166,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1189,9 +1214,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1239,67 +1262,6 @@ test.describe("SystemSettings Component", () => {
     await component.unmount();
   });
 
-  test("should have back navigation button", async ({ mount, page }) => {
-    const settingsMock = {
-      request: { query: GET_PIPELINE_SETTINGS },
-      result: { data: { pipelineSettings: mockPipelineSettings } },
-    };
-
-    const componentsMock = {
-      request: { query: GET_PIPELINE_COMPONENTS },
-      result: { data: { pipelineComponents: mockPipelineComponents } },
-    };
-
-    const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
-    );
-
-    // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
-      timeout: 5000,
-    });
-
-    // Check back button
-    await expect(page.locator("text=Back to Admin Settings")).toBeVisible();
-
-    await component.unmount();
-  });
-
-  test("should display visual pipeline flow stages", async ({
-    mount,
-    page,
-  }) => {
-    const settingsMock = {
-      request: { query: GET_PIPELINE_SETTINGS },
-      result: { data: { pipelineSettings: mockPipelineSettings } },
-    };
-
-    const componentsMock = {
-      request: { query: GET_PIPELINE_COMPONENTS },
-      result: { data: { pipelineComponents: mockPipelineComponents } },
-    };
-
-    const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
-    );
-
-    // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
-      timeout: 5000,
-    });
-
-    // Check pipeline intake and output points
-    await expect(page.locator("text=Document Upload")).toBeVisible();
-    await expect(page.locator("text=Ready for Search")).toBeVisible();
-    await expect(page.locator("text=Pipeline complete")).toBeVisible();
-
-    await component.unmount();
-  });
-
   test("should allow switching MIME types", async ({ mount, page }) => {
     const settingsMock = {
       request: { query: GET_PIPELINE_SETTINGS },
@@ -1316,9 +1278,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1446,9 +1406,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1542,9 +1500,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1627,9 +1583,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1747,9 +1701,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 
@@ -1873,9 +1825,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(
-      page.locator("h1:has-text('Pipeline Configuration')")
-    ).toBeVisible({
+    await expect(page.locator("text=Superuser Only")).toBeVisible({
       timeout: 5000,
     });
 

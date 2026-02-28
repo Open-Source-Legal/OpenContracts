@@ -2,7 +2,7 @@ import { NavBar } from "@os-legal/ui";
 import type { NavItem, UserMenuItem } from "@os-legal/ui";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
-import { Download, User, Settings, LogOut, Cog } from "lucide-react";
+import { Download, User, Settings, LogOut } from "lucide-react";
 import { showExportModal, showUserSettingsModal } from "../../graphql/cache";
 import UserSettingsModal from "../modals/UserSettingsModal";
 import { VERSION_TAG } from "../../assets/configurations/constants";
@@ -129,12 +129,6 @@ export const NavMenu = () => {
         },
         ...(isSuperuser
           ? [
-              {
-                id: "system-settings",
-                label: "System Settings",
-                icon: <Cog size={16} />,
-                onClick: () => navigate("/system_settings"),
-              },
               {
                 id: "admin",
                 label: "Admin Settings",
