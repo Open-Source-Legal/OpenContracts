@@ -308,12 +308,13 @@ export const RequiredBadge = styled.span`
 // Bottom Sections
 // ============================================================================
 
-export const Section = styled.div`
+export const Section = styled.div<{ $marginTop?: string }>`
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
   padding: 1.25rem;
   box-shadow: ${OS_LEGAL_SPACING.shadowCard};
+  ${(props) => props.$marginTop && `margin-top: ${props.$marginTop};`}
 `;
 
 export const SectionHeader = styled.div`
@@ -421,7 +422,9 @@ export const DefaultEmbedderPath = styled.code`
 export const ActionButtons = styled.div`
   display: flex;
   gap: 0.75rem;
-  padding-top: 0.25rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
 `;
 
 // ============================================================================
@@ -468,6 +471,7 @@ export const WarningBanner = styled.div`
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
+  margin-bottom: 1rem;
   background: #fef3c7;
   border: 1px solid #fcd34d;
   border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};

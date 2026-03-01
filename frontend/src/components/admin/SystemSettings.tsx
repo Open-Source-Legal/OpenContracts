@@ -658,7 +658,7 @@ export const SystemSettings: React.FC = () => {
   }
 
   return (
-    <>
+    <div data-testid="system-settings">
       <PipelineDescription>
         Configure how documents are processed through the ingestion pipeline.
         Select components for each stage based on file type.
@@ -690,7 +690,7 @@ export const SystemSettings: React.FC = () => {
       </PipelineContainer>
 
       {/* Default Embedder Section */}
-      <Section style={{ marginTop: "1.25rem" }}>
+      <Section $marginTop="1.25rem">
         <SectionHeader>
           <SectionTitle>
             <Cpu />
@@ -977,7 +977,7 @@ export const SystemSettings: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </>
+    </div>
   );
 };
 

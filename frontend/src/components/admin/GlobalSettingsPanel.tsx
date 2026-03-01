@@ -184,6 +184,12 @@ const CardDescription = styled.p`
   }
 `;
 
+const TabIcon = styled.span`
+  display: inline-flex;
+  margin-right: 6px;
+  vertical-align: middle;
+`;
+
 const ComingSoonBadge = styled.span`
   display: inline-block;
   font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
@@ -300,10 +306,9 @@ export const GlobalSettingsPanel: React.FC = () => {
         <TabList>
           <Tab value="overview">Overview</Tab>
           <Tab value="pipeline">
-            <Workflow
-              size={14}
-              style={{ marginRight: 6, verticalAlign: "middle" }}
-            />
+            <TabIcon>
+              <Workflow size={14} />
+            </TabIcon>
             Pipeline Configuration
           </Tab>
         </TabList>

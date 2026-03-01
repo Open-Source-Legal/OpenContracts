@@ -183,7 +183,7 @@ test.describe("GlobalSettingsPanel Component", () => {
     await page.locator("text=Pipeline Configuration").first().click();
 
     // Should show pipeline settings content
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -854,7 +854,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -891,12 +891,12 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
     // Check warning banner
-    await expect(page.locator("text=Superuser Only")).toBeVisible();
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible();
 
     await component.unmount();
   });
@@ -920,7 +920,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -963,7 +963,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -997,7 +997,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1027,7 +1027,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1071,7 +1071,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1129,7 +1129,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1166,7 +1166,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1214,7 +1214,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1278,7 +1278,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1406,7 +1406,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1500,7 +1500,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1583,7 +1583,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1701,7 +1701,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
@@ -1825,7 +1825,7 @@ test.describe("SystemSettings Component", () => {
     );
 
     // Wait for page to load
-    await expect(page.locator("text=Superuser Only")).toBeVisible({
+    await expect(page.locator('[data-testid="system-settings"]')).toBeVisible({
       timeout: 5000,
     });
 
