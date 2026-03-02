@@ -167,10 +167,12 @@ const MetaItem = styled.span`
 `;
 
 const EmptyState = styled.div`
-  padding: 0.75rem 0;
+  padding: 1rem 0;
   font-family: ${CORPUS_FONTS.sans};
   font-size: 0.875rem;
+  font-style: italic;
   color: ${CORPUS_COLORS.slate[400]};
+  border-top: 1px dashed ${CORPUS_COLORS.slate[200]};
 `;
 
 // ============================================================================

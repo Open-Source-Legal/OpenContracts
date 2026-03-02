@@ -1343,7 +1343,10 @@ const NotificationBadge = styled.div`
   }
 `;
 
-// Compact badge for collapsed sidebar - slight overlap at corner
+// Compact badge for collapsed sidebar - slight overlap at corner.
+// Teal (non-zero) / slate (zero) is intentional: these badges display entity
+// counts (documents, annotations, analyses, etc.), not action-required items,
+// so the teal design-token color is appropriate rather than a warning palette.
 const CollapsedBadge = styled.div<{ $isZero: boolean }>`
   position: absolute;
   top: -4px;
@@ -1534,8 +1537,15 @@ const ExtractsTabContent: React.FC<{
   );
 };
 
-// Container for the clean landing view (no sidebar)
-// Does NOT scroll — the parent ScrollableSegment (from CardLayout) handles scrolling.
+// Container for the clean landing view (no sidebar).
+// Does NOT scroll — LandingContainer (inside CorpusLandingView) handles scrolling
+// via overflow-y: auto.  This wrapper only provides flex layout so that the
+// LandingContainer child can fill the available height from CardLayout's flex
+// ancestor chain.  Height constraints (height: 100%, min-height: 0,
+// max-height: 100dvh, overflow: hidden) were intentionally removed because
+// LandingContainer inherits bounded height through the flex column
+// (CardLayout → CleanViewContainer → LandingContainer), and those properties
+// conflicted with the scroll container living inside LandingContainer.
 const CleanViewContainer = styled.div`
   position: relative;
   display: flex;
