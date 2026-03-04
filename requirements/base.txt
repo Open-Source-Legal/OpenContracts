@@ -16,7 +16,7 @@ tokenizers>=0.21,<0.23  # Pin to prevent conflicts with transformers
 
 # Django
 # ------------------------------------------------------------------------------
-django==5.2.11  # https://www.djangoproject.com/
+django==6.0.3  # https://www.djangoproject.com/
 django-environ==0.13.0  # https://github.com/joke2k/django-environ
 django-model-utils==5.0.0  # https://github.com/jazzband/django-model-utils
 django-redis==6.0.0  # https://github.com/jazzband/django-redis
