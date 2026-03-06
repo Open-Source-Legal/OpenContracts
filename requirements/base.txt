@@ -69,7 +69,7 @@ django-ratelimit==4.1.0  # https://github.com/jsocol/django-ratelimit
 
 # Telemetry
 # ------------------------------------------------------------------------------
-posthog==7.9.6  # https://github.com/posthog/posthog-python
+posthog==7.9.7  # https://github.com/posthog/posthog-python
 
 # JSON Schema
 # ------------------------------------------------------------------------------
