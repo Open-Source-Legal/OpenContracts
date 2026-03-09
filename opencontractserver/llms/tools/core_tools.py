@@ -1602,9 +1602,11 @@ def add_annotations_from_exact_strings(
             )
 
         # Load PAWLS tokens once per document.
+        from opencontractserver.utils.compact_format import normalize_pawls
+
         doc.pawls_parse_file.open("r")
         try:
-            pawls_tokens = json.load(doc.pawls_parse_file)
+            pawls_tokens = normalize_pawls(json.load(doc.pawls_parse_file))
         finally:
             doc.pawls_parse_file.close()
 
@@ -1759,6 +1761,7 @@ def search_exact_text_as_sources(
 
     # Import SourceNode from core_agents to avoid circular dependencies
     from opencontractserver.llms.agents.core_agents import SourceNode
+    from opencontractserver.utils.compact_format import normalize_pawls
 
     try:
         doc = Document.objects.get(pk=document_id)
@@ -1778,7 +1781,7 @@ def search_exact_text_as_sources(
         # Load PAWLS tokens once
         doc.pawls_parse_file.open("r")
         try:
-            pawls_tokens = json.load(doc.pawls_parse_file)
+            pawls_tokens = normalize_pawls(json.load(doc.pawls_parse_file))
         finally:
             doc.pawls_parse_file.close()
 

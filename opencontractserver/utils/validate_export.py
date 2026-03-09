@@ -350,7 +350,10 @@ def _check_annotation(
     # Validate annotation_json token references and bounds.
     # Use `or {}` instead of a default so that explicit null (common in
     # exports) is normalised to an empty dict rather than silently skipping.
-    ann_json = annot.get("annotation_json") or {}
+    # Normalize compact format to legacy for validation.
+    from opencontractserver.utils.compact_format import normalize_annotation_json
+
+    ann_json = normalize_annotation_json(annot.get("annotation_json")) or {}
     if isinstance(ann_json, dict):
         for page_key, page_data in ann_json.items():
             if not isinstance(page_data, dict):

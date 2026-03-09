@@ -168,8 +168,10 @@ def get_annotation_image_tokens(
         if not pawls_data:
             return []
 
-        # Get token references from annotation json
-        annotation_json = annotation.json or {}
+        # Get token references from annotation json (normalize compact format)
+        from opencontractserver.utils.compact_format import normalize_annotation_json
+
+        annotation_json = normalize_annotation_json(annotation.json) or {}
         image_tokens = []
 
         for page_key, page_data in annotation_json.items():
@@ -370,8 +372,10 @@ def extract_and_store_annotation_images(
     from django.core.files.base import ContentFile
 
     try:
-        # Get token references from annotation json
-        annotation_json = annotation.json or {}
+        # Get token references from annotation json (normalize compact format)
+        from opencontractserver.utils.compact_format import normalize_annotation_json
+
+        annotation_json = normalize_annotation_json(annotation.json) or {}
         extracted_images = []
 
         for page_key, page_data in annotation_json.items():

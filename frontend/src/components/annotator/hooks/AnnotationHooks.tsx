@@ -55,6 +55,7 @@ import {
 } from "../context/DocumentAtom";
 import { LabelType } from "../types/enums";
 import { getPermissions } from "../../../utils/transform";
+import { normalizeAnnotationJson } from "../../../utils/compactFormat";
 import { SpanAnnotationJson } from "../../types";
 import { AnnotationLabelType } from "../../../types/graphql-api";
 import { useCorpusState } from "../context/CorpusAtom";
@@ -428,7 +429,7 @@ export function useCreateAnnotation() {
             createdAnnotationData.annotationLabel,
             createdAnnotationData.rawText,
             false,
-            createdAnnotationData.json,
+            normalizeAnnotationJson(createdAnnotationData.json) ?? {},
             getPermissions(createdAnnotationData.myPermissions || []),
             false,
             false,

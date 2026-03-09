@@ -61,15 +61,18 @@ def compute_content_modalities(
         if not pawls_content:
             return [ContentModality.TEXT.value]
 
+        from opencontractserver.utils.compact_format import normalize_pawls
+
         try:
             if hasattr(pawls_content, "read"):
                 pawls_content.open("r")
                 try:
-                    pawls_data = json.load(pawls_content)
+                    raw_data = json.load(pawls_content)
+                    pawls_data = normalize_pawls(raw_data)
                 finally:
                     pawls_content.close()
             else:
-                pawls_data = pawls_content
+                pawls_data = normalize_pawls(pawls_content)
         except Exception as e:
             logger.error(f"Failed to load PAWLs data: {e}")
             return [ContentModality.TEXT.value]

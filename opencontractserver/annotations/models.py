@@ -777,10 +777,15 @@ class StructuralAnnotationSet(BaseOCModel):
                 if pawls_data is None and self.pawls_parse_file:
                     import json as json_module
 
+                    from opencontractserver.utils.compact_format import (
+                        normalize_pawls,
+                    )
+
                     try:
                         self.pawls_parse_file.open("r")
                         try:
-                            pawls_data = json_module.load(self.pawls_parse_file)
+                            raw_data = json_module.load(self.pawls_parse_file)
+                            pawls_data = normalize_pawls(raw_data)
                         finally:
                             self.pawls_parse_file.close()
                     except Exception as e:

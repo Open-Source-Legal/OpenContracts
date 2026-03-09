@@ -7,6 +7,7 @@ import {
   SinglePageAnnotationJson,
 } from "../../types";
 import { WebSocketSources } from "../../chat/types";
+import { normalizeAnnotationJson } from "../../../utils/compactFormat";
 
 /**
  * A single pinned source in a message.
@@ -114,7 +115,10 @@ export function mapWebSocketSourcesToChatMessageSources(
             document_id: src.document_id,
           };
         } else {
-          const multiPageObj = src.json as MultipageAnnotationJson;
+          const multiPageObj =
+            normalizeAnnotationJson(
+              src.json as Record<string | number, unknown>
+            ) ?? (src.json as MultipageAnnotationJson);
 
           // Safety check for multiPageObj
           if (!multiPageObj || typeof multiPageObj !== "object") {

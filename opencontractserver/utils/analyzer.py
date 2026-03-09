@@ -19,6 +19,7 @@ from opencontractserver.types.dicts import (
     OpenContractsLabelSetType,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.compact_format import to_compact_annotation_json
 from opencontractserver.utils.packaging import (
     turn_base64_encoded_file_to_django_content_file,
 )
@@ -386,7 +387,10 @@ def import_annotations_from_analysis(
                         creator_id=creator_id,
                         raw_text=span_label_data["rawText"],
                         page=span_label_data["page"],
-                        json=span_label_data["annotation_json"],
+                        json=to_compact_annotation_json(
+                            span_label_data["annotation_json"]
+                        )
+                        or span_label_data["annotation_json"],
                         corpus=analysis.analyzed_corpus,
                     )
                     set_permissions_for_obj_to_user(

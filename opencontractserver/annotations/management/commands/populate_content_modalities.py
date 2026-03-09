@@ -97,7 +97,11 @@ class Command(BaseCommand):
 
         # Get PAWLs data
         try:
-            pawls_data = json.loads(annotation.document.pawls_parse_file.read())
+            from opencontractserver.utils.compact_format import normalize_pawls
+
+            pawls_data = normalize_pawls(
+                json.loads(annotation.document.pawls_parse_file.read())
+            )
         except Exception:
             # Can't read PAWLS data, use label as fallback
             label_text = annotation.annotation_label.text.lower()

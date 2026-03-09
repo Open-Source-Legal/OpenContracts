@@ -256,6 +256,10 @@ class AddAnnotation(graphene.Mutation):
 
         user = info.context.user
 
+        from opencontractserver.utils.compact_format import to_compact_annotation_json
+
+        compact_json = to_compact_annotation_json(json)
+
         annotation = Annotation(
             page=page,
             raw_text=raw_text,
@@ -263,7 +267,7 @@ class AddAnnotation(graphene.Mutation):
             document_id=document_pk,
             annotation_label_id=label_pk,
             creator=user,
-            json=json,
+            json=compact_json if compact_json is not None else json,
             annotation_type=annotation_type.value,
         )
         annotation.save()

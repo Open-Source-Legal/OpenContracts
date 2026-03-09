@@ -82,10 +82,19 @@ def import_structural_annotation_set(
 
         logger.info(f"Creating new structural annotation set {content_hash}")
 
-        # Create files
+        # Create files (store in compact format for efficiency)
+        from opencontractserver.utils.compact_format import (
+            normalize_pawls,
+            to_compact_annotation_json,
+            to_compact_pawls,
+        )
+
         pawls_file = None
         if struct_data.get("pawls_file_content"):
-            pawls_content = json.dumps(struct_data["pawls_file_content"]).encode(
+            compact_pawls = to_compact_pawls(
+                normalize_pawls(struct_data["pawls_file_content"])
+            )
+            pawls_content = json.dumps(compact_pawls, separators=(",", ":")).encode(
                 "utf-8"
             )
             pawls_file = ContentFile(pawls_content, name="pawls_tokens.json")
@@ -130,7 +139,8 @@ def import_structural_annotation_set(
                 annotation_label=label_obj,
                 raw_text=annot_data.get("rawText", ""),
                 page=annot_data.get("page", 0),
-                json=annot_data.get("annotation_json", {}),
+                json=to_compact_annotation_json(annot_data.get("annotation_json", {}))
+                or annot_data.get("annotation_json", {}),
                 annotation_type=annot_data.get("annotation_type", ""),
                 structural=True,
                 creator=user_obj,

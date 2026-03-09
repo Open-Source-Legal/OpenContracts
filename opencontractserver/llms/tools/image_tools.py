@@ -352,11 +352,13 @@ def get_annotation_images(annotation_id: int) -> list[ImageData]:
             pawls_data = load_pawls_data(document)
         elif annotation.structural_set and annotation.structural_set.pawls_parse_file:
             # Structural annotation without document - load from structural_set
+            from opencontractserver.utils.compact_format import normalize_pawls
+
             pawls_file = annotation.structural_set.pawls_parse_file
             try:
                 pawls_file.open("r")
                 try:
-                    pawls_data = json.load(pawls_file)
+                    pawls_data = normalize_pawls(json.load(pawls_file))
                 finally:
                     pawls_file.close()
             except Exception as e:
@@ -371,8 +373,10 @@ def get_annotation_images(annotation_id: int) -> list[ImageData]:
         if not pawls_data:
             return []
 
-        # Get tokensJsons from annotation's json field
-        annotation_json = annotation.json or {}
+        # Get tokensJsons from annotation's json field (normalize compact format)
+        from opencontractserver.utils.compact_format import normalize_annotation_json
+
+        annotation_json = normalize_annotation_json(annotation.json) or {}
 
         images: list[ImageData] = []
         for page_key, page_data in annotation_json.items():

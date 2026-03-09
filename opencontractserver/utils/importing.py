@@ -23,6 +23,11 @@ from opencontractserver.types.dicts import (
     OpenContractsRelationshipPythonType,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.compact_format import (
+    normalize_pawls,
+    to_compact_annotation_json,
+    to_compact_pawls,
+)
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
@@ -106,10 +111,14 @@ def import_annotations(
         # if the field is missing or explicitly None
         final_annotation_type = annotation_data.get("annotation_type") or label_type
 
+        # Compact annotation JSON for storage efficiency
+        annotation_json = annotation_data["annotation_json"]
+        compact_json = to_compact_annotation_json(annotation_json)
+
         annot_obj = Annotation.objects.create(
             raw_text=annotation_data["rawText"],
             page=annotation_data.get("page", 1),
-            json=annotation_data["annotation_json"],
+            json=compact_json if compact_json is not None else annotation_json,
             annotation_label=label_obj,
             document=doc_obj,
             corpus=corpus_obj,
@@ -298,8 +307,9 @@ def create_document_from_export_data(
 
     pdf_file = File(pdf_file_handle, doc_filename)
 
+    compact_pawls = to_compact_pawls(normalize_pawls(doc_data["pawls_file_content"]))
     pawls_parse_file = ContentFile(
-        json.dumps(doc_data["pawls_file_content"]).encode("utf-8"),
+        json.dumps(compact_pawls, separators=(",", ":")).encode("utf-8"),
         name="pawls_tokens.json",
     )
 

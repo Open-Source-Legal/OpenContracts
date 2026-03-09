@@ -5,6 +5,7 @@ import {
   PermissionTypes,
   MultipageAnnotationJson,
 } from "../../types";
+import { normalizeAnnotationJson } from "../../../utils/compactFormat";
 
 export interface TokenId {
   pageIndex: number;
@@ -135,13 +136,14 @@ export class ServerSpanAnnotation {
 
 export class ServerTokenAnnotation {
   public readonly id: string;
+  public readonly json: MultipageAnnotationJson;
 
   constructor(
     public readonly page: number,
     public readonly annotationLabel: AnnotationLabelType,
     public readonly rawText: string,
     public readonly structural: boolean,
-    public readonly json: MultipageAnnotationJson,
+    json: MultipageAnnotationJson,
     public readonly myPermissions: PermissionTypes[],
     public readonly approved: boolean,
     public readonly rejected: boolean,
@@ -150,6 +152,9 @@ export class ServerTokenAnnotation {
     public readonly contentModalities?: string[]
   ) {
     this.id = id || uuidv4();
+    // Normalize compact annotation JSON to legacy format for viewer compatibility
+    this.json =
+      normalizeAnnotationJson(json as Record<string | number, unknown>) ?? json;
   }
 
   toString() {

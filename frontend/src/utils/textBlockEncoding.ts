@@ -18,6 +18,7 @@ import {
   SinglePageAnnotationJson,
   TokenId,
 } from "../components/types";
+import { normalizeAnnotationJson } from "./compactFormat";
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -206,8 +207,10 @@ export function textBlockFromSpan(start: number, end: number): TextSpanBlock {
 export function textBlockFromMultipageJson(
   json: MultipageAnnotationJson
 ): PdfTokenBlock {
+  // Normalize in case compact format is passed
+  const normalized = normalizeAnnotationJson(json) ?? {};
   const tokensByPage: Record<number, number[]> = {};
-  for (const [pageKey, pageData] of Object.entries(json)) {
+  for (const [pageKey, pageData] of Object.entries(normalized)) {
     const pageIdx = parseInt(pageKey, 10);
     if (isNaN(pageIdx)) continue;
     const data = pageData as SinglePageAnnotationJson;

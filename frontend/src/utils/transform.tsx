@@ -6,6 +6,7 @@ import {
   PermissionTypes,
   SpanAnnotationJson,
 } from "../components/types";
+import { normalizeAnnotationJson } from "./compactFormat";
 import {
   AnalyzerManifestType,
   LabelType,
@@ -145,12 +146,13 @@ export function convertToServerAnnotation(
   }
 
   // Fallback: treat as token annotation (MultipageAnnotationJson)
+  // Normalize annotation JSON to handle both compact and legacy formats
   return new ServerTokenAnnotation(
     annotation.page,
     annotation.annotationLabel,
     annotation.rawText ?? "",
     annotation.structural ?? false,
-    annotation.json ?? {},
+    normalizeAnnotationJson(annotation.json) ?? {},
     permissions,
     approved,
     rejected,

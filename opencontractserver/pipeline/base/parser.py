@@ -18,6 +18,10 @@ from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.utils.compact_format import (
+    normalize_pawls,
+    to_compact_pawls,
+)
 from opencontractserver.utils.importing import (
     import_annotations,
     import_relationships,
@@ -171,16 +175,20 @@ class BaseParser(PipelineComponentBase, ABC):
         # Handle PAWLS content if any
         pawls_file_content = open_contracts_data.get("pawls_file_content")
         if pawls_file_content:
-            pawls_string = json.dumps(pawls_file_content)
+            # Normalize to legacy format for in-memory processing
+            legacy_pawls = normalize_pawls(pawls_file_content)
+            # Save in compact format for storage efficiency
+            compact_data = to_compact_pawls(legacy_pawls)
+            pawls_string = json.dumps(compact_data, separators=(",", ":"))
             pawls_file = ContentFile(pawls_string.encode("utf-8"))
             document.pawls_parse_file.save(f"doc_{doc_id}.pawls", pawls_file)
 
-            # Create text layer from PAWLS tokens
-            span_translation_layer = build_translation_layer(json.loads(pawls_string))
+            # Create text layer from PAWLS tokens (requires legacy format)
+            span_translation_layer = build_translation_layer(legacy_pawls)
             # Optionally overwrite txt_extract_file with text from PAWLS
             txt_file = ContentFile(span_translation_layer.doc_text.encode("utf-8"))
             document.txt_extract_file.save(f"doc_{doc_id}.txt", txt_file)
-            document.page_count = len(pawls_file_content)
+            document.page_count = len(legacy_pawls)
         else:
             # Handle cases without PAWLS content
             document.page_count = open_contracts_data.get("page_count", 1)

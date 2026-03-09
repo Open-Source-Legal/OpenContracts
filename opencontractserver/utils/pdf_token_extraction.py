@@ -51,14 +51,18 @@ def load_pawls_data(document: "Document") -> Optional[list[dict[str, Any]]]:
     Load PAWLs data from a document.
 
     This is a shared utility for loading PAWLs JSON from a document's
-    pawls_parse_file field.
+    pawls_parse_file field. Automatically detects and normalizes compact
+    format to legacy format for in-memory use.
 
     Args:
         document: The Document instance.
 
     Returns:
-        Parsed PAWLs data as list of page dicts, or None if unavailable.
+        Parsed PAWLs data as list of page dicts (legacy format), or None if
+        unavailable.
     """
+    from opencontractserver.utils.compact_format import normalize_pawls
+
     pawls_file = document.pawls_parse_file
     if not pawls_file:
         return None
@@ -69,7 +73,7 @@ def load_pawls_data(document: "Document") -> Optional[list[dict[str, Any]]]:
             pawls_data = json.load(pawls_file)
         finally:
             pawls_file.close()
-        return pawls_data
+        return normalize_pawls(pawls_data)
     except Exception as e:
         logger.error(f"Failed to load PAWLs data for document {document.pk}: {e}")
         return None

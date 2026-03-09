@@ -239,10 +239,13 @@ def build_document_export(
         except Exception as e:
             logger.warning(f"Could not export doc text for doc {doc_id}: {e}")
 
+        from opencontractserver.utils.compact_format import normalize_pawls
+
         pawls_tokens: list[PawlsPagePythonType] = []
         try:
             with default_storage.open(doc.pawls_parse_file.name) as pawls_file:
-                pawls_tokens = json.loads(pawls_file.read().decode("utf-8"))
+                raw_pawls = json.loads(pawls_file.read().decode("utf-8"))
+                pawls_tokens = normalize_pawls(raw_pawls)
         except Exception as e:
             logger.warning(f"Could not export pawls tokens for doc {doc_id}: {e}")
 
@@ -320,12 +323,19 @@ def build_document_export(
                 labels_for_doc.append(f"{annot.annotation_label.text}")
 
             if annot.annotation_label.label_type in [TOKEN_LABEL, SPAN_LABEL]:
+                from opencontractserver.utils.compact_format import (
+                    normalize_annotation_json,
+                )
+
+                # Normalize compact annotation JSON to legacy format for export
+                legacy_json = normalize_annotation_json(annot.json)
+
                 annot_export = {
                     "id": f"{annot.id}",
                     "annotationLabel": f"{annot.annotation_label.id}",
                     "rawText": annot.raw_text,
                     "page": annot.page,
-                    "annotation_json": annot.json,
+                    "annotation_json": legacy_json,
                     "parent_id": annot.parent.id if annot.parent else None,
                     "annotation_type": annot.annotation_type,
                     "structural": annot.structural,
@@ -335,7 +345,7 @@ def build_document_export(
                 labelled_text.append(annot_export)
 
                 annotation_json: dict[str, OpenContractsSinglePageAnnotationType] = (
-                    annot.json
+                    legacy_json
                 )
 
                 for targ_page_num in annotation_json:

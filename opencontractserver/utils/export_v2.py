@@ -34,6 +34,7 @@ from opencontractserver.types.dicts import (
     OpenContractsRelationshipPythonType,
     StructuralAnnotationSetExport,
 )
+from opencontractserver.utils.compact_format import normalize_annotation_json
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -54,11 +55,13 @@ def package_structural_annotation_set(
         StructuralAnnotationSetExport dict or None if error
     """
     try:
-        # Read PAWLS file content
+        # Read PAWLS file content (normalize compact → legacy for export compat)
+        from opencontractserver.utils.compact_format import normalize_pawls
+
         pawls_content = []
         if structural_set.pawls_parse_file:
             with structural_set.pawls_parse_file.open("r") as f:
-                pawls_content = json.load(f)
+                pawls_content = normalize_pawls(json.load(f))
 
         # Read text extract
         txt_content = ""
@@ -77,7 +80,7 @@ def package_structural_annotation_set(
                     ),
                     "rawText": annot.raw_text or "",
                     "page": annot.page or 0,
-                    "annotation_json": annot.json or {},
+                    "annotation_json": normalize_annotation_json(annot.json) or {},
                     "parent_id": str(annot.parent_id) if annot.parent_id else None,
                     "annotation_type": annot.annotation_type or "",
                     "structural": True,

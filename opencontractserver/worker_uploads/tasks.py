@@ -235,11 +235,17 @@ def _process_single_upload(upload_id) -> None:
         if "." not in doc_filename:
             doc_filename += ".pdf"
 
+        from opencontractserver.utils.compact_format import (
+            normalize_pawls,
+            to_compact_pawls,
+        )
+
         pawls_content = metadata.get("pawls_file_content", [])
         text_content = metadata.get("content", "")
 
+        compact_pawls = to_compact_pawls(normalize_pawls(pawls_content))
         pawls_file = ContentFile(
-            json.dumps(pawls_content).encode("utf-8"),
+            json.dumps(compact_pawls, separators=(",", ":")).encode("utf-8"),
             name="pawls_tokens.json",
         )
         txt_file = ContentFile(
