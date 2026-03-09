@@ -33,12 +33,14 @@ import { formatSettingLabel } from "../../utils/formatters";
 import {
   GET_PIPELINE_SETTINGS,
   GET_PIPELINE_COMPONENTS,
+  GET_SUPPORTED_FILE_TYPES,
   UPDATE_PIPELINE_SETTINGS,
   RESET_PIPELINE_SETTINGS,
   UPDATE_COMPONENT_SECRETS,
   DELETE_COMPONENT_SECRETS,
   PipelineSettingsQueryResult,
   PipelineComponentsQueryResult,
+  SupportedFileTypesQueryResult,
 } from "./system_settings/graphql";
 import { SettingsSchemaEntry } from "./system_settings/types";
 import { STAGE_CONFIG } from "./system_settings/config";
@@ -132,6 +134,11 @@ export const SystemSettings: React.FC = () => {
   } = useQuery<PipelineComponentsQueryResult>(GET_PIPELINE_COMPONENTS, {
     fetchPolicy: "cache-and-network",
   });
+
+  const { data: fileTypesData } =
+    useQuery<SupportedFileTypesQueryResult>(GET_SUPPORTED_FILE_TYPES, {
+      fetchPolicy: "cache-and-network",
+    });
 
   // Mutations
   const [updateSettings, { loading: updating }] = useMutation(
@@ -663,6 +670,7 @@ export const SystemSettings: React.FC = () => {
             ) : (
               <FiletypeDefaults
                 components={componentsByStage}
+                supportedFileTypes={fileTypesData?.supportedFileTypes}
                 enabledComponents={
                   (settings?.enabledComponents?.filter(Boolean) as string[]) ??
                   []

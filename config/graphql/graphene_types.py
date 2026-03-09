@@ -82,6 +82,7 @@ from config.graphql.pipeline_types import (  # noqa: F401
     PipelineComponentsType,
     PipelineComponentType,
     PipelineSettingsType,
+    SupportedFileTypeInfo,
 )
 from config.graphql.social_types import (  # noqa: F401
     BadgeDistributionType,

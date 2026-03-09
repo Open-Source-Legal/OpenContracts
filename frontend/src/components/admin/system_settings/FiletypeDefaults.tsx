@@ -1,11 +1,10 @@
 import React, { memo, useMemo, useCallback } from "react";
 import { Button } from "@os-legal/ui";
-import { FileText, Cpu, Settings } from "lucide-react";
-import { PipelineComponentType } from "../../../types/graphql-api";
+import { FileText, Cpu, Settings, AlertTriangle } from "lucide-react";
 import {
-  SUPPORTED_MIME_TYPES,
-  MIME_TO_SHORT_LABEL,
-} from "../../../assets/configurations/constants";
+  PipelineComponentType,
+  SupportedFileTypeInfo,
+} from "../../../types/graphql-api";
 import { getComponentDisplayName } from "../PipelineIcons";
 import { StageType } from "./types";
 import { isComponentAvailable } from "./utils";
@@ -36,6 +35,7 @@ interface FiletypeDefaultsProps {
     embedders: (PipelineComponentType & { className: string })[];
     thumbnailers: (PipelineComponentType & { className: string })[];
   };
+  supportedFileTypes?: SupportedFileTypeInfo[];
   enabledComponents: string[];
   preferredParsers: Record<string, string>;
   preferredEmbedders: Record<string, string>;
@@ -67,6 +67,7 @@ const STAGES: { key: StageType; label: string }[] = [
 export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
   ({
     components,
+    supportedFileTypes,
     enabledComponents,
     preferredParsers,
     preferredEmbedders,
@@ -86,6 +87,12 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
       [preferredParsers, preferredEmbedders, preferredThumbnailers]
     );
 
+    // Use dynamically-derived file types from the registry
+    const fileTypes = useMemo(
+      () => supportedFileTypes ?? [],
+      [supportedFileTypes]
+    );
+
     // Pre-compute available components per stage per MIME type
     const availableComponents = useMemo(() => {
       const result: Record<
@@ -97,17 +104,17 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
         thumbnailers: {},
       };
 
-      for (const mime of SUPPORTED_MIME_TYPES) {
-        const shortLabel = MIME_TO_SHORT_LABEL[mime.value] || mime.value;
+      for (const ft of fileTypes) {
         for (const stage of STAGES) {
-          result[stage.key][mime.value] = components[stage.key].filter((comp) =>
-            isComponentAvailable(comp, shortLabel, enabledComponents)
+          result[stage.key][ft.mimetype] = components[stage.key].filter(
+            (comp) =>
+              isComponentAvailable(comp, ft.shortLabel, enabledComponents)
           );
         }
       }
 
       return result;
-    }, [components, enabledComponents]);
+    }, [components, enabledComponents, fileTypes]);
 
     const handleChange = useCallback(
       (stage: StageType, mimeType: string, value: string) => {
@@ -134,19 +141,32 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
             <span>Thumbnailer</span>
           </DefaultsHeaderRow>
 
-          {/* One row per MIME type */}
-          {SUPPORTED_MIME_TYPES.map((mime) => {
+          {/* One row per dynamically-derived MIME type */}
+          {fileTypes.map((ft) => {
             return (
-              <FiletypeRow key={mime.value}>
+              <FiletypeRow key={ft.mimetype}>
                 <FiletypeLabel>
                   <FileText />
-                  {mime.shortLabel}
+                  {ft.shortLabel}
+                  {!ft.fullCoverage && (
+                    <AlertTriangle
+                      size={14}
+                      style={{ color: "#d97706", marginLeft: 4 }}
+                      title={
+                        "Partial coverage: " +
+                        (!ft.hasParser ? "no parser " : "") +
+                        (!ft.hasEmbedder ? "no embedder " : "") +
+                        (!ft.hasThumbnailer ? "no thumbnailer" : "")
+                      }
+                    />
+                  )}
                 </FiletypeLabel>
 
                 {STAGES.map((stage) => {
                   const currentValue =
-                    preferredByStage[stage.key]?.[mime.value] || "";
-                  const available = availableComponents[stage.key][mime.value];
+                    preferredByStage[stage.key]?.[ft.mimetype] || "";
+                  const available =
+                    availableComponents[stage.key][ft.mimetype] ?? [];
                   const hasNoOptions = available.length === 0;
                   const isUnassigned = !currentValue;
 
@@ -158,9 +178,9 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
                         $warning={isUnassigned && !hasNoOptions}
                         disabled={updating || hasNoOptions}
                         onChange={(e) =>
-                          handleChange(stage.key, mime.value, e.target.value)
+                          handleChange(stage.key, ft.mimetype, e.target.value)
                         }
-                        aria-label={`${stage.label} for ${mime.label}`}
+                        aria-label={`${stage.label} for ${ft.label}`}
                       >
                         {hasNoOptions ? (
                           <option value="">None available</option>

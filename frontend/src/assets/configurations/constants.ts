@@ -234,26 +234,6 @@ export const PIPELINE_UI = {
  */
 export const LEGACY_TEXT_MIME_TYPE = "application/txt";
 
-// Supported MIME types for pipeline configuration
-export const SUPPORTED_MIME_TYPES = [
-  { value: "application/pdf", label: "PDF", shortLabel: "PDF" },
-  { value: "text/plain", label: "Plain Text", shortLabel: "TXT" },
-  {
-    value:
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    label: "Word Document",
-    shortLabel: "DOCX",
-  },
-] as const;
-
-/**
- * Lookup map from full MIME type to short label (e.g., "text/plain" → "TXT").
- * Used for matching component supportedFileTypes which use short forms.
- */
-export const MIME_TO_SHORT_LABEL: Record<string, string> = Object.fromEntries(
-  SUPPORTED_MIME_TYPES.map((m) => [m.value, m.shortLabel])
-);
-
 // Message count badge color constants (used by chatUtils.ts getMessageCountColor)
 export const MESSAGE_COUNT_COLORS = {
   /** Zero-count badge gradient start */

@@ -2,7 +2,7 @@ import React, { memo, useMemo, useState, useCallback } from "react";
 import { Input } from "@os-legal/ui";
 import { Package, Search } from "lucide-react";
 import { PipelineComponentType } from "../../../types/graphql-api";
-import { MIME_TO_SHORT_LABEL } from "../../../assets/configurations/constants";
+import { fileTypeToShortLabel } from "./utils";
 import { getComponentDisplayName } from "../PipelineIcons";
 import { SettingsSchemaEntry, StageType } from "./types";
 import { STAGE_CONFIG } from "./config";
@@ -193,13 +193,7 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
 
               // Map supported file types to short labels
               const fileTypeBadges = (component.supportedFileTypes || []).map(
-                (ft) => {
-                  const label =
-                    MIME_TO_SHORT_LABEL[ft] ||
-                    ft.split("/").pop()?.toUpperCase() ||
-                    ft;
-                  return label;
-                }
+                (ft) => fileTypeToShortLabel(ft)
               );
 
               return (

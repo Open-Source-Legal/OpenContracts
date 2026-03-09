@@ -236,13 +236,13 @@ class PipelineComponentRegistry:
         """Create a PipelineComponentDefinition from a component class."""
         module_name = component_class.__module__.split(".")[-1]
 
-        # Get supported file types, filtering to valid ones
-        # Store as the enum value (e.g., "pdf") for consistency
+        # Get supported file types, filtering to valid FileTypeEnum members.
+        # Store as the enum value (e.g., "pdf") for consistency.
         supported_file_types = []
         if hasattr(component_class, "supported_file_types"):
+            valid_values = {member for member in FileTypeEnum}
             for ft in component_class.supported_file_types:
-                if ft in [FileTypeEnum.PDF, FileTypeEnum.TXT, FileTypeEnum.DOCX]:
-                    # Store the enum value ("pdf", "txt", "docx")
+                if ft in valid_values:
                     supported_file_types.append(ft.value)
 
         # Get supported modalities (for embedders)
@@ -482,14 +482,8 @@ def get_components_by_mimetype_cached(
     registry = get_registry()
 
     # Convert MIME type to FileTypeEnum value for lookup
-    # FileTypeEnum values are "pdf", "txt", "docx" - not MIME types
-    mime_to_enum_value = {
-        "application/pdf": "pdf",
-        "text/plain": "txt",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-    }
-
-    file_type_value = mime_to_enum_value.get(mimetype, mimetype)
+    ft_enum = FileTypeEnum.from_mimetype(mimetype)
+    file_type_value = ft_enum.value if ft_enum else mimetype
 
     return {
         "parsers": registry.get_parsers_for_filetype(file_type_value),
@@ -512,6 +506,46 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
         "thumbnailers": registry.thumbnailers,
         "post_processors": registry.post_processors,
     }
+
+
+def get_supported_file_types_cached() -> list[dict]:
+    """
+    Derive the set of supported file types from registered pipeline components.
+
+    For each known FileTypeEnum member, checks whether at least one registered
+    component exists for each pipeline stage (parser, embedder, thumbnailer).
+    Returns metadata including coverage flags so the frontend can indicate
+    partial coverage.
+
+    Returns:
+        List of dicts with keys: mimetype, label, short_label, has_parser,
+        has_embedder, has_thumbnailer, full_coverage.
+    """
+    registry = get_registry()
+    result = []
+
+    for ft in FileTypeEnum:
+        has_parser = len(registry.get_parsers_for_filetype(ft.value)) > 0
+        # Embedders work on text output of all parsers, so they're always available
+        has_embedder = len(registry.embedders) > 0
+        has_thumbnailer = len(registry.get_thumbnailers_for_filetype(ft.value)) > 0
+        full_coverage = has_parser and has_embedder and has_thumbnailer
+
+        # Only include file types that have at least a parser
+        if has_parser:
+            result.append(
+                {
+                    "mimetype": ft.mimetype,
+                    "label": ft.label,
+                    "short_label": ft.short_label,
+                    "has_parser": has_parser,
+                    "has_embedder": has_embedder,
+                    "has_thumbnailer": has_thumbnailer,
+                    "full_coverage": full_coverage,
+                }
+            )
+
+    return result
 
 
 def reset_registry() -> None:

@@ -13,6 +13,7 @@ from config.graphql.graphene_types import (
     FileTypeEnum,
     PipelineComponentsType,
     PipelineComponentType,
+    SupportedFileTypeInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,12 +53,12 @@ class PipelineQueryMixin:
 
         if mimetype:
             # Convert the GraphQL enum value to the appropriate MIME type string
-            mime_type_mapping = {
-                "pdf": "application/pdf",
-                "txt": "text/plain",
-                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            }
-            mime_type_str = mime_type_mapping.get(mimetype.value)
+            from opencontractserver.pipeline.base.file_types import (
+                FileTypeEnum as BackendFileTypeEnum,
+            )
+
+            backend_enum = BackendFileTypeEnum(mimetype.value)
+            mime_type_str = backend_enum.mimetype
 
             # Get compatible components from cached registry
             components_data = get_components_by_mimetype_cached(mime_type_str)
@@ -169,6 +170,29 @@ class PipelineQueryMixin:
                 for d in components_data["post_processors"]
             ],
         )
+
+    # SUPPORTED FILE TYPES #####################################
+    supported_file_types = graphene.List(
+        SupportedFileTypeInfo,
+        description=(
+            "List of file types dynamically derived from registered pipeline "
+            "components.  Each entry includes per-stage coverage flags."
+        ),
+    )
+
+    @login_required
+    def resolve_supported_file_types(self, info):
+        """
+        Derive supported file types from the pipeline component registry.
+
+        A file type is included if at least one registered parser supports it.
+        Coverage flags indicate whether embedder and thumbnailer support also exist.
+        """
+        from opencontractserver.pipeline.registry import (
+            get_supported_file_types_cached,
+        )
+
+        return [SupportedFileTypeInfo(**ft) for ft in get_supported_file_types_cached()]
 
     # PIPELINE SETTINGS ########################################
     pipeline_settings = graphene.Field(

@@ -18,6 +18,40 @@ class FileTypeEnum(graphene.Enum):
     # HTML has been removed as we don't support it
 
 
+class SupportedFileTypeInfo(graphene.ObjectType):
+    """
+    Describes a file type whose pipeline support is dynamically derived
+    from registered components.  Includes per-stage coverage flags so
+    the frontend can warn about partial coverage.
+    """
+
+    mimetype = graphene.String(
+        required=True, description="Full MIME type (e.g. 'application/pdf')."
+    )
+    label = graphene.String(
+        required=True, description="Human-readable label (e.g. 'PDF')."
+    )
+    short_label = graphene.String(
+        required=True, description="Short label for badges (e.g. 'PDF', 'TXT')."
+    )
+    has_parser = graphene.Boolean(
+        required=True,
+        description="At least one registered parser supports this file type.",
+    )
+    has_embedder = graphene.Boolean(
+        required=True,
+        description="At least one registered embedder is available.",
+    )
+    has_thumbnailer = graphene.Boolean(
+        required=True,
+        description="At least one registered thumbnailer supports this file type.",
+    )
+    full_coverage = graphene.Boolean(
+        required=True,
+        description="True when parser, embedder, and thumbnailer are all available.",
+    )
+
+
 class ComponentSettingSchemaType(graphene.ObjectType):
     """
     Schema for a single pipeline component setting.

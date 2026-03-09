@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dynamically-derived supported MIME types from pipeline registry** (Closes #1059): Replaced the hardcoded `SUPPORTED_MIME_TYPES` constant in both frontend and backend with a new `supportedFileTypes` GraphQL query that derives the set of supported file types from registered pipeline components at runtime. A file type is included if at least one parser supports it; per-stage coverage flags (parser, embedder, thumbnailer) are exposed so the admin UI can warn about partial coverage. Enriched `FileTypeEnum` with `mimetype`, `label`, and `short_label` properties to serve as the single source of truth for file type metadata. Removed duplicate MIME-type mappings from `pipeline_queries.py`, `registry.py`, and frontend `constants.ts`.
+  - `opencontractserver/pipeline/base/file_types.py` — added metadata properties to `FileTypeEnum`
+  - `opencontractserver/pipeline/registry.py` — added `get_supported_file_types_cached()`, removed hardcoded MIME mapping
+  - `config/graphql/pipeline_types.py` — added `SupportedFileTypeInfo` GraphQL type
+  - `config/graphql/pipeline_queries.py` — added `supportedFileTypes` query, use `FileTypeEnum.mimetype`
+  - `frontend/src/types/graphql-api.ts` — added `SupportedFileTypeInfo` type
+  - `frontend/src/components/admin/system_settings/graphql.ts` — added `GET_SUPPORTED_FILE_TYPES` query
+  - `frontend/src/components/admin/system_settings/FiletypeDefaults.tsx` — uses dynamic file types with partial-coverage warnings
+  - `frontend/src/components/admin/SystemSettings.tsx` — fetches and passes `supportedFileTypes`
+  - `frontend/src/assets/configurations/constants.ts` — removed `SUPPORTED_MIME_TYPES` and `MIME_TO_SHORT_LABEL`
 - **Dynamic discovery endpoints for crawlers and AI agents**: Replaced static `robots.txt`, `llms.txt`, and `llms-full.txt` files with Django views that dynamically generate content with live data from the database. New endpoints:
   - `robots.txt`: Includes explicit `Allow` directives for AI crawler user-agents (GPTBot, ClaudeBot, anthropic-ai, Google-Extended, PerplexityBot, Bytespider, cohere-ai) and a proper `Sitemap:` reference to `sitemap.xml`
   - `llms.txt` / `llms-full.txt`: Now auto-populate an "Available Collections" section listing all public corpuses with titles, slugs, document counts, and descriptions. Hostnames are resolved from the request instead of using placeholder text. Links use proper inline Markdown format per the llmstxt.org spec

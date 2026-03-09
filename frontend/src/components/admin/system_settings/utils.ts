@@ -1,4 +1,19 @@
-import { PipelineComponentType } from "../../../types/graphql-api";
+import { FileTypeEnum, PipelineComponentType } from "../../../types/graphql-api";
+
+/**
+ * Convert a file type value (enum value or MIME type) to a short display label.
+ *
+ * The backend sends file types as short enum values ("pdf", "txt", "docx")
+ * via the FileTypeEnum GraphQL enum. This helper uppercases them for display,
+ * with a MIME-type fallback for any unexpected values.
+ */
+export const fileTypeToShortLabel = (ft: FileTypeEnum | string): string => {
+  const s = String(ft);
+  // Short-form enum values like "pdf", "txt", "docx"
+  if (!s.includes("/")) return s.toUpperCase();
+  // MIME type fallback: extract last segment
+  return s.split("/").pop()?.toUpperCase() || s;
+};
 
 /**
  * Determine whether a pipeline component is enabled.

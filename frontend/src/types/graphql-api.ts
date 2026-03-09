@@ -1850,6 +1850,28 @@ export type PipelineComponentsType = {
   thumbnailers?: Maybe<Array<Maybe<PipelineComponentType>>>;
 };
 
+/**
+ * Dynamically-derived file type info from the pipeline component registry.
+ * Includes per-stage coverage flags for partial-coverage warnings.
+ */
+export type SupportedFileTypeInfo = {
+  __typename?: "SupportedFileTypeInfo";
+  /** Full MIME type (e.g. 'application/pdf'). */
+  mimetype: string;
+  /** Human-readable label (e.g. 'PDF'). */
+  label: string;
+  /** Short label for badges (e.g. 'PDF', 'TXT'). */
+  shortLabel: string;
+  /** At least one registered parser supports this file type. */
+  hasParser: boolean;
+  /** At least one registered embedder is available. */
+  hasEmbedder: boolean;
+  /** At least one registered thumbnailer supports this file type. */
+  hasThumbnailer: boolean;
+  /** True when parser, embedder, and thumbnailer are all available. */
+  fullCoverage: boolean;
+};
+
 /** Enum for file types. */
 export enum FileTypeEnum {
   /** PDF file type. */

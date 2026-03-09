@@ -2,6 +2,7 @@ import { gql } from "@apollo/client";
 import {
   PipelineSettingsType,
   PipelineComponentsType,
+  SupportedFileTypeInfo,
 } from "../../../types/graphql-api";
 
 // ============================================================================
@@ -14,6 +15,10 @@ export interface PipelineSettingsQueryResult {
 
 export interface PipelineComponentsQueryResult {
   pipelineComponents: PipelineComponentsType;
+}
+
+export interface SupportedFileTypesQueryResult {
+  supportedFileTypes: SupportedFileTypeInfo[];
 }
 
 // ============================================================================
@@ -36,6 +41,20 @@ export const GET_PIPELINE_SETTINGS = gql`
         id
         username
       }
+    }
+  }
+`;
+
+export const GET_SUPPORTED_FILE_TYPES = gql`
+  query GetSupportedFileTypes {
+    supportedFileTypes {
+      mimetype
+      label
+      shortLabel
+      hasParser
+      hasEmbedder
+      hasThumbnailer
+      fullCoverage
     }
   }
 `;
