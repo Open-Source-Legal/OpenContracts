@@ -1380,13 +1380,6 @@
     markdown-to-jsx "^7.4.1"
     prop-types "^15.8.1"
 
-"@rjsf/semantic-ui@^5.24.12":
-  version "5.24.13"
-  resolved "https://registry.yarnpkg.com/@rjsf/semantic-ui/-/semantic-ui-5.24.13.tgz#15d92f9aa0ea945ddac23007aa49a9a6bcce3195"
-  integrity sha512-ZNk5MzCMLODs/JEKCdsEwwmIZtSOPv2CKrxMqbOMUxK+w7TcggXZrqY2VMWoxrjNUnwUzMxw6wRVJF0ac7h+sg==
-  dependencies:
-    semantic-ui-css "^2.5.0"
-
 "@rjsf/utils@^5.24.1":
   version "5.24.13"
   resolved "https://registry.yarnpkg.com/@rjsf/utils/-/utils-5.24.13.tgz#b19ca434bf518ec3e652c4a0510b293ff5fac279"
@@ -7076,7 +7069,7 @@ scuid@^1.1.0:
   resolved "https://registry.yarnpkg.com/scuid/-/scuid-1.1.0.tgz#d3f9f920956e737a60f72d0e4ad280bf324d5dab"
   integrity sha512-MuCAyrGZcTLfQoH2XoBlQ8C6bzwN88XT/0slOGz0pn8+gIP85BOAfYa44ZXQUTOwRwPU0QvgU+V+OSajl/59Xg==
 
-semantic-ui-css@^2.4.1, semantic-ui-css@^2.5.0:
+semantic-ui-css@^2.4.1:
   version "2.5.0"
   resolved "https://registry.yarnpkg.com/semantic-ui-css/-/semantic-ui-css-2.5.0.tgz#b3b7b58b5ffbe6d6fb6549beded16e79a9aa64eb"
   integrity sha512-jIWn3WXXE2uSaWCcB+gVJVRG3masIKtTMNEP2X8Aw909H2rHpXGneYOxzO3hT8TpyvB5/dEEo9mBFCitGwoj1A==

@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from "react";
 import { Box } from "lucide-react";
-import Form from "@rjsf/semantic-ui";
+import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {

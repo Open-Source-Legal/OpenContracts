@@ -33,7 +33,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import Form from "@rjsf/semantic-ui";
+import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import { RJSFSchema, UiSchema } from "@rjsf/utils";
 import {

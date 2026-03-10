@@ -43,7 +43,7 @@ import {
   GetPostprocessorsOutput,
 } from "../../../graphql/queries";
 
-import Form from "@rjsf/semantic-ui";
+import Form from "@rjsf/core";
 import { RJSFSchema } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
 
@@ -220,7 +220,7 @@ const ProcessorFormCard = styled.div`
   margin-top: var(--oc-spacing-md);
 
   /* Style RJSF form fields inside the card */
-  .ui.form .field {
+  .rjsf .form-group {
     margin-bottom: var(--oc-spacing-sm);
   }
 `;
