@@ -643,6 +643,7 @@ class UpdateAnnotation(DRFMutation):
         id = graphene.String(required=True)
         page = graphene.Int()
         raw_text = graphene.String()
+        long_description = graphene.String()
         json = GenericScalar()
         annotation_label = graphene.String()
 

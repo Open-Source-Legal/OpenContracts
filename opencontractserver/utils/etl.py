@@ -332,6 +332,8 @@ def build_document_export(
                 }
                 if annot.content_modalities:
                     annot_export["content_modalities"] = annot.content_modalities
+                if annot.long_description:
+                    annot_export["long_description"] = annot.long_description
                 labelled_text.append(annot_export)
 
                 annotation_json: dict[str, OpenContractsSinglePageAnnotationType] = (

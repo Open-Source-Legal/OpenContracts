@@ -69,20 +69,21 @@ def package_structural_annotation_set(
         # Get structural annotations
         structural_annotations = []
         for annot in structural_set.structural_annotations.all():
-            structural_annotations.append(
-                {
-                    "id": str(annot.id),
-                    "annotationLabel": (
-                        annot.annotation_label.text if annot.annotation_label else ""
-                    ),
-                    "rawText": annot.raw_text or "",
-                    "page": annot.page or 0,
-                    "annotation_json": annot.json or {},
-                    "parent_id": str(annot.parent_id) if annot.parent_id else None,
-                    "annotation_type": annot.annotation_type or "",
-                    "structural": True,
-                }
-            )
+            annot_data = {
+                "id": str(annot.id),
+                "annotationLabel": (
+                    annot.annotation_label.text if annot.annotation_label else ""
+                ),
+                "rawText": annot.raw_text or "",
+                "page": annot.page or 0,
+                "annotation_json": annot.json or {},
+                "parent_id": str(annot.parent_id) if annot.parent_id else None,
+                "annotation_type": annot.annotation_type or "",
+                "structural": True,
+            }
+            if annot.long_description:
+                annot_data["long_description"] = annot.long_description
+            structural_annotations.append(annot_data)
 
         # Get structural relationships
         structural_relationships = []

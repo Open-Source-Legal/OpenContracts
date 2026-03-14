@@ -5177,3 +5177,72 @@ export interface GetCorpusActionTemplatesOutput {
     }>;
   };
 }
+
+// ============================================================================
+// DOCUMENT ANNOTATION INDEX (within-document TOC)
+// ============================================================================
+
+export const GET_DOCUMENT_ANNOTATION_INDEX = gql`
+  query GetDocumentAnnotationIndex(
+    $documentId: ID!
+    $corpusId: ID
+    $labelText: String
+    $first: Int
+  ) {
+    annotations(
+      documentId: $documentId
+      corpusId: $corpusId
+      annotationLabel_Text: $labelText
+      first: $first
+    ) {
+      totalCount
+      edges {
+        node {
+          id
+          rawText
+          longDescription
+          page
+          parent {
+            id
+          }
+          annotationLabel {
+            id
+            text
+            color
+            icon
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface AnnotationIndexNode {
+  id: string;
+  rawText: string | null;
+  longDescription: string | null;
+  page: number;
+  parent: { id: string } | null;
+  annotationLabel: {
+    id: string;
+    text: string;
+    color: string;
+    icon: string;
+  } | null;
+}
+
+export interface GetDocumentAnnotationIndexInput {
+  documentId: string;
+  corpusId?: string;
+  labelText?: string;
+  first?: number;
+}
+
+export interface GetDocumentAnnotationIndexOutput {
+  annotations: {
+    totalCount: number;
+    edges: Array<{
+      node: AnnotationIndexNode;
+    }>;
+  };
+}

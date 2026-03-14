@@ -6,6 +6,13 @@ Constants for annotation-related operations.
 # that were created manually (not by an analysis/analyzer)".
 MANUAL_ANNOTATION_SENTINEL = "~~MANUAL~~"
 
+# --------------------------------------------------------------------------- #
+# Built-in annotation label names (OC_ namespace)                             #
+# --------------------------------------------------------------------------- #
+# Labels prefixed with OC_ are reserved for platform-generated annotations.
+# They drive built-in features such as the document index.
+OC_SECTION_LABEL = "OC_SECTION"
+
 # Maximum number of document relationships returned in a single query.
 # Set high to accommodate Table of Contents hierarchies.
 DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500

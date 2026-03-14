@@ -108,6 +108,7 @@ def import_annotations(
 
         annot_obj = Annotation.objects.create(
             raw_text=annotation_data["rawText"],
+            long_description=annotation_data.get("long_description"),
             page=annotation_data.get("page", 1),
             json=annotation_data["annotation_json"],
             annotation_label=label_obj,

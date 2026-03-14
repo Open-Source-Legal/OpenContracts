@@ -25,7 +25,8 @@ Build a navigable hierarchical index for long documents using annotations with m
 - No new model or relationship type needed
 
 ### Index Entry Convention
-- Use a dedicated `AnnotationLabel` with `text="Document Index Entry"` and `label_type=TOKEN_LABEL` (or `SPAN_LABEL` for text docs)
+- Use a dedicated `AnnotationLabel` with `text="OC_SECTION"` and `label_type=TOKEN_LABEL` (or `SPAN_LABEL` for text docs)
+- The `OC_` prefix is a namespace for platform-generated labels (future: `OC_CHAPTER`, `OC_GLOSSARY_ENTRY`, etc.)
 - `raw_text` = section title/heading text
 - `long_description` = markdown summary of section content
 - `parent` FK = hierarchy (Chapter → Section → Subsection)

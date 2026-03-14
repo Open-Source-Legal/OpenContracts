@@ -5,10 +5,22 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-03-11
+## [Unreleased] - 2026-03-14
 
 ### Added
 
+- **Document index feature (within-document TOC)**: Hierarchical, navigable section index for long documents with markdown descriptions. Changes include:
+  - New `long_description` (TextField, nullable) on the Annotation model for markdown section summaries (`opencontractserver/annotations/models.py`)
+  - Database migration `0066_annotation_long_description`
+  - `OC_SECTION` label constant (`opencontractserver/constants/annotations.py`) — `OC_` namespace for platform-generated labels
+  - New `create_document_index` agent tool for building hierarchical indexes from exact string matches (`opencontractserver/llms/tools/core_tools.py`)
+  - Tool registered in tool registry with approval gate (`opencontractserver/llms/tools/tool_registry.py`)
+  - `long_description` exposed in GraphQL AnnotationType (auto-resolved), UpdateAnnotation mutation, and AnnotationSerializer
+  - Export/import extended: `long_description` in `OpenContractsAnnotationPythonType`, import reads it, export includes it
+  - New `DocumentAnnotationIndex` frontend component with tree rendering, expandable markdown descriptions, page badges, and filter support (`frontend/src/components/corpuses/DocumentAnnotationIndex.tsx`)
+  - `DocumentTableOfContents` now renders annotation indexes under each document node; single-doc corpora skip the document header and show sections directly
+  - New `GET_DOCUMENT_ANNOTATION_INDEX` GraphQL query and TypeScript types (`frontend/src/graphql/queries.ts`)
+  - Frontend constants: `DOCUMENT_ANNOTATION_INDEX_LIMIT`, `OC_SECTION_LABEL` (`frontend/src/assets/configurations/constants.ts`)
 - **Richer social media link previews for corpus and document links**: Improved the Cloudflare OG worker to generate better social tags. Changes include:
   - Corpus descriptions are now included in OG/Twitter description tags, combined with document count (e.g. "Corpus description — 15 documents")
   - Document-in-corpus links now surface the parent corpus description when the document lacks its own description

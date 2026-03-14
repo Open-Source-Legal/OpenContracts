@@ -1711,6 +1711,222 @@ async def aadd_annotations_from_exact_strings(
 
 
 # --------------------------------------------------------------------------- #
+# Document index creation                                                     #
+# --------------------------------------------------------------------------- #
+
+
+class IndexEntryItem(TypedDict):
+    """Single entry for building a hierarchical document index."""
+
+    title: str
+    exact_string: str
+    long_description: str
+    parent_index: int  # -1 for root entries, otherwise index into the list
+
+
+def create_document_index(
+    entries: list[IndexEntryItem],
+    *,
+    document_id: int,
+    corpus_id: int,
+    creator_id: int,
+    corpus_action_id: int | None = None,
+) -> list[int]:
+    """Create a hierarchical document index from exact string matches.
+
+    Each *entry* is a dict with keys:
+    - ``title`` (str): Section heading text.
+    - ``exact_string`` (str): The exact text to anchor this section in the
+      document.
+    - ``long_description`` (str): Markdown summary of the section content.
+    - ``parent_index`` (int): Index into *entries* pointing to this entry's
+      parent.  Use ``-1`` for root-level entries.
+
+    Annotations are created with the ``OC_SECTION`` label and linked via the
+    ``parent`` FK to form a hierarchy.
+
+    Args:
+        entries: List of index entries to create.
+        document_id: Target document (injected from context).
+        corpus_id: Target corpus (injected from context).
+        creator_id: User creating the index (injected from context).
+        corpus_action_id: Optional corpus action that triggered this.
+
+    Returns:
+        List of created Annotation PKs in the same order as *entries*.
+    """
+
+    import json
+
+    from django.db import transaction
+    from plasmapdf.models.PdfDataLayer import build_translation_layer
+    from plasmapdf.models.types import SpanAnnotation, TextSpan
+
+    from opencontractserver.annotations.models import (
+        SPAN_LABEL,
+        TOKEN_LABEL,
+        Annotation,
+    )
+    from opencontractserver.constants.annotations import OC_SECTION_LABEL
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import Document
+
+    # Validate document and corpus.
+    try:
+        doc = Document.objects.get(pk=document_id)
+    except Document.DoesNotExist as exc:
+        raise ValueError(f"Document id={document_id} does not exist") from exc
+
+    try:
+        corpus = Corpus.objects.get(pk=corpus_id)
+    except Corpus.DoesNotExist as exc:
+        raise ValueError(f"Corpus id={corpus_id} does not exist") from exc
+
+    if not corpus.get_documents().filter(pk=document_id).exists():
+        raise ValueError(
+            f"Document id={document_id} is not linked to corpus id={corpus_id}."
+        )
+
+    file_type = doc.file_type.lower()
+
+    if file_type == "application/pdf":
+        if not doc.pawls_parse_file:
+            raise ValueError(
+                f"PDF document id={document_id} lacks a PAWLS layer; "
+                "cannot create index."
+            )
+        doc.pawls_parse_file.open("r")
+        try:
+            pawls_tokens = json.load(doc.pawls_parse_file)
+        finally:
+            doc.pawls_parse_file.close()
+
+        pdf_layer = build_translation_layer(pawls_tokens)
+        doc_text = pdf_layer.doc_text
+        label_type_const = TOKEN_LABEL
+
+        def _make_annotation(pos, end_idx, label_obj, title, description):
+            span = TextSpan(
+                id=str(uuid4()),
+                start=pos,
+                end=end_idx,
+                text=doc_text[pos:end_idx],
+            )
+            span_annotation = SpanAnnotation(
+                span=span, annotation_label=label_obj.text
+            )
+            oc_ann = pdf_layer.create_opencontract_annotation_from_span(
+                span_annotation
+            )
+            return Annotation(
+                raw_text=title,
+                long_description=description,
+                page=oc_ann.get("page", 1),
+                json=oc_ann["annotation_json"],
+                annotation_label=label_obj,
+                document=doc,
+                corpus=corpus,
+                creator_id=creator_id,
+                corpus_action_id=corpus_action_id,
+                annotation_type=TOKEN_LABEL,
+                structural=False,
+            )
+
+    elif file_type in {"application/txt", "text/plain"}:
+        if not doc.txt_extract_file:
+            raise ValueError(
+                f"Text document id={document_id} lacks txt_extract_file; "
+                "cannot create index."
+            )
+        doc.txt_extract_file.open("r")
+        try:
+            doc_text = doc.txt_extract_file.read()
+        finally:
+            doc.txt_extract_file.close()
+
+        label_type_const = SPAN_LABEL
+
+        def _make_annotation(pos, end_idx, label_obj, title, description):
+            return Annotation(
+                raw_text=title,
+                long_description=description,
+                page=1,
+                json={"start": pos, "end": end_idx},
+                annotation_label=label_obj,
+                document=doc,
+                corpus=corpus,
+                creator_id=creator_id,
+                corpus_action_id=corpus_action_id,
+                annotation_type=SPAN_LABEL,
+                structural=False,
+            )
+
+    else:
+        raise ValueError(
+            f"Unsupported file_type {doc.file_type} for document id={document_id}"
+        )
+
+    label_obj = corpus.ensure_label_and_labelset(
+        label_text=OC_SECTION_LABEL,
+        creator_id=creator_id,
+        label_type=label_type_const,
+    )
+
+    created: list[Annotation] = []
+
+    with transaction.atomic():
+        # First pass: create annotations without parents.
+        for entry in entries:
+            exact_str = str(entry["exact_string"])
+            pos = doc_text.find(exact_str)
+            if pos == -1:
+                raise ValueError(
+                    f"Exact string not found in document: {exact_str!r:.80}"
+                )
+            end_idx = pos + len(exact_str)
+            annot = _make_annotation(
+                pos,
+                end_idx,
+                label_obj,
+                str(entry["title"]),
+                str(entry.get("long_description", "")),
+            )
+            annot.save()
+            created.append(annot)
+
+        # Second pass: wire up parent hierarchy.
+        for i, entry in enumerate(entries):
+            parent_idx = int(entry.get("parent_index", -1))
+            if parent_idx >= 0:
+                if parent_idx >= len(created):
+                    raise ValueError(
+                        f"parent_index {parent_idx} out of range for entry {i}"
+                    )
+                created[i].parent = created[parent_idx]
+                created[i].save(update_fields=["parent"])
+
+    return [a.pk for a in created]
+
+
+async def acreate_document_index(
+    entries: list[IndexEntryItem],
+    *,
+    document_id: int,
+    corpus_id: int,
+    creator_id: int,
+    corpus_action_id: int | None = None,
+):
+    """Async wrapper around :func:`create_document_index`."""
+    return await _db_sync_to_async(create_document_index)(
+        entries,
+        document_id=document_id,
+        corpus_id=corpus_id,
+        creator_id=creator_id,
+        corpus_action_id=corpus_action_id,
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Exact-text search returning SourceNode objects                             #
 # --------------------------------------------------------------------------- #
 

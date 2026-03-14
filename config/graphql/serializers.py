@@ -200,6 +200,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "id",
             "page",
             "raw_text",
+            "long_description",
             "tokens_json",
             "bounding_box",
             "annotation_json",

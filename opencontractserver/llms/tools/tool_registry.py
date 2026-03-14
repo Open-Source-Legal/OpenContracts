@@ -394,6 +394,29 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         ),
     ),
     ToolDefinition(
+        name="create_document_index",
+        description=(
+            "Create a hierarchical document index (table of contents) from exact "
+            "string matches. Each entry has a title, markdown description, an "
+            "exact_string anchor, and a parent_index for hierarchy (-1 for roots). "
+            "Uses the OC_SECTION label."
+        ),
+        category=ToolCategory.ANNOTATIONS,
+        requires_corpus=True,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(
+            (
+                "entries",
+                (
+                    "List of objects with keys: title (str), exact_string (str), "
+                    "long_description (str), parent_index (int, -1 for root)"
+                ),
+                True,
+            ),
+        ),
+    ),
+    ToolDefinition(
         name="get_annotation_images",
         description=(
             "Get all images contained within an annotation's bounding box. "
@@ -704,9 +727,11 @@ class ToolFunctionRegistry:
         from opencontractserver.llms.tools.core_tools import (
             aadd_annotations_from_exact_strings,
             aadd_document_note,
+            acreate_document_index,
             acreate_markdown_link,
             add_annotations_from_exact_strings,
             add_document_note,
+            create_document_index,
             aduplicate_annotations_with_label,
             aget_corpus_description,
             aget_document_description,
@@ -844,6 +869,11 @@ class ToolFunctionRegistry:
             "add_annotations_from_exact_strings": (
                 add_annotations_from_exact_strings,
                 aadd_annotations_from_exact_strings,
+                (),
+            ),
+            "create_document_index": (
+                create_document_index,
+                acreate_document_index,
                 (),
             ),
             # Corpus tools
