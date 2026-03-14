@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/experimental-ct-react";
 import { DocumentTableOfContentsTestWrapper } from "./DocumentTableOfContentsTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 
 test.describe("DocumentTableOfContents", () => {
   test("shows standalone documents when no parent relationships exist", async ({
@@ -18,6 +19,7 @@ test.describe("DocumentTableOfContents", () => {
     // Both docs should be visible as root-level items (no hierarchy)
     await expect(page.getByText("Doc A")).toBeVisible();
     await expect(page.getByText("Doc B")).toBeVisible();
+    await docScreenshot(page, "corpus--toc--standalone-documents");
   });
 
   test("shows empty state when corpus has no documents", async ({
@@ -35,6 +37,7 @@ test.describe("DocumentTableOfContents", () => {
     await expect(
       page.getByText("This corpus doesn't have any documents yet")
     ).toBeVisible();
+    await docScreenshot(page, "corpus--toc--empty-state");
   });
 
   test("renders header with parent relationships", async ({ mount, page }) => {
@@ -72,6 +75,7 @@ test.describe("DocumentTableOfContents", () => {
       timeout: 5000,
     });
     await expect(page.getByText("Child Document 2")).toBeVisible();
+    await docScreenshot(page, "corpus--toc--expanded-children");
   });
 
   test("tree nodes have proper ARIA attributes", async ({ mount, page }) => {

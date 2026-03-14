@@ -514,6 +514,13 @@ export const DocumentAnnotationIndex: React.FC<
     }
   }, [expandAllFromUrl, allNodeIds]);
 
+  // Auto-expand all nodes when a filter is active so matches are visible
+  useEffect(() => {
+    if (filterQuery?.trim() && allNodeIds.length > 0) {
+      setExpandedNodes(new Set(allNodeIds));
+    }
+  }, [filterQuery, allNodeIds]);
+
   // Handle section click - navigate to the document at that page
   const handleSectionClick = (node: SectionNode) => {
     const corpus = openedCorpus();

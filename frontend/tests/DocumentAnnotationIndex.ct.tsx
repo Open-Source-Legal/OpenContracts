@@ -24,9 +24,9 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("1.2 Definitions")).not.toBeVisible();
 
     // Page badges should be shown
-    await expect(page.getByText("p. 1")).toBeVisible();
-    await expect(page.getByText("p. 5")).toBeVisible();
-    await expect(page.getByText("p. 10")).toBeVisible();
+    await expect(page.getByText("p. 1", { exact: true })).toBeVisible();
+    await expect(page.getByText("p. 5", { exact: true })).toBeVisible();
+    await expect(page.getByText("p. 10", { exact: true })).toBeVisible();
 
     await docScreenshot(page, "corpus--annotation-index--with-hierarchy");
   });
