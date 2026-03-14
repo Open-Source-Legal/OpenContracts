@@ -12,9 +12,21 @@ import {
   Button,
   EmptyState,
 } from "@os-legal/ui";
-import { Menu } from "semantic-ui-react";
 import type { FilterTabItem, CollectionType } from "@os-legal/ui";
-import { Plus, Upload } from "lucide-react";
+import {
+  Plus,
+  Upload,
+  Edit as EditIcon,
+  Eye,
+  Download,
+  GitFork,
+  Link,
+  Trash2,
+} from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuItem,
+} from "../widgets/context-menu/ContextMenu";
 import { toast } from "react-toastify";
 
 import { CorpusType, PageInfo } from "../../types/graphql-api";
@@ -216,42 +228,6 @@ const MCPButtonOverlay = styled.div`
 `;
 
 // Floating context menu (similar to old CorpusItem)
-const FloatingMenu = styled(Menu)`
-  &.ui.menu {
-    position: fixed;
-    z-index: 9999;
-    min-width: 180px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    border-radius: 8px;
-    border: 1px solid ${OS_LEGAL_COLORS.border};
-    padding: 4px 0;
-
-    .item {
-      padding: 10px 14px !important;
-      font-size: 14px !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 10px !important;
-
-      &:hover {
-        background: ${OS_LEGAL_COLORS.surfaceLight} !important;
-      }
-
-      &.danger {
-        color: ${OS_LEGAL_COLORS.danger} !important;
-
-        &:hover {
-          background: ${OS_LEGAL_COLORS.dangerSurface} !important;
-        }
-      }
-
-      i.icon {
-        margin: 0 !important;
-        opacity: 0.7;
-      }
-    }
-  }
-`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ICONS
@@ -501,26 +477,6 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
     setMenuPosition(null);
   }, []);
 
-  // Close menu when clicking outside
-  React.useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (openMenuId) {
-        handleCloseMenu();
-      }
-    };
-
-    if (openMenuId) {
-      // Delay to prevent immediate close
-      const timer = setTimeout(() => {
-        document.addEventListener("click", handleClickOutside);
-      }, 100);
-      return () => {
-        clearTimeout(timer);
-        document.removeEventListener("click", handleClickOutside);
-      };
-    }
-  }, [openMenuId, handleCloseMenu]);
-
   // Handle search submit
   const handleSearchSubmit = useCallback(
     (value: string) => {
@@ -684,6 +640,8 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                             type="button"
                             className="oc-collection-card__menu-button"
                             aria-label="Open menu"
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuId === corpus.id}
                             onClick={(e) => handleOpenContextMenu(e, corpus.id)}
                           >
                             <KebabIcon />
@@ -696,103 +654,97 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
               </CollectionList>
 
               {/* Floating Context Menu */}
-              {openMenuId && menuPosition && (
-                <FloatingMenu
-                  vertical
-                  style={{
-                    left: menuPosition.x,
-                    top: menuPosition.y,
-                  }}
-                >
-                  {(() => {
-                    const corpus = filteredCorpuses.find(
-                      (c) => c.id === openMenuId
-                    );
-                    if (!corpus) return null;
+              {(() => {
+                if (!openMenuId || !menuPosition) return null;
 
-                    const permissions = getPermissions(
-                      corpus.myPermissions || []
-                    );
-                    const canUpdate = permissions.includes(
-                      PermissionTypes.CAN_UPDATE
-                    );
-                    const canRemove = permissions.includes(
-                      PermissionTypes.CAN_REMOVE
-                    );
+                const corpus = filteredCorpuses.find(
+                  (c) => c.id === openMenuId
+                );
+                if (!corpus) return null;
 
-                    return (
-                      <>
-                        {canUpdate && (
-                          <Menu.Item
-                            icon="edit outline"
-                            content="Edit"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              editingCorpus(corpus);
-                              handleCloseMenu();
-                            }}
-                          />
-                        )}
-                        <Menu.Item
-                          icon="eye"
-                          content="View Details"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                const permissions = getPermissions(corpus.myPermissions || []);
+                const canUpdate = permissions.includes(
+                  PermissionTypes.CAN_UPDATE
+                );
+                const canRemove = permissions.includes(
+                  PermissionTypes.CAN_REMOVE
+                );
+
+                return (
+                  <ContextMenu
+                    position={menuPosition}
+                    onClose={handleCloseMenu}
+                    aria-label="Corpus actions"
+                    items={
+                      [
+                        {
+                          key: "edit",
+                          icon: <EditIcon size={16} />,
+                          label: "Edit",
+                          visible: canUpdate,
+                          onClick: () => {
+                            editingCorpus(corpus);
+                            handleCloseMenu();
+                          },
+                        },
+                        {
+                          key: "view",
+                          icon: <Eye size={16} />,
+                          label: "View Details",
+                          onClick: () => {
                             viewingCorpus(corpus);
                             handleCloseMenu();
-                          }}
-                        />
-                        <Menu.Item
-                          icon="cloud download"
-                          content="Export"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                          },
+                        },
+                        {
+                          key: "export",
+                          icon: <Download size={16} />,
+                          label: "Export",
+                          onClick: () => {
                             exportingCorpus(corpus);
                             handleCloseMenu();
-                          }}
-                        />
-                        <Menu.Item
-                          icon="fork"
-                          content="Fork"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                          },
+                        },
+                        {
+                          key: "fork",
+                          icon: <GitFork size={16} />,
+                          label: "Fork",
+                          onClick: () => {
                             handleFork(corpus.id);
                             handleCloseMenu();
-                          }}
-                        />
-                        {corpus.isPublic && corpus.slug && (
-                          <Menu.Item
-                            icon="linkify"
-                            content="MCP Endpoint"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const mcpUrl = `${window.location.origin}/mcp/corpus/${corpus.slug}`;
-                              navigator.clipboard.writeText(mcpUrl).then(() => {
-                                toast.success(
-                                  "MCP endpoint URL copied to clipboard"
-                                );
-                              });
-                              handleCloseMenu();
-                            }}
-                          />
-                        )}
-                        {canRemove && !corpus.isPersonal && (
-                          <Menu.Item
-                            className="danger"
-                            icon="trash"
-                            content="Delete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deletingCorpus(corpus);
-                              handleCloseMenu();
-                            }}
-                          />
-                        )}
-                      </>
-                    );
-                  })()}
-                </FloatingMenu>
-              )}
+                          },
+                        },
+                        {
+                          key: "mcp",
+                          icon: <Link size={16} />,
+                          label: "MCP Endpoint",
+                          visible: Boolean(corpus.isPublic && corpus.slug),
+                          onClick: () => {
+                            const mcpUrl = `${window.location.origin}/mcp/corpus/${corpus.slug}`;
+                            navigator.clipboard.writeText(mcpUrl).then(() => {
+                              toast.success(
+                                "MCP endpoint URL copied to clipboard"
+                              );
+                            });
+                            handleCloseMenu();
+                          },
+                        },
+                        {
+                          key: "delete",
+                          icon: <Trash2 size={16} />,
+                          label: "Delete",
+                          variant: "danger" as const,
+                          visible: canRemove && !corpus.isPersonal,
+                          onClick: () => {
+                            deletingCorpus(corpus);
+                            handleCloseMenu();
+                          },
+                        },
+                      ] satisfies ContextMenuItem[]
+                    }
+                  />
+                );
+              })()}
             </>
           ) : !loading ? (
             <EmptyStateWrapper>

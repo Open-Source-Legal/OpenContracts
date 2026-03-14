@@ -23,6 +23,10 @@ import {
   OS_LEGAL_COLORS,
   accentAlpha,
 } from "../../assets/configurations/osLegalStyles";
+import {
+  modalFooterBorder,
+  modalFooterMobile,
+} from "../widgets/modals/sharedModalStyles";
 
 // Types
 export type CorpusModalMode = "CREATE" | "EDIT" | "VIEW";
@@ -68,7 +72,7 @@ const CorpusModalStyles = createGlobalStyle`
   }
 
   .corpus-modal .oc-modal-footer {
-    border-top: 1px solid var(--oc-border-default);
+    ${modalFooterBorder}
   }
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {

@@ -1,7 +1,14 @@
 import React, { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
-import { Calendar, MessageCircle, Plus, Search, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Calendar,
+  MessageCircle,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 
 import {
   DatePickerExpanded,
@@ -65,6 +72,8 @@ interface ConversationListViewProps {
   createdAtLte: string;
   /** Setter for createdAtLte. */
   onCreatedAtLteChange: (value: string) => void;
+  /** Optional back callback (e.g. return to corpus home on mobile) */
+  onBack?: () => void;
 }
 
 /**
@@ -86,6 +95,7 @@ export const CorpusConversationListView: React.FC<
   onCreatedAtGteChange,
   createdAtLte,
   onCreatedAtLteChange,
+  onBack,
 }) => {
   // Local UI state for toggling search / date picker visibility
   const [showSearch, setShowSearch] = useState(false);
@@ -111,6 +121,20 @@ export const CorpusConversationListView: React.FC<
       transition={{ duration: 0.3 }}
     >
       <EnhancedFilterContainer>
+        {onBack && (
+          <>
+            <IconButton
+              onClick={onBack}
+              whileTap={{ scale: 0.95 }}
+              title="Back to Home"
+              aria-label="Back"
+            >
+              <ArrowLeft />
+            </IconButton>
+            <ToolbarDivider />
+          </>
+        )}
+
         <NewChatButton
           onClick={onStartNewChat}
           whileHover={{ scale: 1.02 }}

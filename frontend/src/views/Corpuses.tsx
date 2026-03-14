@@ -538,7 +538,8 @@ const CorpusQueryView = ({
             onMessageSelect={() => {}}
             onSourceNavigate={onSourceNavigate}
             forceNewChat={true}
-            onClose={resetToSearch}
+            // forceNewChat=true means we came from the search bar — just reset back to it
+            onNavigateHome={resetToSearch}
           />
         </motion.div>
       );
@@ -630,6 +631,13 @@ const CorpusQueryView = ({
             setShowLoad={() => {}}
             onMessageSelect={() => {}}
             onSourceNavigate={onSourceNavigate}
+            // showLoad=true means we're in conversation-list mode — reset search
+            // AND explicitly switch to ASK state so the search bar is visible
+            // (without this the view could stay in VIEW mode after navigating home)
+            onNavigateHome={() => {
+              resetToSearch();
+              showQueryViewState("ASK");
+            }}
           />
         </div>
       </motion.div>
@@ -2593,7 +2601,7 @@ export const Corpuses = () => {
                 onSourceNavigate={handleSourceNavigate}
                 setShowLoad={() => {}}
                 onViewModeChange={setChatInConversation}
-                onClose={() => setActiveTab(0)}
+                onNavigateHome={() => setActiveTab(0)}
               />
             </div>
           </div>

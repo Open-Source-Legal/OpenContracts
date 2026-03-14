@@ -145,9 +145,8 @@ test.describe("Documents View - Context Menu Interactions", () => {
     const docCard = page.locator("text=Test Document 1.pdf").first();
     await docCard.click({ button: "right" });
 
-    // Context menu should appear - check for the floating menu container
-    // The menu uses Semantic UI styling
-    const contextMenu = page.locator(".ui.menu.vertical");
+    // Context menu should appear - uses role="menu" from ContextMenu component
+    const contextMenu = page.locator('[role="menu"]');
     await expect(contextMenu).toBeVisible({
       timeout: 3000,
     });

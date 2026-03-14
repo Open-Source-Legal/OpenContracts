@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { Dropdown, DropdownOption } from "@os-legal/ui";
-import { Menu } from "semantic-ui-react";
-import { Info, Settings, Cpu, FileText } from "lucide-react";
 import {
+  Dropdown,
+  DropdownOption,
+  FilterTabs,
   Button,
   Input,
   Modal,
@@ -11,6 +11,8 @@ import {
   ModalFooter,
   Spinner,
 } from "@os-legal/ui";
+import type { FilterTabItem } from "@os-legal/ui";
+import { Info, Settings, Cpu, FileText } from "lucide-react";
 import styled from "styled-components";
 import { useMutation, useQuery } from "@apollo/client";
 import { InfoMessage } from "../widgets/feedback";
@@ -780,24 +782,25 @@ export const CreateCorpusActionModal: React.FC<
                   </>
                 </InfoMessage>
 
-                <Menu pointing secondary size="small">
-                  <Menu.Item
-                    name={
-                      isThreadTrigger
-                        ? "Quick Create Moderator"
-                        : "Quick Create Agent"
-                    }
-                    active={useInlineAgent}
-                    onClick={() => setUseInlineAgent(true)}
-                    icon="magic"
-                  />
-                  <Menu.Item
-                    name="Use Existing Agent"
-                    active={!useInlineAgent}
-                    onClick={() => setUseInlineAgent(false)}
-                    icon="linkify"
-                  />
-                </Menu>
+                <FilterTabs
+                  items={
+                    [
+                      {
+                        id: "inline",
+                        label: isThreadTrigger
+                          ? "Quick Create Moderator"
+                          : "Quick Create Agent",
+                      },
+                      {
+                        id: "existing",
+                        label: "Use Existing Agent",
+                      },
+                    ] satisfies FilterTabItem[]
+                  }
+                  value={useInlineAgent ? "inline" : "existing"}
+                  onChange={(id) => setUseInlineAgent(id === "inline")}
+                  size="sm"
+                />
 
                 {/* Inline Agent Creation Mode */}
                 {useInlineAgent && (

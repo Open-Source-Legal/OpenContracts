@@ -27,6 +27,7 @@ export const SettingsContainer = styled.div`
 /** Scrollable page container with max-width constraint */
 export const SettingsPageContainer = styled.div`
   padding: 2rem;
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   height: 100%;
@@ -223,6 +224,9 @@ export const MetadataItem = styled.div`
     font-size: 1rem;
     color: ${OS_LEGAL_COLORS.textPrimary};
     font-weight: 500;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
   }
 `;
 

@@ -30,8 +30,17 @@ import {
   SlidersHorizontal,
   X,
   AlertCircle,
+  ExternalLink,
+  Eye,
+  FolderOpen,
+  Edit,
+  CheckSquare,
+  Trash2,
 } from "lucide-react";
-import { Menu } from "semantic-ui-react";
+import {
+  ContextMenu,
+  ContextMenuItem,
+} from "../components/widgets/context-menu/ContextMenu";
 
 import {
   DeleteMultipleDocumentsInputs,
@@ -763,67 +772,6 @@ const CompactItemMeta = styled.span`
 `;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CONTEXT MENU STYLES
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const FloatingMenu = styled(Menu)`
-  &.ui.menu {
-    position: fixed;
-    z-index: 9999;
-    min-width: 200px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    border-radius: 8px;
-    border: 1px solid ${OS_LEGAL_COLORS.border};
-    padding: 4px 0;
-
-    .item {
-      padding: 10px 14px !important;
-      font-size: 14px !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 10px !important;
-
-      &:hover {
-        background: ${OS_LEGAL_COLORS.surfaceLight} !important;
-      }
-
-      &.danger {
-        color: ${OS_LEGAL_COLORS.danger} !important;
-
-        &:hover {
-          background: ${OS_LEGAL_COLORS.dangerSurface} !important;
-        }
-      }
-
-      &.primary {
-        color: ${OS_LEGAL_COLORS.accent} !important;
-        font-weight: 500 !important;
-      }
-
-      i.icon {
-        margin: 0 !important;
-        opacity: 0.7;
-      }
-    }
-  }
-`;
-
-const MenuHeader = styled.div`
-  padding: 8px 14px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: ${OS_LEGAL_COLORS.textMuted};
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
-`;
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // ICONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1128,25 +1076,6 @@ export const Documents = () => {
   const handleCloseContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
-
-  // Close context menu on click outside
-  useEffect(() => {
-    const handleClickOutside = () => {
-      if (contextMenu) {
-        handleCloseContextMenu();
-      }
-    };
-
-    if (contextMenu) {
-      const timer = setTimeout(() => {
-        document.addEventListener("click", handleClickOutside);
-      }, DEBOUNCE.CLICK_OUTSIDE_DELAY_MS);
-      return () => {
-        clearTimeout(timer);
-        document.removeEventListener("click", handleClickOutside);
-      };
-    }
-  }, [contextMenu, handleCloseContextMenu]);
 
   // Close filter popup on click outside
   useEffect(() => {
@@ -1528,6 +1457,9 @@ export const Documents = () => {
                           <span>{formatRelativeTime(doc.created)}</span>
                         </CardUploader>
                         <CardMenuButton
+                          aria-label="Open menu"
+                          aria-haspopup="menu"
+                          aria-expanded={contextMenu?.document.id === doc.id}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleContextMenu(e, doc);
@@ -1610,6 +1542,9 @@ export const Documents = () => {
                       </ListItemUploader>
                       <ListItemActions>
                         <CardMenuButton
+                          aria-label="Open menu"
+                          aria-haspopup="menu"
+                          aria-expanded={contextMenu?.document.id === doc.id}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleContextMenu(e, doc);
@@ -1666,6 +1601,9 @@ export const Documents = () => {
                         {doc.backendLock ? "Processing" : "Processed"}
                       </Chip>
                       <CardMenuButton
+                        aria-label="Open menu"
+                        aria-haspopup="menu"
+                        aria-expanded={contextMenu?.document.id === doc.id}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleContextMenu(e, doc);
@@ -1736,83 +1674,80 @@ export const Documents = () => {
 
         {/* Context Menu */}
         {contextMenu && (
-          <FloatingMenu
-            vertical
-            style={{
-              left: contextMenu.position.x,
-              top: contextMenu.position.y,
-            }}
-          >
-            <MenuHeader title={contextMenu.document.title || "Untitled"}>
-              {contextMenu.document.title || "Untitled"}
-            </MenuHeader>
-            <Menu.Item
-              className="primary"
-              icon="external"
-              content="Open Document"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDocumentClick(contextMenu.document);
-                handleCloseContextMenu();
-              }}
-            />
-            <Menu.Item
-              icon="eye"
-              content="View Details"
-              onClick={(e) => {
-                e.stopPropagation();
-                viewingDocument(contextMenu.document);
-                handleCloseContextMenu();
-              }}
-            />
-            {current_user && (
-              <>
-                <Menu.Item
-                  icon="folder open"
-                  content="Add to Corpus"
-                  onClick={(e) => {
-                    e.stopPropagation();
+          <ContextMenu
+            position={contextMenu.position}
+            onClose={handleCloseContextMenu}
+            header={contextMenu.document.title || "Untitled"}
+            aria-label="Document actions"
+            items={
+              [
+                {
+                  key: "open",
+                  icon: <ExternalLink size={16} />,
+                  label: "Open Document",
+                  variant: "primary" as const,
+                  onClick: () => {
+                    handleDocumentClick(contextMenu.document);
+                    handleCloseContextMenu();
+                  },
+                },
+                {
+                  key: "view",
+                  icon: <Eye size={16} />,
+                  label: "View Details",
+                  onClick: () => {
+                    viewingDocument(contextMenu.document);
+                    handleCloseContextMenu();
+                  },
+                },
+                {
+                  key: "add-to-corpus",
+                  icon: <FolderOpen size={16} />,
+                  label: "Add to Corpus",
+                  visible: Boolean(current_user),
+                  onClick: () => {
                     selectedDocumentIds([contextMenu.document.id]);
                     showAddDocsToCorpusModal(true);
                     handleCloseContextMenu();
-                  }}
-                />
-                <Menu.Item
-                  icon="edit"
-                  content="Edit Details"
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  },
+                },
+                {
+                  key: "edit",
+                  icon: <Edit size={16} />,
+                  label: "Edit Details",
+                  visible: Boolean(current_user),
+                  onClick: () => {
                     editingDocument(contextMenu.document);
                     handleCloseContextMenu();
-                  }}
-                />
-                <Menu.Item
-                  icon="check square"
-                  content={
-                    selected_document_ids.includes(contextMenu.document.id)
-                      ? "Deselect"
-                      : "Select"
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  },
+                },
+                {
+                  key: "select",
+                  icon: <CheckSquare size={16} />,
+                  label: selected_document_ids.includes(contextMenu.document.id)
+                    ? "Deselect"
+                    : "Select",
+                  visible: Boolean(current_user),
+                  onClick: () => {
                     handleSelect(contextMenu.document.id);
                     handleCloseContextMenu();
-                  }}
-                />
-                <Menu.Item
-                  className="danger"
-                  icon="trash"
-                  content="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  },
+                },
+                {
+                  key: "delete",
+                  icon: <Trash2 size={16} />,
+                  label: "Delete",
+                  variant: "danger" as const,
+                  visible: Boolean(current_user),
+                  onClick: () => {
                     selectedDocumentIds([contextMenu.document.id]);
                     showDeleteDocumentsModal(true);
                     handleCloseContextMenu();
-                  }}
-                />
-              </>
-            )}
-          </FloatingMenu>
+                  },
+                },
+              ] satisfies ContextMenuItem[]
+            }
+          />
         )}
       </ContentContainer>
     </PageContainer>

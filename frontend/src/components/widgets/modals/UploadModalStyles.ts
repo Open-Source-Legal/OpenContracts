@@ -80,6 +80,7 @@ export const StyledUploadModal = styled(Modal)`
 
   .oc-modal-footer {
     padding: 1rem 1.5rem !important;
+    padding-top: var(--oc-spacing-lg) !important;
     background: #f8f9fa !important;
     border-top: 1px solid ${OS_LEGAL_COLORS.gray200} !important;
     display: flex;

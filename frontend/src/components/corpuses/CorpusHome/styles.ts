@@ -217,70 +217,36 @@ export const LandingDescription = styled.p`
   }
 `;
 
-/** Hero image band — full-width with composite gradient mask.
- *  Vertical: light fade at top, heavy dissolve at bottom.
- *  Horizontal: soft side edges that blend into the page background.
- *  Uses mask-composite to intersect the two gradient layers. */
+/** Hero image avatar — circular crop with soft-vignette fade at the edges.
+ *  The container's border-radius clips to a circle; the radial-gradient mask
+ *  on the img adds an intentional feathered edge so the photo fades rather
+ *  than ending with a hard pixel boundary. */
 export const HeroImageBand = styled.div`
-  width: 100%;
-  max-width: 600px;
-  max-height: 280px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
   overflow: hidden;
   margin-top: 0.5rem;
-  border-radius: ${CORPUS_RADII.lg};
+  flex-shrink: 0;
 
   img {
     width: 100%;
     height: 100%;
-    max-height: 280px;
     object-fit: cover;
     display: block;
-    mask-image: linear-gradient(
-        to right,
-        transparent,
-        black 8%,
-        black 92%,
-        transparent
-      ),
-      linear-gradient(
-        to bottom,
-        transparent 0%,
-        black 8%,
-        black 55%,
-        transparent 100%
-      );
-    mask-composite: intersect;
-    -webkit-mask-image: linear-gradient(
-        to right,
-        transparent,
-        black 8%,
-        black 92%,
-        transparent
-      ),
-      linear-gradient(
-        to bottom,
-        transparent 0%,
-        black 8%,
-        black 55%,
-        transparent 100%
-      );
-    -webkit-mask-composite: source-in; /* WebKit equivalent of mask-composite: intersect */
+    /* Soft vignette — feathers the photo edges inside the circular crop */
+    mask-image: radial-gradient(circle, black 55%, transparent 75%);
+    -webkit-mask-image: radial-gradient(circle, black 55%, transparent 75%);
   }
 
   ${mediaQuery.tablet} {
-    max-height: 160px;
-
-    img {
-      max-height: 160px;
-    }
+    width: 176px;
+    height: 176px;
   }
 
   ${mediaQuery.mobile} {
-    max-height: 80px;
-
-    img {
-      max-height: 80px;
-    }
+    width: 160px;
+    height: 160px;
   }
 `;
 

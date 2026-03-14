@@ -1,6 +1,7 @@
 import styled, { css, keyframes } from "styled-components";
 import { MOBILE_VIEW_BREAKPOINT } from "../../../../assets/configurations/constants";
 import { accentAlpha } from "../../../../assets/configurations/osLegalStyles";
+import { modalFooterBorder, modalFooterMobile } from "../sharedModalStyles";
 
 // Breakpoints
 const TABLET_BREAKPOINT = 1024;
@@ -78,22 +79,8 @@ export const StyledModalWrapper = styled.div`
 
   .oc-modal-footer {
     background: var(--oc-bg-surface);
-    border-top: 1px solid var(--oc-border-default);
-
-    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      position: sticky;
-      bottom: 0;
-      flex-direction: column-reverse;
-      gap: var(--oc-spacing-sm);
-      padding-bottom: calc(
-        var(--oc-spacing-lg) + env(safe-area-inset-bottom, 0px)
-      );
-
-      button {
-        width: 100%;
-        justify-content: center;
-      }
-    }
+    ${modalFooterBorder}
+    ${modalFooterMobile}
   }
 `;
 

@@ -545,7 +545,7 @@ test.describe("CreateCorpusActionModal - Agent Configuration", () => {
     ).toBeVisible();
 
     // Default mode is Quick Create — switch to Use Existing Agent
-    await page.locator('a:has-text("Use Existing Agent")').click();
+    await page.locator("text=Use Existing Agent").click();
     await page.waitForTimeout(200);
 
     await expect(page.locator("text=Select agent configuration")).toBeVisible();
@@ -581,7 +581,7 @@ test.describe("CreateCorpusActionModal - Agent Configuration", () => {
     await page.waitForTimeout(500);
 
     // Switch to Use Existing Agent tab (Quick Create is default in create mode)
-    await page.locator('a:has-text("Use Existing Agent")').click();
+    await page.locator("text=Use Existing Agent").click();
     await page.waitForTimeout(200);
 
     // Select the agent config
@@ -633,7 +633,7 @@ test.describe("CreateCorpusActionModal - Agent Configuration", () => {
     await page.waitForTimeout(500);
 
     // Switch to Use Existing Agent tab (Quick Create is default in create mode)
-    await page.locator('a:has-text("Use Existing Agent")').click();
+    await page.locator("text=Use Existing Agent").click();
     await page.waitForTimeout(200);
 
     // Select the agent config

@@ -1,5 +1,6 @@
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { modalFooterBorder } from "../widgets/modals/sharedModalStyles";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import { toast } from "react-toastify";
 import {
@@ -42,8 +43,9 @@ const StyledModalWrapper = styled.div`
   }
 
   .oc-modal-footer {
+    ${modalFooterBorder}
     background: ${OS_LEGAL_COLORS.darkSurface};
-    border-top: 1px solid ${OS_LEGAL_COLORS.darkSurfaceBorder};
+    border-top-color: ${OS_LEGAL_COLORS.darkSurfaceBorder};
     display: flex;
     justify-content: center;
   }

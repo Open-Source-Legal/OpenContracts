@@ -300,8 +300,8 @@ test.describe("Extracts View - Context Menu", () => {
     const extractCard = page.locator("text=Running Extract").first();
     await extractCard.click({ button: "right" });
 
-    // Context menu should appear
-    const contextMenu = page.locator(".ui.menu.vertical");
+    // Context menu should appear - uses role="menu" from ContextMenu component
+    const contextMenu = page.locator('[role="menu"]');
     await expect(contextMenu).toBeVisible({
       timeout: 3000,
     });
@@ -421,7 +421,7 @@ test.describe("Extracts View - Permission-based UI", () => {
     });
 
     // Count menu items - should only have View Details, not Delete
-    const menuItems = page.locator(".ui.menu.vertical .item");
+    const menuItems = page.locator('[role="menuitem"]');
     await expect(menuItems).toHaveCount(1);
 
     await component.unmount();
@@ -446,8 +446,8 @@ test.describe("Extracts View - Keyboard Accessibility", () => {
     // Wait for menu to appear
     await page.waitForTimeout(300);
 
-    // Context menu should appear
-    const contextMenu = page.locator(".ui.menu.vertical");
+    // Context menu should appear - uses role="menu" from ContextMenu component
+    const contextMenu = page.locator('[role="menu"]');
     await expect(contextMenu).toBeVisible({ timeout: 3000 });
 
     // Press Escape to close

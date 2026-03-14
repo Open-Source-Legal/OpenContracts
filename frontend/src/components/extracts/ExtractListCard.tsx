@@ -1,13 +1,17 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useCallback } from "react";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
 import { CollectionCard } from "@os-legal/ui";
-import { Menu } from "semantic-ui-react";
+import { Eye, Trash2 } from "lucide-react";
 import { ExtractType } from "../../types/graphql-api";
 import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
 import { getExtractStatus, formatExtractDate } from "../../utils/extractUtils";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  ContextMenu,
+  ContextMenuItem,
+} from "../widgets/context-menu/ContextMenu";
 
 // Styled Components
 
@@ -42,62 +46,6 @@ const MenuButton = styled.button`
       background: ${OS_LEGAL_COLORS.surfaceLight};
       color: #334155;
     }
-  }
-`;
-
-const FloatingMenu = styled(Menu)`
-  &.ui.menu {
-    position: absolute;
-    z-index: 9999;
-    min-width: 180px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    border-radius: 8px;
-    border: 1px solid ${OS_LEGAL_COLORS.border};
-    padding: 4px 0;
-
-    .item {
-      padding: 10px 14px !important;
-      font-size: 14px !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 10px !important;
-      cursor: pointer;
-
-      &:hover,
-      &:focus {
-        background: ${OS_LEGAL_COLORS.surfaceLight} !important;
-        outline: none;
-      }
-
-      &.danger {
-        color: ${OS_LEGAL_COLORS.danger} !important;
-
-        &:hover,
-        &:focus {
-          background: ${OS_LEGAL_COLORS.dangerSurface} !important;
-        }
-      }
-
-      i.icon {
-        margin: 0 !important;
-        opacity: 0.7;
-      }
-    }
-  }
-`;
-
-// Portal container for floating menu to handle positioning relative to viewport
-const MenuPortal = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 9998;
-  pointer-events: none;
-
-  & > * {
-    pointer-events: auto;
   }
 `;
 
@@ -161,7 +109,6 @@ export const ExtractListCard: React.FC<ExtractListCardProps> = ({
   isSelected = false,
 }) => {
   const navigate = useNavigate();
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const handleClick = () => {
     // Don't navigate if menu is open
@@ -209,68 +156,6 @@ export const ExtractListCard: React.FC<ExtractListCardProps> = ({
     [extract.id, onOpenMenu]
   );
 
-  // Handle keyboard navigation within menu
-  const handleMenuKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCloseMenu?.();
-      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const items = menuRef.current?.querySelectorAll('[role="menuitem"]');
-        if (!items?.length) return;
-
-        const currentIndex = Array.from(items).findIndex(
-          (item) => item === document.activeElement
-        );
-        let nextIndex: number;
-        if (e.key === "ArrowDown") {
-          nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
-        } else {
-          nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
-        }
-        (items[nextIndex] as HTMLElement).focus();
-      }
-    },
-    [onCloseMenu]
-  );
-
-  // Focus first menu item when menu opens
-  useEffect(() => {
-    if (isMenuOpen && menuRef.current) {
-      // Small delay to ensure DOM is ready
-      setTimeout(() => {
-        const firstItem = menuRef.current?.querySelector(
-          '[role="menuitem"]'
-        ) as HTMLElement;
-        firstItem?.focus();
-      }, 0);
-    }
-  }, [isMenuOpen]);
-
-  // Calculate bounded menu position to keep within viewport
-  const getBoundedMenuPosition = () => {
-    if (!menuPosition) return { left: 0, top: 0 };
-
-    const menuWidth = 180;
-    const menuHeight = 100; // Approximate
-    const padding = 8;
-
-    let { x, y } = menuPosition;
-
-    // Bound to viewport
-    if (x + menuWidth > window.innerWidth - padding) {
-      x = window.innerWidth - menuWidth - padding;
-    }
-    if (y + menuHeight > window.innerHeight - padding) {
-      y = window.innerHeight - menuHeight - padding;
-    }
-    if (x < padding) x = padding;
-    if (y < padding) y = padding;
-
-    return { left: x, top: y };
-  };
-
   const statusLabel = getExtractStatus(extract).label;
   const stats = formatStats(extract);
   const permissions = getPermissions(extract.myPermissions || []);
@@ -280,8 +165,6 @@ export const ExtractListCard: React.FC<ExtractListCardProps> = ({
   const description = extract.created
     ? `Created ${formatExtractDate(extract.created)}`
     : "No description";
-
-  const boundedPosition = getBoundedMenuPosition();
 
   return (
     <>
@@ -317,61 +200,36 @@ export const ExtractListCard: React.FC<ExtractListCardProps> = ({
 
       {/* Floating Context Menu */}
       {isMenuOpen && menuPosition && (
-        <MenuPortal>
-          <div
-            ref={menuRef}
-            style={{
-              position: "absolute",
-              left: boundedPosition.left,
-              top: boundedPosition.top,
-            }}
-            onKeyDown={handleMenuKeyDown}
-          >
-            <FloatingMenu vertical role="menu" aria-label="Extract actions">
-              {onView && (
-                <Menu.Item
-                  role="menuitem"
-                  tabIndex={0}
-                  icon="eye"
-                  content="View Details"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onView(extract);
-                    onCloseMenu?.();
-                  }}
-                  onKeyDown={(e: React.KeyboardEvent) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onView(extract);
-                      onCloseMenu?.();
-                    }
-                  }}
-                />
-              )}
-              {canRemove && onDelete && (
-                <Menu.Item
-                  role="menuitem"
-                  tabIndex={0}
-                  className="danger"
-                  icon="trash"
-                  content="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(extract);
-                    onCloseMenu?.();
-                  }}
-                  onKeyDown={(e: React.KeyboardEvent) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onDelete(extract);
-                      onCloseMenu?.();
-                    }
-                  }}
-                />
-              )}
-            </FloatingMenu>
-          </div>
-        </MenuPortal>
+        <ContextMenu
+          position={menuPosition}
+          onClose={onCloseMenu ?? (() => {})}
+          aria-label="Extract actions"
+          items={
+            [
+              {
+                key: "view",
+                icon: <Eye size={16} />,
+                label: "View Details",
+                visible: Boolean(onView),
+                onClick: () => {
+                  onView?.(extract);
+                  onCloseMenu?.();
+                },
+              },
+              {
+                key: "delete",
+                icon: <Trash2 size={16} />,
+                label: "Delete",
+                variant: "danger" as const,
+                visible: canRemove && Boolean(onDelete),
+                onClick: () => {
+                  onDelete?.(extract);
+                  onCloseMenu?.();
+                },
+              },
+            ] satisfies ContextMenuItem[]
+          }
+        />
       )}
     </>
   );

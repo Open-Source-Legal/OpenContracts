@@ -2,8 +2,12 @@ import React from "react";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
 import { CollectionCard } from "@os-legal/ui";
-import { Menu } from "semantic-ui-react";
+import { Edit as EditIcon, Eye, Copy, Trash2 } from "lucide-react";
 import { LabelSetType } from "../../types/graphql-api";
+import {
+  ContextMenu,
+  ContextMenuItem,
+} from "../widgets/context-menu/ContextMenu";
 import { getLabelsetUrl } from "../../utils/navigationUtils";
 import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
@@ -34,43 +38,6 @@ const MenuButton = styled.button`
     &:hover {
       background: ${OS_LEGAL_COLORS.surfaceLight};
       color: #334155;
-    }
-  }
-`;
-
-const FloatingMenu = styled(Menu)`
-  &.ui.menu {
-    position: fixed;
-    z-index: 9999;
-    min-width: 180px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    border-radius: 8px;
-    border: 1px solid ${OS_LEGAL_COLORS.border};
-    padding: 4px 0;
-
-    .item {
-      padding: 10px 14px !important;
-      font-size: 14px !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 10px !important;
-
-      &:hover {
-        background: ${OS_LEGAL_COLORS.surfaceLight} !important;
-      }
-
-      &.danger {
-        color: ${OS_LEGAL_COLORS.danger} !important;
-
-        &:hover {
-          background: ${OS_LEGAL_COLORS.dangerSurface} !important;
-        }
-      }
-
-      i.icon {
-        margin: 0 !important;
-        opacity: 0.7;
-      }
     }
   }
 `;
@@ -218,6 +185,8 @@ export const LabelSetListCard: React.FC<LabelSetListCardProps> = ({
               type="button"
               className="oc-collection-card__menu-button"
               aria-label="Open menu"
+              aria-haspopup="menu"
+              aria-expanded={isMenuOpen}
               onClick={handleMenuButtonClick}
             >
               <KebabIcon />
@@ -228,59 +197,56 @@ export const LabelSetListCard: React.FC<LabelSetListCardProps> = ({
 
       {/* Floating Context Menu */}
       {isMenuOpen && menuPosition && (
-        <FloatingMenu
-          vertical
-          style={{
-            left: menuPosition.x,
-            top: menuPosition.y,
-          }}
-        >
-          {canUpdate && onEdit && (
-            <Menu.Item
-              icon="edit outline"
-              content="Edit"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit(labelset);
-                onCloseMenu?.();
-              }}
-            />
-          )}
-          {onView && (
-            <Menu.Item
-              icon="eye"
-              content="View Details"
-              onClick={(e) => {
-                e.stopPropagation();
-                onView(labelset);
-                onCloseMenu?.();
-              }}
-            />
-          )}
-          {onDuplicate && (
-            <Menu.Item
-              icon="copy"
-              content="Duplicate"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDuplicate(labelset);
-                onCloseMenu?.();
-              }}
-            />
-          )}
-          {canRemove && onDelete && (
-            <Menu.Item
-              className="danger"
-              icon="trash"
-              content="Delete"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(labelset);
-                onCloseMenu?.();
-              }}
-            />
-          )}
-        </FloatingMenu>
+        <ContextMenu
+          position={menuPosition}
+          onClose={onCloseMenu ?? (() => {})}
+          aria-label="Label set actions"
+          items={
+            [
+              {
+                key: "edit",
+                icon: <EditIcon size={16} />,
+                label: "Edit",
+                visible: canUpdate && Boolean(onEdit),
+                onClick: () => {
+                  onEdit?.(labelset);
+                  onCloseMenu?.();
+                },
+              },
+              {
+                key: "view",
+                icon: <Eye size={16} />,
+                label: "View Details",
+                visible: Boolean(onView),
+                onClick: () => {
+                  onView?.(labelset);
+                  onCloseMenu?.();
+                },
+              },
+              {
+                key: "duplicate",
+                icon: <Copy size={16} />,
+                label: "Duplicate",
+                visible: Boolean(onDuplicate),
+                onClick: () => {
+                  onDuplicate?.(labelset);
+                  onCloseMenu?.();
+                },
+              },
+              {
+                key: "delete",
+                icon: <Trash2 size={16} />,
+                label: "Delete",
+                variant: "danger" as const,
+                visible: canRemove && Boolean(onDelete),
+                onClick: () => {
+                  onDelete?.(labelset);
+                  onCloseMenu?.();
+                },
+              },
+            ] satisfies ContextMenuItem[]
+          }
+        />
       )}
     </>
   );
