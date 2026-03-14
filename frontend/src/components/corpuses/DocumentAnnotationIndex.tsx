@@ -521,16 +521,15 @@ export const DocumentAnnotationIndex: React.FC<
     }
   }, [filterQuery, allNodeIds]);
 
-  // Handle section click - navigate to the document at that page
+  // Handle section click - navigate to the document and select the annotation
   const handleSectionClick = (node: SectionNode) => {
     const corpus = openedCorpus();
-    // Navigate to the document - the annotation page context will help
-    // the viewer scroll to the right location
     navigateToRelationshipDocument(
       { id: documentId, title: node.title, slug: undefined },
       corpus,
       navigate,
-      window.location.pathname
+      window.location.pathname,
+      { annotationIds: [node.id] }
     );
   };
 

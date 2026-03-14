@@ -1083,7 +1083,8 @@ export function navigateToRelationshipDocument(
     creator?: { slug?: string | null } | null;
   } | null,
   navigate: (path: string, options?: { replace?: boolean }) => void,
-  currentPath?: string
+  currentPath?: string,
+  queryParams?: QueryParams
 ) {
   if (!corpus) {
     console.warn("Cannot navigate to document - no corpus context");
@@ -1112,7 +1113,13 @@ export function navigateToRelationshipDocument(
       : undefined,
   };
 
-  navigateToDocument(docForNav, corpusForNav, navigate, currentPath);
+  navigateToDocument(
+    docForNav,
+    corpusForNav,
+    navigate,
+    currentPath,
+    queryParams
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
