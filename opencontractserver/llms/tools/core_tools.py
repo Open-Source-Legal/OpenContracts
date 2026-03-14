@@ -6,7 +6,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from opencontractserver.llms.agents.core_agents import SourceNode
@@ -1593,7 +1593,11 @@ def add_annotations_from_exact_strings(
             f"Document id={doc_id} is not linked to corpus id={corpus_id}."
         )
 
-    file_type = doc.file_type.lower()
+    file_type = (doc.file_type or "").lower()
+    if not file_type:
+        raise ValueError(
+            f"Document id={doc_id} has no file_type set; cannot create index."
+        )
 
     if file_type == "application/pdf":
         if not doc.pawls_parse_file:
@@ -1720,8 +1724,8 @@ class IndexEntryItem(TypedDict):
 
     title: str
     exact_string: str
-    long_description: str
-    parent_index: int  # -1 for root entries, otherwise index into the list
+    long_description: NotRequired[str]
+    parent_index: NotRequired[int]  # -1 for root entries, otherwise index into the list
 
 
 def create_document_index(
@@ -1744,6 +1748,12 @@ def create_document_index(
 
     Annotations are created with the ``OC_SECTION`` label and linked via the
     ``parent`` FK to form a hierarchy.
+
+    .. note::
+        ``exact_string`` matching uses the *first* occurrence in the document.
+        If the same string appears multiple times, later occurrences cannot be
+        targeted.  Use a longer, unique surrounding snippet when ambiguity is
+        possible.
 
     Args:
         entries: List of index entries to create.
@@ -1787,7 +1797,11 @@ def create_document_index(
             f"Document id={document_id} is not linked to corpus id={corpus_id}."
         )
 
-    file_type = doc.file_type.lower()
+    file_type = (doc.file_type or "").lower()
+    if not file_type:
+        raise ValueError(
+            f"Document id={document_id} has no file_type set; cannot create index."
+        )
 
     if file_type == "application/pdf":
         if not doc.pawls_parse_file:
@@ -1862,15 +1876,15 @@ def create_document_index(
             f"Unsupported file_type {doc.file_type} for document id={document_id}"
         )
 
-    label_obj = corpus.ensure_label_and_labelset(
-        label_text=OC_SECTION_LABEL,
-        creator_id=creator_id,
-        label_type=label_type_const,
-    )
-
     created: list[Annotation] = []
 
     with transaction.atomic():
+        label_obj = corpus.ensure_label_and_labelset(
+            label_text=OC_SECTION_LABEL,
+            creator_id=creator_id,
+            label_type=label_type_const,
+        )
+
         # First pass: create annotations without parents.
         for entry in entries:
             exact_str = str(entry["exact_string"])
@@ -1879,13 +1893,21 @@ def create_document_index(
                 raise ValueError(
                     f"Exact string not found in document: {exact_str!r:.80}"
                 )
+            # Warn if the string appears more than once (anchors to first)
+            if doc_text.find(exact_str, pos + 1) != -1:
+                logger.warning(
+                    "exact_string %r appears multiple times in document "
+                    "id=%d; anchoring to first occurrence.",
+                    exact_str[:80],
+                    document_id,
+                )
             end_idx = pos + len(exact_str)
             annot = _make_annotation(
                 pos,
                 end_idx,
                 label_obj,
                 str(entry["title"]),
-                str(entry.get("long_description", "")),
+                entry.get("long_description") or None,
             )
             annot.save()
             created.append(annot)
@@ -1894,6 +1916,8 @@ def create_document_index(
         for i, entry in enumerate(entries):
             parent_idx = int(entry.get("parent_index", -1))
             if parent_idx >= 0:
+                if parent_idx == i:
+                    raise ValueError(f"Entry {i} references itself as parent")
                 if parent_idx >= len(created):
                     raise ValueError(
                         f"parent_index {parent_idx} out of range for entry {i}"
@@ -1977,7 +2001,7 @@ def search_exact_text_as_sources(
     except Document.DoesNotExist as exc:
         raise ValueError(f"Document id={document_id} does not exist") from exc
 
-    file_type = doc.file_type.lower()
+    file_type = (doc.file_type or "").lower()
     sources: list[SourceNode] = []
     synthetic_id_counter = -1  # Start with negative IDs
 

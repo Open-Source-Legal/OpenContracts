@@ -332,10 +332,10 @@ const WarningBanner = styled.div`
   gap: 12px;
   padding: 12px 16px;
   margin-bottom: 16px;
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
+  background: ${OS_LEGAL_COLORS.warningSurface};
+  border: 1px solid ${OS_LEGAL_COLORS.warningBorder};
   border-radius: 8px;
-  color: #92400e;
+  color: ${OS_LEGAL_COLORS.warningText};
   font-size: 0.875rem;
 
   .warning-icon {
@@ -780,9 +780,10 @@ export const DocumentTableOfContents: React.FC<
   };
 
   // Check if a corpus has only one document (single-doc mode)
+  // Use rootNodes (unfiltered) so a search filter doesn't flip into single-doc mode
   const isSingleDoc = useMemo(() => {
-    return filteredNodes.length === 1 && filteredNodes[0].children.length === 0;
-  }, [filteredNodes]);
+    return rootNodes.length === 1 && rootNodes[0].children.length === 0;
+  }, [rootNodes]);
 
   // Render a tree node recursively
   const renderNode = (
