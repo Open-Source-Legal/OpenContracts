@@ -1812,12 +1812,8 @@ def create_document_index(
                 end=end_idx,
                 text=doc_text[pos:end_idx],
             )
-            span_annotation = SpanAnnotation(
-                span=span, annotation_label=label_obj.text
-            )
-            oc_ann = pdf_layer.create_opencontract_annotation_from_span(
-                span_annotation
-            )
+            span_annotation = SpanAnnotation(span=span, annotation_label=label_obj.text)
+            oc_ann = pdf_layer.create_opencontract_annotation_from_span(span_annotation)
             return Annotation(
                 raw_text=title,
                 long_description=description,

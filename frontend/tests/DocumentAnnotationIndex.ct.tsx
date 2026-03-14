@@ -13,9 +13,7 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("Sections")).toBeVisible({ timeout: 10000 });
 
     // Root-level chapters should be visible
-    await expect(
-      page.getByText("Chapter 1: Introduction")
-    ).toBeVisible();
+    await expect(page.getByText("Chapter 1: Introduction")).toBeVisible();
     await expect(
       page.getByText("Chapter 2: Terms and Conditions")
     ).toBeVisible();
@@ -54,10 +52,7 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("p. 2")).toBeVisible();
     await expect(page.getByText("p. 3")).toBeVisible();
 
-    await docScreenshot(
-      page,
-      "corpus--annotation-index--expanded-children"
-    );
+    await docScreenshot(page, "corpus--annotation-index--expanded-children");
   });
 
   test("expands markdown description on click", async ({ mount, page }) => {
@@ -79,10 +74,7 @@ test.describe("DocumentAnnotationIndex", () => {
       timeout: 5000,
     });
 
-    await docScreenshot(
-      page,
-      "corpus--annotation-index--expanded-description"
-    );
+    await docScreenshot(page, "corpus--annotation-index--expanded-description");
   });
 
   test("returns null for empty annotation set", async ({ mount, page }) => {
@@ -102,9 +94,7 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("Sections")).toBeVisible({ timeout: 10000 });
 
     // All entries visible as root-level items
-    await expect(
-      page.getByText("Chapter 1: Introduction")
-    ).toBeVisible();
+    await expect(page.getByText("Chapter 1: Introduction")).toBeVisible();
     await expect(page.getByText("1.1 Purpose")).toBeVisible();
     await expect(page.getByText("1.2 Definitions")).toBeVisible();
     await expect(
@@ -114,7 +104,7 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("Chapter 3: Liability")).toBeVisible();
 
     // No chevrons should be visible (no children)
-    const chevrons = page.locator('.chevron svg');
+    const chevrons = page.locator(".chevron svg");
     await expect(chevrons).toHaveCount(0);
 
     await docScreenshot(page, "corpus--annotation-index--flat");
@@ -128,18 +118,13 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("Sections")).toBeVisible({ timeout: 10000 });
 
     // Titles should be visible
-    await expect(
-      page.getByText("Chapter 1: Introduction")
-    ).toBeVisible();
+    await expect(page.getByText("Chapter 1: Introduction")).toBeVisible();
 
     // No description elements should exist
     await expect(page.locator(".collapsed")).toHaveCount(0);
     await expect(page.locator(".expanded")).toHaveCount(0);
 
-    await docScreenshot(
-      page,
-      "corpus--annotation-index--no-descriptions"
-    );
+    await docScreenshot(page, "corpus--annotation-index--no-descriptions");
   });
 
   test("tree nodes have proper ARIA attributes", async ({ mount, page }) => {
@@ -252,10 +237,7 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(firstNode).toHaveAttribute("aria-expanded", "true");
   });
 
-  test("nodes have aria-label with title and page", async ({
-    mount,
-    page,
-  }) => {
+  test("nodes have aria-label with title and page", async ({ mount, page }) => {
     await mount(<DocumentAnnotationIndexTestWrapper mockType="default" />);
 
     await page.waitForSelector('text="Chapter 1: Introduction"', {
@@ -278,9 +260,7 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("Sections")).toBeVisible({ timeout: 10000 });
 
     // Root chapters should be visible
-    await expect(
-      page.getByText("Chapter 1: Introduction")
-    ).toBeVisible();
+    await expect(page.getByText("Chapter 1: Introduction")).toBeVisible();
 
     // Chapter 1 should NOT be expandable (children beyond maxDepth)
     const firstItem = page.locator('[role="treeitem"]').first();
@@ -293,10 +273,7 @@ test.describe("DocumentAnnotationIndex", () => {
     page,
   }) => {
     await mount(
-      <DocumentAnnotationIndexTestWrapper
-        mockType="default"
-        embedded={true}
-      />
+      <DocumentAnnotationIndexTestWrapper mockType="default" embedded={true} />
     );
 
     await page.waitForSelector('[role="tree"]', { timeout: 10000 });
@@ -305,17 +282,12 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("Sections")).not.toBeVisible();
 
     // Section content should still be present
-    await expect(
-      page.getByText("Chapter 1: Introduction")
-    ).toBeVisible();
+    await expect(page.getByText("Chapter 1: Introduction")).toBeVisible();
 
     await docScreenshot(page, "corpus--annotation-index--embedded");
   });
 
-  test("filter narrows visible sections by title", async ({
-    mount,
-    page,
-  }) => {
+  test("filter narrows visible sections by title", async ({ mount, page }) => {
     await mount(
       <DocumentAnnotationIndexTestWrapper
         mockType="flat"
@@ -329,9 +301,7 @@ test.describe("DocumentAnnotationIndex", () => {
     await expect(page.getByText("2.1 Payment Terms")).toBeVisible();
 
     // Non-matching titles should not be visible
-    await expect(
-      page.getByText("Chapter 1: Introduction")
-    ).not.toBeVisible();
+    await expect(page.getByText("Chapter 1: Introduction")).not.toBeVisible();
     await expect(page.getByText("Chapter 3: Liability")).not.toBeVisible();
   });
 

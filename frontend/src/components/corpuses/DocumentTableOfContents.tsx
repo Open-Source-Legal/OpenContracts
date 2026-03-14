@@ -781,9 +781,7 @@ export const DocumentTableOfContents: React.FC<
 
   // Check if a corpus has only one document (single-doc mode)
   const isSingleDoc = useMemo(() => {
-    return (
-      filteredNodes.length === 1 && filteredNodes[0].children.length === 0
-    );
+    return filteredNodes.length === 1 && filteredNodes[0].children.length === 0;
   }, [filteredNodes]);
 
   // Render a tree node recursively
@@ -806,16 +804,12 @@ export const DocumentTableOfContents: React.FC<
             $hasChildren={isExpandable}
             $hasDescription={hasDescription}
             onClick={() => handleDocumentClick(node)}
-            onKeyDown={(e) =>
-              handleKeyDown(e, node, isExpandable, isExpanded)
-            }
+            onKeyDown={(e) => handleKeyDown(e, node, isExpandable, isExpanded)}
             role="treeitem"
             tabIndex={0}
             aria-expanded={isExpandable ? isExpanded : undefined}
             aria-label={`${node.title}${
-              isExpandable
-                ? `, ${isExpanded ? "expanded" : "collapsed"}`
-                : ""
+              isExpandable ? `, ${isExpanded ? "expanded" : "collapsed"}` : ""
             }`}
           >
             <ChevronContainer

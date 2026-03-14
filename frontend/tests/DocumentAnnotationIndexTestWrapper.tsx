@@ -153,11 +153,7 @@ const createTestCache = () =>
     },
   });
 
-export type MockType =
-  | "default"
-  | "empty"
-  | "noDescriptions"
-  | "flat";
+export type MockType = "default" | "empty" | "noDescriptions" | "flat";
 
 interface Props {
   mockType?: MockType;

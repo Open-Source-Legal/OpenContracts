@@ -331,13 +331,7 @@ const WarningBanner = styled.div`
 
 export const DocumentAnnotationIndex: React.FC<
   DocumentAnnotationIndexProps
-> = ({
-  documentId,
-  corpusId,
-  maxDepth = 6,
-  embedded = false,
-  filterQuery,
-}) => {
+> = ({ documentId, corpusId, maxDepth = 6, embedded = false, filterQuery }) => {
   const navigate = useNavigate();
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(
@@ -427,9 +421,7 @@ export const DocumentAnnotationIndex: React.FC<
       });
 
       const children = sortedChildIds
-        .map((childId) =>
-          buildTree(childId, currentDepth + 1, branchVisited)
-        )
+        .map((childId) => buildTree(childId, currentDepth + 1, branchVisited))
         .filter((child): child is SectionNode => child !== null);
 
       return {
@@ -475,9 +467,7 @@ export const DocumentAnnotationIndex: React.FC<
       const result: SectionNode[] = [];
       for (const node of nodes) {
         const titleMatch = node.title.toLowerCase().includes(query);
-        const descMatch = node.longDescription
-          ?.toLowerCase()
-          .includes(query);
+        const descMatch = node.longDescription?.toLowerCase().includes(query);
 
         if (titleMatch || descMatch) {
           result.push(node);
