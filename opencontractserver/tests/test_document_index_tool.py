@@ -188,9 +188,7 @@ class TestCreateDocumentIndexPDF(TestCase):
 
     def test_document_not_in_corpus_raises(self):
         """ValueError raised when document exists but is not in the corpus."""
-        other_corpus = Corpus.objects.create(
-            title="Other Corpus", creator=self.user
-        )
+        other_corpus = Corpus.objects.create(title="Other Corpus", creator=self.user)
         with self.assertRaises(ValueError, msg="not linked to corpus"):
             create_document_index(
                 [{"title": "X", "exact_string": "Y", "parent_index": -1}],
@@ -266,9 +264,7 @@ class TestCreateDocumentIndexText(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.user = User.objects.create_user("idx_txt_user", password="pass")
-        cls.corpus = Corpus.objects.create(
-            title="Text Index Corpus", creator=cls.user
-        )
+        cls.corpus = Corpus.objects.create(title="Text Index Corpus", creator=cls.user)
 
         text_content = SAMPLE_TXT_FILE_ONE_PATH.read_text()
         cls.doc = Document.objects.create(
