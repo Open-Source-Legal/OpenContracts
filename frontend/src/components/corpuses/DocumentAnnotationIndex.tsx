@@ -281,6 +281,13 @@ const PageBadge = styled.span`
   white-space: nowrap;
 `;
 
+const EmptyState = styled.div`
+  padding: 12px 16px;
+  font-size: 0.8125rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  font-style: italic;
+`;
+
 const LoadingState = styled.div`
   display: flex;
   flex-direction: column;
@@ -668,13 +675,9 @@ export const DocumentAnnotationIndex: React.FC<
                     : "Click to expand"
                 }
               >
-                {isDescriptionExpanded ? (
-                  <ReactMarkdown rehypePlugins={[rehypeSanitize]}>
-                    {node.longDescription!}
-                  </ReactMarkdown>
-                ) : (
-                  node.longDescription
-                )}
+                <ReactMarkdown rehypePlugins={[rehypeSanitize]}>
+                  {node.longDescription!}
+                </ReactMarkdown>
               </NodeDescription>
             )}
           </NodeContent>
@@ -713,7 +716,10 @@ export const DocumentAnnotationIndex: React.FC<
   }
 
   if (filteredNodes.length === 0) {
-    return null; // No index entries — render nothing so parent can show docs only
+    if (embedded) {
+      return <EmptyState>No sections indexed for this document.</EmptyState>;
+    }
+    return null;
   }
 
   return (
