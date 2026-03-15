@@ -390,6 +390,59 @@ const formatFileType = (fileType?: string): string => {
 };
 
 // ============================================================================
+// WRAPPER (module-level to avoid React remount anti-pattern)
+// ============================================================================
+
+const TocWrapper: React.FC<{
+  embedded?: boolean;
+  showExpandToggle?: boolean;
+  allNodeIds: string[];
+  allExpanded: boolean;
+  onToggleExpandAll: () => void;
+  children: React.ReactNode;
+}> = ({
+  embedded,
+  showExpandToggle = false,
+  allNodeIds,
+  allExpanded,
+  onToggleExpandAll,
+  children,
+}) =>
+  embedded ? (
+    <Container $embedded>{children}</Container>
+  ) : (
+    <Container>
+      <Header>
+        <HeaderLeft>
+          <Title>
+            <ListTree size={18} />
+            Table of Contents
+          </Title>
+        </HeaderLeft>
+        {showExpandToggle && allNodeIds.length > 0 && (
+          <ExpandToggleButton
+            onClick={onToggleExpandAll}
+            aria-label={allExpanded ? "Collapse all" : "Expand all"}
+          >
+            {allExpanded ? (
+              <>
+                <ChevronsDownUp size={14} />
+                Collapse All
+              </>
+            ) : (
+              <>
+                <ChevronsUpDown size={14} />
+                Expand All
+              </>
+            )}
+          </ExpandToggleButton>
+        )}
+      </Header>
+      {children}
+    </Container>
+  );
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -861,71 +914,39 @@ export const DocumentTableOfContents: React.FC<
     );
   };
 
-  // Wrapper component that conditionally renders container
-  const Wrapper: React.FC<{
-    children: React.ReactNode;
-    showExpandToggle?: boolean;
-  }> = ({ children, showExpandToggle = false }) =>
-    embedded ? (
-      <Container $embedded>{children}</Container>
-    ) : (
-      <Container>
-        <Header>
-          <HeaderLeft>
-            <Title>
-              <ListTree size={18} />
-              Table of Contents
-            </Title>
-          </HeaderLeft>
-          {showExpandToggle && allNodeIds.length > 0 && (
-            <ExpandToggleButton
-              onClick={handleToggleExpandAll}
-              aria-label={allExpanded ? "Collapse all" : "Expand all"}
-            >
-              {allExpanded ? (
-                <>
-                  <ChevronsDownUp size={14} />
-                  Collapse All
-                </>
-              ) : (
-                <>
-                  <ChevronsUpDown size={14} />
-                  Expand All
-                </>
-              )}
-            </ExpandToggleButton>
-          )}
-        </Header>
-        {children}
-      </Container>
-    );
+  const wrapperProps = {
+    embedded,
+    allNodeIds,
+    allExpanded,
+    onToggleExpandAll: handleToggleExpandAll,
+  };
 
   if (loading) {
     return (
-      <Wrapper>
+      <TocWrapper {...wrapperProps}>
         <LoadingState>
           <Spinner size="lg" />
           <span>Loading document structure...</span>
         </LoadingState>
-      </Wrapper>
+      </TocWrapper>
     );
   }
 
   if (error) {
     return (
-      <Wrapper>
+      <TocWrapper {...wrapperProps}>
         <ErrorState>
           <AlertTriangle size={32} className="error-icon" />
           <div>Failed to load document structure</div>
         </ErrorState>
-      </Wrapper>
+      </TocWrapper>
     );
   }
 
   if (filteredNodes.length === 0) {
     // Show empty state when there are no documents (or filter matched nothing)
     return (
-      <Wrapper>
+      <TocWrapper {...wrapperProps}>
         <TreeContainer>
           <div className="empty-state">
             <ListTree size={48} className="empty-icon" />
@@ -939,12 +960,12 @@ export const DocumentTableOfContents: React.FC<
             </div>
           </div>
         </TreeContainer>
-      </Wrapper>
+      </TocWrapper>
     );
   }
 
   return (
-    <Wrapper showExpandToggle>
+    <TocWrapper {...wrapperProps} showExpandToggle>
       {isLimitExceeded && (
         <WarningBanner role="alert">
           <AlertTriangle size={18} className="warning-icon" />
@@ -971,7 +992,7 @@ export const DocumentTableOfContents: React.FC<
           ? filteredNodes.map((node) => renderNode(node, 0, true))
           : filteredNodes.map((node) => renderNode(node, 0))}
       </TreeContainer>
-    </Wrapper>
+    </TocWrapper>
   );
 };
 

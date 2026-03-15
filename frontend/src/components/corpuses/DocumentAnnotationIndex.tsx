@@ -11,6 +11,7 @@ import {
   Hash,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 
 import {
   GET_DOCUMENT_ANNOTATION_INDEX,
@@ -322,6 +323,30 @@ const WarningBanner = styled.div`
     line-height: 1.4;
   }
 `;
+
+// ============================================================================
+// WRAPPER (module-level to avoid React remount anti-pattern)
+// ============================================================================
+
+const IndexWrapper: React.FC<{
+  embedded?: boolean;
+  children: React.ReactNode;
+}> = ({ embedded, children }) =>
+  embedded ? (
+    <Container $embedded>{children}</Container>
+  ) : (
+    <Container>
+      <Header>
+        <HeaderLeft>
+          <Title>
+            <BookOpen size={18} />
+            Sections
+          </Title>
+        </HeaderLeft>
+      </Header>
+      {children}
+    </Container>
+  );
 
 // ============================================================================
 // COMPONENT
@@ -644,7 +669,9 @@ export const DocumentAnnotationIndex: React.FC<
                 }
               >
                 {isDescriptionExpanded ? (
-                  <ReactMarkdown>{node.longDescription!}</ReactMarkdown>
+                  <ReactMarkdown rehypePlugins={[rehypeSanitize]}>
+                    {node.longDescription!}
+                  </ReactMarkdown>
                 ) : (
                   node.longDescription
                 )}
@@ -663,43 +690,25 @@ export const DocumentAnnotationIndex: React.FC<
     );
   };
 
-  // Wrapper
-  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-    embedded ? (
-      <Container $embedded>{children}</Container>
-    ) : (
-      <Container>
-        <Header>
-          <HeaderLeft>
-            <Title>
-              <BookOpen size={18} />
-              Sections
-            </Title>
-          </HeaderLeft>
-        </Header>
-        {children}
-      </Container>
-    );
-
   if (loading) {
     return (
-      <Wrapper>
+      <IndexWrapper embedded={embedded}>
         <LoadingState>
           <Spinner size="lg" />
           <span>Loading document index...</span>
         </LoadingState>
-      </Wrapper>
+      </IndexWrapper>
     );
   }
 
   if (error) {
     return (
-      <Wrapper>
+      <IndexWrapper embedded={embedded}>
         <ErrorState>
           <AlertTriangle size={32} className="error-icon" />
           <div>Failed to load document index</div>
         </ErrorState>
-      </Wrapper>
+      </IndexWrapper>
     );
   }
 
@@ -708,7 +717,7 @@ export const DocumentAnnotationIndex: React.FC<
   }
 
   return (
-    <Wrapper>
+    <IndexWrapper embedded={embedded}>
       <TreeContainer>
         {isLimitExceeded && (
           <WarningBanner>
@@ -731,6 +740,6 @@ export const DocumentAnnotationIndex: React.FC<
           {filteredNodes.map((node) => renderNode(node, 0))}
         </div>
       </TreeContainer>
-    </Wrapper>
+    </IndexWrapper>
   );
 };
