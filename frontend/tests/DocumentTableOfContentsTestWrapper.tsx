@@ -351,6 +351,123 @@ const mockDeepHierarchy = [
   },
 ];
 
+// Annotation index section entries for hybrid mode (document hierarchy + section indices)
+const SECTION_LABEL = {
+  id: "label-oc-section",
+  text: OC_SECTION_LABEL,
+  color: "#05313d",
+  icon: "tags",
+};
+
+// Sections for Parent Document (doc-1)
+const parentDocSections = [
+  {
+    node: {
+      id: "annot-p1",
+      rawText: "1. Introduction",
+      longDescription: "Overview of the agreement structure and purpose.",
+      page: 1,
+      parent: null,
+      annotationLabel: SECTION_LABEL,
+      __typename: "AnnotationType" as const,
+    },
+    __typename: "AnnotationTypeEdge" as const,
+  },
+  {
+    node: {
+      id: "annot-p2",
+      rawText: "1.1 Scope",
+      longDescription: null,
+      page: 2,
+      parent: { id: "annot-p1" },
+      annotationLabel: SECTION_LABEL,
+      __typename: "AnnotationType" as const,
+    },
+    __typename: "AnnotationTypeEdge" as const,
+  },
+  {
+    node: {
+      id: "annot-p3",
+      rawText: "2. Terms and Conditions",
+      longDescription: "Core terms governing the relationship between parties.",
+      page: 4,
+      parent: null,
+      annotationLabel: SECTION_LABEL,
+      __typename: "AnnotationType" as const,
+    },
+    __typename: "AnnotationTypeEdge" as const,
+  },
+];
+
+// Sections for Child Document 1 (doc-2)
+const child1DocSections = [
+  {
+    node: {
+      id: "annot-c1",
+      rawText: "A. Definitions",
+      longDescription: null,
+      page: 1,
+      parent: null,
+      annotationLabel: SECTION_LABEL,
+      __typename: "AnnotationType" as const,
+    },
+    __typename: "AnnotationTypeEdge" as const,
+  },
+  {
+    node: {
+      id: "annot-c2",
+      rawText: "B. Obligations",
+      longDescription: null,
+      page: 3,
+      parent: null,
+      annotationLabel: SECTION_LABEL,
+      __typename: "AnnotationType" as const,
+    },
+    __typename: "AnnotationTypeEdge" as const,
+  },
+];
+
+// Sections for Child Document 2 (doc-3)
+const child2DocSections = [
+  {
+    node: {
+      id: "annot-d1",
+      rawText: "I. Liability",
+      longDescription: null,
+      page: 1,
+      parent: null,
+      annotationLabel: SECTION_LABEL,
+      __typename: "AnnotationType" as const,
+    },
+    __typename: "AnnotationTypeEdge" as const,
+  },
+];
+
+// Helper: create an annotation index mock with specific entries
+const annotationIndexMockWithEntries = (
+  documentId: string,
+  entries: typeof parentDocSections
+): MockedResponse => ({
+  request: {
+    query: GET_DOCUMENT_ANNOTATION_INDEX,
+    variables: {
+      documentId,
+      corpusId: TEST_CORPUS_ID,
+      labelText: OC_SECTION_LABEL,
+      first: DOCUMENT_ANNOTATION_INDEX_LIMIT,
+    },
+  },
+  result: {
+    data: {
+      annotations: {
+        edges: entries,
+        totalCount: entries.length,
+        __typename: "AnnotationTypeConnection",
+      },
+    },
+  },
+});
+
 // Helper: create an empty annotation index mock for a given document ID
 const emptyAnnotationIndexMock = (documentId: string): MockedResponse => ({
   request: {
@@ -404,7 +521,12 @@ const createTestCache = () =>
   });
 
 interface Props {
-  mockType?: "default" | "empty" | "noParentRelationships" | "deepHierarchy";
+  mockType?:
+    | "default"
+    | "empty"
+    | "noParentRelationships"
+    | "deepHierarchy"
+    | "hybrid";
   maxDepth?: number;
 }
 
@@ -489,24 +611,40 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
       ];
     }
 
-    // Collect all document IDs for annotation index mocks
-    const getDocumentIds = (): string[] => {
-      if (mockType === "noParentRelationships") return ["doc-a", "doc-b"];
-      if (mockType === "deepHierarchy")
-        return [
-          "doc-root",
-          "doc-level1",
-          "doc-level2",
-          "doc-level3",
-          "doc-level4",
+    // Build annotation index mocks — populated for "hybrid", empty otherwise
+    const buildAnnotationIndexMocks = (): MockedResponse[] => {
+      if (mockType === "hybrid") {
+        // Each document gets its own section entries
+        const pairs: [string, typeof parentDocSections][] = [
+          ["doc-1", parentDocSections],
+          ["doc-2", child1DocSections],
+          ["doc-3", child2DocSections],
         ];
-      return ["doc-1", "doc-2", "doc-3"]; // default
+        return pairs.flatMap(([id, entries]) => {
+          const mock = annotationIndexMockWithEntries(id, entries);
+          return [mock, { ...mock }];
+        });
+      }
+
+      // All other types get empty annotation index mocks
+      const getDocumentIds = (): string[] => {
+        if (mockType === "noParentRelationships") return ["doc-a", "doc-b"];
+        if (mockType === "deepHierarchy")
+          return [
+            "doc-root",
+            "doc-level1",
+            "doc-level2",
+            "doc-level3",
+            "doc-level4",
+          ];
+        return ["doc-1", "doc-2", "doc-3"]; // default
+      };
+      return getDocumentIds().flatMap((id) => {
+        const mock = emptyAnnotationIndexMock(id);
+        return [mock, { ...mock }];
+      });
     };
-    // Create duplicate mocks for cache-and-network fetch policy
-    const annotationIndexMocks = getDocumentIds().flatMap((id) => {
-      const mock = emptyAnnotationIndexMock(id);
-      return [mock, { ...mock }];
-    });
+    const annotationIndexMocks = buildAnnotationIndexMocks();
 
     if (mockType === "noParentRelationships") {
       // Documents exist but no parent relationships - shows docs as standalone root items
@@ -598,6 +736,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
     }
 
     // Select appropriate mock data for relationships and documents
+    // "hybrid" uses the same parent/child structure as "default"
     const relationshipsMockData =
       mockType === "deepHierarchy"
         ? mockDeepHierarchy

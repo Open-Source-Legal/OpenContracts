@@ -304,4 +304,58 @@ test.describe("DocumentTableOfContents", () => {
       timeout: 5000,
     });
   });
+
+  test("hybrid view shows document hierarchy with nested annotation indices", async ({
+    mount,
+    page,
+  }) => {
+    await mount(<DocumentTableOfContentsTestWrapper mockType="hybrid" />);
+
+    // Wait for the TOC to render
+    await expect(page.getByText("Table of Contents")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("Parent Document")).toBeVisible();
+
+    // Expand parent document — use its treeitem's chevron directly
+    const parentItem = page.getByRole("treeitem", {
+      name: /Parent Document/,
+    });
+    await parentItem.locator(".chevron").click();
+
+    // Child documents should appear
+    await expect(page.getByText("Child Document 1")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText("Child Document 2")).toBeVisible();
+
+    // Parent document's annotation index sections should appear
+    await expect(page.getByText("1. Introduction")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText("2. Terms and Conditions")).toBeVisible();
+
+    // Expand Child Document 1 to see its sections
+    const child1Item = page.getByRole("treeitem", {
+      name: /Child Document 1/,
+    });
+    await child1Item.locator(".chevron").click();
+
+    await expect(page.getByText("A. Definitions")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText("B. Obligations")).toBeVisible();
+
+    // Expand Child Document 2 to see its sections
+    const child2Item = page.getByRole("treeitem", {
+      name: /Child Document 2/,
+    });
+    await child2Item.locator(".chevron").click();
+
+    await expect(page.getByText("I. Liability")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await docScreenshot(page, "corpus--toc--hybrid-index");
+  });
 });
