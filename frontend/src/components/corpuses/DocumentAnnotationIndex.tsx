@@ -28,6 +28,7 @@ import {
 import { mediaQuery } from "./styles/corpusDesignTokens";
 import {
   DOCUMENT_ANNOTATION_INDEX_LIMIT,
+  DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH,
   OC_SECTION_LABEL,
 } from "../../assets/configurations/constants";
 
@@ -361,7 +362,13 @@ const IndexWrapper: React.FC<{
 
 export const DocumentAnnotationIndex: React.FC<
   DocumentAnnotationIndexProps
-> = ({ documentId, corpusId, maxDepth = 6, embedded = false, filterQuery }) => {
+> = ({
+  documentId,
+  corpusId,
+  maxDepth = DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH,
+  embedded = false,
+  filterQuery,
+}) => {
   const navigate = useNavigate();
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(
@@ -418,10 +425,22 @@ export const DocumentAnnotationIndex: React.FC<
       }
     });
 
-    // Root nodes: annotations without a parent (or whose parent isn't in the set)
+    // Root nodes: annotations without a parent, or whose parent isn't in the
+    // fetched set (orphans).  Orphans are promoted to root so they remain
+    // visible, with a console warning to help diagnose tool bugs.
     const rootIds = edges
       .map((e) => e.node.id)
-      .filter((id) => !hasParent.has(id));
+      .filter((id) => {
+        if (!hasParent.has(id)) return true;
+        const parentId = edges.find((e) => e.node.id === id)?.node.parent?.id;
+        if (parentId && !nodeMap.has(parentId)) {
+          console.warn(
+            `[DocumentAnnotationIndex] Orphan node "${id}" references missing parent "${parentId}" — promoting to root.`
+          );
+          return true;
+        }
+        return false;
+      });
 
     const circularRefs: string[] = [];
 
@@ -488,7 +507,9 @@ export const DocumentAnnotationIndex: React.FC<
     };
   }, [annotationsData, maxDepth]);
 
-  // Apply filter
+  // Apply filter client-side.  The full tree (up to DOCUMENT_ANNOTATION_INDEX_LIMIT
+  // records) must be loaded so we can build the parent→child hierarchy before
+  // any filter is applied — server-side filtering would break hierarchy assembly.
   const filteredNodes = useMemo(() => {
     const query = filterQuery?.trim().toLowerCase();
     if (!query) return rootNodes;
@@ -593,23 +614,45 @@ export const DocumentAnnotationIndex: React.FC<
     });
   };
 
-  // Keyboard navigation
+  // Keyboard navigation (WAI-ARIA TreeView pattern)
   const handleKeyDown = (
     e: React.KeyboardEvent,
     node: SectionNode,
     hasChildren: boolean,
     isExpanded: boolean
   ) => {
+    const moveFocus = (direction: "up" | "down") => {
+      const tree = (e.currentTarget as HTMLElement).closest('[role="tree"]');
+      if (!tree) return;
+      const items = Array.from(
+        tree.querySelectorAll<HTMLElement>('[role="treeitem"]')
+      );
+      const idx = items.indexOf(e.currentTarget as HTMLElement);
+      const target = direction === "down" ? items[idx + 1] : items[idx - 1];
+      target?.focus();
+    };
+
     switch (e.key) {
       case "Enter":
       case " ":
         e.preventDefault();
         handleSectionClick(node);
         break;
+      case "ArrowDown":
+        e.preventDefault();
+        moveFocus("down");
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        moveFocus("up");
+        break;
       case "ArrowRight":
         e.preventDefault();
         if (hasChildren && !isExpanded) {
           setExpandedNodes((prev) => new Set(prev).add(node.id));
+        } else if (hasChildren && isExpanded) {
+          // Already expanded — move focus to first child
+          moveFocus("down");
         }
         break;
       case "ArrowLeft":
@@ -620,6 +663,16 @@ export const DocumentAnnotationIndex: React.FC<
             next.delete(node.id);
             return next;
           });
+        } else {
+          // Collapsed or leaf — move focus to parent treeitem
+          const parentGroup = (e.currentTarget as HTMLElement).closest(
+            '[role="group"]'
+          );
+          if (parentGroup) {
+            const parentItem =
+              parentGroup.previousElementSibling as HTMLElement | null;
+            parentItem?.focus();
+          }
         }
         break;
     }

@@ -185,6 +185,7 @@ export const CORPUS_DOCUMENTS_TOC_LIMIT = 100;
 
 // Document annotation index (within-document TOC)
 export const DOCUMENT_ANNOTATION_INDEX_LIMIT = 500;
+export const DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH = 6;
 // Built-in annotation label names (OC_ namespace)
 export const OC_SECTION_LABEL = "OC_SECTION";
 

@@ -748,7 +748,6 @@ class ToolFunctionRegistry:
             aupdate_document_description,
             aupdate_document_note,
             aupdate_document_summary,
-            create_document_index,
             create_markdown_link,
             duplicate_annotations_with_label,
             get_corpus_description,
@@ -872,7 +871,7 @@ class ToolFunctionRegistry:
                 (),
             ),
             "create_document_index": (
-                create_document_index,
+                None,
                 acreate_document_index,
                 (),
             ),
