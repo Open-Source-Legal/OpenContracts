@@ -8,11 +8,14 @@ import { DocumentTableOfContents } from "../src/components/corpuses/DocumentTabl
 import {
   GET_DOCUMENT_RELATIONSHIPS,
   GET_CORPUS_DOCUMENTS_FOR_TOC,
+  GET_DOCUMENT_ANNOTATION_INDEX,
 } from "../src/graphql/queries";
 import { openedCorpus, tocExpandAll } from "../src/graphql/cache";
 import {
   DOCUMENT_RELATIONSHIP_TOC_LIMIT,
   CORPUS_DOCUMENTS_TOC_LIMIT,
+  DOCUMENT_ANNOTATION_INDEX_LIMIT,
+  OC_SECTION_LABEL,
 } from "../src/assets/configurations/constants";
 
 // Test corpus ID
@@ -348,6 +351,28 @@ const mockDeepHierarchy = [
   },
 ];
 
+// Helper: create an empty annotation index mock for a given document ID
+const emptyAnnotationIndexMock = (documentId: string): MockedResponse => ({
+  request: {
+    query: GET_DOCUMENT_ANNOTATION_INDEX,
+    variables: {
+      documentId,
+      corpusId: TEST_CORPUS_ID,
+      labelText: OC_SECTION_LABEL,
+      first: DOCUMENT_ANNOTATION_INDEX_LIMIT,
+    },
+  },
+  result: {
+    data: {
+      annotations: {
+        edges: [],
+        totalCount: 0,
+        __typename: "AnnotationTypeConnection",
+      },
+    },
+  },
+});
+
 // Cache configuration
 const createTestCache = () =>
   new InMemoryCache({
@@ -359,12 +384,20 @@ const createTestCache = () =>
             "documentId",
           ]),
           documents: relayStylePagination(["inCorpusWithId"]),
+          annotations: relayStylePagination([
+            "documentId",
+            "corpusId",
+            "annotationLabel_Text",
+          ]),
         },
       },
       DocumentRelationshipType: {
         keyFields: ["id"],
       },
       DocumentType: {
+        keyFields: ["id"],
+      },
+      AnnotationType: {
         keyFields: ["id"],
       },
     },
@@ -456,6 +489,25 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
       ];
     }
 
+    // Collect all document IDs for annotation index mocks
+    const getDocumentIds = (): string[] => {
+      if (mockType === "noParentRelationships") return ["doc-a", "doc-b"];
+      if (mockType === "deepHierarchy")
+        return [
+          "doc-root",
+          "doc-level1",
+          "doc-level2",
+          "doc-level3",
+          "doc-level4",
+        ];
+      return ["doc-1", "doc-2", "doc-3"]; // default
+    };
+    // Create duplicate mocks for cache-and-network fetch policy
+    const annotationIndexMocks = getDocumentIds().flatMap((id) => {
+      const mock = emptyAnnotationIndexMock(id);
+      return [mock, { ...mock }];
+    });
+
     if (mockType === "noParentRelationships") {
       // Documents exist but no parent relationships - shows docs as standalone root items
       const noParentRelsMock = {
@@ -541,6 +593,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
         { ...noParentRelsMock },
         standaloneDocsMock,
         { ...standaloneDocsMock },
+        ...annotationIndexMocks,
       ];
     }
 
@@ -585,6 +638,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
       { ...relationshipsMock },
       documentsMock,
       { ...documentsMock },
+      ...annotationIndexMocks,
     ];
   };
 

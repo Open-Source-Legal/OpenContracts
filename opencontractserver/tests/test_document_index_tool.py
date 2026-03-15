@@ -176,6 +176,28 @@ class TestCreateDocumentIndexPDF(TestCase):
                 creator_id=self.user.id,
             )
 
+    def test_multi_node_cycle_raises(self):
+        """ValueError raised when entries form a cycle (A->B, B->A)."""
+        entries = [
+            {
+                "title": "Section A",
+                "exact_string": "Agreement",
+                "parent_index": 1,
+            },
+            {
+                "title": "Section B",
+                "exact_string": "Execution Date",
+                "parent_index": 0,
+            },
+        ]
+        with self.assertRaises(ValueError, msg="Cycle detected"):
+            create_document_index(
+                entries,
+                document_id=self.doc.id,
+                corpus_id=self.corpus.id,
+                creator_id=self.user.id,
+            )
+
     def test_nonexistent_document_raises(self):
         """ValueError raised for a document ID that doesn't exist."""
         with self.assertRaises(ValueError, msg="does not exist"):

@@ -1833,6 +1833,7 @@ def create_document_index(
                 long_description=description,
                 page=oc_ann.get("page", 1),
                 json=oc_ann["annotation_json"],
+                tokens_jsons=oc_ann.get("tokens_jsons"),
                 annotation_label=label_obj,
                 document=doc,
                 corpus=corpus,
@@ -1913,6 +1914,8 @@ def create_document_index(
             created.append(annot)
 
         # Second pass: wire up parent hierarchy.
+        # Build parent_idx map first and check for cycles.
+        parent_map: dict[int, int] = {}
         for i, entry in enumerate(entries):
             parent_idx = int(entry.get("parent_index", -1))
             if parent_idx >= 0:
@@ -1922,8 +1925,24 @@ def create_document_index(
                     raise ValueError(
                         f"parent_index {parent_idx} out of range for entry {i}"
                     )
-                created[i].parent = created[parent_idx]
-                created[i].save(update_fields=["parent"])
+                parent_map[i] = parent_idx
+
+        # Detect multi-node cycles via ancestor traversal.
+        for start in parent_map:
+            visited: set[int] = set()
+            current = start
+            while current in parent_map:
+                if current in visited:
+                    raise ValueError(
+                        f"Cycle detected in parent_index references "
+                        f"involving entry {current}"
+                    )
+                visited.add(current)
+                current = parent_map[current]
+
+        for i, parent_idx in parent_map.items():
+            created[i].parent = created[parent_idx]
+            created[i].save(update_fields=["parent"])
 
     return [a.pk for a in created]
 
