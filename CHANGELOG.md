@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Refactored FullScreenModal to use native `size="fullscreen"` variant** (Closes #1073): Replaced the `createGlobalStyle` workaround in `frontend/src/components/knowledge_base/document/LayoutComponents.tsx` with the native `size="fullscreen"` prop from `@os-legal/ui`, which handles viewport positioning, sizing, border-radius removal, and overlay padding natively. Only minimal body styling overrides (padding, overflow) remain.
+- **Refactored FullScreenModal to use native `size="fullscreen"` variant** (Closes #1073): Replaced the `createGlobalStyle` workaround in `frontend/src/components/knowledge_base/document/LayoutComponents.tsx` with the native `size="fullscreen"` prop from `@os-legal/ui`, which handles viewport positioning, sizing, border-radius removal, and overlay padding natively. Only minimal body styling overrides (background color, padding, and overflow) remain.
 - **Added `overlayClassName` to CorpusModal** (`frontend/src/components/corpuses/CorpusModal.tsx`): Uses the new `overlayClassName` prop to properly apply the `.corpus-modal-overlay` styles to the portal-rendered overlay element, fixing mobile overlay styles that were previously unreachable.
 
 ### Fixed
