@@ -198,8 +198,13 @@ the complete reference. Summary:
 | `annotation_type` | string\|null | no | `"TOKEN_LABEL"` or `"SPAN_LABEL"` |
 | `structural` | bool | yes | Whether this is a structural (parser-generated) annotation |
 | `content_modalities` | string[] | no | Content types: `["TEXT"]`, `["IMAGE"]`, or `["TEXT","IMAGE"]` |
+| `long_description` | string\|null | no | Markdown description (used by document index annotations; see [Document Index Convention](#document-index-convention)) |
 
 #### `annotation_json` Format
+
+The format depends on the annotation type.
+
+##### Token annotations (`annotation_type = "TOKEN_LABEL"`) — PDF documents
 
 A map of page number (as string key) to page annotation data:
 
@@ -226,6 +231,25 @@ A map of page number (as string key) to page annotation data:
 - `pageIndex` values in token refs must match the page key.
 - `tokenIndex` values must be valid indices into the corresponding page's `tokens` array.
 - `bounds` coordinates must be non-negative.
+
+##### Span annotations (`annotation_type = "SPAN_LABEL"`) — Text documents
+
+A simple character-offset span into the document's `content` string:
+
+```jsonc
+{
+  "start": 0,        // int, 0-based character offset (inclusive)
+  "end": 52,         // int, 0-based character offset (exclusive)
+  "text": "EXCLUSIVE LICENSE AND PRODUCT DEVELOPMENT AGREEMENT"
+}
+```
+
+**Constraints:**
+- `start` must be ≥ 0.
+- `end` must be > `start`.
+- `text` must equal `content[start:end]` (the substring at those offsets in the
+  document's `content` field).
+- `page` on the parent annotation should be `1` (text documents are single-page).
 
 ### Relationship (`relationships.*`)
 
@@ -491,6 +515,248 @@ The importer enforces these limits (configurable via Django settings):
   because different deployments may use different embedding models.
 - **Timestamps**: `auto_now_add` timestamps on conversations and messages are
   patched post-creation to preserve original values.
+
+---
+
+## Document Index Convention
+
+OpenContracts supports a **hierarchical document index** (within-document table
+of contents) built entirely from annotations. The frontend renders these as a
+navigable, collapsible tree with optional markdown descriptions. Downstream
+consumers can construct document indexes in an export ZIP and they will be
+imported and displayed automatically.
+
+### How It Works
+
+A document index is a set of annotations that:
+
+1. Share a common label with `text = "OC_SECTION"`
+2. Use `parent_id` references to form a tree (chapters → sections → subsections)
+3. Optionally carry a `long_description` field with markdown content
+
+The frontend `DocumentAnnotationIndex` component queries for annotations with
+the `OC_SECTION` label on a given document+corpus and renders them as a tree.
+
+### Building a Document Index in an Export
+
+To include a document index in an `OpenContractDocExport`:
+
+#### Step 1: Define the label
+
+Add an `OC_SECTION` entry to the top-level `text_labels` map:
+
+```jsonc
+{
+  "text_labels": {
+    "OC_SECTION": {
+      "id": "label-oc-section",
+      "text": "OC_SECTION",
+      "label_type": "TOKEN_LABEL",      // TOKEN_LABEL for PDFs, SPAN_LABEL for text docs
+      "color": "#6366f1",
+      "description": "Document section index entry",
+      "icon": "tag"
+    }
+  }
+}
+```
+
+> **Note**: Use `"TOKEN_LABEL"` for PDF documents (annotations reference PAWLs
+> tokens) and `"SPAN_LABEL"` for plain-text documents (annotations use
+> character offsets). If a corpus contains both types, define two labels or use
+> `TOKEN_LABEL` and set `annotation_type` per-annotation.
+
+#### Step 2: Create index annotations
+
+Add annotations to the document's `labelled_text` array. Each annotation
+represents one section/heading in the document:
+
+```jsonc
+{
+  "labelled_text": [
+    {
+      "id": "idx-0",
+      "annotationLabel": "OC_SECTION",
+      "rawText": "1. Introduction",
+      "long_description": "This chapter introduces the **parties** to the agreement and outlines the key terms.",
+      "page": 0,
+      "annotation_json": { "start": 0, "end": 16, "text": "1. Introduction" },
+      "annotation_type": "SPAN_LABEL",
+      "parent_id": null,
+      "structural": false
+    },
+    {
+      "id": "idx-1",
+      "annotationLabel": "OC_SECTION",
+      "rawText": "1.1 Definitions",
+      "long_description": "Key defined terms used throughout the agreement.",
+      "page": 0,
+      "annotation_json": { "start": 200, "end": 216, "text": "1.1 Definitions" },
+      "annotation_type": "SPAN_LABEL",
+      "parent_id": "idx-0",
+      "structural": false
+    },
+    {
+      "id": "idx-2",
+      "annotationLabel": "OC_SECTION",
+      "rawText": "2. License Grant",
+      "long_description": null,
+      "page": 2,
+      "annotation_json": { "start": 1500, "end": 1516, "text": "2. License Grant" },
+      "annotation_type": "SPAN_LABEL",
+      "parent_id": null,
+      "structural": false
+    }
+  ]
+}
+```
+
+#### Step 3: Wire hierarchy via `parent_id`
+
+- Set `parent_id` to the `id` of the parent section annotation, or `null` for
+  root-level entries.
+- The importer resolves `parent_id` references during import via its standard
+  ID remapping.
+- Circular references are rejected by the frontend (cycle detection) and should
+  be avoided.
+
+### Field Reference for Index Annotations
+
+| Field | Value / Convention | Notes |
+|-------|-------------------|-------|
+| `annotationLabel` | `"OC_SECTION"` | Exact string. The `OC_` prefix is reserved for platform-generated labels. |
+| `rawText` | Section title | Displayed as the tree node label (e.g., `"Chapter 1: Introduction"`) |
+| `long_description` | Markdown string or `null` | Rendered as expandable rich text below the title. Sanitized with `rehype-sanitize` on display. |
+| `page` | 0-based page index | For text docs, use `1`. For PDFs, the page where the section heading appears. |
+| `annotation_json` | Token map (PDF) or `TextSpanData` (text) | Must anchor to the actual heading text in the document. See [annotation_json Format](#annotation_json-format). |
+| `annotation_type` | `"TOKEN_LABEL"` or `"SPAN_LABEL"` | Must match the label's `label_type` |
+| `parent_id` | Export-local ID or `null` | References another `OC_SECTION` annotation's `id` for hierarchy |
+| `structural` | `false` | Index annotations are user/agent-generated, not parser-generated |
+
+### Complete Minimal Example (Text Document)
+
+```jsonc
+{
+  "version": "2.0",
+  "corpus": {
+    "id": 1,
+    "title": "Contract Corpus",
+    "description": "Example corpus with document index",
+    "icon_name": "corpus.png",
+    "icon_data": "",
+    "creator": "user@example.com",
+    "label_set": "ls-1"
+  },
+  "label_set": {
+    "id": "ls-1",
+    "title": "Default Labels",
+    "description": "",
+    "icon_name": "labelset.png",
+    "icon_data": null,
+    "creator": "user@example.com"
+  },
+  "doc_labels": {},
+  "text_labels": {
+    "OC_SECTION": {
+      "id": "label-oc-section",
+      "text": "OC_SECTION",
+      "label_type": "SPAN_LABEL",
+      "color": "#6366f1",
+      "description": "Document section index entry",
+      "icon": "tag"
+    }
+  },
+  "annotated_docs": {
+    "agreement.txt": {
+      "title": "License Agreement",
+      "content": "EXCLUSIVE LICENSE AND PRODUCT DEVELOPMENT AGREEMENT\n\nThis Agreement is entered into...\n\n1. Definitions\n\nFor purposes of this Agreement...\n\n2. License Grant\n\nSubject to the terms...",
+      "description": "Sample license agreement",
+      "pawls_file_content": [],
+      "page_count": 1,
+      "file_type": "text/plain",
+      "doc_labels": [],
+      "labelled_text": [
+        {
+          "id": "idx-0",
+          "annotationLabel": "OC_SECTION",
+          "rawText": "Agreement Header",
+          "long_description": "The **master heading** of the license agreement between the two parties.",
+          "page": 1,
+          "annotation_json": { "start": 0, "end": 52, "text": "EXCLUSIVE LICENSE AND PRODUCT DEVELOPMENT AGREEMENT" },
+          "annotation_type": "SPAN_LABEL",
+          "parent_id": null,
+          "structural": false
+        },
+        {
+          "id": "idx-1",
+          "annotationLabel": "OC_SECTION",
+          "rawText": "Definitions",
+          "long_description": "Defines key terms: *Execution Date*, *Licensed Products*, *Territory*, and *Licensed Technology*.",
+          "page": 1,
+          "annotation_json": { "start": 69, "end": 83, "text": "1. Definitions" },
+          "annotation_type": "SPAN_LABEL",
+          "parent_id": "idx-0",
+          "structural": false
+        },
+        {
+          "id": "idx-2",
+          "annotationLabel": "OC_SECTION",
+          "rawText": "License Grant",
+          "long_description": null,
+          "page": 1,
+          "annotation_json": { "start": 125, "end": 141, "text": "2. License Grant" },
+          "annotation_type": "SPAN_LABEL",
+          "parent_id": "idx-0",
+          "structural": false
+        }
+      ]
+    }
+  },
+  "structural_annotation_sets": {},
+  "folders": [],
+  "document_paths": [],
+  "relationships": [],
+  "agent_config": {
+    "corpus_agent_instructions": null,
+    "document_agent_instructions": null
+  },
+  "md_description": null,
+  "md_description_revisions": [],
+  "post_processors": []
+}
+```
+
+This produces a tree:
+
+```
+Agreement Header
+├── Definitions
+└── License Grant
+```
+
+Where "Agreement Header" has a markdown description shown when the user expands
+it, "Definitions" has a description with italic terms, and "License Grant" has
+no description.
+
+### Limits
+
+| Limit | Value | Notes |
+|-------|-------|-------|
+| Max index entries per document | 500 | Controlled by `DOCUMENT_ANNOTATION_INDEX_LIMIT` |
+| Max tree depth | 4 (default) | Frontend `maxDepth` prop, configurable per-mount |
+
+### Frontend Display Behavior
+
+- The `DocumentAnnotationIndex` component queries for `OC_SECTION` annotations
+  and builds a tree from the `parent` FK hierarchy.
+- Empty results (no `OC_SECTION` annotations) → component renders nothing.
+- Circular parent references → detected and broken; a warning banner is shown.
+- `long_description` is rendered as sanitized markdown (via `react-markdown`
+  with `rehype-sanitize`). Links, images, and script tags are stripped.
+- Clicking a section navigates to the document and selects the annotation,
+  triggering the two-phase scroll-to-annotation system.
+- In the `DocumentTableOfContents` (multi-doc corpus view), each document
+  node can be expanded to reveal its annotation index. The query is lazy —
+  only fired when the node is expanded.
 
 ---
 
