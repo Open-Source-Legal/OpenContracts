@@ -411,7 +411,7 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
                 "entries",
                 (
                     "List of objects with keys: title (str), exact_string (str), "
-                    "long_description (str), parent_index (int, -1 for root)"
+                    "long_description (str, optional), parent_index (int, -1 for root)"
                 ),
                 True,
             ),
@@ -818,11 +818,7 @@ class ToolFunctionRegistry:
                 aadd_annotations_from_exact_strings,
                 (),
             ),
-            "create_document_index": (
-                None,
-                acreate_document_index,
-                (),
-            ),
+            "create_document_index": (acreate_document_index, ()),
             # Corpus tools
             "get_corpus_description": (aget_corpus_description, ()),
             "update_corpus_description": (aupdate_corpus_description, ()),
