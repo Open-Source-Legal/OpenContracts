@@ -38,8 +38,12 @@ from opencontractserver.mcp.permissions import validate_slug as perm_validate_sl
 from opencontractserver.mcp.server import TTLLRUCache, URIParser
 from opencontractserver.mcp.telemetry import (
     IP_HASH_LENGTH,
+    MAX_USER_AGENT_LENGTH,
     _get_request_context,
     _hash_ip,
+    arecord_mcp_request,
+    arecord_mcp_resource_read,
+    arecord_mcp_tool_call,
     clear_request_context,
     get_claimed_client_ip_from_scope,
     get_user_agent_from_scope,
@@ -311,6 +315,243 @@ class TestTelemetryRecording(TestCase):
             record_mcp_tool_call("test", success=True)
         props = mock_record.call_args[0][1]
         self.assertNotIn("user_agent", props)
+
+
+class TestAsyncTelemetryRecording(TestCase):
+    """Tests for async telemetry event recording functions."""
+
+    def tearDown(self):
+        clear_request_context()
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_tool_call_success(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                set_request_context(client_ip="1.2.3.4", transport="http")
+                return await arecord_mcp_tool_call("list_public_corpuses", success=True)
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        mock_arecord.assert_called_once()
+        args = mock_arecord.call_args
+        self.assertEqual(args[0][0], "mcp_tool_call")
+        props = args[0][1]
+        self.assertEqual(props["tool_name"], "list_public_corpuses")
+        self.assertTrue(props["success"])
+        self.assertEqual(props["transport"], "http")
+        self.assertIn("client_ip_hash", props)
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_tool_call_with_slugs(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                return await arecord_mcp_tool_call(
+                    "list_documents",
+                    success=True,
+                    corpus_slug="my-corpus",
+                    document_slug="my-doc",
+                )
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        props = mock_arecord.call_args[0][1]
+        self.assertEqual(props["corpus_slug"], "my-corpus")
+        self.assertEqual(props["document_slug"], "my-doc")
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_tool_call_failure(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                return await arecord_mcp_tool_call(
+                    "search_corpus", success=False, error_type="ValueError"
+                )
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        props = mock_arecord.call_args[0][1]
+        self.assertFalse(props["success"])
+        self.assertEqual(props["error_type"], "ValueError")
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_resource_read_success(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                set_request_context(client_ip="1.2.3.4", transport="http")
+                return await arecord_mcp_resource_read("corpus", success=True)
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        props = mock_arecord.call_args[0][1]
+        self.assertEqual(props["resource_type"], "corpus")
+        self.assertTrue(props["success"])
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_resource_read_with_slugs(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                return await arecord_mcp_resource_read(
+                    "document",
+                    success=True,
+                    corpus_slug="my-corpus",
+                    document_slug="my-doc",
+                )
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        props = mock_arecord.call_args[0][1]
+        self.assertEqual(props["corpus_slug"], "my-corpus")
+        self.assertEqual(props["document_slug"], "my-doc")
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_resource_read_failure(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                return await arecord_mcp_resource_read(
+                    "corpus", success=False, error_type="PermissionError"
+                )
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        props = mock_arecord.call_args[0][1]
+        self.assertFalse(props["success"])
+        self.assertEqual(props["error_type"], "PermissionError")
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_request_success(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                set_request_context(client_ip="1.2.3.4", transport="http")
+                return await arecord_mcp_request("/mcp", method="POST", success=True)
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        props = mock_arecord.call_args[0][1]
+        self.assertEqual(props["endpoint"], "/mcp")
+        self.assertEqual(props["method"], "POST")
+        self.assertTrue(props["success"])
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_request_failure(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                return await arecord_mcp_request(
+                    "/mcp", success=False, error_type="TimeoutError"
+                )
+
+        result = self._run(_test())
+        self.assertTrue(result)
+        props = mock_arecord.call_args[0][1]
+        self.assertFalse(props["success"])
+        self.assertEqual(props["error_type"], "TimeoutError")
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_arecord_mcp_tool_call_user_agent_in_context(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                set_request_context(
+                    client_ip="1.2.3.4",
+                    transport="http",
+                    user_agent="Claude-Code/1.0",
+                )
+                return await arecord_mcp_tool_call("list_documents", success=True)
+
+        self._run(_test())
+        props = mock_arecord.call_args[0][1]
+        self.assertEqual(props["user_agent"], "Claude-Code/1.0")
+
+
+class TestUserAgentTruncation(TestCase):
+    """Tests for User-Agent length bounding."""
+
+    def tearDown(self):
+        clear_request_context()
+
+    def test_set_request_context_truncates_long_user_agent(self):
+        long_ua = "A" * (MAX_USER_AGENT_LENGTH + 500)
+        set_request_context(client_ip="1.2.3.4", transport="http", user_agent=long_ua)
+        ctx = _get_request_context()
+        self.assertEqual(len(ctx["user_agent"]), MAX_USER_AGENT_LENGTH)
+
+    def test_set_request_context_preserves_short_user_agent(self):
+        short_ua = "Claude-Code/1.0"
+        set_request_context(client_ip="1.2.3.4", transport="http", user_agent=short_ua)
+        ctx = _get_request_context()
+        self.assertEqual(ctx["user_agent"], short_ua)
+
+    def test_set_request_context_empty_string_user_agent(self):
+        set_request_context(client_ip="1.2.3.4", transport="http", user_agent="")
+        ctx = _get_request_context()
+        self.assertIsNone(ctx["user_agent"])
+
+    def test_get_user_agent_from_scope_truncates_long_value(self):
+        long_ua = ("B" * (MAX_USER_AGENT_LENGTH + 1000)).encode()
+        scope = {"headers": [(b"user-agent", long_ua)]}
+        result = get_user_agent_from_scope(scope)
+        self.assertEqual(len(result), MAX_USER_AGENT_LENGTH)
+
+    def test_get_user_agent_from_scope_preserves_short_value(self):
+        scope = {"headers": [(b"user-agent", b"cursor/0.45")]}
+        result = get_user_agent_from_scope(scope)
+        self.assertEqual(result, "cursor/0.45")
+
+
+class TestEmptySlugFiltering(TestCase):
+    """Tests that empty-string slugs are excluded from telemetry properties."""
+
+    def tearDown(self):
+        clear_request_context()
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_empty_corpus_slug_omitted(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            record_mcp_tool_call("test", success=True, corpus_slug="")
+        props = mock_record.call_args[0][1]
+        self.assertNotIn("corpus_slug", props)
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_empty_document_slug_omitted(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            record_mcp_resource_read("corpus", success=True, document_slug="")
+        props = mock_record.call_args[0][1]
+        self.assertNotIn("document_slug", props)
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_async_empty_corpus_slug_omitted(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                return await arecord_mcp_tool_call("test", success=True, corpus_slug="")
+
+        asyncio.run(_test())
+        props = mock_arecord.call_args[0][1]
+        self.assertNotIn("corpus_slug", props)
+
+    @patch("opencontractserver.mcp.telemetry.arecord_event")
+    def test_async_empty_document_slug_omitted(self, mock_arecord):
+        async def _test():
+            mock_arecord.return_value = True
+            with isolated_telemetry_context():
+                return await arecord_mcp_resource_read(
+                    "corpus", success=True, document_slug=""
+                )
+
+        asyncio.run(_test())
+        props = mock_arecord.call_args[0][1]
+        self.assertNotIn("document_slug", props)
 
 
 class TestGetUserAgentFromScope(TestCase):

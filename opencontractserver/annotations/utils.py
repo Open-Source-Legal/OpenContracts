@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.types.enums import ContentModality
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +67,11 @@ def compute_content_modalities(
             if hasattr(pawls_content, "read"):
                 pawls_content.open("r")
                 try:
-                    pawls_data = json.load(pawls_content)
+                    pawls_data = expand_pawls_pages(json.load(pawls_content))
                 finally:
                     pawls_content.close()
             else:
-                pawls_data = pawls_content
+                pawls_data = expand_pawls_pages(pawls_content)
         except Exception as e:
             logger.error(f"Failed to load PAWLs data: {e}")
             return [ContentModality.TEXT.value]

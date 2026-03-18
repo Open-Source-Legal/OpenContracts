@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.types.enums import ContentModality
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.pdf_token_extraction import (
     get_image_as_base64,
     load_pawls_data,
@@ -146,7 +147,7 @@ def get_annotation_image_tokens(
                 try:
                     pawls_file.open("r")
                     try:
-                        pawls_data = json.load(pawls_file)
+                        pawls_data = expand_pawls_pages(json.load(pawls_file))
                         logger.debug(
                             f"Annotation {annotation.pk} loaded PAWLs from "
                             f"structural_set {annotation.structural_set_id}"

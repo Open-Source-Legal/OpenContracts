@@ -19,6 +19,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentAnalysisRow
 from opencontractserver.types.dicts import TextSpan
 from opencontractserver.types.enums import LabelType
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.etl import is_dict_instance_of_typed_dict
 
 # Timing constants for retry and backoff durations
@@ -108,7 +109,7 @@ def doc_analyzer_task(max_retries=None, input_schema: dict | None = None) -> cal
                     else None
                 )
                 pdf_pawls_extract = (
-                    json.loads(doc.pawls_parse_file.read())
+                    expand_pawls_pages(json.loads(doc.pawls_parse_file.read()))
                     if doc.pawls_parse_file
                     else None
                 )
@@ -461,7 +462,7 @@ def async_doc_analyzer_task(
 
                 @sync_to_async
                 def get_pawls_extract(doc: Document) -> Any:
-                    return json.loads(doc.pawls_parse_file.read())
+                    return expand_pawls_pages(json.loads(doc.pawls_parse_file.read()))
 
                 @sync_to_async
                 def has_txt_extract(doc: Document) -> bool:

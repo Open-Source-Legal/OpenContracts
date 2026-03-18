@@ -780,9 +780,15 @@ class StructuralAnnotationSet(BaseOCModel):
                     import json as json_module
 
                     try:
+                        from opencontractserver.utils.compact_pawls import (
+                            expand_pawls_pages,
+                        )
+
                         self.pawls_parse_file.open("r")
                         try:
-                            pawls_data = json_module.load(self.pawls_parse_file)
+                            pawls_data = expand_pawls_pages(
+                                json_module.load(self.pawls_parse_file)
+                            )
                         finally:
                             self.pawls_parse_file.close()
                     except Exception as e:

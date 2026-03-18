@@ -52,6 +52,10 @@ interface Props {
   /** Initial home view for About/TOC switch (within details view) */
   initialHomeView?: CorpusHomeViewType | null;
   initialTocExpanded?: boolean;
+  /** Callback when the Focus/Power mode toggle is clicked */
+  onModeToggle?: () => void;
+  /** Whether the corpus is in power-user mode */
+  isPowerUserMode?: boolean;
 }
 
 /**
@@ -112,6 +116,8 @@ export const CorpusHomeTestWrapper: React.FC<Props> = ({
   initialView,
   initialHomeView,
   initialTocExpanded,
+  onModeToggle,
+  isPowerUserMode,
 }) => {
   // CRITICAL: Initialize reactive vars synchronously BEFORE render
   // This ensures the component sees the correct values on first paint
@@ -160,6 +166,8 @@ export const CorpusHomeTestWrapper: React.FC<Props> = ({
               onChatQueryChange={() => {}}
               onChatSubmit={() => {}}
               onViewChatHistory={() => {}}
+              onModeToggle={onModeToggle}
+              isPowerUserMode={isPowerUserMode}
             />
           </RouteParamInitializer>
         </MockedProvider>

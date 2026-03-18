@@ -38,6 +38,7 @@ from opencontractserver.documents.models import (
     DocumentProcessingStatus,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.importing import (
     import_annotations,
     import_relationships,
@@ -239,7 +240,7 @@ def _process_single_upload(upload_id) -> None:
         text_content = metadata.get("content", "")
 
         pawls_file = ContentFile(
-            json.dumps(pawls_content).encode("utf-8"),
+            json.dumps(compact_pawls_pages(pawls_content)).encode("utf-8"),
             name="pawls_tokens.json",
         )
         txt_file = ContentFile(

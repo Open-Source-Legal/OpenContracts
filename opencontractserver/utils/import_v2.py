@@ -42,6 +42,7 @@ from opencontractserver.types.dicts import (
     DescriptionRevisionExport,
     StructuralAnnotationSetExport,
 )
+from opencontractserver.utils.compact_pawls import compact_pawls_pages
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -85,9 +86,9 @@ def import_structural_annotation_set(
         # Create files
         pawls_file = None
         if struct_data.get("pawls_file_content"):
-            pawls_content = json.dumps(struct_data["pawls_file_content"]).encode(
-                "utf-8"
-            )
+            pawls_content = json.dumps(
+                compact_pawls_pages(struct_data["pawls_file_content"])
+            ).encode("utf-8")
             pawls_file = ContentFile(pawls_content, name="pawls_tokens.json")
 
         txt_file = None

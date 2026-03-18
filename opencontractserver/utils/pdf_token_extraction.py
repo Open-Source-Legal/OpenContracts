@@ -33,6 +33,7 @@ from opencontractserver.types.dicts import (
     PawlsTokenPythonType,
     TokenIdPythonType,
 )
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +67,10 @@ def load_pawls_data(document: "Document") -> Optional[list[dict[str, Any]]]:
     try:
         pawls_file.open("r")
         try:
-            pawls_data = json.load(pawls_file)
+            raw_data = json.load(pawls_file)
         finally:
             pawls_file.close()
-        return pawls_data
+        return expand_pawls_pages(raw_data)
     except Exception as e:
         logger.error(f"Failed to load PAWLs data for document {document.pk}: {e}")
         return None

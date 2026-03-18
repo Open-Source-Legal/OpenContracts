@@ -16,6 +16,7 @@ from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.pdf_token_extraction import (
     get_image_as_base64,
     get_image_data_url,
@@ -357,7 +358,7 @@ def get_annotation_images(annotation_id: int) -> list[ImageData]:
             try:
                 pawls_file.open("r")
                 try:
-                    pawls_data = json.load(pawls_file)
+                    pawls_data = expand_pawls_pages(json.load(pawls_file))
                 finally:
                     pawls_file.close()
             except Exception as e:

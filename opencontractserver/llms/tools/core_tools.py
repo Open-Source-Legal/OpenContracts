@@ -19,6 +19,7 @@ from opencontractserver.constants.truncation import (
 )
 from opencontractserver.corpuses.models import Corpus, CorpusDescriptionRevision
 from opencontractserver.documents.models import Document
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.text import truncate
 
 logger = logging.getLogger(__name__)
@@ -377,7 +378,7 @@ async def aget_notes_for_document_corpus(
         queryset = queryset.filter(corpus_id=corpus_id)
 
     notes = []
-    async for note in queryset:
+    async for note in queryset.order_by("created"):
         notes.append(
             {
                 "id": note.id,
@@ -1665,8 +1666,11 @@ def add_annotations_from_exact_strings(
             )
 
         # Load PAWLS tokens once per document.
-        with doc.pawls_parse_file.open("r") as f:
-            pawls_tokens = json.load(f)
+        doc.pawls_parse_file.open("r")
+        try:
+            pawls_tokens = expand_pawls_pages(json.load(doc.pawls_parse_file))
+        finally:
+            doc.pawls_parse_file.close()
 
         pdf_layer = build_translation_layer(pawls_tokens)
         doc_text = pdf_layer.doc_text
@@ -1871,8 +1875,11 @@ def create_document_index(
                 f"PDF document id={document_id} lacks a PAWLS layer; "
                 "cannot create index."
             )
-        with doc.pawls_parse_file.open("r") as f:
-            pawls_tokens = json.load(f)
+        doc.pawls_parse_file.open("r")
+        try:
+            pawls_tokens = expand_pawls_pages(json.load(doc.pawls_parse_file))
+        finally:
+            doc.pawls_parse_file.close()
 
         pdf_layer = build_translation_layer(pawls_tokens)
         doc_text = pdf_layer.doc_text
@@ -2086,8 +2093,11 @@ def search_exact_text_as_sources(
             )
 
         # Load PAWLS tokens once
-        with doc.pawls_parse_file.open("r") as f:
-            pawls_tokens = json.load(f)
+        doc.pawls_parse_file.open("r")
+        try:
+            pawls_tokens = expand_pawls_pages(json.load(doc.pawls_parse_file))
+        finally:
+            doc.pawls_parse_file.close()
 
         pdf_layer = build_translation_layer(pawls_tokens)
         doc_text = pdf_layer.doc_text

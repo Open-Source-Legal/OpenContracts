@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,9 @@ class Command(BaseCommand):
 
         # Get PAWLs data
         try:
-            pawls_data = json.loads(annotation.document.pawls_parse_file.read())
+            pawls_data = expand_pawls_pages(
+                json.loads(annotation.document.pawls_parse_file.read())
+            )
         except Exception:
             # Can't read PAWLS data, use label as fallback
             label_text = annotation.annotation_label.text.lower()

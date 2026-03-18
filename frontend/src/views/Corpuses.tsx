@@ -1563,12 +1563,17 @@ const ExtractsTabContent: React.FC<{
 // Container for the clean landing view (no sidebar).
 // Does NOT scroll — LandingContainer (inside CorpusLandingView) handles scrolling
 // via overflow-y: auto.  This wrapper only provides flex layout so that the
-// LandingContainer child can fill the available height from CardLayout's flex
-// ancestor chain.  Height constraints (height: 100%, min-height: 0,
-// max-height: 100dvh, overflow: hidden) were intentionally removed because
-// LandingContainer inherits bounded height through the flex column
-// (CardLayout → CleanViewContainer → LandingContainer), and those properties
-// conflicted with the scroll container living inside LandingContainer.
+// LandingContainer child can fill the available height.
+//
+// Height model:
+//   CardLayout → CleanViewContainer → LandingContainer
+//   - height: 100% + min-height: 0  → fills the flex parent while allowing
+//     shrink, giving LandingContainer a bounded block size.
+//   - overflow: hidden              → prevents this container from scrolling;
+//     all scrolling happens inside LandingContainer's overflow-y: auto.
+//   - max-height: 100dvh was removed because the flex ancestor chain already
+//     constrains height, and the extra cap conflicted with LandingContainer's
+//     own scroll container.
 const CleanViewContainer = styled.div`
   position: relative;
   display: flex;
@@ -1744,25 +1749,25 @@ export const Corpuses = () => {
   const debouncedCorpusSearch = useRef(
     _.debounce((searchTerm) => {
       corpusSearchTerm(searchTerm);
-    }, 1000)
+    }, DEBOUNCE.SEARCH_MS)
   );
 
   const debouncedDocumentSearch = useRef(
     _.debounce((searchTerm) => {
       documentSearchTerm(searchTerm);
-    }, 1000)
+    }, DEBOUNCE.SEARCH_MS)
   );
 
   const debouncedAnnotationSearch = useRef(
     _.debounce((searchTerm) => {
       annotationContentSearchTerm(searchTerm);
-    }, 1000)
+    }, DEBOUNCE.SEARCH_MS)
   );
 
   const debouncedAnalysisSearch = useRef(
     _.debounce((searchTerm) => {
       analysisSearchTerm(searchTerm);
-    }, 1000)
+    }, DEBOUNCE.SEARCH_MS)
   );
 
   const handleCorpusSearchChange = (value: string) => {

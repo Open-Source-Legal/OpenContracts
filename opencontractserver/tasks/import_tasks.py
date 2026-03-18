@@ -26,6 +26,7 @@ from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import Document
 from opencontractserver.types.dicts import OpenContractsAnnotatedDocumentImportType
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.importing import (
     import_doc_annotations,
@@ -109,7 +110,9 @@ def import_document_to_corpus(
 
         doc_data = document_import_data["doc_data"]
         pawls_parse_file = ContentFile(
-            json.dumps(doc_data["pawls_file_content"]).encode("utf-8"),
+            json.dumps(compact_pawls_pages(doc_data["pawls_file_content"])).encode(
+                "utf-8"
+            ),
             name="pawls_tokens.json",
         )
 
