@@ -69,9 +69,17 @@ import {
   MobileSettingsTabContainer,
   MobileSettingsTabList,
   MobileSettingsTab,
+  MobileSettingsTabPanel,
 } from "./system_settings/styles";
 import { ComponentLibrary } from "./system_settings/ComponentLibrary";
 import { FiletypeDefaults } from "./system_settings/FiletypeDefaults";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const SETTINGS_TABS = ["library", "defaults"] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 // ============================================================================
 // Component
@@ -84,7 +92,7 @@ export const SystemSettings: React.FC = () => {
   const [isMobile, setIsMobile] = useState(
     () => window.innerWidth <= CORPUS_BREAKPOINTS.tablet
   );
-  const [activeTab, setActiveTab] = useState<"library" | "defaults">("library");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("library");
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${CORPUS_BREAKPOINTS.tablet}px)`);
@@ -92,6 +100,39 @@ export const SystemSettings: React.FC = () => {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+
+  // Keyboard navigation for mobile tabs (WAI-ARIA horizontal tabs pattern)
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const currentIndex = SETTINGS_TABS.indexOf(activeTab);
+      let nextIndex: number | null = null;
+
+      switch (e.key) {
+        case "ArrowLeft":
+          nextIndex =
+            currentIndex === 0 ? SETTINGS_TABS.length - 1 : currentIndex - 1;
+          break;
+        case "ArrowRight":
+          nextIndex =
+            currentIndex === SETTINGS_TABS.length - 1 ? 0 : currentIndex + 1;
+          break;
+        case "Home":
+          nextIndex = 0;
+          break;
+        case "End":
+          nextIndex = SETTINGS_TABS.length - 1;
+          break;
+        default:
+          return;
+      }
+
+      e.preventDefault();
+      const nextTab = SETTINGS_TABS[nextIndex];
+      setActiveTab(nextTab);
+      document.getElementById(`settings-tab-${nextTab}`)?.focus();
+    },
+    [activeTab]
+  );
 
   // Modal states
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -539,6 +580,64 @@ export const SystemSettings: React.FC = () => {
     }
   }, []);
 
+  // Shared props for ComponentLibrary and FiletypeDefaults (avoids duplication
+  // between desktop two-column and mobile tab layouts)
+  const componentLibraryProps = useMemo(
+    () => ({
+      components: componentsByStage,
+      updating,
+      componentsLoading,
+      settingsLoading,
+      onToggleEnabled: handleToggleEnabled,
+      onAddSecrets: handleAddSecrets,
+      onDeleteSecrets: handleDeleteSecretsClick,
+      onSaveConfig: handleSaveComponentSettings,
+      getConfigSettings: getNonSecretSettingsForComponent,
+      getSecretSettings: getSecretSettingsForComponent,
+    }),
+    [
+      componentsByStage,
+      updating,
+      componentsLoading,
+      settingsLoading,
+      handleToggleEnabled,
+      handleAddSecrets,
+      handleDeleteSecretsClick,
+      handleSaveComponentSettings,
+      getNonSecretSettingsForComponent,
+      getSecretSettingsForComponent,
+    ]
+  );
+
+  const filetypeDefaultsProps = useMemo(
+    () => ({
+      components: componentsByStage,
+      enabledComponents:
+        (settings?.enabledComponents?.filter(Boolean) as string[]) ?? [],
+      preferredParsers:
+        (settings?.preferredParsers as Record<string, string>) || {},
+      preferredEmbedders:
+        (settings?.preferredEmbedders as Record<string, string>) || {},
+      preferredThumbnailers:
+        (settings?.preferredThumbnailers as Record<string, string>) || {},
+      defaultEmbedder: settings?.defaultEmbedder || "",
+      updating,
+      onAssign: handleAssign,
+      onEditDefaultEmbedder: handleEditDefaultEmbedder,
+    }),
+    [
+      componentsByStage,
+      settings?.enabledComponents,
+      settings?.preferredParsers,
+      settings?.preferredEmbedders,
+      settings?.preferredThumbnailers,
+      settings?.defaultEmbedder,
+      updating,
+      handleAssign,
+      handleEditDefaultEmbedder,
+    ]
+  );
+
   // Loading state
   if (settingsLoading || componentsLoading) {
     return (
@@ -623,105 +722,49 @@ export const SystemSettings: React.FC = () => {
             <MobileSettingsTab
               id="settings-tab-library"
               role="tab"
+              tabIndex={activeTab === "library" ? 0 : -1}
               aria-selected={activeTab === "library"}
               aria-controls="settings-panel-library"
               $active={activeTab === "library"}
               onClick={() => setActiveTab("library")}
+              onKeyDown={handleTabKeyDown}
             >
               Component Library
             </MobileSettingsTab>
             <MobileSettingsTab
               id="settings-tab-defaults"
               role="tab"
+              tabIndex={activeTab === "defaults" ? 0 : -1}
               aria-selected={activeTab === "defaults"}
               aria-controls="settings-panel-defaults"
               $active={activeTab === "defaults"}
               onClick={() => setActiveTab("defaults")}
+              onKeyDown={handleTabKeyDown}
             >
               Filetype Defaults
             </MobileSettingsTab>
           </MobileSettingsTabList>
 
-          <div
+          <MobileSettingsTabPanel
             id={`settings-panel-${activeTab}`}
             role="tabpanel"
             aria-labelledby={`settings-tab-${activeTab}`}
+            tabIndex={0}
           >
             {activeTab === "library" ? (
-              <ComponentLibrary
-                components={componentsByStage}
-                updating={updating}
-                componentsLoading={componentsLoading}
-                settingsLoading={settingsLoading}
-                onToggleEnabled={handleToggleEnabled}
-                onAddSecrets={handleAddSecrets}
-                onDeleteSecrets={handleDeleteSecretsClick}
-                onSaveConfig={handleSaveComponentSettings}
-                getConfigSettings={getNonSecretSettingsForComponent}
-                getSecretSettings={getSecretSettingsForComponent}
-              />
+              <ComponentLibrary {...componentLibraryProps} />
             ) : (
-              <FiletypeDefaults
-                components={componentsByStage}
-                enabledComponents={
-                  (settings?.enabledComponents?.filter(Boolean) as string[]) ??
-                  []
-                }
-                preferredParsers={
-                  (settings?.preferredParsers as Record<string, string>) || {}
-                }
-                preferredEmbedders={
-                  (settings?.preferredEmbedders as Record<string, string>) || {}
-                }
-                preferredThumbnailers={
-                  (settings?.preferredThumbnailers as Record<string, string>) ||
-                  {}
-                }
-                defaultEmbedder={settings?.defaultEmbedder || ""}
-                updating={updating}
-                onAssign={handleAssign}
-                onEditDefaultEmbedder={handleEditDefaultEmbedder}
-              />
+              <FiletypeDefaults {...filetypeDefaultsProps} />
             )}
-          </div>
+          </MobileSettingsTabPanel>
         </MobileSettingsTabContainer>
       ) : (
         <SettingsTwoColumnLayout>
           <SettingsLeftColumn>
-            <ComponentLibrary
-              components={componentsByStage}
-              updating={updating}
-              componentsLoading={componentsLoading}
-              settingsLoading={settingsLoading}
-              onToggleEnabled={handleToggleEnabled}
-              onAddSecrets={handleAddSecrets}
-              onDeleteSecrets={handleDeleteSecretsClick}
-              onSaveConfig={handleSaveComponentSettings}
-              getConfigSettings={getNonSecretSettingsForComponent}
-              getSecretSettings={getSecretSettingsForComponent}
-            />
+            <ComponentLibrary {...componentLibraryProps} />
           </SettingsLeftColumn>
           <SettingsRightColumn>
-            <FiletypeDefaults
-              components={componentsByStage}
-              enabledComponents={
-                (settings?.enabledComponents?.filter(Boolean) as string[]) ?? []
-              }
-              preferredParsers={
-                (settings?.preferredParsers as Record<string, string>) || {}
-              }
-              preferredEmbedders={
-                (settings?.preferredEmbedders as Record<string, string>) || {}
-              }
-              preferredThumbnailers={
-                (settings?.preferredThumbnailers as Record<string, string>) ||
-                {}
-              }
-              defaultEmbedder={settings?.defaultEmbedder || ""}
-              updating={updating}
-              onAssign={handleAssign}
-              onEditDefaultEmbedder={handleEditDefaultEmbedder}
-            />
+            <FiletypeDefaults {...filetypeDefaultsProps} />
           </SettingsRightColumn>
         </SettingsTwoColumnLayout>
       )}

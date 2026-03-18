@@ -8,6 +8,7 @@ from asgiref.sync import sync_to_async
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.shared.decorators import celery_task_with_async_to_sync
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 
 logger = logging.getLogger(__name__)
 
@@ -529,7 +530,7 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
                 return "Error: Document has no pawls_parse_file or path is invalid."
 
             with open(doc.pawls_parse_file.path, encoding="utf-8") as f:
-                pawls_pages = json.load(f)
+                pawls_pages = expand_pawls_pages(json.load(f))
 
             if not isinstance(pawls_pages, list):
                 return "Error: pawls_parse_file is not a list of PawlsPagePythonType."

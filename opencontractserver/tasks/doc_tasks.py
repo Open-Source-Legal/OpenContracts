@@ -48,6 +48,7 @@ from opencontractserver.types.dicts import (
     PawlsTokenPythonType,
 )
 from opencontractserver.types.enums import AnnotationFilterMode
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.etl import build_document_export, pawls_bbox_to_funsd_box
 from opencontractserver.utils.files import split_pdf_into_images
 from opencontractserver.utils.text import truncate
@@ -550,7 +551,7 @@ def convert_doc_to_funsd(
     ).order_by("page")
 
     file_object = default_storage.open(doc.pawls_parse_file.name)
-    pawls_tokens = json.loads(file_object.read().decode("utf-8"))
+    pawls_tokens = expand_pawls_pages(json.loads(file_object.read().decode("utf-8")))
 
     pdf_object = default_storage.open(doc.pdf_file.name)
     pdf_bytes = pdf_object.read()

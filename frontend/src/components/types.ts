@@ -85,6 +85,7 @@ export interface Token {
   // Image token fields (optional - only present for image tokens)
   is_image?: boolean;
   image_path?: string;
+  base64_data?: string;
   format?: string;
   content_hash?: string;
   original_width?: number;

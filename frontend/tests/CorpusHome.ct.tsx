@@ -717,6 +717,100 @@ test("landing view shows empty state when no discussions exist", async ({
 });
 
 /* --------------------------------------------------------------------------
+ * Tests for Focus / Power Mode Toggle
+ * -------------------------------------------------------------------------- */
+
+test("does not render mode toggle when onModeToggle is not provided", async ({
+  mount,
+  page,
+}) => {
+  // Default mountCorpusHome does not pass onModeToggle
+  await mountCorpusHome(mount);
+
+  // Landing view should render
+  await expect(page.getByTestId("corpus-home-landing")).toBeVisible();
+
+  // Power-user toggle should NOT be in the DOM (not just CSS-hidden)
+  await expect(page.getByTestId("power-user-toggle")).toHaveCount(0);
+});
+
+test("renders Focus/Power pill toggle when onModeToggle is provided", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <CorpusHomeTestWrapper
+      mocks={mocks}
+      corpus={dummyCorpus}
+      onModeToggle={() => {}}
+      isPowerUserMode={false}
+    />
+  );
+
+  // Toggle should be visible
+  const toggle = page.getByTestId("power-user-toggle");
+  await expect(toggle).toBeVisible({ timeout: 10000 });
+
+  // "Focus" label should be active (non-power-user mode)
+  // "Power" label should be present but inactive
+  await expect(toggle.locator("text=Focus")).toBeVisible();
+  await expect(toggle.locator("text=Power")).toBeVisible();
+
+  // Title should reflect focus-mode state
+  await expect(toggle).toHaveAttribute(
+    "title",
+    "Switch to full corpus management view"
+  );
+
+  await docScreenshot(page, "corpus--mode-toggle--focus-mode");
+});
+
+test("pill toggle reflects isPowerUserMode=true state", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <CorpusHomeTestWrapper
+      mocks={mocks}
+      corpus={dummyCorpus}
+      onModeToggle={() => {}}
+      isPowerUserMode={true}
+    />
+  );
+
+  const toggle = page.getByTestId("power-user-toggle");
+  await expect(toggle).toBeVisible({ timeout: 10000 });
+
+  // In power-user mode the toggle title should reflect "Switch to focused view"
+  await expect(toggle).toHaveAttribute("title", "Switch to focused view");
+});
+
+test("clicking mode toggle fires onModeToggle callback", async ({
+  mount,
+  page,
+}) => {
+  let toggled = false;
+
+  await mount(
+    <CorpusHomeTestWrapper
+      mocks={mocks}
+      corpus={dummyCorpus}
+      onModeToggle={() => {
+        toggled = true;
+      }}
+      isPowerUserMode={false}
+    />
+  );
+
+  const toggle = page.getByTestId("power-user-toggle");
+  await expect(toggle).toBeVisible({ timeout: 10000 });
+  await toggle.click();
+
+  // Use poll to account for async proxy callback across Playwright CT boundary
+  await expect.poll(() => toggled, { timeout: 5000 }).toBe(true);
+});
+
+/* --------------------------------------------------------------------------
  * Tests for Discussions Inline View
  * -------------------------------------------------------------------------- */
 

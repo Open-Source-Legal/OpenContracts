@@ -36,6 +36,7 @@ from opencontractserver.types.dicts import (
     PawlsPagePythonType,
 )
 from opencontractserver.types.enums import AnnotationFilterMode
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -246,7 +247,9 @@ def build_document_export(
         pawls_tokens: list[PawlsPagePythonType] = []
         try:
             with default_storage.open(doc.pawls_parse_file.name) as pawls_file:
-                pawls_tokens = json.loads(pawls_file.read().decode("utf-8"))
+                pawls_tokens = expand_pawls_pages(
+                    json.loads(pawls_file.read().decode("utf-8"))
+                )
         except Exception as e:
             logger.warning(f"Could not export pawls tokens for doc {doc_id}: {e}")
 

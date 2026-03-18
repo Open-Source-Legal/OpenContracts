@@ -472,7 +472,7 @@ class TestCoreTools(TestCase):
 
     async def test_aget_note_content_token_length(self):
         """Test async note content token length calculation."""
-        user = await User.objects.acreate(username="toklenuser", password="pass")
+        user = await User.objects.acreate(username="tokenuser", password="pass")
         doc = await Document.objects.acreate(
             title="Doc for token len",
             creator=user,

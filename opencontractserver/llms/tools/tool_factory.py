@@ -349,6 +349,7 @@ def create_document_tools() -> list[CoreTool]:
     return [
         CoreTool.from_function(
             asearch_exact_text_as_sources,
+            name="search_exact_text_as_sources",
             description=(
                 "Search for exact text matches in a "
                 "document and return them as source nodes with page numbers and bounding boxes."
@@ -356,26 +357,32 @@ def create_document_tools() -> list[CoreTool]:
         ),
         CoreTool.from_function(
             aload_document_md_summary,
+            name="load_document_md_summary",
             description="Load markdown summary of a document, optionally truncated.",
         ),
         CoreTool.from_function(
             aget_md_summary_token_length,
+            name="get_md_summary_token_length",
             description="Get the token length of a document's markdown summary.",
         ),
         CoreTool.from_function(
             aget_notes_for_document_corpus,
+            name="get_notes_for_document_corpus",
             description="Get notes associated with a document and optional corpus.",
         ),
         CoreTool.from_function(
             aget_note_content_token_length,
+            name="get_note_content_token_length",
             description="Get the token length of a note's content.",
         ),
         CoreTool.from_function(
             aget_partial_note_content,
+            name="get_partial_note_content",
             description="Get a substring of a note's content by start/end indices.",
         ),
         CoreTool.from_function(
             aget_page_image,
+            name="get_page_image",
             description=(
                 "Get a visual image of a specific page from a PDF document. "
                 "Useful for inspecting diagrams, tables, images, and other "
@@ -385,6 +392,7 @@ def create_document_tools() -> list[CoreTool]:
         # Image tools for accessing embedded/extracted images
         CoreTool.from_function(
             alist_document_images,
+            name="list_document_images",
             description=(
                 "List all images in a document. Returns metadata (position, size, format) "
                 "without the actual image data. Use get_document_image to retrieve specific images."
@@ -392,6 +400,7 @@ def create_document_tools() -> list[CoreTool]:
         ),
         CoreTool.from_function(
             aget_document_image,
+            name="get_document_image",
             description=(
                 "Get image data (base64) for a specific image in a document. "
                 "Returns data URL suitable for LLM vision input. Use list_document_images first "
@@ -400,6 +409,7 @@ def create_document_tools() -> list[CoreTool]:
         ),
         CoreTool.from_function(
             aget_annotation_images,
+            name="get_annotation_images",
             description=(
                 "Get all images referenced by an annotation. Use for figure, chart, or image "
                 "annotations that have embedded or referenced images in their bounds."

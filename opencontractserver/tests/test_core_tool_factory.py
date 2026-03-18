@@ -157,17 +157,17 @@ class TestCreateDocumentTools(SimpleTestCase):
     def test_create_document_tools_names(self):
         tools = create_document_tools()
         expected_names = {
-            "asearch_exact_text_as_sources",
-            "aload_document_md_summary",
-            "aget_md_summary_token_length",
-            "aget_notes_for_document_corpus",
-            "aget_note_content_token_length",
-            "aget_partial_note_content",
-            "aget_page_image",
+            "search_exact_text_as_sources",
+            "load_document_md_summary",
+            "get_md_summary_token_length",
+            "get_notes_for_document_corpus",
+            "get_note_content_token_length",
+            "get_partial_note_content",
+            "get_page_image",
             # Image tools for multimodal support
-            "alist_document_images",
-            "aget_document_image",
-            "aget_annotation_images",
+            "list_document_images",
+            "get_document_image",
+            "get_annotation_images",
         }
         self.assertEqual({tool.name for tool in tools}, expected_names)
         # Ensure all returned objects are CoreTool instances

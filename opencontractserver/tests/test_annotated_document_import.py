@@ -26,6 +26,7 @@ from opencontractserver.tasks.import_tasks import import_document_to_corpus
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_TWO_PATH
 from opencontractserver.types.dicts import OpenContractsAnnotatedDocumentImportType
 from opencontractserver.types.enums import LabelType
+from opencontractserver.utils.compact_pawls import expand_pawls_pages
 
 User = get_user_model()
 
@@ -153,7 +154,8 @@ class TestImportDocumentToCorpus(TestCase):
 
         # Check that the PAWLS file was imported correctly
         with document.pawls_parse_file.open("r") as pawls_file:
-            pawls_data = json.load(pawls_file)
+            raw_pawls = json.load(pawls_file)
+            pawls_data = expand_pawls_pages(raw_pawls)
             self.assertEqual(len(pawls_data), 1)
             self.assertEqual(len(pawls_data[0]["tokens"]), 1)
             self.assertEqual(pawls_data[0]["tokens"][0]["text"], "Test")

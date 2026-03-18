@@ -12,11 +12,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Refactored FullScreenModal to use native `size="fullscreen"` variant** (Closes #1073): Replaced the `createGlobalStyle` workaround in `frontend/src/components/knowledge_base/document/LayoutComponents.tsx` with the native `size="fullscreen"` prop from `@os-legal/ui`, which handles viewport positioning, sizing, border-radius removal, and overlay padding natively. Only minimal body styling overrides (padding, overflow) remain.
 - **Added `overlayClassName` to CorpusModal** (`frontend/src/components/corpuses/CorpusModal.tsx`): Uses the new `overlayClassName` prop to properly apply the `.corpus-modal-overlay` styles to the portal-rendered overlay element, fixing mobile overlay styles that were previously unreachable.
 
+### Fixed
+
+- **Undefined ordering in async note retrieval** (Closes #1107): Added missing `.order_by("created")` to `aget_notes_for_document_corpus` in `opencontractserver/llms/tools/core_tools.py`, matching the sync counterpart `get_notes_for_document_corpus` which already had deterministic ordering.
+- **Tool name breaking change from async migration** (Closes #1107): `create_document_tools()` in `opencontractserver/llms/tools/tool_factory.py` derived tool names from `func.__name__`, causing names to silently change from e.g. `load_document_md_summary` to `aload_document_md_summary` when the registry switched to async functions. Added explicit `name=` parameters to all `CoreTool.from_function()` calls to preserve the original tool names.
+- **Test username typo**: Fixed "toklenuser" → "tokenuser" in `opencontractserver/tests/test_agent_search_tools.py`.
+- **Misleading CleanViewContainer comment** (`frontend/src/views/Corpuses.tsx`): Corrected the styled-component comment that claimed height constraints were "intentionally removed" when `height: 100%`, `min-height: 0`, and `overflow: hidden` were still present. The comment now accurately documents the height model and explains that only `max-height: 100dvh` was removed. Closes #1044 (items 1 & 2).
+
+### Added
+
+- **Test coverage for Focus/Power mode toggle** (`frontend/tests/CorpusHome.ct.tsx`, `frontend/tests/CorpusHomeTestWrapper.tsx`): Added four Playwright component tests exercising the `onModeToggle` and `isPowerUserMode` props: toggle hidden when callback absent, toggle visible in focus mode, toggle reflects power-user state, and click fires callback. Updated `CorpusHomeTestWrapper` to forward mode-toggle props. Closes #1044 (item 5).
+- **Tighten MCP telemetry input validation and test coverage** (Closes #1106):
+  - Bound User-Agent storage to 512 characters (`MAX_USER_AGENT_LENGTH`) in both `set_request_context()` and `get_user_agent_from_scope()` to prevent attacker-controlled multi-megabyte values from reaching telemetry backends (`opencontractserver/mcp/telemetry.py`)
+  - Empty-string slugs no longer reach telemetry — changed `if slug is not None` to falsy checks (`if slug`) consistently across all sync and async recording functions
+  - Documented the duplicate-header-dropping assumption when converting ASGI header lists to dicts in `get_user_agent_from_scope()` and `get_claimed_client_ip_from_scope()`
+  - Added async telemetry tests for `arecord_mcp_tool_call`, `arecord_mcp_resource_read`, and `arecord_mcp_request` (`opencontractserver/tests/test_mcp_extended.py`)
+  - Added tests for User-Agent truncation and empty-string slug filtering
+
 ### Breaking Changes
 
 - **Removed `tokensJsons` and `boundingBox` from GraphQL API**: The `tokensJsons` and `boundingBox` fields have been removed from GraphQL annotation queries and mutations (PR #1100). External API consumers and integrations must update to use the `json` field instead. The `json` field contains either v1 (legacy page-keyed format) or v2 (compact format) annotation data. Use `iter_page_annotations()` (Python) or `iterPageAnnotations()` (TypeScript) for format-agnostic access.
 
 ### Added
+
+- **Compact PAWLs v2 format for ~67% storage reduction** (PR #1112): New v2 compact format for PAWLs files (per-page token bounding boxes) that reduces storage from ~500+ KB to ~180 KB for a typical 9-page PDF. Changes include:
+  - Core encode/decode in `opencontractserver/utils/compact_pawls.py` (Python) and `frontend/src/utils/compactPawls.ts` (TypeScript)
+  - Array-based tokens `[x, y, w, h, "text"]` instead of verbose dicts, shortened page keys, implicit page index, coordinate precision normalization
+  - Write paths (parser, import, worker upload) auto-compact on save; read paths transparently expand v2 → v1
+  - Safety limit: `COMPACT_PAWLS_MAX_TOKENS_PER_PAGE` (100,000) in `opencontractserver/constants/pawls.py` — graceful fallback to v1 when exceeded
+  - Comprehensive Python (5 test classes) and TypeScript (8 tests) unit tests including roundtrip and image token coverage
 
 - **Compact annotation JSON v2 format for ~75% storage reduction** (PR #1100): New compact v2 format for annotation JSON payloads that range-encodes consecutive token indices, compacts bounds to arrays, and drops redundant `pageIndex` and `rawText` from per-page data. Changes include:
   - Core encode/decode in `opencontractserver/annotations/compact_json.py` (Python) and `frontend/src/utils/compactAnnotationJson.ts` (TypeScript)

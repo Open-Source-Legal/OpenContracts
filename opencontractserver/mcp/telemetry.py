@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 # Sufficient for unique client identification without storing full hash
 IP_HASH_LENGTH = 16
 
+# Maximum length for stored User-Agent strings.  The User-Agent header is
+# attacker-controlled input; without a cap a malicious client could send
+# multi-megabyte values that get stored in context dicts and forwarded to
+# telemetry backends.  512 characters is generous for any real-world UA.
+MAX_USER_AGENT_LENGTH = 512
+
 # Context variable to store request metadata (client IP, transport type)
 # This allows the telemetry functions to access request context without
 # needing to pass it through all function calls
@@ -51,11 +57,15 @@ def set_request_context(
         transport: The transport type (e.g., 'streamable_http', 'sse', 'stdio')
         user_agent: The User-Agent header value identifying the MCP client/agent
     """
+    # Truncate user_agent to prevent oversized attacker-controlled input from
+    # being stored in context dicts and forwarded to telemetry backends.
+    truncated_ua = user_agent[:MAX_USER_AGENT_LENGTH] if user_agent else None
+
     _mcp_request_context.set(
         {
             "client_ip_hash": _hash_ip(client_ip) if client_ip else None,
             "transport": transport,
-            "user_agent": user_agent,
+            "user_agent": truncated_ua,
         }
     )
 
@@ -155,9 +165,9 @@ def record_mcp_tool_call(
 
     if not success and error_type:
         properties["error_type"] = error_type
-    if corpus_slug is not None:
+    if corpus_slug:
         properties["corpus_slug"] = corpus_slug
-    if document_slug is not None:
+    if document_slug:
         properties["document_slug"] = document_slug
 
     return record_event("mcp_tool_call", properties)
@@ -189,9 +199,9 @@ def record_mcp_resource_read(
 
     if not success and error_type:
         properties["error_type"] = error_type
-    if corpus_slug is not None:
+    if corpus_slug:
         properties["corpus_slug"] = corpus_slug
-    if document_slug is not None:
+    if document_slug:
         properties["document_slug"] = document_slug
 
     return record_event("mcp_resource_read", properties)
@@ -249,9 +259,9 @@ async def arecord_mcp_tool_call(
 
     if not success and error_type:
         properties["error_type"] = error_type
-    if corpus_slug is not None:
+    if corpus_slug:
         properties["corpus_slug"] = corpus_slug
-    if document_slug is not None:
+    if document_slug:
         properties["document_slug"] = document_slug
 
     return await arecord_event("mcp_tool_call", properties)
@@ -276,9 +286,9 @@ async def arecord_mcp_resource_read(
 
     if not success and error_type:
         properties["error_type"] = error_type
-    if corpus_slug is not None:
+    if corpus_slug:
         properties["corpus_slug"] = corpus_slug
-    if document_slug is not None:
+    if document_slug:
         properties["document_slug"] = document_slug
 
     return await arecord_event("mcp_resource_read", properties)
@@ -313,12 +323,21 @@ def get_user_agent_from_scope(scope: dict[str, Any]) -> str | None:
     MCP clients and AI agents typically identify themselves via User-Agent
     (e.g., ``Claude-Code/1.0``, ``cursor/0.45``).
 
-    Returns ``None`` when no User-Agent is present.
+    Returns ``None`` when no User-Agent is present.  The result is truncated
+    to :data:`MAX_USER_AGENT_LENGTH` characters to bound attacker-controlled
+    input.
+
+    .. note::
+       Converting the ASGI header list to a ``dict`` means that if a client
+       sends duplicate ``user-agent`` headers only the last value is kept.
+       This is acceptable because RFC 9110 §5.5 specifies a single
+       User-Agent value, so duplicates indicate a misbehaving client.
     """
     headers = dict(scope.get("headers", []))
     ua = headers.get(b"user-agent")
     if ua:
-        return ua.decode("utf-8", errors="replace").strip()
+        value = ua.decode("utf-8", errors="replace").strip()
+        return value[:MAX_USER_AGENT_LENGTH] if value else None
     return None
 
 
@@ -332,6 +351,13 @@ def get_claimed_client_ip_from_scope(scope: dict[str, Any]) -> str | None:
     to identify the true origin, even if it could be spoofed.
 
     Returns ``None`` when no IP can be determined.
+
+    .. note::
+       Converting the ASGI header list to a ``dict`` drops duplicate header
+       values (only the last value for a given name is kept).  For the
+       headers inspected here (``x-forwarded-for``, ``x-real-ip``) this is
+       safe: proxies append to a single ``X-Forwarded-For`` value rather
+       than adding extra headers, and ``X-Real-IP`` is always singular.
     """
     headers = dict(scope.get("headers", []))
 

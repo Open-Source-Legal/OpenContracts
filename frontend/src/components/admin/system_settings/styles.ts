@@ -639,6 +639,10 @@ export const MobileSettingsTabList = styled.div`
   margin-bottom: 1rem;
 `;
 
+export const MobileSettingsTabPanel = styled.div`
+  margin-top: 0.5rem;
+`;
+
 export const MobileSettingsTab = styled.button<{ $active: boolean }>`
   flex: 1;
   padding: 0.75rem 1rem;
