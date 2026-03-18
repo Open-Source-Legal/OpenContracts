@@ -832,9 +832,11 @@ export const DocumentTableOfContents: React.FC<
     }
   };
 
-  // Check if a corpus has only one document (single-doc mode)
-  // Use rootNodes (unfiltered) so a search filter doesn't flip into single-doc mode
-  const isSingleDoc = useMemo(() => {
+  // True when there is exactly one top-level document with no children in the
+  // relationship tree. In this mode we skip the document header row and show
+  // the annotation index directly. Uses rootNodes (unfiltered) so that a
+  // search filter cannot accidentally flip the layout.
+  const isSingleTopLevelLeaf = useMemo(() => {
     return rootNodes.length === 1 && rootNodes[0].children.length === 0;
   }, [rootNodes]);
 
@@ -848,8 +850,10 @@ export const DocumentTableOfContents: React.FC<
     const hasChildren = node.children.length > 0;
     const hasDescription = Boolean(node.description);
     const FileIcon = getFileIcon(node.fileType);
-    // A document node is expandable when it has child documents
-    const isExpandable = hasChildren;
+    // All document nodes are expandable — they may contain child documents
+    // or an annotation index (OC_SECTION annotations). The annotation index
+    // is only mounted when expanded, so no N+1 queries on mount.
+    const isExpandable = true;
 
     return (
       <TreeNode key={node.id} $depth={depth}>
@@ -902,13 +906,18 @@ export const DocumentTableOfContents: React.FC<
             {node.children.map((child) => renderNode(child, depth + 1))}
           </div>
         )}
-        <DocumentAnnotationIndex
-          documentId={node.id}
-          corpusId={corpusId}
-          maxDepth={maxDepth}
-          embedded
-          filterQuery={filterQuery}
-        />
+        {/* Only mount (and query) the annotation index when the node is
+            visible — either because the doc header is skipped (single-doc
+            mode) or because the user has expanded this node. */}
+        {(skipDocHeader || isExpanded) && (
+          <DocumentAnnotationIndex
+            documentId={node.id}
+            corpusId={corpusId}
+            maxDepth={maxDepth}
+            embedded
+            filterQuery={filterQuery}
+          />
+        )}
       </TreeNode>
     );
   };
@@ -987,7 +996,7 @@ export const DocumentTableOfContents: React.FC<
         </WarningBanner>
       )}
       <TreeContainer role="tree" aria-label="Document hierarchy">
-        {isSingleDoc
+        {isSingleTopLevelLeaf
           ? filteredNodes.map((node) => renderNode(node, 0, true))
           : filteredNodes.map((node) => renderNode(node, 0))}
       </TreeContainer>

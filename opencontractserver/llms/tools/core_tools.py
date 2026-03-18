@@ -1976,7 +1976,7 @@ def create_document_index(
             if parent_idx >= 0:
                 if parent_idx == i:
                     raise ValueError(f"Entry {i} references itself as parent")
-                if parent_idx >= len(created):
+                if parent_idx >= len(entries):
                     raise ValueError(
                         f"parent_index {parent_idx} out of range for entry {i}"
                     )

@@ -8,6 +8,7 @@ from django.core.files.base import ContentFile
 from django.test import TestCase
 from django.utils import timezone
 
+from config.graphql.serializers import AnnotationSerializer
 from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL, Annotation
 from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.corpuses.models import Corpus
@@ -17,6 +18,7 @@ from opencontractserver.tests.fixtures import (
     SAMPLE_PAWLS_FILE_ONE_PATH,
     SAMPLE_TXT_FILE_ONE_PATH,
 )
+from opencontractserver.utils.importing import import_annotations
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -363,3 +365,235 @@ class TestCreateDocumentIndexText(TestCase):
         )
         child = Annotation.objects.get(pk=pks[1])
         self.assertEqual(child.parent_id, pks[0])
+
+
+class TestUpdateAnnotationLongDescription(TestCase):
+    """Test that long_description can be updated via AnnotationSerializer (UpdateAnnotation path)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user = User.objects.create_user("idx_update_user", password="pass")
+        cls.corpus = Corpus.objects.create(title="Update Test Corpus", creator=cls.user)
+
+        pawls_json = SAMPLE_PAWLS_FILE_ONE_PATH.read_text()
+
+        cls.doc = Document.objects.create(
+            creator=cls.user,
+            title="Update Test Doc",
+            file_type="application/pdf",
+            page_count=len(json.loads(pawls_json)),
+            processing_started=timezone.now(),
+        )
+        cls.doc.pawls_parse_file.save(
+            SAMPLE_PAWLS_FILE_ONE_PATH.name, ContentFile(pawls_json.encode())
+        )
+        cls.doc.save()
+        cls.doc, _, _ = cls.corpus.add_document(document=cls.doc, user=cls.user)
+
+    def setUp(self):
+        self.doc.refresh_from_db()
+        storage = self.doc.pawls_parse_file.storage
+        if not storage.exists(self.doc.pawls_parse_file.name):
+            self.doc.pawls_parse_file.save(
+                self.doc.pawls_parse_file.name,
+                ContentFile(SAMPLE_PAWLS_FILE_ONE_PATH.read_bytes()),
+            )
+
+    def test_update_long_description_via_serializer(self):
+        """Partial update via AnnotationSerializer persists long_description."""
+        pks = create_document_index(
+            [
+                {
+                    "title": "Original",
+                    "exact_string": "Agreement",
+                    "long_description": "Initial description.",
+                    "parent_index": -1,
+                }
+            ],
+            document_id=self.doc.id,
+            corpus_id=self.corpus.id,
+            creator_id=self.user.id,
+        )
+        ann = Annotation.objects.get(pk=pks[0])
+        self.assertEqual(ann.long_description, "Initial description.")
+
+        # Partial update — mirrors what UpdateAnnotation (DRFMutation) does
+        serializer = AnnotationSerializer(
+            ann, data={"long_description": "Updated description."}, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        ann.refresh_from_db()
+        self.assertEqual(ann.long_description, "Updated description.")
+
+    def test_clear_long_description_via_serializer(self):
+        """Setting long_description to empty string clears it."""
+        pks = create_document_index(
+            [
+                {
+                    "title": "Clearable",
+                    "exact_string": "Execution Date",
+                    "long_description": "Will be cleared.",
+                    "parent_index": -1,
+                }
+            ],
+            document_id=self.doc.id,
+            corpus_id=self.corpus.id,
+            creator_id=self.user.id,
+        )
+        ann = Annotation.objects.get(pk=pks[0])
+        serializer = AnnotationSerializer(
+            ann, data={"long_description": ""}, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        ann.refresh_from_db()
+        self.assertEqual(ann.long_description, "")
+
+
+class TestLongDescriptionExportImportRoundTrip(TestCase):
+    """Test that long_description survives an export→import cycle."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user = User.objects.create_user("idx_rt_user", password="pass")
+        cls.corpus = Corpus.objects.create(title="Round-trip Corpus", creator=cls.user)
+
+        text_content = SAMPLE_TXT_FILE_ONE_PATH.read_text()
+        cls.doc = Document.objects.create(
+            creator=cls.user,
+            title="RT Text Doc",
+            file_type="text/plain",
+            processing_started=timezone.now(),
+        )
+        cls.doc.txt_extract_file.save(
+            SAMPLE_TXT_FILE_ONE_PATH.name, ContentFile(text_content.encode())
+        )
+        cls.doc.save()
+        cls.doc, _, _ = cls.corpus.add_document(document=cls.doc, user=cls.user)
+
+    def setUp(self):
+        self.doc.refresh_from_db()
+        storage = self.doc.txt_extract_file.storage
+        if not storage.exists(self.doc.txt_extract_file.name):
+            self.doc.txt_extract_file.save(
+                self.doc.txt_extract_file.name,
+                ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
+            )
+
+    def test_round_trip_preserves_long_description(self):
+        """Export an annotation with long_description, import it, verify field is preserved."""
+        from opencontractserver.annotations.models import AnnotationLabel
+
+        pks = create_document_index(
+            [
+                {
+                    "title": "Section One",
+                    "exact_string": "EXCLUSIVE LICENSE",
+                    "long_description": "Markdown **summary** of the section.",
+                    "parent_index": -1,
+                }
+            ],
+            document_id=self.doc.id,
+            corpus_id=self.corpus.id,
+            creator_id=self.user.id,
+        )
+        original = Annotation.objects.get(pk=pks[0])
+
+        # Simulate export format (mirrors export_v2.py)
+        exported = {
+            "id": str(original.id),
+            "annotationLabel": original.annotation_label.text,
+            "rawText": original.raw_text or "",
+            "page": original.page or 0,
+            "annotation_json": original.json or {},
+            "parent_id": None,
+            "annotation_type": original.annotation_type or "",
+            "structural": False,
+            "long_description": original.long_description,
+        }
+
+        # Delete the original so the import creates a fresh one
+        original.delete()
+
+        # Build label lookup as import_annotations expects
+        label_lookup = {
+            original.annotation_label.text: AnnotationLabel.objects.get(
+                pk=original.annotation_label_id
+            )
+        }
+
+        # Import
+        old_to_new = import_annotations(
+            annotations_data=[exported],
+            doc_obj=self.doc,
+            corpus_obj=self.corpus,
+            label_lookup=label_lookup,
+            label_type=SPAN_LABEL,
+            user_id=self.user.id,
+        )
+
+        # Verify round-tripped annotation
+        new_pk = list(old_to_new.values())[0]
+        reimported = Annotation.objects.get(pk=new_pk)
+        self.assertEqual(
+            reimported.long_description, "Markdown **summary** of the section."
+        )
+        self.assertEqual(reimported.raw_text, "Section One")
+
+    def test_round_trip_without_long_description(self):
+        """Annotations without long_description import with None (backward compat)."""
+        from opencontractserver.annotations.models import AnnotationLabel
+
+        pks = create_document_index(
+            [
+                {
+                    "title": "No Desc",
+                    "exact_string": "Execution Date",
+                    "parent_index": -1,
+                }
+            ],
+            document_id=self.doc.id,
+            corpus_id=self.corpus.id,
+            creator_id=self.user.id,
+        )
+        original = Annotation.objects.get(pk=pks[0])
+        self.assertIsNone(original.long_description)
+
+        # Export without long_description key (old format)
+        exported = {
+            "id": str(original.id),
+            "annotationLabel": original.annotation_label.text,
+            "rawText": original.raw_text or "",
+            "page": original.page or 0,
+            "annotation_json": original.json or {},
+            "parent_id": None,
+            "annotation_type": original.annotation_type or "",
+            "structural": False,
+            # No long_description key — simulates pre-feature export
+        }
+
+        original.delete()
+
+        label_lookup = {
+            original.annotation_label.text: AnnotationLabel.objects.get(
+                pk=original.annotation_label_id
+            )
+        }
+
+        old_to_new = import_annotations(
+            annotations_data=[exported],
+            doc_obj=self.doc,
+            corpus_obj=self.corpus,
+            label_lookup=label_lookup,
+            label_type=SPAN_LABEL,
+            user_id=self.user.id,
+        )
+
+        new_pk = list(old_to_new.values())[0]
+        reimported = Annotation.objects.get(pk=new_pk)
+        self.assertIsNone(reimported.long_description)
