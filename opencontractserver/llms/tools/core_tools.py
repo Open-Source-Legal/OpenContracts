@@ -1665,11 +1665,8 @@ def add_annotations_from_exact_strings(
             )
 
         # Load PAWLS tokens once per document.
-        doc.pawls_parse_file.open("r")
-        try:
-            pawls_tokens = json.load(doc.pawls_parse_file)
-        finally:
-            doc.pawls_parse_file.close()
+        with doc.pawls_parse_file.open("r") as f:
+            pawls_tokens = json.load(f)
 
         pdf_layer = build_translation_layer(pawls_tokens)
         doc_text = pdf_layer.doc_text
@@ -1701,11 +1698,8 @@ def add_annotations_from_exact_strings(
             raise ValueError(
                 f"Text document id={doc_id} lacks txt_extract_file; cannot annotate."
             )
-        doc.txt_extract_file.open("r")
-        try:
-            doc_text = doc.txt_extract_file.read()
-        finally:
-            doc.txt_extract_file.close()
+        with doc.txt_extract_file.open("r") as f:
+            doc_text = f.read()
 
         label_type_const = SPAN_LABEL
 
@@ -1836,9 +1830,18 @@ def create_document_index(
         TOKEN_LABEL,
         Annotation,
     )
-    from opencontractserver.constants.annotations import OC_SECTION_LABEL
+    from opencontractserver.constants.annotations import (
+        DOCUMENT_ANNOTATION_INDEX_LIMIT,
+        OC_SECTION_LABEL,
+    )
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
+
+    if len(entries) > DOCUMENT_ANNOTATION_INDEX_LIMIT:
+        raise ValueError(
+            f"entries list ({len(entries)}) exceeds maximum allowed size "
+            f"of {DOCUMENT_ANNOTATION_INDEX_LIMIT}."
+        )
 
     # Validate document and corpus.
     try:
@@ -1868,11 +1871,8 @@ def create_document_index(
                 f"PDF document id={document_id} lacks a PAWLS layer; "
                 "cannot create index."
             )
-        doc.pawls_parse_file.open("r")
-        try:
-            pawls_tokens = json.load(doc.pawls_parse_file)
-        finally:
-            doc.pawls_parse_file.close()
+        with doc.pawls_parse_file.open("r") as f:
+            pawls_tokens = json.load(f)
 
         pdf_layer = build_translation_layer(pawls_tokens)
         doc_text = pdf_layer.doc_text
@@ -1907,11 +1907,8 @@ def create_document_index(
                 f"Text document id={document_id} lacks txt_extract_file; "
                 "cannot create index."
             )
-        doc.txt_extract_file.open("r")
-        try:
-            doc_text = doc.txt_extract_file.read()
-        finally:
-            doc.txt_extract_file.close()
+        with doc.txt_extract_file.open("r") as f:
+            doc_text = f.read()
 
         label_type_const = SPAN_LABEL
 
@@ -2089,11 +2086,8 @@ def search_exact_text_as_sources(
             )
 
         # Load PAWLS tokens once
-        doc.pawls_parse_file.open("r")
-        try:
-            pawls_tokens = json.load(doc.pawls_parse_file)
-        finally:
-            doc.pawls_parse_file.close()
+        with doc.pawls_parse_file.open("r") as f:
+            pawls_tokens = json.load(f)
 
         pdf_layer = build_translation_layer(pawls_tokens)
         doc_text = pdf_layer.doc_text
@@ -2156,11 +2150,8 @@ def search_exact_text_as_sources(
                 f"Text document id={document_id} lacks txt_extract_file; cannot search."
             )
 
-        doc.txt_extract_file.open("r")
-        try:
-            doc_text = doc.txt_extract_file.read()
-        finally:
-            doc.txt_extract_file.close()
+        with doc.txt_extract_file.open("r") as f:
+            doc_text = f.read()
 
         # Find all matches for each search string
         for search_str in search_strings:

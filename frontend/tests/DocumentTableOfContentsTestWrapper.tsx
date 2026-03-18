@@ -351,14 +351,6 @@ const mockDeepHierarchy = [
   },
 ];
 
-// Annotation index section entries for hybrid mode (document hierarchy + section indices)
-const SECTION_LABEL = {
-  id: "label-oc-section",
-  text: OC_SECTION_LABEL,
-  color: "#05313d",
-  icon: "tags",
-};
-
 // Sections for Parent Document (doc-1)
 const parentDocSections = [
   {
@@ -368,7 +360,6 @@ const parentDocSections = [
       longDescription: "Overview of the agreement structure and purpose.",
       page: 1,
       parent: null,
-      annotationLabel: SECTION_LABEL,
       __typename: "AnnotationType" as const,
     },
     __typename: "AnnotationTypeEdge" as const,
@@ -380,7 +371,6 @@ const parentDocSections = [
       longDescription: null,
       page: 2,
       parent: { id: "annot-p1" },
-      annotationLabel: SECTION_LABEL,
       __typename: "AnnotationType" as const,
     },
     __typename: "AnnotationTypeEdge" as const,
@@ -392,7 +382,6 @@ const parentDocSections = [
       longDescription: "Core terms governing the relationship between parties.",
       page: 4,
       parent: null,
-      annotationLabel: SECTION_LABEL,
       __typename: "AnnotationType" as const,
     },
     __typename: "AnnotationTypeEdge" as const,
@@ -408,7 +397,6 @@ const child1DocSections = [
       longDescription: null,
       page: 1,
       parent: null,
-      annotationLabel: SECTION_LABEL,
       __typename: "AnnotationType" as const,
     },
     __typename: "AnnotationTypeEdge" as const,
@@ -420,7 +408,6 @@ const child1DocSections = [
       longDescription: null,
       page: 3,
       parent: null,
-      annotationLabel: SECTION_LABEL,
       __typename: "AnnotationType" as const,
     },
     __typename: "AnnotationTypeEdge" as const,
@@ -436,7 +423,6 @@ const child2DocSections = [
       longDescription: null,
       page: 1,
       parent: null,
-      annotationLabel: SECTION_LABEL,
       __typename: "AnnotationType" as const,
     },
     __typename: "AnnotationTypeEdge" as const,

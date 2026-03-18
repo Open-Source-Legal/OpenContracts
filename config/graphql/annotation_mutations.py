@@ -233,6 +233,10 @@ class AddAnnotation(graphene.Mutation):
         annotation_type = graphene.Argument(
             graphene.Enum.from_enum(LabelType), required=True
         )
+        long_description = graphene.String(
+            required=False,
+            description="Optional markdown description for this annotation.",
+        )
 
     ok = graphene.Boolean()
     annotation = graphene.Field(AnnotationType)
@@ -249,6 +253,7 @@ class AddAnnotation(graphene.Mutation):
         document_id,
         annotation_label_id,
         annotation_type,
+        long_description=None,
     ):
         corpus_pk = from_global_id(corpus_id)[1]
         document_pk = from_global_id(document_id)[1]
@@ -259,6 +264,7 @@ class AddAnnotation(graphene.Mutation):
         annotation = Annotation(
             page=page,
             raw_text=raw_text,
+            long_description=long_description,
             corpus_id=corpus_pk,
             document_id=document_pk,
             annotation_label_id=label_pk,

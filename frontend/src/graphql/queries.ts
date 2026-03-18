@@ -5203,12 +5203,6 @@ export const GET_DOCUMENT_ANNOTATION_INDEX = gql`
           parent {
             id
           }
-          annotationLabel {
-            id
-            text
-            color
-            icon
-          }
         }
       }
     }
@@ -5221,12 +5215,6 @@ export interface AnnotationIndexNode {
   longDescription: string | null;
   page: number;
   parent: { id: string } | null;
-  annotationLabel: {
-    id: string;
-    text: string;
-    color: string;
-    icon: string;
-  } | null;
 }
 
 export interface GetDocumentAnnotationIndexInput {

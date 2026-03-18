@@ -432,7 +432,7 @@ export const DocumentAnnotationIndex: React.FC<
       .map((e) => e.node.id)
       .filter((id) => {
         if (!hasParent.has(id)) return true;
-        const parentId = edges.find((e) => e.node.id === id)?.node.parent?.id;
+        const parentId = nodeMap.get(id)?.parent?.id;
         if (parentId && !nodeMap.has(parentId)) {
           console.warn(
             `[DocumentAnnotationIndex] Orphan node "${id}" references missing parent "${parentId}" — promoting to root.`
@@ -769,9 +769,6 @@ export const DocumentAnnotationIndex: React.FC<
   }
 
   if (filteredNodes.length === 0) {
-    if (embedded) {
-      return <EmptyState>No sections indexed for this document.</EmptyState>;
-    }
     return null;
   }
 

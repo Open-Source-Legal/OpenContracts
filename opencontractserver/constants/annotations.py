@@ -13,6 +13,9 @@ MANUAL_ANNOTATION_SENTINEL = "~~MANUAL~~"
 # They drive built-in features such as the document index.
 OC_SECTION_LABEL = "OC_SECTION"
 
+# Maximum number of entries allowed in a single create_document_index call.
+DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
+
 # Maximum number of document relationships returned in a single query.
 # Set high to accommodate Table of Contents hierarchies.
 DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500

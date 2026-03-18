@@ -848,8 +848,8 @@ export const DocumentTableOfContents: React.FC<
     const hasChildren = node.children.length > 0;
     const hasDescription = Boolean(node.description);
     const FileIcon = getFileIcon(node.fileType);
-    // Every document is expandable (to show annotation index even if no child docs)
-    const isExpandable = true;
+    // A document node is expandable when it has child documents
+    const isExpandable = hasChildren;
 
     return (
       <TreeNode key={node.id} $depth={depth}>
@@ -897,19 +897,18 @@ export const DocumentTableOfContents: React.FC<
             </NodeContent>
           </NodeItem>
         )}
-        {(isExpanded || skipDocHeader) && (
+        {isExpanded && hasChildren && (
           <div role="group">
-            {hasChildren &&
-              node.children.map((child) => renderNode(child, depth + 1))}
-            <DocumentAnnotationIndex
-              documentId={node.id}
-              corpusId={corpusId}
-              maxDepth={maxDepth}
-              embedded
-              filterQuery={filterQuery}
-            />
+            {node.children.map((child) => renderNode(child, depth + 1))}
           </div>
         )}
+        <DocumentAnnotationIndex
+          documentId={node.id}
+          corpusId={corpusId}
+          maxDepth={maxDepth}
+          embedded
+          filterQuery={filterQuery}
+        />
       </TreeNode>
     );
   };
