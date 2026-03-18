@@ -11,6 +11,7 @@ from django.db import transaction
 from django.test import TestCase
 from pydantic import TypeAdapter, ValidationError
 
+from opencontractserver.annotations.compact_json import expand_annotation_json
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.tasks import import_corpus
 from opencontractserver.tasks.utils import package_zip_into_base64
@@ -212,7 +213,11 @@ class ExportCorpusTestCase(TestCase):
 
                 # annotation_json maps page numbers (as strings) to page data
                 self.assertIsInstance(annot["annotation_json"], dict)
-                for page_key, page_data in annot["annotation_json"].items():
+                expanded_aj = expand_annotation_json(
+                    annot["annotation_json"],
+                    raw_text=annot.get("rawText", ""),
+                )
+                for page_key, page_data in expanded_aj.items():
                     self.assertIn("bounds", page_data)
                     self.assertTrue(
                         _BOUNDS_KEYS.issubset(page_data["bounds"].keys()),
@@ -374,8 +379,14 @@ class ExportCorpusTestCase(TestCase):
             )
 
             # Bounding boxes (compare per-page)
-            fix_json = fix_annot["annotation_json"]
-            exp_json = exp_annot["annotation_json"]
+            fix_json = expand_annotation_json(
+                fix_annot["annotation_json"],
+                raw_text=fix_annot.get("rawText", ""),
+            )
+            exp_json = expand_annotation_json(
+                exp_annot["annotation_json"],
+                raw_text=exp_annot.get("rawText", ""),
+            )
             self.assertEqual(
                 set(exp_json.keys()),
                 set(fix_json.keys()),

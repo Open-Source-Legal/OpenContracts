@@ -19,6 +19,7 @@ def empty_text_label_position():
 
 
 def empty_bounding_box():
+    """Retained for migration compatibility (referenced by migrations 0001, 0018)."""
     return {"bottom": 0, "left": 0, "right": 0, "top": 0}
 
 
@@ -27,6 +28,7 @@ def jsonfield_default_value():  # This is a callable
 
 
 def jsonfield_empty_array():
+    """Retained for migration compatibility (referenced by migrations 0001, 0003)."""
     return []
 
 

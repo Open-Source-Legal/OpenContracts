@@ -158,11 +158,11 @@ class TestCreateDocumentTools(SimpleTestCase):
         tools = create_document_tools()
         expected_names = {
             "asearch_exact_text_as_sources",
-            "load_document_md_summary",
-            "get_md_summary_token_length",
-            "get_notes_for_document_corpus",
-            "get_note_content_token_length",
-            "get_partial_note_content",
+            "aload_document_md_summary",
+            "aget_md_summary_token_length",
+            "aget_notes_for_document_corpus",
+            "aget_note_content_token_length",
+            "aget_partial_note_content",
             "aget_page_image",
             # Image tools for multimodal support
             "alist_document_images",

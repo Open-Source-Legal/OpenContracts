@@ -7,6 +7,7 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TransactionTestCase
 
+from opencontractserver.annotations.compact_json import expand_annotation_json
 from opencontractserver.annotations.models import (
     DOC_TYPE_LABEL,
     RELATIONSHIP_LABEL,
@@ -305,14 +306,17 @@ class TestCorpusImport(TransactionTestCase):
                 annot = qs.first()
                 self.assertIsNotNone(annot, f"Missing annotation for {label_text}")
 
+                expanded = expand_annotation_json(
+                    annot.json, raw_text=annot.raw_text or ""
+                )
                 self.assertIn(
                     page_key,
-                    annot.json,
+                    expanded,
                     f"annotation_json missing page key '{page_key}' "
                     f"for '{label_text}' / '{raw_text}'",
                 )
 
-                page_data = annot.json[page_key]
+                page_data = expanded[page_key]
                 self.assertIn("bounds", page_data)
 
                 tokens = page_data.get("tokensJsons", [])
@@ -329,7 +333,8 @@ class TestCorpusImport(TransactionTestCase):
                 document=doc,
                 raw_text=" ACTIVE WITH ME, Inc.",
             )
-            bounds = annot.json["0"]["bounds"]
+            expanded = expand_annotation_json(annot.json, raw_text=annot.raw_text or "")
+            bounds = expanded["0"]["bounds"]
             self.assertAlmostEqual(
                 bounds["top"], EXPECTED_ACTIVE_BOUNDS["top"], places=1
             )
@@ -353,7 +358,8 @@ class TestCorpusImport(TransactionTestCase):
                 document=doc,
                 raw_text=" ACTIVE WITH ME, Inc.",
             )
-            tokens = annot.json["0"]["tokensJsons"]
+            expanded = expand_annotation_json(annot.json, raw_text=annot.raw_text or "")
+            tokens = expanded["0"]["tokensJsons"]
             for token in tokens:
                 self.assertIn("pageIndex", token)
                 self.assertIn("tokenIndex", token)

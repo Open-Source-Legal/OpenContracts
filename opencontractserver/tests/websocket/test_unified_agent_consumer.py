@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
@@ -49,6 +50,7 @@ class _StubAgent:
     def __init__(self, gen_factory, conversation_id=None):
         self._gen_factory = gen_factory
         self._conversation_id = conversation_id
+        self.conversation_manager = SimpleNamespace(context_exhausted=False)
 
     def stream(self, user_query: str):
         return self._gen_factory()
@@ -654,3 +656,143 @@ class UnifiedAgentConsumerDisconnectTestCase(WebsocketFixtureBaseTestCase):
             content="test",
         )
         self.assertFalse(result)
+
+
+@override_settings(USE_AUTH0=False)
+@pytest.mark.django_db(transaction=True)
+class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase):
+    """Tests for context exhaustion guard in the receive() message handler."""
+
+    async def test_context_exhausted_sends_error_and_skips_stream(self) -> None:
+        """When context_exhausted is True, ASYNC_ERROR is sent and streaming is skipped."""
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "test-session"
+        consumer._is_connected = True
+        consumer.user_id = None  # anonymous session
+
+        # Build a minimal stub agent whose conversation_manager reports exhaustion.
+        mock_conversation_manager = MagicMock()
+        mock_conversation_manager.context_exhausted = True
+
+        stub_agent = MagicMock()
+        stub_agent.conversation_manager = mock_conversation_manager
+
+        # Pre-assign the agent so _initialize_agent is not called.
+        consumer.agent = stub_agent
+        consumer.conversation_id = 1  # non-None prevents is_new_conversation flag
+
+        sent_messages = []
+
+        async def fake_send_safe(msg_type, content="", data=None):
+            sent_messages.append(
+                {"msg_type": msg_type, "content": content, "data": data or {}}
+            )
+            return True
+
+        stream_called = False
+
+        async def fake_stream_agent_response(user_query):
+            nonlocal stream_called
+            stream_called = True
+
+        consumer._send_safe = fake_send_safe
+        consumer._stream_agent_response = fake_stream_agent_response
+
+        # Simulate receiving a normal query message.
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.check_ws_rate_limit",
+            return_value=False,
+        ):
+            await consumer.receive(json.dumps({"query": "Hello, are you still there?"}))
+
+        # Exactly one message must have been sent.
+        self.assertEqual(len(sent_messages), 1)
+        msg = sent_messages[0]
+        self.assertEqual(msg["msg_type"], "ASYNC_ERROR")
+        from opencontractserver.constants.context_guardrails import (
+            WS_ERROR_CONTEXT_EXHAUSTED,
+        )
+
+        self.assertEqual(msg["data"].get("error_type"), WS_ERROR_CONTEXT_EXHAUSTED)
+
+        # Streaming must NOT have been attempted.
+        self.assertFalse(stream_called)
+
+    async def test_context_not_exhausted_proceeds_to_stream(self) -> None:
+        """When context_exhausted is False, _stream_agent_response is called normally."""
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "test-session"
+        consumer._is_connected = True
+        consumer.user_id = None
+
+        mock_conversation_manager = MagicMock()
+        mock_conversation_manager.context_exhausted = False
+
+        stub_agent = MagicMock()
+        stub_agent.conversation_manager = mock_conversation_manager
+
+        consumer.agent = stub_agent
+        consumer.conversation_id = 1
+
+        sent_messages = []
+
+        async def fake_send_safe(msg_type, content="", data=None):
+            sent_messages.append(
+                {"msg_type": msg_type, "content": content, "data": data or {}}
+            )
+            return True
+
+        stream_called = False
+
+        async def fake_stream_agent_response(user_query):
+            nonlocal stream_called
+            stream_called = True
+
+        consumer._send_safe = fake_send_safe
+        consumer._stream_agent_response = fake_stream_agent_response
+
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.check_ws_rate_limit",
+            return_value=False,
+        ):
+            await consumer.receive(json.dumps({"query": "Still within limits"}))
+
+        # No ASYNC_ERROR should be present.
+        error_msgs = [m for m in sent_messages if m["msg_type"] == "ASYNC_ERROR"]
+        self.assertEqual(error_msgs, [])
+
+        # Streaming must have been called.
+        self.assertTrue(stream_called)
+
+    async def test_agent_without_conversation_manager_proceeds_to_stream(self) -> None:
+        """When agent has no conversation_manager attribute, the check is skipped."""
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "test-session"
+        consumer._is_connected = True
+        consumer.user_id = None
+
+        # Agent without conversation_manager (e.g. legacy stub).
+        stub_agent = MagicMock(spec=[])  # empty spec — no attributes
+        consumer.agent = stub_agent
+        consumer.conversation_id = 1
+
+        stream_called = False
+
+        async def fake_stream_agent_response(user_query):
+            nonlocal stream_called
+            stream_called = True
+
+        consumer._stream_agent_response = fake_stream_agent_response
+
+        async def fake_send_safe(msg_type, content="", data=None):
+            return True
+
+        consumer._send_safe = fake_send_safe
+
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.check_ws_rate_limit",
+            return_value=False,
+        ):
+            await consumer.receive(json.dumps({"query": "Legacy agent query"}))
+
+        self.assertTrue(stream_called)

@@ -178,8 +178,8 @@ class TestLongConversationAPI(TransactionTestCase):
             self.assertEqual(conversation.creator_id, self.user.id)
             self.assertIn(self.document.title, conversation.title)
 
-    async def test_anonymous_conversation_no_message_storage(self):
-        """Test that anonymous conversations don't store messages."""
+    async def test_anonymous_conversation_uses_ephemeral_buffer(self):
+        """Test that anonymous conversations use ephemeral in-memory buffer."""
         initial_message_count = await ChatMessage.objects.acount()
 
         # Mock only the LLM interaction
@@ -200,16 +200,16 @@ class TestLongConversationAPI(TransactionTestCase):
             user_msg_id = await agent.store_user_message("Test user message")
             llm_msg_id = await agent.store_llm_message("Test LLM response")
 
-            # Verify anonymous behavior
-            self.assertEqual(
+            # Verify anonymous behavior: ephemeral IDs start at 1
+            self.assertGreaterEqual(
                 user_msg_id,
-                0,
-                "Anonymous conversations should return 0 for message IDs",
+                1,
+                "Anonymous conversations should return ephemeral IDs (>= 1)",
             )
-            self.assertEqual(
+            self.assertGreaterEqual(
                 llm_msg_id,
-                0,
-                "Anonymous conversations should return 0 for message IDs",
+                1,
+                "Anonymous conversations should return ephemeral IDs (>= 1)",
             )
 
             # Verify no messages were stored in database
@@ -217,15 +217,15 @@ class TestLongConversationAPI(TransactionTestCase):
             self.assertEqual(
                 initial_message_count,
                 final_message_count,
-                "Anonymous conversations should not store messages",
+                "Anonymous conversations should not store messages in database",
             )
 
-            # Verify get_conversation_messages returns empty list
+            # Verify get_conversation_messages returns ephemeral messages
             messages = await agent.get_conversation_messages()
             self.assertEqual(
                 len(messages),
-                0,
-                "Anonymous conversations should have no stored messages",
+                2,
+                "Anonymous conversations should have ephemeral in-memory messages",
             )
 
     async def test_persistent_conversation_message_storage(self):
@@ -498,24 +498,24 @@ class TestLongConversationAPI(TransactionTestCase):
                 user_msg_id = await agent.store_user_message(question)
                 llm_msg_id = await agent.store_llm_message(f"Response to: {question}")
 
-                # Verify anonymous message IDs
-                self.assertEqual(
+                # Verify anonymous ephemeral IDs are positive integers
+                self.assertGreaterEqual(
                     user_msg_id,
-                    0,
-                    "Anonymous conversations should return 0 for user message IDs",
+                    1,
+                    "Anonymous conversations should return ephemeral IDs (>= 1)",
                 )
-                self.assertEqual(
+                self.assertGreaterEqual(
                     llm_msg_id,
-                    0,
-                    "Anonymous conversations should return 0 for LLM message IDs",
+                    1,
+                    "Anonymous conversations should return ephemeral IDs (>= 1)",
                 )
 
             # Verify conversation ID remains None throughout
             self.assertIsNone(agent.get_conversation_id())
 
-            # Verify no messages stored
+            # Verify ephemeral messages are stored in-memory (not in DB)
             messages = await agent.get_conversation_messages()
-            self.assertEqual(len(messages), 0)
+            self.assertEqual(len(messages), 6)  # 3 questions + 3 responses
 
     async def test_conversation_info_structure(self):
         """Test conversation info structure for both anonymous and persistent."""

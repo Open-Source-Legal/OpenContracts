@@ -2051,17 +2051,26 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         # Auto-build pure passthrough tools from registry
         # -----------------------------
         _corpus_id = context.corpus.id if context.corpus else None
+        _read_tool_names = [
+            "load_document_summary",
+            "get_summary_token_length",
+            "load_document_text",
+            "get_document_description",
+            "get_document_summary_diff",
+            "get_document_summary_versions",
+        ]
+        _write_tool_names = [
+            "update_document_description",
+            "update_document_summary",
+        ]
+        # Anonymous users (user_id is None) get read-only tools only
+        _auto_tool_names = (
+            _read_tool_names + _write_tool_names
+            if config.user_id is not None
+            else _read_tool_names
+        )
         auto_built_tools = _build_tools_from_registry(
-            [
-                "load_document_summary",
-                "get_summary_token_length",
-                "load_document_text",
-                "get_document_description",
-                "update_document_description",
-                "get_document_summary_diff",
-                "update_document_summary",
-                "get_document_summary_versions",
-            ],
+            _auto_tool_names,
             document_id=context.document.id,
             corpus_id=_corpus_id,
             user_id=config.user_id,
@@ -2355,15 +2364,19 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         if context.corpus is not None:
             # Only add corpus-dependent tools when corpus is available
             effective_tools.extend(corpus_passthrough_tools)
-            effective_tools.extend(
-                [
-                    get_summary_content_wrapped,  # genuinely custom (fallback logic)
-                    add_note_tool_wrapped,  # near-passthrough (result transform)
-                    update_note_tool_wrapped,  # near-passthrough (result transform)
-                    duplicate_ann_tool_wrapped,  # near-passthrough (result transform)
-                    add_exact_ann_tool_wrapped,  # near-passthrough (complex normalization)
-                ]
+            effective_tools.append(
+                get_summary_content_wrapped  # genuinely custom (fallback logic)
             )
+            # Write tools only for authenticated users
+            if config.user_id is not None:
+                effective_tools.extend(
+                    [
+                        add_note_tool_wrapped,  # near-passthrough (result transform)
+                        update_note_tool_wrapped,  # near-passthrough (result transform)
+                        duplicate_ann_tool_wrapped,  # near-passthrough (result transform)
+                        add_exact_ann_tool_wrapped,  # near-passthrough (complex normalization)
+                    ]
+                )
         restrict_tool_names: set[str] | None = kwargs.pop("restrict_tool_names", None)
         if restrict_tool_names is not None:
             # Restrict mode: only keep tools whose names appear in the
@@ -2768,10 +2781,12 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         effective_tools: list[Callable] = [
             default_vs_tool,
             *corpus_auto_tools,
-            update_corpus_desc_tool_wrapped,
             list_docs_tool_wrapped,
             ask_doc_tool_wrapped,
         ]
+        # Write tools only for authenticated users
+        if config.user_id is not None:
+            effective_tools.append(update_corpus_desc_tool_wrapped)
 
         if tools:
             effective_tools = deduplicate_tools(

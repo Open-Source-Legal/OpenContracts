@@ -5,7 +5,23 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-03-14
+## [Unreleased] - 2026-03-15
+
+### Breaking Changes
+
+- **Removed `tokensJsons` and `boundingBox` from GraphQL API**: The `tokensJsons` and `boundingBox` fields have been removed from GraphQL annotation queries and mutations (PR #1100). External API consumers and integrations must update to use the `json` field instead. The `json` field contains either v1 (legacy page-keyed format) or v2 (compact format) annotation data. Use `iter_page_annotations()` (Python) or `iterPageAnnotations()` (TypeScript) for format-agnostic access.
+
+### Added
+
+- **Compact annotation JSON v2 format for ~75% storage reduction** (PR #1100): New compact v2 format for annotation JSON payloads that range-encodes consecutive token indices, compacts bounds to arrays, and drops redundant `pageIndex` and `rawText` from per-page data. Changes include:
+  - Core encode/decode in `opencontractserver/annotations/compact_json.py` (Python) and `frontend/src/utils/compactAnnotationJson.ts` (TypeScript)
+  - Safety limits: `COMPACT_JSON_MAX_RANGE_SPAN` (10,000) and `COMPACT_JSON_MAX_TOTAL_TOKENS` (50,000) in `opencontractserver/constants/annotations.py`
+  - `Annotation.save()` auto-compacts v1 → v2 on write (lazy migration) with exception guard for malformed legacy data
+  - Migration `0066` removes redundant `tokens_jsons` and `bounding_box` columns (includes `RunPython` backfill step to preserve any legacy data before column removal — **irreversible migration**)
+  - 60+ Python and 48+ TypeScript unit tests for the codec
+  - All GraphQL queries/mutations updated to use `json` field instead of `tokensJsons` and `boundingBox`
+  - Format-agnostic accessor layer: `iter_page_annotations()`, `offset_annotation_json()`, `has_any_tokens()` (Python) and `iterPageAnnotations()`, `hasAnyTokens()` (TypeScript) — all production code migrated off `expand_annotation_json()`
+  - `ServerTokenAnnotation` constructor now accepts both v1 and v2 formats, normalizing internally
 
 ### Added
 
@@ -41,11 +57,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Token bounding box drift in PDF viewer**: Fixed progressive misalignment between token bounding boxes (blue outlines) and rendered PDF text. PAWLs token coordinates are extracted by the parser in its own coordinate system, which can differ from PDF.js's viewport coordinate system. The frontend now normalizes token coordinates by comparing PAWLs page dimensions (`page.width`/`page.height`) against the PDF.js viewport dimensions at scale 1, rescaling tokens when they differ. Added `normalizeTokensToPdfViewport()` utility in `frontend/src/utils/transform.tsx` and applied it in both PDF loading paths in `frontend/src/components/knowledge_base/document/DocumentKnowledgeBase.tsx`.
 - **Auth0 SDK blocked by CSP on admin login page** (Closes #1077): The admin login template loads the Auth0 SPA SDK from `cdn.jsdelivr.net`, but the Content-Security-Policy `script-src` directive did not include this origin, causing browsers to block the script. Added `https://cdn.jsdelivr.net` to `script-src` when Auth0 is enabled. (`config/settings/base.py`)
-- **PostgreSQL HNSW config warning on startup** (Closes #1074): Fixed `invalid configuration parameter name 'hnsw.iterative_scan', removing it` warning caused by database-level GUC settings being applied before the pgvector extension loaded. Added `shared_preload_libraries=vector` to all Docker Compose postgres commands so pgvector registers its GUC variables at server startup, before database-level settings are applied. Also upgraded pgvector from v0.8.0 to v0.8.2. (`local.yml`, `production.yml`, `test.yml`, `compose/production/postgres/Dockerfile`)
+- **PostgreSQL HNSW config warning on startup** (Closes #1074): Fixed `invalid configuration parameter name 'hnsw.iterative_scan'` warning caused by database-level `ALTER DATABASE SET` GUC defaults persisting in `pg_db_role_setting`. The docker-entrypoint-initdb.d phase runs in a temporary postgres without the user's command-line args, so `hnsw.*` GUCs aren't registered when the database-level defaults are later applied on connections. Consolidated shared postgres settings (`shared_preload_libraries`, HNSW, I/O tuning) into `compose/postgres/shared.conf` with a custom entrypoint wrapper that injects them as `-c` flags. Per-environment memory settings remain in compose files. Removed `ALTER DATABASE SET` from `init.sql`. Added migration 0066 to RESET stale database-level defaults. **Upgrade note:** Existing users must rebuild the postgres image (`docker compose build postgres`) to pick up the new entrypoint wrapper and shared config file. (`compose/postgres/shared.conf`, `compose/postgres/docker-entrypoint-wrapper.sh`, `compose/production/postgres/Dockerfile`, `compose/production/postgres/init.sql`, `opencontractserver/annotations/migrations/0066_reset_database_level_hnsw_settings.py`)
 - **Single-select Dropdown missing onBlur in MetadataCellEditor** (PR #1076): Two single-select `Dropdown` instances (STRING with choices, CHOICE type) silently dropped the `onBlur` callback during the SUI→@os-legal/ui migration, causing metadata grid cells to never exit edit mode after selection. Initially worked around with `onClose={onBlur}` in v0.1.13; upgraded to proper `onBlur={onBlur}` prop in v0.1.14. (`frontend/src/components/metadata/editors/MetadataCellEditor.tsx`)
 - **Dropdown test selectors outdated after @os-legal/ui upgrade**: Updated CSS selectors in `DocumentMetadataGrid.ct.tsx` from `.oc-select-trigger`/`.oc-select-search` to `.oc-dropdown__trigger`/`.oc-dropdown__search-input` to match the v0.1.13 Dropdown component's class names. Changed Enter-key selection to direct `.oc-dropdown__option` click. (`frontend/tests/DocumentMetadataGrid.ct.tsx`)
 
 ### Changed
+
+- **Enforced async-only tool registry for LLM agent tools**: Audited and converted the entire tool registry to reject sync functions. Previously `ToolRegistryEntry` carried both `sync_func` and `async_func` fields, `FUNCTION_MAP` registered both versions, and `PydanticAIToolWrapper` had a sync wrapper path that called sync functions without a thread pool (risking `SynchronousOnlyOperation`). Changes include:
+  - Removed `sync_func` field from `ToolRegistryEntry` — only `async_func` remains (`opencontractserver/llms/tools/tool_registry.py`)
+  - Simplified `FUNCTION_MAP` from 3-tuples `(sync, async, aliases)` to 2-tuples `(async, aliases)`, removing all sync imports from `_populate()`
+  - Replaced sync wrapper path in `PydanticAIToolWrapper` with a `TypeError` guard that rejects sync functions at construction time (`opencontractserver/llms/tools/pydantic_ai_tools.py`)
+  - Created async versions of `get_note_content_token_length` and `get_partial_note_content` (`aget_note_content_token_length`, `aget_partial_note_content`) which previously only had sync versions that used `Note.objects.get()` (`opencontractserver/llms/tools/core_tools.py`)
+  - Updated `create_document_tools()` to use only async functions (`opencontractserver/llms/tools/tool_factory.py`)
+  - Updated `__init__.py` exports to async-only (`opencontractserver/llms/tools/__init__.py`)
+  - Updated affected tests to use async functions and added new tests for sync rejection
 
 - **SUI Tab migration to @os-legal/ui FilterTabs** (Closes #1022 — tab portion): Removed unused `Tab` and `Menu` imports from `semantic-ui-react` in `frontend/src/views/Corpuses.tsx`. Replaced custom styled `Tab`/`TabContainer` components and custom `SearchInput` in `frontend/src/views/GlobalDiscussions.tsx` with `FilterTabs` and `SearchBox` from `@os-legal/ui`, consistent with the rest of the codebase.
 

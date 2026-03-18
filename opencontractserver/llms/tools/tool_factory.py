@@ -326,15 +326,19 @@ def _extract_parameter_descriptions_from_docstring(func: Callable) -> dict[str, 
 
 # Convenience functions for creating common tools
 def create_document_tools() -> list[CoreTool]:
-    """Create standard document-related tools."""
+    """Create standard document-related tools.
+
+    All tools are async — sync versions exist in the source files for
+    test convenience only and must never be registered for production use.
+    """
     from opencontractserver.llms.tools.core_tools import (
+        aget_md_summary_token_length,
+        aget_note_content_token_length,
+        aget_notes_for_document_corpus,
         aget_page_image,
+        aget_partial_note_content,
+        aload_document_md_summary,
         asearch_exact_text_as_sources,
-        get_md_summary_token_length,
-        get_note_content_token_length,
-        get_notes_for_document_corpus,
-        get_partial_note_content,
-        load_document_md_summary,
     )
     from opencontractserver.llms.tools.image_tools import (
         aget_annotation_images,
@@ -351,23 +355,23 @@ def create_document_tools() -> list[CoreTool]:
             ),
         ),
         CoreTool.from_function(
-            load_document_md_summary,
+            aload_document_md_summary,
             description="Load markdown summary of a document, optionally truncated.",
         ),
         CoreTool.from_function(
-            get_md_summary_token_length,
+            aget_md_summary_token_length,
             description="Get the token length of a document's markdown summary.",
         ),
         CoreTool.from_function(
-            get_notes_for_document_corpus,
+            aget_notes_for_document_corpus,
             description="Get notes associated with a document and optional corpus.",
         ),
         CoreTool.from_function(
-            get_note_content_token_length,
+            aget_note_content_token_length,
             description="Get the token length of a note's content.",
         ),
         CoreTool.from_function(
-            get_partial_note_content,
+            aget_partial_note_content,
             description="Get a substring of a note's content by start/end indices.",
         ),
         CoreTool.from_function(

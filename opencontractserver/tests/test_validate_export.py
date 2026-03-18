@@ -475,6 +475,33 @@ class TestAnnotationValidation(unittest.TestCase):
         assert not result.ok
         assert any("labelled_text" in e for e in result.errors)
 
+    def test_span_annotation_passes_validation(self):
+        """Span annotations ({start, end}) should pass without page-keyed checks."""
+        data = _minimal_v1_data()
+        # Add a SPAN_LABEL to text_labels
+        data["text_labels"]["SpanLabel"] = {
+            "id": "4",
+            "text": "SpanLabel",
+            "label_type": "TOKEN_LABEL",
+            "color": "#FF00FF",
+            "description": "A span label",
+            "icon": "tag",
+        }
+        data["annotated_docs"]["sample.pdf"]["labelled_text"].append(
+            {
+                "id": "annot_span_1",
+                "annotationLabel": "SpanLabel",
+                "rawText": "span text",
+                "page": 0,
+                "annotation_json": {"start": 0, "end": 9, "text": "span text"},
+                "parent_id": None,
+                "annotation_type": "SPAN_LABEL",
+                "structural": False,
+            }
+        )
+        result = validate_data_json(data)
+        assert result.ok, result.summary()
+
     def test_page_index_mismatches_page_key(self):
         """pageIndex in tokensJsons must match the containing page key."""
         data = _minimal_v1_data()

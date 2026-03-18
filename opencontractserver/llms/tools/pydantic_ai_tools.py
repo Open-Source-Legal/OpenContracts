@@ -249,6 +249,15 @@ class PydanticAIToolWrapper:
                 Maps parameter name -> value to inject.
                 Example: {"document_id": 123, "corpus_id": 456}
         """
+        # Fail fast: reject sync functions before mutating any state.
+        if not inspect.iscoroutinefunction(core_tool.function):
+            raise TypeError(
+                f"Tool {core_tool.name!r} must be an async function. "
+                f"PydanticAIToolWrapper does NOT wrap sync functions in a "
+                f"thread pool — sync ORM calls will raise "
+                f"SynchronousOnlyOperation. Convert this tool to async."
+            )
+
         self.core_tool = core_tool
         self.inject_params = inject_params or {}
         self._metadata = PydanticAIToolMetadata(
@@ -348,119 +357,78 @@ class PydanticAIToolWrapper:
 
         # ------------------------------------------------------------------
 
-        if inspect.iscoroutinefunction(original_func):
+        # Defense-in-depth: async check already performed in __init__
+        # before any state is mutated.  Use an explicit guard rather than
+        # assert, which is stripped under python -O.
+        if not inspect.iscoroutinefunction(original_func):
+            raise RuntimeError(
+                f"Tool {func_name!r} is not async — this should have been "
+                f"caught in __init__."
+            )
 
-            async def async_wrapper(
-                ctx: RunContext[PydanticAIDependencies], *args, **kwargs
-            ):
-                """Async wrapper for PydanticAI tools."""
-                # Inject context-bound parameters before any other processing.
-                # These params are hidden from the LLM and set deterministically.
-                for param_name, value in self.inject_params.items():
-                    kwargs[param_name] = value
+        async def async_wrapper(
+            ctx: RunContext[PydanticAIDependencies], *args, **kwargs
+        ):
+            """Async wrapper for PydanticAI tools."""
+            # Inject context-bound parameters before any other processing.
+            # These params are hidden from the LLM and set deterministically.
+            for param_name, value in self.inject_params.items():
+                kwargs[param_name] = value
 
-                # Defense-in-depth: validate user permissions BEFORE any tool execution
-                # This prevents permission escalation via agents
-                await _check_user_permissions(ctx)
+            # Defense-in-depth: validate user permissions BEFORE any tool execution
+            # This prevents permission escalation via agents
+            await _check_user_permissions(ctx)
 
-                # Defense-in-depth: validate resource ID params match context
-                # This prevents prompt injection attacks that try to access other resources
-                # (Also validates injected params match deps as additional safety check)
-                _validate_resource_id_params(ctx, **kwargs)
+            # Defense-in-depth: validate resource ID params match context
+            # This prevents prompt injection attacks that try to access other resources
+            # (Also validates injected params match deps as additional safety check)
+            _validate_resource_id_params(ctx, **kwargs)
 
-                # Trigger approval gate *before* attempting execution.
-                _maybe_raise(ctx, *args, **kwargs)
+            # Trigger approval gate *before* attempting execution.
+            _maybe_raise(ctx, *args, **kwargs)
 
-                try:
-                    result = await original_func(*args, **kwargs)
-                    # Apply tool output truncation to prevent oversized
-                    # returns from bloating the conversation context.
-                    if isinstance(result, str):
-                        max_chars = ctx.deps.max_tool_output_chars
-                        result = truncate_tool_output(result, max_chars=max_chars)
-                    return result
-                except (PermissionError, ToolConfirmationRequired):
-                    # Security and approval exceptions must propagate to the
-                    # agent loop so they can be handled at the framework level.
-                    raise
-                except Exception as e:
-                    # Operational errors (bad input, missing data, network
-                    # failures, etc.) are caught and returned as a descriptive
-                    # string so the LLM can inform the user gracefully instead
-                    # of crashing the entire agent loop.  See issue #820.
-                    logger.error(f"Error in tool {func_name}: {e}")
-                    return (
-                        f"[Tool error] {func_name} failed: {e}. "
-                        "Please inform the user and suggest alternatives."
-                    )
+            try:
+                result = await original_func(*args, **kwargs)
+                # Apply tool output truncation to prevent oversized
+                # returns from bloating the conversation context.
+                if isinstance(result, str):
+                    max_chars = ctx.deps.max_tool_output_chars
+                    result = truncate_tool_output(result, max_chars=max_chars)
+                return result
+            except (PermissionError, ToolConfirmationRequired):
+                # Security and approval exceptions must propagate to the
+                # agent loop so they can be handled at the framework level.
+                raise
+            except Exception as e:
+                # Operational errors (bad input, missing data, network
+                # failures, etc.) are caught and returned as a descriptive
+                # string so the LLM can inform the user gracefully instead
+                # of crashing the entire agent loop.  See issue #820.
+                logger.error(f"Error in tool {func_name}: {e}")
+                return (
+                    f"[Tool error] {func_name} failed: {e}. "
+                    "Please inform the user and suggest alternatives."
+                )
 
-            # Set proper metadata
-            async_wrapper.__name__ = func_name
-            async_wrapper.__doc__ = original_func.__doc__ or self._metadata.description
-            async_wrapper.__signature__ = new_sig
-            # Ensure the injected ``ctx`` parameter has a proper annotation so
-            # that Pydantic-AI's `_takes_ctx` helper can detect it.
-            _anns = {
-                k: v
-                for k, v in getattr(original_func, "__annotations__", {}).items()
-                if k not in self.inject_params
-            }
-            _anns.setdefault("ctx", RunContext[PydanticAIDependencies])
-            async_wrapper.__annotations__ = _anns
-            # Attach reference to the wrapper for approval checking
-            async_wrapper._pydantic_ai_wrapper = self
-            async_wrapper.core_tool = self.core_tool
-            # Attach requires_approval directly for easy access by _check_tool_requires_approval
-            async_wrapper.requires_approval = self.core_tool.requires_approval
-            return async_wrapper
-        else:
-            # Sync tools are called directly (no thread pool).  All
-            # production tools are async; this path exists only for
-            # lightweight helpers and tests.  If a sync tool touches
-            # Django ORM it will raise SynchronousOnlyOperation — the
-            # fix is to make the tool async, not to paper over it.
-
-            async def sync_wrapper(
-                ctx: RunContext[PydanticAIDependencies], *args, **kwargs
-            ):
-                """Wrapper that calls a sync tool from an async context."""
-                for param_name, value in self.inject_params.items():
-                    kwargs[param_name] = value
-
-                await _check_user_permissions(ctx)
-                _validate_resource_id_params(ctx, **kwargs)
-                _maybe_raise(ctx, *args, **kwargs)
-
-                try:
-                    result = original_func(*args, **kwargs)
-                    if isinstance(result, str):
-                        max_chars = ctx.deps.max_tool_output_chars
-                        result = truncate_tool_output(result, max_chars=max_chars)
-                    return result
-                except (PermissionError, ToolConfirmationRequired):
-                    raise
-                except Exception as e:
-                    logger.error(f"Error in tool {func_name}: {e}")
-                    return (
-                        f"[Tool error] {func_name} failed: {e}. "
-                        "Please inform the user and suggest alternatives."
-                    )
-
-            sync_wrapper.__name__ = func_name
-            sync_wrapper.__doc__ = original_func.__doc__ or self._metadata.description
-            sync_wrapper.__signature__ = new_sig
-            _anns_sync = {
-                k: v
-                for k, v in getattr(original_func, "__annotations__", {}).items()
-                if k not in self.inject_params
-            }
-            _anns_sync.setdefault("ctx", RunContext[PydanticAIDependencies])
-            sync_wrapper.__annotations__ = _anns_sync
-            sync_wrapper._pydantic_ai_wrapper = self
-            sync_wrapper.core_tool = self.core_tool
-            sync_wrapper.requires_approval = self.core_tool.requires_approval
-
-            return sync_wrapper
+        # Set proper metadata
+        async_wrapper.__name__ = func_name
+        async_wrapper.__doc__ = original_func.__doc__ or self._metadata.description
+        async_wrapper.__signature__ = new_sig
+        # Ensure the injected ``ctx`` parameter has a proper annotation so
+        # that Pydantic-AI's `_takes_ctx` helper can detect it.
+        _anns = {
+            k: v
+            for k, v in getattr(original_func, "__annotations__", {}).items()
+            if k not in self.inject_params
+        }
+        _anns.setdefault("ctx", RunContext[PydanticAIDependencies])
+        async_wrapper.__annotations__ = _anns
+        # Attach reference to the wrapper for approval checking
+        async_wrapper._pydantic_ai_wrapper = self
+        async_wrapper.core_tool = self.core_tool
+        # Attach requires_approval directly for easy access by _check_tool_requires_approval
+        async_wrapper.requires_approval = self.core_tool.requires_approval
+        return async_wrapper
 
     @property
     def name(self) -> str:

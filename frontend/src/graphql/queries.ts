@@ -850,7 +850,6 @@ export const GET_ANNOTATIONS = gql`
       edges {
         node {
           id
-          tokensJsons
           json
           page
           created
@@ -940,7 +939,7 @@ export const GET_ANNOTATIONS = gql`
 // LIGHTWEIGHT ANNOTATIONS QUERY FOR CARD DISPLAY
 // ═══════════════════════════════════════════════════════════════════════════════
 // This query fetches only the fields needed for ModernAnnotationCard display.
-// It excludes heavy fields like tokensJsons, json, and unnecessary nested objects.
+// It excludes heavy fields like json and unnecessary nested objects.
 // Use this for annotation list/grid views where performance is critical.
 
 export const GET_ANNOTATIONS_FOR_CARDS = gql`
@@ -1102,7 +1101,6 @@ export const SEMANTIC_SEARCH_ANNOTATIONS = gql`
     ) {
       annotation {
         id
-        tokensJsons
         json
         page
         created
@@ -1495,10 +1493,10 @@ export const REQUEST_PAGE_ANNOTATION_DATA = gql`
           labelType
         }
         annotationType
-        boundingBox
+
         page
         rawText
-        tokensJsons
+
         json
         contentModalities
         sourceNodeInRelationships {
@@ -1810,10 +1808,10 @@ export const REQUEST_GET_EXTRACT = gql`
             txtExtractFile
             pawlsParseFile
           }
-          boundingBox
+
           page
           rawText
-          tokensJsons
+
           json
           annotationType
           sourceNodeInRelationships {
@@ -2113,10 +2111,10 @@ export const GET_DATACELLS_FOR_EXTRACT = gql`
             labelType
             description
           }
-          boundingBox
+
           page
           rawText
-          tokensJsons
+
           json
         }
       }
@@ -2161,10 +2159,10 @@ export const GET_ANNOTATIONS_FOR_ANALYSIS = gql`
           labelType
         }
         annotationType
-        boundingBox
+
         page
         rawText
-        tokensJsons
+
         json
         userFeedback {
           edges {

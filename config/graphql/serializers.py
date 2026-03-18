@@ -184,7 +184,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
     """
 
     annotation_json = serializers.JSONField(source="json")
-    tokens_json = serializers.JSONField()
 
     annotation_label = serializers.PrimaryKeyRelatedField(
         many=False, queryset=AnnotationLabel.objects.all()
@@ -201,8 +200,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "page",
             "raw_text",
             "long_description",
-            "tokens_json",
-            "bounding_box",
             "annotation_json",
             "annotation_label",
             "is_public",

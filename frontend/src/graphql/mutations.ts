@@ -1121,7 +1121,6 @@ export const REQUEST_ADD_ANNOTATION = gql`
       annotation {
         id
         page
-        bounds: boundingBox
         rawText
         json
         isPublic

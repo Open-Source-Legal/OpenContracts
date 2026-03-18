@@ -42,19 +42,15 @@ services:
       - local_postgres_data_backups:/backups:z
     env_file:
       - ./.envs/.local/.postgres
-    # Dev-friendly memory settings (production uses 1GB/512MB respectively)
-    # NOTE: -c shared_preload_libraries overrides postgresql.conf (doesn't append).
-    # If adding another preloaded extension, list all here: vector,pg_stat_statements,...
+    # Shared settings (shared_preload_libraries, HNSW, I/O tuning) are in
+    # compose/postgres/shared.conf and injected by docker-entrypoint-wrapper.sh.
+    # Only per-environment memory settings remain here.
     command: >
       postgres
-      -c shared_preload_libraries=vector
       -c shared_buffers=512MB
       -c maintenance_work_mem=256MB
       -c effective_cache_size=2GB
       -c work_mem=16MB
-      -c max_parallel_maintenance_workers=4
-      -c random_page_cost=1.1
-      -c effective_io_concurrency=200
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

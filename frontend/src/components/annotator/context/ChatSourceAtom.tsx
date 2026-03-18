@@ -7,6 +7,7 @@ import {
   SinglePageAnnotationJson,
 } from "../../types";
 import { WebSocketSources } from "../../chat/types";
+import { TimelineEntry } from "../../widgets/chat/ChatMessage";
 
 /**
  * A single pinned source in a message.
@@ -34,6 +35,7 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   sources: ChatMessageSource[];
+  timeline?: TimelineEntry[];
 }
 
 export interface ChatSourceState {

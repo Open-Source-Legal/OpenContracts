@@ -12,10 +12,8 @@ from django.test import TestCase, override_settings
 from opencontractserver.shared.db_utils import table_has_column
 from opencontractserver.shared.defaults import (
     create_model_icon_path,
-    empty_bounding_box,
     empty_text_label_position,
     jsonfield_default_value,
-    jsonfield_empty_array,
 )
 from opencontractserver.shared.mixins import (
     HasEmbeddingMixin,
@@ -54,16 +52,6 @@ class TestDefaultFunctions(TestCase):
         b = empty_text_label_position()
         self.assertIsNot(a, b)
 
-    def test_empty_bounding_box(self):
-        result = empty_bounding_box()
-        expected = {"bottom": 0, "left": 0, "right": 0, "top": 0}
-        self.assertEqual(result, expected)
-
-    def test_empty_bounding_box_returns_new_instance(self):
-        a = empty_bounding_box()
-        b = empty_bounding_box()
-        self.assertIsNot(a, b)
-
     def test_jsonfield_default_value(self):
         result = jsonfield_default_value()
         self.assertEqual(result, {})
@@ -72,16 +60,6 @@ class TestDefaultFunctions(TestCase):
     def test_jsonfield_default_value_returns_new_instance(self):
         a = jsonfield_default_value()
         b = jsonfield_default_value()
-        self.assertIsNot(a, b)
-
-    def test_jsonfield_empty_array(self):
-        result = jsonfield_empty_array()
-        self.assertEqual(result, [])
-        self.assertIsInstance(result, list)
-
-    def test_jsonfield_empty_array_returns_new_instance(self):
-        a = jsonfield_empty_array()
-        b = jsonfield_empty_array()
         self.assertIsNot(a, b)
 
     def test_create_model_icon_path(self):

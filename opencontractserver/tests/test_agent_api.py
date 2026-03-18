@@ -620,22 +620,24 @@ class TestToolFunctionRegistry(TestCase):
         r2 = ToolFunctionRegistry.get()
         self.assertIsNot(r1, r2)
 
-    def test_async_func_preferred(self):
-        """to_core_tool prefers async_func over sync_func."""
+    def test_all_registered_tools_are_async(self):
+        """All registered tools must be async functions."""
         from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
 
         registry = ToolFunctionRegistry.get()
-        # All tools with an async_func should resolve to an async function
         import asyncio
 
         for name, entry in registry._entries.items():
-            if entry.async_func is not None:
-                core = registry.to_core_tool(name)
-                self.assertIsNotNone(core, f"to_core_tool({name!r}) returned None")
-                self.assertTrue(
-                    asyncio.iscoroutinefunction(core.function),
-                    f"Tool '{name}' should resolve to async func but got {core.function}",
-                )
+            self.assertTrue(
+                asyncio.iscoroutinefunction(entry.async_func),
+                f"Tool '{name}' async_func is not a coroutine function",
+            )
+            core = registry.to_core_tool(name)
+            self.assertIsNotNone(core, f"to_core_tool({name!r}) returned None")
+            self.assertTrue(
+                asyncio.iscoroutinefunction(core.function),
+                f"Tool '{name}' should resolve to async func but got {core.function}",
+            )
 
     def test_alias_resolution(self):
         """Aliases resolve to the correct canonical tool."""
@@ -684,6 +686,25 @@ class TestToolFunctionRegistry(TestCase):
         self.assertIsNotNone(core_read)
         self.assertFalse(core_read.requires_approval)
         self.assertFalse(core_read.requires_write_permission)
+
+    def test_sync_function_rejected_at_registration(self):
+        """ToolRegistryEntry rejects sync functions with TypeError."""
+        from opencontractserver.llms.tools.tool_registry import (
+            ToolCategory,
+            ToolDefinition,
+            ToolRegistryEntry,
+        )
+
+        def sync_func():
+            pass
+
+        defn = ToolDefinition(
+            name="test_sync",
+            description="should fail",
+            category=ToolCategory.DOCUMENT,
+        )
+        with self.assertRaises(TypeError):
+            ToolRegistryEntry(definition=defn, async_func=sync_func)
 
 
 class TestBuildToolsFromRegistry(TestCase):

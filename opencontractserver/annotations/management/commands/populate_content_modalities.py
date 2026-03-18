@@ -5,6 +5,7 @@ import logging
 
 from django.core.management.base import BaseCommand
 
+from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
 
 logger = logging.getLogger(__name__)
@@ -108,8 +109,17 @@ class Command(BaseCommand):
                 return ["IMAGE"]
             return ["TEXT"]
 
-        # Get tokens referenced by this annotation
-        if not annotation.tokens_jsons:
+        # Extract token references from the json field (handles v1 and v2 formats)
+        all_token_refs = []
+        for page in iter_page_annotations(
+            annotation.json or {}, raw_text=annotation.raw_text or ""
+        ):
+            all_token_refs.extend(
+                {"pageIndex": page.page_index, "tokenIndex": idx}
+                for idx in page.token_indices
+            )
+
+        if not all_token_refs:
             # No tokens referenced, use label as hint
             label_text = annotation.annotation_label.text.lower()
             if any(
@@ -123,7 +133,7 @@ class Command(BaseCommand):
         has_text = False
         has_image = False
 
-        for token_ref in annotation.tokens_jsons:
+        for token_ref in all_token_refs:
             page_idx = token_ref.get("pageIndex", 0)
             token_idx = token_ref.get("tokenIndex")
 

@@ -319,8 +319,10 @@ class CorpusForkRoundTripTestCase(TransactionTestCase):
                 annotation = Annotation.objects.create(
                     page=1,
                     raw_text=f"Annotation text {i}-{j}",
-                    tokens_jsons=[{"text": f"token_{i}_{j}"}],
-                    json={"test": f"data_{i}_{j}"},
+                    json={
+                        "v": 2,
+                        "p": {"1": {"b": [0, 0, 1, 1], "t": str(j)}},
+                    },
                     annotation_label=token_labels[j % len(token_labels)],
                     document=doc,
                     corpus=corpus,

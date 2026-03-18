@@ -372,7 +372,7 @@ class TestGetAnnotationImageTokens(TestCase):
         self.assertEqual(len(result), 1)
 
     def test_handles_invalid_token_refs(self):
-        """Should skip invalid token references."""
+        """Should skip invalid token references (out-of-bounds token index)."""
         base64_data = self._create_sample_image_base64()
         pawls_data = [
             {
@@ -398,17 +398,96 @@ class TestGetAnnotationImageTokens(TestCase):
             creator=self.user,
             json={
                 "0": {
+                    "bounds": {"top": 200, "left": 100, "right": 300, "bottom": 350},
                     "tokensJsons": [
-                        "invalid",  # String instead of dict
-                        {"pageIndex": 5, "tokenIndex": 0},  # Out of bounds
-                        {"pageIndex": 0, "tokenIndex": 0},  # Valid
-                    ]
+                        {"pageIndex": 0, "tokenIndex": 99},  # Out of bounds token
+                        {"pageIndex": 0, "tokenIndex": 0},  # Valid image token
+                    ],
+                    "rawText": "",
                 }
             },
         )
 
         result = get_annotation_image_tokens(annotation, pawls_data=pawls_data)
         self.assertEqual(len(result), 1)
+
+    def test_v2_compact_format_finds_image_tokens(self):
+        """get_annotation_image_tokens works with v2 compact annotation JSON."""
+        base64_data = self._create_sample_image_base64()
+        pawls_data = [
+            {
+                "page": {"width": 612, "height": 792, "index": 0},
+                "tokens": [
+                    {"x": 10, "y": 10, "width": 50, "height": 12, "text": "Hi"},
+                    {
+                        "x": 100,
+                        "y": 200,
+                        "width": 200,
+                        "height": 150,
+                        "text": "",
+                        "is_image": True,
+                        "base64_data": base64_data,
+                    },
+                ],
+            }
+        ]
+        document = self._create_document_with_pawls(pawls_data)
+        # Use v2 compact format: page 0, tokens 0 and 1
+        v2_json = {"v": 2, "p": {"0": {"b": [10, 10, 300, 350], "t": "0-1"}}}
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json=v2_json,
+        )
+
+        result = get_annotation_image_tokens(annotation, pawls_data=pawls_data)
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].get("is_image"))
+
+    def test_out_of_bounds_page_index_skipped(self):
+        """Annotation referencing pages beyond PAWLs data is safely skipped."""
+        pawls_data = [
+            {
+                "page": {"width": 612, "height": 792, "index": 0},
+                "tokens": [{"x": 10, "y": 10, "width": 50, "height": 12, "text": "Hi"}],
+            }
+        ]
+        document = self._create_document_with_pawls(pawls_data)
+        # Annotation references page 5, but PAWLs only has page 0
+        v2_json = {"v": 2, "p": {"5": {"b": [0, 0, 0, 0], "t": "0"}}}
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json=v2_json,
+        )
+
+        result = get_annotation_image_tokens(annotation, pawls_data=pawls_data)
+        self.assertEqual(result, [])
+
+    def test_non_dict_pawls_page_skipped(self):
+        """Non-dict entries in PAWLs data are safely skipped."""
+        pawls_data = ["not_a_dict"]
+        document = Document.objects.create(
+            title="Test Doc",
+            creator=self.user,
+            pdf_file=ContentFile(b"fake pdf content", name="test.pdf"),
+        )
+        self.corpus.add_document(document=document, user=self.user)
+        v2_json = {"v": 2, "p": {"0": {"b": [0, 0, 0, 0], "t": "0"}}}
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json=v2_json,
+        )
+
+        result = get_annotation_image_tokens(annotation, pawls_data=pawls_data)
+        self.assertEqual(result, [])
 
 
 class TestEmbedImagesAverage(TestCase):

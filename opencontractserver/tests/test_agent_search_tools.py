@@ -11,7 +11,9 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.tools.core_tools import (
     aget_md_summary_token_length,
+    aget_note_content_token_length,
     aget_notes_for_document_corpus,
+    aget_partial_note_content,
     aload_document_md_summary,
     get_note_content_token_length,
     get_partial_note_content,
@@ -463,3 +465,73 @@ class TestCoreTools(TestCase):
         )
         self.assertEqual(len(filtered_notes), 1)
         self.assertEqual(filtered_notes[0]["id"], note_with_corpus.id)
+
+        # Non-existent document raises ValueError
+        with self.assertRaises(ValueError):
+            await aget_notes_for_document_corpus(999_999)
+
+    async def test_aget_note_content_token_length(self):
+        """Test async note content token length calculation."""
+        user = await User.objects.acreate(username="toklenuser", password="pass")
+        doc = await Document.objects.acreate(
+            title="Doc for token len",
+            creator=user,
+            file_type="text/plain",
+        )
+        note = await Note.objects.acreate(
+            title="Token Note",
+            content="one two three four five",
+            document=doc,
+            creator=user,
+        )
+
+        result = await aget_note_content_token_length(note.id)
+        self.assertEqual(result, 5)
+
+        # Empty content returns 0
+        empty_note = await Note.objects.acreate(
+            title="Empty Note",
+            content="",
+            document=doc,
+            creator=user,
+        )
+        self.assertEqual(await aget_note_content_token_length(empty_note.id), 0)
+
+        # Non-existent note raises ValueError
+        with self.assertRaises(ValueError):
+            await aget_note_content_token_length(999_999)
+
+    async def test_aget_partial_note_content(self):
+        """Test async partial note content retrieval."""
+        user = await User.objects.acreate(username="partialuser", password="pass")
+        doc = await Document.objects.acreate(
+            title="Doc for partial",
+            creator=user,
+            file_type="text/plain",
+        )
+        note = await Note.objects.acreate(
+            title="Partial Note",
+            content="Hello, this is a test note with some content.",
+            document=doc,
+            creator=user,
+        )
+
+        # Default slice (0:500)
+        result = await aget_partial_note_content(note.id)
+        self.assertEqual(result, "Hello, this is a test note with some content.")
+
+        # Custom slice
+        result = await aget_partial_note_content(note.id, start=0, end=5)
+        self.assertEqual(result, "Hello")
+
+        # Negative start clamped to 0
+        result = await aget_partial_note_content(note.id, start=-10, end=5)
+        self.assertEqual(result, "Hello")
+
+        # end < start raises ValueError
+        with self.assertRaises(ValueError):
+            await aget_partial_note_content(note.id, start=10, end=5)
+
+        # Non-existent note raises ValueError
+        with self.assertRaises(ValueError):
+            await aget_partial_note_content(999_999)

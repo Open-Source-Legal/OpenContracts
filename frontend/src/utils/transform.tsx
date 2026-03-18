@@ -3,6 +3,7 @@ import { ServerTokenAnnotation } from "../components/annotator/types/annotations
 import { ServerSpanAnnotation } from "../components/annotator/types/annotations";
 import {
   BoundingBox,
+  MultipageAnnotationJson,
   PageTokens,
   PermissionTypes,
   SpanAnnotationJson,
@@ -148,6 +149,7 @@ export function convertToServerAnnotation(
   }
 
   // Fallback: treat as token annotation (MultipageAnnotationJson)
+  // ServerTokenAnnotation handles v1/v2 format normalization internally.
   return new ServerTokenAnnotation(
     annotation.page,
     annotation.annotationLabel,

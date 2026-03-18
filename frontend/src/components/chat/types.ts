@@ -51,6 +51,8 @@ export interface MessageData {
     approval_decision?: string;
     /** Error description from backend */
     error?: string;
+    /** Error type classification from backend (e.g. "CONTEXT_EXHAUSTED") */
+    error_type?: string;
     /** Context status metadata (token usage, compaction info) */
     context_status?: ContextStatus;
     /** Context compaction notice */

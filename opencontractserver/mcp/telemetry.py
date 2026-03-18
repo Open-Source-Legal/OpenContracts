@@ -38,6 +38,7 @@ _mcp_request_context: ContextVar[dict[str, Any]] = ContextVar(
 def set_request_context(
     client_ip: str | None = None,
     transport: str = "unknown",
+    user_agent: str | None = None,
 ) -> None:
     """
     Set the request context for MCP telemetry.
@@ -48,11 +49,13 @@ def set_request_context(
     Args:
         client_ip: The client's IP address (will be hashed for privacy)
         transport: The transport type (e.g., 'streamable_http', 'sse', 'stdio')
+        user_agent: The User-Agent header value identifying the MCP client/agent
     """
     _mcp_request_context.set(
         {
             "client_ip_hash": _hash_ip(client_ip) if client_ip else None,
             "transport": transport,
+            "user_agent": user_agent,
         }
     )
 
@@ -110,10 +113,28 @@ def _get_request_context() -> dict[str, Any]:
     return _mcp_request_context.get()
 
 
+def _build_context_properties() -> dict[str, Any]:
+    """Build the common properties dict from the current request context.
+
+    Includes transport, hashed client IP, and user agent when available.
+    """
+    context = _get_request_context()
+    properties: dict[str, Any] = {
+        "transport": context.get("transport", "unknown"),
+    }
+    if context.get("client_ip_hash"):
+        properties["client_ip_hash"] = context["client_ip_hash"]
+    if context.get("user_agent"):
+        properties["user_agent"] = context["user_agent"]
+    return properties
+
+
 def record_mcp_tool_call(
     tool_name: str,
     success: bool = True,
     error_type: str | None = None,
+    corpus_slug: str | None = None,
+    document_slug: str | None = None,
 ) -> bool:
     """
     Record a telemetry event for an MCP tool call.
@@ -122,25 +143,22 @@ def record_mcp_tool_call(
         tool_name: Name of the tool that was called
         success: Whether the tool call succeeded
         error_type: Type of error if the call failed (e.g., 'ValueError', 'PermissionError')
+        corpus_slug: Slug of the corpus being accessed (no user-identifying info)
+        document_slug: Slug of the document being accessed (no user-identifying info)
 
     Returns:
         True if event was successfully queued, False otherwise
     """
-    context = _get_request_context()
+    properties = _build_context_properties()
+    properties["tool_name"] = tool_name
+    properties["success"] = success
 
-    properties = {
-        "tool_name": tool_name,
-        "success": success,
-        "transport": context.get("transport", "unknown"),
-    }
-
-    # Include hashed client IP if available (privacy-preserving)
-    if context.get("client_ip_hash"):
-        properties["client_ip_hash"] = context["client_ip_hash"]
-
-    # Include error type if call failed
     if not success and error_type:
         properties["error_type"] = error_type
+    if corpus_slug is not None:
+        properties["corpus_slug"] = corpus_slug
+    if document_slug is not None:
+        properties["document_slug"] = document_slug
 
     return record_event("mcp_tool_call", properties)
 
@@ -149,6 +167,8 @@ def record_mcp_resource_read(
     resource_type: str,
     success: bool = True,
     error_type: str | None = None,
+    corpus_slug: str | None = None,
+    document_slug: str | None = None,
 ) -> bool:
     """
     Record a telemetry event for an MCP resource read.
@@ -157,25 +177,22 @@ def record_mcp_resource_read(
         resource_type: Type of resource that was read (e.g., 'corpus', 'document')
         success: Whether the resource read succeeded
         error_type: Type of error if the read failed
+        corpus_slug: Slug of the corpus being accessed (no user-identifying info)
+        document_slug: Slug of the document being accessed (no user-identifying info)
 
     Returns:
         True if event was successfully queued, False otherwise
     """
-    context = _get_request_context()
+    properties = _build_context_properties()
+    properties["resource_type"] = resource_type
+    properties["success"] = success
 
-    properties = {
-        "resource_type": resource_type,
-        "success": success,
-        "transport": context.get("transport", "unknown"),
-    }
-
-    # Include hashed client IP if available (privacy-preserving)
-    if context.get("client_ip_hash"):
-        properties["client_ip_hash"] = context["client_ip_hash"]
-
-    # Include error type if read failed
     if not success and error_type:
         properties["error_type"] = error_type
+    if corpus_slug is not None:
+        properties["corpus_slug"] = corpus_slug
+    if document_slug is not None:
+        properties["document_slug"] = document_slug
 
     return record_event("mcp_resource_read", properties)
 
@@ -202,20 +219,11 @@ def record_mcp_request(
     Returns:
         True if event was successfully queued, False otherwise
     """
-    context = _get_request_context()
+    properties = _build_context_properties()
+    properties["endpoint"] = endpoint
+    properties["method"] = method
+    properties["success"] = success
 
-    properties = {
-        "endpoint": endpoint,
-        "method": method,
-        "success": success,
-        "transport": context.get("transport", "unknown"),
-    }
-
-    # Include hashed client IP if available (privacy-preserving)
-    if context.get("client_ip_hash"):
-        properties["client_ip_hash"] = context["client_ip_hash"]
-
-    # Include error type if request failed
     if not success and error_type:
         properties["error_type"] = error_type
 
@@ -226,6 +234,8 @@ async def arecord_mcp_tool_call(
     tool_name: str,
     success: bool = True,
     error_type: str | None = None,
+    corpus_slug: str | None = None,
+    document_slug: str | None = None,
 ) -> bool:
     """
     Async version of ``record_mcp_tool_call``.
@@ -233,19 +243,16 @@ async def arecord_mcp_tool_call(
     Safe to call from ASGI / async handlers. Uses ``arecord_event`` to
     avoid synchronous ORM calls on the event loop.
     """
-    context = _get_request_context()
-
-    properties: dict[str, Any] = {
-        "tool_name": tool_name,
-        "success": success,
-        "transport": context.get("transport", "unknown"),
-    }
-
-    if context.get("client_ip_hash"):
-        properties["client_ip_hash"] = context["client_ip_hash"]
+    properties = _build_context_properties()
+    properties["tool_name"] = tool_name
+    properties["success"] = success
 
     if not success and error_type:
         properties["error_type"] = error_type
+    if corpus_slug is not None:
+        properties["corpus_slug"] = corpus_slug
+    if document_slug is not None:
+        properties["document_slug"] = document_slug
 
     return await arecord_event("mcp_tool_call", properties)
 
@@ -254,6 +261,8 @@ async def arecord_mcp_resource_read(
     resource_type: str,
     success: bool = True,
     error_type: str | None = None,
+    corpus_slug: str | None = None,
+    document_slug: str | None = None,
 ) -> bool:
     """
     Async version of ``record_mcp_resource_read``.
@@ -261,19 +270,16 @@ async def arecord_mcp_resource_read(
     Safe to call from ASGI / async handlers. Uses ``arecord_event`` to
     avoid synchronous ORM calls on the event loop.
     """
-    context = _get_request_context()
-
-    properties: dict[str, Any] = {
-        "resource_type": resource_type,
-        "success": success,
-        "transport": context.get("transport", "unknown"),
-    }
-
-    if context.get("client_ip_hash"):
-        properties["client_ip_hash"] = context["client_ip_hash"]
+    properties = _build_context_properties()
+    properties["resource_type"] = resource_type
+    properties["success"] = success
 
     if not success and error_type:
         properties["error_type"] = error_type
+    if corpus_slug is not None:
+        properties["corpus_slug"] = corpus_slug
+    if document_slug is not None:
+        properties["document_slug"] = document_slug
 
     return await arecord_event("mcp_resource_read", properties)
 
@@ -290,22 +296,30 @@ async def arecord_mcp_request(
     Safe to call from ASGI / async handlers. Uses ``arecord_event`` to
     avoid synchronous ORM calls on the event loop.
     """
-    context = _get_request_context()
-
-    properties: dict[str, Any] = {
-        "endpoint": endpoint,
-        "method": method,
-        "success": success,
-        "transport": context.get("transport", "unknown"),
-    }
-
-    if context.get("client_ip_hash"):
-        properties["client_ip_hash"] = context["client_ip_hash"]
+    properties = _build_context_properties()
+    properties["endpoint"] = endpoint
+    properties["method"] = method
+    properties["success"] = success
 
     if not success and error_type:
         properties["error_type"] = error_type
 
     return await arecord_event("mcp_request", properties)
+
+
+def get_user_agent_from_scope(scope: dict[str, Any]) -> str | None:
+    """Extract User-Agent header from an ASGI scope.
+
+    MCP clients and AI agents typically identify themselves via User-Agent
+    (e.g., ``Claude-Code/1.0``, ``cursor/0.45``).
+
+    Returns ``None`` when no User-Agent is present.
+    """
+    headers = dict(scope.get("headers", []))
+    ua = headers.get(b"user-agent")
+    if ua:
+        return ua.decode("utf-8", errors="replace").strip()
+    return None
 
 
 def get_claimed_client_ip_from_scope(scope: dict[str, Any]) -> str | None:

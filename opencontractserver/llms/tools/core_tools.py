@@ -218,6 +218,61 @@ def get_partial_note_content(
     return content[start:end]
 
 
+async def aget_note_content_token_length(note_id: int) -> int:
+    """
+    Calculate the approximate token length of a Note's content using naive whitespace-based split.
+
+    Args:
+        note_id: The primary key (ID) of the Note
+
+    Returns:
+        An integer representing the approximate token count of the note's content
+
+    Raises:
+        ValueError: If note doesn't exist
+    """
+    try:
+        note = await Note.objects.aget(pk=note_id)
+    except Note.DoesNotExist:
+        raise ValueError(f"Note with id={note_id} does not exist.")
+
+    return _token_count(note.content or "")
+
+
+async def aget_partial_note_content(
+    note_id: int,
+    start: int = 0,
+    end: int = 500,
+) -> str:
+    """
+    Retrieve a substring of the note's content from index 'start' to index 'end'.
+
+    Args:
+        note_id: The primary key (ID) of the Note
+        start: The starting position for extraction
+        end: The position at which to stop before extraction (non-inclusive)
+
+    Returns:
+        A string representing the specified portion of the note's content
+
+    Raises:
+        ValueError: If note doesn't exist or invalid start/end indices
+    """
+    try:
+        note = await Note.objects.aget(pk=note_id)
+    except Note.DoesNotExist:
+        raise ValueError(f"Note with id={note_id} does not exist.")
+
+    content = note.content or ""
+
+    if start < 0:
+        start = 0
+    if end < start:
+        raise ValueError("End index must be greater than or equal to start index.")
+
+    return content[start:end]
+
+
 async def aget_md_summary_token_length(document_id: int) -> int:
     """
     Async version: Calculate the approximate token length of a Document's md_summary_file.
@@ -307,8 +362,14 @@ async def aget_notes_for_document_corpus(
 
     Returns:
         A list of dictionaries, each containing Note data
+
+    Raises:
+        ValueError: If document doesn't exist
     """
     from opencontractserver.annotations.models import Note
+
+    if not await Document.objects.filter(pk=document_id).aexists():
+        raise ValueError(f"Document with id={document_id} does not exist.")
 
     queryset = Note.objects.filter(document_id=document_id)
 
@@ -1483,8 +1544,6 @@ def duplicate_annotations_with_label(
             duplicate = Annotation.objects.create(
                 page=ann.page,
                 raw_text=ann.raw_text,
-                tokens_jsons=ann.tokens_jsons,
-                bounding_box=ann.bounding_box,
                 json=ann.json,
                 parent=ann.parent,
                 annotation_type=ann.annotation_type,

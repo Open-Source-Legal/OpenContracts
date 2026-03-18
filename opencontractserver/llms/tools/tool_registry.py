@@ -5,12 +5,13 @@ This module provides:
   1. ``ToolDefinition`` / ``AVAILABLE_TOOLS`` — static metadata (names,
      descriptions, flags) exposed via the GraphQL API.
   2. ``ToolFunctionRegistry`` — singleton that maps tool names to their
-     Python function implementations (sync + async).  This is the **single
+     async Python function implementations.  This is the **single
      source of truth** for resolving tool names to callable functions.
 """
 
 from __future__ import annotations
 
+import inspect
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -647,19 +648,33 @@ TOOL_REGISTRY = AVAILABLE_TOOLS
 
 @dataclass
 class ToolRegistryEntry:
-    """Links a ToolDefinition to its function implementations."""
+    """Links a ToolDefinition to its async function implementation.
+
+    All registered tools MUST be async.  Sync versions of tool functions
+    exist in the source files for test convenience only and are never
+    registered here.  ``PydanticAIToolWrapper`` does NOT wrap sync
+    functions in a thread pool, so a sync tool that touches the Django
+    ORM will raise ``SynchronousOnlyOperation`` at runtime.
+    """
 
     definition: ToolDefinition
-    sync_func: Callable | None = None
-    async_func: Callable | None = None
+    async_func: Callable
     aliases: tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not inspect.iscoroutinefunction(self.async_func):
+            raise TypeError(
+                f"Tool {self.definition.name!r}: async_func must be an async "
+                f"function, got {self.async_func!r}. All registered tools must "
+                f"be async."
+            )
 
 
 class ToolFunctionRegistry:
-    """Singleton registry: tool name -> function refs + metadata.
+    """Singleton registry: tool name -> async function refs + metadata.
 
     Single source of truth for resolving tool names to implementations.
-    Always prefers async_func when available.
+    All registered tools must be async.
     """
 
     _instance: ToolFunctionRegistry | None = None
@@ -689,17 +704,14 @@ class ToolFunctionRegistry:
         return self._entries.get(canonical)
 
     def to_core_tool(self, name: str) -> CoreTool | None:  # noqa: F821
-        """Resolve *name* -> ``CoreTool``, preferring async, with metadata."""
+        """Resolve *name* -> ``CoreTool`` using its async implementation."""
         from opencontractserver.llms.tools.tool_factory import CoreTool
 
         entry = self.resolve(name)
         if not entry:
             return None
-        func = entry.async_func or entry.sync_func
-        if not func:
-            return None
         return CoreTool.from_function(
-            func,
+            entry.async_func,
             name=entry.definition.name,
             description=entry.definition.description,
             requires_approval=entry.definition.requires_approval,
@@ -717,20 +729,22 @@ class ToolFunctionRegistry:
     # ------------------------------------------------------------------
 
     def _populate(self) -> None:
-        """Lazily import and register all tool functions.
+        """Lazily import and register all async tool functions.
 
         ``FUNCTION_MAP`` + ``AVAILABLE_TOOLS`` are the ONLY two places to
         edit when adding a new tool.  ``_resolve_tools()`` and the agent
         factories never need touching again.
+
+        All registered tools MUST be async.  Sync versions of tool
+        functions exist in the source files for test convenience only
+        and are never imported here.
         """
-        # Lazy imports avoid circular dependencies
+        # Lazy imports avoid circular dependencies — async only
         from opencontractserver.llms.tools.core_tools import (
             aadd_annotations_from_exact_strings,
             aadd_document_note,
             acreate_document_index,
             acreate_markdown_link,
-            add_annotations_from_exact_strings,
-            add_document_note,
             aduplicate_annotations_with_label,
             aget_corpus_description,
             aget_document_description,
@@ -748,36 +762,14 @@ class ToolFunctionRegistry:
             aupdate_document_description,
             aupdate_document_note,
             aupdate_document_summary,
-            create_markdown_link,
-            duplicate_annotations_with_label,
-            get_corpus_description,
-            get_document_description,
-            get_document_summary,
-            get_document_summary_diff,
-            get_document_summary_versions,
-            get_md_summary_token_length,
-            get_notes_for_document_corpus,
-            get_page_image,
-            load_document_md_summary,
-            load_document_txt_extract,
-            search_document_notes,
-            search_exact_text_as_sources,
-            update_corpus_description,
-            update_document_description,
-            update_document_note,
-            update_document_summary,
         )
         from opencontractserver.llms.tools.image_tools import (
             aget_annotation_images,
             aget_document_image,
             alist_document_images,
-            get_annotation_images,
-            get_document_image,
-            list_document_images,
         )
         from opencontractserver.llms.tools.moderation_tools import (
             aadd_thread_message,
-            add_thread_message,
             adelete_message,
             aget_message_content,
             aget_thread_context,
@@ -786,87 +778,43 @@ class ToolFunctionRegistry:
             apin_thread,
             aunlock_thread,
             aunpin_thread,
-            delete_message,
-            get_message_content,
-            get_thread_context,
-            get_thread_messages,
-            lock_thread,
-            pin_thread,
-            unlock_thread,
-            unpin_thread,
         )
 
-        # canonical_name -> (sync_func, async_func, aliases)
-        FUNCTION_MAP: dict[
-            str, tuple[Callable | None, Callable | None, tuple[str, ...]]
-        ] = {
+        # canonical_name -> (async_func, aliases)
+        FUNCTION_MAP: dict[str, tuple[Callable, tuple[str, ...]]] = {
             # Core document tools
             "load_document_summary": (
-                load_document_md_summary,
                 aload_document_md_summary,
                 ("load_md_summary", "load_document_md_summary"),
             ),
             "get_summary_token_length": (
-                get_md_summary_token_length,
                 aget_md_summary_token_length,
                 ("md_summary_length", "get_md_summary_token_length"),
             ),
             "load_document_text": (
-                load_document_txt_extract,
                 aload_document_txt_extract,
                 ("load_document_txt_extract",),
             ),
-            "get_document_description": (
-                get_document_description,
-                aget_document_description,
-                (),
-            ),
-            "update_document_description": (
-                update_document_description,
-                aupdate_document_description,
-                (),
-            ),
-            "get_document_summary": (get_document_summary, aget_document_summary, ()),
-            "get_document_summary_versions": (
-                get_document_summary_versions,
-                aget_document_summary_versions,
-                (),
-            ),
-            "get_document_summary_diff": (
-                get_document_summary_diff,
-                aget_document_summary_diff,
-                (),
-            ),
-            "update_document_summary": (
-                update_document_summary,
-                aupdate_document_summary,
-                (),
-            ),
+            "get_document_description": (aget_document_description, ()),
+            "update_document_description": (aupdate_document_description, ()),
+            "get_document_summary": (aget_document_summary, ()),
+            "get_document_summary_versions": (aget_document_summary_versions, ()),
+            "get_document_summary_diff": (aget_document_summary_diff, ()),
+            "update_document_summary": (aupdate_document_summary, ()),
             "get_document_notes": (
-                get_notes_for_document_corpus,
                 aget_notes_for_document_corpus,
                 ("get_notes", "get_notes_for_document_corpus"),
             ),
-            "search_document_notes": (
-                search_document_notes,
-                asearch_document_notes,
-                (),
-            ),
-            "add_document_note": (add_document_note, aadd_document_note, ()),
-            "update_document_note": (update_document_note, aupdate_document_note, ()),
+            "search_document_notes": (asearch_document_notes, ()),
+            "add_document_note": (aadd_document_note, ()),
+            "update_document_note": (aupdate_document_note, ()),
             "search_exact_text": (
-                search_exact_text_as_sources,
                 asearch_exact_text_as_sources,
                 ("search_exact_text_as_sources",),
             ),
-            "get_page_image": (get_page_image, aget_page_image, ()),
-            "duplicate_annotations_with_label": (
-                duplicate_annotations_with_label,
-                aduplicate_annotations_with_label,
-                (),
-            ),
+            "get_page_image": (aget_page_image, ()),
+            "duplicate_annotations_with_label": (aduplicate_annotations_with_label, ()),
             "add_annotations_from_exact_strings": (
-                add_annotations_from_exact_strings,
                 aadd_annotations_from_exact_strings,
                 (),
             ),
@@ -876,36 +824,24 @@ class ToolFunctionRegistry:
                 (),
             ),
             # Corpus tools
-            "get_corpus_description": (
-                get_corpus_description,
-                aget_corpus_description,
-                (),
-            ),
-            "update_corpus_description": (
-                update_corpus_description,
-                aupdate_corpus_description,
-                (),
-            ),
+            "get_corpus_description": (aget_corpus_description, ()),
+            "update_corpus_description": (aupdate_corpus_description, ()),
             # Image tools
-            "list_document_images": (list_document_images, alist_document_images, ()),
-            "get_document_image": (get_document_image, aget_document_image, ()),
-            "get_annotation_images": (
-                get_annotation_images,
-                aget_annotation_images,
-                (),
-            ),
+            "list_document_images": (alist_document_images, ()),
+            "get_document_image": (aget_document_image, ()),
+            "get_annotation_images": (aget_annotation_images, ()),
             # Moderation tools
-            "get_thread_context": (get_thread_context, aget_thread_context, ()),
-            "get_thread_messages": (get_thread_messages, aget_thread_messages, ()),
-            "get_message_content": (get_message_content, aget_message_content, ()),
-            "delete_message": (delete_message, adelete_message, ()),
-            "lock_thread": (lock_thread, alock_thread, ()),
-            "unlock_thread": (unlock_thread, aunlock_thread, ()),
-            "add_thread_message": (add_thread_message, aadd_thread_message, ()),
-            "pin_thread": (pin_thread, apin_thread, ()),
-            "unpin_thread": (unpin_thread, aunpin_thread, ()),
+            "get_thread_context": (aget_thread_context, ()),
+            "get_thread_messages": (aget_thread_messages, ()),
+            "get_message_content": (aget_message_content, ()),
+            "delete_message": (adelete_message, ()),
+            "lock_thread": (alock_thread, ()),
+            "unlock_thread": (aunlock_thread, ()),
+            "add_thread_message": (aadd_thread_message, ()),
+            "pin_thread": (apin_thread, ()),
+            "unpin_thread": (aunpin_thread, ()),
             # Utility tools
-            "create_markdown_link": (create_markdown_link, acreate_markdown_link, ()),
+            "create_markdown_link": (acreate_markdown_link, ()),
         }
         # NOTE: similarity_search, get_document_text_length, list_documents,
         # and ask_document are NOT in FUNCTION_MAP because they require
@@ -920,7 +856,7 @@ class ToolFunctionRegistry:
         }
 
         definitions_by_name = {d.name: d for d in AVAILABLE_TOOLS}
-        for name, (sync_fn, async_fn, aliases) in FUNCTION_MAP.items():
+        for name, (async_fn, aliases) in FUNCTION_MAP.items():
             defn = definitions_by_name.get(name)
             if defn is None:
                 logger.debug(
@@ -931,7 +867,6 @@ class ToolFunctionRegistry:
             self.register(
                 ToolRegistryEntry(
                     definition=defn,
-                    sync_func=sync_fn,
                     async_func=async_fn,
                     aliases=aliases,
                 )

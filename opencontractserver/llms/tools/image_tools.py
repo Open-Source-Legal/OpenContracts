@@ -12,6 +12,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
@@ -371,36 +372,24 @@ def get_annotation_images(annotation_id: int) -> list[ImageData]:
         if not pawls_data:
             return []
 
-        # Get tokensJsons from annotation's json field
-        annotation_json = annotation.json or {}
-
         images: list[ImageData] = []
-        for page_key, page_data in annotation_json.items():
-            if not isinstance(page_data, dict):
-                continue
-
-            # Get token references from the annotation
-            token_refs = page_data.get("tokensJsons", [])
-            for ref in token_refs:
-                if not isinstance(ref, dict):
-                    continue
-
-                page_idx = ref.get("pageIndex")
-                token_idx = ref.get("tokenIndex")
-                if page_idx is not None and token_idx is not None:
-                    # For structural annotations, we don't have a document_id
-                    # but get_document_image can work with pawls_data directly
-                    if document:
-                        img_data = get_document_image(
-                            document.pk, page_idx, token_idx, pawls_data=pawls_data
-                        )
-                    else:
-                        # Extract image data directly from pawls_data for structural annotations
-                        img_data = _extract_image_from_pawls(
-                            pawls_data, page_idx, token_idx
-                        )
-                    if img_data:
-                        images.append(img_data)
+        for page in iter_page_annotations(
+            annotation.json or {}, raw_text=annotation.raw_text or ""
+        ):
+            for token_idx in page.token_indices:
+                # For structural annotations, we don't have a document_id
+                # but get_document_image can work with pawls_data directly
+                if document:
+                    img_data = get_document_image(
+                        document.pk, page.page_index, token_idx, pawls_data=pawls_data
+                    )
+                else:
+                    # Extract image data directly from pawls_data for structural annotations
+                    img_data = _extract_image_from_pawls(
+                        pawls_data, page.page_index, token_idx
+                    )
+                if img_data:
+                    images.append(img_data)
 
         return images
     except Annotation.DoesNotExist:

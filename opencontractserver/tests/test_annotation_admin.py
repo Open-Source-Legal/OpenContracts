@@ -293,8 +293,10 @@ class TestAnnotationAdmin(TestCase):
                     annotation_label=self.annotation_label,
                     creator=self.superuser,
                     is_public=True,
-                    bounding_box={"top": 0, "left": 0, "width": 100, "height": 100},
-                    json={"data": "test"},
+                    json={
+                        "v": 2,
+                        "p": {"0": {"b": [0, 0, 100, 100], "t": ""}},
+                    },
                     structural=False,
                 )
                 annotation_id = annotation.id

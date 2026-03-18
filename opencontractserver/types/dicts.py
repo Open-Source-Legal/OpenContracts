@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -172,6 +172,31 @@ class OpenContractsSinglePageAnnotationType(TypedDict):
     rawText: str
 
 
+class CompactPageAnnotationType(TypedDict):
+    """
+    Compact v2 per-page annotation data. Replaces
+    :class:`OpenContractsSinglePageAnnotationType` in the v2 format.
+
+    - ``b``: Bounds as ``[top, left, right, bottom]`` array.
+    - ``t``: Token indices as range-encoded string (e.g. ``"35-37,40"``).
+    """
+
+    b: list[float | int]
+    t: str
+
+
+class CompactAnnotationJsonType(TypedDict):
+    """
+    Compact v2 multipage annotation JSON.
+
+    Stored in ``Annotation.json`` when the compact format is used.
+    Detected by ``"v": 2`` marker.
+    """
+
+    v: Literal[2]
+    p: dict[str, CompactPageAnnotationType]
+
+
 class TextSpanData(TypedDict):
     """
     Stores start and end indices of a span
@@ -205,7 +230,9 @@ class OpenContractsAnnotationPythonType(TypedDict):
     rawText: str
     page: int
     annotation_json: Union[
-        dict[Union[int, str], OpenContractsSinglePageAnnotationType], TextSpanData
+        dict[Union[int, str], OpenContractsSinglePageAnnotationType],
+        CompactAnnotationJsonType,
+        TextSpanData,
     ]
     parent_id: Optional[Union[str, int]]
     annotation_type: Optional[str]

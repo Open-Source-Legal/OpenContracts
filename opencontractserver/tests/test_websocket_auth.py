@@ -39,6 +39,10 @@ def _create_mock_agent() -> MagicMock:
     agent.stream = mock_stream
     agent.chat = AsyncMock(return_value=MagicMock(content="Mock response"))
     agent.get_conversation_id = MagicMock(return_value=None)
+    # Prevent MagicMock auto-attribute from making context_exhausted truthy
+    mock_conv_mgr = MagicMock()
+    mock_conv_mgr.context_exhausted = False
+    agent.conversation_manager = mock_conv_mgr
     return agent
 
 

@@ -69,7 +69,6 @@ class PydanticAIVectorSearchResponse(BaseModel):
                     else None
                 ),
                 "json": result.annotation.json,
-                "bounding_box": result.annotation.bounding_box,
                 "similarity_score": result.similarity_score,
             }
             formatted_results.append(formatted_result)
@@ -114,7 +113,6 @@ class PydanticAIVectorSearchResponse(BaseModel):
                     else None
                 ),
                 "json": annotation.json,
-                "bounding_box": annotation.bounding_box,
             }
 
         formatted_results = []

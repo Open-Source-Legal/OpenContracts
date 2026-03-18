@@ -157,7 +157,7 @@ def get_annotation_resource(
             "page": annotation.page,
             "raw_text": annotation.raw_text or "",
             "annotation_label": label_data,
-            "bounding_box": annotation.bounding_box,
+            "json": annotation.json,
             "structural": annotation.structural,
             "created": annotation.created.isoformat() if annotation.created else None,
         }

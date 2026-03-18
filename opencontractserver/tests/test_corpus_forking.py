@@ -278,8 +278,8 @@ class CorpusForkTestCase(TransactionTestCase):
                 )
 
     def test_forked_annotation_field_integrity(self):
-        """Verify that forked annotations preserve page, raw_text, tokens_jsons,
-        bounding_box, json payload, annotation_type, and creator."""
+        """Verify that forked annotations preserve page, raw_text,
+        json payload, annotation_type, and creator."""
         original_corpus, forked_corpus = self._load_corpuses()
 
         original_annots = list(
@@ -336,8 +336,6 @@ class CorpusForkTestCase(TransactionTestCase):
             # Core data fields must match
             self.assertEqual(forked.page, orig.page)
             self.assertEqual(forked.raw_text, orig.raw_text)
-            self.assertEqual(forked.tokens_jsons, orig.tokens_jsons)
-            self.assertEqual(forked.bounding_box, orig.bounding_box)
             self.assertEqual(forked.json, orig.json)
             self.assertEqual(forked.annotation_type, orig.annotation_type)
 

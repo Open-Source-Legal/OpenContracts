@@ -19,7 +19,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from opencontractserver.annotations.models import (
     Annotation,
@@ -234,37 +234,33 @@ class XORConstraintTests(TestCase):
         self.assertIsNone(annotation.document)
         self.assertIsNotNone(annotation.structural_set)
 
+    @override_settings(VALIDATE_ANNOTATION_JSON=True)
     def test_annotation_with_both_document_and_structural_set_fails(self):
-        """Database constraint prevents setting both document AND structural_set."""
-        with self.assertRaises(IntegrityError) as context:
-            with transaction.atomic():
-                Annotation.objects.create(
-                    document=self.doc,
-                    structural_set=self.struct_set,
-                    corpus=self.corpus,
-                    annotation_label=self.label,
-                    page=1,
-                    raw_text="Invalid annotation",
-                    creator=self.user,
-                )
+        """Model validation prevents setting both document AND structural_set."""
+        with self.assertRaises(ValidationError):
+            Annotation.objects.create(
+                document=self.doc,
+                structural_set=self.struct_set,
+                corpus=self.corpus,
+                annotation_label=self.label,
+                page=1,
+                raw_text="Invalid annotation",
+                creator=self.user,
+            )
 
-        self.assertIn("annotation_has_single_parent", str(context.exception).lower())
-
+    @override_settings(VALIDATE_ANNOTATION_JSON=True)
     def test_annotation_with_neither_document_nor_structural_set_fails(self):
-        """Database constraint requires exactly one parent."""
-        with self.assertRaises(IntegrityError) as context:
-            with transaction.atomic():
-                Annotation.objects.create(
-                    document=None,
-                    structural_set=None,
-                    corpus=self.corpus,
-                    annotation_label=self.label,
-                    page=1,
-                    raw_text="Orphaned annotation",
-                    creator=self.user,
-                )
-
-        self.assertIn("annotation_has_single_parent", str(context.exception).lower())
+        """Model validation requires exactly one parent."""
+        with self.assertRaises(ValidationError):
+            Annotation.objects.create(
+                document=None,
+                structural_set=None,
+                corpus=self.corpus,
+                annotation_label=self.label,
+                page=1,
+                raw_text="Orphaned annotation",
+                creator=self.user,
+            )
 
     def test_relationship_xor_constraint_mirrors_annotation_constraint(self):
         """Same XOR logic applies to Relationship model."""
@@ -300,6 +296,7 @@ class XORConstraintTests(TestCase):
         self.assertIsNotNone(rel.document)
         self.assertIsNone(rel.structural_set)
 
+    @override_settings(VALIDATE_ANNOTATION_JSON=True)
     def test_relationship_with_both_parents_fails(self):
         """Relationship with both document AND structural_set fails validation."""
         # Model-level validation catches this before database constraint
@@ -642,7 +639,7 @@ class StructuralMigrationCommandTests(TransactionTestCase):
         self.assertIsNone(other_doc.structural_annotation_set)
 
     def test_migrate_preserves_annotation_content_fields(self):
-        """raw_text, page, bounding_box, tokens unchanged after migration."""
+        """raw_text, page, json unchanged after migration."""
         original_text = self.struct_annot1.raw_text
         original_page = self.struct_annot1.page
 

@@ -526,9 +526,9 @@ class StructuralSetRequiresStructuralFlagTests(TestCase):
                     INSERT INTO annotations_annotation
                     (created, modified, page, raw_text, structural, is_public,
                      creator_id, structural_set_id, annotation_label_id, annotation_type,
-                     tokens_jsons, bounding_box, json)
+                     json)
                     VALUES (NOW(), NOW(), 1, 'Invalid annotation', FALSE, FALSE,
-                            %s, %s, %s, 'TOKEN_LABEL', '[]', '{}', '{}')
+                            %s, %s, %s, 'TOKEN_LABEL', '{}')
                     """,
                     [self.user.id, self.structural_set.id, self.label.id],
                 )

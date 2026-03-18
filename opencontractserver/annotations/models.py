@@ -29,9 +29,7 @@ from pgvector.django import HnswIndex, VectorField
 
 from opencontractserver.constants.search import HNSW_EF_CONSTRUCTION, HNSW_M
 from opencontractserver.shared.defaults import (
-    empty_bounding_box,
     jsonfield_default_value,
-    jsonfield_empty_array,
 )
 from opencontractserver.shared.fields import NullableJSONField
 
@@ -45,6 +43,11 @@ from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.utils import calc_oc_file_path
 
+from .compact_json import (
+    compact_annotation_json,
+    is_compact_format,
+    is_span_format,
+)
 from .json_types import MultipageAnnotationJson, SpanAnnotationJson
 
 User = get_user_model()
@@ -712,8 +715,6 @@ class StructuralAnnotationSet(BaseOCModel):
             ).only(
                 "page",
                 "raw_text",
-                "tokens_jsons",
-                "bounding_box",
                 "json",
                 "annotation_type",
                 "annotation_label",
@@ -724,14 +725,15 @@ class StructuralAnnotationSet(BaseOCModel):
             )
         )
 
+        # compact_annotation_json is called explicitly because bulk_create()
+        # bypasses save(), which is where auto-compaction normally runs.
+        # The function is idempotent — already-compact v2 data is returned as-is.
         new_annotations = [
             Annotation(
                 structural_set=new_set,
                 page=a.page,
                 raw_text=a.raw_text,
-                tokens_jsons=a.tokens_jsons,
-                bounding_box=a.bounding_box,
-                json=a.json,
+                json=compact_annotation_json(a.json) if a.json else a.json,
                 annotation_type=a.annotation_type,
                 annotation_label=a.annotation_label,
                 structural=True,
@@ -850,10 +852,6 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         "e.g. a section summary in a document index.",
     )
     search_vector = SearchVectorField(null=True)
-    tokens_jsons = NullableJSONField(
-        default=jsonfield_empty_array, null=True, blank=True
-    )
-    bounding_box = NullableJSONField(default=empty_bounding_box, null=True)
     json = NullableJSONField(default=jsonfield_default_value, null=False)
 
     # New parent field for hierarchical relationships
@@ -1038,28 +1036,37 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 raise ValueError(
                     "TOKEN_LABEL annotations must store MultipageAnnotationJson (dict)."
                 )
-            # Spot-check: page key + expected sub-keys in first entry
-            for page, page_obj in list(self.json.items())[:1]:
-                if not isinstance(page, (int, str)):
-                    raise ValueError("Page keys must be int-convertible.")
-                if not (
-                    isinstance(page_obj, dict)
-                    and {"bounds", "tokensJsons", "rawText"}.issubset(page_obj.keys())
-                ):
-                    raise ValueError(
-                        "Each page entry must contain 'bounds', 'tokensJsons', and 'rawText'."
-                    )
+            if is_compact_format(self.json):
+                # v2 compact format: {"v": 2, "p": {"0": {"b": [...], "t": "..."}}}
+                pages = self.json.get("p", {})
+                for page_key, page_obj in pages.items():
+                    if not isinstance(page_obj, dict):
+                        raise ValueError("v2 page entries must be dicts.")
+                    if "b" not in page_obj or "t" not in page_obj:
+                        raise ValueError(
+                            "v2 page entries must contain 'b' (bounds) and 't' (tokens)."
+                        )
+            elif not is_span_format(self.json):
+                # v1 legacy or free-form — shallow type/shape check.
+                # Auto-compaction in save() handles normalization.
+                for page, page_obj in self.json.items():
+                    if not isinstance(page, (int, str)):
+                        raise ValueError("Page keys must be int-convertible.")
 
         elif self.annotation_type == SPAN_LABEL:
-            if not (
-                isinstance(self.json, dict)
-                and set(self.json.keys()) == {"start", "end"}
-                and isinstance(self.json["start"], int)
-                and isinstance(self.json["end"], int)
-            ):
-                raise ValueError(
-                    "SPAN_LABEL annotations must store SpanAnnotationJson with 'start' and 'end' ints."
-                )
+            if not isinstance(self.json, dict):
+                raise ValueError("SPAN_LABEL annotations must store a dict.")
+            # Only enforce span schema when the JSON has span-like keys.
+            if "start" in self.json or "end" in self.json:
+                if not (
+                    isinstance(self.json.get("start"), int)
+                    and isinstance(self.json.get("end"), int)
+                    and isinstance(self.json.get("text", ""), str)
+                ):
+                    raise ValueError(
+                        "SPAN_LABEL annotations with 'start'/'end' keys must have"
+                        " integer values and an optional 'text' string."
+                    )
 
         # Other annotation types are free-form – no validation.
 
@@ -1116,10 +1123,12 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     # ------------------------------------------------------------------
 
     def save(self, *args, **kwargs):
-        """Override save to optionally validate `json` integrity.
+        """Override save to optionally validate `json` integrity and
+        auto-compact the annotation JSON to v2 format.
 
-        *No additional queries* are executed; the validation inspects the in-memory
-        `.json` payload only, therefore the cost is negligible.
+        *No additional queries* are executed; the validation and compaction
+        inspect the in-memory `.json` payload only, therefore the cost is
+        negligible.
         """
 
         # Re-use the same flag used in `clean`.
@@ -1128,6 +1137,21 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         if getattr(settings, "VALIDATE_ANNOTATION_JSON", settings.DEBUG):
             # Ensure that `clean()` is executed even if external callers forget.
             self.clean()
+
+        # Auto-compact annotation JSON to v2 format on save (lazy migration).
+        if (
+            self.annotation_type == TOKEN_LABEL
+            and isinstance(self.json, dict)
+            and self.json
+        ):
+            if not is_compact_format(self.json) and not is_span_format(self.json):
+                try:
+                    self.json = compact_annotation_json(self.json)
+                except Exception:
+                    logger.exception(
+                        "Failed to compact annotation JSON for pk=%s; storing as-is",
+                        self.pk,
+                    )
 
         # Maintain timestamp consistency
         if not self.pk:

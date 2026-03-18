@@ -40,6 +40,7 @@ from config.ratelimit.decorators import check_ws_rate_limit
 from config.websocket.middleware import WS_CLOSE_RATE_LIMITED, WS_CLOSE_UNAUTHENTICATED
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from opencontractserver.agents.models import AgentConfiguration
+from opencontractserver.constants.context_guardrails import WS_ERROR_CONTEXT_EXHAUSTED
 from opencontractserver.conversations.models import MessageType
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -410,6 +411,23 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
             is_new_conversation = self.agent is None and not self.conversation_id
             if self.agent is None:
                 await self._initialize_agent()
+
+            # Check for context exhaustion (anonymous ephemeral sessions only)
+            if (
+                self.user_id is None
+                and self.agent
+                and getattr(self.agent, "conversation_manager", None) is not None
+                and self.agent.conversation_manager.context_exhausted
+            ):
+                await self._send_safe(
+                    msg_type="ASYNC_ERROR",
+                    content="This conversation has reached its context limit. "
+                    "Please start a new chat to continue.",
+                    data={
+                        "error_type": WS_ERROR_CONTEXT_EXHAUSTED,
+                    },
+                )
+                return
 
             # Generate title for new conversations (authenticated users only) in background
             if is_new_conversation and self.user_id:

@@ -51,7 +51,7 @@ User = get_user_model()
 def _make_gate_tool(name: str) -> CoreTool:
     """Return a CoreTool whose execution is veto-gated by default."""
 
-    def _inner(x: int) -> int:  # pragma: no cover – never executed
+    async def _inner(x: int) -> int:  # pragma: no cover – never executed
         return x * 2
 
     return CoreTool.from_function(_inner, name=name, requires_approval=True)

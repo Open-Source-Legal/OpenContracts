@@ -301,21 +301,21 @@ class TestPydanticAIAgents(TransactionTestCase):
 
     def test_pydantic_ai_tool_wrapper_creation(self) -> None:
         """Test PydanticAIToolWrapper creation and factory behavior."""
-        from opencontractserver.llms.tools.core_tools import (  # Assuming this function exists
-            get_md_summary_token_length,
+        from opencontractserver.llms.tools.core_tools import (
+            aget_md_summary_token_length,
         )
 
-        core_tool = CoreTool.from_function(get_md_summary_token_length)
+        core_tool = CoreTool.from_function(aget_md_summary_token_length)
 
         # Instantiate the wrapper directly
         wrapper = PydanticAIToolWrapper(core_tool)
 
         # --- Assertions for the PydanticAIToolWrapper instance ---
-        # Check name: assuming func.__name__ is used and is "get_md_summary_token_length"
+        # Check name: func.__name__ is "aget_md_summary_token_length"
         self.assertEqual(
             wrapper.name,
-            "get_md_summary_token_length",
-            f"Wrapper name mismatch. Expected 'get_md_summary_token_length', got '{wrapper.name}'",
+            "aget_md_summary_token_length",
+            f"Wrapper name mismatch. Expected 'aget_md_summary_token_length', got '{wrapper.name}'",
         )
 
         # Check description: assuming it exists and contains specific text

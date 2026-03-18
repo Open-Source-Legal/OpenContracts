@@ -5,6 +5,7 @@ import os
 
 from asgiref.sync import sync_to_async
 
+from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.shared.decorators import celery_task_with_async_to_sync
 
@@ -533,31 +534,19 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
             if not isinstance(pawls_pages, list):
                 return "Error: pawls_parse_file is not a list of PawlsPagePythonType."
 
-            anno_json = annotation.json
-            if not isinstance(anno_json, dict):
+            if not isinstance(annotation.json, dict):
                 return "Error: Annotation.json is not a dictionary for PDF."
 
-            from opencontractserver.types.dicts import (
-                OpenContractsSinglePageAnnotationType,
+            from opencontractserver.annotations.compact_json import (
+                PageAnnotationData,
             )
 
-            def is_single_page_annotation(data: dict) -> bool:
-                return all(k in data for k in ["bounds", "tokensJsons", "rawText"])
-
-            pages_dict: dict[int, OpenContractsSinglePageAnnotationType] = {}
-            try:
-                if is_single_page_annotation(anno_json):
-                    page_index = annotation.page
-                    pages_dict[page_index] = OpenContractsSinglePageAnnotationType(
-                        **anno_json
-                    )
-                else:
-                    for k, v in anno_json.items():
-                        page_index = int(k)
-                        pages_dict[page_index] = OpenContractsSinglePageAnnotationType(
-                            **v
-                        )
-            except Exception:
+            pages: list[PageAnnotationData] = list(
+                iter_page_annotations(
+                    annotation.json, raw_text=annotation.raw_text or ""
+                )
+            )
+            if not pages:
                 return (
                     "Error: Annotation.json could not be parsed as single or multi-page "
                     "PDF annotation data."
@@ -581,12 +570,12 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
                 tokens_list = page_data["tokens"]
                 return [t["text"] for t in tokens_list]
 
-            for pg_ind, anno_data in pages_dict.items():
-                all_tokens = tokens_as_words(pg_ind)
+            for page in pages:
+                all_tokens = tokens_as_words(page.page_index)
                 if not all_tokens:
                     continue
 
-                raw_text = anno_data["rawText"].strip() if anno_data["rawText"] else ""
+                raw_text = page.raw_text.strip() if page.raw_text else ""
                 # We'll find a contiguous chunk in the token list that matches raw_text, or fallback to partial
 
                 # Join tokens with spaces for searching. Then we find raw_text in there.
@@ -636,7 +625,7 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
 
                 snippet = " ".join(all_tokens[final_start_word : final_end_word + 1])
                 if snippet.strip():
-                    result_texts.append(f"Page {pg_ind} context:\n{snippet}")
+                    result_texts.append(f"Page {page.page_index} context:\n{snippet}")
 
             # Combine page-level context
             if not result_texts:

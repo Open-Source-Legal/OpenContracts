@@ -8,6 +8,11 @@ from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
+from opencontractserver.constants.context_guardrails import (
+    CHARS_PER_TOKEN_ESTIMATE,
+    DEFAULT_CONTEXT_WINDOW,
+    EPHEMERAL_CONTEXT_EXHAUSTION_RATIO,
+)
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -431,3 +436,303 @@ class TestCoreAgentFactoriesDefaults(TestCoreAgentComponentsSetup):
         self.assertEqual(context.config.system_prompt, override_prompt)
 
     # Similar tests for CoreCorpusAgentFactory and its prompt logic can be added.
+
+
+class TestEphemeralConversationManager(TestCase):
+    """Tests for the in-memory ephemeral buffer used by anonymous sessions."""
+
+    def _make_ephemeral_manager(self) -> CoreConversationManager:
+        """Return a CoreConversationManager with no DB conversation (anonymous)."""
+        config = AgentConfig(
+            model_name="gpt-4o",
+            store_user_messages=True,
+            store_llm_messages=True,
+        )
+        return CoreConversationManager(None, None, config)
+
+    # ------------------------------------------------------------------
+    # Task 1: Buffer initialisation
+    # ------------------------------------------------------------------
+
+    def test_ephemeral_buffer_initialised_empty(self):
+        manager = self._make_ephemeral_manager()
+        self.assertIsNone(manager.conversation)
+        self.assertEqual(manager._ephemeral_messages, [])
+        self.assertEqual(manager._ephemeral_token_estimate, 0)
+        self.assertEqual(manager._ephemeral_next_id, 1)
+
+    # ------------------------------------------------------------------
+    # Task 2: store_user_message and create_placeholder_message
+    # ------------------------------------------------------------------
+
+    async def test_store_user_message_appends_to_buffer(self):
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.store_user_message("Hello, world!")
+        self.assertEqual(len(manager._ephemeral_messages), 1)
+        msg = manager._ephemeral_messages[0]
+        self.assertEqual(msg.id, msg_id)
+        self.assertEqual(msg.content, "Hello, world!")
+        self.assertEqual(msg.msg_type, "HUMAN")
+
+    async def test_store_user_message_returns_truthy_id(self):
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.store_user_message("test")
+        self.assertGreater(msg_id, 0)
+        # A truthy ID is required so downstream `if msg_id:` guards work.
+        self.assertTrue(msg_id)
+
+    async def test_create_placeholder_returns_synthetic_id(self):
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.create_placeholder_message("LLM")
+        # Must be truthy so `if llm_msg_id:` at line ~844 proceeds.
+        self.assertTrue(msg_id)
+        self.assertGreater(msg_id, 0)
+
+    async def test_create_placeholder_does_not_append_to_buffer(self):
+        """Placeholder only reserves an ID; buffer stays empty until complete_message."""
+        manager = self._make_ephemeral_manager()
+        await manager.create_placeholder_message("LLM")
+        self.assertEqual(len(manager._ephemeral_messages), 0)
+
+    async def test_sequential_ids_increment(self):
+        manager = self._make_ephemeral_manager()
+        id1 = await manager.store_user_message("first")
+        id2 = await manager.create_placeholder_message("LLM")
+        id3 = await manager.store_user_message("second")
+        self.assertEqual(id2, id1 + 1)
+        self.assertEqual(id3, id2 + 1)
+
+    # ------------------------------------------------------------------
+    # Task 3: complete_message, update_message, get_conversation_messages
+    # ------------------------------------------------------------------
+
+    async def test_complete_message_appends_assistant_to_buffer(self):
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.create_placeholder_message("LLM")
+        await manager.complete_message(msg_id, "This is the assistant reply.")
+        self.assertEqual(len(manager._ephemeral_messages), 1)
+        msg = manager._ephemeral_messages[0]
+        self.assertEqual(msg.id, msg_id)
+        self.assertEqual(msg.content, "This is the assistant reply.")
+        # msg_type must be "LLM" to match _get_message_history() convention
+        self.assertEqual(msg.msg_type, "LLM")
+
+    async def test_update_message_modifies_existing(self):
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.store_user_message("original")
+        await manager.update_message(msg_id, "updated content")
+        msg = manager._ephemeral_messages[0]
+        self.assertEqual(msg.content, "updated content")
+
+    async def test_get_conversation_messages_returns_buffer(self):
+        manager = self._make_ephemeral_manager()
+        await manager.store_user_message("question")
+        llm_id = await manager.create_placeholder_message("LLM")
+        await manager.complete_message(llm_id, "answer")
+
+        messages = await manager.get_conversation_messages()
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0].msg_type, "HUMAN")
+        self.assertEqual(messages[1].msg_type, "LLM")
+
+    async def test_get_conversation_messages_returns_copy(self):
+        """Mutating the returned list must not affect the internal buffer."""
+        manager = self._make_ephemeral_manager()
+        await manager.store_user_message("q")
+        messages = await manager.get_conversation_messages()
+        messages.clear()
+        self.assertEqual(len(manager._ephemeral_messages), 1)
+
+    async def test_token_estimate_accumulates(self):
+        manager = self._make_ephemeral_manager()
+        self.assertEqual(manager._ephemeral_token_estimate, 0)
+        await manager.store_user_message("x" * 100)
+        est_after_user = manager._ephemeral_token_estimate
+        self.assertGreater(est_after_user, 0)
+
+        llm_id = await manager.create_placeholder_message("LLM")
+        await manager.complete_message(llm_id, "y" * 200)
+        est_after_llm = manager._ephemeral_token_estimate
+        self.assertGreater(est_after_llm, est_after_user)
+
+    # ------------------------------------------------------------------
+    # store_llm_message
+    # ------------------------------------------------------------------
+
+    async def test_store_llm_message_appends_to_buffer(self):
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.store_llm_message("LLM says hi")
+        self.assertEqual(len(manager._ephemeral_messages), 1)
+        msg = manager._ephemeral_messages[0]
+        self.assertEqual(msg.id, msg_id)
+        self.assertEqual(msg.content, "LLM says hi")
+        self.assertEqual(msg.msg_type, "LLM")
+
+    async def test_store_llm_message_retains_sources_and_metadata(self):
+        from opencontractserver.llms.agents.core_agents import SourceNode
+
+        manager = self._make_ephemeral_manager()
+        src = SourceNode(annotation_id=42, content="excerpt")
+        meta = {"key": "value"}
+        await manager.store_llm_message("response", sources=[src], metadata=meta)
+        msg = manager._ephemeral_messages[0]
+        self.assertEqual(msg.sources, [src])
+        self.assertEqual(msg.metadata, meta)
+
+    # ------------------------------------------------------------------
+    # sources/metadata retention in complete_message and update_message
+    # ------------------------------------------------------------------
+
+    async def test_complete_message_retains_sources_and_metadata(self):
+        from opencontractserver.llms.agents.core_agents import SourceNode
+
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.create_placeholder_message("LLM")
+        src = SourceNode(annotation_id=7, content="text")
+        meta = {"timeline": [{"step": 1}]}
+        await manager.complete_message(msg_id, "done", sources=[src], metadata=meta)
+        msg = manager._ephemeral_messages[0]
+        self.assertEqual(msg.sources, [src])
+        self.assertEqual(msg.metadata, meta)
+
+    async def test_update_message_retains_sources_and_metadata(self):
+        from opencontractserver.llms.agents.core_agents import SourceNode
+
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.store_user_message("original")
+        src = SourceNode(annotation_id=99, content="snip")
+        await manager.update_message(
+            msg_id, "updated", sources=[src], metadata={"a": 1}
+        )
+        msg = manager._ephemeral_messages[0]
+        self.assertEqual(msg.content, "updated")
+        self.assertEqual(msg.sources, [src])
+        self.assertEqual(msg.metadata, {"a": 1})
+
+    # ------------------------------------------------------------------
+    # Task 4: context_exhausted property
+    # ------------------------------------------------------------------
+
+    def test_context_not_exhausted_initially(self):
+        manager = self._make_ephemeral_manager()
+        self.assertFalse(manager.context_exhausted)
+
+    async def test_context_exhausted_when_buffer_large(self):
+        """Filling past the exhaustion threshold should set context_exhausted."""
+        manager = self._make_ephemeral_manager()
+        # gpt-4o window = DEFAULT_CONTEXT_WINDOW; threshold chars =
+        # window * ratio * chars_per_token.  Add 2% margin to be safely above.
+        threshold_chars = int(
+            DEFAULT_CONTEXT_WINDOW
+            * EPHEMERAL_CONTEXT_EXHAUSTION_RATIO
+            * CHARS_PER_TOKEN_ESTIMATE
+        )
+        large_content = "a" * int(threshold_chars * 1.02)
+        await manager.store_user_message(large_content)
+        self.assertTrue(manager.context_exhausted)
+
+    async def test_context_exhaustion_unknown_model_uses_fallback(self):
+        """Unknown model names should use DEFAULT_CONTEXT_WINDOW, not block immediately."""
+        config = AgentConfig(model_name="totally-unknown-model-xyz")
+        manager = CoreConversationManager(None, None, config)
+        # With an empty buffer the estimate is 0, which should not exceed
+        # the fallback context window (DEFAULT_CONTEXT_WINDOW = 128_000).
+        self.assertFalse(manager.context_exhausted)
+        # A small message should also not trigger exhaustion
+        await manager.store_user_message("Hello, world!")
+        self.assertFalse(manager.context_exhausted)
+
+    def test_context_not_exhausted_for_db_conversations(self):
+        """DB-backed sessions always return False (compaction handles them)."""
+        from opencontractserver.conversations.models import Conversation
+
+        fake_conv = Conversation.__new__(Conversation)
+        fake_conv.pk = 1
+        config = AgentConfig(model_name="gpt-4o")
+        manager = CoreConversationManager(fake_conv, 1, config)
+        # Manually set a large estimate to verify the DB guard takes priority
+        manager._ephemeral_token_estimate = 9_999_999
+        self.assertFalse(manager.context_exhausted)
+
+    # ------------------------------------------------------------------
+    # Task 5: Guard against None/0 message_id in complete_message
+    # ------------------------------------------------------------------
+
+    async def test_complete_message_skips_none_message_id(self):
+        manager = self._make_ephemeral_manager()
+        # Should be a no-op and not raise
+        await manager.complete_message(None, "some content")
+        self.assertEqual(len(manager._ephemeral_messages), 0)
+        self.assertEqual(manager._ephemeral_token_estimate, 0)
+
+    async def test_complete_message_skips_zero_message_id(self):
+        manager = self._make_ephemeral_manager()
+        await manager.complete_message(0, "some content")
+        self.assertEqual(len(manager._ephemeral_messages), 0)
+        self.assertEqual(manager._ephemeral_token_estimate, 0)
+
+    async def test_complete_message_no_double_write(self):
+        """Simulates the stream() → complete_message(None) → complete_message(real_id) path."""
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.create_placeholder_message("LLM")
+
+        # _stream_core calls complete_message(None, ...) — must be a no-op
+        await manager.complete_message(None, "ignored content")
+        self.assertEqual(len(manager._ephemeral_messages), 0)
+
+        # CoreAgentBase.stream() then calls complete_message(real_id, ...)
+        await manager.complete_message(msg_id, "real content")
+        self.assertEqual(len(manager._ephemeral_messages), 1)
+        self.assertEqual(manager._ephemeral_messages[0].content, "real content")
+
+    async def test_complete_message_idempotent_same_id(self):
+        """complete_message(real_id) called twice updates in place, no duplicate."""
+        manager = self._make_ephemeral_manager()
+        msg_id = await manager.create_placeholder_message("LLM")
+
+        await manager.complete_message(msg_id, "first content")
+        self.assertEqual(len(manager._ephemeral_messages), 1)
+
+        # Second call with the same ID — should update, not append.
+        await manager.complete_message(msg_id, "updated content")
+        self.assertEqual(len(manager._ephemeral_messages), 1)
+        self.assertEqual(manager._ephemeral_messages[0].content, "updated content")
+
+    async def test_ephemeral_update_missing_id_logs_warning(self):
+        """_ephemeral_update returns False for unknown IDs, callers log warning."""
+        manager = self._make_ephemeral_manager()
+        result = manager._ephemeral_update(9999, "nope")
+        self.assertFalse(result)
+
+    async def test_update_message_content_missing_id_logs_warning(self):
+        """update_message_content logs when the message ID is not in the buffer."""
+        manager = self._make_ephemeral_manager()
+        with self.assertLogs(
+            "opencontractserver.llms.agents.core_agents", level="WARNING"
+        ) as cm:
+            await manager.update_message_content(9999, "missing")
+        self.assertTrue(any("9999 not found" in msg for msg in cm.output))
+
+    async def test_update_message_missing_id_logs_warning(self):
+        """update_message logs when the message ID is not in the buffer."""
+        manager = self._make_ephemeral_manager()
+        with self.assertLogs(
+            "opencontractserver.llms.agents.core_agents", level="WARNING"
+        ) as cm:
+            await manager.update_message(9999, "missing")
+        self.assertTrue(any("9999 not found" in msg for msg in cm.output))
+
+    def test_storage_backend_ephemeral(self):
+        """AgentConfig.storage_backend is 'ephemeral' for anonymous managers."""
+        config = AgentConfig(model_name="gpt-4o")
+        config.storage_backend = "ephemeral"
+        config.store_user_messages = True
+        config.store_llm_messages = True
+        manager = CoreConversationManager(None, None, config)
+        self.assertEqual(manager.config.storage_backend, "ephemeral")
+        self.assertTrue(manager.config.store_user_messages)
+
+    def test_storage_backend_default_is_db(self):
+        """AgentConfig.storage_backend defaults to 'db'."""
+        config = AgentConfig(model_name="gpt-4o")
+        self.assertEqual(config.storage_backend, "db")

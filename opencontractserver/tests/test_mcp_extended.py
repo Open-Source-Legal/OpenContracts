@@ -38,9 +38,11 @@ from opencontractserver.mcp.permissions import validate_slug as perm_validate_sl
 from opencontractserver.mcp.server import TTLLRUCache, URIParser
 from opencontractserver.mcp.telemetry import (
     IP_HASH_LENGTH,
+    _get_request_context,
     _hash_ip,
     clear_request_context,
     get_claimed_client_ip_from_scope,
+    get_user_agent_from_scope,
     isolated_telemetry_context,
     record_mcp_request,
     record_mcp_resource_read,
@@ -60,7 +62,6 @@ class TestTelemetryContext(TestCase):
 
     def test_set_and_clear_context(self):
         set_request_context(client_ip="1.2.3.4", transport="streamable_http")
-        from opencontractserver.mcp.telemetry import _get_request_context
 
         ctx = _get_request_context()
         self.assertEqual(ctx["transport"], "streamable_http")
@@ -72,17 +73,28 @@ class TestTelemetryContext(TestCase):
 
     def test_set_context_without_ip(self):
         set_request_context(transport="stdio")
-        from opencontractserver.mcp.telemetry import _get_request_context
 
         ctx = _get_request_context()
         self.assertIsNone(ctx["client_ip_hash"])
         self.assertEqual(ctx["transport"], "stdio")
 
+    def test_set_context_with_user_agent(self):
+        set_request_context(
+            client_ip="1.2.3.4", transport="http", user_agent="Claude-Code/1.0"
+        )
+
+        ctx = _get_request_context()
+        self.assertEqual(ctx["user_agent"], "Claude-Code/1.0")
+
+    def test_set_context_without_user_agent(self):
+        set_request_context(client_ip="1.2.3.4", transport="http")
+
+        ctx = _get_request_context()
+        self.assertIsNone(ctx["user_agent"])
+
     def test_isolated_telemetry_context(self):
         set_request_context(client_ip="10.0.0.1", transport="test")
         with isolated_telemetry_context():
-            from opencontractserver.mcp.telemetry import _get_request_context
-
             # Context should be cleared on entry
             ctx = _get_request_context()
             self.assertEqual(ctx, {})
@@ -90,7 +102,6 @@ class TestTelemetryContext(TestCase):
             # Set something inside
             set_request_context(client_ip="10.0.0.2", transport="inner")
         # After exit, context should be cleared
-        from opencontractserver.mcp.telemetry import _get_request_context
 
         ctx = _get_request_context()
         self.assertEqual(ctx, {})
@@ -102,7 +113,6 @@ class TestTelemetryContext(TestCase):
                 raise RuntimeError("test error")
         except RuntimeError:
             pass
-        from opencontractserver.mcp.telemetry import _get_request_context
 
         ctx = _get_request_context()
         self.assertEqual(ctx, {})
@@ -159,6 +169,30 @@ class TestTelemetryRecording(TestCase):
         self.assertIn("client_ip_hash", props)
 
     @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_record_mcp_tool_call_with_resource_slugs(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            result = record_mcp_tool_call(
+                "list_documents",
+                success=True,
+                corpus_slug="my-corpus",
+                document_slug="my-doc",
+            )
+        self.assertTrue(result)
+        props = mock_record.call_args[0][1]
+        self.assertEqual(props["corpus_slug"], "my-corpus")
+        self.assertEqual(props["document_slug"], "my-doc")
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_record_mcp_tool_call_omits_none_slugs(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            record_mcp_tool_call("list_public_corpuses", success=True)
+        props = mock_record.call_args[0][1]
+        self.assertNotIn("corpus_slug", props)
+        self.assertNotIn("document_slug", props)
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
     def test_record_mcp_tool_call_failure(self, mock_record):
         mock_record.return_value = True
         with isolated_telemetry_context():
@@ -178,6 +212,31 @@ class TestTelemetryRecording(TestCase):
         self.assertTrue(result)
         props = mock_record.call_args[0][1]
         self.assertEqual(props["resource_type"], "corpus")
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_record_mcp_resource_read_with_slugs(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            result = record_mcp_resource_read(
+                "document",
+                success=True,
+                corpus_slug="my-corpus",
+                document_slug="my-doc",
+            )
+        self.assertTrue(result)
+        props = mock_record.call_args[0][1]
+        self.assertEqual(props["resource_type"], "document")
+        self.assertEqual(props["corpus_slug"], "my-corpus")
+        self.assertEqual(props["document_slug"], "my-doc")
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_record_mcp_resource_read_omits_none_slugs(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            record_mcp_resource_read("corpus", success=True)
+        props = mock_record.call_args[0][1]
+        self.assertNotIn("corpus_slug", props)
+        self.assertNotIn("document_slug", props)
 
     @patch("opencontractserver.mcp.telemetry.record_event")
     def test_record_mcp_request(self, mock_record):
@@ -204,6 +263,82 @@ class TestTelemetryRecording(TestCase):
             record_mcp_tool_call("test", success=True)
         props = mock_record.call_args[0][1]
         self.assertNotIn("client_ip_hash", props)
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_user_agent_included_in_tool_call(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            set_request_context(
+                client_ip="1.2.3.4",
+                transport="http",
+                user_agent="Claude-Code/1.0",
+            )
+            record_mcp_tool_call("list_documents", success=True)
+        props = mock_record.call_args[0][1]
+        self.assertEqual(props["user_agent"], "Claude-Code/1.0")
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_user_agent_included_in_resource_read(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            set_request_context(
+                client_ip="1.2.3.4",
+                transport="http",
+                user_agent="cursor/0.45",
+            )
+            record_mcp_resource_read("corpus", success=True)
+        props = mock_record.call_args[0][1]
+        self.assertEqual(props["user_agent"], "cursor/0.45")
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_user_agent_included_in_request(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            set_request_context(
+                client_ip="1.2.3.4",
+                transport="http",
+                user_agent="Googlebot/2.1",
+            )
+            record_mcp_request("/mcp", success=True)
+        props = mock_record.call_args[0][1]
+        self.assertEqual(props["user_agent"], "Googlebot/2.1")
+
+    @patch("opencontractserver.mcp.telemetry.record_event")
+    def test_user_agent_omitted_when_none(self, mock_record):
+        mock_record.return_value = True
+        with isolated_telemetry_context():
+            set_request_context(client_ip="1.2.3.4", transport="http")
+            record_mcp_tool_call("test", success=True)
+        props = mock_record.call_args[0][1]
+        self.assertNotIn("user_agent", props)
+
+
+class TestGetUserAgentFromScope(TestCase):
+    """Tests for extracting User-Agent from ASGI scope."""
+
+    def test_user_agent_present(self):
+        scope = {"headers": [(b"user-agent", b"Claude-Code/1.0")]}
+        result = get_user_agent_from_scope(scope)
+        self.assertEqual(result, "Claude-Code/1.0")
+
+    def test_user_agent_missing(self):
+        scope = {"headers": [(b"content-type", b"application/json")]}
+        result = get_user_agent_from_scope(scope)
+        self.assertIsNone(result)
+
+    def test_empty_headers(self):
+        scope = {"headers": []}
+        result = get_user_agent_from_scope(scope)
+        self.assertIsNone(result)
+
+    def test_empty_scope(self):
+        result = get_user_agent_from_scope({})
+        self.assertIsNone(result)
+
+    def test_user_agent_whitespace_stripped(self):
+        scope = {"headers": [(b"user-agent", b"  cursor/0.45  ")]}
+        result = get_user_agent_from_scope(scope)
+        self.assertEqual(result, "cursor/0.45")
 
 
 class TestGetClientIpFromScope(TestCase):

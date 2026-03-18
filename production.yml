@@ -43,22 +43,19 @@ services:
       - production_postgres_data_backups:/backups:z
     env_file:
       - ./.envs/.production/.postgres
+    # Shared settings (shared_preload_libraries, HNSW, I/O tuning) are in
+    # compose/postgres/shared.conf and injected by docker-entrypoint-wrapper.sh.
+    # Only per-environment memory settings remain here.
     # NOTE: For the initial HNSW index build (migration 0063), temporarily
     # increase maintenance_work_mem to 2GB for faster index creation:
     #   -c maintenance_work_mem=2GB
     # Revert to 512MB after the migration completes.
-    # NOTE: -c shared_preload_libraries overrides postgresql.conf (doesn't append).
-    # If adding another preloaded extension, list all here: vector,pg_stat_statements,...
     command: >
       postgres
-      -c shared_preload_libraries=vector
       -c shared_buffers=1GB
       -c maintenance_work_mem=512MB
       -c effective_cache_size=4GB
       -c work_mem=128MB
-      -c max_parallel_maintenance_workers=4
-      -c random_page_cost=1.1
-      -c effective_io_concurrency=200
 
   frontend:
     build:

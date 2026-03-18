@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
 
+from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.types.enums import ContentModality
 
 logger = logging.getLogger(__name__)
@@ -152,14 +153,17 @@ def update_annotation_modalities(
     if document is None:
         document = getattr(annotation, "document", None)
 
-    # Get tokens from annotation's json field
+    # Get tokens from annotation's json field (handles both v1 and v2 formats)
     annotation_json = annotation.json or {}
     all_tokens = []
 
-    for page_key, page_data in annotation_json.items():
-        if isinstance(page_data, dict):
-            tokens = page_data.get("tokensJsons", [])
-            all_tokens.extend(tokens)
+    for page in iter_page_annotations(
+        annotation_json, raw_text=getattr(annotation, "raw_text", "") or ""
+    ):
+        all_tokens.extend(
+            {"pageIndex": page.page_index, "tokenIndex": idx}
+            for idx in page.token_indices
+        )
 
     # Compute modalities
     modalities = compute_content_modalities(

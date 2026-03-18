@@ -21,6 +21,7 @@ from typing import Optional, cast
 from django.core.files.storage import default_storage
 from pypdf import PdfReader
 
+from opencontractserver.annotations.compact_json import offset_annotation_json
 from opencontractserver.constants import (
     DEFAULT_CHUNK_RETRY_LIMIT,
     DEFAULT_MAX_CONCURRENT_CHUNKS,
@@ -470,7 +471,6 @@ def _reassemble_chunk_results(
 
     * Offsets ``pawls_file_content[*].page.index`` by the chunk's page offset
     * Offsets annotation ``page`` fields and ``annotation_json`` page keys
-    * Offsets ``tokensJsons[*].pageIndex`` references
     * Prefixes annotation and relationship IDs to keep them unique across chunks
     * Concatenates text content
 
@@ -575,25 +575,9 @@ def _offset_annotation(annotation: dict, page_offset: int, id_prefix: str) -> No
     # Offset annotation_json page keys and token references
     annotation_json = annotation.get("annotation_json")
     if isinstance(annotation_json, dict):
-        new_json: dict = {}
-        for page_key, page_data in annotation_json.items():
-            try:
-                new_key = str(int(page_key) + page_offset)
-            except (ValueError, TypeError):
-                # Non-integer key (e.g. span annotation) – keep as-is
-                new_key = page_key
-                new_json[new_key] = page_data
-                continue
-
-            # Offset pageIndex in tokensJsons
-            if isinstance(page_data, dict):
-                for token_ref in page_data.get("tokensJsons", []):
-                    if isinstance(token_ref, dict) and "pageIndex" in token_ref:
-                        token_ref["pageIndex"] = token_ref["pageIndex"] + page_offset
-
-            new_json[new_key] = page_data
-
-        annotation["annotation_json"] = new_json
+        annotation["annotation_json"] = offset_annotation_json(
+            annotation_json, page_offset
+        )
 
 
 def _offset_relationship(relationship: dict, id_prefix: str) -> None:

@@ -65,9 +65,7 @@ class AnnotationFactory(DjangoModelFactory):
 
     page = 1
     raw_text = Faker("sentence")
-    tokens_jsons = []
-    bounding_box = {"top": 0.1, "left": 0.1, "right": 0.9, "bottom": 0.2}
-    json = {}
+    json = {"v": 2, "p": {"1": {"b": [0.1, 0.1, 0.9, 0.2], "t": ""}}}
     annotation_type = TOKEN_LABEL
     annotation_label = None
     document = LazyAttribute(lambda o: DocumentFactory())

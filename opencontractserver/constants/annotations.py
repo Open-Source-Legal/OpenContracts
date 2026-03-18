@@ -19,3 +19,9 @@ DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500
 
 # Maximum number of results returned by semantic search queries.
 SEMANTIC_SEARCH_MAX_RESULTS = 200
+
+# ── Compact annotation JSON v2 safety limits ──
+# Maximum span for a single range segment (safety guard).
+COMPACT_JSON_MAX_RANGE_SPAN = 10_000
+# Maximum total tokens across all pages (safety guard).
+COMPACT_JSON_MAX_TOTAL_TOKENS = 50_000

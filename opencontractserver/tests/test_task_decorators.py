@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
+from opencontractserver.annotations.compact_json import expand_annotation_json
 from opencontractserver.annotations.models import (
     DOC_TYPE_LABEL,
     SPAN_LABEL,
@@ -137,10 +138,13 @@ class DocAnalyzerTaskTestCase(TestCase):
         # Verify span annotation
         span_annotation = Annotation.objects.filter(annotation_type=TOKEN_LABEL).first()
         self.assertEqual(span_annotation.raw_text, "Exhibit 10")
-        self.assertIn("0", span_annotation.json)
-        self.assertIn("bounds", span_annotation.json["0"])
-        self.assertIn("rawText", span_annotation.json["0"])
-        self.assertIn("tokensJsons", span_annotation.json["0"])
+        expanded_json = expand_annotation_json(
+            span_annotation.json, raw_text=span_annotation.raw_text or ""
+        )
+        self.assertIn("0", expanded_json)
+        self.assertIn("bounds", expanded_json["0"])
+        self.assertIn("rawText", expanded_json["0"])
+        self.assertIn("tokensJsons", expanded_json["0"])
         self.assertEqual(span_annotation.annotation_label.text, "TEXT_SPAN")
 
     def test_function_has_access_to_pdf_text(self):

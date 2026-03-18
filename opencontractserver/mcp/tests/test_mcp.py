@@ -1070,7 +1070,6 @@ class MCPResourcesAnnotationTest(TestCase):
             corpus=cls.corpus,
             creator=cls.owner,
             is_public=True,
-            bounding_box={"x": 10, "y": 20, "width": 100, "height": 50},
         )
 
     def test_get_annotation_resource(self):
@@ -1087,7 +1086,8 @@ class MCPResourcesAnnotationTest(TestCase):
         self.assertEqual(data["raw_text"], "Annotation text for resource")
         self.assertEqual(data["annotation_label"]["text"], "Resource Label")
         self.assertEqual(data["annotation_label"]["color"], "#AABBCC")
-        self.assertEqual(data["bounding_box"]["x"], 10)
+        self.assertIn("json", data)
+        self.assertIsNotNone(data["json"])
 
 
 class MCPResourcesThreadTest(TestCase):
@@ -2383,7 +2383,10 @@ class MCPTelemetryIntegrationTest(TestCase):
 
                     # Verify telemetry was recorded
                     mock_record.assert_called_once_with(
-                        "list_public_corpuses", success=True
+                        "list_public_corpuses",
+                        success=True,
+                        corpus_slug=None,
+                        document_slug=None,
                     )
 
                     # Verify the mock handler was actually called
@@ -2426,7 +2429,11 @@ class MCPTelemetryIntegrationTest(TestCase):
 
                 # Verify failure telemetry was recorded
                 mock_record.assert_called_once_with(
-                    "unknown_tool", success=False, error_type="UnknownTool"
+                    "unknown_tool",
+                    success=False,
+                    error_type="UnknownTool",
+                    corpus_slug=None,
+                    document_slug=None,
                 )
 
         loop = asyncio.new_event_loop()
@@ -2460,7 +2467,9 @@ class MCPTelemetryIntegrationTest(TestCase):
                 result = await read_resource_handler(uri)
 
                 # Verify telemetry was recorded
-                mock_record.assert_called_once_with("corpus", success=True)
+                mock_record.assert_called_once_with(
+                    "corpus", success=True, corpus_slug="test-corpus-slug"
+                )
 
                 return result
 
@@ -2496,7 +2505,11 @@ class MCPTelemetryIntegrationTest(TestCase):
 
                 # Verify failure telemetry was recorded
                 mock_record.assert_called_once_with(
-                    "unknown", success=False, error_type="ValueError"
+                    "unknown",
+                    success=False,
+                    error_type="ValueError",
+                    corpus_slug=None,
+                    document_slug=None,
                 )
 
         loop = asyncio.new_event_loop()
@@ -2530,7 +2543,12 @@ class MCPTelemetryIntegrationTest(TestCase):
                 result = await read_resource_handler(uri)
 
                 # Verify telemetry was recorded with document type
-                mock_record.assert_called_once_with("document", success=True)
+                mock_record.assert_called_once_with(
+                    "document",
+                    success=True,
+                    corpus_slug="test-corpus",
+                    document_slug="test-document",
+                )
                 mock_get_doc.assert_called_once_with("test-corpus", "test-document")
 
                 return result
@@ -2567,7 +2585,12 @@ class MCPTelemetryIntegrationTest(TestCase):
                 result = await read_resource_handler(uri)
 
                 # Verify telemetry was recorded with annotation type
-                mock_record.assert_called_once_with("annotation", success=True)
+                mock_record.assert_called_once_with(
+                    "annotation",
+                    success=True,
+                    corpus_slug="test-corpus",
+                    document_slug="test-document",
+                )
                 mock_get_ann.assert_called_once_with(
                     "test-corpus", "test-document", 123
                 )
@@ -2606,7 +2629,9 @@ class MCPTelemetryIntegrationTest(TestCase):
                 result = await read_resource_handler(uri)
 
                 # Verify telemetry was recorded with thread type
-                mock_record.assert_called_once_with("thread", success=True)
+                mock_record.assert_called_once_with(
+                    "thread", success=True, corpus_slug="test-corpus"
+                )
                 mock_get_thread.assert_called_once_with("test-corpus", 456)
 
                 return result
@@ -4919,6 +4944,8 @@ class MCPServerCallToolExceptionTest(TestCase):
                         "list_public_corpuses",
                         success=False,
                         error_type="RuntimeError",
+                        corpus_slug=None,
+                        document_slug=None,
                     )
             finally:
                 if original is not None:

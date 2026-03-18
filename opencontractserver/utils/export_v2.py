@@ -20,6 +20,7 @@ import os
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 
+from opencontractserver.annotations.compact_json import compact_annotation_json
 from opencontractserver.annotations.models import Relationship
 from opencontractserver.corpuses.models import (
     Corpus,
@@ -76,7 +77,9 @@ def package_structural_annotation_set(
                 ),
                 "rawText": annot.raw_text or "",
                 "page": annot.page or 0,
-                "annotation_json": annot.json or {},
+                "annotation_json": (
+                    compact_annotation_json(annot.json) if annot.json else {}
+                ),
                 "parent_id": str(annot.parent_id) if annot.parent_id else None,
                 "annotation_type": annot.annotation_type or "",
                 "structural": True,

@@ -15,6 +15,7 @@ from django.utils import timezone
 from pydantic import validate_call
 
 from config import celery_app
+from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import TOKEN_LABEL, Annotation
 from opencontractserver.constants import (
     MAX_PROCESSING_ERROR_LENGTH,
@@ -621,33 +622,26 @@ def convert_doc_to_funsd(
         },
         """
 
-        annot_json = annotation.json
         label = annotation.annotation_label
 
-        for page in annot_json.keys():
-
-            page_annot_json = annot_json[page]
-            page_token_refs = page_annot_json["tokensJsons"]
-
+        for page_data in iter_page_annotations(
+            annotation.json, raw_text=annotation.raw_text or ""
+        ):
             expanded_tokens = []
-            for token_ref in page_token_refs:
-                page_index = token_ref["pageIndex"]
-                token_index = token_ref["tokenIndex"]
-                token = pawls_tokens[page_index]["tokens"][token_index]
-
-                # Convert token from PAWLS to FUNSD format (simple but annoying transforming done via function
-                # defined above)
+            for token_index in page_data.token_indices:
+                token = pawls_tokens[page_data.page_index]["tokens"][token_index]
                 expanded_tokens.append(pawls_token_to_funsd_token(token))
 
             funsd_annotation: FunsdAnnotationType = {
-                "id": f"{base_id}-{page}",
+                "id": f"{base_id}-{page_data.page_index}",
                 "linking": [],  # Relationship linking is not yet wired into FUNSD export
-                "text": page_annot_json["rawText"],
-                "box": pawls_bbox_to_funsd_box(page_annot_json["bounds"]),
+                "text": page_data.raw_text,
+                "box": pawls_bbox_to_funsd_box(page_data.bounds),
                 "label": f"{label.text}",
                 "words": expanded_tokens,
             }
 
+            page = str(page_data.page_index)
             if page in annotation_map:
                 annotation_map[page].append(funsd_annotation)
             else:

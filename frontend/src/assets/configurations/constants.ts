@@ -173,6 +173,9 @@ export const CONVERSATION_TYPE = {
   THREAD: "THREAD",
 } as const;
 
+// WebSocket error type constants (matches backend WS_ERROR_* constants)
+export const WS_ERROR_CONTEXT_EXHAUSTED = "CONTEXT_EXHAUSTED";
+
 export type ConversationType =
   (typeof CONVERSATION_TYPE)[keyof typeof CONVERSATION_TYPE];
 
@@ -384,6 +387,12 @@ export const PAWLS_COORDINATE_EPSILON = 0.5;
  * would cause every annotation's bounding box to span the entire page.
  */
 export const PAGE_SPANNING_TOKEN_THRESHOLD = 0.9;
+
+// Compact annotation JSON v2 safety limits
+/** Maximum span for a single range segment (safety guard). */
+export const COMPACT_JSON_MAX_RANGE_SPAN = 10_000;
+/** Maximum total tokens across all pages (safety guard). */
+export const COMPACT_JSON_MAX_TOTAL_TOKENS = 50_000;
 
 // Corpus action trigger display labels
 // Maps backend trigger enum values (lowercase) to user-facing short labels

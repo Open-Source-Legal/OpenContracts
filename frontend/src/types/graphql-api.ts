@@ -590,13 +590,13 @@ export interface TextSearchResultsProps {
 }
 
 export type MutationAddAnnotationArgs = {
-  boundingBox: Scalars["GenericScalar"];
+  json: Scalars["GenericScalar"];
   corpusId: Scalars["String"];
   documentId: Scalars["String"];
-  labelId: Scalars["String"];
+  annotationLabelId: Scalars["String"];
+  annotationType: LabelType;
   page: Scalars["Int"];
   rawText: Scalars["String"];
-  tokensJsons: Scalars["GenericScalar"];
 };
 
 export type MutationRemoveAnnotationArgs = {

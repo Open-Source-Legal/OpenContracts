@@ -26,7 +26,10 @@ import { useLazyQuery, useQuery, useReactiveVar } from "@apollo/client";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, ArrowLeft, Send, Home } from "lucide-react";
 import { Button, Spinner } from "@os-legal/ui";
-import { CONVERSATION_TYPE } from "../../assets/configurations/constants";
+import {
+  CONVERSATION_TYPE,
+  WS_ERROR_CONTEXT_EXHAUSTED,
+} from "../../assets/configurations/constants";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
 import {
@@ -66,6 +69,8 @@ import type {
 
 import {
   ChatContainer,
+  ContextExhaustedBanner,
+  ContextExhaustedButton,
   ConversationIndicator,
   ChatNavigationHeader,
   BackButton,
@@ -146,6 +151,13 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
 
   // Track whether the assistant is currently generating a response
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+
+  // Track whether the anonymous session context has been exhausted
+  const [contextExhausted, setContextExhausted] = useState(false);
+
+  // Bumped on startNewChat to force WebSocket reconnection even when
+  // isNewChat and selectedConversationId haven't changed (anonymous sessions).
+  const [wsReconnectKey, setWsReconnectKey] = useState(0);
 
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | undefined
@@ -334,6 +346,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     newSocket.onopen = () => {
       setWsReady(true);
       setWsError(null);
+      setContextExhausted(false);
       console.log(
         "WebSocket connected for corpus conversation:",
         selectedConversationId
@@ -439,6 +452,11 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
             }
             break;
           case "ASYNC_ERROR":
+            if (data?.error_type === WS_ERROR_CONTEXT_EXHAUSTED) {
+              setContextExhausted(true);
+              setIsProcessing(false);
+              break;
+            }
             setWsError(data?.error || "Agent error");
             finalizeStreamingResponse(
               data?.error || "Error",
@@ -487,7 +505,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         socketRef.current = null;
       }
     };
-  }, [auth_token, corpusId, selectedConversationId, isNewChat]);
+  }, [auth_token, corpusId, selectedConversationId, isNewChat, wsReconnectKey]);
 
   // Track if this is the initial mount - skip forceNewChat effect on mount
   // since isNewChat is already initialized from forceNewChat prop
@@ -536,6 +554,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     setShowLoad(false);
     setChat([]);
     setServerMessages([]);
+    setContextExhausted(false);
 
     fetchChatMessages({
       variables: {
@@ -550,11 +569,17 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
    * Start a brand-new chat (unselect existing conversation).
    */
   const startNewChat = useCallback((): void => {
+    setContextExhausted(false);
+    setContextStatus(null);
+    setCompactionNotice(null);
     setIsNewChat(true);
     setSelectedConversationId(undefined);
     setShowLoad(false);
     setChat([]);
     setServerMessages([]);
+    // Force WebSocket reconnection even when deps haven't changed
+    // (e.g. anonymous user where isNewChat is already true).
+    setWsReconnectKey((k) => k + 1);
   }, [setShowLoad]);
 
   /**
@@ -693,6 +718,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         hasTimeline:
           assistantMsg.hasTimeline ??
           (timelineData ? timelineData.length > 0 : false),
+        timeline: timelineData || assistantMsg.timeline || [],
       };
 
       return updatedMessages;
@@ -747,6 +773,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
           content,
           timestamp: messageTimestamp,
           sources: mappedSources.length ? mappedSources : existingMsg.sources,
+          timeline: timelineData || existingMsg.timeline,
         };
         const updatedMessages = [...prev.messages];
         updatedMessages[existingIndex] = updatedMsg;
@@ -764,6 +791,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
               content,
               timestamp: messageTimestamp,
               sources: mappedSources,
+              timeline: timelineData || [],
             },
           ],
           selectedMessageId: overrideId ? prev.selectedMessageId : messageId,
@@ -1257,6 +1285,15 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                   )}
                 </div>
               )}
+              {/* Context exhausted banner */}
+              {contextExhausted && (
+                <ContextExhaustedBanner>
+                  <span>This conversation has reached its context limit.</span>
+                  <ContextExhaustedButton onClick={startNewChat}>
+                    Start New Chat
+                  </ContextExhaustedButton>
+                </ContextExhaustedBanner>
+              )}
               {/* Input */}
               <ChatInputWrapper>
                 <EnhancedChatInputContainer
@@ -1311,15 +1348,20 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                             : "Type your corpus query..."
                           : "Waiting for connection..."
                       }
-                      disabled={!wsReady || isProcessing}
-                      onKeyPress={(e: { key: string }) => {
+                      disabled={!wsReady || isProcessing || contextExhausted}
+                      onKeyDown={(e: { key: string }) => {
                         if (e.key === "Enter") {
                           sendMessageOverSocket();
                         }
                       }}
                     />
                     <EnhancedSendButton
-                      disabled={!wsReady || !newMessage.trim() || isProcessing}
+                      disabled={
+                        !wsReady ||
+                        !newMessage.trim() ||
+                        isProcessing ||
+                        contextExhausted
+                      }
                       onClick={sendMessageOverSocket}
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}

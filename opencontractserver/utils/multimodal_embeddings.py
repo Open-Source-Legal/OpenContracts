@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from opencontractserver.annotations.models import Annotation
     from opencontractserver.pipeline.base.embedder import BaseEmbedder
 
+from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.types.enums import ContentModality
 from opencontractserver.utils.pdf_token_extraction import (
     get_image_as_base64,
@@ -168,32 +169,20 @@ def get_annotation_image_tokens(
         if not pawls_data:
             return []
 
-        # Get token references from annotation json
-        annotation_json = annotation.json or {}
+        # Get token references from annotation json (handles v1 and v2 formats)
         image_tokens = []
 
-        for page_key, page_data in annotation_json.items():
-            if not isinstance(page_data, dict):
-                continue
-
-            token_refs = page_data.get("tokensJsons", [])
-            for ref in token_refs:
-                if not isinstance(ref, dict):
-                    continue
-
-                page_idx = ref.get("pageIndex")
-                token_idx = ref.get("tokenIndex")
-
-                if page_idx is None or token_idx is None:
-                    continue
-
+        for page in iter_page_annotations(
+            annotation.json or {}, raw_text=annotation.raw_text or ""
+        ):
+            for token_idx in page.token_indices:
                 # Get actual token from PAWLs data
-                if page_idx < len(pawls_data):
-                    page = pawls_data[page_idx]
-                    if not isinstance(page, dict):
+                if page.page_index < len(pawls_data):
+                    pawls_page = pawls_data[page.page_index]
+                    if not isinstance(pawls_page, dict):
                         continue
 
-                    tokens = page.get("tokens", [])
+                    tokens = pawls_page.get("tokens", [])
                     if token_idx < len(tokens):
                         token = tokens[token_idx]
                         if isinstance(token, dict) and token.get("is_image"):
@@ -370,32 +359,20 @@ def extract_and_store_annotation_images(
     from django.core.files.base import ContentFile
 
     try:
-        # Get token references from annotation json
-        annotation_json = annotation.json or {}
+        # Get token references from annotation json (handles v1 and v2 formats)
         extracted_images = []
 
-        for page_key, page_data in annotation_json.items():
-            if not isinstance(page_data, dict):
-                continue
-
-            token_refs = page_data.get("tokensJsons", [])
-            for ref in token_refs:
-                if not isinstance(ref, dict):
-                    continue
-
-                page_idx = ref.get("pageIndex")
-                token_idx = ref.get("tokenIndex")
-
-                if page_idx is None or token_idx is None:
-                    continue
-
+        for page in iter_page_annotations(
+            annotation.json or {}, raw_text=annotation.raw_text or ""
+        ):
+            for token_idx in page.token_indices:
                 # Get actual token from PAWLs data
-                if page_idx < len(pawls_data):
-                    page = pawls_data[page_idx]
-                    if not isinstance(page, dict):
+                if page.page_index < len(pawls_data):
+                    pawls_page = pawls_data[page.page_index]
+                    if not isinstance(pawls_page, dict):
                         continue
 
-                    tokens = page.get("tokens", [])
+                    tokens = pawls_page.get("tokens", [])
                     if token_idx < len(tokens):
                         token = tokens[token_idx]
                         if isinstance(token, dict) and token.get("is_image"):
@@ -406,7 +383,7 @@ def extract_and_store_annotation_images(
                                     {
                                         "base64": base64_data,
                                         "format": token.get("format", "jpeg"),
-                                        "page_index": page_idx,
+                                        "page_index": page.page_index,
                                         "token_index": token_idx,
                                         "width": token.get("width"),
                                         "height": token.get("height"),
