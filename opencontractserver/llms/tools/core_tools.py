@@ -1892,7 +1892,6 @@ def create_document_index(
                 long_description=description,
                 page=oc_ann.get("page", 1),
                 json=oc_ann["annotation_json"],
-                tokens_jsons=oc_ann.get("tokens_jsons"),
                 annotation_label=label_obj,
                 document=doc,
                 corpus=corpus,
