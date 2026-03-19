@@ -1,6 +1,12 @@
 import React, { useState } from "react";
-import { Modal, Button } from "semantic-ui-react";
-import { Input } from "@os-legal/ui";
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+  Input,
+} from "@os-legal/ui";
 import { JSONSchema7 } from "json-schema";
 import JsonView from "@uiw/react-json-view";
 import { darkTheme } from "@uiw/react-json-view/dark";
@@ -53,29 +59,10 @@ export const ExtractCellEditor: React.FC<ExtractCellEditorProps> = ({
   };
 
   const renderJsonEditor = () => (
-    <Modal
-      open={isJsonModalOpen}
-      onClose={() => setIsJsonModalOpen(false)}
-      style={{
-        borderRadius: "12px",
-        overflow: "hidden",
-        boxShadow: "0 12px 48px rgba(0, 0, 0, 0.12)",
-      }}
-    >
-      <Modal.Header
+    <Modal open={isJsonModalOpen} onClose={() => setIsJsonModalOpen(false)}>
+      <ModalHeader>Edit {column.name}</ModalHeader>
+      <ModalBody
         style={{
-          background: OS_LEGAL_COLORS.surfaceHover,
-          borderBottom: `1px solid ${OS_LEGAL_COLORS.border}`,
-          padding: "16px 24px",
-          fontSize: "1.1rem",
-          color: "#0f172a",
-        }}
-      >
-        Edit {column.name}
-      </Modal.Header>
-      <Modal.Content
-        style={{
-          padding: "24px",
           maxHeight: "70vh",
           overflow: "auto",
         }}
@@ -97,41 +84,15 @@ export const ExtractCellEditor: React.FC<ExtractCellEditorProps> = ({
           indentWidth={4}
           collapsed={false}
         />
-      </Modal.Content>
-      <Modal.Actions
-        style={{
-          background: OS_LEGAL_COLORS.surfaceHover,
-          borderTop: `1px solid ${OS_LEGAL_COLORS.border}`,
-          padding: "16px 24px",
-        }}
-      >
-        <Button
-          onClick={() => setIsJsonModalOpen(false)}
-          style={{
-            marginRight: "12px",
-            background: OS_LEGAL_COLORS.surfaceLight,
-            color: OS_LEGAL_COLORS.textSecondary,
-            border: "none",
-            borderRadius: "6px",
-            padding: "8px 16px",
-          }}
-        >
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="secondary" onClick={() => setIsJsonModalOpen(false)}>
           Cancel
         </Button>
-        <Button
-          primary
-          onClick={handleCommit}
-          style={{
-            background: OS_LEGAL_COLORS.primaryBlue,
-            color: "#fff",
-            border: "none",
-            borderRadius: "6px",
-            padding: "8px 16px",
-          }}
-        >
+        <Button variant="primary" onClick={handleCommit}>
           Save
         </Button>
-      </Modal.Actions>
+      </ModalFooter>
     </Modal>
   );
 
@@ -185,11 +146,9 @@ export const ExtractCellEditor: React.FC<ExtractCellEditorProps> = ({
   if (schema.type === "object" || extractIsList) {
     return (
       <>
-        <Button
-          icon="code"
-          content="Edit JSON"
-          onClick={() => setIsJsonModalOpen(true)}
-        />
+        <Button variant="secondary" onClick={() => setIsJsonModalOpen(true)}>
+          Edit JSON
+        </Button>
         {isJsonModalOpen && renderJsonEditor()}
       </>
     );
@@ -198,9 +157,19 @@ export const ExtractCellEditor: React.FC<ExtractCellEditorProps> = ({
   return (
     <>
       {renderPrimitiveEditor()}
-      <div style={{ marginTop: "1em", textAlign: "right" }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button primary onClick={handleCommit}>
+      <div
+        style={{
+          marginTop: "1em",
+          textAlign: "right",
+          display: "flex",
+          gap: "0.5rem",
+          justifyContent: "flex-end",
+        }}
+      >
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={handleCommit}>
           Save
         </Button>
       </div>

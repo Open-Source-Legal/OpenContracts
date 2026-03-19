@@ -52,7 +52,7 @@ test("@slug profile modal updates user slug", async ({ mount, page }) => {
   ];
 
   await mount(<UserSettingsModalHarness mocks={mocks} />);
-  await expect(page.getByTestId("user-settings-modal")).toBeVisible();
+  await expect(page.getByText("User Settings")).toBeVisible({ timeout: 10000 });
 
   await docScreenshot(page, "settings--user-settings-modal--initial");
 

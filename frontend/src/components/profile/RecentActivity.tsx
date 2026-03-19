@@ -13,10 +13,11 @@ import React from "react";
 import { useQuery } from "@apollo/client";
 import styled from "styled-components";
 import { MessageSquare, FileText, Tag, Clock } from "lucide-react";
-import { Dimmer, Loader, Message } from "semantic-ui-react";
+import { Spinner } from "@os-legal/ui";
 import { formatDistanceToNow } from "date-fns";
 import { gql } from "@apollo/client";
 import { color } from "../../theme/colors";
+import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
 const ActivityList = styled.div`
   display: flex;
@@ -139,20 +140,33 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ userId }) => {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "200px", position: "relative" }}>
-        <Dimmer active inverted>
-          <Loader>Loading activity...</Loader>
-        </Dimmer>
+      <div
+        style={{
+          minHeight: "200px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Spinner size="md" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <Message negative>
-        <Message.Header>Error loading activity</Message.Header>
-        <p>{error.message}</p>
-      </Message>
+      <div
+        style={{
+          padding: "1rem",
+          background: OS_LEGAL_COLORS.dangerSurface,
+          border: `1px solid ${OS_LEGAL_COLORS.dangerBorder}`,
+          borderRadius: "8px",
+          color: OS_LEGAL_COLORS.dangerText,
+        }}
+      >
+        <strong>Error loading activity</strong>
+        <p style={{ margin: "0.25rem 0 0" }}>{error.message}</p>
+      </div>
     );
   }
 

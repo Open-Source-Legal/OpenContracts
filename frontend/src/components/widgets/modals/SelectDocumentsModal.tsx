@@ -1,10 +1,10 @@
 import {
-  ModalHeader,
-  ModalContent,
-  ModalActions,
-  Button,
   Modal,
-} from "semantic-ui-react";
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+} from "@os-legal/ui";
 import { useQuery, useReactiveVar } from "@apollo/client";
 import _ from "lodash";
 import {
@@ -19,6 +19,7 @@ import { FilterToLabelsetSelector } from "../model-filters/FilterToLabelsetSelec
 import { FilterToCorpusSelector } from "../model-filters/FilterToCorpusSelector";
 import { FilterToLabelSelector } from "../model-filters/FilterToLabelSelector";
 import { useCallback, useEffect, useRef, useState } from "react";
+import styled from "styled-components";
 import {
   CorpusType,
   DocumentType,
@@ -31,6 +32,33 @@ import {
   uploadModalPreloadedFiles,
 } from "../../../graphql/cache";
 import { FileUploadPackageProps } from "./DocumentUploadModal";
+
+/**
+ * Overrides the nested card styling from CreateAndSearchBar when rendered
+ * inside a modal context, and ensures the search input fills available width.
+ */
+const ModalSearchOverride = styled.div`
+  /* Remove the card-in-card appearance from SearchBarContainer (direct child) */
+  & > div {
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0.75rem 0;
+    background: transparent;
+  }
+
+  /* Let search input fill available modal width */
+  input {
+    max-width: 100% !important;
+  }
+
+  @media (max-width: 600px) {
+    /* Stack filter icon below search on very small screens */
+    & > div {
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+  }
+`;
 
 interface SelectDocumentsModalProps {
   open: boolean;
@@ -176,64 +204,63 @@ export const SelectDocumentsModal = ({
   }, []);
 
   return (
-    <Modal
-      size="fullscreen"
-      open={open}
-      closeIcon
-      onClose={() => toggleModal()}
-      // style={{
-      //   margin: "5vh auto",
-      //   display: "flex",
-      //   flexDirection: "column",
-      // }}
-    >
+    <Modal open={open} onClose={() => toggleModal()} size="fullscreen">
       <ModalHeader>Select Document(s)</ModalHeader>
-      <ModalContent style={{ flex: 1, overflow: "hidden" }}>
+      <ModalBody
+        style={{
+          flex: 1,
+          overflow: "hidden",
+          maxHeight: "70vh",
+          padding: "0.5rem 1rem",
+        }}
+      >
         <CardLayout
           Modals={<></>}
           SearchBar={
-            <CreateAndSearchBar
-              actions={[]}
-              filters={
-                <>
-                  <FilterToLabelsetSelector
-                    fixed_labelset_id={
-                      filtered_to_corpus?.labelSet?.id
-                        ? filtered_to_corpus.labelSet.id
-                        : undefined
-                    }
-                  />
-                  <FilterToCorpusSelector
-                    uses_labelset_id={filtered_to_labelset_id}
-                  />
-                  {filtered_to_labelset_id ||
-                  filtered_to_corpus?.labelSet?.id ? (
-                    <FilterToLabelSelector
-                      label_type={LabelType.TokenLabel}
-                      only_labels_for_labelset_id={
-                        filtered_to_labelset_id
-                          ? filtered_to_labelset_id
-                          : filtered_to_corpus?.labelSet?.id
+            <ModalSearchOverride>
+              <CreateAndSearchBar
+                actions={[]}
+                filters={
+                  <>
+                    <FilterToLabelsetSelector
+                      fixed_labelset_id={
+                        filtered_to_corpus?.labelSet?.id
                           ? filtered_to_corpus.labelSet.id
                           : undefined
                       }
                     />
-                  ) : (
-                    <></>
-                  )}
-                </>
-              }
-              value={searchCache}
-              placeholder="Search for document containing text..."
-              onChange={handleSearchChange}
-            />
+                    <FilterToCorpusSelector
+                      uses_labelset_id={filtered_to_labelset_id}
+                    />
+                    {filtered_to_labelset_id ||
+                    filtered_to_corpus?.labelSet?.id ? (
+                      <FilterToLabelSelector
+                        label_type={LabelType.TokenLabel}
+                        only_labels_for_labelset_id={
+                          filtered_to_labelset_id
+                            ? filtered_to_labelset_id
+                            : filtered_to_corpus?.labelSet?.id
+                            ? filtered_to_corpus.labelSet.id
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <></>
+                    )}
+                  </>
+                }
+                value={searchCache}
+                placeholder="Search for document containing text..."
+                onChange={handleSearchChange}
+              />
+            </ModalSearchOverride>
           }
           style={{ height: "100%", display: "flex", flexDirection: "column" }}
         >
           <DocumentCards
             containerStyle={{
-              flex: 1, // Take remaining space
-              minHeight: 0, // Important for Firefox flex scroll
+              flex: 1,
+              minHeight: 0,
               position: "relative",
             }}
             style={{
@@ -248,15 +275,15 @@ export const SelectDocumentsModal = ({
             onDrop={onDrop}
           />
         </CardLayout>
-      </ModalContent>
-      <ModalActions>
-        <Button negative onClick={() => handleCancel()}>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="secondary" onClick={() => handleCancel()}>
           Cancel
         </Button>
-        <Button positive onClick={() => handleConfirm()}>
+        <Button variant="primary" onClick={() => handleConfirm()}>
           Add Documents
         </Button>
-      </ModalActions>
+      </ModalFooter>
     </Modal>
   );
 };

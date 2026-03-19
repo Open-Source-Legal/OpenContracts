@@ -9,7 +9,6 @@ export const HeaderContainer = styled.div`
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(231, 234, 237, 0.7);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  z-index: 100;
   position: relative;
   display: flex;
   align-items: center;

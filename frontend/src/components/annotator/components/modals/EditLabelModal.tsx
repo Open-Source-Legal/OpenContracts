@@ -3,11 +3,13 @@ import _ from "lodash";
 
 import {
   Modal,
-  Dropdown,
-  DropdownItemProps,
-  DropdownProps,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
   Button,
-} from "semantic-ui-react";
+  Dropdown,
+} from "@os-legal/ui";
+import type { DropdownOption } from "@os-legal/ui";
 import { useCorpusState } from "../../context/CorpusAtom";
 import { ServerTokenAnnotation } from "../../types/annotations";
 
@@ -58,21 +60,14 @@ export const EditLabelModal = ({
     };
   }, [spanLabels, annotation]);
 
-  const dropdownOptions: DropdownItemProps[] = spanLabels.map(
-    (label, index) => ({
-      key: label.id,
-      text: label.text,
-      value: label.id,
-    })
-  );
+  const dropdownOptions: DropdownOption[] = spanLabels.map((label) => ({
+    value: label.id,
+    label: label.text || "",
+  }));
 
-  const handleDropdownChange = (
-    event: SyntheticEvent<HTMLElement, Event>,
-    data: DropdownProps
-  ) => {
-    event.stopPropagation();
-    event.preventDefault();
-    const label = spanLabels.find((l) => l.id === data.value);
+  const handleDropdownChange = (value: string | string[] | null) => {
+    const labelId = typeof value === "string" ? value : null;
+    const label = spanLabels.find((l) => l.id === labelId);
     if (!label) {
       return;
     }
@@ -80,21 +75,34 @@ export const EditLabelModal = ({
   };
 
   return (
-    <Modal header="Edit Label" open={visible} onMouseDown={onMouseDown}>
-      <Modal.Content>
-        <Dropdown
-          placeholder="Select label"
-          search
-          selection
-          options={dropdownOptions}
-          onChange={handleDropdownChange}
-          onMouseDown={onMouseDown}
-          value={selectedLabel.id}
-        />
-      </Modal.Content>
-      <Modal.Actions>
+    <Modal open={visible} onClose={onHide}>
+      <ModalHeader>Edit Label</ModalHeader>
+      <ModalBody>
+        <div onMouseDown={onMouseDown}>
+          <Dropdown
+            mode="select"
+            placeholder="Select label"
+            searchable="local"
+            options={dropdownOptions}
+            onChange={handleDropdownChange}
+            value={selectedLabel.id}
+          />
+        </div>
+      </ModalBody>
+      <ModalFooter>
         <Button
-          color="green"
+          variant="secondary"
+          onMouseDown={onMouseDown}
+          onClick={(e: SyntheticEvent) => {
+            e.stopPropagation();
+            onHide();
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
           onClick={(event: SyntheticEvent) => {
             event.preventDefault();
             event.stopPropagation();
@@ -107,14 +115,10 @@ export const EditLabelModal = ({
 
             onHide();
           }}
-          onMouseDown={onMouseDown}
         >
           Save Change
         </Button>
-        <Button color="black" onClick={onHide} onMouseDown={onMouseDown}>
-          Cancel
-        </Button>
-      </Modal.Actions>
+      </ModalFooter>
     </Modal>
   );
 };

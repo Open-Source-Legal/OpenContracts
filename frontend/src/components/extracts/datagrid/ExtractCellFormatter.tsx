@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Button, Popup, Icon, Modal } from "semantic-ui-react";
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+  IconButton,
+} from "@os-legal/ui";
+import { Code, Check, Edit2, Eye, X as XIcon } from "lucide-react";
 import { CellStatus } from "../../../types/extract-grid";
 import styled from "styled-components";
 import { JSONSchema7 } from "json-schema";
@@ -27,7 +35,11 @@ import {
   getDocumentUrl,
   updateAnnotationDisplayParams,
 } from "../../../utils/navigationUtils";
-import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  primaryBlueAlpha,
+  folderIconAlpha,
+} from "../../../assets/configurations/osLegalStyles";
 
 const StatusDot = styled.div<{ statusColor: string }>`
   width: 12px;
@@ -41,10 +53,10 @@ const StatusDot = styled.div<{ statusColor: string }>`
   transition: all 0.2s ease;
   box-shadow: ${(props) => {
     switch (props.statusColor) {
-      case "#10b981":
+      case OS_LEGAL_COLORS.greenMedium:
         return "0 0 0 3px rgba(16, 185, 129, 0.15)";
-      case "#ef4444":
-        return "0 0 0 3px rgba(239, 68, 68, 0.15)";
+      case OS_LEGAL_COLORS.dangerBorderHover:
+        return "0 0 0 3px rgba(248, 113, 113, 0.15)";
       case OS_LEGAL_COLORS.folderIcon:
         return "0 0 0 3px rgba(245, 158, 11, 0.15)";
       default:
@@ -56,10 +68,10 @@ const StatusDot = styled.div<{ statusColor: string }>`
     transform: scale(1.2);
     box-shadow: ${(props) => {
       switch (props.statusColor) {
-        case "#10b981":
+        case OS_LEGAL_COLORS.greenMedium:
           return "0 0 0 4px rgba(16, 185, 129, 0.25)";
-        case "#ef4444":
-          return "0 0 0 4px rgba(239, 68, 68, 0.25)";
+        case OS_LEGAL_COLORS.dangerBorderHover:
+          return "0 0 0 4px rgba(248, 113, 113, 0.25)";
         case OS_LEGAL_COLORS.folderIcon:
           return "0 0 0 4px rgba(245, 158, 11, 0.25)";
         default:
@@ -75,16 +87,6 @@ const ButtonContainer = styled.div`
   .buttons {
     display: flex;
     gap: 8px;
-
-    button {
-      border-radius: 8px !important;
-      transition: all 0.15s ease !important;
-
-      &:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      }
-    }
   }
 
   .status-message {
@@ -93,70 +95,6 @@ const ButtonContainer = styled.div`
     text-align: center;
     margin-top: 4px;
     font-weight: 500;
-  }
-
-  .ui.button {
-    margin: 0;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    border-radius: 8px;
-    min-width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-
-    &:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-    }
-
-    &.green {
-      background: linear-gradient(
-        135deg,
-        ${OS_LEGAL_COLORS.green},
-        ${OS_LEGAL_COLORS.success}
-      );
-
-      &:hover:not(:disabled) {
-        background: linear-gradient(
-          135deg,
-          ${OS_LEGAL_COLORS.success},
-          ${OS_LEGAL_COLORS.successHover}
-        );
-      }
-    }
-
-    &.red {
-      background: linear-gradient(
-        135deg,
-        ${OS_LEGAL_COLORS.dangerBorderHover},
-        ${OS_LEGAL_COLORS.danger}
-      );
-
-      &:hover:not(:disabled) {
-        background: linear-gradient(
-          135deg,
-          ${OS_LEGAL_COLORS.danger},
-          ${OS_LEGAL_COLORS.dangerHover}
-        );
-      }
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      filter: grayscale(40%);
-    }
-
-    i.icon {
-      margin: 0 !important;
-      font-size: 0.9em;
-    }
   }
 `;
 
@@ -180,7 +118,7 @@ const CellContainer = styled.div`
   }
 
   &:hover {
-    background-color: rgba(59, 130, 246, 0.05);
+    background-color: ${primaryBlueAlpha(0.05)};
   }
 `;
 
@@ -237,6 +175,7 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
   );
 
   const cellRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
   const [cellWidth, setCellWidth] = useState<number>(0);
 
   const navigate = useNavigate();
@@ -252,6 +191,27 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
     }
   }, [cellRef]);
 
+  // Close popup on outside click or Escape key
+  useEffect(() => {
+    if (!isPopupOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setIsPopupOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsPopupOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isPopupOpen]);
+
   const statusColor = () => {
     if (cellStatus?.isApproved) return OS_LEGAL_COLORS.greenMedium; // Modern green
     if (cellStatus?.isRejected) return OS_LEGAL_COLORS.dangerBorderHover; // Modern red
@@ -260,10 +220,10 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
   };
 
   const getCellBackground = () => {
-    if (cellStatus?.isLoading) return "rgba(59, 130, 246, 0.05)"; // Light blue
-    if (cellStatus?.isApproved) return "rgba(16, 185, 129, 0.05)"; // Light green
-    if (cellStatus?.isRejected) return "rgba(239, 68, 68, 0.05)"; // Light red
-    if (cellStatus?.isEdited) return "rgba(245, 158, 11, 0.05)"; // Light amber
+    if (cellStatus?.isLoading) return primaryBlueAlpha(0.05);
+    if (cellStatus?.isApproved) return OS_LEGAL_COLORS.successLight;
+    if (cellStatus?.isRejected) return OS_LEGAL_COLORS.dangerLight;
+    if (cellStatus?.isEdited) return folderIconAlpha(0.05);
     return "transparent";
   };
 
@@ -302,7 +262,7 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
             alignItems: "center",
           }}
         >
-          <Icon name="code" />
+          <Code size={16} />
           <span style={{ marginLeft: "5px" }}>View/Edit JSON</span>
         </div>
       );
@@ -349,21 +309,31 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
       {cellStatus?.isLoading && <div className="cell-loader">Loading...</div>}
       {!cellStatus?.isLoading && isExtractComplete && (
         <>
-          <Popup
-            trigger={<StatusDot statusColor={statusColor()} />}
-            on="click"
-            position="top right"
-            open={isPopupOpen}
-            onOpen={() => setIsPopupOpen(true)}
-            onClose={() => setIsPopupOpen(false)}
-            mouseLeaveDelay={300}
-            content={
+          <StatusDot
+            statusColor={statusColor()}
+            onClick={() => setIsPopupOpen(!isPopupOpen)}
+          />
+          {isPopupOpen && (
+            <div
+              ref={popupRef}
+              style={{
+                position: "absolute",
+                top: "-4px",
+                right: "24px",
+                zIndex: 100,
+                background: "white",
+                borderRadius: "8px",
+                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.12)",
+                border: `1px solid ${OS_LEGAL_COLORS.border}`,
+              }}
+              onMouseLeave={() => setTimeout(() => setIsPopupOpen(false), 300)}
+            >
               <ButtonContainer>
                 <div className="buttons">
-                  <Button
-                    icon="check"
-                    color="green"
-                    size="tiny"
+                  <IconButton
+                    aria-label="Approve"
+                    title="Approve"
+                    size="sm"
                     onClick={() => {
                       onApprove();
                       setIsPopupOpen(false);
@@ -371,12 +341,19 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                     disabled={
                       cellStatus?.isApproved || readOnly || !isExtractComplete
                     }
-                    title="Approve"
-                  />
-                  <Button
-                    icon="edit"
-                    color="grey"
-                    size="tiny"
+                    style={{
+                      background: `linear-gradient(135deg, ${OS_LEGAL_COLORS.green}, ${OS_LEGAL_COLORS.success})`,
+                      color: "white",
+                      border: "none",
+                    }}
+                  >
+                    <Check size={14} />
+                  </IconButton>
+                  <IconButton
+                    aria-label="Edit"
+                    title="Edit"
+                    size="sm"
+                    variant="secondary"
                     onClick={() => {
                       if (
                         typeof displayedValue === "object" &&
@@ -389,12 +366,14 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                       setIsPopupOpen(false);
                     }}
                     disabled={readOnly || !isExtractComplete}
-                    title="Edit"
-                  />
-                  <Button
-                    icon="eye"
-                    color="blue"
-                    size="tiny"
+                  >
+                    <Edit2 size={14} />
+                  </IconButton>
+                  <IconButton
+                    aria-label="View Sources"
+                    title="View Sources"
+                    size="sm"
+                    variant="primary"
                     onClick={() => {
                       if (
                         cell?.fullSourceList &&
@@ -410,12 +389,14 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                     disabled={
                       !cell?.fullSourceList || cell.fullSourceList.length === 0
                     }
-                    title="View Sources"
-                  />
-                  <Button
-                    icon="close"
-                    color="red"
-                    size="tiny"
+                  >
+                    <Eye size={14} />
+                  </IconButton>
+                  <IconButton
+                    aria-label="Reject"
+                    title="Reject"
+                    size="sm"
+                    variant="danger"
                     onClick={() => {
                       onReject();
                       setIsPopupOpen(false);
@@ -423,8 +404,9 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                     disabled={
                       cellStatus?.isRejected || readOnly || !isExtractComplete
                     }
-                    title="Reject"
-                  />
+                  >
+                    <XIcon size={14} />
+                  </IconButton>
                 </div>
                 {cellStatus?.isApproved && (
                   <div className="status-message">
@@ -440,16 +422,12 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                   <div className="status-message">Cell has been edited</div>
                 )}
               </ButtonContainer>
-            }
-          />
+            </div>
+          )}
           {isEditing && (
-            <Modal
-              open={isEditing}
-              onClose={() => setIsEditing(false)}
-              size="small"
-            >
-              <Modal.Header>Edit {column.name}</Modal.Header>
-              <Modal.Content>
+            <Modal open={isEditing} onClose={() => setIsEditing(false)}>
+              <ModalHeader>Edit {column.name}</ModalHeader>
+              <ModalBody>
                 <ExtractCellEditor
                   row={row}
                   column={column}
@@ -462,12 +440,12 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                   schema={schema}
                   extractIsList={extractIsList}
                 />
-              </Modal.Content>
+              </ModalBody>
             </Modal>
           )}
-          <Modal open={isModalOpen} onClose={closeModal} size="large">
-            <Modal.Header>Edit JSON Data</Modal.Header>
-            <Modal.Content>
+          <Modal open={isModalOpen} onClose={closeModal}>
+            <ModalHeader>Edit JSON Data</ModalHeader>
+            <ModalBody>
               <ReactJson
                 src={displayedValue}
                 onEdit={handleJsonEdit}
@@ -478,18 +456,16 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
                 enableClipboard={false}
                 displayDataTypes={false}
               />
-            </Modal.Content>
-            <Modal.Actions>
-              <Button onClick={closeModal}>Close</Button>
-            </Modal.Actions>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="secondary" onClick={closeModal}>
+                Close
+              </Button>
+            </ModalFooter>
           </Modal>
-          <Modal
-            open={isOriginalModalOpen}
-            onClose={closeOriginalModal}
-            size="large"
-          >
-            <Modal.Header>Original Value</Modal.Header>
-            <Modal.Content>
+          <Modal open={isOriginalModalOpen} onClose={closeOriginalModal}>
+            <ModalHeader>Original Value</ModalHeader>
+            <ModalBody>
               {typeof value === "object" && value !== null ? (
                 <ReactJson
                   src={value}
@@ -501,10 +477,12 @@ export const ExtractCellFormatter: React.FC<ExtractCellFormatterProps> = ({
               ) : (
                 <div style={{ padding: "20px" }}>{String(value)}</div>
               )}
-            </Modal.Content>
-            <Modal.Actions>
-              <Button onClick={closeOriginalModal}>Close</Button>
-            </Modal.Actions>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="secondary" onClick={closeOriginalModal}>
+                Close
+              </Button>
+            </ModalFooter>
           </Modal>
         </>
       )}

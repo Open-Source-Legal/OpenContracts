@@ -1,9 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Header, Icon, Button, Form, Divider } from "semantic-ui-react";
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+  Input,
+} from "@os-legal/ui";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import styled from "styled-components";
+import { UserCircle, X, Check } from "lucide-react";
 
 import { backendUserObj, showUserSettingsModal } from "../../graphql/cache";
+import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import {
   UPDATE_ME,
   UpdateMeInputs,
@@ -11,71 +20,39 @@ import {
 } from "../../graphql/mutations";
 import { UserBadges } from "../badges/UserBadges";
 
-const StyledModal = styled(Modal)`
-  &.ui.modal {
-    @media (max-width: 768px) {
-      width: 95% !important;
-      margin: 0.5rem auto !important;
-    }
+const ResponsiveFormGroup = styled.div`
+  display: flex;
+  gap: 1rem;
 
-    > .header {
-      @media (max-width: 768px) {
-        padding: 1rem !important;
-        font-size: 1.1rem !important;
-
-        .sub.header {
-          font-size: 0.85rem !important;
-          margin-top: 0.25rem !important;
-        }
-      }
-    }
-
-    > .content {
-      @media (max-width: 768px) {
-        padding: 1rem !important;
-      }
-    }
-
-    > .actions {
-      @media (max-width: 768px) {
-        padding: 0.75rem 1rem !important;
-        display: flex;
-        flex-direction: column-reverse;
-        gap: 0.5rem;
-
-        .button {
-          margin: 0 !important;
-          width: 100%;
-        }
-      }
-    }
+  @media (max-width: 480px) {
+    flex-direction: column;
+    gap: 0;
   }
-`;
 
-const ResponsiveFormGroup = styled(Form.Group)`
-  &.fields {
-    @media (max-width: 480px) {
-      flex-direction: column !important;
-
-      .field {
-        width: 100% !important;
-        margin-bottom: 1em !important;
-
-        &:last-child {
-          margin-bottom: 0 !important;
-        }
-      }
-    }
+  > div {
+    flex: 1;
   }
 `;
 
 const ProfileVisibilityHint = styled.div`
   font-size: 12px;
-  color: #666;
+  color: ${OS_LEGAL_COLORS.textSecondary};
   margin-top: 0.5rem;
 
   @media (max-width: 768px) {
     font-size: 11px;
+  }
+`;
+
+const FormField = styled.div`
+  margin-bottom: 1rem;
+
+  label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.875rem;
+    margin-bottom: 0.375rem;
+    color: ${OS_LEGAL_COLORS.textPrimary};
   }
 `;
 
@@ -128,75 +105,113 @@ const UserSettingsModal: React.FC = () => {
   const canSave = useMemo(() => dirty && !!user, [dirty, user]);
 
   return (
-    <StyledModal
+    <Modal
       open={isOpen}
       onClose={() => showUserSettingsModal(false)}
-      size="small"
-      closeIcon
       data-testid="user-settings-modal"
     >
-      <Header icon data-testid="user-settings-header">
-        <Icon name="user circle" />
-        User Settings
-        <Header.Subheader>Update your profile and public slug</Header.Subheader>
-      </Header>
-      <Modal.Content>
-        <Form>
-          <Form.Input
+      <ModalHeader>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <UserCircle size={24} />
+          <div>
+            <div>User Settings</div>
+            <div
+              style={{
+                fontSize: "0.85rem",
+                fontWeight: 400,
+                color: OS_LEGAL_COLORS.textSecondary,
+              }}
+            >
+              Update your profile and public slug
+            </div>
+          </div>
+        </div>
+      </ModalHeader>
+      <ModalBody>
+        <form onSubmit={(e) => e.preventDefault()}>
+          <Input
             label="Public Slug"
             placeholder="your-slug"
+            fullWidth
             value={form.slug || ""}
-            onChange={(_, data) => onChange("slug", String(data.value || ""))}
+            onChange={(e) => onChange("slug", e.target.value)}
           />
-          <Form.Input
+          <div style={{ height: "1rem" }} />
+          <Input
             label="Name"
             placeholder="Display name"
+            fullWidth
             value={form.name || ""}
-            onChange={(_, data) => onChange("name", String(data.value || ""))}
+            onChange={(e) => onChange("name", e.target.value)}
           />
-          <ResponsiveFormGroup widths="equal">
-            <Form.Input
-              label="First Name"
-              value={form.firstName || ""}
-              onChange={(_, data) =>
-                onChange("firstName", String(data.value || ""))
-              }
-            />
-            <Form.Input
-              label="Last Name"
-              value={form.lastName || ""}
-              onChange={(_, data) =>
-                onChange("lastName", String(data.value || ""))
-              }
-            />
+          <div style={{ height: "1rem" }} />
+          <ResponsiveFormGroup>
+            <div>
+              <Input
+                label="First Name"
+                fullWidth
+                value={form.firstName || ""}
+                onChange={(e) => onChange("firstName", e.target.value)}
+              />
+            </div>
+            <div>
+              <Input
+                label="Last Name"
+                fullWidth
+                value={form.lastName || ""}
+                onChange={(e) => onChange("lastName", e.target.value)}
+              />
+            </div>
           </ResponsiveFormGroup>
-          <Form.Input
+          <div style={{ height: "1rem" }} />
+          <Input
             label="Phone"
+            fullWidth
             value={form.phone || ""}
-            onChange={(_, data) => onChange("phone", String(data.value || ""))}
+            onChange={(e) => onChange("phone", e.target.value)}
           />
-          <Form.Field>
+          <div style={{ height: "1rem" }} />
+          <FormField>
             <label>Profile Visibility</label>
-            <Form.Checkbox
-              toggle
-              label="Public Profile"
-              checked={form.isProfilePublic ?? true}
-              onChange={(_, data) => {
-                setForm((prev) => ({ ...prev, isProfilePublic: data.checked }));
-                setDirty(true);
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                cursor: "pointer",
+                fontWeight: 400,
               }}
-            />
+            >
+              <input
+                type="checkbox"
+                checked={form.isProfilePublic ?? true}
+                onChange={(e) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    isProfilePublic: e.target.checked,
+                  }));
+                  setDirty(true);
+                }}
+              />
+              Public Profile
+            </label>
             <ProfileVisibilityHint>
               {form.isProfilePublic
                 ? "Your profile is visible to all users"
                 : "Your profile is only visible to you"}
             </ProfileVisibilityHint>
-          </Form.Field>
-        </Form>
+          </FormField>
+        </form>
 
         {user && (user as any).id && (
           <>
-            <Divider />
+            <hr
+              style={{
+                border: "none",
+                borderTop: `1px solid ${OS_LEGAL_COLORS.border}`,
+                margin: "1.5rem 0",
+              }}
+            />
             <UserBadges
               userId={(user as any).id}
               showTitle={true}
@@ -204,27 +219,27 @@ const UserSettingsModal: React.FC = () => {
             />
           </>
         )}
-      </Modal.Content>
-      <Modal.Actions>
+      </ModalBody>
+      <ModalFooter>
         <Button
-          basic
-          color="grey"
+          variant="secondary"
           onClick={() => showUserSettingsModal(false)}
           disabled={loading}
+          leftIcon={<X size={16} />}
         >
-          <Icon name="remove" /> Close
+          Close
         </Button>
         <Button
-          color="green"
-          inverted
+          variant="primary"
           disabled={!canSave}
           loading={loading}
           onClick={() => updateMe({ variables: form })}
+          leftIcon={<Check size={16} />}
         >
-          <Icon name="check" /> Save
+          Save
         </Button>
-      </Modal.Actions>
-    </StyledModal>
+      </ModalFooter>
+    </Modal>
   );
 };
 
