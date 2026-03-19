@@ -1,6 +1,5 @@
-// TODO: migrate Label from semantic-ui-react to @os-legal/ui Chip or equivalent
 import { useReactiveVar } from "@apollo/client";
-import { Label } from "semantic-ui-react";
+import { Chip } from "@os-legal/ui";
 import Select, { SelectOption } from "../../common/Select";
 import { filterToStructuralAnnotations } from "../../../graphql/cache";
 import { SingleValue, MultiValue } from "react-select";
@@ -33,23 +32,22 @@ export const FilterToStructuralAnnotationsSelector = ({
         ...style,
       }}
     >
-      <Label
+      <Chip
+        size="sm"
+        variant="filled"
         style={{
           margin: "0",
           background: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)",
           color: "white",
           fontWeight: "600",
           fontSize: "0.75rem",
-          padding: "0.375rem 0.625rem",
-          borderRadius: "8px",
-          border: "none",
           letterSpacing: "0.025em",
           textTransform: "uppercase",
           boxShadow: "0 2px 4px rgba(168, 237, 234, 0.3)",
         }}
       >
         Structural Annotations
-      </Label>
+      </Chip>
       <div style={{ position: "relative", zIndex: 10 }}>
         <Select
           options={structuralOptions}

@@ -1,5 +1,6 @@
 import React from "react";
 import { test, expect } from "@playwright/experimental-ct-react";
+import { docScreenshot } from "./utils/docScreenshot";
 import { FilterLayoutTestWrapper } from "./FilterLayoutTestWrapper";
 import { CreateAndSearchBar } from "../src/components/layout/CreateAndSearchBar";
 import { FilterToLabelSelector } from "../src/components/widgets/model-filters/FilterToLabelSelector";
@@ -260,6 +261,8 @@ test.describe("Filter Layout", () => {
     );
     const labelCount = await filterLabels.count();
     expect(labelCount).toBeGreaterThan(0);
+
+    await docScreenshot(page, "filters--all-components--default");
   });
 
   test("dropdowns expand without clipping in popup", async ({

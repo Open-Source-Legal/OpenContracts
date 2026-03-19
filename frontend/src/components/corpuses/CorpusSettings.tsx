@@ -3,7 +3,13 @@
  * Only visible to users with update permissions
  */
 import React, { useEffect, useState } from "react";
-import { Confirm } from "semantic-ui-react";
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+} from "@os-legal/ui";
 import { useQuery, useReactiveVar, useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
@@ -36,6 +42,7 @@ import { CorpusAgentManagement } from "./CorpusAgentManagement";
 import { ActionExecutionTrail } from "./ActionExecutionTrail";
 import { PermissionTypes } from "../types";
 import { getPermissions } from "../../utils/transform";
+import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
 // Sub-components
 import {
@@ -473,14 +480,23 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
           />
         )}
 
-        <Confirm
-          open={!!actionToDelete}
-          onCancel={() => setActionToDelete(null)}
-          onConfirm={() => actionToDelete && handleDelete(actionToDelete)}
-          content="Are you sure you want to delete this action? This cannot be undone."
-          confirmButton="Delete"
-          cancelButton="Cancel"
-        />
+        <Modal open={!!actionToDelete} onClose={() => setActionToDelete(null)}>
+          <ModalHeader>Confirm Delete</ModalHeader>
+          <ModalBody>
+            Are you sure you want to delete this action? This cannot be undone.
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="secondary" onClick={() => setActionToDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => actionToDelete && handleDelete(actionToDelete)}
+            >
+              Delete
+            </Button>
+          </ModalFooter>
+        </Modal>
       </SettingsPageContainer>
     </SettingsContainer>
   );

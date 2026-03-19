@@ -58,7 +58,6 @@ import { Annotations } from "./views/Annotations";
 
 import { ThemeProvider } from "./theme/ThemeProvider";
 
-import "semantic-ui-css/semantic.min.css";
 import "./App.css";
 import "react-toastify/dist/ReactToastify.css";
 import useWindowDimensions from "./components/hooks/WindowDimensionHook";

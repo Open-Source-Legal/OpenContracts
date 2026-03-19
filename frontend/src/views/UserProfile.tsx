@@ -15,7 +15,7 @@
 import React from "react";
 import styled from "styled-components";
 import { User, Settings, TrendingUp } from "lucide-react";
-import { Button } from "semantic-ui-react";
+import { Button } from "@os-legal/ui";
 import { UserBadges } from "../components/badges/UserBadges";
 import { UserProfileReputation } from "../components/threads/UserProfileReputation";
 import { UserStats } from "../components/profile/UserStats";
@@ -354,11 +354,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             {isOwnProfile && (
               <ActionButtons>
                 <Button
-                  icon
-                  labelPosition="left"
+                  variant="secondary"
+                  leftIcon={<Settings size={16} />}
                   onClick={() => showUserSettingsModal(true)}
                 >
-                  <Settings size={16} />
                   Edit Profile
                 </Button>
               </ActionButtons>

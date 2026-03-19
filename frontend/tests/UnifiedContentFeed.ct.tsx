@@ -132,8 +132,8 @@ test.describe("UnifiedContentFeed", () => {
       <UnifiedContentFeedTestWrapper isLoading={true} />
     );
 
-    // Should show loader
-    await expect(page.locator(".loader")).toBeVisible();
+    // Should show loader (Spinner from @os-legal/ui uses .oc-spinner class)
+    await expect(page.locator(".oc-spinner")).toBeVisible();
   });
 
   test("calls onItemSelect when note is clicked", async ({ mount, page }) => {

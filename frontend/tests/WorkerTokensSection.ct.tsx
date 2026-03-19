@@ -221,18 +221,16 @@ test.describe("WorkerTokensSection", () => {
     await expect(page.getByText("Create Access Token")).toBeVisible({
       timeout: 5000,
     });
-    await expect(
-      page.getByText("Worker Account", { exact: true })
-    ).toBeVisible();
+    await expect(page.getByText("Worker Account *")).toBeVisible();
     await expect(page.getByText("Expiry Date (optional)")).toBeVisible();
     await expect(
       page.getByText("Rate Limit (requests/min, 0 = unlimited)")
     ).toBeVisible();
 
-    // Create button should be disabled without worker account selected
-    const createButton = page
-      .locator(".actions")
-      .getByRole("button", { name: "Create Token" });
+    // Create button in modal footer should be disabled without worker account selected
+    const modalButtons = page.getByRole("button", { name: "Create Token" });
+    // The second "Create Token" button is the one inside the modal
+    const createButton = modalButtons.nth(1);
     await expect(createButton).toBeDisabled();
 
     await docScreenshot(page, "corpus--worker-tokens--create-modal");
@@ -362,14 +360,13 @@ test.describe("WorkerTokensSection", () => {
       timeout: 5000,
     });
 
-    // Select worker account from dropdown
-    await page.locator(".ui.dropdown").click();
+    // Select worker account from @os-legal/ui Dropdown
+    await page.getByText("Select a worker account").click();
     await page.getByRole("option", { name: "Pipeline Uploader" }).click();
 
-    // Click Create Token
-    const createBtn = page
-      .locator(".actions")
-      .getByRole("button", { name: "Create Token" });
+    // Click Create Token button in modal footer (second instance)
+    const createBtns = page.getByRole("button", { name: "Create Token" });
+    const createBtn = createBtns.nth(1);
     await createBtn.click();
 
     // One-time key modal should appear

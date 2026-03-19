@@ -1,9 +1,8 @@
-// TODO: migrate Label from semantic-ui-react to @os-legal/ui Chip or equivalent
 import { useQuery, useReactiveVar } from "@apollo/client";
 import { useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
-import { Label } from "semantic-ui-react";
+import { Chip } from "@os-legal/ui";
 import Select, { SelectOption } from "../../common/Select";
 import { MultiValue, SingleValue } from "react-select";
 import {
@@ -127,23 +126,22 @@ export const FilterToAnalysesSelector = ({
         ...style,
       }}
     >
-      <Label
+      <Chip
+        size="sm"
+        variant="filled"
         style={{
           margin: "0",
           background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
           color: "white",
           fontWeight: "600",
           fontSize: "0.75rem",
-          padding: "0.375rem 0.625rem",
-          borderRadius: "8px",
-          border: "none",
           letterSpacing: "0.025em",
           textTransform: "uppercase",
           boxShadow: "0 2px 4px rgba(245, 87, 108, 0.2)",
         }}
       >
         Created by Analysis
-      </Label>
+      </Chip>
       <div style={{ position: "relative", zIndex: 10 }}>
         <Select
           isMulti

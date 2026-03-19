@@ -253,6 +253,13 @@ export const dangerGlowAlpha = (opacity: number): string =>
   `rgba(255, 0, 0, ${opacity})`;
 
 /**
+ * Create an rgba color string from folderIcon amber (#D97706 = rgb(217, 119, 6))
+ * with a given opacity. Use instead of hardcoded rgba(245, 158, 11, ...) values.
+ */
+export const folderIconAlpha = (opacity: number): string =>
+  `rgba(217, 119, 6, ${opacity})`;
+
+/**
  * Typography definitions for the OS Legal design system.
  */
 export const OS_LEGAL_TYPOGRAPHY = {

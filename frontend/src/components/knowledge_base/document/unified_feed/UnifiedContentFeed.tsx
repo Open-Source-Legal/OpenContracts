@@ -1,4 +1,3 @@
-// TODO: migrate Loader, Button, and Icon from semantic-ui-react to @os-legal/ui (Spinner, Button) and lucide-react (icons)
 import React, {
   useCallback,
   useEffect,
@@ -9,7 +8,8 @@ import React, {
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
-import { Loader, Button, Icon } from "semantic-ui-react";
+import { Spinner, Button } from "@os-legal/ui";
+import { CheckCircle, Link as LinkIcon, CheckSquare, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { List, useListCallbackRef } from "react-window";
 import AutoSizer from "react-virtualized-auto-sizer";
@@ -625,7 +625,20 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   if (isLoading) {
     return (
       <FeedContainer>
-        <Loader active inline="centered" content="Loading content..." />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.5rem",
+            padding: "2rem",
+          }}
+        >
+          <Spinner size="md" />
+          <span style={{ color: OS_LEGAL_COLORS.textSecondary }}>
+            Loading content...
+          </span>
+        </div>
       </FeedContainer>
     );
   }
@@ -694,7 +707,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
           >
             <div className="selection-info">
-              <Icon name="check circle" />
+              <CheckCircle size={16} />
               <span>
                 {selectedAnnotationIds.length} annotation
                 {selectedAnnotationIds.length !== 1 ? "s" : ""} selected
@@ -702,28 +715,44 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
             </div>
             <div className="selection-actions">
               <Button
-                size="small"
-                inverted
+                size="sm"
+                variant="ghost"
                 onClick={() => setShowRelationshipModal(true)}
                 disabled={relationshipActionLoading}
+                leftIcon={<LinkIcon size={14} />}
+                style={{
+                  color: OS_LEGAL_COLORS.surface,
+                  borderColor: OS_LEGAL_COLORS.surface,
+                }}
               >
-                <Icon name="linkify" />
                 Add to Relationship
               </Button>
               <Button
-                size="small"
-                inverted
+                size="sm"
+                variant="ghost"
                 onClick={handleSelectAll}
                 disabled={
                   contentItems.filter((item) => item.type === "annotation")
                     .length === selectedAnnotationIds.length
                 }
+                leftIcon={<CheckSquare size={14} />}
+                style={{
+                  color: OS_LEGAL_COLORS.surface,
+                  borderColor: OS_LEGAL_COLORS.surface,
+                }}
               >
-                <Icon name="check square outline" />
                 Select All
               </Button>
-              <Button size="small" inverted onClick={handleClearSelection}>
-                <Icon name="close" />
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleClearSelection}
+                leftIcon={<X size={14} />}
+                style={{
+                  color: OS_LEGAL_COLORS.surface,
+                  borderColor: OS_LEGAL_COLORS.surface,
+                }}
+              >
                 Clear
               </Button>
             </div>

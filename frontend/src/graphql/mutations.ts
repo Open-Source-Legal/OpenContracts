@@ -1,5 +1,4 @@
 import { gql } from "@apollo/client";
-import { SemanticICONS } from "semantic-ui-react/dist/commonjs/generic";
 import { ExportTypes, MultipageAnnotationJson } from "../components/types";
 import {
   AnalysisType,
@@ -508,7 +507,7 @@ export interface UpdateAnnotationLabelInputs {
   id: string;
   color?: string;
   description?: string;
-  icon?: SemanticICONS;
+  icon?: string;
   text?: string;
   labelType?: LabelType;
 }
@@ -546,7 +545,7 @@ export const UPDATE_ANNOTATION_LABEL = gql`
 export interface CreateAnnotationLabelInputs {
   color?: string;
   description?: string;
-  icon?: SemanticICONS;
+  icon?: string;
   title?: string;
   type?: LabelType;
 }
@@ -580,7 +579,7 @@ export const CREATE_ANNOTATION_LABEL = gql`
 export interface CreateAnnotationLabelForLabelsetInputs {
   color?: string;
   description?: string;
-  icon?: SemanticICONS;
+  icon?: string;
   text?: string;
   labelType?: LabelType;
   labelsetId: string;

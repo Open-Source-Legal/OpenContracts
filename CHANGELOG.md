@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Refactored FullScreenModal to use native `size="fullscreen"` variant** (Closes #1073): Replaced the `createGlobalStyle` workaround in `frontend/src/components/knowledge_base/document/LayoutComponents.tsx` with the native `size="fullscreen"` prop from `@os-legal/ui`, which handles viewport positioning, sizing, border-radius removal, and overlay padding natively. Only minimal body styling overrides (background color, padding, and overflow) remain.
 - **Added `overlayClassName` to CorpusModal** (`frontend/src/components/corpuses/CorpusModal.tsx`): Uses the new `overlayClassName` prop to properly apply the `.corpus-modal-overlay` styles to the portal-rendered overlay element, fixing mobile overlay styles that were previously unreachable.
+- **Complete removal of Semantic UI React dependency**: Migrated all 19 remaining files that imported from `semantic-ui-react` to use `@os-legal/ui` equivalents and native HTML elements. Component mappings: `Label` → `Chip`, `Modal/ModalHeader/ModalContent/ModalActions` → `Modal/ModalHeader/ModalBody/ModalFooter`, `Button` → `Button`, `Confirm` → custom confirm dialog via `Modal`, `Loader/Dimmer` → `Spinner`, `Dropdown` → `Dropdown`, `Icon` → lucide-react icons, `Segment/Card/Form` → styled HTML elements. Removed `semantic-ui-css` and `semantic-ui-react` from `package.json`, deleted the semantic-ui CSS import from `App.tsx` and `playwright/index.tsx`, and removed the orphaned `semantic.css` asset file. Also replaced the `SemanticICONS` type with `string` in `graphql/mutations.ts`.
 
 ### Fixed
 
@@ -28,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Documented the duplicate-header-dropping assumption when converting ASGI header lists to dicts in `get_user_agent_from_scope()` and `get_claimed_client_ip_from_scope()`
   - Added async telemetry tests for `arecord_mcp_tool_call`, `arecord_mcp_resource_read`, and `arecord_mcp_request` (`opencontractserver/tests/test_mcp_extended.py`)
   - Added tests for User-Agent truncation and empty-string slug filtering
+
+## [Unreleased] - 2026-03-15
 
 ### Breaking Changes
 

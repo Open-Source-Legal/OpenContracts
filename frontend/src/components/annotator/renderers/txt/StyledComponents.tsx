@@ -72,6 +72,7 @@ export const LabelContainer = styled.div.attrs<{
   align-items: center;
   gap: 8px;
   z-index: 10000;
+  pointer-events: none;
   transform-origin: left center;
   transition: all 0.2s ease;
   padding: 4px;
@@ -79,6 +80,10 @@ export const LabelContainer = styled.div.attrs<{
   background: rgba(255, 255, 255, 0.95);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(4px);
+
+  & > * {
+    pointer-events: auto;
+  }
 
   &::before {
     content: "";

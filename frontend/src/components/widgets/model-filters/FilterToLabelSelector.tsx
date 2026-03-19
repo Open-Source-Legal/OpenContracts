@@ -1,7 +1,6 @@
-// TODO: migrate Label from semantic-ui-react to @os-legal/ui Chip or equivalent
 import { useEffect } from "react";
 import { useQuery, useReactiveVar } from "@apollo/client";
-import { Label } from "semantic-ui-react";
+import { Chip } from "@os-legal/ui";
 import Select, { SelectOption } from "../../common/Select";
 import { SingleValue, MultiValue } from "react-select";
 
@@ -139,23 +138,22 @@ export const FilterToLabelSelector = ({
         ...style,
       }}
     >
-      <Label
+      <Chip
+        size="sm"
+        variant="filled"
         style={{
           margin: "0",
           background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
           color: "white",
           fontWeight: "600",
           fontSize: "0.75rem",
-          padding: "0.375rem 0.625rem",
-          borderRadius: "8px",
-          border: "none",
           letterSpacing: "0.025em",
           textTransform: "uppercase",
           boxShadow: "0 2px 4px rgba(102, 126, 234, 0.2)",
         }}
       >
         Filter by Label
-      </Label>
+      </Chip>
       <div style={{ position: "relative", zIndex: 10 }}>
         <Select
           isClearable

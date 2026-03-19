@@ -7,8 +7,17 @@
  */
 import React, { useMemo, useState } from "react";
 import { gql, useQuery, useMutation } from "@apollo/client";
-import { Button, Modal, Form, Dropdown, Confirm } from "semantic-ui-react";
-import { Input, Table } from "@os-legal/ui";
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+  Input,
+  Dropdown as OsDropdown,
+  Table,
+} from "@os-legal/ui";
+import type { DropdownOption } from "@os-legal/ui";
 import { Copy, Check, Key, Plus } from "lucide-react";
 import { toast } from "react-toastify";
 import styled from "styled-components";
@@ -373,10 +382,9 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
   const tokens: CorpusAccessToken[] = tokensData?.corpusAccessTokens ?? [];
   const workerAccounts: WorkerAccountOption[] =
     accountsData?.workerAccounts ?? [];
-  const accountOptions = workerAccounts.map((a) => ({
-    key: a.id,
-    value: a.id,
-    text: a.name,
+  const accountOptions: DropdownOption[] = workerAccounts.map((a) => ({
+    value: String(a.id),
+    label: a.name,
   }));
 
   if (numericCorpusId === null) {
@@ -397,11 +405,11 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
           </SettingsCardTitle>
           {(isSuperuser || isCreator) && (
             <Button
-              primary
-              size="small"
+              variant="primary"
+              size="sm"
               onClick={() => setShowCreateModal(true)}
+              leftIcon={<Plus size={14} />}
             >
-              <Plus size={14} style={{ marginRight: "4px" }} />
               Create Token
             </Button>
           )}
@@ -500,9 +508,10 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
                       <Table.Cell>
                         {status === "active" && (
                           <Button
-                            size="tiny"
-                            negative
+                            size="sm"
+                            variant="secondary"
                             onClick={() => setTokenToRevoke(token.id)}
+                            style={{ color: OS_LEGAL_COLORS.danger }}
                           >
                             Revoke
                           </Button>
@@ -518,76 +527,84 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
       </SettingsCard>
 
       {/* Create Token Modal */}
-      <Modal
-        open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        size="small"
-      >
-        <Modal.Header>Create Access Token</Modal.Header>
-        <Modal.Content>
+      <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)}>
+        <ModalHeader>Create Access Token</ModalHeader>
+        <ModalBody>
           {loadingAccounts ? (
             <LoadingState message="Loading worker accounts..." />
           ) : (
-            <Form>
-              <Form.Field required>
-                <label>Worker Account</label>
-                <Dropdown
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+            >
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontWeight: 600,
+                    fontSize: "0.875rem",
+                    marginBottom: "0.375rem",
+                  }}
+                >
+                  Worker Account *
+                </label>
+                <OsDropdown
+                  mode="select"
                   placeholder="Select a worker account"
-                  fluid
-                  selection
                   options={accountOptions}
-                  value={formState.workerAccountId ?? undefined}
-                  onChange={(_e, { value }) =>
+                  value={
+                    formState.workerAccountId != null
+                      ? String(formState.workerAccountId)
+                      : null
+                  }
+                  onChange={(val) =>
                     setFormState({
                       ...formState,
-                      workerAccountId: value as number,
+                      workerAccountId:
+                        typeof val === "string" ? parseInt(val, 10) : null,
                     })
                   }
                 />
-              </Form.Field>
-              <Form.Field>
-                <label>Expiry Date (optional)</label>
-                <Input
-                  type="datetime-local"
-                  fullWidth
-                  value={formState.expiresAt}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormState({ ...formState, expiresAt: e.target.value })
-                  }
-                />
-              </Form.Field>
-              <Form.Field>
-                <label>Rate Limit (requests/min, 0 = unlimited)</label>
-                <Input
-                  type="number"
-                  fullWidth
-                  min={0}
-                  value={formState.rateLimitPerMinute}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormState({
-                      ...formState,
-                      rateLimitPerMinute: parseInt(e.target.value, 10) || 0,
-                    })
-                  }
-                />
-              </Form.Field>
-            </Form>
+              </div>
+              <Input
+                label="Expiry Date (optional)"
+                type="datetime-local"
+                fullWidth
+                value={formState.expiresAt}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setFormState({ ...formState, expiresAt: e.target.value })
+                }
+              />
+              <Input
+                label="Rate Limit (requests/min, 0 = unlimited)"
+                type="number"
+                fullWidth
+                value={formState.rateLimitPerMinute}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setFormState({
+                    ...formState,
+                    rateLimitPerMinute: parseInt(e.target.value, 10) || 0,
+                  })
+                }
+              />
+            </div>
           )}
-        </Modal.Content>
-        <Modal.Actions>
-          <Button onClick={() => setShowCreateModal(false)}>Cancel</Button>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="secondary" onClick={() => setShowCreateModal(false)}>
+            Cancel
+          </Button>
           <Button
-            primary
+            variant="primary"
             loading={creating}
             disabled={!formState.workerAccountId || creating}
             onClick={handleCreate}
           >
             Create Token
           </Button>
-        </Modal.Actions>
+        </ModalFooter>
       </Modal>
 
-      {/* One-Time Key Display Modal */}
+      {/* One-Time Key Display Modal — block outside-click so users must explicitly close */}
       <Modal
         open={showKeyModal}
         onClose={() => {
@@ -595,11 +612,11 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
           setNewTokenKey("");
           setCopied(false);
         }}
-        size="small"
-        closeOnDimmerClick={false}
+        closeOnOverlay={false}
+        closeOnEscape={false}
       >
-        <Modal.Header>Access Token Created</Modal.Header>
-        <Modal.Content>
+        <ModalHeader>Access Token Created</ModalHeader>
+        <ModalBody>
           <WarningBox>
             <Key size={20} style={{ flexShrink: 0, marginTop: "0.125rem" }} />
             <span>
@@ -614,19 +631,17 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
               onClick={(e) => (e.target as HTMLInputElement).select()}
             />
             <Button
-              icon
-              primary={!copied}
-              positive={copied}
+              variant={copied ? "primary" : "secondary"}
               onClick={handleCopy}
-              title={copied ? "Copied" : "Copy to clipboard"}
               style={{ height: "auto" }}
             >
               {copied ? <Check size={18} /> : <Copy size={18} />}
             </Button>
           </KeyDisplayContainer>
-        </Modal.Content>
-        <Modal.Actions>
+        </ModalBody>
+        <ModalFooter>
           <Button
+            variant="secondary"
             onClick={() => {
               setShowKeyModal(false);
               setNewTokenKey("");
@@ -635,18 +650,32 @@ export const WorkerTokensSection: React.FC<WorkerTokensSectionProps> = ({
           >
             Close
           </Button>
-        </Modal.Actions>
+        </ModalFooter>
       </Modal>
 
       {/* Revoke Confirmation */}
-      <Confirm
+      <Modal
         open={tokenToRevoke !== null}
-        onCancel={() => setTokenToRevoke(null)}
-        onConfirm={() => tokenToRevoke !== null && handleRevoke(tokenToRevoke)}
-        content="Are you sure you want to revoke this token? This cannot be undone."
-        confirmButton="Revoke"
-        cancelButton="Cancel"
-      />
+        onClose={() => setTokenToRevoke(null)}
+      >
+        <ModalHeader>Confirm Revoke</ModalHeader>
+        <ModalBody>
+          Are you sure you want to revoke this token? This cannot be undone.
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="secondary" onClick={() => setTokenToRevoke(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() =>
+              tokenToRevoke !== null && handleRevoke(tokenToRevoke)
+            }
+          >
+            Revoke
+          </Button>
+        </ModalFooter>
+      </Modal>
     </>
   );
 };

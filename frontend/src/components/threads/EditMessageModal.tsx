@@ -1,4 +1,3 @@
-// TODO: migrate Modal and Button from semantic-ui-react to @os-legal/ui equivalents
 /**
  * EditMessageModal - Mobile-responsive modal for editing thread messages
  *
@@ -16,10 +15,10 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Modal, Button } from "semantic-ui-react";
-import styled from "styled-components";
+import { Modal as OsModal, ModalBody as OsModalBody } from "@os-legal/ui";
+import styled, { keyframes } from "styled-components";
 import { useMutation } from "@apollo/client";
-import { X, Save, AlertCircle } from "lucide-react";
+import { X, Save, AlertCircle, Loader2 } from "lucide-react";
 import {
   CORPUS_COLORS,
   CORPUS_FONTS,
@@ -61,39 +60,23 @@ interface EditMessageModalProps {
   onSuccess?: () => void;
 }
 
-const StyledModal = styled(Modal)`
-  &&& {
-    /* Desktop/tablet styles */
-    width: 90vw;
-    max-width: 700px;
-    border-radius: ${CORPUS_RADII.xl};
-    overflow: hidden;
-    box-shadow: ${CORPUS_SHADOWS.xl};
+const StyledModalInner = styled.div`
+  width: 90vw;
+  max-width: 700px;
+  border-radius: ${CORPUS_RADII.xl};
+  overflow: hidden;
+  box-shadow: ${CORPUS_SHADOWS.xl};
+  background: white;
+  display: flex;
+  flex-direction: column;
 
-    /* Mobile: Full screen modal for better touch interaction */
-    ${mediaQuery.mobile} {
-      width: 100vw !important;
-      max-width: 100vw !important;
-      height: 100vh !important;
-      max-height: 100vh !important;
-      margin: 0 !important;
-      border-radius: 0;
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      right: 0 !important;
-      bottom: 0 !important;
-    }
-
-    & > .content {
-      padding: 0;
-
-      ${mediaQuery.mobile} {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-      }
-    }
+  ${mediaQuery.mobile} {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    margin: 0;
+    border-radius: 0;
   }
 `;
 
@@ -186,67 +169,77 @@ const ModalFooter = styled.div`
   }
 `;
 
-const ActionButton = styled(Button)<{ $variant?: "primary" | "secondary" }>`
-  &&& {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.375rem;
-    padding: 0.625rem 1.25rem;
-    border-radius: ${CORPUS_RADII.md};
-    font-family: ${CORPUS_FONTS.sans};
-    font-weight: 600;
-    font-size: 0.875rem;
-    transition: all ${CORPUS_TRANSITIONS.normal};
-    min-height: 2.75rem;
+const ActionButton = styled.button<{ $variant?: "primary" | "secondary" }>`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
 
-    ${mediaQuery.mobile} {
-      width: 100%;
-      padding: 0.75rem 1.25rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: ${CORPUS_RADII.md};
+  font-family: ${CORPUS_FONTS.sans};
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all ${CORPUS_TRANSITIONS.normal};
+  min-height: 2.75rem;
+  cursor: pointer;
+
+  ${mediaQuery.mobile} {
+    width: 100%;
+    padding: 0.75rem 1.25rem;
+  }
+
+  ${(props) =>
+    props.$variant === "primary" &&
+    `
+    background: linear-gradient(135deg, ${CORPUS_COLORS.teal[600]} 0%, ${
+      CORPUS_COLORS.teal[700]
+    } 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 4px 12px ${accentAlpha(0.35)};
+
+    &:hover:not(:disabled) {
+      background: linear-gradient(135deg, ${CORPUS_COLORS.teal[500]} 0%, ${
+      CORPUS_COLORS.teal[600]
+    } 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px ${accentAlpha(0.45)};
     }
 
-    ${(props) =>
-      props.$variant === "primary" &&
-      `
-      background: linear-gradient(135deg, ${CORPUS_COLORS.teal[600]} 0%, ${
-        CORPUS_COLORS.teal[700]
-      } 100%);
-      color: white;
-      border: none;
-      box-shadow: 0 4px 12px ${accentAlpha(0.35)};
+    &:active:not(:disabled) {
+      transform: translateY(0);
+    }
 
-      &:hover:not(:disabled) {
-        background: linear-gradient(135deg, ${CORPUS_COLORS.teal[500]} 0%, ${
-        CORPUS_COLORS.teal[600]
-      } 100%);
-        transform: translateY(-1px);
-        box-shadow: 0 6px 16px ${accentAlpha(0.45)};
-      }
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+  `}
 
-      &:active:not(:disabled) {
-        transform: translateY(0);
-      }
+  ${(props) =>
+    props.$variant === "secondary" &&
+    `
+    background: ${CORPUS_COLORS.white};
+    color: ${CORPUS_COLORS.slate[700]};
+    border: 1px solid ${CORPUS_COLORS.slate[200]};
 
-      &:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-      }
-    `}
+    &:hover:not(:disabled) {
+      background: ${CORPUS_COLORS.slate[50]};
+      border-color: ${CORPUS_COLORS.slate[300]};
+    }
+  `}
+`;
 
-    ${(props) =>
-      props.$variant === "secondary" &&
-      `
-      background: ${CORPUS_COLORS.white};
-      color: ${CORPUS_COLORS.slate[700]};
-      border: 1px solid ${CORPUS_COLORS.slate[200]};
+const spin = keyframes`
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+`;
 
-      &:hover:not(:disabled) {
-        background: ${CORPUS_COLORS.slate[50]};
-        border-color: ${CORPUS_COLORS.slate[300]};
-      }
-    `}
-  }
+const SpinningIcon = styled.span`
+  display: inline-flex;
+  animation: ${spin} 1s linear infinite;
 `;
 
 const ErrorMessage = styled.div`
@@ -256,7 +249,7 @@ const ErrorMessage = styled.div`
   padding: 0.625rem 0.875rem;
   background: ${OS_LEGAL_COLORS.dangerSurfaceHover};
   color: ${OS_LEGAL_COLORS.danger};
-  border: 1px solid #fca5a5;
+  border: 1px solid ${OS_LEGAL_COLORS.dangerBorder};
   border-radius: ${CORPUS_RADII.md};
   font-family: ${CORPUS_FONTS.sans};
   font-size: 0.8125rem;
@@ -468,90 +461,100 @@ export const EditMessageModal: React.FC<EditMessageModalProps> = ({
   const hasChanges = content !== initialContent;
 
   return (
-    <StyledModal
+    <OsModal
       open={isOpen}
       onClose={handleClose}
-      closeOnDimmerClick={!hasChanges}
+      closeOnOverlay={!hasChanges}
+      closeOnEscape={!hasChanges}
     >
-      <Modal.Content style={{ position: "relative" }}>
-        <ModalHeader>
-          <ModalTitle>Edit Message</ModalTitle>
-          <CloseButton onClick={handleClose} aria-label="Close modal">
-            <X size={20} />
-          </CloseButton>
-        </ModalHeader>
+      <OsModalBody style={{ padding: 0 }}>
+        <StyledModalInner>
+          <ModalHeader>
+            <ModalTitle>Edit Message</ModalTitle>
+            <CloseButton onClick={handleClose} aria-label="Close modal">
+              <X size={20} />
+            </CloseButton>
+          </ModalHeader>
 
-        <ModalContent>
-          {error && (
-            <ErrorMessage>
-              <AlertCircle size={16} />
-              {error}
-            </ErrorMessage>
+          <ModalContent>
+            {error && (
+              <ErrorMessage>
+                <AlertCircle size={16} />
+                {error}
+              </ErrorMessage>
+            )}
+
+            <MessageComposer
+              placeholder="Edit your message..."
+              initialContent={initialContent}
+              onChange={handleContentChange}
+              onSubmit={handleSave}
+              disabled={loading}
+              autoFocus
+              enableMentions
+              corpusId={corpusId}
+            />
+          </ModalContent>
+
+          <ModalFooter>
+            <ActionButton
+              $variant="secondary"
+              onClick={handleClose}
+              disabled={loading}
+            >
+              Cancel
+            </ActionButton>
+            <ActionButton
+              $variant="primary"
+              onClick={handleSave}
+              disabled={loading || !hasChanges || !content.trim()}
+              aria-label={
+                loading ? "Saving changes..." : "Save message changes"
+              }
+            >
+              {loading ? (
+                <SpinningIcon>
+                  <Loader2 size={16} />
+                </SpinningIcon>
+              ) : (
+                <Save size={16} />
+              )}
+              {loading ? "Saving..." : "Save Changes"}
+            </ActionButton>
+          </ModalFooter>
+
+          {/* Unsaved changes warning overlay */}
+          {showUnsavedWarning && (
+            <UnsavedWarningOverlay>
+              <UnsavedWarningBox>
+                <UnsavedWarningTitle>
+                  <AlertCircle size={20} />
+                  Unsaved Changes
+                </UnsavedWarningTitle>
+                <UnsavedWarningText>
+                  You have unsaved changes. Are you sure you want to close
+                  without saving?
+                </UnsavedWarningText>
+                <UnsavedWarningButtons>
+                  <UnsavedWarningButton
+                    $variant="cancel"
+                    onClick={handleCancelClose}
+                  >
+                    Continue Editing
+                  </UnsavedWarningButton>
+                  <UnsavedWarningButton
+                    $variant="discard"
+                    onClick={handleConfirmClose}
+                  >
+                    Discard Changes
+                  </UnsavedWarningButton>
+                </UnsavedWarningButtons>
+              </UnsavedWarningBox>
+            </UnsavedWarningOverlay>
           )}
-
-          <MessageComposer
-            placeholder="Edit your message..."
-            initialContent={initialContent}
-            onChange={handleContentChange}
-            onSubmit={handleSave}
-            disabled={loading}
-            autoFocus
-            enableMentions
-            corpusId={corpusId}
-          />
-        </ModalContent>
-
-        <ModalFooter>
-          <ActionButton
-            $variant="secondary"
-            onClick={handleClose}
-            disabled={loading}
-          >
-            Cancel
-          </ActionButton>
-          <ActionButton
-            $variant="primary"
-            onClick={handleSave}
-            disabled={loading || !hasChanges || !content.trim()}
-            loading={loading}
-            aria-label={loading ? "Saving changes..." : "Save message changes"}
-          >
-            <Save size={16} />
-            Save Changes
-          </ActionButton>
-        </ModalFooter>
-
-        {/* Unsaved changes warning overlay */}
-        {showUnsavedWarning && (
-          <UnsavedWarningOverlay>
-            <UnsavedWarningBox>
-              <UnsavedWarningTitle>
-                <AlertCircle size={20} />
-                Unsaved Changes
-              </UnsavedWarningTitle>
-              <UnsavedWarningText>
-                You have unsaved changes. Are you sure you want to close without
-                saving?
-              </UnsavedWarningText>
-              <UnsavedWarningButtons>
-                <UnsavedWarningButton
-                  $variant="cancel"
-                  onClick={handleCancelClose}
-                >
-                  Continue Editing
-                </UnsavedWarningButton>
-                <UnsavedWarningButton
-                  $variant="discard"
-                  onClick={handleConfirmClose}
-                >
-                  Discard Changes
-                </UnsavedWarningButton>
-              </UnsavedWarningButtons>
-            </UnsavedWarningBox>
-          </UnsavedWarningOverlay>
-        )}
-      </Modal.Content>
-    </StyledModal>
+        </StyledModalInner>
+      </OsModalBody>
+    </OsModal>
   );
 };
 

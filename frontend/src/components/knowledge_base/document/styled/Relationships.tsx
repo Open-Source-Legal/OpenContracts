@@ -1,5 +1,3 @@
-// TODO: migrate Card from semantic-ui-react to @os-legal/ui Card
-import { Card } from "semantic-ui-react";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 
@@ -19,23 +17,23 @@ export const RelationshipPanel = styled.div`
   }
 `;
 
-export const RelationshipCard = styled(Card)`
-  &&& {
-    width: 100%;
-    margin-bottom: 1rem !important;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
-    border: 1px solid rgba(231, 234, 237, 0.7) !important;
-    transition: all 0.2s ease;
+export const RelationshipCard = styled.div`
+  width: 100%;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(231, 234, 237, 0.7);
+  border-radius: 8px;
+  background: white;
+  transition: all 0.2s ease;
 
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05) !important;
-      border-color: ${OS_LEGAL_COLORS.primaryBlue} !important;
-    }
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+    border-color: ${OS_LEGAL_COLORS.primaryBlue};
+  }
 
-    .content {
-      padding: 1.25rem !important;
-    }
+  .content {
+    padding: 1.25rem;
   }
 `;
 
