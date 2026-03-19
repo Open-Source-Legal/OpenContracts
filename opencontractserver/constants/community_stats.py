@@ -1,8 +1,9 @@
 """Constants for community stats caching."""
 
-# Cache community stats for 2 minutes. These are aggregate platform
-# metrics (user counts, annotation counts, message counts) that don't
-# need real-time accuracy. The landing page polls every 5 minutes, so
-# a 2-minute TTL provides freshness while avoiding 7+ expensive COUNT
-# queries on every page load.
-COMMUNITY_STATS_CACHE_TTL = 120
+import os
+
+# Cache community stats for 1 hour by default. These are aggregate platform
+# metrics (user counts, annotation counts, message counts) that don't need
+# real-time accuracy. Configurable via COMMUNITY_STATS_CACHE_TTL env var
+# (value in seconds) to allow tuning without code changes.
+COMMUNITY_STATS_CACHE_TTL = int(os.environ.get("COMMUNITY_STATS_CACHE_TTL", "3600"))
