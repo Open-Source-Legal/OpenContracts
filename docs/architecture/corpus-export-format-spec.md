@@ -520,6 +520,10 @@ The importer enforces these limits (configurable via Django settings):
 
 ## Document Index Convention
 
+> **Architecture overview**: For the full design rationale, component map, data
+> flow, and agent tool details, see
+> [Document Annotation Index](document_annotation_index.md).
+
 OpenContracts supports a **hierarchical document index** (within-document table
 of contents) built entirely from annotations. The frontend renders these as a
 navigable, collapsible tree with optional markdown descriptions. Downstream
