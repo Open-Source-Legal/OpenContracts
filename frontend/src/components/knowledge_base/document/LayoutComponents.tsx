@@ -5,10 +5,15 @@ import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
 // Minimal overrides for the fullscreen modal body — the native size="fullscreen"
 // variant handles positioning, sizing, border-radius, and overlay padding.
-// We only need to customize background color and body padding/overflow.
+// We override max-height because the base .oc-modal sets max-height: calc(100vh - 32px)
+// which the fullscreen variant doesn't clear, and overflow: hidden to contain content.
+// Injected unconditionally when FullScreenModal is mounted (even when closed),
+// but scoped via .fullscreen-modal class to prevent leakage.
 const FullScreenModalBodyStyles = createGlobalStyle`
   .fullscreen-modal {
     background: ${OS_LEGAL_COLORS.gray50};
+    max-height: 100vh;
+    overflow: hidden;
   }
 
   .fullscreen-modal .oc-modal-body {
