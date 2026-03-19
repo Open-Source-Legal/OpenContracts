@@ -320,11 +320,8 @@ test.describe("UnifiedContentFeed - Read-only Mode", () => {
     const firstNote = page.locator("button").filter({ hasText: "Test Note 1" });
     await expect(firstNote).toBeVisible();
 
-    // Check cursor style
-    const cursor = await firstNote.evaluate(
-      (el) => window.getComputedStyle(el).cursor
-    );
-    expect(cursor).toBe("default");
+    // Check cursor style — use toHaveCSS for auto-retry until styles are injected
+    await expect(firstNote).toHaveCSS("cursor", "default");
   });
 
   test("read-only: edit indicators are hidden", async ({ mount, page }) => {
