@@ -605,6 +605,10 @@ class SocialQueryMixin:
         Issue: #613 - Create leaderboard and community stats dashboard
         Epic: #572 - Social Features Epic
 
+        Uses Django cache with a short TTL to avoid re-running 7+ COUNT
+        queries on every landing page load. Cache is keyed by user type
+        (anonymous vs authenticated user ID) and optional corpus_id.
+
         Args:
             corpus_id: Optional corpus ID for corpus-specific stats
 
@@ -614,14 +618,19 @@ class SocialQueryMixin:
         from datetime import timedelta
 
         from django.contrib.auth import get_user_model
+        from django.core.cache import cache
         from django.db.models import Count
         from django.utils import timezone
 
         from opencontractserver.annotations.models import Annotation
+        from opencontractserver.constants.community_stats import (
+            COMMUNITY_STATS_CACHE_TTL,
+        )
 
         # UserBadge is imported at top level
 
         User = get_user_model()
+        user = info.context.user
 
         # Get corpus if specified
         corpus_django_pk = None
@@ -629,11 +638,18 @@ class SocialQueryMixin:
             try:
                 _, corpus_django_pk = from_global_id(corpus_id)
                 # Verify user has access to this corpus
-                Corpus.objects.visible_to_user(info.context.user).get(
-                    id=corpus_django_pk
-                )
+                Corpus.objects.visible_to_user(user).get(id=corpus_django_pk)
             except Corpus.DoesNotExist:
                 raise GraphQLError("Corpus not found or access denied")
+
+        # Build cache key based on user identity and corpus scope
+        user_key = "anon" if user.is_anonymous else f"user:{user.id}"
+        corpus_key = f":corpus:{corpus_django_pk}" if corpus_django_pk else ""
+        cache_key = f"community_stats:{user_key}{corpus_key}"
+
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         # Calculate date cutoffs
         now = timezone.now()
@@ -641,14 +657,13 @@ class SocialQueryMixin:
         month_ago = now - timedelta(days=30)
 
         # Get visible users
-        users = User.objects.visible_to_user(info.context.user).filter(is_active=True)
+        users = User.objects.visible_to_user(user).filter(is_active=True)
         total_users = users.count()
 
         # Total messages
-        # Filter by visible conversations since ChatMessage doesn't inherit conversation visibility
-        visible_conversations_stats = Conversation.objects.visible_to_user(
-            info.context.user
-        )
+        # Filter by visible conversations since ChatMessage doesn't
+        # inherit conversation visibility
+        visible_conversations_stats = Conversation.objects.visible_to_user(user)
         message_query = ChatMessage.objects.filter(
             msg_type=MessageTypeChoices.HUMAN,
             conversation__in=visible_conversations_stats,
@@ -678,13 +693,13 @@ class SocialQueryMixin:
         # Total threads
         thread_query = Conversation.objects.filter(
             conversation_type="thread"
-        ).visible_to_user(info.context.user)
+        ).visible_to_user(user)
         if corpus_django_pk:
             thread_query = thread_query.filter(chat_with_corpus_id=corpus_django_pk)
         total_threads = thread_query.count()
 
         # Total annotations
-        annotation_query = Annotation.objects.visible_to_user(info.context.user)
+        annotation_query = Annotation.objects.visible_to_user(user)
         if corpus_django_pk:
             annotation_query = annotation_query.filter(
                 document__corpus__id=corpus_django_pk
@@ -699,27 +714,32 @@ class SocialQueryMixin:
             )
         total_badges_awarded = badge_query.count()
 
-        # Badge distribution
+        # Badge distribution - batch-load badges to avoid N+1
         badge_distribution = []
-        badge_stats = (
+        badge_stats = list(
             badge_query.values("badge")
             .annotate(
-                award_count=Count("id"), unique_recipients=Count("user", distinct=True)
+                award_count=Count("id"),
+                unique_recipients=Count("user", distinct=True),
             )
             .order_by("-award_count")[:10]
         )
 
-        for stat in badge_stats:
-            badge = Badge.objects.get(id=stat["badge"])
-            badge_distribution.append(
-                BadgeDistributionType(
-                    badge=badge,
-                    award_count=stat["award_count"],
-                    unique_recipients=stat["unique_recipients"],
-                )
-            )
+        if badge_stats:
+            badge_ids = [stat["badge"] for stat in badge_stats]
+            badges_by_id = Badge.objects.in_bulk(badge_ids)
+            for stat in badge_stats:
+                badge_obj = badges_by_id.get(stat["badge"])
+                if badge_obj:
+                    badge_distribution.append(
+                        BadgeDistributionType(
+                            badge=badge_obj,
+                            award_count=stat["award_count"],
+                            unique_recipients=stat["unique_recipients"],
+                        )
+                    )
 
-        return CommunityStatsType(
+        result = CommunityStatsType(
             total_users=total_users,
             total_messages=total_messages,
             total_threads=total_threads,
@@ -731,3 +751,6 @@ class SocialQueryMixin:
             active_users_this_week=active_users_week,
             active_users_this_month=active_users_month,
         )
+
+        cache.set(cache_key, result, COMMUNITY_STATS_CACHE_TTL)
+        return result

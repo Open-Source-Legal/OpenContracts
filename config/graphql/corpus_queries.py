@@ -133,16 +133,16 @@ class CorpusQueryMixin:
 
         user = info.context.user
 
-        # Get IDs of all corpuses visible to this user
-        # This properly respects guardian permissions for shared private corpuses
-        visible_corpus_ids = list(
-            Corpus.objects.visible_to_user(user).values_list("id", flat=True)
-        )
+        # Use a subquery instead of materializing all visible corpus IDs
+        # into a Python list — keeps filtering in the database.
+        visible_corpus_subquery = Corpus.objects.visible_to_user(user).values("id")
 
         # Count corpuses per category, filtering to only visible ones
         categories = CorpusCategory.objects.annotate(
             _corpus_count=Count(
-                "corpuses", filter=Q(corpuses__id__in=visible_corpus_ids), distinct=True
+                "corpuses",
+                filter=Q(corpuses__id__in=visible_corpus_subquery),
+                distinct=True,
             )
         ).order_by("sort_order", "name")
 
