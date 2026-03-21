@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import logging
 import pathlib
@@ -6,6 +7,7 @@ import zipfile
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
+    from opencontractserver.annotations.models import AnnotationLabel
     from opencontractserver.utils.metadata_file_parser import DocumentMetadata
 
 import filetype
@@ -17,6 +19,7 @@ from config import celery_app
 from opencontractserver.annotations.models import (
     DOC_TYPE_LABEL,
     TOKEN_LABEL,
+    LabelSet,
 )
 from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
@@ -30,8 +33,11 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.importing import (
+    create_document_from_export_data,
     import_doc_annotations,
+    import_relationships,
     load_or_create_labels,
+    prepare_import_labels,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -134,7 +140,7 @@ def import_document_to_corpus(
         )
 
         # Import all annotations onto the corpus copy using shared helper
-        import_doc_annotations(
+        _annot_id_map, _doc_labels_count = import_doc_annotations(
             doc_data=doc_data,
             corpus_doc=corpus_doc,
             corpus_obj=corpus_obj,
@@ -527,6 +533,126 @@ def create_relationships_from_parsed(
     return results
 
 
+def _read_sidecar(
+    import_zip: "zipfile.ZipFile",
+    sidecar_path: str,
+) -> dict:
+    """
+    Read and parse a sidecar JSON from the zip file.
+
+    Args:
+        import_zip: The open zip file handle.
+        sidecar_path: Path within the zip to the sidecar JSON file.
+
+    Returns:
+        Parsed sidecar data dict.
+
+    Raises:
+        json.JSONDecodeError: If the sidecar is not valid JSON.
+        KeyError: If the sidecar path is not found in the zip.
+    """
+    with import_zip.open(sidecar_path) as sidecar_handle:
+        return json.loads(sidecar_handle.read().decode("UTF-8"))
+
+
+def _apply_sidecar_annotations(
+    doc_data: dict,
+    sidecar_path: str,
+    corpus_doc: "Document",
+    corpus_obj: "Corpus",
+    user_obj: "User",
+    label_lookup: "dict[str, AnnotationLabel]",
+    doc_label_lookup: "dict[str, AnnotationLabel]",
+    results: dict,
+) -> None:
+    """
+    Import annotations from pre-parsed sidecar data onto a corpus document.
+
+    Args:
+        doc_data: Pre-parsed sidecar JSON data (OpenContractDocExport).
+        sidecar_path: Original sidecar path (for logging/error messages).
+        corpus_doc: The corpus-isolated document to attach annotations to.
+        corpus_obj: The corpus instance.
+        user_obj: The user performing the import.
+        label_lookup: Combined label lookup (text + doc labels) keyed by name.
+        doc_label_lookup: Doc-type label lookup keyed by label text.
+        results: Mutable results dict to update counters.
+    """
+    try:
+        has_annotations = bool(
+            doc_data.get("labelled_text") or doc_data.get("doc_labels")
+        )
+        has_labels = bool(label_lookup or doc_label_lookup)
+
+        if has_annotations and not has_labels:
+            logger.warning(
+                f"import_zip_with_folder_structure() - Sidecar {sidecar_path} "
+                f"contains annotations but no labels are available "
+                f"(missing or empty labels.json). Skipping annotation import."
+            )
+            results["errors"].append(
+                f"Sidecar {sidecar_path} has annotations but no labels "
+                f"available — annotations skipped"
+            )
+            results["annotation_sidecars_errored"] += 1
+            return
+
+        # Import annotations onto the corpus document
+        expected_text = len(doc_data.get("labelled_text", []))
+        expected_doc = len(doc_data.get("doc_labels", []))
+        annot_id_map, doc_labels_created = import_doc_annotations(
+            doc_data=doc_data,
+            corpus_doc=corpus_doc,
+            corpus_obj=corpus_obj,
+            user_id=user_obj.id,
+            label_lookup=label_lookup,
+            doc_label_lookup=doc_label_lookup,
+        )
+        results["annotations_imported"] += len(annot_id_map) + doc_labels_created
+
+        # Warn if any annotations were skipped (e.g. due to missing labels)
+        actual_total = len(annot_id_map) + doc_labels_created
+        expected_total = expected_text + expected_doc
+        if actual_total < expected_total:
+            skipped = expected_total - actual_total
+            msg = (
+                f"Sidecar {sidecar_path}: {skipped} annotation(s) skipped "
+                f"(likely due to missing labels in labels.json)"
+            )
+            logger.warning(f"import_zip_with_folder_structure() - {msg}")
+            results["errors"].append(msg)
+
+        # Import intra-document relationships from the sidecar
+        relationships_data = doc_data.get("relationships", [])
+        if relationships_data:
+            import_relationships(
+                user_id=user_obj.id,
+                doc_obj=corpus_doc,
+                corpus_obj=corpus_obj,
+                relationships_data=relationships_data,
+                label_lookup=label_lookup,
+                annotation_id_map=annot_id_map,
+            )
+
+        results["annotation_sidecars_processed"] += 1
+        logger.info(
+            f"import_zip_with_folder_structure() - Applied sidecar annotations "
+            f"to document {corpus_doc.id}: {len(annot_id_map)} text, "
+            f"{doc_labels_created} doc-level"
+        )
+
+    except Exception as e:
+        logger.error(
+            f"import_zip_with_folder_structure() - Error applying sidecar "
+            f"annotations for {sidecar_path}: {e}",
+            exc_info=True,
+        )
+        results["annotation_sidecars_errored"] += 1
+        results["errors"].append(
+            f"Sidecar annotation error for {sidecar_path}: {str(e)}"
+        )
+
+
 @celery_app.task()
 def import_zip_with_folder_structure(
     temporary_file_handle_id: str | int,
@@ -545,8 +671,16 @@ def import_zip_with_folder_structure(
     This task:
     1. Validates the zip file for security (path traversal, zip bombs, etc.)
     2. Creates the folder structure from the zip in the corpus
-    3. Extracts and creates documents with proper folder assignments
-    4. If a relationships.csv file is present at the zip root, creates
+    3. If labels.json is present, loads annotation label definitions
+    4. Extracts and creates documents with proper folder assignments.
+       If a document has a co-located .json sidecar (OpenContractDocExport):
+       - If the sidecar contains ``"skip_pipeline": true``, the document is
+         created directly from the sidecar's export data (PAWLs, text, etc.)
+         and the parser pipeline is **not** triggered.
+       - Otherwise (default), the document goes through the parser pipeline
+         and sidecar annotations are imported **additively** on top of any
+         pipeline-generated annotations.
+    5. If a relationships.csv file is present at the zip root, creates
        document relationships based on its contents
 
     The relationships.csv file should have the format:
@@ -600,6 +734,14 @@ def import_zip_with_folder_structure(
         # Metadata statistics
         "metadata_file_found": False,
         "metadata_applied": 0,
+        # Annotation sidecar statistics
+        "labels_file_found": False,
+        "labels_loaded": False,
+        "annotation_sidecars_found": 0,
+        "annotation_sidecars_processed": 0,
+        "annotation_sidecars_errored": 0,
+        "annotations_imported": 0,
+        "pipeline_skipped": 0,
         # Relationship statistics
         "relationships_file_found": False,
         "relationships_created": 0,
@@ -760,7 +902,50 @@ def import_zip_with_folder_structure(
                         )
                         results["errors"].append(f"Metadata file error: {error}")
 
-            # Phase 3: Process documents in batches
+            # Phase 3: Load annotation labels if labels.json is present
+            # These are needed when importing annotation sidecars
+            label_lookup: dict[str, "AnnotationLabel"] = {}
+            doc_label_lookup: dict[str, "AnnotationLabel"] = {}
+            if manifest.labels_file:
+                results["labels_file_found"] = True
+            if manifest.labels_file and manifest.annotation_sidecars:
+                try:
+                    with import_zip.open(manifest.labels_file) as labels_handle:
+                        labels_data = json.loads(labels_handle.read().decode("UTF-8"))
+
+                    # Ensure corpus has a label set
+                    if not corpus_obj.label_set:
+                        labelset_obj = LabelSet.objects.create(
+                            title=f"Labels for {corpus_obj.title}",
+                            description="Auto-created during annotated import",
+                            creator=user_obj,
+                        )
+                        set_permissions_for_obj_to_user(
+                            user_obj, labelset_obj, [PermissionTypes.ALL]
+                        )
+                        corpus_obj.label_set = labelset_obj
+                        corpus_obj.save(update_fields=["label_set"])
+                    else:
+                        labelset_obj = corpus_obj.label_set
+
+                    label_lookup, doc_label_lookup = prepare_import_labels(
+                        labels_data, user_obj.id, labelset_obj
+                    )
+                    results["labels_loaded"] = True
+                    logger.info(
+                        f"import_zip_with_folder_structure() - Loaded "
+                        f"{len(label_lookup)} labels from {manifest.labels_file}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"import_zip_with_folder_structure() - "
+                        f"Error parsing labels file: {e}"
+                    )
+                    results["errors"].append(f"Labels file error: {e}")
+
+            results["annotation_sidecars_found"] = len(manifest.annotation_sidecars)
+
+            # Phase 4: Process documents in batches
             # Build document_path_map as documents are created for use in Phase 4
             document_path_map: dict[str, Document] = {}
             batch_count = 0
@@ -840,39 +1025,104 @@ def import_zip_with_folder_structure(
                         # Use the sanitized path directly from the zip
                         doc_path_str = f"/{entry.sanitized_path}"
 
-                    # Create document based on file type
-                    # Use import_content to create document directly in corpus
-                    # This avoids creating orphan standalone documents
+                    # Determine document creation strategy:
+                    # - If a sidecar with skip_pipeline=True exists, create the
+                    #   document directly from export data (no parser pipeline).
+                    # - Otherwise, use import_content (pipeline) and optionally
+                    #   layer sidecar annotations on top additively.
                     added_doc = None
                     doc_path = None
+                    sidecar_path = manifest.annotation_sidecars.get(
+                        entry.sanitized_path
+                    )
+
+                    # Pre-read sidecar if present (needed for skip_pipeline
+                    # check and to avoid reading twice)
+                    sidecar_data: dict | None = None
+                    skip_pipeline = False
+                    if sidecar_path:
+                        try:
+                            sidecar_data = _read_sidecar(import_zip, sidecar_path)
+                            skip_pipeline = bool(
+                                sidecar_data.get("skip_pipeline", False)
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"import_zip_with_folder_structure() - "
+                                f"Error reading sidecar {sidecar_path}: {e}",
+                                exc_info=True,
+                            )
+                            results["annotation_sidecars_errored"] += 1
+                            results["errors"].append(
+                                f"Sidecar read error for {sidecar_path}: {e}"
+                            )
+                            # Fall through to pipeline creation without sidecar
+                            sidecar_data = None
 
                     try:
-                        # All file types now use the unified import_content pipeline
-                        # which handles versioning and proper file storage (text files
-                        # go to txt_extract_file, binary files to pdf_file)
-                        added_doc, status, doc_path = corpus_obj.import_content(
-                            content=file_bytes,
-                            path=doc_path_str,
-                            user=user_obj,
-                            folder=doc_folder,
-                            filename=entry.filename,
-                            title=doc_title,
-                            description=doc_description,
-                            custom_meta=custom_meta,
-                            is_public=make_public,
-                            file_type=mime_type,
-                            backend_lock=True,
-                        )
-                        logger.info(
-                            f"import_zip_with_folder_structure() - Created document "
-                            f"{added_doc.id} in corpus {corpus_obj.id} (status: {status})"
-                        )
+                        if skip_pipeline and sidecar_data:
+                            # Create document from sidecar export data directly
+                            # — no parser pipeline triggered
+                            doc_obj = create_document_from_export_data(
+                                doc_data=sidecar_data,
+                                pdf_file_handle=io.BytesIO(file_bytes),
+                                doc_filename=entry.filename,
+                                user_obj=user_obj,
+                            )
+                            added_doc, _status, doc_path = corpus_obj.add_document(
+                                document=doc_obj,
+                                user=user_obj,
+                                path=doc_path_str,
+                                folder=doc_folder,
+                            )
+                            # Unlock the standalone document now that it's added
+                            doc_obj.backend_lock = False
+                            doc_obj.save(update_fields=["backend_lock"])
+                            results["pipeline_skipped"] += 1
+                            logger.info(
+                                f"import_zip_with_folder_structure() - "
+                                f"Created document {added_doc.id} in corpus "
+                                f"{corpus_obj.id} (pipeline skipped)"
+                            )
+                        else:
+                            # Create document through the parser pipeline
+                            added_doc, _status, doc_path = corpus_obj.import_content(
+                                content=file_bytes,
+                                path=doc_path_str,
+                                user=user_obj,
+                                folder=doc_folder,
+                                filename=entry.filename,
+                                title=doc_title,
+                                description=doc_description,
+                                custom_meta=custom_meta,
+                                is_public=make_public,
+                                file_type=mime_type,
+                                backend_lock=True,
+                            )
+                            logger.info(
+                                f"import_zip_with_folder_structure() - "
+                                f"Created document {added_doc.id} in corpus "
+                                f"{corpus_obj.id} via pipeline"
+                            )
 
                         if added_doc:
                             # Set permissions for the document
                             set_permissions_for_obj_to_user(
                                 user_obj, added_doc, [PermissionTypes.CRUD]
                             )
+
+                            # Apply sidecar annotations if we have parsed data
+                            if sidecar_data:
+                                _apply_sidecar_annotations(
+                                    doc_data=sidecar_data,
+                                    sidecar_path=sidecar_path,
+                                    corpus_doc=added_doc,
+                                    corpus_obj=corpus_obj,
+                                    user_obj=user_obj,
+                                    label_lookup=label_lookup,
+                                    doc_label_lookup=doc_label_lookup,
+                                    results=results,
+                                )
 
                     except PermissionError as e:
                         logger.warning(
@@ -894,7 +1144,7 @@ def import_zip_with_folder_structure(
                         document_path_map[normalized_zip_path] = added_doc
 
                         # Track upversioned documents
-                        if doc_path.version_number > 1:
+                        if doc_path and doc_path.version_number > 1:
                             results["files_upversioned"] += 1
                             results["upversioned_paths"].append(doc_path_str)
 
@@ -915,7 +1165,7 @@ def import_zip_with_folder_structure(
                         f"Error processing {entry.sanitized_path}: {str(e)}"
                     )
 
-            # Phase 4: Process relationships file if present
+            # Phase 5: Process relationships file if present
             if manifest.relationship_file and document_path_map:
                 from opencontractserver.utils.relationship_file_parser import (
                     parse_relationship_file,
@@ -988,6 +1238,9 @@ def import_zip_with_folder_structure(
             f"upversioned: {results['files_upversioned']}, "
             f"folders created: {results['folders_created']}, "
             f"metadata applied: {results['metadata_applied']}, "
+            f"sidecars processed: {results['annotation_sidecars_processed']}, "
+            f"pipeline skipped: {results['pipeline_skipped']}, "
+            f"annotations imported: {results['annotations_imported']}, "
             f"relationships created: {results['relationships_created']}"
         )
 
