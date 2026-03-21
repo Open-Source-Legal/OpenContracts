@@ -633,6 +633,7 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
         size="lg"
         closeOnEscape={!loading}
         className="corpus-modal"
+        overlayClassName="corpus-modal-overlay"
       >
         <ModalHeader
           title={headerTitle}
