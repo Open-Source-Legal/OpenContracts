@@ -34,6 +34,39 @@ import {
 } from "../../assets/configurations/constants";
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+/**
+ * Strip common markdown syntax to produce plain text for collapsed previews.
+ * Avoids parsing a full markdown AST for every collapsed node.
+ */
+function stripMarkdown(text: string): string {
+  return (
+    text
+      // Remove headings: "## Heading" → "Heading"
+      .replace(/^#{1,6}\s+/gm, "")
+      // Remove bold/italic: **text** or *text* or __text__ or _text_
+      .replace(/(\*{1,3}|_{1,3})(.*?)\1/g, "$2")
+      // Remove inline code
+      .replace(/`([^`]+)`/g, "$1")
+      // Remove links: [text](url) → text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      // Remove images: ![alt](url) → alt
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      // Remove blockquotes
+      .replace(/^>\s+/gm, "")
+      // Remove list markers
+      .replace(/^[-*+]\s+/gm, "")
+      .replace(/^\d+\.\s+/gm, "")
+      // Collapse multiple newlines
+      .replace(/\n{2,}/g, " ")
+      .replace(/\n/g, " ")
+      .trim()
+  );
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -741,9 +774,13 @@ export const DocumentAnnotationIndex: React.FC<
                     : "Click to expand"
                 }
               >
-                <ReactMarkdown rehypePlugins={[rehypeSanitize]}>
-                  {node.longDescription!}
-                </ReactMarkdown>
+                {isDescriptionExpanded ? (
+                  <ReactMarkdown rehypePlugins={[rehypeSanitize]}>
+                    {node.longDescription!}
+                  </ReactMarkdown>
+                ) : (
+                  stripMarkdown(node.longDescription!)
+                )}
               </NodeDescription>
             )}
           </NodeContent>
