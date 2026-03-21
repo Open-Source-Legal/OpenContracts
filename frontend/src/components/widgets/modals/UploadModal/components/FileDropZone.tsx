@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 import { useDropzone, FileRejection, DropEvent, Accept } from "react-dropzone";
 import { Upload, FileArchive, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@os-legal/ui";
@@ -8,6 +8,12 @@ import { UPLOAD } from "../../../../../assets/configurations/constants";
 
 export type UploadMode = "single" | "bulk";
 
+export interface AcceptedFileType {
+  mimetype: string;
+  extension: string;
+  label: string;
+}
+
 interface FileDropZoneProps {
   mode: UploadMode;
   disabled?: boolean;
@@ -15,6 +21,8 @@ interface FileDropZoneProps {
   selectedFile?: File | null;
   /** For single mode, whether files have been added */
   hasFiles?: boolean;
+  /** Accepted file types for single mode (from backend). Falls back to PDF-only. */
+  acceptedFileTypes?: AcceptedFileType[];
   onFilesSelected: (files: File[]) => void;
   onFileRejected?: (rejections: FileRejection[]) => void;
 }
@@ -30,15 +38,43 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
   disabled = false,
   selectedFile,
   hasFiles = false,
+  acceptedFileTypes,
   onFilesSelected,
   onFileRejected,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Accept configs must be defined separately to avoid TypeScript union issues
   const ACCEPT_ZIP: Accept = { "application/zip": [".zip"] };
-  const ACCEPT_PDF: Accept = { "application/pdf": [".pdf"] };
-  const acceptConfig = mode === "bulk" ? ACCEPT_ZIP : ACCEPT_PDF;
+
+  // Build accept config from backend-provided file types, or fall back to PDF
+  const singleAcceptConfig: Accept = useMemo(() => {
+    if (!acceptedFileTypes || acceptedFileTypes.length === 0) {
+      return { "application/pdf": [".pdf"] };
+    }
+    const accept: Accept = {};
+    for (const ft of acceptedFileTypes) {
+      accept[ft.mimetype] = [`.${ft.extension}`];
+    }
+    return accept;
+  }, [acceptedFileTypes]);
+
+  const acceptConfig = mode === "bulk" ? ACCEPT_ZIP : singleAcceptConfig;
+
+  // Build human-readable label for accepted types (e.g. "PDF, DOCX, TXT")
+  const acceptedLabels = useMemo(() => {
+    if (!acceptedFileTypes || acceptedFileTypes.length === 0) return "PDF";
+    return acceptedFileTypes.map((ft) => ft.label).join(", ");
+  }, [acceptedFileTypes]);
+
+  // Build comma-separated accept string for <input> (e.g. ".pdf,.docx,.txt")
+  const inputAcceptString = useMemo(() => {
+    if (!acceptedFileTypes || acceptedFileTypes.length === 0) {
+      return ".pdf,application/pdf";
+    }
+    return acceptedFileTypes
+      .flatMap((ft) => [`.${ft.extension}`, ft.mimetype])
+      .join(",");
+  }, [acceptedFileTypes]);
 
   const onDrop = useCallback(
     (acceptedFiles: File[], rejections: FileRejection[], event: DropEvent) => {
@@ -161,14 +197,16 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept={
-          mode === "bulk" ? ".zip,application/zip" : ".pdf,application/pdf"
-        }
+        accept={mode === "bulk" ? ".zip,application/zip" : inputAcceptString}
         multiple={mode === "single"}
         onChange={handleFileChange}
         disabled={disabled}
         style={{ display: "none" }}
-        aria-label={mode === "bulk" ? "Select ZIP file" : "Select PDF files"}
+        aria-label={
+          mode === "bulk"
+            ? "Select ZIP file for bulk upload"
+            : `Select ${acceptedLabels} files`
+        }
       />
       <DropZoneIcon>
         {mode === "bulk" ? <FileArchive /> : <Upload />}
@@ -178,15 +216,15 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
           {isDragActive
             ? mode === "bulk"
               ? "Drop your ZIP file here..."
-              : "Drop your PDFs here..."
+              : "Drop your files here..."
             : mode === "bulk"
             ? "Click to select a ZIP file"
-            : "Drag & drop PDF files here"}
+            : `Drag & drop ${acceptedLabels} files here`}
         </div>
         <div className="secondary-text">
           {mode === "bulk"
-            ? `ZIP should contain PDFs (max ${UPLOAD.MAX_FILE_SIZE_DISPLAY})`
-            : `Max ${UPLOAD.MAX_FILE_SIZE_DISPLAY} per file`}
+            ? `ZIP should contain documents (max ${UPLOAD.MAX_FILE_SIZE_DISPLAY})`
+            : `Supported: ${acceptedLabels} · Max ${UPLOAD.MAX_FILE_SIZE_DISPLAY} per file`}
         </div>
       </DropZoneText>
       <Button

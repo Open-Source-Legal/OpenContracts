@@ -307,10 +307,10 @@ process_document.delay(user_id, doc_id)
 
 To add support for new file types:
 
-1. Add the MIME type to `ALLOWED_DOCUMENT_MIMETYPES` in settings
-2. Update `FileTypeEnum` in `base/file_types.py`
-3. Create appropriate parser/thumbnailer/embedder implementations
-4. Register the implementations in settings
+1. Add the new member to `FileTypeEnum` in `base/file_types.py`
+2. Add corresponding entries to `MIME_TO_FILE_TYPE`, `FILE_TYPE_TO_MIME`, and `FILE_TYPE_LABELS` in the same file
+3. Create appropriate parser/thumbnailer/embedder implementations with the new `FileTypeEnum` in their `supported_file_types`
+4. The new file type will be automatically discovered by the pipeline registry and exposed via the `supportedMimeTypes` GraphQL query. Upload validation derives allowed types dynamically — no settings change needed.
 
 ### Error Handling
 

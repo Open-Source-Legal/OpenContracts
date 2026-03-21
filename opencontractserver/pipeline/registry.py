@@ -19,10 +19,16 @@ import pkgutil
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
-from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.pipeline.base.file_types import (
+    FILE_TYPE_LABELS,
+    FILE_TYPE_TO_MIME,
+    LEGACY_MIME_ALIASES,
+    MIME_TO_FILE_TYPE,
+    FileTypeEnum,
+)
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
@@ -236,13 +242,12 @@ class PipelineComponentRegistry:
         """Create a PipelineComponentDefinition from a component class."""
         module_name = component_class.__module__.split(".")[-1]
 
-        # Get supported file types, filtering to valid ones
+        # Get supported file types, filtering to valid FileTypeEnum members
         # Store as the enum value (e.g., "pdf") for consistency
         supported_file_types = []
         if hasattr(component_class, "supported_file_types"):
             for ft in component_class.supported_file_types:
-                if ft in [FileTypeEnum.PDF, FileTypeEnum.TXT, FileTypeEnum.DOCX]:
-                    # Store the enum value ("pdf", "txt", "docx")
+                if isinstance(ft, FileTypeEnum):
                     supported_file_types.append(ft.value)
 
         # Get supported modalities (for embedders)
@@ -482,14 +487,15 @@ def get_components_by_mimetype_cached(
     registry = get_registry()
 
     # Convert MIME type to FileTypeEnum value for lookup
-    # FileTypeEnum values are "pdf", "txt", "docx" - not MIME types
-    mime_to_enum_value = {
-        "application/pdf": "pdf",
-        "text/plain": "txt",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-    }
-
-    file_type_value = mime_to_enum_value.get(mimetype, mimetype)
+    file_type_value = MIME_TO_FILE_TYPE.get(mimetype)
+    if file_type_value is None:
+        logger.warning("Unknown MIME type %r — no FileTypeEnum mapping", mimetype)
+        return {
+            "parsers": [],
+            "embedders": [],
+            "thumbnailers": [],
+            "post_processors": [],
+        }
 
     return {
         "parsers": registry.get_parsers_for_filetype(file_type_value),
@@ -514,6 +520,118 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
     }
 
 
+class StageCoverage(TypedDict):
+    parser: bool
+    embedder: bool
+    thumbnailer: bool
+
+
+class SupportedMimeTypeEntry(TypedDict):
+    mimetype: str
+    file_type: str
+    label: str
+    fully_supported: bool
+    stage_coverage: StageCoverage
+
+
+@lru_cache(maxsize=None)
+def get_supported_mime_types() -> tuple[SupportedMimeTypeEntry, ...]:
+    """
+    Derive supported MIME types dynamically from registered pipeline components.
+
+    A file type is "fully supported" if at least one registered component exists
+    for each required pipeline stage: parser and embedder. Thumbnailer coverage
+    is informational but not required for upload acceptance.
+
+    Thread-safe via @lru_cache. Cleared by reset_registry().
+
+    Returns a tuple of dicts, each containing:
+        - mimetype: canonical MIME type string
+        - file_type: short label (e.g. "pdf")
+        - label: human-readable label (e.g. "PDF")
+        - fully_supported: True if all required stages have at least one component
+        - stage_coverage: dict of stage -> bool indicating availability
+    """
+    registry = get_registry()
+    result = []
+
+    for ft_enum in FileTypeEnum:
+        ft_value = ft_enum.value
+        mime = FILE_TYPE_TO_MIME.get(ft_value)
+        if not mime:
+            logger.warning("No MIME mapping for FileTypeEnum member %r", ft_value)
+            continue
+
+        has_parser = len(registry.get_parsers_for_filetype(ft_value)) > 0
+        # TODO: Embedders currently work on all text types (not filtered
+        # by file type). If a file-type-specific embedder is added, update this
+        # check to query per-file-type coverage. Until then, has_embedder is
+        # True whenever *any* embedder is registered.
+        has_any_embedder = len(registry.embedders) > 0
+        has_thumbnailer = len(registry.get_thumbnailers_for_filetype(ft_value)) > 0
+
+        stage_coverage = {
+            "parser": has_parser,
+            "embedder": has_any_embedder,
+            "thumbnailer": has_thumbnailer,
+        }
+
+        result.append(
+            {
+                "mimetype": mime,
+                "file_type": ft_value,
+                "label": FILE_TYPE_LABELS.get(ft_value, ft_value.upper()),
+                "fully_supported": has_parser and has_any_embedder,
+                "stage_coverage": stage_coverage,
+            }
+        )
+
+    return tuple(result)
+
+
+@lru_cache(maxsize=None)
+def get_allowed_mime_types() -> tuple[str, ...]:
+    """
+    Return the MIME types that are fully supported by the pipeline.
+
+    This replaces the static settings.ALLOWED_DOCUMENT_MIMETYPES with a
+    dynamically-derived list based on registered pipeline components.
+    Includes legacy MIME type aliases for backward compatibility.
+
+    Falls back to settings.ALLOWED_DOCUMENT_MIMETYPES when no components are
+    registered (fresh install, import-time failures, certain test configs).
+
+    Thread-safe via @lru_cache. Cleared by reset_registry().
+    """
+    from django.conf import settings
+
+    supported = get_supported_mime_types()
+    allowed = [entry["mimetype"] for entry in supported if entry["fully_supported"]]
+
+    # Add legacy aliases that map to supported types
+    for legacy, canonical in LEGACY_MIME_ALIASES.items():
+        if canonical in allowed and legacy not in allowed:
+            allowed.append(legacy)
+
+    if not allowed:
+        fallback = getattr(settings, "ALLOWED_DOCUMENT_MIMETYPES", [])
+        if fallback:
+            logger.warning(
+                "No pipeline components registered — falling back to "
+                "settings.ALLOWED_DOCUMENT_MIMETYPES (%d types). This may "
+                "indicate a component import failure or misconfiguration.",
+                len(fallback),
+            )
+            return tuple(fallback)
+        logger.warning(
+            "No pipeline components registered and no "
+            "settings.ALLOWED_DOCUMENT_MIMETYPES fallback — all uploads "
+            "will be rejected."
+        )
+
+    return tuple(allowed)
+
+
 def reset_registry() -> None:
     """
     Reset the registry singleton.
@@ -523,3 +641,5 @@ def reset_registry() -> None:
     PipelineComponentRegistry._instance = None
     PipelineComponentRegistry._initialized = False
     get_registry.cache_clear()
+    get_supported_mime_types.cache_clear()
+    get_allowed_mime_types.cache_clear()

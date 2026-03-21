@@ -72,6 +72,11 @@ class ZipManifest:
     # Special files detected
     relationship_file: str | None = None  # Path to relationships.csv if found
     metadata_file: str | None = None  # Path to meta.csv if found
+    labels_file: str | None = None  # Path to labels.json if found
+
+    # Annotation sidecar files: maps sanitized document path -> original sidecar path
+    # e.g. {"contracts/master.pdf": "contracts/master.json"}
+    annotation_sidecars: dict[str, str] = field(default_factory=dict)
 
     # Statistics
     total_files_in_zip: int = 0
@@ -260,6 +265,50 @@ def is_metadata_file(path: str) -> bool:
 
     # Check against allowed metadata file names
     return path in METADATA_FILE_NAMES
+
+
+# Allowed names for the labels definition file at zip root.
+# Intentionally case-sensitive — only these exact names are recognised.
+LABELS_FILE_NAMES = [
+    "labels.json",
+    "LABELS.json",
+]
+
+
+def is_labels_file(path: str) -> bool:
+    """
+    Check if a path is the labels definition file.
+
+    The labels file must be at the root level of the zip
+    (not in a subdirectory) and match one of the allowed names.
+
+    Args:
+        path: Sanitized path from zip
+
+    Returns:
+        True if this is a labels file at root level
+    """
+    if "/" in path:
+        return False
+    return path in LABELS_FILE_NAMES
+
+
+def is_annotation_sidecar(path: str) -> bool:
+    """
+    Check if a path is a JSON annotation sidecar file.
+
+    A sidecar is a .json file that shares the same basename as a
+    document file (e.g. ``contracts/master.json`` is the sidecar for
+    ``contracts/master.pdf``).  The labels file at root level is
+    excluded.
+
+    Args:
+        path: Sanitized path from zip
+
+    Returns:
+        True if this is a .json file that could be an annotation sidecar
+    """
+    return path.lower().endswith(".json") and not is_labels_file(path)
 
 
 def get_folder_path(file_path: str) -> str:
@@ -474,6 +523,19 @@ def validate_zip_for_import(
             # Don't add to valid_files - will be processed separately
             continue
 
+        # Check for labels definition file (only at root level)
+        if is_labels_file(sanitized_path):
+            if manifest.labels_file is None:
+                manifest.labels_file = info.filename
+                logger.info(f"Found labels file in zip: {info.filename}")
+            else:
+                logger.warning(
+                    f"Multiple labels files found in zip. "
+                    f"Using {manifest.labels_file}, ignoring {info.filename}"
+                )
+            # Don't add to valid_files - will be processed separately
+            continue
+
         # Get folder path and validate depth
         folder_path = get_folder_path(sanitized_path)
         if folder_path:
@@ -553,6 +615,43 @@ def validate_zip_for_import(
         else:
             manifest.valid_files.append(entry)
             manifest.valid_files_size += info.file_size
+
+    # Build annotation sidecar map: match .json files to document files.
+    # A sidecar "foo/bar.json" pairs with "foo/bar.pdf" (or .docx, .txt, etc.)
+    # by sharing the same stem (basename without extension) in the same folder.
+    json_entries: list[ZipFileEntry] = []
+    doc_entries: list[ZipFileEntry] = []
+    for entry in manifest.valid_files:
+        if is_annotation_sidecar(entry.sanitized_path):
+            json_entries.append(entry)
+        else:
+            doc_entries.append(entry)
+
+    if json_entries:
+        # Build a lookup of stem (without extension) -> sanitized_path for docs
+        doc_stems: dict[str, str] = {}
+        for entry in doc_entries:
+            stem = os.path.splitext(entry.sanitized_path)[0]
+            doc_stems[stem] = entry.sanitized_path
+
+        remaining_valid: list[ZipFileEntry] = list(doc_entries)
+        for json_entry in json_entries:
+            json_stem = os.path.splitext(json_entry.sanitized_path)[0]
+            if json_stem in doc_stems:
+                # This JSON is a sidecar for a document
+                manifest.annotation_sidecars[doc_stems[json_stem]] = (
+                    json_entry.original_path
+                )
+                logger.info(
+                    f"Found annotation sidecar: {json_entry.sanitized_path} "
+                    f"-> {doc_stems[json_stem]}"
+                )
+                # Don't include the sidecar JSON in valid_files
+            else:
+                # Standalone JSON file with no matching document - keep it
+                remaining_valid.append(json_entry)
+
+        manifest.valid_files = remaining_valid
 
     # Check folder count
     if len(folder_paths_set) > ZIP_MAX_FOLDER_COUNT:

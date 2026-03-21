@@ -21,6 +21,11 @@ export const fileTypeAtom = atom<string>("");
 export const docTextAtom = atom<string>("");
 
 /**
+ * DOCX-specific data atom: raw bytes for WASM rendering.
+ */
+export const docxBytesAtom = atom<Uint8Array | null>(null);
+
+/**
  * PDF-specific data atoms.
  */
 export const pdfDocAtom = atom<PDFDocumentProxy | undefined>(undefined);
@@ -116,6 +121,14 @@ export function useFileType() {
 export function useDocText() {
   const [docText, setDocText] = useAtom(docTextAtom);
   return useMemo(() => ({ docText, setDocText }), [docText, setDocText]);
+}
+
+export function useDocxBytes() {
+  const [docxBytes, setDocxBytes] = useAtom(docxBytesAtom);
+  return useMemo(
+    () => ({ docxBytes, setDocxBytes }),
+    [docxBytes, setDocxBytes]
+  );
 }
 
 export function usePdfDoc() {

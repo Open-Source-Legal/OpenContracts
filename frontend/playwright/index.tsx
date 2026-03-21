@@ -15,6 +15,7 @@ import * as pdfjs from "pdfjs-dist";
 import { ApolloClient, InMemoryCache, ApolloProvider } from "@apollo/client";
 import { ThemeProvider } from "../src/theme/ThemeProvider";
 import { allStyles } from "@os-legal/ui";
+import { setWasmBasePath } from "docxodus";
 
 // Create a type for the Jotai Store
 type Store = ReturnType<typeof createStore>;
@@ -44,8 +45,13 @@ beforeMount(async ({ App }: BeforeMountParams) => {
   console.log(`[Playwright Hook] Before mounting component with providers`);
 
   // Configure PDF.js to use a worker - https://github.com/mozilla/pdf.js/issues/10478
-  //GlobalWorkerOptions.workerSrc = '';
   pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+
+  // Configure Docxodus WASM path for Playwright CT environment.
+  // In normal dev/prod, import.meta.url auto-detects the path, but in
+  // Playwright CT the test bundle compilation breaks auto-detection.
+  // Tests use page.route() to intercept /docxodus-wasm/** and serve from disk.
+  setWasmBasePath("/docxodus-wasm/");
 
   // Create a fresh Jotai store for this test
   window.jotaiStore = createStore();

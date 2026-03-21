@@ -11,6 +11,7 @@ import {
 import {
   GET_PIPELINE_SETTINGS,
   GET_PIPELINE_COMPONENTS,
+  GET_SUPPORTED_MIME_TYPES,
   UPDATE_PIPELINE_SETTINGS,
   RESET_PIPELINE_SETTINGS,
   UPDATE_COMPONENT_SECRETS,
@@ -620,6 +621,39 @@ const mockPipelineComponentsWithConfiguredSecrets = {
   }),
 };
 
+// fullySupported requires parser + embedder only; thumbnailer is optional.
+// TXT and DOCX have thumbnailer: false but are still fullySupported: true
+// because the pipeline only requires parser + embedder for upload acceptance.
+const mockSupportedMimeTypes = [
+  {
+    mimetype: "application/pdf",
+    fileType: "pdf",
+    label: "PDF",
+    fullySupported: true,
+    stageCoverage: { parser: true, embedder: true, thumbnailer: true },
+  },
+  {
+    mimetype: "text/plain",
+    fileType: "txt",
+    label: "Plain Text",
+    fullySupported: true,
+    stageCoverage: { parser: true, embedder: true, thumbnailer: false },
+  },
+  {
+    mimetype:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    fileType: "docx",
+    label: "Word Document",
+    fullySupported: true,
+    stageCoverage: { parser: true, embedder: true, thumbnailer: false },
+  },
+];
+
+const mimeTypesMock = {
+  request: { query: GET_SUPPORTED_MIME_TYPES },
+  result: { data: { supportedMimeTypes: mockSupportedMimeTypes } },
+};
+
 test.describe("SystemSettings Component", () => {
   test("should display loading state initially", async ({ mount, page }) => {
     // Use a mock that delays response to see loading state
@@ -636,7 +670,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Should show loading state
@@ -662,7 +698,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -702,7 +740,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -733,7 +773,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -780,7 +822,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -817,7 +861,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -849,7 +895,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -880,7 +928,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -931,7 +981,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -971,7 +1023,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1015,7 +1069,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1056,7 +1112,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[errorMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[errorMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for error state
@@ -1082,7 +1140,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1113,7 +1173,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1155,7 +1217,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1196,7 +1260,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1240,7 +1306,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1278,7 +1346,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1291,10 +1361,10 @@ test.describe("SystemSettings Component", () => {
     // Check Filetype Defaults section
     await expect(page.locator("text=Filetype Defaults")).toBeVisible();
 
-    // Check MIME type labels
+    // Check MIME type labels (from supportedMimeTypes mock data)
     await expect(page.locator("text=PDF").first()).toBeVisible();
-    await expect(page.locator("text=TXT").first()).toBeVisible();
-    await expect(page.locator("text=DOCX").first()).toBeVisible();
+    await expect(page.locator("text=Plain Text").first()).toBeVisible();
+    await expect(page.locator("text=Word Document").first()).toBeVisible();
 
     // Check select dropdowns exist (3 MIME types x 3 stages = 9 minimum)
     const selects = page.locator("select").filter({ visible: true });
@@ -1321,7 +1391,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1332,7 +1404,9 @@ test.describe("SystemSettings Component", () => {
     });
 
     // Check that the PDF parser dropdown has the Docling Parser selected
-    const pdfParserSelect = page.locator('select[aria-label="Parser for PDF"]');
+    const pdfParserSelect = page.locator(
+      'select[aria-label="Parser for PDF files"]'
+    );
     await expect(pdfParserSelect).toHaveValue(
       "opencontractserver.pipeline.parsers.docling.DoclingParser"
     );
@@ -1355,7 +1429,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1385,7 +1461,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1506,7 +1584,9 @@ test.describe("SystemSettings Component", () => {
     };
 
     const component = await mount(
-      <SystemSettingsWrapper mocks={[settingsMock, componentsMock]} />
+      <SystemSettingsWrapper
+        mocks={[settingsMock, componentsMock, mimeTypesMock]}
+      />
     );
 
     // Wait for page to load
@@ -1517,14 +1597,16 @@ test.describe("SystemSettings Component", () => {
     });
 
     // PDF parser select should have: Unassigned + Docling + Universal + (OpenAI if embedder) = 3 parser options
-    const pdfParserSelect = page.locator('select[aria-label="Parser for PDF"]');
+    const pdfParserSelect = page.locator(
+      'select[aria-label="Parser for PDF files"]'
+    );
     const pdfParserOptions = pdfParserSelect.locator("option");
     // Unassigned + Docling Parser + Universal Parser = 3
     await expect(pdfParserOptions).toHaveCount(3);
 
     // TXT parser select should have: Unassigned + Text Parser + Universal Parser = 3
     const txtParserSelect = page.locator(
-      'select[aria-label="Parser for Plain Text"]'
+      'select[aria-label="Parser for Plain Text files"]'
     );
     const txtParserOptions = txtParserSelect.locator("option");
     await expect(txtParserOptions).toHaveCount(3);
@@ -1593,7 +1675,13 @@ test.describe("SystemSettings Component", () => {
 
     const component = await mount(
       <SystemSettingsWrapper
-        mocks={[settingsMock, componentsMock, resetMock, refetchMock]}
+        mocks={[
+          settingsMock,
+          componentsMock,
+          mimeTypesMock,
+          resetMock,
+          refetchMock,
+        ]}
       />
     );
 
@@ -1696,6 +1784,7 @@ test.describe("SystemSettings Component", () => {
         mocks={[
           settingsMock,
           componentsMock,
+          mimeTypesMock,
           updateSecretsMock,
           refetchMock,
           componentsRefetchMock,
@@ -1809,6 +1898,7 @@ test.describe("SystemSettings Component", () => {
         mocks={[
           settingsMock,
           componentsMock,
+          mimeTypesMock,
           deleteSecretsMock,
           refetchMock,
           componentsRefetchMock,
@@ -1870,6 +1960,7 @@ test.describe("SystemSettings Two-Column Layout", () => {
       request: { query: GET_PIPELINE_COMPONENTS },
       result: { data: { pipelineComponents: mockPipelineComponents } },
     },
+    mimeTypesMock,
   ];
 
   const waitForLoad = async (page: any) => {

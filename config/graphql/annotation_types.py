@@ -50,11 +50,19 @@ class AnnotationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectT
 
 class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     json = GenericScalar()  # noqa
+    annotation_type = graphene.String(
+        description="Annotation type (e.g. TOKEN_LABEL, SPAN_LABEL). "
+        "Returns raw DB value to avoid enum serialization errors on invalid data.",
+    )
     feedback_count = graphene.Int(description="Count of user feedback")
     content_modalities = graphene.List(
         graphene.String,
         description="Content modalities present in this annotation: TEXT, IMAGE, etc.",
     )
+
+    def resolve_annotation_type(self, info):
+        """Return annotation_type as a plain string to tolerate invalid DB values."""
+        return self.annotation_type or ""
 
     def resolve_content_modalities(self, info):
         """Return content modalities list from model."""

@@ -428,11 +428,11 @@ class TestPostProcessor(BasePostProcessor):
         post_processor_titles = [pp["title"] for pp in post_processors]
         self.assertIn("Test PostProcessor", post_processor_titles)
 
-    def test_pipeline_components_query_with_mimetype_no_components(self):
-        """Test querying pipeline components with a mimetype that has limited components.
+    def test_pipeline_components_query_with_mimetype_docx(self):
+        """Test querying pipeline components filtered to DOCX file type.
 
-        Note: DOCX now has LlamaParseParser support, but no thumbnailer support.
-        This test verifies the filtering behavior for file types with partial support.
+        DOCX has parser support (LlamaParse, Docxodus) and thumbnailer support
+        (DocxThumbnailGenerator). This test verifies the filtering behavior.
         """
 
         # Use the enum value, not the full MIME type
@@ -462,13 +462,14 @@ class TestPostProcessor(BasePostProcessor):
 
         data = result["data"]["pipelineComponents"]
 
-        # LlamaParseParser supports DOCX, so we expect at least one parser
+        # DocxodusServiceParser supports DOCX
         parsers = data["parsers"]
         parser_titles = [parser["title"] for parser in parsers]
-        self.assertIn("LlamaParse Parser", parser_titles)
+        self.assertIn("Docxodus Parser (REST)", parser_titles)
 
-        # No thumbnailers support DOCX
-        self.assertEqual(len(data["thumbnailers"]), 0)
+        # DocxThumbnailGenerator supports DOCX
+        thumbnailers = data["thumbnailers"]
+        self.assertGreaterEqual(len(thumbnailers), 1)
 
         # Embedders are included regardless of mimetype in our utils
         embedders = data["embedders"]
@@ -598,3 +599,66 @@ class TestPostProcessor(BasePostProcessor):
                     f"Component {component['name']} in {category} should be disabled "
                     f"since it's not in the enabled_components list",
                 )
+
+    def test_supported_mime_types_query(self):
+        """Test the supportedMimeTypes query returns dynamically-derived MIME types."""
+        query = """
+        query {
+            supportedMimeTypes {
+                mimetype
+                fileType
+                label
+                fullySupported
+                stageCoverage {
+                    parser
+                    embedder
+                    thumbnailer
+                }
+            }
+        }
+        """
+
+        result = self.client.execute(query)
+        self.assertIsNone(result.get("errors"))
+
+        mime_types = result["data"]["supportedMimeTypes"]
+        self.assertGreater(len(mime_types), 0)
+
+        # Build lookup by file type
+        by_file_type = {mt["fileType"]: mt for mt in mime_types}
+
+        # PDF should be fully supported (has test parser + test embedder + test thumbnailer)
+        self.assertIn("pdf", by_file_type)
+        pdf_entry = by_file_type["pdf"]
+        self.assertEqual(pdf_entry["mimetype"], "application/pdf")
+        self.assertEqual(pdf_entry["label"], "PDF")
+        self.assertTrue(pdf_entry["fullySupported"])
+        self.assertTrue(pdf_entry["stageCoverage"]["parser"])
+        self.assertTrue(pdf_entry["stageCoverage"]["embedder"])
+        self.assertTrue(pdf_entry["stageCoverage"]["thumbnailer"])
+
+        # TXT should have parser and embedder, check thumbnailer dynamically
+        self.assertIn("txt", by_file_type)
+        txt_entry = by_file_type["txt"]
+        self.assertEqual(txt_entry["mimetype"], "text/plain")
+        self.assertTrue(txt_entry["stageCoverage"]["parser"])
+        self.assertTrue(txt_entry["stageCoverage"]["embedder"])
+
+        # DOCX now has parser, embedder, and thumbnailer (DocxThumbnailGenerator)
+        self.assertIn("docx", by_file_type)
+        docx_entry = by_file_type["docx"]
+        self.assertTrue(docx_entry["stageCoverage"]["thumbnailer"])
+        self.assertTrue(docx_entry["fullySupported"])
+
+    def test_supported_mime_types_requires_auth(self):
+        """Test that supportedMimeTypes requires authentication."""
+        query = """
+        query {
+            supportedMimeTypes {
+                mimetype
+            }
+        }
+        """
+        client = Client(schema, context_value=TestContext(AnonymousUser()))
+        result = client.execute(query)
+        self.assertIsNotNone(result.get("errors"))

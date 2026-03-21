@@ -21,7 +21,7 @@ import {
 } from "./AnnotationControlAtoms";
 import { useCorpusState } from "./CorpusAtom";
 import { useSelectedDocument } from "./DocumentAtom";
-import { isTextFileType, isPdfFileType } from "../../../utils/files";
+import { isPdfFileType, isSpanBasedFileType } from "../../../utils/files";
 import {
   showStructuralAnnotations,
   showSelectedAnnotationOnly,
@@ -298,11 +298,11 @@ export function useAnnotationControls() {
   useEffect(() => {
     if (!selectedDocument) return;
 
-    const isTextFile = isTextFileType(selectedDocument.fileType);
+    const isSpanBased = isSpanBasedFileType(selectedDocument.fileType);
     const isPdfFile = isPdfFileType(selectedDocument.fileType);
 
     if (!spanLabelInitialized.current) {
-      if (isTextFile && humanSpanLabelChoices.length > 0) {
+      if (isSpanBased && humanSpanLabelChoices.length > 0) {
         setActiveSpanLabel(humanSpanLabelChoices[0]);
         spanLabelInitialized.current = true;
       } else if (isPdfFile && humanTokenLabels.length > 0) {

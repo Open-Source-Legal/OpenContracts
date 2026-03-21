@@ -7,7 +7,7 @@ import React, {
   useId,
 } from "react";
 import { createPortal } from "react-dom";
-import { isTextFileType } from "../../../utils/files";
+import { isSpanBasedFileType } from "../../../utils/files";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import { motion, AnimatePresence } from "framer-motion";
@@ -925,7 +925,7 @@ const SourceItem: React.FC<SourceItemProps> = ({
     if (!sourceData) return setLabelMenuOpen(false);
 
     try {
-      if (isTextFileType(selectedDocument?.fileType)) {
+      if (isSpanBasedFileType(selectedDocument?.fileType)) {
         if (
           sourceData.startIndex === undefined ||
           sourceData.endIndex === undefined
@@ -1897,7 +1897,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const { humanSpanLabels, humanTokenLabels } = useCorpusState();
   const { selectedDocument } = useSelectedDocument();
   const availableLabels = useMemo(() => {
-    if (isTextFileType(selectedDocument?.fileType)) return humanSpanLabels;
+    if (isSpanBasedFileType(selectedDocument?.fileType)) return humanSpanLabels;
     return humanTokenLabels;
   }, [selectedDocument, humanSpanLabels, humanTokenLabels]);
 

@@ -38,6 +38,7 @@ from opencontractserver.constants.zip_import import ZIP_MAX_TOTAL_SIZE_BYTES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.extracts.models import Extract
+from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.tasks import (
     build_label_lookups_task,
     burn_doc_annotations,
@@ -164,7 +165,7 @@ class UploadDocument(graphene.Mutation):
             else:
                 kind = kind.mime
 
-            if kind not in settings.ALLOWED_DOCUMENT_MIMETYPES:
+            if kind not in get_allowed_mime_types():
                 return UploadDocument(
                     message=f"Unallowed filetype: {kind}", ok=False, document=None
                 )

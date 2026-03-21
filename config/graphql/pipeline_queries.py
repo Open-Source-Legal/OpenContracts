@@ -13,6 +13,14 @@ from config.graphql.graphene_types import (
     FileTypeEnum,
     PipelineComponentsType,
     PipelineComponentType,
+    StageCoverageType,
+    SupportedMimeTypeType,
+)
+from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME
+from opencontractserver.pipeline.registry import (
+    get_all_components_cached,
+    get_components_by_mimetype_cached,
+    get_supported_mime_types,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,19 +53,8 @@ class PipelineQueryMixin:
         Returns:
             PipelineComponentsType: The pipeline components grouped by type.
         """
-        from opencontractserver.pipeline.registry import (
-            get_all_components_cached,
-            get_components_by_mimetype_cached,
-        )
-
         if mimetype:
-            # Convert the GraphQL enum value to the appropriate MIME type string
-            mime_type_mapping = {
-                "pdf": "application/pdf",
-                "txt": "text/plain",
-                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            }
-            mime_type_str = mime_type_mapping.get(mimetype.value)
+            mime_type_str = FILE_TYPE_TO_MIME.get(mimetype.value)
 
             # Get compatible components from cached registry
             components_data = get_components_by_mimetype_cached(mime_type_str)
@@ -169,6 +166,39 @@ class PipelineQueryMixin:
                 for d in components_data["post_processors"]
             ],
         )
+
+    # SUPPORTED MIME TYPES #####################################
+    supported_mime_types = graphene.List(
+        SupportedMimeTypeType,
+        description="Dynamically derived list of MIME types supported by registered "
+        "pipeline components. Each entry indicates per-stage availability "
+        "(parser, embedder, thumbnailer) and whether required stages "
+        "(parser and embedder) are covered.",
+    )
+
+    @login_required
+    def resolve_supported_mime_types(self, info) -> list[SupportedMimeTypeType]:
+        """
+        Resolver for the supported_mime_types query.
+
+        Derives supported file types from the pipeline component registry
+        rather than static configuration.
+        """
+        entries = get_supported_mime_types()
+        return [
+            SupportedMimeTypeType(
+                mimetype=entry["mimetype"],
+                file_type=entry["file_type"],
+                label=entry["label"],
+                fully_supported=entry["fully_supported"],
+                stage_coverage=StageCoverageType(
+                    parser=entry["stage_coverage"]["parser"],
+                    embedder=entry["stage_coverage"]["embedder"],
+                    thumbnailer=entry["stage_coverage"]["thumbnailer"],
+                ),
+            )
+            for entry in entries
+        ]
 
     # PIPELINE SETTINGS ########################################
     pipeline_settings = graphene.Field(

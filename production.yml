@@ -24,9 +24,18 @@ services:
       dockerfile: ./compose/production/django/Dockerfile
     image: opencontractserver_production_django
     depends_on:
-      - postgres
-      - redis
-      - vector-embedder
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      vector-embedder:
+        condition: service_started
+      docling-parser:
+        condition: service_started
+        required: false
+      docxodus-parser:
+        condition: service_started
+        required: false
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
@@ -94,6 +103,12 @@ services:
   docling-parser:
     image: jscrudato/docsling-local
     container_name: docling-parser
+
+  docxodus-parser:
+    # The frontend WASM (docxodus in package.json) and this microservice
+    # must use the same Docxodus version for character offset alignment.
+    image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
+    container_name: docxodus-parser
 
   celeryworker:
     <<: *django
