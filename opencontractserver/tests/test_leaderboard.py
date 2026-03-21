@@ -5,7 +5,10 @@ Issue: #613 - Create leaderboard and community stats dashboard
 Epic: #572 - Social Features Epic
 """
 
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from graphene.test import Client
 from graphql_relay import to_global_id
@@ -448,6 +451,164 @@ class LeaderboardQueryTestCase(TestCase):
         self.assertEqual(leaderboard["corpusId"], corpus_global_id)
         # Should only show users who contributed to this corpus
         self.assertGreaterEqual(len(leaderboard["entries"]), 2)
+
+    def test_community_stats_cache_hit_returns_same_data(self):
+        """Test that a cached response returns the same data as a fresh query."""
+        cache.clear()
+
+        query = """
+            query {
+                communityStats {
+                    totalUsers
+                    totalMessages
+                    totalThreads
+                    totalAnnotations
+                    totalBadgesAwarded
+                    badgeDistribution {
+                        awardCount
+                        uniqueRecipients
+                        badge {
+                            name
+                        }
+                    }
+                    messagesThisWeek
+                    messagesThisMonth
+                    activeUsersThisWeek
+                    activeUsersThisMonth
+                }
+            }
+        """
+        context = type("Context", (), {"user": self.user1})
+
+        # First call populates the cache
+        result1 = self.client.execute(query, context_value=context)
+        self.assertIsNone(result1.get("errors"))
+
+        # Second call should hit the cache and return identical data
+        result2 = self.client.execute(query, context_value=context)
+        self.assertIsNone(result2.get("errors"))
+
+        self.assertEqual(
+            result1["data"]["communityStats"],
+            result2["data"]["communityStats"],
+        )
+
+    def test_community_stats_weekly_monthly_fields(self):
+        """Test that weekly and monthly stats fields are returned."""
+        cache.clear()
+
+        query = """
+            query {
+                communityStats {
+                    messagesThisWeek
+                    messagesThisMonth
+                    activeUsersThisWeek
+                    activeUsersThisMonth
+                }
+            }
+        """
+
+        result = self.client.execute(
+            query, context_value=type("Context", (), {"user": self.user1})
+        )
+
+        self.assertIsNone(result.get("errors"))
+        stats = result["data"]["communityStats"]
+
+        # All weekly/monthly fields should be non-negative integers
+        self.assertGreaterEqual(stats["messagesThisWeek"], 0)
+        self.assertGreaterEqual(stats["messagesThisMonth"], 0)
+        self.assertGreaterEqual(stats["activeUsersThisWeek"], 0)
+        self.assertGreaterEqual(stats["activeUsersThisMonth"], 0)
+
+        # Messages were created recently so month count should match total
+        self.assertEqual(stats["messagesThisMonth"], 8)
+
+    def test_community_stats_separate_cache_keys_per_user(self):
+        """Test that anonymous and authenticated users get separate cache keys."""
+        cache.clear()
+
+        query = """
+            query {
+                communityStats {
+                    totalUsers
+                    totalMessages
+                }
+            }
+        """
+
+        # Query as authenticated user
+        self.client.execute(
+            query, context_value=type("Context", (), {"user": self.user1})
+        )
+
+        # Verify cache was set with user-specific key
+        user_cache_key = f"community_stats:user:{self.user1.id}"
+        self.assertIsNotNone(cache.get(user_cache_key))
+
+        # Anonymous key should not exist yet
+        self.assertIsNone(cache.get("community_stats:anon"))
+
+    def test_community_stats_cache_hit_with_deleted_badge(self):
+        """Test that cache hit gracefully handles a badge deleted after caching."""
+        cache.clear()
+
+        query = """
+            query {
+                communityStats {
+                    totalBadgesAwarded
+                    badgeDistribution {
+                        awardCount
+                        badge {
+                            name
+                        }
+                    }
+                }
+            }
+        """
+        context = type("Context", (), {"user": self.user1})
+
+        # First call populates cache
+        result1 = self.client.execute(query, context_value=context)
+        self.assertIsNone(result1.get("errors"))
+        original_dist_len = len(result1["data"]["communityStats"]["badgeDistribution"])
+        self.assertGreaterEqual(original_dist_len, 1)
+
+        # Delete a badge that was in the distribution
+        self.badge2.delete()
+
+        # Second call hits cache — deleted badge should be silently excluded
+        result2 = self.client.execute(query, context_value=context)
+        self.assertIsNone(result2.get("errors"))
+        new_dist = result2["data"]["communityStats"]["badgeDistribution"]
+
+        # Distribution should have one fewer entry
+        self.assertEqual(len(new_dist), original_dist_len - 1)
+
+    @patch("config.graphql.social_queries.cache")
+    def test_community_stats_cache_set_called(self, mock_cache):
+        """Test that cache.set is called on a cold query."""
+        mock_cache.get.return_value = None
+
+        query = """
+            query {
+                communityStats {
+                    totalUsers
+                }
+            }
+        """
+
+        self.client.execute(
+            query, context_value=type("Context", (), {"user": self.user1})
+        )
+
+        # cache.get should have been called
+        mock_cache.get.assert_called_once()
+        # cache.set should have been called with the computed payload
+        mock_cache.set.assert_called_once()
+        call_args = mock_cache.set.call_args
+        cache_key = call_args[0][0]
+        self.assertIn("community_stats:user:", cache_key)
 
     def test_leaderboard_unauthorized_access_to_corpus(self):
         """Test that leaderboard returns error for unauthorized corpus access."""

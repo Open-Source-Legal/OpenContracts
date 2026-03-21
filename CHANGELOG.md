@@ -5,7 +5,11 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-03-18
+## [Unreleased] - 2026-03-21
+
+### Added
+
+- **`COMMUNITY_STATS_CACHE_TTL` env var for community stats caching** (`config/graphql/social_queries.py`, `opencontractserver/constants/community_stats.py`): The `communityStats` GraphQL resolver now caches results using Django's cache framework with a configurable TTL (default 1 hour). This avoids re-running 7+ COUNT queries on every landing page load. Cache is keyed by user type (anonymous vs authenticated) and optional corpus scope. Also includes an N+1 fix using `in_bulk()` for badge distribution and a subquery optimization in `resolve_corpus_categories`.
 
 ### Changed
 
