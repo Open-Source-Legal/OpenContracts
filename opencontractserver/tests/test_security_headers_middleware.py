@@ -5,6 +5,8 @@ Note: Referrer-Policy is handled by Django's built-in SecurityMiddleware
 (via SECURE_REFERRER_POLICY) and is NOT tested here.
 """
 
+import re
+
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
@@ -29,6 +31,22 @@ class SecurityHeadersIntegrationTest(TestCase):
         response = self.client.get("/api/health/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Permissions-Policy", response)
+
+    def test_csp_contains_nonce_on_real_response(self):
+        """Ensure the CSP header includes a per-request nonce in script-src."""
+        response = self.client.get("/api/health/")
+        csp = response["Content-Security-Policy"]
+        self.assertRegex(csp, r"'nonce-[A-Za-z0-9_-]+'")
+
+    def test_nonce_differs_between_requests(self):
+        """Each request must get a unique nonce."""
+        r1 = self.client.get("/api/health/")
+        r2 = self.client.get("/api/health/")
+        nonce1 = re.search(r"'nonce-([A-Za-z0-9_-]+)'", r1["Content-Security-Policy"])
+        nonce2 = re.search(r"'nonce-([A-Za-z0-9_-]+)'", r2["Content-Security-Policy"])
+        self.assertIsNotNone(nonce1)
+        self.assertIsNotNone(nonce2)
+        self.assertNotEqual(nonce1.group(1), nonce2.group(1))
 
 
 def _dummy_response(request):
@@ -60,6 +78,37 @@ class SecurityHeadersMiddlewareTests(SimpleTestCase):
         self.assertIn("script-src 'self'", csp)
 
     @override_settings(
+        SECURE_CSP_DIRECTIVES={
+            "script-src": ["'self'"],
+        },
+        SECURE_PERMISSIONS_POLICY=None,
+    )
+    def test_csp_nonce_injected_into_script_src(self):
+        """The per-request nonce must appear in script-src."""
+        mw = SecurityHeadersMiddleware(_dummy_response)
+        request = self.factory.get("/")
+        response = mw(request)
+        csp = response["Content-Security-Policy"]
+        # Nonce should be in script-src
+        self.assertRegex(csp, r"script-src 'self' 'nonce-[A-Za-z0-9_-]+'")
+        # And it should match what was set on the request
+        self.assertIn(f"'nonce-{request.csp_nonce}'", csp)
+
+    @override_settings(
+        SECURE_CSP_DIRECTIVES={
+            "default-src": ["'self'"],
+        },
+        SECURE_PERMISSIONS_POLICY=None,
+    )
+    def test_csp_nonce_not_in_non_script_directives(self):
+        """Nonce should only appear in script-src, not other directives."""
+        mw = SecurityHeadersMiddleware(_dummy_response)
+        request = self.factory.get("/")
+        response = mw(request)
+        csp = response["Content-Security-Policy"]
+        self.assertNotIn("nonce", csp)
+
+    @override_settings(
         SECURE_CSP_DIRECTIVES=None,
         SECURE_PERMISSIONS_POLICY=None,
     )
@@ -87,10 +136,16 @@ class SecurityHeadersMiddlewareTests(SimpleTestCase):
     def test_csp_multiple_values_per_directive(self):
         mw = SecurityHeadersMiddleware(_dummy_response)
         response = mw(self.factory.get("/"))
-        self.assertEqual(
-            response["Content-Security-Policy"],
-            "connect-src 'self' wss: ws:",
-        )
+        csp = response["Content-Security-Policy"]
+        self.assertIn("connect-src 'self' wss: ws:", csp)
+
+    def test_csp_nonce_set_on_request(self):
+        """Middleware must attach csp_nonce to the request object."""
+        mw = SecurityHeadersMiddleware(_dummy_response)
+        request = self.factory.get("/")
+        mw(request)
+        self.assertTrue(hasattr(request, "csp_nonce"))
+        self.assertTrue(len(request.csp_nonce) > 0)
 
     # ------------------------------------------------------------------
     # Permissions-Policy

@@ -196,7 +196,7 @@
 
                 {% if use_auth0 %}
                 <!-- Auth0 Login Button -->
-                <button type="button" id="auth0-login-btn" class="auth0-login-btn" onclick="loginWithAuth0()">
+                <button type="button" id="auth0-login-btn" class="auth0-login-btn">
                     Sign in with Auth0
                 </button>
 
@@ -220,7 +220,7 @@
     </main>
 
     <!-- Shared helpers for rate-limit handling (always available) -->
-    <script>
+    <script nonce="{{ csp_nonce }}">
         function showMessage(text, type) {
             var container = document.getElementById('client-messages');
             container.style.display = '';
@@ -307,10 +307,16 @@
     </script>
 
     {% if use_auth0 %}
-    <!-- Define error handler before loading Auth0 SDK -->
-    <script>
+    <!-- Auth0 SPA SDK v2.1.3 via jsDelivr CDN with Subresource Integrity -->
+    <script id="auth0-sdk"
+            src="https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.min.js"
+            integrity="sha384-Rm7o4Fw8223WH3gI6PLQ7HyUa90mzfyOcEcDMUpdhm8lU+drc1rkQDwzhxAjhZMb"
+            crossorigin="anonymous"
+            nonce="{{ csp_nonce }}"></script>
+    <script nonce="{{ csp_nonce }}">
+        var auth0Client = null;
+
         function handleScriptError() {
-            // If CDN fails or SRI check fails, disable Auth0 login
             var btn = document.getElementById('auth0-login-btn');
             if (btn) {
                 btn.disabled = true;
@@ -318,17 +324,12 @@
             }
             console.error('Failed to load Auth0 SDK - SRI check may have failed');
         }
-    </script>
-    <!-- Auth0 SPA SDK v2.1.3 via jsDelivr CDN with Subresource Integrity -->
-    <script src="https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.min.js"
-            integrity="sha384-Rm7o4Fw8223WH3gI6PLQ7HyUa90mzfyOcEcDMUpdhm8lU+drc1rkQDwzhxAjhZMb"
-            crossorigin="anonymous"
-            onerror="handleScriptError()"></script>
-    <script>
-        var auth0Client = null;
+
+        // Detect SDK load failure (replaces inline onerror handler)
+        var sdkScript = document.getElementById('auth0-sdk');
+        sdkScript.addEventListener('error', handleScriptError);
 
         async function initAuth0() {
-            // Check if Auth0 SDK loaded successfully
             if (typeof auth0 === 'undefined') {
                 console.error('Auth0 SDK failed to load');
                 handleScriptError();
@@ -351,7 +352,6 @@
                     try {
                         await auth0Client.handleRedirectCallback();
                         var token = await auth0Client.getTokenSilently();
-                        // Restore the next URL from localStorage
                         var nextUrl = localStorage.getItem('admin_auth0_next') || '/admin/';
                         localStorage.removeItem('admin_auth0_next');
                         submitToken(token, nextUrl);
@@ -359,13 +359,11 @@
                         console.error('Auth0 callback error:', error);
                         showLoading(false);
                         localStorage.removeItem('admin_auth0_next');
-                        // Clean up URL
                         window.history.replaceState({}, document.title, window.location.pathname);
                     }
                 }
             } catch (error) {
                 console.error('Auth0 initialization error:', error);
-                // Disable Auth0 button if initialization fails
                 var btn = document.getElementById('auth0-login-btn');
                 if (btn) {
                     btn.disabled = true;
@@ -381,8 +379,6 @@
             }
             showLoading(true);
             try {
-                // Store the next URL in localStorage before redirecting
-                // This avoids putting it in redirect_uri which requires exact matching in Auth0
                 localStorage.setItem('admin_auth0_next', '{{ next|escapejs }}' || '/admin/');
                 await auth0Client.loginWithRedirect({
                     authorizationParams: {
@@ -403,6 +399,12 @@
             }
             clearClientMessages();
             await submitFormViaFetch(new FormData(form));
+        }
+
+        // Bind Auth0 button via addEventListener (not inline onclick)
+        var auth0Btn = document.getElementById('auth0-login-btn');
+        if (auth0Btn) {
+            auth0Btn.addEventListener('click', loginWithAuth0);
         }
 
         // Initialize Auth0 when page loads

@@ -4,9 +4,15 @@ Custom security middleware for OpenContracts.
 Adds Content-Security-Policy and Permissions-Policy headers to all responses.
 Configuration is driven by Django settings (see base.py).
 
+Each request gets a unique CSP nonce (attached as ``request.csp_nonce``) that
+is injected into ``script-src``.  Templates can use ``{{ request.csp_nonce }}``
+(or a view can pass it explicitly) to allow inline ``<script>`` blocks.
+
 Note: Referrer-Policy is handled by Django's built-in SecurityMiddleware via
 the SECURE_REFERRER_POLICY setting and is NOT duplicated here.
 """
+
+import secrets
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -34,6 +40,10 @@ class SecurityHeadersMiddleware:
         SECURE_CSP_DIRECTIVES      – dict of CSP directive name → list of values
         SECURE_PERMISSIONS_POLICY  – dict of feature name → list of allowlist tokens
 
+    A per-request cryptographic nonce is generated and:
+      1. Stored on ``request.csp_nonce`` for use in templates.
+      2. Appended to ``script-src`` in the CSP header as ``'nonce-<value>'``.
+
     Note: Referrer-Policy is handled by Django's built-in SecurityMiddleware
     (django.middleware.security.SecurityMiddleware) via SECURE_REFERRER_POLICY.
     """
@@ -41,17 +51,22 @@ class SecurityHeadersMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-        # Pre-build header values once at startup for performance.
-        self._csp = self._build_csp(getattr(settings, "SECURE_CSP_DIRECTIVES", None))
+        self._csp_directives = getattr(settings, "SECURE_CSP_DIRECTIVES", None)
         self._permissions = self._build_permissions_policy(
             getattr(settings, "SECURE_PERMISSIONS_POLICY", None)
         )
 
     def __call__(self, request):
+        # Generate a per-request nonce for inline script authorisation.
+        nonce = secrets.token_urlsafe(32)
+        request.csp_nonce = nonce
+
         response = self.get_response(request)
 
-        if self._csp:
-            response["Content-Security-Policy"] = self._csp
+        if self._csp_directives:
+            response["Content-Security-Policy"] = self._build_csp(
+                self._csp_directives, nonce
+            )
 
         if self._permissions:
             response["Permissions-Policy"] = self._permissions
@@ -63,9 +78,12 @@ class SecurityHeadersMiddleware:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_csp(directives):
+    def _build_csp(directives, nonce=None):
         """
         Build a CSP header string from a directive dict.
+
+        If *nonce* is provided it is appended to ``script-src`` as
+        ``'nonce-<value>'``.
 
         Example input::
 
@@ -75,13 +93,15 @@ class SecurityHeadersMiddleware:
                 "connect-src": ["'self'"],
             }
 
-        Returns ``"default-src 'self'; script-src 'self'; connect-src 'self'"``
+        Returns ``"default-src 'self'; script-src 'self' 'nonce-abc'; ..."``
         or ``None`` if *directives* is falsy.
         """
         if not directives:
             return None
         parts = []
         for directive, values in directives.items():
+            if nonce and directive == "script-src":
+                values = list(values) + [f"'nonce-{nonce}'"]
             parts.append(f"{directive} {' '.join(values)}")
         return "; ".join(parts)
 

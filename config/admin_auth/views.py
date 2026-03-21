@@ -180,6 +180,7 @@ class Auth0AdminLoginView(View):
             "site_title": admin.site.site_title or "Django site admin",
             "use_auth0": getattr(settings, "USE_AUTH0", False),
             "next": next_url,
+            "csp_nonce": getattr(request, "csp_nonce", ""),
         }
 
         # Add Auth0 settings if enabled
