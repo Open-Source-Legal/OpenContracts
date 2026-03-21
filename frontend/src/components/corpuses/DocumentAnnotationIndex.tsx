@@ -779,6 +779,17 @@ export const DocumentAnnotationIndex: React.FC<
   }
 
   if (filteredNodes.length === 0) {
+    // When embedded inside the TOC tree, show a subtle empty state so
+    // the expand chevron isn't a silent no-op.
+    if (embedded) {
+      return (
+        <EmptyState>
+          {filterQuery
+            ? "No matching sections"
+            : "No indexed sections for this document"}
+        </EmptyState>
+      );
+    }
     return null;
   }
 
