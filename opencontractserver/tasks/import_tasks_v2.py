@@ -199,7 +199,7 @@ def _import_document_with_annotations(
             )
 
             # Import annotations onto the corpus copy using shared helper
-            annot_id_map = import_doc_annotations(
+            annot_id_map, _doc_labels_count = import_doc_annotations(
                 doc_data=doc_data,
                 corpus_doc=corpus_doc,
                 corpus_obj=corpus_obj,

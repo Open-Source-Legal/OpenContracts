@@ -1862,6 +1862,32 @@ export enum FileTypeEnum {
   DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
+/** Per-stage availability for a file type. */
+export type StageCoverageType = {
+  __typename?: "StageCoverageType";
+  /** Whether at least one parser supports this file type. */
+  parser: boolean;
+  /** Whether at least one embedder supports this file type. */
+  embedder: boolean;
+  /** Whether at least one thumbnailer supports this file type. */
+  thumbnailer: boolean;
+};
+
+/** Information about a MIME type's support level in the pipeline. */
+export type SupportedMimeTypeType = {
+  __typename?: "SupportedMimeTypeType";
+  /** Canonical MIME type string (e.g. 'application/pdf'). */
+  mimetype: string;
+  /** Short file type label (e.g. 'pdf'). */
+  fileType: string;
+  /** Human-readable label (e.g. 'PDF'). */
+  label: string;
+  /** Whether all required pipeline stages have at least one component. */
+  fullySupported: boolean;
+  /** Per-stage availability for this file type. */
+  stageCoverage: StageCoverageType;
+};
+
 /**
  * Pipeline Settings Type - represents system-wide document processing configuration.
  * Only modifiable by superusers.

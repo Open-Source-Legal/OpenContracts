@@ -316,15 +316,12 @@ test.describe("UnifiedContentFeed - Read-only Mode", () => {
       <UnifiedContentFeedTestWrapper readOnly={true} />
     );
 
-    // Get the PostItNote button — wait for visibility so styled-components CSS is applied
+    // Get the PostItNote button — use toHaveCSS for retry-based style assertion
     const firstNote = page.locator("button").filter({ hasText: "Test Note 1" });
     await expect(firstNote).toBeVisible();
 
-    // Check cursor style
-    const cursor = await firstNote.evaluate(
-      (el) => window.getComputedStyle(el).cursor
-    );
-    expect(cursor).toBe("default");
+    // Check cursor style — toHaveCSS retries until styled-components injects the CSS
+    await expect(firstNote).toHaveCSS("cursor", "default");
   });
 
   test("read-only: edit indicators are hidden", async ({ mount, page }) => {

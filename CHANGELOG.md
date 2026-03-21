@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Annotation sidecar import for bulk zip upload** (`opencontractserver/tasks/import_tasks.py`, `opencontractserver/utils/zip_security.py`): The `ImportZipToCorpus` mutation now supports importing pre-calculated annotations alongside source documents. When a document file (e.g. `contracts/master.pdf`) has a co-located `.json` sidecar (e.g. `contracts/master.json`) conforming to `OpenContractDocExport`, annotations and intra-document relationships are imported from the sidecar instead of running the parser pipeline. A root-level `labels.json` file provides label definitions. Documents without sidecars continue through the normal pipeline. This enables mixed-mode imports where some documents have pre-computed annotations and others are parsed fresh.
 - **Test coverage for Focus/Power mode toggle** (`frontend/tests/CorpusHome.ct.tsx`, `frontend/tests/CorpusHomeTestWrapper.tsx`): Added four Playwright component tests exercising the `onModeToggle` and `isPowerUserMode` props: toggle hidden when callback absent, toggle visible in focus mode, toggle reflects power-user state, and click fires callback. Updated `CorpusHomeTestWrapper` to forward mode-toggle props. Closes #1044 (item 5).
 - **Tighten MCP telemetry input validation and test coverage** (Closes #1106):
   - Bound User-Agent storage to 512 characters (`MAX_USER_AGENT_LENGTH`) in both `set_request_context()` and `get_user_agent_from_scope()` to prevent attacker-controlled multi-megabyte values from reaching telemetry backends (`opencontractserver/mcp/telemetry.py`)
@@ -36,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dynamic MIME type support from pipeline components** (Closes #1059): Supported file types are now derived dynamically from registered pipeline components instead of being hardcoded. Changes include:
+  - New `get_supported_mime_types()` and `get_allowed_mime_types()` functions in `opencontractserver/pipeline/registry.py` that compute supported file types by intersecting component coverage across parser, embedder, and thumbnailer stages
+  - New `supportedMimeTypes` GraphQL query (`config/graphql/pipeline_queries.py`) returning per-file-type support level with stage coverage details
+  - New `SupportedMimeTypeType` and `StageCoverageType` GraphQL types (`config/graphql/pipeline_types.py`)
+  - Centralized MIME ↔ file type mappings (`MIME_TO_FILE_TYPE`, `FILE_TYPE_TO_MIME`, `FILE_TYPE_LABELS`, `LEGACY_MIME_ALIASES`) in `opencontractserver/pipeline/base/file_types.py`, replacing scattered inline dicts
+  - Upload validation in `document_mutations.py`, `folder_service.py`, and `import_tasks.py` now uses the dynamic registry instead of `settings.ALLOWED_DOCUMENT_MIMETYPES`
+  - Frontend `FiletypeDefaults` component fetches supported MIME types via GraphQL query instead of using hardcoded `SUPPORTED_MIME_TYPES` constant
+  - Warning icon displayed for partially-supported file types (e.g., DOCX which lacks a thumbnailer)
+  - `FileTypeEnum` gains `.mimetype` and `.label` properties and supports legacy MIME aliases in `from_mimetype()`
 - **Compact PAWLs v2 format for ~67% storage reduction** (PR #1112): New v2 compact format for PAWLs files (per-page token bounding boxes) that reduces storage from ~500+ KB to ~180 KB for a typical 9-page PDF. Changes include:
   - Core encode/decode in `opencontractserver/utils/compact_pawls.py` (Python) and `frontend/src/utils/compactPawls.ts` (TypeScript)
   - Array-based tokens `[x, y, w, h, "text"]` instead of verbose dicts, shortened page keys, implicit page index, coordinate precision normalization
@@ -54,6 +64,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ServerTokenAnnotation` constructor now accepts both v1 and v2 formats, normalizing internally
 
 ### Added
+
+- **First-class DOCX document support via Docxodus pipeline**: Added a complete parallel ingestion pipeline and rendering tree for DOCX files, bringing Word document support alongside existing PDF and TXT pipelines. Changes include:
+  - **Backend: Docxodus microservice** (`docxodus-service/`): .NET 8 minimal API wrapping `OpenContractExporter.Export()` to produce OpenContractDocExport-compatible JSON with structural annotations and character offsets from DOCX files. Multi-stage Docker build exposed on port 8080.
+  - **Backend: DocxodusServiceParser** (`opencontractserver/pipeline/parsers/docxodus_parser.py`): REST parser that sends base64-encoded DOCX to the microservice, normalizes camelCase→snake_case response fields, and handles transient/permanent error classification.
+  - **Backend: DocxThumbnailGenerator** (`opencontractserver/pipeline/thumbnailers/docx_thumbnailer.py`): Two-tier thumbnail approach — extracts embedded thumbnails from DOCX ZIP archives (`docProps/thumbnail.jpeg`), falling back to text-based thumbnails via XML parsing of `word/document.xml`.
+  - **Frontend: DocxAnnotator** (`frontend/src/components/annotator/renderers/docx/DocxAnnotator.tsx`): WASM-powered DOCX renderer using `docxodus` npm package's `convertDocxToHtmlWithExternalAnnotations()` for annotation projection onto native DOCX HTML output. Supports text selection for new annotation creation via `findTextOccurrences()`.
+  - **Frontend: DocxAnnotatorWrapper** (`frontend/src/components/annotator/components/wrappers/DocxAnnotatorWrapper.tsx`): State management wrapper mirroring TxtAnnotatorWrapper pattern — manages annotation CRUD, chat sources, text search, and ref registration.
+  - **Frontend: DocumentKnowledgeBase integration**: DOCX loading flow (fetches raw bytes + extracted text) and renderer dispatch added to both query handlers.
+  - **Frontend utilities**: `isDocxFileType()` in `frontend/src/utils/files.ts`, `DOCX_MIME_TYPE` constant, `docxBytesAtom` / `useDocxBytes()` hook in DocumentAtom, `getDocxBytes()` in cachedRest.
+  - **Docker Compose**: `docxodus-parser` service added to `local.yml`, `production.yml`, and `test.yml` with dependency wiring.
+  - **Dependencies**: `docxodus@5.5.0` and `dompurify@3.3.3` added to frontend.
+  - **Backend tests**: `test_doc_parser_docxodus.py` with parser unit tests (success, timeout, connection error, normalization) and thumbnailer tests (text preview, embedded thumbnail, invalid DOCX handling).
+  - **Frontend tests**: `DocxAnnotator.ct.tsx` component test with `docScreenshot` captures.
 
 - **Richer social media link previews for corpus and document links**: Improved the Cloudflare OG worker to generate better social tags. Changes include:
   - Corpus descriptions are now included in OG/Twitter description tags, combined with document count (e.g. "Corpus description — 15 documents")

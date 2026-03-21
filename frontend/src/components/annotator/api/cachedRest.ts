@@ -9,6 +9,7 @@ import {
   getPawlsLayer as uncachedGetPawlsLayer,
   getDocumentRawText as uncachedGetDocumentRawText,
 } from "./rest";
+import { DOCX_CACHE_MAX_ENTRIES } from "../../../assets/configurations/constants";
 
 /**
  * Get PAWLS layer data with caching
@@ -148,6 +149,42 @@ export async function getCachedPDFUrl(
     // Fall back to direct URL if caching fails
     return pdfUrl;
   }
+}
+
+/**
+ * In-memory LRU cache for DOCX bytes, keyed by URL to avoid refetching on Apollo
+ * refetch. Capped at DOCX_CACHE_MAX_ENTRIES; least-recently-used entry is evicted
+ * when the limit is reached. Uses Map insertion-order semantics: a cache hit
+ * deletes and re-inserts the entry so it becomes the most recent.
+ */
+const docxBytesCache = new Map<string, Uint8Array>();
+
+/**
+ * Get DOCX document bytes (as Uint8Array) for WASM rendering.
+ * Caches by URL to avoid re-downloading on Apollo query refetches.
+ */
+export async function getDocxBytes(url: string): Promise<Uint8Array> {
+  const cached = docxBytesCache.get(url);
+  if (cached) {
+    // Promote to most-recently-used by re-inserting
+    docxBytesCache.delete(url);
+    docxBytesCache.set(url, cached);
+    return cached;
+  }
+
+  const response = await axios.get(url, { responseType: "arraybuffer" });
+  const bytes = new Uint8Array(response.data);
+
+  // Evict least-recently-used entry if cache is at capacity
+  if (docxBytesCache.size >= DOCX_CACHE_MAX_ENTRIES) {
+    const lruKey = docxBytesCache.keys().next().value;
+    if (lruKey !== undefined) {
+      docxBytesCache.delete(lruKey);
+    }
+  }
+
+  docxBytesCache.set(url, bytes);
+  return bytes;
 }
 
 /**

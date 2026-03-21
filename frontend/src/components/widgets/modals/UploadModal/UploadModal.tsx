@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+import { useQuery } from "@apollo/client";
 import {
   Modal,
   ModalHeader,
@@ -36,6 +43,7 @@ import {
   UploadMode,
   UploadStep,
 } from "./components";
+import { AcceptedFileType } from "./components/FileDropZone";
 import {
   useUploadState,
   useUploadMutations,
@@ -47,6 +55,10 @@ import {
   UPLOAD,
   DOCUMENT_METADATA,
 } from "../../../../assets/configurations/constants";
+import {
+  GET_SUPPORTED_MIME_TYPES,
+  SupportedMimeTypesQueryResult,
+} from "../../../admin/system_settings/graphql";
 
 export interface UploadModalProps {
   open: boolean;
@@ -66,10 +78,11 @@ export interface UploadModalProps {
 }
 
 /**
- * Unified Upload Modal component supporting both single PDF and bulk ZIP upload.
+ * Unified Upload Modal supporting single document and bulk ZIP upload.
  *
  * Features:
- * - Auto-detects mode based on file type (ZIP → bulk, PDF → single)
+ * - Dynamically fetches supported file types from backend pipeline registry
+ * - Auto-detects mode based on file type (ZIP → bulk, document → single)
  * - Multi-step wizard for single mode (Select → Details → Corpus)
  * - Simplified single-step flow for bulk mode
  * - Uses @os-legal/ui design system
@@ -117,6 +130,39 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     skip: !open || !!corpusId,
     requireUpdatePermission: true,
   });
+
+  // Query supported file types from backend pipeline registry
+  const { data: mimeTypesData } = useQuery<SupportedMimeTypesQueryResult>(
+    GET_SUPPORTED_MIME_TYPES,
+    { fetchPolicy: "cache-first" }
+  );
+
+  // Derive accepted file types (only fully supported ones) and MIME set for filtering
+  const acceptedFileTypes: AcceptedFileType[] = useMemo(() => {
+    if (!mimeTypesData?.supportedMimeTypes) return [];
+    return mimeTypesData.supportedMimeTypes
+      .filter((mt) => mt.fullySupported)
+      .map((mt) => ({
+        mimetype: mt.mimetype,
+        extension: mt.fileType,
+        label: mt.label,
+      }));
+  }, [mimeTypesData]);
+
+  const acceptedMimeSet = useMemo(
+    () => new Set(acceptedFileTypes.map((ft) => ft.mimetype)),
+    [acceptedFileTypes]
+  );
+
+  const acceptedExtensions = useMemo(
+    () => new Set(acceptedFileTypes.map((ft) => `.${ft.extension}`)),
+    [acceptedFileTypes]
+  );
+
+  const acceptedLabels = useMemo(() => {
+    if (acceptedFileTypes.length === 0) return "PDF";
+    return acceptedFileTypes.map((ft) => ft.label).join(", ");
+  }, [acceptedFileTypes]);
 
   // Upload mutations
   const uploadMutations = useUploadMutations({
@@ -195,18 +241,25 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           setError("Please select a .zip file");
         }
       } else {
-        // Single mode - accept PDFs
-        const pdfFiles = files.filter(
-          (f) => f.type === "application/pdf" || f.name.endsWith(".pdf")
-        );
-        if (pdfFiles.length > 0) {
-          uploadState.addFiles(pdfFiles);
+        // Single mode - filter to supported file types
+        const validFiles = files.filter((f) => {
+          if (acceptedMimeSet.size > 0) {
+            const ext = f.name.includes(".")
+              ? `.${f.name.split(".").pop()?.toLowerCase()}`
+              : "";
+            return acceptedMimeSet.has(f.type) || acceptedExtensions.has(ext);
+          }
+          // Fallback to PDF if backend hasn't responded yet
+          return f.type === "application/pdf" || f.name.endsWith(".pdf");
+        });
+        if (validFiles.length > 0) {
+          uploadState.addFiles(validFiles);
         } else {
-          setError("Please select PDF files");
+          setError(`Please select supported files (${acceptedLabels})`);
         }
       }
     },
-    [mode, uploadState]
+    [mode, uploadState, acceptedMimeSet, acceptedExtensions, acceptedLabels]
   );
 
   // Handle file rejections from dropzone
@@ -214,9 +267,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     if (mode === "bulk") {
       setError("Invalid file type. Please select a .zip file.");
     } else {
-      setError("Invalid file type. Please select PDF files.");
+      setError(`Invalid file type. Supported formats: ${acceptedLabels}`);
     }
-  }, [mode]);
+  }, [mode, acceptedLabels]);
 
   // Form validation for single mode
   const isFormValid = useCallback(() => {
@@ -345,11 +398,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   const getSubtitle = () => {
     if (mode === "bulk") {
-      return "Upload multiple PDFs from a ZIP file";
+      return "Upload multiple documents from a ZIP file";
     }
     switch (step) {
       case "select":
-        return "Select PDF files to upload";
+        return "Select files to upload";
       case "details":
         return "Review and edit document details";
       case "corpus":
@@ -403,6 +456,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 mode="bulk"
                 selectedFile={zipFile}
                 disabled={isUploading}
+                acceptedFileTypes={acceptedFileTypes}
                 onFilesSelected={handleFilesSelected}
                 onFileRejected={handleFileRejected}
               />
@@ -485,6 +539,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <FileDropZone
                       mode="single"
                       hasFiles={uploadState.hasFiles}
+                      acceptedFileTypes={acceptedFileTypes}
                       onFilesSelected={handleFilesSelected}
                       onFileRejected={handleFileRejected}
                     />

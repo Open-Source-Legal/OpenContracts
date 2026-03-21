@@ -1768,3 +1768,28 @@ class TestRemoveDocument_BasicOperations(DocumentFolderServiceTestBase):
 
         self.assertEqual(removed_count, 2)
         self.assertEqual(error, "")
+
+
+# =============================================================================
+# 8. FILE TYPE VALIDATION SCENARIOS
+# =============================================================================
+
+
+class TestValidateFileType(DocumentFolderServiceTestBase):
+    """Tests for validate_file_type classmethod."""
+
+    def test_validate_file_type_accepts_pdf(self):
+        """PDF bytes should pass validation."""
+        pdf_bytes = b"%PDF-1.4 minimal pdf content"
+        mime_type, error = DocumentFolderService.validate_file_type(pdf_bytes)
+        self.assertEqual(mime_type, "application/pdf")
+        self.assertEqual(error, "")
+
+    def test_validate_file_type_rejects_unknown(self):
+        """Random binary data that isn't a known type should be rejected."""
+        # Bytes that filetype library can identify but aren't in our allowed list
+        # Use a GIF header which is identifiable but not in our pipeline
+        gif_bytes = b"GIF89a" + b"\x00" * 100
+        mime_type, error = DocumentFolderService.validate_file_type(gif_bytes)
+        self.assertIsNone(mime_type)
+        self.assertIn("Unallowed filetype", error)

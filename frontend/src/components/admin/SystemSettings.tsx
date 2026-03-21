@@ -33,12 +33,14 @@ import { formatSettingLabel } from "../../utils/formatters";
 import {
   GET_PIPELINE_SETTINGS,
   GET_PIPELINE_COMPONENTS,
+  GET_SUPPORTED_MIME_TYPES,
   UPDATE_PIPELINE_SETTINGS,
   RESET_PIPELINE_SETTINGS,
   UPDATE_COMPONENT_SECRETS,
   DELETE_COMPONENT_SECRETS,
   PipelineSettingsQueryResult,
   PipelineComponentsQueryResult,
+  SupportedMimeTypesQueryResult,
 } from "./system_settings/graphql";
 import { SettingsSchemaEntry } from "./system_settings/types";
 import { STAGE_CONFIG } from "./system_settings/config";
@@ -172,6 +174,14 @@ export const SystemSettings: React.FC = () => {
     refetch: refetchComponents,
   } = useQuery<PipelineComponentsQueryResult>(GET_PIPELINE_COMPONENTS, {
     fetchPolicy: "cache-and-network",
+  });
+
+  const {
+    data: mimeTypesData,
+    loading: mimeTypesLoading,
+    error: mimeTypesError,
+  } = useQuery<SupportedMimeTypesQueryResult>(GET_SUPPORTED_MIME_TYPES, {
+    fetchPolicy: "cache-first",
   });
 
   // Mutations
@@ -580,6 +590,8 @@ export const SystemSettings: React.FC = () => {
     }
   }, []);
 
+  const supportedMimeTypes = mimeTypesData?.supportedMimeTypes ?? [];
+
   // Shared props for ComponentLibrary and FiletypeDefaults (avoids duplication
   // between desktop two-column and mobile tab layouts)
   const componentLibraryProps = useMemo(
@@ -612,6 +624,8 @@ export const SystemSettings: React.FC = () => {
   const filetypeDefaultsProps = useMemo(
     () => ({
       components: componentsByStage,
+      supportedMimeTypes,
+      mimeTypesLoading,
       enabledComponents:
         (settings?.enabledComponents?.filter(Boolean) as string[]) ?? [],
       preferredParsers:
@@ -627,6 +641,8 @@ export const SystemSettings: React.FC = () => {
     }),
     [
       componentsByStage,
+      supportedMimeTypes,
+      mimeTypesLoading,
       settings?.enabledComponents,
       settings?.preferredParsers,
       settings?.preferredEmbedders,
@@ -651,7 +667,7 @@ export const SystemSettings: React.FC = () => {
   }
 
   // Error state
-  const queryError = settingsError || componentsError;
+  const queryError = settingsError || componentsError || mimeTypesError;
   if (queryError) {
     return (
       <Container>

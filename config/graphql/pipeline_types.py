@@ -120,6 +120,57 @@ class PipelineComponentsType(graphene.ObjectType):
 # ==============================================================================
 
 
+class StageCoverageType(graphene.ObjectType):
+    """Coverage of pipeline stages for a given file type."""
+
+    parser = graphene.Boolean(
+        required=True,
+        description="Whether at least one parser supports this file type.",
+    )
+    embedder = graphene.Boolean(
+        required=True,
+        description="GLOBAL flag: True when at least one text embedder is registered "
+        "anywhere in the pipeline — does NOT indicate per-file-type coverage. "
+        "All current embedders operate on extracted text regardless of source "
+        "format, so this value is identical across all file types. Do not use "
+        "this field to determine whether a specific MIME type can be embedded.",
+    )
+    thumbnailer = graphene.Boolean(
+        required=True,
+        description="Whether at least one thumbnailer supports this file type.",
+    )
+
+
+class SupportedMimeTypeType(graphene.ObjectType):
+    """
+    Information about a MIME type's support level in the pipeline.
+
+    Derived dynamically from registered pipeline components.
+    """
+
+    mimetype = graphene.String(
+        required=True,
+        description="Canonical MIME type string (e.g. 'application/pdf').",
+    )
+    file_type = graphene.String(
+        required=True, description="Short file type label (e.g. 'pdf')."
+    )
+    label = graphene.String(
+        required=True, description="Human-readable label (e.g. 'PDF')."
+    )
+    fully_supported = graphene.Boolean(
+        required=True,
+        description="Whether the required pipeline stages (parser and embedder) "
+        "have at least one component for this file type. "
+        "Thumbnailer is optional — file types without one are still uploadable.",
+    )
+    stage_coverage = graphene.Field(
+        StageCoverageType,
+        required=True,
+        description="Per-stage availability for this file type.",
+    )
+
+
 class PipelineSettingsType(graphene.ObjectType):
     """
     GraphQL type for PipelineSettings singleton.

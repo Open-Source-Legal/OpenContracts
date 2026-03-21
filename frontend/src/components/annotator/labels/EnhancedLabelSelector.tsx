@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation } from "@apollo/client";
-import { isTextFileType, isPdfFileType } from "../../../utils/files";
+import { isPdfFileType, isSpanBasedFileType } from "../../../utils/files";
 import { toast } from "react-toastify";
 import {
   AnnotationLabelType,
@@ -127,23 +127,19 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
 
   // Determine label type based on document type
   const getLabelType = useCallback(() => {
-    const isTextFile = isTextFileType(selectedDocument?.fileType);
-    const isPdfFile = isPdfFileType(selectedDocument?.fileType);
-
-    if (isTextFile) return LabelType.SpanLabel;
-    if (isPdfFile) return LabelType.TokenLabel;
+    if (isSpanBasedFileType(selectedDocument?.fileType))
+      return LabelType.SpanLabel;
+    if (isPdfFileType(selectedDocument?.fileType)) return LabelType.TokenLabel;
     return LabelType.SpanLabel; // Default
   }, [selectedDocument?.fileType]);
 
   // Compute available labels
   const filteredLabelChoices = useMemo<AnnotationLabelType[]>(() => {
-    const isTextFile = isTextFileType(selectedDocument?.fileType);
-    const isPdfFile = isPdfFileType(selectedDocument?.fileType);
     let availableLabels: AnnotationLabelType[] = [];
 
-    if (isTextFile) {
+    if (isSpanBasedFileType(selectedDocument?.fileType)) {
       availableLabels = [...humanSpanLabels];
-    } else if (isPdfFile) {
+    } else if (isPdfFileType(selectedDocument?.fileType)) {
       availableLabels = [...humanTokenLabels];
     }
 
