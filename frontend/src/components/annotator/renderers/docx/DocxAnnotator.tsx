@@ -680,9 +680,12 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
           // non-whitespace chars) and end anchor (last ~20) independently,
           // then span between them.
           const words = cleanedText.split(/\s+/).filter(Boolean);
-          if (words.length >= 2) {
-            const startAnchor = words.slice(0, 3).join(" ");
-            const endAnchor = words.slice(-3).join(" ");
+          // Need enough words to form non-overlapping anchors.
+          // For short selections (< 6 words), use fewer anchor words.
+          const anchorSize = Math.min(3, Math.floor(words.length / 2));
+          if (anchorSize >= 1) {
+            const startAnchor = words.slice(0, anchorSize).join(" ");
+            const endAnchor = words.slice(-anchorSize).join(" ");
 
             const normDoc = docText.replace(/\s+/g, " ");
             const startMatches = findTextOccurrences(normDoc, startAnchor);
