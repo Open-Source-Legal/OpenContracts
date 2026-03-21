@@ -41,6 +41,8 @@
     "axios": "^1.13.5",
     "d3": "^7.9.0",
     "date-fns": "^4.1.0",
+    "docxodus": "5.5.3",
+    "dompurify": "^3.3.3",
     "framer-motion": "6.*",
     "fuse.js": "^6.5.3",
     "graphql": "^16.2.0",
@@ -128,7 +130,8 @@
     "js-yaml": "4.1.1",
     "lodash-es": "4.17.23",
     "mdast-util-to-hast": "13.2.1",
-    "rollup": "^4.59.0"
+    "rollup": "^4.59.0",
+    "immutable": ">=3.8.3"
   },
   "devDependencies": {
     "@graphql-codegen/cli": "^5.0.2",
@@ -136,6 +139,7 @@
     "@playwright/test": "^1.52.0",
     "@testing-library/react-hooks": "^8.0.1",
     "@types/d3": "^7.4.3",
+    "@types/dompurify": "^3.2.0",
     "@types/json-schema": "^7.0.15",
     "@types/lodash.uniqueid": "^4.0.9",
     "@types/react-helmet-async": "^1.0.3",

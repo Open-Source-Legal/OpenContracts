@@ -478,6 +478,7 @@ Then use the printed session key directly in curl or Playwright route intercepti
 - **Frontend Routing**: `docs/frontend/routing_system.md`
 - **Frontend Auth Flow**: `docs/frontend/auth_flow.md`
 - **PDF Data Layer**: `docs/architecture/PDF-data-layer.md`
+- **PAWLs Format (v1/v2)**: `docs/architecture/pawls-format.md`
 - **Parser Pipeline**: `docs/pipelines/pipeline_overview.md`
 - **LLM Framework**: `docs/architecture/llms/README.md`
 - **Collaboration System**: `docs/commenting_system/README.md`

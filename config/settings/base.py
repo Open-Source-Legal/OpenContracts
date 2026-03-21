@@ -182,6 +182,9 @@ USAGE_CAPPED_USER_CAN_EXPORT_CORPUS = env.bool(
 
 # UPLOAD CONTROLS
 # ------------------------------------------------------------------------------
+# DEPRECATED: Upload validation now uses dynamically-derived MIME types from the
+# pipeline component registry (see opencontractserver.pipeline.registry.get_allowed_mime_types).
+# This static list is retained for backward compatibility with external code or tests.
 ALLOWED_DOCUMENT_MIMETYPES = [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

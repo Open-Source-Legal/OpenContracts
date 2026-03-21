@@ -269,3 +269,12 @@ content while preserving the layout information.
 
 This sample demonstrates the structure and content of a PAWLs layer JSON file, which serves as the foundation for
 annotation and analysis tasks in the OpenContracts project.
+
+## Compact PAWLs v2 Format
+
+The examples above show the v1 (legacy) format. New documents are automatically stored in the **v2 compact format**,
+which reduces storage by ~67% using array-based tokens and shortened keys. All read paths transparently handle both
+formats via `expand_pawls_pages()`, so consumers always work with the v1 data shape shown above.
+
+For full details on v2 format, compression techniques, and the architectural rationale for maintaining backward
+compatibility, see the [PAWLs Format Specification](../../architecture/pawls-format.md#v1-vs-v2-compact-pawls-format).

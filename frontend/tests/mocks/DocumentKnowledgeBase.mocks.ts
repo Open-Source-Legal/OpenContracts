@@ -870,6 +870,44 @@ export const mockTxtDocument: RawDocumentType = {
   allAnnotations: [mockTxtAnnotation1, mockTxtAnnotation2],
 };
 
+// ============================================================================
+// DOCX Document Mocks
+// ============================================================================
+
+export const DOCX_DOC_ID = "docx-doc-1";
+export const MOCK_DOCX_URL = `/mock-docx/${DOCX_DOC_ID}/test.docx`;
+
+export const TEST_DOCX_PATH = path.resolve(__dirname, "../fixtures/test.docx");
+
+export const mockDocxAnnotation1: RawServerAnnotationType = {
+  id: "docx-annot-1",
+  page: 0,
+  parent: null,
+  annotationLabel: mockTextLabel,
+  annotationType: LabelType.SpanLabel,
+  rawText: "Hello World",
+  json: {
+    start: 0,
+    end: 11,
+  },
+  structural: false,
+  myPermissions: ["read", "write", "delete", "update"],
+  __typename: "AnnotationType",
+};
+
+export const mockDocxDocument: RawDocumentType = {
+  ...mockPdfDocument,
+  id: DOCX_DOC_ID,
+  title: "Test DOCX Document",
+  fileType:
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pdfFile: MOCK_DOCX_URL,
+  pawlsParseFile: undefined,
+  txtExtractFile: "docx-text-extract.txt",
+  mdSummaryFile: undefined,
+  allAnnotations: [mockDocxAnnotation1],
+};
+
 export const mockCorpusData = {
   id: CORPUS_ID,
   __typename: "CorpusType",
@@ -1138,6 +1176,127 @@ export const graphqlMocks: ReadonlyArray<MockedResponse> = [
       query: GET_CONVERSATIONS,
       variables: {
         documentId: TXT_DOC_ID,
+        limit: undefined,
+        cursor: undefined,
+        title_Contains: undefined,
+        createdAt_Gte: undefined,
+        createdAt_Lte: undefined,
+      },
+    },
+    result: {
+      data: {
+        conversations: {
+          __typename: "ConversationTypeConnection",
+          edges: [],
+          pageInfo: createPageInfo(),
+        },
+      },
+    },
+  },
+  // --- DOCX Document Mocks ---
+  // 5) DOCX knowledge+annotations query (first call)
+  {
+    request: {
+      query: GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS,
+      variables: {
+        documentId: DOCX_DOC_ID,
+        corpusId: CORPUS_ID,
+        analysisId: undefined,
+      },
+    },
+    result: {
+      data: {
+        document: {
+          ...mockDocxDocument,
+          allNotes: [],
+        },
+        corpus: mockCorpusData,
+      },
+    },
+  },
+  // 5b) DOCX knowledge+annotations query without analysisId (Apollo strips undefined)
+  {
+    request: {
+      query: GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS,
+      variables: {
+        documentId: DOCX_DOC_ID,
+        corpusId: CORPUS_ID,
+      },
+    },
+    result: {
+      data: {
+        document: {
+          ...mockDocxDocument,
+          allNotes: [],
+        },
+        corpus: mockCorpusData,
+      },
+    },
+  },
+  // 5c) DOCX knowledge+annotations query AGAIN for refetch
+  {
+    request: {
+      query: GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS,
+      variables: {
+        documentId: DOCX_DOC_ID,
+        corpusId: CORPUS_ID,
+      },
+    },
+    result: {
+      data: {
+        document: {
+          ...mockDocxDocument,
+          allNotes: [],
+        },
+        corpus: mockCorpusData,
+      },
+    },
+  },
+  // 5d) DOCX annotations-only query
+  {
+    request: {
+      query: GET_DOCUMENT_ANNOTATIONS_ONLY,
+      variables: {
+        documentId: DOCX_DOC_ID,
+        corpusId: CORPUS_ID,
+        analysisId: null,
+      },
+    },
+    result: {
+      data: {
+        document: {
+          id: DOCX_DOC_ID,
+          allStructuralAnnotations: [],
+          allAnnotations: [mockDocxAnnotation1],
+          allRelationships: [],
+          __typename: "DocumentType",
+        },
+      },
+    },
+  },
+  // 5e) Stub for Analyses/Extracts (documentCorpusActions) - DOCX
+  {
+    request: {
+      query: GET_DOCUMENT_ANALYSES_AND_EXTRACTS,
+      variables: { documentId: DOCX_DOC_ID, corpusId: CORPUS_ID },
+    },
+    result: {
+      data: {
+        documentCorpusActions: {
+          __typename: "DocumentCorpusActionsType",
+          corpusActions: [],
+          extracts: [],
+          analysisRows: [],
+        },
+      },
+    },
+  },
+  // 5f) Stub for GetConversations - DOCX
+  {
+    request: {
+      query: GET_CONVERSATIONS,
+      variables: {
+        documentId: DOCX_DOC_ID,
         limit: undefined,
         cursor: undefined,
         title_Contains: undefined,

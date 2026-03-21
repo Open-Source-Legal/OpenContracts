@@ -38,6 +38,16 @@ class DummyComponentWithSettings(PipelineComponentBase):
                 )
             },
         )
+        service_url: str = field(
+            default="",
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.REQUIRED,
+                    required=True,
+                    description="Service URL",
+                )
+            },
+        )
         timeout: int = field(
             default=30,
             metadata={
@@ -249,18 +259,20 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
         self.assertEqual(component.settings.timeout, 120)
 
     def test_validate_settings_reports_missing_required(self):
-        """validate_settings() reports missing required fields."""
+        """validate_settings() reports missing non-secret required fields."""
         component = DummyComponentWithSettings()
         is_valid, errors = component.validate_settings()
-        # api_key is required but empty string, should report missing
+        # service_url is required (non-secret) but empty, should report missing
+        # api_key is SECRET so it's skipped by validate_settings
         self.assertFalse(is_valid)
-        self.assertTrue(any("api_key" in e for e in errors))
+        self.assertTrue(any("service_url" in e for e in errors))
+        self.assertFalse(any("api_key" in e for e in errors))
 
     def test_validate_settings_passes_when_configured(self):
         """validate_settings() passes when required settings are present."""
         full_path = self._full_path()
         self.pipeline_settings.component_settings = {
-            full_path: {"api_key": "test-key-123"}
+            full_path: {"api_key": "test-key-123", "service_url": "http://localhost"}
         }
         self.pipeline_settings.save()
         PipelineSettings._invalidate_cache()
@@ -295,7 +307,7 @@ class TestLoadSettingsErrorPaths(TestCase):
     def test_load_settings_strict_raises_configuration_error(self):
         """reload_settings(strict=True) raises ConfigurationError for missing required."""
         component = DummyComponentWithSettings()
-        # api_key is required but not set in DB → ConfigurationError
+        # service_url is required (non-secret) but not set in DB → ConfigurationError
         with self.assertRaises(ConfigurationError):
             component.reload_settings(strict=True)
 
@@ -303,7 +315,7 @@ class TestLoadSettingsErrorPaths(TestCase):
         """Non-strict _load_settings logs warning and retries when ConfigurationError."""
         component = DummyComponentWithSettings()
         fallback_instance = DummyComponentWithSettings.Settings(
-            api_key="", timeout=30, debug=False
+            api_key="", service_url="", timeout=30, debug=False
         )
 
         with patch(

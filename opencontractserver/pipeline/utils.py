@@ -5,7 +5,7 @@ import pkgutil
 from typing import Any, Optional, Union
 
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
-from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME, FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
@@ -435,16 +435,7 @@ def find_embedder_for_filetype(
     """
     # Ensure we're working with a mimetype string, not a FileTypeEnum
     if isinstance(mimetype_or_enum, FileTypeEnum):
-        # Convert FileTypeEnum to mimetype string using a reverse mapping
-        mime_to_enum = {
-            "application/pdf": FileTypeEnum.PDF,
-            "text/plain": FileTypeEnum.TXT,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": FileTypeEnum.DOCX,
-            # "text/html": FileTypeEnum.HTML,  # Removed as we don't support HTML
-        }
-        # Create a reverse mapping
-        enum_to_mime = {v: k for k, v in mime_to_enum.items()}
-        mimetype = enum_to_mime.get(mimetype_or_enum)
+        mimetype = FILE_TYPE_TO_MIME.get(mimetype_or_enum.value)
         if not mimetype:
             logger.warning(
                 f"Could not convert FileTypeEnum {mimetype_or_enum} to mimetype"

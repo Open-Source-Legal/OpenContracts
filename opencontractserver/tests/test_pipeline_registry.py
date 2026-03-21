@@ -9,6 +9,10 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from opencontractserver.pipeline.base.file_types import (
+    FILE_TYPE_TO_MIME,
+    FileTypeEnum,
+)
 from opencontractserver.pipeline.registry import (
     ComponentType,
     PipelineComponentDefinition,
@@ -18,9 +22,11 @@ from opencontractserver.pipeline.registry import (
     get_all_parsers_cached,
     get_all_post_processors_cached,
     get_all_thumbnailers_cached,
+    get_allowed_mime_types,
     get_component_by_name_cached,
     get_components_by_mimetype_cached,
     get_registry,
+    get_supported_mime_types,
     reset_registry,
 )
 
@@ -382,3 +388,216 @@ class TestCreateDefinitionSettingsSchemaError(TestCase):
             # Should still return a definition with empty settings_schema
             self.assertEqual(defn.settings_schema, ())
             self.assertEqual(defn.name, "BrokenSettingsComponent")
+
+
+class TestSupportedMimeTypes(TestCase):
+    """Tests for get_supported_mime_types() and get_allowed_mime_types()."""
+
+    def setUp(self):
+        reset_registry()
+
+    def tearDown(self):
+        reset_registry()
+
+    def test_get_supported_mime_types_returns_all_file_types(self):
+        """Every FileTypeEnum member should appear in the result."""
+        from opencontractserver.pipeline.base.file_types import FileTypeEnum
+
+        result = get_supported_mime_types()
+        file_types = {entry["file_type"] for entry in result}
+        for ft in FileTypeEnum:
+            self.assertIn(ft.value, file_types)
+
+    def test_get_supported_mime_types_structure(self):
+        """Each entry should have the expected keys and types."""
+        result = get_supported_mime_types()
+        for entry in result:
+            self.assertIn("mimetype", entry)
+            self.assertIn("file_type", entry)
+            self.assertIn("label", entry)
+            self.assertIn("fully_supported", entry)
+            self.assertIn("stage_coverage", entry)
+            self.assertIsInstance(entry["fully_supported"], bool)
+            self.assertIn("parser", entry["stage_coverage"])
+            self.assertIn("embedder", entry["stage_coverage"])
+            self.assertIn("thumbnailer", entry["stage_coverage"])
+
+    def test_get_supported_mime_types_pdf_has_parser(self):
+        """PDF should have at least one parser available.
+
+        Registers a minimal mock parser so the test is self-contained rather
+        than relying on a specific parser being installed in the test env.
+        """
+        registry = get_registry()
+        mock_parser = PipelineComponentDefinition(
+            name="MockPdfParser",
+            class_name="tests.MockPdfParser",
+            component_type=ComponentType.PARSER,
+            title="Mock PDF Parser",
+            module_name="mock",
+            description="Mock parser for test",
+            author="test",
+            dependencies=(),
+            supported_file_types=("pdf",),
+        )
+        registry._parsers_by_filetype.setdefault("pdf", []).append(mock_parser)
+        get_supported_mime_types.cache_clear()
+
+        result = get_supported_mime_types()
+        by_file_type = {e["file_type"]: e for e in result}
+        self.assertIn("pdf", by_file_type)
+        self.assertTrue(by_file_type["pdf"]["stage_coverage"]["parser"])
+
+    def test_get_allowed_mime_types_returns_sequence(self):
+        """get_allowed_mime_types should return a sequence of MIME type strings."""
+        allowed = get_allowed_mime_types()
+        self.assertIsInstance(allowed, (list, tuple))
+        for mime in allowed:
+            self.assertIsInstance(mime, str)
+            self.assertIn("/", mime)
+
+    def test_get_allowed_mime_types_includes_legacy_aliases(self):
+        """Legacy MIME aliases should be included if their canonical type is supported.
+
+        Registers a mock parser and embedder for txt so the non-fallback path
+        runs and legacy alias expansion (application/txt → text/plain) is tested.
+        """
+        registry = get_registry()
+
+        mock_parser = PipelineComponentDefinition(
+            name="MockTxtParser",
+            class_name="tests.MockTxtParser",
+            component_type=ComponentType.PARSER,
+            title="Mock TXT Parser",
+            module_name="mock",
+            description="Mock parser for test",
+            author="test",
+            dependencies=(),
+            supported_file_types=("txt",),
+        )
+        registry._parsers_by_filetype.setdefault("txt", []).append(mock_parser)
+
+        mock_embedder = PipelineComponentDefinition(
+            name="MockEmbedder",
+            class_name="tests.MockEmbedder",
+            component_type=ComponentType.EMBEDDER,
+            title="Mock Embedder",
+            module_name="mock",
+            description="Mock embedder for test",
+            author="test",
+            dependencies=(),
+            supported_file_types=(),
+        )
+        registry._embedders = registry._embedders + (mock_embedder,)
+
+        get_supported_mime_types.cache_clear()
+        get_allowed_mime_types.cache_clear()
+
+        allowed = get_allowed_mime_types()
+        self.assertIn("text/plain", allowed)
+        self.assertIn("application/txt", allowed)
+
+    def test_fully_supported_requires_parser_and_embedder(self):
+        """A file type is fully_supported if it has a parser and embedder.
+
+        Thumbnailer is optional — file types without a thumbnailer (e.g. DOCX)
+        are still uploadable and processable.
+        """
+        result = get_supported_mime_types()
+        for entry in result:
+            coverage = entry["stage_coverage"]
+            expected = coverage["parser"] and coverage["embedder"]
+            self.assertEqual(
+                entry["fully_supported"],
+                expected,
+                f"fully_supported mismatch for {entry['file_type']}: "
+                f"coverage={coverage}, fully_supported={entry['fully_supported']}",
+            )
+
+    def test_get_components_by_mimetype_cached_unknown_mime(self):
+        """Unknown MIME type returns empty component lists."""
+        result = get_components_by_mimetype_cached("application/x-unknown-test")
+        self.assertEqual(result["parsers"], [])
+        self.assertEqual(result["embedders"], [])
+        self.assertEqual(result["thumbnailers"], [])
+        self.assertEqual(result["post_processors"], [])
+
+    def test_get_supported_mime_types_skips_unmapped_filetype(self):
+        """FileTypeEnum members without a MIME mapping are skipped with a warning."""
+        get_supported_mime_types.cache_clear()
+        with patch.dict(FILE_TYPE_TO_MIME, {"pdf": "application/pdf"}, clear=True):
+            get_supported_mime_types.cache_clear()
+            result = get_supported_mime_types()
+            file_types = {entry["file_type"] for entry in result}
+            # Only "pdf" should be present since we cleared all other mappings
+            self.assertIn("pdf", file_types)
+            self.assertNotIn("txt", file_types)
+            self.assertNotIn("docx", file_types)
+
+    def test_get_allowed_mime_types_falls_back_when_empty(self):
+        """When no components are registered, fall back to settings."""
+        from django.conf import settings
+
+        get_supported_mime_types.cache_clear()
+        get_allowed_mime_types.cache_clear()
+
+        # Mock get_supported_mime_types to return entries with no fully_supported
+        with patch(
+            "opencontractserver.pipeline.registry.get_supported_mime_types",
+            return_value=tuple(
+                [
+                    {
+                        "mimetype": "application/pdf",
+                        "file_type": "pdf",
+                        "label": "PDF",
+                        "fully_supported": False,
+                        "stage_coverage": {
+                            "parser": False,
+                            "embedder": False,
+                            "thumbnailer": False,
+                        },
+                    }
+                ]
+            ),
+        ):
+            get_allowed_mime_types.cache_clear()
+            result = get_allowed_mime_types()
+            # Should fall back to settings.ALLOWED_DOCUMENT_MIMETYPES
+            expected = tuple(getattr(settings, "ALLOWED_DOCUMENT_MIMETYPES", []))
+            self.assertEqual(result, expected)
+            self.assertTrue(len(result) > 0)
+
+
+class TestFileTypeEnum(TestCase):
+    """Tests for FileTypeEnum methods and properties."""
+
+    def test_from_mimetype_known(self):
+        """from_mimetype returns correct enum for known MIME types."""
+        self.assertEqual(
+            FileTypeEnum.from_mimetype("application/pdf"), FileTypeEnum.PDF
+        )
+        self.assertEqual(FileTypeEnum.from_mimetype("text/plain"), FileTypeEnum.TXT)
+
+    def test_from_mimetype_unknown(self):
+        """from_mimetype returns None for unknown MIME types."""
+        self.assertIsNone(FileTypeEnum.from_mimetype("application/x-nonexistent"))
+
+    def test_from_mimetype_legacy_alias(self):
+        """from_mimetype resolves legacy MIME aliases."""
+        result = FileTypeEnum.from_mimetype("application/txt")
+        self.assertEqual(result, FileTypeEnum.TXT)
+
+    def test_mimetype_property(self):
+        """mimetype property returns canonical MIME type string."""
+        self.assertEqual(FileTypeEnum.PDF.mimetype, "application/pdf")
+        self.assertEqual(FileTypeEnum.TXT.mimetype, "text/plain")
+        self.assertEqual(
+            FileTypeEnum.DOCX.mimetype,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    def test_label_property(self):
+        """label property returns human-readable labels."""
+        self.assertEqual(FileTypeEnum.PDF.label, "PDF")
+        self.assertEqual(FileTypeEnum.TXT.label, "Plain Text")
+        self.assertEqual(FileTypeEnum.DOCX.label, "Word Document")

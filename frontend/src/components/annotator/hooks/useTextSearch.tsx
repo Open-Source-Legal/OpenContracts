@@ -163,6 +163,36 @@ export const useTextSearch = () => {
           fullContext,
         } as TextSearchTokenResult);
       }
+    } else {
+      // Span-based search for TXT and DOCX documents
+      const context_length = 64;
+      for (let i = 0; i < matches.length; i++) {
+        const matchIndex = matches[i].index;
+        if (matchIndex === undefined) continue;
+
+        const start_index = matchIndex;
+        const end_index = start_index + searchText.length;
+        const leadIn = docText.substring(
+          Math.max(0, start_index - context_length),
+          start_index
+        );
+        const leadOut = docText.substring(
+          end_index,
+          Math.min(docText.length, end_index + context_length)
+        );
+
+        searchHits.push({
+          id: i,
+          start_index,
+          end_index,
+          text: searchText,
+          fullContext: (
+            <span>
+              <i>{leadIn}</i> <b>{searchText}</b> <i>{leadOut}</i>
+            </span>
+          ),
+        } as TextSearchSpanResult);
+      }
     }
 
     setTextSearchState({ matches: searchHits, selectedIndex: 0 });

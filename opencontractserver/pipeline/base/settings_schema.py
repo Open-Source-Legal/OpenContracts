@@ -285,6 +285,10 @@ def validate_settings_detailed(
     validation_failures: list[str] = []
 
     for name, info in schema.items():
+        # Skip secret fields — they are stored/validated separately
+        if info.get("type") == SettingType.SECRET.value:
+            continue
+
         value = settings_dict.get(name)
 
         # Check required settings

@@ -2,6 +2,7 @@ import { gql } from "@apollo/client";
 import {
   PipelineSettingsType,
   PipelineComponentsType,
+  SupportedMimeTypeType,
 } from "../../../types/graphql-api";
 
 // ============================================================================
@@ -14,6 +15,10 @@ export interface PipelineSettingsQueryResult {
 
 export interface PipelineComponentsQueryResult {
   pipelineComponents: PipelineComponentsType;
+}
+
+export interface SupportedMimeTypesQueryResult {
+  supportedMimeTypes: SupportedMimeTypeType[];
 }
 
 // ============================================================================
@@ -193,6 +198,22 @@ export const DELETE_COMPONENT_SECRETS = gql`
       ok
       message
       componentsWithSecrets
+    }
+  }
+`;
+
+export const GET_SUPPORTED_MIME_TYPES = gql`
+  query GetSupportedMimeTypes {
+    supportedMimeTypes {
+      mimetype
+      fileType
+      label
+      fullySupported
+      stageCoverage {
+        parser
+        embedder
+        thumbnailer
+      }
     }
   }
 `;

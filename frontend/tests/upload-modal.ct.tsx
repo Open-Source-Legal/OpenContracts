@@ -10,6 +10,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import { MockedProvider } from "@apollo/client/testing";
 import { UploadModal } from "../src/components/widgets/modals/UploadModal";
 import { GET_CORPUSES } from "../src/graphql/queries";
+import { GET_SUPPORTED_MIME_TYPES } from "../src/components/admin/system_settings/graphql";
 import { CorpusType } from "../src/types/graphql-api";
 import { docScreenshot } from "./utils/docScreenshot";
 
@@ -90,26 +91,60 @@ const emptyCorpusesMock = {
   },
 };
 
+const mimeTypesMock = {
+  request: {
+    query: GET_SUPPORTED_MIME_TYPES,
+  },
+  result: {
+    data: {
+      supportedMimeTypes: [
+        {
+          mimetype: "application/pdf",
+          fileType: "pdf",
+          label: "PDF",
+          fullySupported: true,
+          stageCoverage: { parser: true, embedder: true, thumbnailer: true },
+        },
+        {
+          mimetype: "text/plain",
+          fileType: "txt",
+          label: "Plain Text",
+          fullySupported: true,
+          stageCoverage: { parser: true, embedder: true, thumbnailer: false },
+        },
+        {
+          mimetype:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          fileType: "docx",
+          label: "DOCX",
+          fullySupported: true,
+          stageCoverage: { parser: true, embedder: true, thumbnailer: false },
+        },
+      ],
+    },
+  },
+};
+
 test.describe("UploadModal - Single Mode", () => {
   test("should render single mode upload interface by default", async ({
     mount,
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="single" />
       </MockedProvider>
     );
 
     // Check header
     await expect(page.locator("text=Upload Documents")).toBeVisible();
-    await expect(page.locator("text=Select PDF files to upload")).toBeVisible();
+    await expect(page.locator("text=Select files to upload")).toBeVisible();
 
     // Step indicator should show "select" as first step
     await expect(page.locator('[data-step="select"]')).toBeVisible();
 
     // Drop zone should be present
-    await expect(page.locator("text=Drag & drop PDF files here")).toBeVisible();
+    await expect(page.locator('[data-testid="file-dropzone"]')).toBeVisible();
 
     await docScreenshot(page, "corpus--upload-modal--initial");
 
@@ -120,7 +155,7 @@ test.describe("UploadModal - Single Mode", () => {
     let closed = false;
 
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal
           open={true}
           onClose={() => {
@@ -143,7 +178,10 @@ test.describe("UploadModal - Single Mode", () => {
 test.describe("UploadModal - Bulk Mode", () => {
   test("should render bulk mode upload interface", async ({ mount, page }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock, corpusesMock]} addTypename={false}>
+      <MockedProvider
+        mocks={[corpusesMock, corpusesMock, mimeTypesMock]}
+        addTypename={false}
+      >
         <UploadModal open={true} onClose={() => {}} forceMode="bulk" />
       </MockedProvider>
     );
@@ -151,7 +189,7 @@ test.describe("UploadModal - Bulk Mode", () => {
     // Check header
     await expect(page.locator("text=Bulk Upload Documents")).toBeVisible();
     await expect(
-      page.locator("text=Upload multiple PDFs from a ZIP file")
+      page.locator("text=Upload multiple documents from a ZIP file")
     ).toBeVisible();
 
     // Drop zone should indicate ZIP files
@@ -169,7 +207,10 @@ test.describe("UploadModal - Bulk Mode", () => {
 
   test("should show corpus selector in bulk mode", async ({ mount, page }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock, corpusesMock]} addTypename={false}>
+      <MockedProvider
+        mocks={[corpusesMock, corpusesMock, mimeTypesMock]}
+        addTypename={false}
+      >
         <UploadModal open={true} onClose={() => {}} forceMode="bulk" />
       </MockedProvider>
     );
@@ -190,7 +231,7 @@ test.describe("UploadModal - Bulk Mode", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="bulk" />
       </MockedProvider>
     );
@@ -209,7 +250,7 @@ test.describe("UploadModal - Bulk Mode", () => {
     let closed = false;
 
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal
           open={true}
           onClose={() => {
@@ -233,7 +274,7 @@ test.describe("UploadModal - Step Navigation", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="single" />
       </MockedProvider>
     );
@@ -251,7 +292,10 @@ test.describe("UploadModal - Step Navigation", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[emptyCorpusesMock]} addTypename={false}>
+      <MockedProvider
+        mocks={[emptyCorpusesMock, mimeTypesMock]}
+        addTypename={false}
+      >
         <UploadModal
           open={true}
           onClose={() => {}}
@@ -279,7 +323,7 @@ test.describe("UploadModal - Mobile Responsiveness", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="single" />
       </MockedProvider>
     );
@@ -288,7 +332,7 @@ test.describe("UploadModal - Mobile Responsiveness", () => {
     await expect(page.locator("text=Upload Documents")).toBeVisible();
 
     // Drop zone should be visible
-    await expect(page.locator("text=Drag & drop PDF files here")).toBeVisible();
+    await expect(page.locator('[data-testid="file-dropzone"]')).toBeVisible();
 
     // Buttons should be accessible
     await expect(page.locator('button:has-text("Cancel")')).toBeVisible();
@@ -301,7 +345,7 @@ test.describe("UploadModal - Mobile Responsiveness", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="bulk" />
       </MockedProvider>
     );
@@ -327,7 +371,7 @@ test.describe("UploadModal - Corpus Selection", () => {
   }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[corpusesMock, corpusesMock, corpusesMock]}
+        mocks={[corpusesMock, corpusesMock, corpusesMock, mimeTypesMock]}
         addTypename={false}
       >
         <UploadModal open={true} onClose={() => {}} forceMode="bulk" />
@@ -349,7 +393,10 @@ test.describe("UploadModal - Pre-selected Corpus", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[emptyCorpusesMock]} addTypename={false}>
+      <MockedProvider
+        mocks={[emptyCorpusesMock, mimeTypesMock]}
+        addTypename={false}
+      >
         <UploadModal
           open={true}
           onClose={() => {}}
@@ -371,7 +418,7 @@ test.describe("UploadModal - Callbacks", () => {
     let closeCalled = false;
 
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal
           open={true}
           onClose={() => {
@@ -395,7 +442,7 @@ test.describe("UploadModal - Form Validation", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="single" />
       </MockedProvider>
     );
@@ -416,7 +463,7 @@ test.describe("UploadModal - Icons", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="single" />
       </MockedProvider>
     );
@@ -432,7 +479,7 @@ test.describe("UploadModal - Icons", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[corpusesMock]} addTypename={false}>
+      <MockedProvider mocks={[corpusesMock, mimeTypesMock]} addTypename={false}>
         <UploadModal open={true} onClose={() => {}} forceMode="bulk" />
       </MockedProvider>
     );

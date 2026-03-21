@@ -1,5 +1,5 @@
 export { FileDropZone } from "./FileDropZone";
-export type { UploadMode } from "./FileDropZone";
+export type { UploadMode, AcceptedFileType } from "./FileDropZone";
 
 export { FileList } from "./FileList";
 export { FileListItem } from "./FileListItem";

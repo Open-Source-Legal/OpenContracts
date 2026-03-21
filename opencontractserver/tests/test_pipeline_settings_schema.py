@@ -217,24 +217,27 @@ class TestValidateSettings(TestCase):
         self.assertEqual(errors, [])
 
     def test_validate_missing_required_settings(self):
-        """Test validation fails when required settings are missing."""
+        """Test validation fails when required non-secret settings are missing.
+
+        Secret settings (like api_key) are validated separately and skipped here.
+        """
         settings_dict = {
             "timeout": 60,
         }
         is_valid, errors = validate_settings(ComponentWithSettings, settings_dict)
         self.assertFalse(is_valid)
-        self.assertTrue(any("api_key" in err for err in errors))
+        # api_key is SECRET so it's skipped by validate_settings
+        self.assertFalse(any("api_key" in err for err in errors))
         self.assertTrue(any("service_url" in err for err in errors))
 
     def test_validate_empty_required_string(self):
-        """Test validation fails when required string is empty."""
+        """Test validation fails when required non-secret string is empty."""
         settings_dict = {
-            "api_key": "",  # Empty string
-            "service_url": "https://api.example.com",
+            "service_url": "",  # Empty string for a required non-secret field
         }
         is_valid, errors = validate_settings(ComponentWithSettings, settings_dict)
         self.assertFalse(is_valid)
-        self.assertTrue(any("api_key" in err for err in errors))
+        self.assertTrue(any("service_url" in err for err in errors))
 
     def test_validate_component_without_settings(self):
         """Test validation of component without Settings dataclass."""
@@ -277,7 +280,11 @@ class TestCreateSettingsInstance(TestCase):
         self.assertFalse(instance.debug_mode)  # Default
 
     def test_create_instance_strict_mode_raises_error(self):
-        """Test that strict mode raises ConfigurationError for missing required."""
+        """Test that strict mode raises ConfigurationError for missing required.
+
+        Secret fields (api_key) are skipped; only non-secret required fields
+        (service_url) trigger the error.
+        """
         settings_dict = {
             "timeout": 60,
         }
@@ -285,7 +292,8 @@ class TestCreateSettingsInstance(TestCase):
             create_settings_instance(ComponentWithSettings, settings_dict, strict=True)
 
         self.assertIn(
-            "api_key", str(context.exception.missing_settings) or str(context.exception)
+            "service_url",
+            str(context.exception.missing_settings) or str(context.exception),
         )
 
     def test_create_instance_for_component_without_settings_raises(self):

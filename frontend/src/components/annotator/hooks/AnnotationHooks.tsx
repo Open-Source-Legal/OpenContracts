@@ -59,7 +59,7 @@ import { SpanAnnotationJson } from "../../types";
 import { AnnotationLabelType } from "../../../types/graphql-api";
 import { useCorpusState } from "../context/CorpusAtom";
 import { hasAnyTokens } from "../../../utils/compactAnnotationJson";
-import { isTextFileType } from "../../../utils/files";
+import { isSpanBasedFileType } from "../../../utils/files";
 
 /**
  * Hook to manage PdfAnnotations state.
@@ -293,7 +293,7 @@ export function useCreateAnnotation() {
 
         let newAnnotation: ServerTokenAnnotation | ServerSpanAnnotation;
 
-        if (isTextFileType(selectedDocument.fileType)) {
+        if (isSpanBasedFileType(selectedDocument.fileType)) {
           newAnnotation = new ServerSpanAnnotation(
             createdAnnotationData.page,
             createdAnnotationData.annotationLabel,
@@ -378,7 +378,7 @@ export function useUpdateAnnotation() {
         if (data?.updateAnnotation?.ok) {
           let updatedAnnotation: ServerTokenAnnotation | ServerSpanAnnotation;
 
-          if (isTextFileType(selectedDocument.fileType)) {
+          if (isSpanBasedFileType(selectedDocument.fileType)) {
             updatedAnnotation = new ServerSpanAnnotation(
               annotation.page,
               annotation.annotationLabel,
