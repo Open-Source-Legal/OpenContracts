@@ -5,6 +5,7 @@ GraphQL query mixin for badge, leaderboard, community, notification, and agent q
 import logging
 
 import graphene
+from django.core.cache import cache
 from django.db.models import Q
 from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
@@ -33,6 +34,7 @@ from config.graphql.graphene_types import (
 )
 from opencontractserver.badges.criteria_registry import BadgeCriteriaRegistry
 from opencontractserver.badges.models import Badge, UserBadge
+from opencontractserver.constants.community_stats import COMMUNITY_STATS_CACHE_TTL
 from opencontractserver.conversations.models import (
     ChatMessage,
     Conversation,
@@ -618,16 +620,10 @@ class SocialQueryMixin:
         from datetime import timedelta
 
         from django.contrib.auth import get_user_model
-        from django.core.cache import cache
         from django.db.models import Count
         from django.utils import timezone
 
         from opencontractserver.annotations.models import Annotation
-        from opencontractserver.constants.community_stats import (
-            COMMUNITY_STATS_CACHE_TTL,
-        )
-
-        # UserBadge is imported at top level
 
         User = get_user_model()
         user = info.context.user
@@ -649,7 +645,32 @@ class SocialQueryMixin:
 
         cached = cache.get(cache_key)
         if cached is not None:
-            return cached
+            # Reconstruct Graphene types from cached primitives
+            badge_distribution = []
+            if cached.get("badge_distribution"):
+                badge_ids = [b["badge_id"] for b in cached["badge_distribution"]]
+                badges_by_id = Badge.objects.in_bulk(badge_ids) if badge_ids else {}
+                badge_distribution = [
+                    BadgeDistributionType(
+                        badge=badges_by_id[b["badge_id"]],
+                        award_count=b["award_count"],
+                        unique_recipients=b["unique_recipients"],
+                    )
+                    for b in cached["badge_distribution"]
+                    if b["badge_id"] in badges_by_id
+                ]
+            return CommunityStatsType(
+                total_users=cached["total_users"],
+                total_messages=cached["total_messages"],
+                total_threads=cached["total_threads"],
+                total_annotations=cached["total_annotations"],
+                total_badges_awarded=cached["total_badges_awarded"],
+                badge_distribution=badge_distribution,
+                messages_this_week=cached["messages_this_week"],
+                messages_this_month=cached["messages_this_month"],
+                active_users_this_week=cached["active_users_this_week"],
+                active_users_this_month=cached["active_users_this_month"],
+            )
 
         # Calculate date cutoffs
         now = timezone.now()
@@ -739,7 +760,30 @@ class SocialQueryMixin:
                         )
                     )
 
-        result = CommunityStatsType(
+        # Cache primitive data only — avoids pickling Graphene ObjectTypes
+        # and Django model instances, which is fragile with Redis/Memcached.
+        cache_payload = {
+            "total_users": total_users,
+            "total_messages": total_messages,
+            "total_threads": total_threads,
+            "total_annotations": total_annotations,
+            "total_badges_awarded": total_badges_awarded,
+            "badge_distribution": [
+                {
+                    "badge_id": stat["badge"],
+                    "award_count": stat["award_count"],
+                    "unique_recipients": stat["unique_recipients"],
+                }
+                for stat in badge_stats
+            ],
+            "messages_this_week": messages_this_week,
+            "messages_this_month": messages_this_month,
+            "active_users_this_week": active_users_week,
+            "active_users_this_month": active_users_month,
+        }
+        cache.set(cache_key, cache_payload, COMMUNITY_STATS_CACHE_TTL)
+
+        return CommunityStatsType(
             total_users=total_users,
             total_messages=total_messages,
             total_threads=total_threads,
@@ -751,6 +795,3 @@ class SocialQueryMixin:
             active_users_this_week=active_users_week,
             active_users_this_month=active_users_month,
         )
-
-        cache.set(cache_key, result, COMMUNITY_STATS_CACHE_TTL)
-        return result
