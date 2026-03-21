@@ -138,6 +138,10 @@ class LeaderboardQueryTestCase(TestCase):
         # GraphQL client
         self.client = Client(schema)
 
+    def tearDown(self):
+        """Clear Django cache to prevent stale state bleeding between tests."""
+        cache.clear()
+
     def test_leaderboard_badges_metric(self):
         """Test leaderboard query with badges metric."""
         query = """
@@ -522,7 +526,8 @@ class LeaderboardQueryTestCase(TestCase):
         self.assertGreaterEqual(stats["activeUsersThisMonth"], 0)
 
         # Messages were created recently so month count should match total
-        self.assertEqual(stats["messagesThisMonth"], 8)
+        expected_messages = ChatMessage.objects.filter(msg_type="HUMAN").count()
+        self.assertEqual(stats["messagesThisMonth"], expected_messages)
 
     def test_community_stats_separate_cache_keys_per_user(self):
         """Test that anonymous and authenticated users get separate cache keys."""
@@ -571,8 +576,18 @@ class LeaderboardQueryTestCase(TestCase):
         # First call populates cache
         result1 = self.client.execute(query, context_value=context)
         self.assertIsNone(result1.get("errors"))
-        original_dist_len = len(result1["data"]["communityStats"]["badgeDistribution"])
+        original_dist = result1["data"]["communityStats"]["badgeDistribution"]
+        original_dist_len = len(original_dist)
         self.assertGreaterEqual(original_dist_len, 1)
+
+        # Guard: confirm badge2 is actually present in the distribution
+        badge2_in_dist = any(
+            b["badge"]["name"] == self.badge2.name for b in original_dist
+        )
+        self.assertTrue(
+            badge2_in_dist,
+            f"badge2 ({self.badge2.name}) must be in the distribution for this test to be valid",
+        )
 
         # Delete a badge that was in the distribution
         self.badge2.delete()
