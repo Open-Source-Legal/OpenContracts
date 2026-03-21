@@ -616,41 +616,67 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
 
         if (!cleanedText) return;
 
-        // Search for the cleaned text in docText
+        // Search for the cleaned text in docText.
+        // The browser's selection.toString() may differ from docText in
+        // whitespace: docText uses \n between paragraphs, but the rendered
+        // HTML (especially cross-page) produces spaces or different line
+        // breaks. Normalize both sides for matching, then map back to
+        // actual docText offsets.
         let occurrences = findTextOccurrences(docText, cleanedText);
 
-        // If no exact match (common for cross-page selections with whitespace
-        // differences), try collapsing whitespace for a fuzzy match
         if (occurrences.length === 0) {
-          const normalized = cleanedText.replace(/\s+/g, " ");
-          occurrences = findTextOccurrences(
-            docText.replace(/\s+/g, " "),
-            normalized
+          // Normalize whitespace: collapse all runs of whitespace to single
+          // space in both docText and selection, find the match position,
+          // then map back to real docText offsets.
+          const normDocText = docText.replace(/\s+/g, " ");
+          const normSelection = cleanedText.replace(/\s+/g, " ");
+          const normOccurrences = findTextOccurrences(
+            normDocText,
+            normSelection
           );
-          // Map back to original docText offsets by searching from the
-          // normalized match position
-          if (occurrences.length > 0) {
-            const approxStart = occurrences[0].start;
-            // Find the actual position in docText near this offset
-            const searchWindow = docText.substring(
-              Math.max(0, approxStart - 50),
-              approxStart + cleanedText.length + 50
-            );
-            const firstWords = cleanedText.substring(0, 30);
-            const idx = searchWindow.indexOf(firstWords);
-            if (idx >= 0) {
-              const realStart = Math.max(0, approxStart - 50) + idx;
-              // Find the end by matching the last few words
-              const lastWords = cleanedText.substring(cleanedText.length - 30);
-              const endSearch = docText.indexOf(
-                lastWords,
-                realStart + cleanedText.length - 60
-              );
-              if (endSearch >= 0) {
-                occurrences = [
-                  { start: realStart, end: endSearch + lastWords.length },
-                ];
+
+          if (normOccurrences.length > 0) {
+            // Map normalized offset back to real docText offset.
+            // Walk docText counting non-whitespace-collapsed characters.
+            for (const normMatch of normOccurrences) {
+              let realPos = 0;
+              let normPos = 0;
+              // Advance to normMatch.start in normalized space
+              while (normPos < normMatch.start && realPos < docText.length) {
+                if (/\s/.test(docText[realPos])) {
+                  // Skip all consecutive whitespace in real text (= 1 space in normalized)
+                  while (
+                    realPos < docText.length &&
+                    /\s/.test(docText[realPos])
+                  ) {
+                    realPos++;
+                  }
+                  normPos++; // One space in normalized
+                } else {
+                  realPos++;
+                  normPos++;
+                }
               }
+              const realStart = realPos;
+
+              // Now advance through the match length
+              while (normPos < normMatch.end && realPos < docText.length) {
+                if (/\s/.test(docText[realPos])) {
+                  while (
+                    realPos < docText.length &&
+                    /\s/.test(docText[realPos])
+                  ) {
+                    realPos++;
+                  }
+                  normPos++;
+                } else {
+                  realPos++;
+                  normPos++;
+                }
+              }
+              const realEnd = realPos;
+
+              occurrences.push({ start: realStart, end: realEnd });
             }
           }
         }
