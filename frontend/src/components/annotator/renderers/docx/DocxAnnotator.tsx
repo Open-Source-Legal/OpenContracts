@@ -24,6 +24,7 @@ import React, {
 import {
   ANNOTATION_LABEL_CLASS,
   getGlobalOffsetFromDomPosition,
+  mapNormOffsetToReal,
   pickClosestOccurrence,
 } from "./docxOffsetUtils";
 import {
@@ -628,9 +629,12 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
         //      independently and span between them
         let occurrences = findTextOccurrences(docText, cleanedText);
 
+        // Pre-compute whitespace-normalized texts once for both step 2
+        // (normalized match) and step 3 (anchor-based match).
+        const normDocText = docText.replace(/\s+/g, " ");
+
         if (occurrences.length === 0) {
           // Try whitespace-normalized match
-          const normDocText = docText.replace(/\s+/g, " ");
           const normSelection = cleanedText.replace(/\s+/g, " ");
           const normOccurrences = findTextOccurrences(
             normDocText,
@@ -640,36 +644,10 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
           if (normOccurrences.length > 0) {
             // Map normalized offsets back to real docText positions
             for (const normMatch of normOccurrences) {
-              let realPos = 0;
-              let normPos = 0;
-              while (normPos < normMatch.start && realPos < docText.length) {
-                if (/\s/.test(docText[realPos])) {
-                  while (
-                    realPos < docText.length &&
-                    /\s/.test(docText[realPos])
-                  )
-                    realPos++;
-                  normPos++;
-                } else {
-                  realPos++;
-                  normPos++;
-                }
-              }
-              const realStart = realPos;
-              while (normPos < normMatch.end && realPos < docText.length) {
-                if (/\s/.test(docText[realPos])) {
-                  while (
-                    realPos < docText.length &&
-                    /\s/.test(docText[realPos])
-                  )
-                    realPos++;
-                  normPos++;
-                } else {
-                  realPos++;
-                  normPos++;
-                }
-              }
-              occurrences.push({ start: realStart, end: realPos });
+              occurrences.push({
+                start: mapNormOffsetToReal(docText, normMatch.start),
+                end: mapNormOffsetToReal(docText, normMatch.end),
+              });
             }
           }
         }
@@ -687,34 +665,18 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
             const startAnchor = words.slice(0, anchorSize).join(" ");
             const endAnchor = words.slice(-anchorSize).join(" ");
 
-            const normDoc = docText.replace(/\s+/g, " ");
-            const startMatches = findTextOccurrences(normDoc, startAnchor);
-            const endMatches = findTextOccurrences(normDoc, endAnchor);
+            const startMatches = findTextOccurrences(normDocText, startAnchor);
+            const endMatches = findTextOccurrences(normDocText, endAnchor);
 
             if (startMatches.length > 0 && endMatches.length > 0) {
-              // Pick the start match and the closest end match AFTER it
+              // Pick the start match and the first end match whose start
+              // is at or after the start match's end (no overlap).
               const bestStart = startMatches[0];
-              const bestEnd = endMatches.find((m) => m.end > bestStart.start);
+              const bestEnd = endMatches.find((m) => m.start >= bestStart.end);
               if (bestEnd) {
-                // Map normalized start/end back to real docText
-                const mapToReal = (normOffset: number) => {
-                  let rp = 0;
-                  let np = 0;
-                  while (np < normOffset && rp < docText.length) {
-                    if (/\s/.test(docText[rp])) {
-                      while (rp < docText.length && /\s/.test(docText[rp]))
-                        rp++;
-                      np++;
-                    } else {
-                      rp++;
-                      np++;
-                    }
-                  }
-                  return rp;
-                };
                 occurrences.push({
-                  start: mapToReal(bestStart.start),
-                  end: mapToReal(bestEnd.end),
+                  start: mapNormOffsetToReal(docText, bestStart.start),
+                  end: mapNormOffsetToReal(docText, bestEnd.end),
                 });
               }
             }

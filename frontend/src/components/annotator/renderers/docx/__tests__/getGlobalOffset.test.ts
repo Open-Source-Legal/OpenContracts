@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getGlobalOffsetFromDomPosition,
+  mapNormOffsetToReal,
   pickClosestOccurrence,
 } from "../docxOffsetUtils";
 
@@ -141,5 +142,58 @@ describe("pickClosestOccurrence (disambiguation)", () => {
       start: 498,
       end: 503,
     });
+  });
+});
+
+describe("mapNormOffsetToReal", () => {
+  it("returns the same offset when text has no extra whitespace", () => {
+    const text = "Hello World";
+    // Normalized: "Hello World" (identical)
+    expect(mapNormOffsetToReal(text, 0)).toBe(0);
+    expect(mapNormOffsetToReal(text, 5)).toBe(5);
+    expect(mapNormOffsetToReal(text, 11)).toBe(11);
+  });
+
+  it("maps across newline boundaries (docText paragraphs)", () => {
+    // docText uses newlines between paragraphs; normalized uses single spaces
+    const text = "Hello\n\nWorld";
+    // Normalized: "Hello World" (12→11 chars)
+    // normOffset 0 ("H") → real 0
+    expect(mapNormOffsetToReal(text, 0)).toBe(0);
+    // normOffset 5 (" ") → real 5, but the whitespace run "\n\n" is at 5-6
+    // After consuming it, realPos = 7 ("W")
+    // Actually normOffset 6 ("W") → real 7
+    expect(mapNormOffsetToReal(text, 6)).toBe(7);
+    // normOffset 11 (end of "World") → real 12
+    expect(mapNormOffsetToReal(text, 11)).toBe(12);
+  });
+
+  it("maps across multiple whitespace runs", () => {
+    const text = "A  B\n\nC   D";
+    // Normalized: "A B C D" (7 chars)
+    // A=0, " "=1(real:1-2), B=2(real:3), " "=3(real:4-5), C=4(real:6),
+    // " "=5(real:7-9), D=6(real:10)
+    expect(mapNormOffsetToReal(text, 0)).toBe(0); // "A"
+    expect(mapNormOffsetToReal(text, 2)).toBe(3); // "B"
+    expect(mapNormOffsetToReal(text, 4)).toBe(6); // "C"
+    expect(mapNormOffsetToReal(text, 6)).toBe(10); // "D"
+    expect(mapNormOffsetToReal(text, 7)).toBe(11); // end
+  });
+
+  it("handles leading whitespace", () => {
+    const text = "  Hello";
+    // Normalized: " Hello" (6 chars)
+    // normOffset 1 ("H") → realPos skips "  " (2 chars) → real 2
+    expect(mapNormOffsetToReal(text, 1)).toBe(2);
+  });
+
+  it("handles empty text", () => {
+    expect(mapNormOffsetToReal("", 0)).toBe(0);
+  });
+
+  it("clamps when normOffset exceeds normalized length", () => {
+    const text = "AB";
+    // normOffset 10 — should stop at end of text
+    expect(mapNormOffsetToReal(text, 10)).toBe(2);
   });
 });

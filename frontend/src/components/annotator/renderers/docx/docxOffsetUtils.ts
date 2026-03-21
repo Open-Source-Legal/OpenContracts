@@ -79,6 +79,35 @@ export function getGlobalOffsetFromDomPosition(
 }
 
 /**
+ * Map a character offset in whitespace-normalized text back to the
+ * corresponding offset in the original (un-normalized) text.
+ *
+ * Normalization collapses all whitespace runs to a single space, so a
+ * single normalized position may correspond to a multi-character
+ * whitespace run in the original. This function walks both strings in
+ * lockstep, advancing past whitespace runs in the original whenever the
+ * normalized position advances by one.
+ */
+export function mapNormOffsetToReal(
+  originalText: string,
+  normOffset: number
+): number {
+  let realPos = 0;
+  let normPos = 0;
+  while (normPos < normOffset && realPos < originalText.length) {
+    if (/\s/.test(originalText[realPos])) {
+      while (realPos < originalText.length && /\s/.test(originalText[realPos]))
+        realPos++;
+      normPos++;
+    } else {
+      realPos++;
+      normPos++;
+    }
+  }
+  return realPos;
+}
+
+/**
  * Pick the closest occurrence of text based on an approximate DOM offset.
  *
  * Given multiple occurrences (from findTextOccurrences) and an approximate
