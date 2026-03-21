@@ -618,16 +618,18 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
 
         // Search for the cleaned text in docText.
         // The browser's selection.toString() may differ from docText in
-        // whitespace: docText uses \n between paragraphs, but the rendered
-        // HTML (especially cross-page) produces spaces or different line
-        // breaks. Normalize both sides for matching, then map back to
-        // actual docText offsets.
+        // whitespace (docText uses \n between paragraphs, DOM uses spaces).
+        // For cross-page selections, the selected text may also skip content
+        // between page boundaries, so it's not a contiguous substring of
+        // docText at all. Strategy:
+        //   1. Try exact match
+        //   2. Try whitespace-normalized match
+        //   3. Anchor-based: find the first ~20 chars and last ~20 chars
+        //      independently and span between them
         let occurrences = findTextOccurrences(docText, cleanedText);
 
         if (occurrences.length === 0) {
-          // Normalize whitespace: collapse all runs of whitespace to single
-          // space in both docText and selection, find the match position,
-          // then map back to real docText offsets.
+          // Try whitespace-normalized match
           const normDocText = docText.replace(/\s+/g, " ");
           const normSelection = cleanedText.replace(/\s+/g, " ");
           const normOccurrences = findTextOccurrences(
@@ -636,47 +638,82 @@ const DocxAnnotator: React.FC<DocxAnnotatorProps> = ({
           );
 
           if (normOccurrences.length > 0) {
-            // Map normalized offset back to real docText offset.
-            // Walk docText counting non-whitespace-collapsed characters.
+            // Map normalized offsets back to real docText positions
             for (const normMatch of normOccurrences) {
               let realPos = 0;
               let normPos = 0;
-              // Advance to normMatch.start in normalized space
               while (normPos < normMatch.start && realPos < docText.length) {
                 if (/\s/.test(docText[realPos])) {
-                  // Skip all consecutive whitespace in real text (= 1 space in normalized)
                   while (
                     realPos < docText.length &&
                     /\s/.test(docText[realPos])
-                  ) {
+                  )
                     realPos++;
-                  }
-                  normPos++; // One space in normalized
+                  normPos++;
                 } else {
                   realPos++;
                   normPos++;
                 }
               }
               const realStart = realPos;
-
-              // Now advance through the match length
               while (normPos < normMatch.end && realPos < docText.length) {
                 if (/\s/.test(docText[realPos])) {
                   while (
                     realPos < docText.length &&
                     /\s/.test(docText[realPos])
-                  ) {
+                  )
                     realPos++;
-                  }
                   normPos++;
                 } else {
                   realPos++;
                   normPos++;
                 }
               }
-              const realEnd = realPos;
+              occurrences.push({ start: realStart, end: realPos });
+            }
+          }
+        }
 
-              occurrences.push({ start: realStart, end: realEnd });
+        if (occurrences.length === 0) {
+          // Anchor-based matching for cross-page selections where the full
+          // text is not contiguous in docText. Find start anchor (first ~20
+          // non-whitespace chars) and end anchor (last ~20) independently,
+          // then span between them.
+          const words = cleanedText.split(/\s+/).filter(Boolean);
+          if (words.length >= 2) {
+            const startAnchor = words.slice(0, 3).join(" ");
+            const endAnchor = words.slice(-3).join(" ");
+
+            const normDoc = docText.replace(/\s+/g, " ");
+            const startMatches = findTextOccurrences(normDoc, startAnchor);
+            const endMatches = findTextOccurrences(normDoc, endAnchor);
+
+            if (startMatches.length > 0 && endMatches.length > 0) {
+              // Pick the start match and the closest end match AFTER it
+              const bestStart = startMatches[0];
+              const bestEnd = endMatches.find((m) => m.end > bestStart.start);
+              if (bestEnd) {
+                // Map normalized start/end back to real docText
+                const mapToReal = (normOffset: number) => {
+                  let rp = 0;
+                  let np = 0;
+                  while (np < normOffset && rp < docText.length) {
+                    if (/\s/.test(docText[rp])) {
+                      while (rp < docText.length && /\s/.test(docText[rp]))
+                        rp++;
+                      np++;
+                    } else {
+                      rp++;
+                      np++;
+                    }
+                  }
+                  return rp;
+                };
+                occurrences.push({
+                  start: mapToReal(bestStart.start),
+                  end: mapToReal(bestEnd.end),
+                });
+              }
             }
           }
         }
