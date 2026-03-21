@@ -12,7 +12,7 @@ import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 const FullScreenModalBodyStyles = createGlobalStyle`
   .fullscreen-modal {
     background: ${OS_LEGAL_COLORS.gray50};
-    max-height: 100vh;
+    max-height: 100vh !important;
     overflow: hidden;
   }
 
