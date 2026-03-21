@@ -3,41 +3,23 @@ import { Modal } from "@os-legal/ui";
 import styled, { createGlobalStyle } from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
-// @os-legal/ui Modal renders via a portal outside the React tree,
-// so wrapper descendant selectors never reach the portal DOM.
-// We must use createGlobalStyle instead. Scoped via .fullscreen-modal class
-// to prevent leakage. Injected unconditionally when FullScreenModal is mounted
-// (even when closed), but the scoping class ensures no side effects.
-// TODO: Fix upstream in @os-legal/ui — add a size="fullscreen" variant
-const FullScreenModalStyles = createGlobalStyle`
-  .oc-modal-overlay:has(.fullscreen-modal) {
-    padding: 0 !important;
-  }
-
+// Minimal overrides for the fullscreen modal body — the native size="fullscreen"
+// variant handles positioning, sizing, border-radius, and overlay padding.
+// We override max-height because the base .oc-modal sets max-height: calc(100vh - 32px)
+// which the fullscreen variant doesn't clear, and overflow: hidden to contain content.
+// Injected unconditionally when FullScreenModal is mounted (even when closed),
+// but scoped via .fullscreen-modal class to prevent leakage.
+const FullScreenModalBodyStyles = createGlobalStyle`
   .fullscreen-modal {
-    position: fixed !important;
-    margin: 0 !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-width: none !important;
-    max-height: none !important;
-    border-radius: 0 !important;
     background: ${OS_LEGAL_COLORS.gray50};
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
+    max-height: 100vh !important;
+    overflow: hidden;
   }
 
   .fullscreen-modal .oc-modal-body {
-    flex: 1 1 auto !important;
     overflow: hidden !important;
     padding: 0 !important;
     margin: 0 !important;
-    min-height: 0;
   }
 `;
 
@@ -55,12 +37,12 @@ export const FullScreenModal: React.FC<FullScreenModalProps> = ({
   children,
 }) => (
   <>
-    <FullScreenModalStyles />
+    <FullScreenModalBodyStyles />
     <Modal
       id={id}
       open={open}
       onClose={onClose}
-      size="lg"
+      size="fullscreen"
       className="fullscreen-modal"
       closeOnEscape={false}
       closeOnOverlay={false}

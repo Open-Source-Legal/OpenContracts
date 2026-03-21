@@ -343,6 +343,33 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test("fullscreen modal covers the entire viewport", async ({ mount, page }) => {
+  // Regression test: the FullScreenModal uses size="fullscreen" from @os-legal/ui
+  // and a max-height override. Verify it actually fills the viewport.
+  await mount(
+    <DocumentKnowledgeBaseTestWrapper
+      mocks={graphqlMocksWithChat}
+      documentId={PDF_DOC_ID}
+      corpusId={CORPUS_ID}
+    />
+  );
+
+  // Wait for the modal to render — the heading proves the content is up
+  await expect(
+    page.getByRole("heading", { name: mockPdfDocument.title ?? "" })
+  ).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  // The .fullscreen-modal element should cover the viewport
+  const modal = page.locator(".fullscreen-modal");
+  await expect(modal).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  const viewport = page.viewportSize()!;
+  const box = await modal.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeGreaterThanOrEqual(viewport.width - 1);
+  expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1);
+});
+
 test("renders PDF document and can open summary via floating preview", async ({
   mount,
   page,
