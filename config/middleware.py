@@ -57,9 +57,13 @@ class SecurityHeadersMiddleware:
         )
 
     def __call__(self, request):
-        # Generate a per-request nonce for inline script authorisation.
-        nonce = secrets.token_urlsafe(32)
-        request.csp_nonce = nonce
+        # Only generate a nonce when CSP is active — avoids unnecessary work
+        # when the middleware is present but CSP is not configured.
+        if self._csp_directives:
+            nonce = secrets.token_urlsafe(32)
+            request.csp_nonce = nonce
+        else:
+            nonce = None
 
         response = self.get_response(request)
 
@@ -98,9 +102,10 @@ class SecurityHeadersMiddleware:
         """
         if not directives:
             return None
+        nonce_directives = {"script-src", "script-src-elem"}
         parts = []
         for directive, values in directives.items():
-            if nonce and directive == "script-src":
+            if nonce and directive in nonce_directives:
                 values = list(values) + [f"'nonce-{nonce}'"]
             parts.append(f"{directive} {' '.join(values)}")
         return "; ".join(parts)

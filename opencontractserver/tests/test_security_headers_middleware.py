@@ -139,6 +139,12 @@ class SecurityHeadersMiddlewareTests(SimpleTestCase):
         csp = response["Content-Security-Policy"]
         self.assertIn("connect-src 'self' wss: ws:", csp)
 
+    @override_settings(
+        SECURE_CSP_DIRECTIVES={
+            "script-src": ["'self'"],
+        },
+        SECURE_PERMISSIONS_POLICY=None,
+    )
     def test_csp_nonce_set_on_request(self):
         """Middleware must attach csp_nonce to the request object."""
         mw = SecurityHeadersMiddleware(_dummy_response)
@@ -146,6 +152,34 @@ class SecurityHeadersMiddlewareTests(SimpleTestCase):
         mw(request)
         self.assertTrue(hasattr(request, "csp_nonce"))
         self.assertTrue(len(request.csp_nonce) > 0)
+
+    @override_settings(
+        SECURE_CSP_DIRECTIVES=None,
+        SECURE_PERMISSIONS_POLICY=None,
+    )
+    def test_nonce_not_generated_when_csp_disabled(self):
+        """No nonce should be generated when CSP is not configured."""
+        mw = SecurityHeadersMiddleware(_dummy_response)
+        request = self.factory.get("/")
+        mw(request)
+        self.assertFalse(hasattr(request, "csp_nonce"))
+
+    @override_settings(
+        SECURE_CSP_DIRECTIVES={
+            "script-src": ["'self'"],
+            "script-src-elem": ["'self'"],
+        },
+        SECURE_PERMISSIONS_POLICY=None,
+    )
+    def test_csp_nonce_injected_into_script_src_elem(self):
+        """Nonce must also appear in script-src-elem when that directive exists."""
+        mw = SecurityHeadersMiddleware(_dummy_response)
+        request = self.factory.get("/")
+        response = mw(request)
+        csp = response["Content-Security-Policy"]
+        nonce_token = f"'nonce-{request.csp_nonce}'"
+        self.assertIn(f"script-src 'self' {nonce_token}", csp)
+        self.assertIn(f"script-src-elem 'self' {nonce_token}", csp)
 
     # ------------------------------------------------------------------
     # Permissions-Policy

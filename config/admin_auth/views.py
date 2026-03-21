@@ -180,7 +180,7 @@ class Auth0AdminLoginView(View):
             "site_title": admin.site.site_title or "Django site admin",
             "use_auth0": getattr(settings, "USE_AUTH0", False),
             "next": next_url,
-            "csp_nonce": getattr(request, "csp_nonce", ""),
+            "csp_nonce": self._get_csp_nonce(request),
         }
 
         # Add Auth0 settings if enabled
@@ -228,6 +228,23 @@ class Auth0AdminLoginView(View):
 
         messages.error(request, "Invalid credentials or insufficient permissions.")
         return redirect(_get_login_url())
+
+    @staticmethod
+    def _get_csp_nonce(request):
+        """Return the CSP nonce from the request, warning if it is missing.
+
+        An empty nonce would produce an invalid CSP directive that silently
+        blocks all JavaScript on the login page, so this must be loud.
+        """
+        nonce = getattr(request, "csp_nonce", None)
+        if not nonce:
+            logger.warning(
+                "CSP nonce missing from request — SecurityHeadersMiddleware may "
+                "be absent or misconfigured in MIDDLEWARE. Inline scripts on "
+                "the admin login page will be blocked by CSP."
+            )
+            return ""
+        return nonce
 
     def _authenticate_with_token(self, request, token):
         """Authenticate user with Auth0 JWT token."""
