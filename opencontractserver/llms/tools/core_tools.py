@@ -1933,7 +1933,52 @@ def create_document_index(
             f"Unsupported file_type {doc.file_type} for document id={document_id}"
         )
 
-    created: list[Annotation] = []
+    # ---- Validate all entries before any DB writes ----
+
+    # Build parent_idx map and check for cycles up-front.
+    parent_map: dict[int, int] = {}
+    for i, entry in enumerate(entries):
+        parent_idx = int(entry.get("parent_index", -1))
+        if parent_idx >= 0:
+            if parent_idx == i:
+                raise ValueError(f"Entry {i} references itself as parent")
+            if parent_idx >= len(entries):
+                raise ValueError(
+                    f"parent_index {parent_idx} out of range for entry {i}"
+                )
+            parent_map[i] = parent_idx
+
+    for start in parent_map:
+        visited: set[int] = set()
+        current = start
+        while current in parent_map:
+            if current in visited:
+                raise ValueError(
+                    f"Cycle detected in parent_index references "
+                    f"involving entry {current}"
+                )
+            visited.add(current)
+            current = parent_map[current]
+
+    # Validate exact strings and build (pos, end_idx) pairs.
+    spans: list[tuple[int, int]] = []
+    for entry in entries:
+        exact_str = str(entry["exact_string"])
+        pos = doc_text.find(exact_str)
+        if pos == -1:
+            raise ValueError(
+                f"Exact string not found in document: {repr(exact_str[:80])}"
+            )
+        if doc_text.find(exact_str, pos + 1) != -1:
+            logger.warning(
+                "exact_string %r appears multiple times in document "
+                "id=%d; anchoring to first occurrence.",
+                exact_str[:80],
+                document_id,
+            )
+        spans.append((pos, pos + len(exact_str)))
+
+    # ---- All validation passed — perform DB writes ----
 
     with transaction.atomic():
         label_obj = corpus.ensure_label_and_labelset(
@@ -1942,63 +1987,25 @@ def create_document_index(
             label_type=label_type_const,
         )
 
-        # First pass: create annotations without parents.
-        for entry in entries:
-            exact_str = str(entry["exact_string"])
-            pos = doc_text.find(exact_str)
-            if pos == -1:
-                raise ValueError(
-                    f"Exact string not found in document: {exact_str!r:.80}"
-                )
-            # Warn if the string appears more than once (anchors to first)
-            if doc_text.find(exact_str, pos + 1) != -1:
-                logger.warning(
-                    "exact_string %r appears multiple times in document "
-                    "id=%d; anchoring to first occurrence.",
-                    exact_str[:80],
-                    document_id,
-                )
-            end_idx = pos + len(exact_str)
-            annot = _make_annotation(
+        annotations = [
+            _make_annotation(
                 pos,
                 end_idx,
                 label_obj,
                 str(entry["title"]),
                 entry.get("long_description") or None,
             )
-            annot.save()
-            created.append(annot)
+            for (pos, end_idx), entry in zip(spans, entries)
+        ]
+        created = Annotation.objects.bulk_create(annotations)
 
-        # Second pass: wire up parent hierarchy.
-        # Build parent_idx map first and check for cycles.
-        parent_map: dict[int, int] = {}
-        for i, entry in enumerate(entries):
-            parent_idx = int(entry.get("parent_index", -1))
-            if parent_idx >= 0:
-                if parent_idx == i:
-                    raise ValueError(f"Entry {i} references itself as parent")
-                if parent_idx >= len(entries):
-                    raise ValueError(
-                        f"parent_index {parent_idx} out of range for entry {i}"
-                    )
-                parent_map[i] = parent_idx
-
-        # Detect multi-node cycles via ancestor traversal.
-        for start in parent_map:
-            visited: set[int] = set()
-            current = start
-            while current in parent_map:
-                if current in visited:
-                    raise ValueError(
-                        f"Cycle detected in parent_index references "
-                        f"involving entry {current}"
-                    )
-                visited.add(current)
-                current = parent_map[current]
-
+        # Wire up parent hierarchy in bulk.
+        to_update = []
         for i, parent_idx in parent_map.items():
             created[i].parent = created[parent_idx]
-            created[i].save(update_fields=["parent"])
+            to_update.append(created[i])
+        if to_update:
+            Annotation.objects.bulk_update(to_update, ["parent"])
 
     return [a.pk for a in created]
 
@@ -2010,7 +2017,7 @@ async def acreate_document_index(
     corpus_id: int,
     creator_id: int,
     corpus_action_id: int | None = None,
-):
+) -> list[int]:
     """Async wrapper around :func:`create_document_index`."""
     return await _db_sync_to_async(create_document_index)(
         entries,

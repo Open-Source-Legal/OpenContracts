@@ -40,6 +40,8 @@ import {
 interface DocumentAnnotationIndexProps {
   /** Document ID (global relay ID) to fetch annotation index for */
   documentId: string;
+  /** Document slug for canonical URL navigation */
+  documentSlug?: string;
   /** Optional corpus ID for scoping */
   corpusId?: string;
   /** Maximum tree depth */
@@ -365,6 +367,7 @@ export const DocumentAnnotationIndex: React.FC<
   DocumentAnnotationIndexProps
 > = ({
   documentId,
+  documentSlug,
   corpusId,
   maxDepth = DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH,
   embedded = false,
@@ -395,7 +398,7 @@ export const DocumentAnnotationIndex: React.FC<
       first: DOCUMENT_ANNOTATION_INDEX_LIMIT,
     },
     skip: !documentId,
-    fetchPolicy: "cache-and-network",
+    fetchPolicy: "cache-first",
   });
 
   const isLimitExceeded =
@@ -588,7 +591,7 @@ export const DocumentAnnotationIndex: React.FC<
   const handleSectionClick = (node: SectionNode) => {
     const corpus = openedCorpus();
     navigateToRelationshipDocument(
-      { id: documentId, title: node.title, slug: undefined },
+      { id: documentId, title: node.title, slug: documentSlug },
       corpus,
       navigate,
       window.location.pathname,
@@ -813,7 +816,10 @@ export const DocumentAnnotationIndex: React.FC<
             </span>
           </WarningBanner>
         )}
-        <div role="tree" aria-label="Document sections">
+        <div
+          role={embedded ? "group" : "tree"}
+          aria-label={embedded ? undefined : "Document sections"}
+        >
           {filteredNodes.map((node) => renderNode(node, 0))}
         </div>
       </TreeContainer>

@@ -851,8 +851,9 @@ export const DocumentTableOfContents: React.FC<
     const hasDescription = Boolean(node.description);
     const FileIcon = getFileIcon(node.fileType);
     // All document nodes are expandable — they may contain child documents
-    // or an annotation index (OC_SECTION annotations). The annotation index
-    // is only mounted when expanded, so no N+1 queries on mount.
+    // or an annotation index (OC_SECTION annotations). The query for the
+    // annotation index fires lazily on expand, so we can't know upfront
+    // whether a leaf document has sections.
     const isExpandable = true;
 
     return (
@@ -912,6 +913,7 @@ export const DocumentTableOfContents: React.FC<
         {(skipDocHeader || isExpanded) && (
           <DocumentAnnotationIndex
             documentId={node.id}
+            documentSlug={node.slug}
             corpusId={corpusId}
             maxDepth={maxDepth}
             embedded

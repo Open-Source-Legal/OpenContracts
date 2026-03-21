@@ -276,7 +276,9 @@ test.describe("DocumentAnnotationIndex", () => {
       <DocumentAnnotationIndexTestWrapper mockType="default" embedded={true} />
     );
 
-    await page.waitForSelector('[role="tree"]', { timeout: 10000 });
+    // Embedded mode uses role="group" (not "tree") to avoid nested tree
+    // violation when mounted inside DocumentTableOfContents's role="tree".
+    await page.waitForSelector('[role="group"]', { timeout: 10000 });
 
     // The tree should render but without the "Sections" header
     await expect(page.getByText("Sections")).not.toBeVisible();

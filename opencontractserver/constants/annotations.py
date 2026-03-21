@@ -16,6 +16,11 @@ OC_SECTION_LABEL = "OC_SECTION"
 # Maximum number of entries allowed in a single create_document_index call.
 DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
 
+# Maximum nesting depth for document annotation index hierarchy.
+# Frontend stops rendering beyond this depth; backend does not enforce it
+# (deeper nesting is valid data but won't be visible in the UI).
+DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH = 6
+
 # Maximum number of document relationships returned in a single query.
 # Set high to accommodate Table of Contents hierarchies.
 DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500

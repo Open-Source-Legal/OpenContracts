@@ -5191,6 +5191,7 @@ export const GET_DOCUMENT_ANNOTATION_INDEX = gql`
       documentId: $documentId
       corpusId: $corpusId
       annotationLabel_Text: $labelText
+      structural: false
       first: $first
     ) {
       totalCount
