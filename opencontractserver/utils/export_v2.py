@@ -85,7 +85,7 @@ def package_structural_annotation_set(
                 "annotation_type": annot.annotation_type or "",
                 "structural": True,
             }
-            if annot.long_description:
+            if annot.long_description is not None:
                 annot_data["long_description"] = annot.long_description
             structural_annotations.append(annot_data)
 

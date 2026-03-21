@@ -24,6 +24,7 @@ import { navigateToRelationshipDocument } from "../../utils/navigationUtils";
 import {
   OS_LEGAL_COLORS,
   OS_LEGAL_SPACING,
+  OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
 import { mediaQuery } from "./styles/corpusDesignTokens";
 import {
@@ -219,7 +220,7 @@ const NodeContent = styled.div`
 `;
 
 const NodeTitle = styled.div`
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
   font-size: 1.1875rem;
   font-weight: 500;
   color: ${OS_LEGAL_COLORS.textPrimary};
@@ -476,7 +477,7 @@ export const DocumentAnnotationIndex: React.FC<
       return {
         id: annot.id,
         title: annot.rawText || "Untitled Section",
-        longDescription: annot.longDescription || undefined,
+        longDescription: annot.longDescription ?? undefined,
         page: annot.page,
         children,
       };
@@ -505,7 +506,7 @@ export const DocumentAnnotationIndex: React.FC<
       hasCircularRefs: circularRefs.length > 0,
       allNodeIds: collectExpandableIds(roots),
     };
-  }, [annotationsData, maxDepth]);
+  }, [annotationsData?.annotations?.edges, maxDepth]);
 
   // Apply filter client-side.  The full tree (up to DOCUMENT_ANNOTATION_INDEX_LIMIT
   // records) must be loaded so we can build the parent→child hierarchy before
@@ -567,10 +568,19 @@ export const DocumentAnnotationIndex: React.FC<
     }
   }, [expandAllFromUrl, allNodeIds]);
 
-  // Auto-expand all nodes when a filter is active so matches are visible
+  // Auto-expand all nodes when a filter is active so matches are visible;
+  // collapse back to default when the filter is cleared.
+  const prevFilterRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (filterQuery?.trim() && allNodeIds.length > 0) {
+    const current = filterQuery?.trim() || "";
+    const prev = prevFilterRef.current || "";
+    prevFilterRef.current = current;
+
+    if (current && allNodeIds.length > 0) {
       setExpandedNodes(new Set(allNodeIds));
+    } else if (!current && prev) {
+      // Filter was cleared — collapse back
+      setExpandedNodes(new Set());
     }
   }, [filterQuery, allNodeIds]);
 

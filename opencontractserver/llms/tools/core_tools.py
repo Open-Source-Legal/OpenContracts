@@ -1875,11 +1875,8 @@ def create_document_index(
                 f"PDF document id={document_id} lacks a PAWLS layer; "
                 "cannot create index."
             )
-        doc.pawls_parse_file.open("r")
-        try:
-            pawls_tokens = expand_pawls_pages(json.load(doc.pawls_parse_file))
-        finally:
-            doc.pawls_parse_file.close()
+        with doc.pawls_parse_file.open("r") as f:
+            pawls_tokens = expand_pawls_pages(json.load(f))
 
         pdf_layer = build_translation_layer(pawls_tokens)
         doc_text = pdf_layer.doc_text
