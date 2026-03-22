@@ -38,6 +38,7 @@ from opencontractserver.documents.models import (
     DocumentProcessingStatus,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.bbox_resolution import merge_bbox_into_labelled_text
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.importing import (
     import_annotations,
@@ -297,7 +298,10 @@ def _process_single_upload(upload_id) -> None:
                 )
                 set_permissions_for_obj_to_user(user, annot, [PermissionTypes.ALL])
 
-        # 5. Import text annotations
+        # 5. Resolve bbox_annotations to TOKEN_LABEL if present
+        merge_bbox_into_labelled_text(metadata)
+
+        # 6. Import text annotations
         annot_id_map = import_annotations(
             user_id=user.id,
             doc_obj=corpus_doc,

@@ -30,6 +30,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.dicts import OpenContractsAnnotatedDocumentImportType
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.bbox_resolution import merge_bbox_into_labelled_text
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.importing import (
@@ -138,6 +139,9 @@ def import_document_to_corpus(
         corpus_doc, _status, _doc_path = corpus_obj.add_document(
             document=doc_obj, user=user_obj
         )
+
+        # Resolve bbox_annotations to TOKEN_LABEL if present
+        merge_bbox_into_labelled_text(doc_data)
 
         # Import all annotations onto the corpus copy using shared helper
         _annot_id_map, _doc_labels_count = import_doc_annotations(
@@ -596,6 +600,10 @@ def _apply_sidecar_annotations(
             )
             results["annotation_sidecars_errored"] += 1
             return
+
+        # Resolve bbox_annotations to TOKEN_LABEL if present.
+        # Requires pawls_file_content in doc_data (skip_pipeline case).
+        merge_bbox_into_labelled_text(doc_data)
 
         # Import annotations onto the corpus document
         expected_text = len(doc_data.get("labelled_text", []))

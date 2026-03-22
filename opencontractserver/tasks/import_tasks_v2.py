@@ -25,6 +25,7 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import TemporaryFileHandle
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.bbox_resolution import merge_bbox_into_labelled_text
 from opencontractserver.utils.import_v2 import (
     import_agent_config,
     import_conversations,
@@ -197,6 +198,9 @@ def _import_document_with_annotations(
             corpus_doc, _status, _doc_path = corpus_obj.add_document(
                 document=doc_obj, user=user_obj
             )
+
+            # Resolve bbox_annotations to TOKEN_LABEL if present
+            merge_bbox_into_labelled_text(doc_data)
 
             # Import annotations onto the corpus copy using shared helper
             annot_id_map, _doc_labels_count = import_doc_annotations(
