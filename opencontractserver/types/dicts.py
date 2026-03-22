@@ -357,6 +357,10 @@ class OpenContractsDocAnnotations(TypedDict):
     # relationships.
     relationships: NotRequired[list[OpenContractsRelationshipPythonType]]
 
+    # Bounding-box annotations resolved to TOKEN_LABEL at import time.
+    # See docs/superpowers/specs/2026-03-21-bbox-annotations-design.md
+    bbox_annotations: NotRequired[list["BboxAnnotationType"]]
+
 
 class OpenContractDocExport(OpenContractsDocAnnotations):
     """
@@ -757,3 +761,6 @@ class WorkerDocumentUploadMetadataType(TypedDict):
 
     # Pre-computed embeddings from the external worker
     embeddings: NotRequired[WorkerEmbeddingsType]
+
+    # Bounding-box annotations resolved to TOKEN_LABEL at import time
+    bbox_annotations: NotRequired[list["BboxAnnotationType"]]
