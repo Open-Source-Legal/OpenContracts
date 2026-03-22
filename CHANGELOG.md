@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-03-21
 
+### Changed
+
+- **Reorganized upload documentation into dedicated `docs/upload_methods/` section**: Consolidated scattered upload-related docs into 8 user-facing reference pages covering single upload, bulk ZIP import, corpus export/import, annotated document import, worker uploads, supported formats, and annotation side effects. Simplified `docs/walkthrough/step-1-add-documents.md` and `docs/walkthrough/advanced/export-import-corpuses.md` to reference the new guides. Trimmed `docs/architecture/bulk-import.md` to focus on internal implementation. Removed obsolete `docs/features/zip_import_with_folders_design.md` design doc (feature is fully implemented).
+
 ### Added
 
 - **`COMMUNITY_STATS_CACHE_TTL` env var for community stats caching** (`config/graphql/social_queries.py`, `opencontractserver/constants/community_stats.py`): The `communityStats` GraphQL resolver now caches results using Django's cache framework with a configurable TTL (default 1 hour). This avoids re-running 7+ COUNT queries on every landing page load. Cache is keyed by user type (anonymous vs authenticated) and optional corpus scope. Also includes an N+1 fix using `in_bulk()` for badge distribution and a subquery optimization in `resolve_corpus_categories`.

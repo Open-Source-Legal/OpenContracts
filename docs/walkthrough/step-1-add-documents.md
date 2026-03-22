@@ -13,8 +13,7 @@ The quickest way to get started is the single document upload:
 
 ![](../assets/images/screenshots/Import_Documents_Modal.png)
 
-OpenContracts accepts PDFs, Word documents (.docx), PowerPoint presentations
-(.pptx), and plain text files. Once uploaded, documents are automatically
+OpenContracts accepts PDFs, Word documents (.docx), and plain text files. Once uploaded, documents are automatically
 processed by the document parser (Docling by default) to extract text,
 structure, and token positions. While processing, the document shows a loading
 indicator and cannot be added to a corpus.
