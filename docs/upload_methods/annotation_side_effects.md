@@ -207,6 +207,25 @@ Two relationship types are available:
 Document relationships appear in the corpus UI and can be traversed to navigate
 between related documents.
 
+## Bounding-Box Resolution
+
+When documents are imported with a `bbox_annotations` field, a resolution step
+converts bounding-box coordinates to standard `TOKEN_LABEL` annotations by
+matching against PAWLs tokens. This runs at import time across all four
+annotation-bearing import pathways:
+
+- **Annotated Document Import** -- resolves against inline `pawls_file_content`
+- **Corpus Export/Import** -- resolves against per-document `pawls_file_content`
+- **Worker Uploads** -- resolves against metadata `pawls_file_content`
+- **Bulk ZIP Sidecars** -- resolves when `skip_pipeline: true` (PAWLs in sidecar)
+
+Resolved annotations are indistinguishable from annotations created through any
+other pathway -- they are standard `TOKEN_LABEL` entries with proper token
+references. No unresolved bounding-box data is stored in the database.
+
+See [Annotated Document Import](annotated_document_import.md#bounding-box-annotations-bbox_annotations)
+for the full schema and resolution algorithm.
+
 For the complete export format specification, see
 [Corpus Export Format Specification](../architecture/corpus-export-format-spec.md).
 

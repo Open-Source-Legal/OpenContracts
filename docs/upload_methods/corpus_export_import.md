@@ -96,6 +96,17 @@ contained data. Format version is auto-detected from `data.json`.
   regenerated on import because different deployments may use different
   embedding models.
 
+### Bounding-Box Annotations
+
+Each document entry in `annotated_docs` can include a `bbox_annotations` array.
+These are resolved to `TOKEN_LABEL` annotations at import time using the
+document's `pawls_file_content`. This is an import-only feature -- corpus exports
+never contain `bbox_annotations` (resolved annotations are standard
+`TOKEN_LABEL`).
+
+See [Annotated Document Import](annotated_document_import.md#bounding-box-annotations-bbox_annotations)
+for the full schema.
+
 ## Label Types in Exports
 
 Labels in the export are categorized by type:

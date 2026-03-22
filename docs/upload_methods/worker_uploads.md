@@ -81,6 +81,7 @@ The upload is a `multipart/form-data` POST with two fields:
 | `labelled_text` | array | Text annotations (same format as corpus export annotations) |
 | `relationships` | array | Annotation-to-annotation relationships |
 | `embeddings` | object | Pre-computed vectors with `embedder_path`, optional `document_embedding`, and `annotation_embeddings` map |
+| `bbox_annotations` | array | Bounding-box annotations resolved to TOKEN_LABEL at import time (see [schema](annotated_document_import.md#bounding-box-annotations-bbox_annotations)) |
 
 ## Upload Lifecycle
 

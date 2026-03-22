@@ -135,6 +135,20 @@ contracts\agreement.pdf
 
 Path traversal (`..`) is rejected for security.
 
+## Bounding-Box Annotations in Sidecars
+
+Sidecar JSON files can include a `bbox_annotations` array alongside
+`labelled_text`. These are resolved to `TOKEN_LABEL` annotations at import
+time by matching bounding-box coordinates against PAWLs tokens.
+
+**Requirement:** `bbox_annotations` in sidecars requires `skip_pipeline: true`
+in the sidecar data (meaning the sidecar also provides `pawls_file_content`).
+When the parser pipeline runs (non-skip case), PAWLs data is not yet available
+at sidecar application time, so bbox resolution is skipped.
+
+See [Annotated Document Import](annotated_document_import.md#bounding-box-annotations-bbox_annotations)
+for the full schema and resolution behavior.
+
 ## Security Constraints
 
 | Constraint | Default | Description |

@@ -73,6 +73,55 @@ Each annotation follows the standard annotation format:
 5. Relationships between annotations are created using the remapped IDs
 6. The document is added to the corpus
 
+## Bounding-Box Annotations (`bbox_annotations`)
+
+An optional field that lets external tools provide PDF bounding-box coordinates
+instead of PAWLs token indices. At import time, bounding boxes are matched
+against PAWLs tokens (center-point containment) and converted to standard
+`TOKEN_LABEL` annotations.
+
+This solves the chicken-and-egg problem where annotations need PAWLs token
+indices, but token indices require parsing the document first.
+
+### Schema
+
+The `bbox_annotations` array sits alongside `labelled_text` in the import data:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `annotationLabel` | string | Yes | Label name (must exist in `text_labels`) |
+| `rawText` | string | Yes | Display text for the annotation |
+| `bounds` | object | Yes | Page-keyed bounding rects (see below) |
+| `id` | string/int | No | Local ID for `parent_id` cross-references |
+| `parent_id` | string/int | No | Parent annotation ID (for hierarchies) |
+| `structural` | boolean | No | Default `false` |
+| `long_description` | string | No | Markdown content (e.g., for `OC_SECTION`) |
+
+### Bounds Format
+
+`bounds` is a dict keyed by 0-based page number (as string), each value an
+array of bounding rectangles in **PDF points** (1/72 inch, origin top-left):
+
+```json
+{
+  "bounds": {
+    "0": [{"top": 72.5, "bottom": 84.3, "left": 50.0, "right": 300.0}],
+    "1": [{"top": 72.5, "bottom": 84.3, "left": 50.0, "right": 150.0}]
+  }
+}
+```
+
+Multiple rectangles per page support wrapped or multi-line text. Multi-page
+bounds support annotations that span page breaks.
+
+### Resolution Behavior
+
+- A token is matched if its **center point** falls inside any bounding rectangle
+- Matched tokens become a standard `TOKEN_LABEL` `annotation_json`
+- The input `rawText` is preserved (not replaced by resolved token text)
+- If no tokens match on any page, the annotation is dropped with a warning
+- `parent_id` cross-references work across `bbox_annotations` and `labelled_text`
+
 ## Use Cases
 
 - **External NLP pipelines**: Run annotation models outside OpenContracts and

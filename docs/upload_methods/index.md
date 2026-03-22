@@ -27,3 +27,4 @@ effects that certain annotation types trigger on import.
 | Programmatically inject a document with pre-built annotations | [Annotated Document Import](annotated_document_import.md) |
 | Feed documents from an external processing pipeline via REST API | [Worker Uploads](worker_uploads.md) |
 | Build a navigable document index from an external tool | [Annotation Side Effects](annotation_side_effects.md) |
+| Provide bounding-box coordinates instead of token indices | [Bounding-Box Annotations](annotated_document_import.md#bounding-box-annotations-bbox_annotations) |

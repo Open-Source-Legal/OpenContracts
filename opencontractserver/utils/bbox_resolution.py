@@ -8,7 +8,6 @@ standard TOKEN_LABEL annotation dicts by matching against PAWLs tokens.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -25,13 +24,13 @@ logger = logging.getLogger(__name__)
 class BboxAnnotationType(TypedDict):
     """A bounding-box annotation entry in import data."""
 
-    id: NotRequired[Optional[Union[str, int]]]
+    id: NotRequired[str | int | None]
     annotationLabel: str
     rawText: str
     bounds: dict[str, list[BoundingBoxPythonType]]  # page (str) -> rects
-    parent_id: NotRequired[Optional[Union[str, int]]]
+    parent_id: NotRequired[str | int | None]
     structural: NotRequired[bool]
-    long_description: NotRequired[Optional[str]]
+    long_description: NotRequired[str | None]
 
 
 def _token_center(token: dict) -> tuple[float, float]:
@@ -149,12 +148,9 @@ def resolve_bbox_annotations(
             page_annotation: OpenContractsSinglePageAnnotationType = {
                 "bounds": _union_bounding_box(token_boxes),
                 "tokensJsons": [
-                    {"pageIndex": page_idx, "tokenIndex": i}
-                    for i in matched_indices
+                    {"pageIndex": page_idx, "tokenIndex": i} for i in matched_indices
                 ],
-                "rawText": " ".join(
-                    t["text"] for t in matched_tokens if t.get("text")
-                ),
+                "rawText": " ".join(t["text"] for t in matched_tokens if t.get("text")),
             }
             annotation_json[page_str] = page_annotation
 

@@ -39,9 +39,7 @@ class TestResolveBboxAnnotations:
                 "id": "ann-1",
                 "annotationLabel": "TEST_LABEL",
                 "rawText": "Hello World",
-                "bounds": {
-                    "0": [{"top": 90, "bottom": 120, "left": 80, "right": 250}]
-                },
+                "bounds": {"0": [{"top": 90, "bottom": 120, "left": 80, "right": 250}]},
             }
         ]
         result = resolve_bbox_annotations(pawls_pages, bbox_annotations)
@@ -87,9 +85,7 @@ class TestResolveBboxAnnotations:
 
     def test_no_tokens_matched_drops_annotation(self):
         """Annotation with no matching tokens is dropped entirely."""
-        pawls_pages = [
-            _make_pawls_page(0, 612.0, 792.0, [(400, 400, 50, 12, "Far")])
-        ]
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(400, 400, 50, 12, "Far")])]
         bbox_annotations = [
             {
                 "id": "no-match",
@@ -105,9 +101,7 @@ class TestResolveBboxAnnotations:
 
     def test_empty_bounds_drops_annotation(self):
         """Annotation with empty bounds dict is dropped."""
-        pawls_pages = [
-            _make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Hello")])
-        ]
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Hello")])]
         bbox_annotations = [
             {
                 "id": "empty",
@@ -121,9 +115,7 @@ class TestResolveBboxAnnotations:
 
     def test_page_exceeds_pawls_count_skipped(self):
         """Page number beyond PAWLs data is skipped; other pages still resolve."""
-        pawls_pages = [
-            _make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Real")])
-        ]
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Real")])]
         bbox_annotations = [
             {
                 "id": "partial",
@@ -192,9 +184,7 @@ class TestResolveBboxAnnotations:
 
     def test_parent_id_preserved(self):
         """parent_id from input is passed through to resolved annotation."""
-        pawls_pages = [
-            _make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Child")])
-        ]
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Child")])]
         bbox_annotations = [
             {
                 "id": "child-1",
@@ -230,9 +220,7 @@ class TestResolveBboxAnnotations:
 
     def test_structural_flag_defaults_false(self):
         """structural defaults to False when not specified."""
-        pawls_pages = [
-            _make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Token")])
-        ]
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Token")])]
         bbox_annotations = [
             {
                 "annotationLabel": "LABEL",
@@ -351,9 +339,7 @@ class TestResolveBboxAnnotations:
 
     def test_empty_input_returns_empty(self):
         """Empty bbox_annotations list returns empty list."""
-        pawls_pages = [
-            _make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Token")])
-        ]
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Token")])]
         result = resolve_bbox_annotations(pawls_pages, [])
         assert result == []
 
@@ -414,9 +400,7 @@ class TestMergeBboxIntoLabelledText:
                 {
                     "annotationLabel": "LABEL",
                     "rawText": "Text",
-                    "bounds": {
-                        "0": [{"top": 0, "bottom": 10, "left": 0, "right": 10}]
-                    },
+                    "bounds": {"0": [{"top": 0, "bottom": 10, "left": 0, "right": 10}]},
                 }
             ],
         }
@@ -425,9 +409,7 @@ class TestMergeBboxIntoLabelledText:
 
     def test_initializes_labelled_text_if_missing(self):
         """Creates labelled_text key if it doesn't exist."""
-        pawls_pages = [
-            _make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Token")])
-        ]
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Token")])]
         doc_data = {
             "bbox_annotations": [
                 {
