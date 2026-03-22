@@ -197,5 +197,6 @@ The import uses graceful degradation:
 - The import result includes detailed counts of processed, skipped, errored,
   and upversioned files
 
-For the full bulk import architecture, see
+For implementation details (code snippets, task result schema, file locations,
+and testing commands), see the
 [Bulk Import Architecture](../architecture/bulk-import.md).
