@@ -343,6 +343,24 @@ class TestResolveBboxAnnotations:
         result = resolve_bbox_annotations(pawls_pages, [])
         assert result == []
 
+    def test_malformed_page_key_skipped(self):
+        """Non-integer page key is skipped without aborting."""
+        pawls_pages = [_make_pawls_page(0, 612.0, 792.0, [(100, 100, 50, 12, "Token")])]
+        bbox_annotations = [
+            {
+                "id": "bad-key",
+                "annotationLabel": "LABEL",
+                "rawText": "Token",
+                "bounds": {
+                    "page_0": [{"top": 90, "bottom": 120, "left": 80, "right": 200}],
+                    "0": [{"top": 90, "bottom": 120, "left": 80, "right": 200}],
+                },
+            }
+        ]
+        result = resolve_bbox_annotations(pawls_pages, bbox_annotations)
+        assert len(result) == 1
+        assert "0" in result[0]["annotation_json"]
+
 
 class TestMergeBboxIntoLabelledText:
     """Tests for the merge helper."""

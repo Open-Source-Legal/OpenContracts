@@ -97,7 +97,15 @@ def resolve_bbox_annotations(
         has_image_tokens = False
 
         for page_str, rects in bounds.items():
-            page_idx = int(page_str)
+            try:
+                page_idx = int(page_str)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Skipping invalid page key %r for bbox annotation %s",
+                    page_str,
+                    bbox_ann.get("id", "<no id>"),
+                )
+                continue
             page_data = pages_by_index.get(page_idx)
             if page_data is None:
                 logger.warning(
@@ -158,6 +166,9 @@ def resolve_bbox_annotations(
         if has_image_tokens:
             modalities.append("IMAGE")
 
+        # Top-level rawText uses the caller's input (may be a cleaned/canonical
+        # form).  Per-page rawText inside annotation_json uses token-derived text
+        # for positional accuracy.  This mirrors how OC_SECTION annotations work.
         resolved_ann: OpenContractsAnnotationPythonType = {
             "id": bbox_ann.get("id"),
             "annotationLabel": bbox_ann["annotationLabel"],
