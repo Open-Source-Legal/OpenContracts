@@ -603,6 +603,15 @@ def _apply_sidecar_annotations(
 
         # Resolve bbox_annotations to TOKEN_LABEL if present.
         # Requires pawls_file_content in doc_data (skip_pipeline case).
+        if doc_data.get("bbox_annotations") and not doc_data.get("pawls_file_content"):
+            msg = (
+                f"Sidecar {sidecar_path} contains bbox_annotations but no "
+                f"pawls_file_content — bbox annotations skipped "
+                f"(pawls_file_content is only available with skip_pipeline)"
+            )
+            logger.warning(f"import_zip_with_folder_structure() - {msg}")
+            results["errors"].append(msg)
+            results["annotation_sidecars_errored"] += 1
         merge_bbox_into_labelled_text(doc_data)
 
         # Import annotations onto the corpus document

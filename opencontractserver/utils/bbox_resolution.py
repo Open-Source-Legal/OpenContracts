@@ -29,7 +29,7 @@ def _token_center(token: dict) -> tuple[float, float]:
 
 
 def _point_in_rect(cx: float, cy: float, rect: BoundingBoxPythonType) -> bool:
-    """Check if a point falls inside a bounding rectangle."""
+    """Check if a point falls inside a bounding rectangle (inclusive boundaries)."""
     return rect["left"] <= cx <= rect["right"] and rect["top"] <= cy <= rect["bottom"]
 
 
