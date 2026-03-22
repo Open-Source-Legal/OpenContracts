@@ -343,6 +343,23 @@ class OpenContractsRelationshipPythonType(TypedDict):
     structural: bool
 
 
+class BboxAnnotationType(TypedDict):
+    """A bounding-box annotation entry in import data.
+
+    Used in the ``bbox_annotations`` field of ``OpenContractsDocAnnotations``
+    and ``WorkerDocumentUploadMetadataType``. See
+    ``docs/superpowers/specs/2026-03-21-bbox-annotations-design.md``.
+    """
+
+    id: NotRequired[Optional[Union[str, int]]]
+    annotationLabel: str
+    rawText: str
+    bounds: dict[str, list[BoundingBoxPythonType]]  # page (str) -> rects
+    parent_id: NotRequired[Optional[Union[str, int]]]
+    structural: NotRequired[bool]
+    long_description: NotRequired[Optional[str]]
+
+
 class OpenContractsDocAnnotations(TypedDict):
     # Can have multiple doc labels. Want array of doc label ids, which will be
     # mapped to proper objects after import.
@@ -359,7 +376,7 @@ class OpenContractsDocAnnotations(TypedDict):
 
     # Bounding-box annotations resolved to TOKEN_LABEL at import time.
     # See docs/superpowers/specs/2026-03-21-bbox-annotations-design.md
-    bbox_annotations: NotRequired[list["BboxAnnotationType"]]  # noqa: F821
+    bbox_annotations: NotRequired[list[BboxAnnotationType]]
 
 
 class OpenContractDocExport(OpenContractsDocAnnotations):
@@ -763,4 +780,4 @@ class WorkerDocumentUploadMetadataType(TypedDict):
     embeddings: NotRequired[WorkerEmbeddingsType]
 
     # Bounding-box annotations resolved to TOKEN_LABEL at import time
-    bbox_annotations: NotRequired[list["BboxAnnotationType"]]  # noqa: F821
+    bbox_annotations: NotRequired[list[BboxAnnotationType]]

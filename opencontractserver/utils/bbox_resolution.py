@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import logging
 
-from typing_extensions import NotRequired, TypedDict
-
 from opencontractserver.types.dicts import (
+    BboxAnnotationType,
     BoundingBoxPythonType,
     OpenContractsAnnotationPythonType,
     OpenContractsSinglePageAnnotationType,
@@ -19,18 +18,6 @@ from opencontractserver.types.dicts import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class BboxAnnotationType(TypedDict):
-    """A bounding-box annotation entry in import data."""
-
-    id: NotRequired[str | int | None]
-    annotationLabel: str
-    rawText: str
-    bounds: dict[str, list[BoundingBoxPythonType]]  # page (str) -> rects
-    parent_id: NotRequired[str | int | None]
-    structural: NotRequired[bool]
-    long_description: NotRequired[str | None]
 
 
 def _token_center(token: dict) -> tuple[float, float]:
