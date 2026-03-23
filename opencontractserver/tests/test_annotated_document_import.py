@@ -159,3 +159,94 @@ class TestImportDocumentToCorpus(TestCase):
             self.assertEqual(len(pawls_data), 1)
             self.assertEqual(len(pawls_data[0]["tokens"]), 1)
             self.assertEqual(pawls_data[0]["tokens"][0]["text"], "Test")
+
+    def test_import_with_bbox_annotations(self):
+        """Integration test: bbox_annotations are resolved to TOKEN_LABEL
+        annotations during the annotated document import pathway."""
+
+        with open(SAMPLE_PDF_FILE_TWO_PATH, "rb") as pdf_file:
+            pdf_base64 = base64.b64encode(pdf_file.read()).decode("utf-8")
+
+        # Label that bbox_annotations will reference
+        text_labels = {
+            "bbox_label": {
+                "id": "0",
+                "color": "blue",
+                "description": "Label from bbox",
+                "icon": "tags",
+                "text": "bbox_label",
+                "label_type": LabelType.TOKEN_LABEL.value,
+            }
+        }
+
+        # PAWLs tokens: three tokens on page 0
+        pawls_pages = [
+            {
+                "page": {"width": 612.0, "height": 792.0, "index": 0},
+                "tokens": [
+                    {"x": 100, "y": 100, "width": 50, "height": 12, "text": "Hello"},
+                    {"x": 160, "y": 100, "width": 60, "height": 12, "text": "World"},
+                    {"x": 400, "y": 100, "width": 40, "height": 12, "text": "Outside"},
+                ],
+            }
+        ]
+
+        # bbox_annotations: a bounding box covering only the first two tokens
+        bbox_annotations = [
+            {
+                "id": "bbox-1",
+                "annotationLabel": "bbox_label",
+                "rawText": "Hello World",
+                "bounds": {"0": [{"top": 90, "bottom": 120, "left": 80, "right": 250}]},
+            }
+        ]
+
+        document_import_data: OpenContractsAnnotatedDocumentImportType = {
+            "doc_data": {
+                "title": "BBox Import Test",
+                "content": "Hello World Outside",
+                "description": "Test bbox resolution during import",
+                "doc_labels": [],
+                "labelled_text": [],
+                "bbox_annotations": bbox_annotations,
+                "page_count": 1,
+                "pawls_file_content": pawls_pages,
+            },
+            "pdf_name": "bbox_test_document",
+            "pdf_base64": pdf_base64,
+            "text_labels": text_labels,
+            "doc_labels": {},
+        }
+
+        document_id = import_document_to_corpus(
+            self.corpus.id, self.user.id, document_import_data
+        )
+        self.assertIsNotNone(document_id)
+
+        document = Document.objects.get(id=document_id)
+        self.assertEqual(document.title, "BBox Import Test")
+
+        # The label should have been created
+        self.assertTrue(AnnotationLabel.objects.filter(text="bbox_label").exists())
+
+        # Exactly one annotation (the resolved bbox) should exist on the document
+        annotations = document.doc_annotations.filter(
+            annotation_label__text="bbox_label"
+        )
+        self.assertEqual(annotations.count(), 1)
+
+        ann = annotations.first()
+        self.assertEqual(ann.raw_text, "Hello World")
+        self.assertEqual(ann.page, 0)
+        self.assertEqual(ann.annotation_type, "TOKEN_LABEL")
+
+        # The annotation JSON is stored in compact v2 format; expand to v1 to
+        # verify the matched token references.
+        from opencontractserver.annotations.compact_json import expand_annotation_json
+
+        ann_json = expand_annotation_json(ann.json, ann.raw_text)
+        self.assertIn("0", ann_json)
+        tokens_refs = ann_json["0"]["tokensJsons"]
+        self.assertEqual(len(tokens_refs), 2)
+        self.assertEqual(tokens_refs[0], {"pageIndex": 0, "tokenIndex": 0})
+        self.assertEqual(tokens_refs[1], {"pageIndex": 0, "tokenIndex": 1})
