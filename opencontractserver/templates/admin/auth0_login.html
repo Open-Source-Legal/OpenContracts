@@ -307,8 +307,10 @@
     </script>
 
     {% if use_auth0 %}
-    <!-- Error handler must be defined BEFORE the SDK script so the onerror
-         attribute can reference it when the browser starts fetching. -->
+    <!-- Auth0 SPA SDK v2.1.3 via jsDelivr CDN with Subresource Integrity.
+         Error handling uses addEventListener instead of an inline onerror
+         attribute because CSP script-src-attr blocks inline event handlers
+         and nonces do not apply to them. -->
     <script nonce="{{ csp_nonce }}">
         function handleScriptError() {
             var btn = document.getElementById('auth0-login-btn');
@@ -318,16 +320,15 @@
             }
             console.error('Failed to load Auth0 SDK - SRI check may have failed');
         }
+
+        var sdkScript = document.createElement('script');
+        sdkScript.id = 'auth0-sdk';
+        sdkScript.src = 'https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.min.js';
+        sdkScript.integrity = 'sha384-Rm7o4Fw8223WH3gI6PLQ7HyUa90mzfyOcEcDMUpdhm8lU+drc1rkQDwzhxAjhZMb';
+        sdkScript.crossOrigin = 'anonymous';
+        sdkScript.addEventListener('error', handleScriptError);
+        document.currentScript.parentNode.insertBefore(sdkScript, document.currentScript.nextSibling);
     </script>
-    <!-- Auth0 SPA SDK v2.1.3 via jsDelivr CDN with Subresource Integrity.
-         onerror is governed by script-src-elem (not script-src-attr) so the
-         nonce on this tag permits it. -->
-    <script id="auth0-sdk"
-            src="https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.min.js"
-            integrity="sha384-Rm7o4Fw8223WH3gI6PLQ7HyUa90mzfyOcEcDMUpdhm8lU+drc1rkQDwzhxAjhZMb"
-            crossorigin="anonymous"
-            nonce="{{ csp_nonce }}"
-            onerror="handleScriptError()"></script>
     <script nonce="{{ csp_nonce }}">
         var auth0Client = null;
 
