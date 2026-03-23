@@ -184,7 +184,7 @@ class TestAdminClaimsSync(TestCase):
 
         payload = {
             "sub": "auth0|test_user",
-            "https://opencontracts.opensource.legal/is_staff": True,
+            "https://contracts.opensource.legal/is_staff": True,
         }
 
         result = sync_admin_claims_from_payload(self.user, payload)

@@ -25,6 +25,7 @@ from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
     MAX_FILENAME_LENGTH,
 )
+from opencontractserver.constants.zip_import import ZIP_MAX_SIDECAR_SIZE_BYTES
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
@@ -554,9 +555,31 @@ def _read_sidecar(
     Raises:
         json.JSONDecodeError: If the sidecar is not valid JSON.
         KeyError: If the sidecar path is not found in the zip.
+        ValueError: If the sidecar exceeds ZIP_MAX_SIDECAR_SIZE_BYTES.
     """
+    # sidecar_path is the *original* (unsanitized) zip entry name stored in
+    # manifest.annotation_sidecars.  This is safe: ZipFile.open() performs a
+    # name lookup against the zip's central directory — it does NOT touch the
+    # filesystem and cannot be used for path-traversal.
+
+    # Pre-read size check using the central directory's declared size.
+    # This avoids allocating memory for oversized sidecars.  A malicious zip
+    # could forge this value, so we keep a post-read assertion as well.
+    info = import_zip.getinfo(sidecar_path)
+    if info.file_size > ZIP_MAX_SIDECAR_SIZE_BYTES:
+        raise ValueError(
+            f"Sidecar {sidecar_path} declares {info.file_size} bytes, "
+            f"exceeds limit of {ZIP_MAX_SIDECAR_SIZE_BYTES} bytes"
+        )
+
     with import_zip.open(sidecar_path) as sidecar_handle:
-        return json.loads(sidecar_handle.read().decode("UTF-8"))
+        raw = sidecar_handle.read()
+        if len(raw) > ZIP_MAX_SIDECAR_SIZE_BYTES:
+            raise ValueError(
+                f"Sidecar {sidecar_path} is {len(raw)} bytes, "
+                f"exceeds limit of {ZIP_MAX_SIDECAR_SIZE_BYTES} bytes"
+            )
+        return json.loads(raw.decode("UTF-8"))
 
 
 def _apply_sidecar_annotations(
@@ -1086,6 +1109,33 @@ def import_zip_with_folder_structure(
                                 doc_filename=entry.filename,
                                 user_obj=user_obj,
                             )
+                            # Apply meta.csv / task-level overrides that
+                            # create_document_from_export_data doesn't know
+                            # about (it uses sidecar title/description only).
+                            update_fields = ["backend_lock"]
+                            # Title: override when it differs from the bare
+                            # filename (i.e. title_prefix or meta.csv supplied
+                            # a real title).
+                            if doc_title != entry.filename:
+                                doc_obj.title = doc_title
+                                update_fields.append("title")
+                            # Description: only override when an explicit
+                            # source exists (task param or meta.csv).  Without
+                            # this guard the generic "Imported from zip …"
+                            # fallback would overwrite the sidecar's own
+                            # description.
+                            if description or (
+                                doc_metadata and doc_metadata.description
+                            ):
+                                doc_obj.description = doc_description
+                                update_fields.append("description")
+                            if custom_meta:
+                                doc_obj.custom_meta = custom_meta
+                                update_fields.append("custom_meta")
+                            if make_public:
+                                doc_obj.is_public = True
+                                update_fields.append("is_public")
+
                             added_doc, _status, doc_path = corpus_obj.add_document(
                                 document=doc_obj,
                                 user=user_obj,
@@ -1094,7 +1144,11 @@ def import_zip_with_folder_structure(
                             )
                             # Unlock the standalone document now that it's added
                             doc_obj.backend_lock = False
-                            doc_obj.save(update_fields=["backend_lock"])
+                            doc_obj.save(update_fields=update_fields)
+                            # Both pipeline_skipped and annotation_sidecars_processed
+                            # increment for the same document — this is intentional:
+                            # pipeline_skipped tracks the creation strategy while
+                            # annotation_sidecars_processed tracks annotation import.
                             results["pipeline_skipped"] += 1
                             logger.info(
                                 f"import_zip_with_folder_structure() - "

@@ -2,6 +2,7 @@ import React from "react";
 import styled, { css } from "styled-components";
 import { LabelDisplayBehavior } from "../../../../types/graphql-api";
 import { getContrastColor } from "../../../../utils/transform";
+import { ANNOTATION_BOUNDARY_RADIUS } from "../../../../assets/configurations/constants";
 import { pulseGreen, pulseMaroon } from "../effects";
 
 // ... (keep the existing interfaces)
@@ -14,15 +15,15 @@ export const SelectionContainer = styled.div<{
     | undefined;
 }>`
   position: absolute;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: ${ANNOTATION_BOUNDARY_RADIUS};
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
   background-color: ${(props) =>
-    props.showBoundingBox ? `${props.color}33` : "transparent"};
-  transition: background-color 0.2s ease;
+    props.showBoundingBox ? `${props.color}1a` : "transparent"};
+  transition: background-color 0.4s ease;
 
   &:hover {
     background-color: ${(props) =>
-      props.showBoundingBox ? `${props.color}66` : "transparent"};
+      props.showBoundingBox ? `${props.color}33` : "transparent"};
   }
 `;
 
@@ -34,7 +35,6 @@ interface SelectionInfoProps {
     left: number;
     right: number;
   };
-  $border: number;
   $color: string;
   $showBoundingBox: boolean;
   $approved?: boolean;
@@ -44,9 +44,9 @@ interface SelectionInfoProps {
 export const SelectionInfo = styled.div<SelectionInfoProps>`
   position: absolute;
   width: ${(props) => props.$bounds.right - props.$bounds.left}px;
-  right: -${(props) => props.$border + ((props?.$approved ? 1 : props?.$rejected) ? -1 : 0)}px;
+  right: 0px;
   bottom: calc(100% - 2px);
-  border-radius: 4px 4px 0 0;
+  border-radius: ${ANNOTATION_BOUNDARY_RADIUS} ${ANNOTATION_BOUNDARY_RADIUS} 0 0;
   background: ${(props) =>
     props.$showBoundingBox ? props.$color : "rgba(255, 255, 255, 0.9)"};
   padding: 1px 8px;
@@ -54,24 +54,18 @@ export const SelectionInfo = styled.div<SelectionInfoProps>`
   font-size: 12px;
   user-select: none;
   box-sizing: border-box;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.4s ease-in-out;
 
   ${(props) =>
     props.$approved &&
     css`
-      border-top: 2px solid #2ecc71;
-      border-left: 2px solid #2ecc71;
-      border-right: 2px solid #2ecc71;
-      box-shadow: 0 0 8px rgba(46, 204, 113, 0.2);
+      box-shadow: 0 -2px 10px 2px rgba(46, 204, 113, 0.12);
     `}
 
   ${(props) =>
     props.$rejected &&
     css`
-      border-top: 2px solid #e74c3c;
-      border-left: 2px solid #e74c3c;
-      border-right: 2px solid #e74c3c;
-      box-shadow: 0 0 8px rgba(231, 76, 60, 0.2);
+      box-shadow: 0 -2px 10px 2px rgba(231, 76, 60, 0.12);
     `}
 
   * {
@@ -109,7 +103,8 @@ export const LabelTagContainer = styled.div<{
   align-items: center;
   background-color: ${(props) => props.$color};
   color: ${(props) => getContrastColor(props.$color)};
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 2px 8px;
+  border-radius: 5px;
   position: relative;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 `;

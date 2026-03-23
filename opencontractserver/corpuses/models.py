@@ -524,6 +524,23 @@ class Corpus(TreeNode):
     # Personal Corpus Management                                            #
     # --------------------------------------------------------------------- #
 
+    @staticmethod
+    def _ensure_corpus_permissions_exist() -> None:
+        """
+        Ensure that Permission rows for the Corpus model exist in the DB.
+
+        During fresh migrations the User ``post_save`` signal fires before
+        Django's ``post_migrate`` signal creates Permission objects. Calling
+        ``django.contrib.auth.management.create_permissions`` for the
+        ``corpuses`` app config is idempotent and cheap (a few SELECT
+        queries when permissions already exist).
+        """
+        from django.apps import apps
+        from django.contrib.auth.management import create_permissions
+
+        app_config = apps.get_app_config("corpuses")
+        create_permissions(app_config, verbosity=0)
+
     @classmethod
     def get_or_create_personal_corpus(cls, user) -> "Corpus":
         """
@@ -559,6 +576,12 @@ class Corpus(TreeNode):
 
             if created:
                 logger.info(f"Created personal corpus {corpus.pk} for user {user.pk}")
+                # Ensure permission objects exist in the database before
+                # assigning them.  During fresh migrations the User post_save
+                # signal fires before Django's post_migrate signal has had a
+                # chance to create Permission rows, causing
+                # "Permission matching query does not exist" errors.
+                cls._ensure_corpus_permissions_exist()
                 # Grant full permissions to the user
                 set_permissions_for_obj_to_user(user, corpus, [PermissionTypes.ALL])
             elif not corpus.slug:
@@ -660,6 +683,7 @@ class Corpus(TreeNode):
                 icon=document.icon,
                 md_summary_file=document.md_summary_file,
                 page_count=document.page_count,
+                custom_meta=document.custom_meta,  # Inherit custom metadata
                 is_public=document.is_public,  # Inherit public status
                 version_tree_id=tree_id,  # NEW isolated version tree
                 is_current=True,

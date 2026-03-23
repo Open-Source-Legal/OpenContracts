@@ -52,6 +52,18 @@ describe("isSocialMediaCrawler", () => {
     expect(isSocialMediaCrawler("Redditbot/1.0")).toBe(true);
   });
 
+  it("detects Googlebot", () => {
+    expect(isSocialMediaCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)")).toBe(true);
+  });
+
+  it("detects Bingbot", () => {
+    expect(isSocialMediaCrawler("Mozilla/5.0 (compatible; bingbot/2.0)")).toBe(true);
+  });
+
+  it("detects DuckDuckBot", () => {
+    expect(isSocialMediaCrawler("DuckDuckBot/1.1")).toBe(true);
+  });
+
   it("rejects regular browser user agents", () => {
     expect(
       isSocialMediaCrawler(

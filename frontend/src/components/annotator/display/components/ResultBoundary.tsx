@@ -1,10 +1,13 @@
 import React, { useRef, useEffect } from "react";
 import _ from "lodash";
 import { BoundingBox } from "../../../types";
+import { hexToRgb } from "../../../../utils/transform";
+import { computeAnnotationBoxShadow } from "../../../../utils/colorUtils";
 import {
-  getBorderWidthFromBounds,
-  hexToRgb,
-} from "../../../../utils/transform";
+  ANNOTATION_BOUNDARY_RADIUS,
+  BOUNDARY_OPACITY_SELECTED,
+  BOUNDARY_OPACITY_UNSELECTED,
+} from "../../../../assets/configurations/constants";
 import { useAnnotationRefs } from "../../hooks/useAnnotationRefs";
 
 interface ResultBoundaryProps {
@@ -55,24 +58,24 @@ export const ResultBoundary = ({
 
   const width = bounds.right - bounds.left;
   const height = bounds.bottom - bounds.top;
-  // console.log("ResultBoundary: Rendering with bounds", {
-  //   width,
-  //   height,
-  //   bounds,
-  //   id,
-  // });
   const rotateY = width < 0 ? -180 : 0;
   const rotateX = height < 0 ? -180 : 0;
-  let rgbColor = hexToRgb(color);
-  let opacity = 0.1;
-  const border = getBorderWidthFromBounds(bounds);
+  let { r, g, b } = hexToRgb(color);
+  let opacity = BOUNDARY_OPACITY_UNSELECTED;
 
   if (!showBoundingBox || hidden) {
-    rgbColor = { r: 255, g: 255, b: 255 };
+    r = 255;
+    g = 255;
+    b = 255;
     opacity = 0.0;
   } else if (selected) {
-    opacity = 0.4;
+    opacity = BOUNDARY_OPACITY_SELECTED;
   }
+
+  const boxShadow =
+    showBoundingBox && !hidden
+      ? computeAnnotationBoxShadow(r, g, b, selected)
+      : "none";
 
   // Handle scrolling into view if needed
   useEffect(() => {
@@ -126,8 +129,12 @@ export const ResultBoundary = ({
         height: `${Math.abs(height)}px`,
         transform: `rotateY(${rotateY}deg) rotateX(${rotateX}deg)`,
         transformOrigin: "top left",
-        border: `${showBoundingBox && !hidden ? border : 0}px solid ${color}`,
-        background: `rgba(${rgbColor.r}, ${rgbColor.g}, ${rgbColor.b}, ${opacity})`,
+        border: "none",
+        borderRadius: ANNOTATION_BOUNDARY_RADIUS,
+        boxShadow,
+        background: `rgba(${r}, ${g}, ${b}, ${opacity})`,
+        transition:
+          "background 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease",
       }}
     >
       {children || null}

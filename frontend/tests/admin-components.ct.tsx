@@ -131,6 +131,10 @@ test.describe("GlobalSettingsPanel Component", () => {
     await expect(page.locator("text=System Settings")).toBeVisible();
     await expect(page.locator("text=User Management")).toBeVisible();
 
+    await docScreenshot(page, "admin--settings-panel--desktop", {
+      fullPage: true,
+    });
+
     await component.unmount();
   });
 
@@ -160,6 +164,59 @@ test.describe("GlobalSettingsPanel Component", () => {
     await expect(
       page.locator("text=Configure global AI agents available")
     ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should render responsively at tablet width", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    const component = await mount(<GlobalSettingsPanelWrapper />);
+
+    await expect(page.locator("text=Admin Settings")).toBeVisible();
+    await expect(page.locator("text=Badge Management")).toBeVisible();
+
+    await docScreenshot(page, "admin--settings-panel--tablet", {
+      fullPage: true,
+    });
+
+    await component.unmount();
+  });
+
+  test("should render responsively at mobile width with single-column stacking", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const component = await mount(<GlobalSettingsPanelWrapper />);
+
+    await expect(page.locator("text=Admin Settings")).toBeVisible();
+    await expect(page.locator("text=Badge Management")).toBeVisible();
+
+    // Verify single-column layout: two adjacent cards should share the same
+    // x position and the second should be below the first.
+    const firstCard = page.locator('[data-testid="settings-card-badges"]');
+    const secondCard = page.locator(
+      '[data-testid="settings-card-global-agents"]'
+    );
+    await expect(firstCard).toBeVisible();
+    await expect(secondCard).toBeVisible();
+
+    const firstBox = await firstCard.boundingBox();
+    const secondBox = await secondCard.boundingBox();
+    expect(firstBox).not.toBeNull();
+    expect(secondBox).not.toBeNull();
+
+    // Same x position means single column
+    expect(firstBox!.x).toBeCloseTo(secondBox!.x, 0);
+    // Second card is below the first
+    expect(secondBox!.y).toBeGreaterThan(firstBox!.y + firstBox!.height / 2);
+
+    await docScreenshot(page, "admin--settings-panel--mobile", {
+      fullPage: true,
+    });
 
     await component.unmount();
   });

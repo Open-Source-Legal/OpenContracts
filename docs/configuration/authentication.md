@@ -187,7 +187,7 @@ grant `is_staff` and `is_superuser` permissions to specific Auth0 users.
 
 ```javascript
 exports.onExecutePostLogin = async (event, api) => {
-  const namespace = 'https://opencontracts.opensource.legal/';
+  const namespace = 'https://contracts.opensource.legal/';
 
   // Read admin flags from user's app_metadata
   const isStaff = event.user.app_metadata?.is_staff || false;
@@ -265,7 +265,7 @@ AUTH0_M2M_MANAGEMENT_GRANT_TYPE=client_credentials
 
 # Optional: custom namespace for admin claims (default shown below)
 # Only change this if you use a different namespace in your Auth0 Action
-# AUTH0_ADMIN_CLAIM_NAMESPACE=https://opencontracts.opensource.legal/
+# AUTH0_ADMIN_CLAIM_NAMESPACE=https://contracts.opensource.legal/
 ```
 
 ### Frontend Configuration
@@ -344,7 +344,7 @@ asynchronously within a few seconds of first login.
 | `AUTH0_M2M_MANAGEMENT_API_ID` | If Auth0 | -- | M2M application client ID |
 | `AUTH0_M2M_MANAGEMENT_API_SECRET` | If Auth0 | -- | M2M application client secret |
 | `AUTH0_M2M_MANAGEMENT_GRANT_TYPE` | If Auth0 | -- | Always `client_credentials` |
-| `AUTH0_ADMIN_CLAIM_NAMESPACE` | No | `https://opencontracts.opensource.legal/` | Namespace prefix for admin claims in tokens |
+| `AUTH0_ADMIN_CLAIM_NAMESPACE` | No | `https://contracts.opensource.legal/` | Namespace prefix for admin claims in tokens |
 | `DJANGO_SUPERUSER_USERNAME` | No | `admin` | Initial admin username |
 | `DJANGO_SUPERUSER_PASSWORD` | No | `Openc0ntracts_def@ult` | Initial admin password |
 | `DJANGO_SUPERUSER_EMAIL` | No | `support@opensource.legal` | Initial admin email |
@@ -389,7 +389,7 @@ with an error message.
 2. **Missing `app_metadata`**: The user needs `is_staff: true` in their
    `app_metadata`. Check User Management > Users > (your user) > app_metadata.
 3. **Wrong claim namespace**: The Action must use the namespace
-   `https://opencontracts.opensource.legal/` (with trailing slash) unless you've
+   `https://contracts.opensource.legal/` (with trailing slash) unless you've
    overridden `AUTH0_ADMIN_CLAIM_NAMESPACE`.
 
 ### "Client is not authorized to access resource server"

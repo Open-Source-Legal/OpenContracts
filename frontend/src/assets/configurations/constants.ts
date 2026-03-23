@@ -395,6 +395,57 @@ export const KNOWN_ACRONYMS: Record<string, string> = {
   nlm: "NLM",
 };
 
+// Annotation visual styling
+/** RGB tuple for the rejected/maroon pulse animation and static state */
+export const REJECTED_RGB = { r: 128, g: 0, b: 0 } as const;
+/** RGB tuple for the approved/green pulse animation */
+export const APPROVED_RGB = { r: 46, g: 204, b: 113 } as const;
+/** Border-radius for annotation bounding boxes and label pills */
+export const ANNOTATION_BOUNDARY_RADIUS = "6px";
+/** Border-radius for individual annotation tokens */
+export const ANNOTATION_TOKEN_RADIUS = "4px";
+
+// Annotation boundary box-shadow layers (selected state)
+export const BOUNDARY_SHADOW_SELECTED = {
+  outerBlur: 14,
+  outerSpread: 4,
+  outerOpacity: 0.13,
+  midBlur: 5,
+  midSpread: 1,
+  midOpacity: 0.1,
+  insetBlur: 8,
+  insetSpread: 2,
+  insetOpacity: 0.07,
+} as const;
+
+// Annotation boundary box-shadow layers (unselected state)
+export const BOUNDARY_SHADOW_UNSELECTED = {
+  outerBlur: 10,
+  outerSpread: 2,
+  outerOpacity: 0.07,
+  midBlur: 3,
+  midSpread: 0,
+  midOpacity: 0.05,
+  insetBlur: 6,
+  insetSpread: 1,
+  insetOpacity: 0.04,
+} as const;
+
+// Annotation boundary background opacity
+export const BOUNDARY_OPACITY_SELECTED = 0.18;
+export const BOUNDARY_OPACITY_UNSELECTED = 0.06;
+
+// Token highlight opacity
+export const TOKEN_OPACITY_HIGH = 0.38;
+export const TOKEN_OPACITY_LOW = 0.22;
+
+// Token shadow
+export const TOKEN_SHADOW_BLUR = 4;
+export const TOKEN_SHADOW_SPREAD = 1;
+
+// Token expansion (px added around each token to close inter-token gaps)
+export const TOKEN_EXPANSION_PX = 1;
+
 // PAWLs coordinate normalization
 /** Half a PDF point tolerance for comparing PAWLs vs PDF.js page dimensions */
 export const PAWLS_COORDINATE_EPSILON = 0.5;

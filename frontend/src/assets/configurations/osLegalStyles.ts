@@ -277,6 +277,59 @@ export const OS_LEGAL_SPACING = {
   borderRadiusCard: "12px",
   /** Border radius for buttons and smaller elements. */
   borderRadiusButton: "8px",
+
+  // ── Page-level layout tokens ──
+  // Used by ContentContainer / PageContainer across list views
+  // (CorpusListView, Documents, Extracts, LabelSets, GlobalSettingsPanel, etc.)
+
+  /** Maximum content width for centered page layouts. */
+  pageMaxWidth: "900px",
+  /** Maximum width for subtitle / descriptive text below hero headings. */
+  subtitleMaxWidth: "600px",
+
+  /** Desktop padding for ContentContainer (top horizontal bottom). */
+  pagePaddingDesktop: "3rem 1.5rem 5rem",
+  /** Tablet padding (≤ 768px). */
+  pagePaddingTablet: "2rem 1rem 3.75rem",
+  /** Mobile padding (≤ 480px). */
+  pagePaddingMobile: "1.5rem 0.75rem 3rem",
+
+  /** Standard section spacing (hero ↔ content). */
+  sectionGapDesktop: "3rem",
+  /** Reduced section spacing for tablet / mobile. */
+  sectionGapMobile: "2rem",
+
+  /** Standard gap between heading and its subtitle. */
+  headingBottomGap: "1rem",
+} as const;
+
+/**
+ * Font-size tokens for the OS Legal design system.
+ * Pixel-equivalent comments are included for reference (at 16px root).
+ */
+export const OS_LEGAL_FONT_SIZES = {
+  /** Hero / page title — desktop (≈ 42px). */
+  heroDesktop: "2.625rem",
+  /** Hero / page title — tablet (≈ 32px). */
+  heroTablet: "2rem",
+  /** Hero / page title — mobile (≈ 26px). */
+  heroMobile: "1.625rem",
+
+  /** Hero subtitle — desktop (≈ 17px). */
+  subtitleDesktop: "1.0625rem",
+  /** Hero subtitle — tablet/mobile (≈ 15px). */
+  subtitleMobile: "0.9375rem",
+
+  /** Card title (≈ 18px). */
+  cardTitle: "1.125rem",
+  /** Card title — tablet/mobile (≈ 16px). */
+  cardTitleMobile: "1rem",
+  /** Card description (≈ 14px). */
+  cardDescription: "0.875rem",
+  /** Card description — mobile (≈ 13px). */
+  cardDescriptionMobile: "0.8rem",
+  /** Small badge / label text (≈ 12px). */
+  badge: "0.75rem",
 } as const;
 
 /**

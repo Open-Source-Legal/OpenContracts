@@ -5,11 +5,34 @@ All notable changes to OpenContracts will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-03-21
+## [Unreleased]
+
+### Fixed
+
+- **Annotation rendering cleanup** (Closes #1144): Replaced hardcoded `"4px 4px 0 0"` border-radius with `ANNOTATION_BOUNDARY_RADIUS` constant in `SearchResult.tsx` and `ChatSourceResult.tsx`. Removed dead `border` prop from `SelectionInfo` interface and call sites. Used `APPROVED_RGB` constant for approved-state box-shadow in `SelectionBoundary.tsx` (matching `REJECTED_RGB` pattern). Added `TOKEN_EXPANSION_PX` constant and replaced magic `-1`/`+2` token expansion values across `SelectionTokenGroup.tsx`, `Tokens.tsx`, and `ChatSourceTokens.tsx`. Consolidated `[Previous Unreleased]` CHANGELOG section into single `[Unreleased]` block. Removed debug `console.log` statements from `DocumentKnowledgeBase.ct.tsx`, `SearchResult.tsx`, and `SelectionTokenGroup.tsx`. Moved annotation display reactive var initialization into `useEffect` in `DocumentKnowledgeBaseTestWrapper.tsx`.
+
+### Added
+
+- **OpenAI Embedder pipeline component** (`opencontractserver/pipeline/embedders/openai_embedder.py`): New `OpenAIEmbedder` class supporting `text-embedding-3-small` (default), `text-embedding-3-large`, and `text-embedding-ada-002` models. Features configurable output dimensions, custom API base URL for Azure/proxy support, and graceful error handling. Dynamic `vector_size` property reflects runtime model/dimension configuration to prevent pgvector column size mismatches.
+- **OpenAI embedding constants** (`opencontractserver/constants/embeddings.py`): Centralized model dimension mappings and defaults for the OpenAI embedder.
 
 ### Changed
 
+- **Softened PDF annotation bounding boxes to diffuse highlighter-pen aesthetic**: Replaced hard-edged borders on annotation boundaries, tokens, and label pills with multi-layer box-shadow glows. Boundaries use a three-layer shadow (outer, mid, inset) that feathers into the page. Tokens use a single-layer soft blur. Approved/rejected states pulse with matching diffuse glows instead of solid borders. Extracted shared `computeAnnotationBoxShadow` utility (`frontend/src/utils/colorUtils.ts`) to eliminate duplicated shadow logic between `SelectionBoundary` and `ResultBoundary`. Added named constants for all shadow radii, opacity levels, border-radius tiers, and status colors (`frontend/src/assets/configurations/constants.ts`). Removed dead code: `getBorderWidthFromBounds`, unused `$border` prop, unused `$isSelected` prop. Fixed `pulseMaroon` animation color mismatch (was `rgba(180, 40, 40)`, now matches static rejected state).
 - **Reorganized upload documentation into dedicated `docs/upload_methods/` section**: Consolidated scattered upload-related docs into 8 user-facing reference pages covering single upload, bulk ZIP import, corpus export/import, annotated document import, worker uploads, supported formats, and annotation side effects. Simplified `docs/walkthrough/step-1-add-documents.md` and `docs/walkthrough/advanced/export-import-corpuses.md` to reference the new guides. Trimmed `docs/architecture/bulk-import.md` to focus on internal implementation. Removed obsolete `docs/features/zip_import_with_folders_design.md` design doc (feature is fully implemented).
+
+### Fixed
+
+- **`skip_pipeline=True` silently ignored `meta.csv` metadata** (Closes #1131): Documents created via the `skip_pipeline` path in `import_zip_with_folder_structure` now have their title, description, custom_meta, and is_public fields applied from `meta.csv` and task-level parameters, matching the behavior of the normal pipeline path (`opencontractserver/tasks/import_tasks.py`).
+- **Incomplete assertion in `test_malformed_labels_json_records_error`** (Closes #1131): The test now also asserts that `annotation_sidecars_errored` is incremented when labels.json is malformed and a sidecar contains annotations (`opencontractserver/tests/test_sidecar_import.py`).
+
+### Added
+
+- **Test for `skip_pipeline=True` with no `labels.json`** (Closes #1131): New test `test_skip_pipeline_without_labels_json` verifies that pipeline-skipped documents are created successfully even when no labels file is present, and that annotation import errors are recorded properly (`opencontractserver/tests/test_sidecar_import.py`).
+- **Test for `skip_pipeline=True` with `meta.csv` metadata** (Closes #1131): New test `test_skip_pipeline_applies_metadata_from_csv` verifies that pipeline-skipped documents correctly receive title and description overrides from `meta.csv`.
+- **Per-sidecar JSON size limit** (Closes #1131): Added `ZIP_MAX_SIDECAR_SIZE_BYTES` constant (10 MB default) in `opencontractserver/constants/zip_import.py`. Sidecars exceeding this limit are skipped with an error, preventing oversized JSON from consuming excessive memory during import (`opencontractserver/tasks/import_tasks.py`).
+
+## [Unreleased] - 2026-03-18
 
 ### Added
 

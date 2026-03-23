@@ -1,15 +1,16 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import styled from "styled-components";
 import _ from "lodash";
 import { VerticallyJustifiedEndDiv } from "../../sidebar/common";
 
 import { ResultBoundary } from "./ResultBoundary";
 import { BoundingBox, TextSearchTokenResult } from "../../../types";
-import { getBorderWidthFromBounds } from "../../../../utils/transform";
+
 import { SearchSelectionTokens } from "./SelectionTokens";
 import { LabelTagContainer } from "./Containers";
 import { PDFPageInfo } from "../../types/pdf";
 import { useAnnotationDisplay } from "../../context/UISettingsAtom";
+import { ANNOTATION_BOUNDARY_RADIUS } from "../../../../assets/configurations/constants";
 
 interface SearchResultProps {
   total_results: number;
@@ -54,15 +55,6 @@ export const SearchResult: React.FC<SearchResultProps> = ({
       : null;
   }, [match, pageIdx, pageInfo]);
 
-  useEffect(() => {
-    console.log("SearchResult: Hidden prop changed", {
-      matchId: match.id,
-      pageNumber: pageInfo.page.pageNumber,
-      hidden,
-      timestamp: new Date().toISOString(),
-    });
-  }, [hidden, match.id, pageInfo.page.pageNumber]);
-
   if (!scaledBounds) return null;
 
   return (
@@ -80,7 +72,6 @@ export const SearchResult: React.FC<SearchResultProps> = ({
         {showInfo && !hideLabels ? (
           <SelectionInfo
             bounds={scaledBounds}
-            border={getBorderWidthFromBounds(scaledBounds)}
             color={color}
             showBoundingBox={showBoundingBox}
           >
@@ -127,26 +118,25 @@ export const SearchResult: React.FC<SearchResultProps> = ({
 // to sit on top of the bounds as a function of *its own* height,
 // not the height of its parent.
 interface SelectionInfoProps {
-  border: number;
   bounds: BoundingBox;
   color: string;
   showBoundingBox: boolean;
 }
 
 const SelectionInfo = styled.div.attrs<SelectionInfoProps>(
-  ({ border, bounds, color, showBoundingBox }) => ({
+  ({ bounds, color, showBoundingBox }) => ({
     style: {
       position: "absolute",
       width: `${bounds.right - bounds.left}px`,
-      right: `-${border}px`,
+      right: "0px",
       transform: "translateY(-100%)",
-      border: showBoundingBox
-        ? `${border}px solid ${color}`
-        : `${border}px solid ${color} transparent`,
+      border: "none",
+      borderRadius: `${ANNOTATION_BOUNDARY_RADIUS} ${ANNOTATION_BOUNDARY_RADIUS} 0 0`,
       background: showBoundingBox ? color : "rgba(255, 255, 255, 0.0)",
       fontWeight: "bold",
       fontSize: "12px",
       userSelect: "none",
+      transition: "all 0.3s ease",
     },
   })
 )`

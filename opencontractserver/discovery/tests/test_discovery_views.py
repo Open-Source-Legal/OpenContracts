@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document, DocumentPath
 
 User = get_user_model()
 
@@ -387,3 +388,158 @@ class DiscoveryNoCorpusesTest(TestCase):
         self.assertIn("opencontracts", data["mcpServers"])
         # But no corpus-scoped servers beyond the global one
         self.assertEqual(len(data["mcpServers"]), 1)
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
+)
+class SearchApiTest(TestCase):
+    """Tests for the public search API endpoint."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username="search_test_user",
+            password="testpass123",
+        )
+        cls.public_corpus = Corpus.objects.create(
+            title="Indemnification Clauses",
+            description="A collection of indemnification provisions",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.private_corpus = Corpus.objects.create(
+            title="Secret Clauses",
+            description="Private collection",
+            creator=cls.owner,
+            is_public=False,
+        )
+        cls.public_doc = Document.objects.create(
+            title="Sample Indemnity Agreement",
+            description="Contains standard indemnification language",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.private_doc = Document.objects.create(
+            title="Secret Indemnity Agreement",
+            description="Private indemnification document",
+            creator=cls.owner,
+        )
+        # Link documents to corpuses via DocumentPath
+        DocumentPath.objects.create(
+            document=cls.public_doc,
+            corpus=cls.public_corpus,
+            creator=cls.owner,
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+        DocumentPath.objects.create(
+            document=cls.private_doc,
+            corpus=cls.private_corpus,
+            creator=cls.owner,
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+    def test_returns_json(self):
+        response = self.client.get("/api/search/?q=indemnification")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/json", response["Content-Type"])
+
+    def test_requires_query_param(self):
+        response = self.client.get("/api/search/")
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertIn("error", data)
+
+    def test_empty_query_rejected(self):
+        response = self.client.get("/api/search/?q=")
+        self.assertEqual(response.status_code, 400)
+
+    def test_only_get_allowed(self):
+        response = self.client.post("/api/search/?q=test")
+        self.assertEqual(response.status_code, 405)
+
+    def test_global_search_finds_public_corpus(self):
+        response = self.client.get("/api/search/?q=indemnification")
+        data = json.loads(response.content)
+        self.assertEqual(data["query"], "indemnification")
+        slugs = [r["slug"] for r in data["results"]]
+        self.assertIn(self.public_corpus.slug, slugs)
+
+    def test_global_search_excludes_private_corpus(self):
+        response = self.client.get("/api/search/?q=Secret")
+        data = json.loads(response.content)
+        slugs = [r["slug"] for r in data["results"]]
+        self.assertNotIn(self.private_corpus.slug, slugs)
+
+    def test_global_search_finds_public_documents(self):
+        response = self.client.get("/api/search/?q=Indemnity+Agreement")
+        data = json.loads(response.content)
+        slugs = [r["slug"] for r in data["results"]]
+        self.assertIn(self.public_doc.slug, slugs)
+
+    def test_global_search_excludes_private_documents(self):
+        response = self.client.get("/api/search/?q=Secret+Indemnity")
+        data = json.loads(response.content)
+        slugs = [r["slug"] for r in data["results"]]
+        self.assertNotIn(self.private_doc.slug, slugs)
+
+    def test_corpus_scoped_search(self):
+        response = self.client.get(
+            f"/api/search/?q=indemnity&corpus={self.public_corpus.slug}"
+        )
+        data = json.loads(response.content)
+        self.assertEqual(data["corpus"], self.public_corpus.slug)
+        # Should find the document within the corpus
+        slugs = [r["slug"] for r in data["results"]]
+        self.assertIn(self.public_doc.slug, slugs)
+
+    def test_corpus_scoped_search_nonexistent_corpus(self):
+        response = self.client.get("/api/search/?q=test&corpus=nonexistent-slug")
+        self.assertEqual(response.status_code, 404)
+
+    def test_corpus_scoped_search_private_corpus_returns_404(self):
+        response = self.client.get(
+            f"/api/search/?q=test&corpus={self.private_corpus.slug}"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_limit_parameter(self):
+        response = self.client.get("/api/search/?q=indemnification&limit=1")
+        data = json.loads(response.content)
+        self.assertLessEqual(len(data["results"]), 1)
+
+    def test_limit_capped_at_max(self):
+        """Verify limit is capped even if client requests more."""
+        from opencontractserver.constants.discovery import MAX_SEARCH_RESULTS
+
+        response = self.client.get("/api/search/?q=indemnification&limit=999")
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertLessEqual(len(data["results"]), MAX_SEARCH_RESULTS)
+        # Ensure the cap is actually applied (not just zero results)
+        self.assertIsInstance(data["results"], list)
+
+    def test_invalid_limit_defaults(self):
+        response = self.client.get("/api/search/?q=indemnification&limit=abc")
+        self.assertEqual(response.status_code, 200)
+
+    def test_result_structure(self):
+        response = self.client.get("/api/search/?q=indemnification")
+        data = json.loads(response.content)
+        self.assertIn("query", data)
+        self.assertIn("results", data)
+        for result in data["results"]:
+            self.assertIn("type", result)
+            self.assertIn("slug", result)
+            self.assertIn("title", result)
+            self.assertIn("description", result)
+            self.assertIn("similarity_score", result)
+
+    def test_no_results_returns_empty_list(self):
+        response = self.client.get("/api/search/?q=zzzznonexistentquery")
+        data = json.loads(response.content)
+        self.assertEqual(data["results"], [])

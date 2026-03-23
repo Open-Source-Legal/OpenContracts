@@ -302,6 +302,12 @@ def is_annotation_sidecar(path: str) -> bool:
     ``contracts/master.pdf``).  The labels file at root level is
     excluded.
 
+    Note: This matches *any* .json file that isn't the labels file.
+    The actual pairing with a document is done by stem-matching in
+    ``validate_zip_for_import``.  This means a ``.json`` can pair
+    with ``.txt`` or any other supported document type — not just
+    PDFs — which is intentional but may be surprising.
+
     Args:
         path: Sanitized path from zip
 
@@ -638,7 +644,11 @@ def validate_zip_for_import(
         for json_entry in json_entries:
             json_stem = os.path.splitext(json_entry.sanitized_path)[0]
             if json_stem in doc_stems:
-                # This JSON is a sidecar for a document
+                # This JSON is a sidecar for a document.
+                # We store original_path (not sanitized_path) because
+                # ZipFile.open() needs the exact entry name from the
+                # central directory.  This is safe: ZipFile.open() does
+                # a name lookup — it cannot perform filesystem traversal.
                 manifest.annotation_sidecars[doc_stems[json_stem]] = (
                     json_entry.original_path
                 )

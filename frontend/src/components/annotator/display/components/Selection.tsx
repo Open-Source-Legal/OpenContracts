@@ -15,10 +15,7 @@ import {
   SelectionInfo,
   SelectionInfoContainer,
 } from "./Containers";
-import {
-  getBorderWidthFromBounds,
-  getContrastColor,
-} from "../../../../utils/transform";
+import { getContrastColor } from "../../../../utils/transform";
 import RadialButtonCloud, {
   CloudButtonItem,
 } from "../../../widgets/buttons/RadialButtonCloud";
@@ -212,7 +209,6 @@ export const Selection: React.FC<SelectionProps> = ({
   const bounds = pageInfo.getScaledBounds(
     annotation.json[pageInfo.page.pageNumber - 1].bounds
   );
-  const border = getBorderWidthFromBounds(bounds);
 
   const removeAnnotation = () => {
     deleteAnnotation(annotation.id);
@@ -290,7 +286,6 @@ export const Selection: React.FC<SelectionProps> = ({
             id="SelectionInfo"
             $bounds={bounds}
             className={`selection_${annotation.id}`}
-            $border={border}
             $color={color}
             $showBoundingBox={showBoundingBoxes}
             $approved={approved}

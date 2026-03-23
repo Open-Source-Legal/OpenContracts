@@ -284,7 +284,7 @@ Before running production tests, you need to generate self-signed certificates f
 ./contrib/generate-certs.sh
 ```
 
-This creates certificates for `localhost`, `opencontracts.opensource.legal`, and other testing domains.
+This creates certificates for `localhost`, `contracts.opensource.legal`, and other testing domains.
 
 ### Testing Rate Limiting with Production Stack
 

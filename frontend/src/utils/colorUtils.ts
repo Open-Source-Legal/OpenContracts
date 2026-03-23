@@ -6,6 +6,11 @@
  * styling components with dynamic colors.
  */
 
+import {
+  BOUNDARY_SHADOW_SELECTED,
+  BOUNDARY_SHADOW_UNSELECTED,
+} from "../assets/configurations/constants";
+
 /**
  * Validates that a string is a valid hex color (3 or 6 digit format).
  * Accepts formats: #RGB, #RRGGBB, RGB, RRGGBB
@@ -111,6 +116,32 @@ export function hexToRgba(
 
   const { r, g, b } = hexToRgb(hex);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
+ * Computes a multi-layer diffuse box-shadow for annotation bounding boxes.
+ * Used by both SelectionBoundary and ResultBoundary to produce a soft
+ * highlighter-pen glow effect.
+ *
+ * @param r - Red channel (0-255)
+ * @param g - Green channel (0-255)
+ * @param b - Blue channel (0-255)
+ * @param selected - Whether the annotation is currently selected
+ * @returns A CSS box-shadow string, or "none" if not visible
+ */
+export function computeAnnotationBoxShadow(
+  r: number,
+  g: number,
+  b: number,
+  selected: boolean
+): string {
+  const s = selected ? BOUNDARY_SHADOW_SELECTED : BOUNDARY_SHADOW_UNSELECTED;
+
+  return [
+    `0 0 ${s.outerBlur}px ${s.outerSpread}px rgba(${r}, ${g}, ${b}, ${s.outerOpacity})`,
+    `0 0 ${s.midBlur}px ${s.midSpread}px rgba(${r}, ${g}, ${b}, ${s.midOpacity})`,
+    `inset 0 0 ${s.insetBlur}px ${s.insetSpread}px rgba(${r}, ${g}, ${b}, ${s.insetOpacity})`,
+  ].join(", ");
 }
 
 /**

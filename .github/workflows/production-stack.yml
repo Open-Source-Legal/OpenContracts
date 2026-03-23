@@ -60,7 +60,7 @@ jobs:
           USE_DOCKER=yes
           WEB_CONCURRENCY=4
           IPYTHONDIR=/app/.ipython
-          DJANGO_ALLOWED_HOSTS=django,127.0.0.1,localhost,0.0.0.0,opencontracts.opensource.legal
+          DJANGO_ALLOWED_HOSTS=django,127.0.0.1,localhost,0.0.0.0,contracts.opensource.legal
           DJANGO_WORKER_TIMEOUT=3600
 
           # Application Configuration
@@ -119,7 +119,7 @@ jobs:
 
           # Create minimal Frontend env file based on sample
           cat > .envs/.production/.frontend << 'EOF'
-          OPEN_CONTRACTS_REACT_APP_APPLICATION_DOMAIN=opencontracts.opensource.legal
+          OPEN_CONTRACTS_REACT_APP_APPLICATION_DOMAIN=contracts.opensource.legal
           OPEN_CONTRACTS_REACT_APP_APPLICATION_CLIENT_ID=test-client-id
           OPEN_CONTRACTS_REACT_APP_AUDIENCE=http://localhost:3000
           OPEN_CONTRACTS_REACT_APP_API_ROOT_URL=http://django:8000

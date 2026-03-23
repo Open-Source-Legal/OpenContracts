@@ -28,7 +28,7 @@
     />
     <meta
       property="og:url"
-      content="https://opencontracts.opensource.legal/"
+      content="https://contracts.opensource.legal/"
       key="Url"
     />
     <meta
@@ -60,33 +60,86 @@
       title="MCP server discovery"
     />
 
-    <!-- Structured data: MCP API for agent discovery -->
+    <!-- Structured data: application, search, source code, and MCP discovery -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebApplication",
-        "name": "OpenContracts",
-        "description": "Open-source document analytics platform for analyzing, annotating, and querying complex documents.",
-        "url": "https://opencontracts.opensource.legal/",
-        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
-        "applicationCategory": "Document Analytics",
-        "operatingSystem": "Web",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
-        "potentialAction": {
-          "@type": "ConsumeAction",
-          "name": "Connect via Model Context Protocol (MCP)",
-          "description": "AI agents can connect to this instance's MCP server for read-only access to public corpuses, documents, annotations, and discussions. Endpoint: /mcp/ (Streamable HTTP, JSON-RPC 2.0). No authentication required. See /llms.txt for full details.",
-          "target": {
-            "@type": "EntryPoint",
-            "urlTemplate": "/mcp/",
-            "contentType": "application/json",
-            "httpMethod": "POST"
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "@id": "https://contracts.opensource.legal/#app",
+            "name": "OpenContracts",
+            "description": "Open-source document analytics platform for analyzing, annotating, and querying complex documents with AI-powered search and Model Context Protocol (MCP) integration.",
+            "url": "https://contracts.opensource.legal/",
+            "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+            "applicationCategory": "BusinessApplication",
+            "applicationSubCategory": "Document Analytics",
+            "operatingSystem": "Web",
+            "softwareVersion": "3.0",
+            "inLanguage": "en",
+            "isAccessibleForFree": true,
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "featureList": [
+              "PDF and document annotation",
+              "AI-powered semantic search",
+              "Natural language document querying via MCP",
+              "Collaborative corpus management",
+              "Pluggable ML document processing pipelines",
+              "Vector embeddings with pgvector"
+            ],
+            "screenshot": "/OpenContractsScreenshot.png",
+            "author": {
+              "@type": "Organization",
+              "@id": "https://opensource.legal/#org"
+            },
+            "potentialAction": [
+              {
+                "@type": "SearchAction",
+                "name": "Search public document collections",
+                "target": {
+                  "@type": "EntryPoint",
+                  "urlTemplate": "/api/search/?q={search_term_string}",
+                  "httpMethod": "GET"
+                },
+                "query-input": "required name=search_term_string"
+              },
+              {
+                "@type": "ConsumeAction",
+                "name": "Connect via Model Context Protocol (MCP)",
+                "description": "AI agents can connect to this instance's MCP server for read-only access to public corpuses, documents, annotations, and discussions. Endpoint: /mcp/ (Streamable HTTP, JSON-RPC 2.0). No authentication required. See /llms.txt for full details.",
+                "target": {
+                  "@type": "EntryPoint",
+                  "urlTemplate": "/mcp/",
+                  "contentType": "application/json",
+                  "httpMethod": "POST"
+                }
+              }
+            ]
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://opensource.legal/#org",
+            "name": "Open Source Legal",
+            "url": "https://opensource.legal"
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "name": "OpenContracts",
+            "description": "Open-source document analytics platform with AI-powered annotation, search, and MCP integration.",
+            "codeRepository": "https://github.com/Open-Source-Legal/OpenContracts",
+            "programmingLanguage": ["Python", "TypeScript"],
+            "runtimePlatform": ["Django", "React"],
+            "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+            "author": {
+              "@type": "Organization",
+              "@id": "https://opensource.legal/#org"
+            }
           }
-        }
+        ]
       }
     </script>
 

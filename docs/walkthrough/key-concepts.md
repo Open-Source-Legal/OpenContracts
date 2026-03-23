@@ -23,7 +23,7 @@ hole and could also unduly tax the system. We'd like to test these capabilities 
 ### Mutations and Queries
 
 OpenContracts uses Graphene and GraphQL to serve data to its frontend. You can access the Graphiql playground by going
-to your OpenContracts root url `/graphql` - e.g. `https://opencontracts.opensource.legal/graphql`. Anonymous users have
+to your OpenContracts root url `/graphql` - e.g. `https://contracts.opensource.legal/graphql`. Anonymous users have
 access to any *public* data. To authenticate and access your own data, you either need to use the login mutation to
 create a JWT token *or* login to the admin dashboard to get a Django session and auth cookie that will automatically
 authenticate your requests to the GraphQL endpoint.

@@ -4,10 +4,17 @@ import uniqueId from "lodash/uniqueId";
 import styled from "styled-components";
 import { PDFPageInfo } from "../../types/pdf";
 import { TokenId } from "../../types/annotations";
+import {
+  ANNOTATION_TOKEN_RADIUS,
+  TOKEN_EXPANSION_PX,
+  TOKEN_OPACITY_HIGH,
+  TOKEN_OPACITY_LOW,
+  TOKEN_SHADOW_BLUR,
+  TOKEN_SHADOW_SPREAD,
+} from "../../../../assets/configurations/constants";
 
 // Add interface for the custom props
 interface SelectionBoxProps {
-  $isSelected?: boolean;
   $highOpacity?: boolean;
   $color?: string;
   $left?: number;
@@ -17,25 +24,36 @@ interface SelectionBoxProps {
   $hidden?: boolean;
 }
 
-// Update the styled component definition to include the custom props
+// Highlighter-pen effect: generous rounding, low opacity, and a soft
+// same-colour blur that feathers the edges into the page.
 const SelectionBox = styled.span.attrs<SelectionBoxProps>((props) => ({
   style: {
-    left: `${props.$left}px`,
-    top: `${props.$top}px`,
-    width: `${props.$right && props.$left ? props.$right - props.$left : 0}px`,
-    height: `${props.$bottom && props.$top ? props.$bottom - props.$top : 0}px`,
+    left: `${(props.$left ?? 0) - TOKEN_EXPANSION_PX}px`,
+    top: `${(props.$top ?? 0) - TOKEN_EXPANSION_PX}px`,
+    width: `${
+      props.$right && props.$left
+        ? props.$right - props.$left + TOKEN_EXPANSION_PX * 2
+        : 0
+    }px`,
+    height: `${
+      props.$bottom && props.$top
+        ? props.$bottom - props.$top + TOKEN_EXPANSION_PX * 2
+        : 0
+    }px`,
     backgroundColor: props.$color || "yellow",
-    opacity: props.$highOpacity ? 0.5 : 0.3,
+    opacity: props.$highOpacity ? TOKEN_OPACITY_HIGH : TOKEN_OPACITY_LOW,
     display: props.$hidden ? "none" : "block",
+    boxShadow: props.$hidden
+      ? "none"
+      : `0 0 ${TOKEN_SHADOW_BLUR}px ${TOKEN_SHADOW_SPREAD}px ${
+          props.$color || "rgba(255,255,0,0.15)"
+        }`,
   },
 }))<SelectionBoxProps>`
   position: absolute;
   pointer-events: none;
-  ${(props) =>
-    props.$isSelected &&
-    `
-    border: 2px solid blue;
-  `}
+  border-radius: ${ANNOTATION_TOKEN_RADIUS};
+  transition: opacity 0.3s ease-in-out;
 `;
 
 export interface SelectionTokenGroupProps {
@@ -64,7 +82,6 @@ export const SelectionTokenGroup = ({
   useEffect(() => {
     if (scrollTo) {
       if (containerRef.current !== undefined && containerRef.current !== null) {
-        console.log("Scroll to", scrollTo);
         containerRef.current.scrollIntoView({
           behavior: "smooth",
           block: "center",
@@ -86,7 +103,6 @@ export const SelectionTokenGroup = ({
               $hidden={hidden}
               key={i}
               className={className}
-              $isSelected={true}
               $highOpacity={highOpacity}
               $color={color ? color : undefined}
               $left={b.left}

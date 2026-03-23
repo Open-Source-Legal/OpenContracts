@@ -219,7 +219,7 @@ if USE_AUTH0:
     # Claims: {namespace}is_staff and {namespace}is_superuser
     AUTH0_ADMIN_CLAIM_NAMESPACE = env(
         "AUTH0_ADMIN_CLAIM_NAMESPACE",
-        default="https://opencontracts.opensource.legal/",
+        default="https://contracts.opensource.legal/",
     )
 
     AUTHENTICATION_BACKENDS += [

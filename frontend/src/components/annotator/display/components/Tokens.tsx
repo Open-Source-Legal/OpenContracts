@@ -1,5 +1,13 @@
 import styled, { DefaultTheme } from "styled-components";
 import _ from "lodash";
+import {
+  ANNOTATION_TOKEN_RADIUS,
+  TOKEN_EXPANSION_PX,
+  TOKEN_OPACITY_HIGH,
+  TOKEN_OPACITY_LOW,
+  TOKEN_SHADOW_BLUR,
+  TOKEN_SHADOW_SPREAD,
+} from "../../../../assets/configurations/constants";
 
 /**
  * Narrow theme interface containing only the colour tokens this
@@ -24,18 +32,30 @@ interface TokenSpanProps {
 
 export const TokenSpan = styled.span.attrs<
   TokenSpanProps & { theme: DefaultTheme }
->((props) => ({
-  style: {
-    background: props.isSelected
-      ? props.color
-        ? props.color.toUpperCase()
-        : props.theme.color.B3
-      : "none",
-    opacity: props.hidden ? 0.0 : props.highOpacity ? 0.4 : 0.2,
-  },
-}))`
+>((props) => {
+  const bg = props.isSelected
+    ? props.color
+      ? props.color.toUpperCase()
+      : props.theme.color.B3
+    : "none";
+  return {
+    style: {
+      background: bg,
+      opacity: props.hidden
+        ? 0.0
+        : props.highOpacity
+        ? TOKEN_OPACITY_HIGH
+        : TOKEN_OPACITY_LOW,
+      boxShadow:
+        props.isSelected && !props.hidden
+          ? `0 0 ${TOKEN_SHADOW_BLUR}px ${TOKEN_SHADOW_SPREAD}px ${bg}`
+          : "none",
+    },
+  };
+})`
   position: absolute;
-  border-radius: 3px;
+  border-radius: ${ANNOTATION_TOKEN_RADIUS};
+  transition: opacity 0.3s ease-in-out;
 `;
 
 interface SelectionTokenSpanProps
@@ -59,23 +79,35 @@ interface SelectionTokenSpanThemeProps extends SelectionTokenSpanProps {
 }
 
 export const SelectionTokenSpan = styled.span.attrs<SelectionTokenSpanThemeProps>(
-  (props) => ({
-    id: props.id,
-    style: {
-      background: props.isSelected
-        ? props.color
-          ? props.color.toUpperCase()
-          : props.theme.color.B3
-        : "none",
-      opacity: props.hidden ? 0.0 : props.highOpacity ? 0.4 : 0.2,
-      left: `${props.left}px`,
-      top: `${props.top}px`,
-      width: `${props.right - props.left}px`,
-      height: `${props.bottom - props.top}px`,
-      pointerEvents: props.pointerEvents,
-    },
-  })
+  (props) => {
+    const bg = props.isSelected
+      ? props.color
+        ? props.color.toUpperCase()
+        : props.theme.color.B3
+      : "none";
+    return {
+      id: props.id,
+      style: {
+        background: bg,
+        opacity: props.hidden
+          ? 0.0
+          : props.highOpacity
+          ? TOKEN_OPACITY_HIGH
+          : TOKEN_OPACITY_LOW,
+        left: `${props.left - TOKEN_EXPANSION_PX}px`,
+        top: `${props.top - TOKEN_EXPANSION_PX}px`,
+        width: `${props.right - props.left + TOKEN_EXPANSION_PX * 2}px`,
+        height: `${props.bottom - props.top + TOKEN_EXPANSION_PX * 2}px`,
+        pointerEvents: props.pointerEvents,
+        boxShadow:
+          props.isSelected && !props.hidden
+            ? `0 0 ${TOKEN_SHADOW_BLUR}px ${TOKEN_SHADOW_SPREAD}px ${bg}`
+            : "none",
+      },
+    };
+  }
 )`
   position: absolute;
-  border-radius: 3px;
+  border-radius: ${ANNOTATION_TOKEN_RADIUS};
+  transition: opacity 0.3s ease-in-out;
 `;

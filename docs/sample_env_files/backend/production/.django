@@ -16,7 +16,7 @@ DJANGO_SUPERUSER_USERNAME=admin
 USE_DOCKER=yes
 WEB_CONCURRENCY=4
 IPYTHONDIR=/app/.ipython
-DJANGO_ALLOWED_HOSTS=django,127.0.0.1,localhost,0.0.0.0,opencontracts.opensource.legal
+DJANGO_ALLOWED_HOSTS=django,127.0.0.1,localhost,0.0.0.0,contracts.opensource.legal
 DJANGO_WORKER_TIMEOUT=3600
 
 # Application Configuration

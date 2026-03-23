@@ -198,18 +198,6 @@ export function hexToRgb(hex: string) {
     };
   }
 }
-
-export function getBorderWidthFromBounds(bounds: BoundingBox): number {
-  //
-  const width = bounds.right - bounds.left;
-  const height = bounds.bottom - bounds.top;
-  if (width < 100 || height < 100) {
-    return 1;
-  } else {
-    return 3;
-  }
-}
-
 export function getPageBoundsFromCanvas(
   canvas: HTMLCanvasElement
 ): BoundingBox {

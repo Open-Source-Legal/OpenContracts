@@ -45,10 +45,10 @@ const SOCIAL_CRAWLERS = [
   "url preview", // URL preview services
   "snippet", // Snippet fetchers
 
-  // Optional: Search engines (uncomment for SEO benefits)
-  // 'googlebot',  // Google
-  // 'bingbot',    // Bing
-  // 'duckduckbot', // DuckDuckGo
+  // Search engines — serve pre-rendered OG tags for SEO
+  "googlebot", // Google
+  "bingbot", // Bing
+  "duckduckbot", // DuckDuckGo
 ];
 
 /**

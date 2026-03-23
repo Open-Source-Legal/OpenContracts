@@ -1,13 +1,10 @@
 import styled, { css, keyframes } from "styled-components";
-import { Modal } from "@os-legal/ui";
-import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
-
-// Breakpoints for responsive design
-const breakpoints = {
-  mobile: "480px",
-  tablet: "768px",
-  desktop: "1024px",
-};
+import { MOBILE_VIEW_BREAKPOINT } from "../../../assets/configurations/constants";
+import {
+  accentAlpha,
+  OS_LEGAL_COLORS,
+} from "../../../assets/configurations/osLegalStyles";
+import { modalFooterBorder, modalFooterMobile } from "./sharedModalStyles";
 
 // Animation keyframes
 const fadeIn = keyframes`
@@ -23,180 +20,204 @@ const fadeIn = keyframes`
 
 const pulse = keyframes`
   0% {
-    box-shadow: 0 0 0 0 rgba(33, 133, 208, 0.4);
+    box-shadow: 0 0 0 0 ${accentAlpha(0.3)};
   }
   70% {
-    box-shadow: 0 0 0 10px rgba(33, 133, 208, 0);
+    box-shadow: 0 0 0 10px ${accentAlpha(0)};
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(33, 133, 208, 0);
+    box-shadow: 0 0 0 0 ${accentAlpha(0)};
   }
 `;
 
-// Styled Modal with responsive sizing - wrapping @os-legal/ui Modal
-export const StyledUploadModal = styled(Modal)`
-  &.oc-modal {
-    animation: ${fadeIn} 0.3s ease-out;
+// Modal wrapper with styling overrides for @os-legal/ui Modal
+export const StyledModalWrapper = styled.div`
+  .oc-modal-overlay {
+    padding: var(--oc-spacing-md);
+
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      padding: 0;
+      align-items: flex-end;
+    }
   }
 
-  .oc-modal-content {
-    width: 90% !important;
-    max-width: 700px !important;
-    margin: 1rem auto !important;
-    border-radius: 12px !important;
-    overflow: hidden;
+  .oc-modal {
+    width: 100%;
+    max-width: 640px;
+    overflow-y: auto;
+    overflow-x: visible;
+    animation: ${fadeIn} 0.25s ease-out;
 
-    @media (max-width: ${breakpoints.mobile}) {
-      width: 95% !important;
-      margin: 0.5rem auto !important;
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      max-width: 100%;
       max-height: 95vh;
-    }
-
-    @media (max-width: ${breakpoints.tablet}) {
-      width: 95% !important;
-    }
-  }
-
-  .oc-modal-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white !important;
-    padding: 1.25rem 1.5rem !important;
-    font-size: 1.25rem !important;
-    border-bottom: none !important;
-
-    @media (max-width: ${breakpoints.mobile}) {
-      padding: 1rem !important;
-      font-size: 1.1rem !important;
+      border-radius: var(--oc-radius-lg) var(--oc-radius-lg) 0 0;
     }
   }
 
   .oc-modal-body {
-    padding: 1.5rem !important;
+    background: var(--oc-bg-surface);
+    padding: var(--oc-spacing-lg);
+    overflow: visible;
 
-    @media (max-width: ${breakpoints.mobile}) {
-      padding: 1rem !important;
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      padding: var(--oc-spacing-md);
+      -webkit-overflow-scrolling: touch;
+      overflow-y: auto;
     }
   }
 
   .oc-modal-footer {
-    padding: 1rem 1.5rem !important;
-    padding-top: var(--oc-spacing-lg) !important;
-    background: #f8f9fa !important;
-    border-top: 1px solid ${OS_LEGAL_COLORS.gray200} !important;
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-
-    @media (max-width: ${breakpoints.mobile}) {
-      padding: 0.75rem 1rem !important;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-
-      button {
-        width: 100% !important;
-        margin: 0 !important;
-      }
-    }
+    background: var(--oc-bg-surface);
+    ${modalFooterBorder}
+    ${modalFooterMobile}
   }
 `;
 
-// Modal header with icon
-export const ModalHeader = styled.div`
-  display: flex;
+// Header icon wrapper
+export const HeaderIcon = styled.span`
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--oc-radius-md);
+  background: var(--oc-accent);
+  color: white;
+  margin-right: var(--oc-spacing-xs);
 
   svg {
-    font-size: 1.5rem;
-
-    @media (max-width: ${breakpoints.mobile}) {
-      font-size: 1.25rem;
-    }
+    width: 15px;
+    height: 15px;
   }
 `;
 
-export const ModalHeaderContent = styled.div`
-  display: flex;
-  flex-direction: column;
-
-  .title {
-    font-weight: 600;
-    font-size: 1.25rem;
-    margin-bottom: 0.25rem;
-
-    @media (max-width: ${breakpoints.mobile}) {
-      font-size: 1.1rem;
-    }
-  }
-
-  .subtitle {
-    font-size: 0.875rem;
-    opacity: 0.9;
-    font-weight: 400;
-
-    @media (max-width: ${breakpoints.mobile}) {
-      font-size: 0.8rem;
-    }
-  }
-`;
-
-// Step indicator for multi-step upload
+// Step indicator
 export const StepIndicator = styled.div`
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  padding: 0 1rem;
+  gap: var(--oc-spacing-sm);
+  margin-bottom: var(--oc-spacing-lg);
 
-  @media (max-width: ${breakpoints.mobile}) {
-    gap: 0.25rem;
-    margin-bottom: 1rem;
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    gap: var(--oc-spacing-xs);
+    margin-bottom: var(--oc-spacing-md);
   }
 `;
 
 export const Step = styled.div<{ $active?: boolean; $completed?: boolean }>`
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  font-size: 0.875rem;
+  gap: var(--oc-spacing-xs);
+  padding: calc(var(--oc-spacing-xs) * 1.5) var(--oc-spacing-sm);
+  border-radius: var(--oc-radius-full);
+  font-size: var(--oc-font-size-xs);
   font-weight: 500;
   transition: all 0.2s ease;
 
-  @media (max-width: ${breakpoints.mobile}) {
-    padding: 0.375rem 0.75rem;
-    font-size: 0.75rem;
-    gap: 0.25rem;
+  svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: var(--oc-spacing-xs);
+    font-size: var(--oc-font-size-xs);
+
+    svg {
+      width: 11px;
+      height: 11px;
+    }
   }
 
   ${({ $active, $completed }) =>
     $active
       ? css`
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--oc-accent);
           color: white;
         `
       : $completed
       ? css`
-          background: #e8f5e9;
-          color: #2e7d32;
+          background: var(--oc-success-bg);
+          color: var(--oc-success);
         `
       : css`
-          background: #f1f3f5;
-          color: ${OS_LEGAL_COLORS.gray500};
+          background: var(--oc-bg-subtle);
+          color: var(--oc-fg-tertiary);
         `}
 `;
 
 export const StepConnector = styled.div<{ $completed?: boolean }>`
-  width: 30px;
+  width: 24px;
   height: 2px;
-  background: ${({ $completed }) => ($completed ? "#2e7d32" : "#dee2e6")};
+  background: ${({ $completed }) =>
+    $completed ? "var(--oc-success)" : "var(--oc-border-default)"};
   transition: background 0.2s ease;
 
-  @media (max-width: ${breakpoints.mobile}) {
-    width: 15px;
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    width: 16px;
+  }
+`;
+
+// Alert box for warning and info messages
+export const AlertBox = styled.div<{ $variant: "warning" | "info" }>`
+  border-radius: var(--oc-radius-md);
+  padding: var(--oc-spacing-md);
+  margin-bottom: var(--oc-spacing-md);
+  display: flex;
+  gap: var(--oc-spacing-sm);
+  font-size: var(--oc-font-size-sm);
+  line-height: 1.5;
+
+  svg {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+  }
+
+  ${({ $variant }) =>
+    $variant === "warning"
+      ? css`
+          background: ${OS_LEGAL_COLORS.warningSurface};
+          color: ${OS_LEGAL_COLORS.warningText};
+          border: 1px solid ${OS_LEGAL_COLORS.warningBorder};
+        `
+      : css`
+          background: ${OS_LEGAL_COLORS.infoSurface};
+          color: ${OS_LEGAL_COLORS.infoText};
+          border: 1px solid ${OS_LEGAL_COLORS.infoBorder};
+        `}
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+`;
+
+export const AlertTitle = styled.div`
+  font-weight: 600;
+  margin-bottom: calc(var(--oc-spacing-xs) / 2);
+`;
+
+export const AlertBody = styled.div`
+  flex: 1;
+
+  p {
+    margin: calc(var(--oc-spacing-xs) / 2) 0 0 0;
+  }
+
+  ul {
+    margin: calc(var(--oc-spacing-xs) / 2) 0 0 0;
+    padding-left: var(--oc-spacing-md);
+  }
+
+  li {
+    margin-bottom: calc(var(--oc-spacing-xs) / 2);
+
+    &:last-child {
+      margin-bottom: 0;
+    }
   }
 `;
 
@@ -205,35 +226,33 @@ export const DropZone = styled.div<{
   $isDragActive?: boolean;
   $hasFiles?: boolean;
 }>`
-  border: 2px dashed
-    ${({ $isDragActive }) => ($isDragActive ? "#667eea" : "#dee2e6")};
-  border-radius: 12px;
+  border: 1.5px dashed
+    ${({ $isDragActive }) =>
+      $isDragActive ? "var(--oc-accent)" : "var(--oc-border-default)"};
+  border-radius: var(--oc-radius-lg);
   background: ${({ $isDragActive }) =>
-    $isDragActive
-      ? "linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)"
-      : OS_LEGAL_COLORS.surfaceHover};
-  min-height: 250px;
+    $isDragActive ? accentAlpha(0.05) : "var(--oc-bg-subtle)"};
+  min-height: 200px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: var(--oc-spacing-xl);
   cursor: ${({ $hasFiles }) => ($hasFiles ? "default" : "pointer")};
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
 
-  @media (max-width: ${breakpoints.mobile}) {
-    min-height: 200px;
-    padding: 1.5rem 1rem;
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    min-height: 160px;
+    padding: var(--oc-spacing-lg) var(--oc-spacing-md);
   }
 
   &:hover {
-    border-color: ${({ $hasFiles }) => ($hasFiles ? "#dee2e6" : "#667eea")};
+    border-color: ${({ $hasFiles }) =>
+      $hasFiles ? "var(--oc-border-default)" : "var(--oc-accent)"};
     background: ${({ $hasFiles }) =>
-      $hasFiles
-        ? "#fafbfc"
-        : "linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)"};
+      $hasFiles ? "var(--oc-bg-surface-hover)" : accentAlpha(0.03)};
   }
 
   ${({ $isDragActive }) =>
@@ -244,14 +263,21 @@ export const DropZone = styled.div<{
 `;
 
 export const DropZoneIcon = styled.div`
-  font-size: 3rem;
-  color: #667eea;
-  margin-bottom: 1rem;
-  opacity: 0.8;
+  color: var(--oc-accent);
+  margin-bottom: var(--oc-spacing-sm);
+  opacity: 0.6;
 
-  @media (max-width: ${breakpoints.mobile}) {
-    font-size: 2.5rem;
-    margin-bottom: 0.75rem;
+  svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    svg {
+      width: 32px;
+      height: 32px;
+    }
+    margin-bottom: var(--oc-spacing-xs);
   }
 `;
 
@@ -259,49 +285,57 @@ export const DropZoneText = styled.div`
   text-align: center;
 
   .primary-text {
-    font-size: 1.1rem;
+    font-size: var(--oc-font-size-md);
     font-weight: 500;
-    color: ${OS_LEGAL_COLORS.gray700};
-    margin-bottom: 0.5rem;
+    color: var(--oc-fg-primary);
+    margin-bottom: var(--oc-spacing-xs);
 
-    @media (max-width: ${breakpoints.mobile}) {
-      font-size: 1rem;
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      font-size: var(--oc-font-size-sm);
     }
   }
 
   .secondary-text {
-    font-size: 0.875rem;
-    color: ${OS_LEGAL_COLORS.gray500};
+    font-size: var(--oc-font-size-sm);
+    color: var(--oc-fg-secondary);
 
-    @media (max-width: ${breakpoints.mobile}) {
-      font-size: 0.8rem;
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      font-size: var(--oc-font-size-xs);
     }
   }
 `;
 
 export const DropZoneButton = styled.button`
-  margin-top: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-  color: white !important;
-  border-radius: 8px !important;
-  padding: 0.875rem 1.5rem !important;
-  font-weight: 500 !important;
-  transition: all 0.2s ease !important;
-  min-height: 44px; /* Touch target size */
+  margin-top: var(--oc-spacing-md);
+  background: var(--oc-accent);
+  color: white;
+  border-radius: var(--oc-radius-md);
+  padding: var(--oc-spacing-sm) var(--oc-spacing-lg);
+  font-weight: 500;
+  font-size: var(--oc-font-size-sm);
+  transition: all 0.2s ease;
+  min-height: 44px; /* WCAG 2.5.5 touch target minimum */
   border: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--oc-spacing-xs);
 
-  @media (max-width: ${breakpoints.mobile}) {
+  svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     width: 100%;
-    padding: 1rem !important;
+    justify-content: center;
+    padding: var(--oc-spacing-sm) var(--oc-spacing-md);
   }
 
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    background: var(--oc-accent-hover);
+    box-shadow: 0 2px 8px ${accentAlpha(0.3)};
   }
 
   &:active {
@@ -309,336 +343,50 @@ export const DropZoneButton = styled.button`
   }
 `;
 
-// File list container
-export const FileListContainer = styled.div`
-  border-radius: 12px;
-  border: 1px solid ${OS_LEGAL_COLORS.gray200};
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 0.5rem;
-  margin: 0;
-
-  @media (max-width: ${breakpoints.mobile}) {
-    max-height: 250px;
-  }
-
-  /* Custom scrollbar */
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: #f1f3f5;
-    border-radius: 3px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: #ced4da;
-    border-radius: 3px;
-  }
-
-  &::-webkit-scrollbar-thumb:hover {
-    background: #adb5bd;
-  }
-`;
-
-// File list item
-export const FileListItem = styled.li<{
-  $selected?: boolean;
-  $status?: string;
-}>`
-  list-style: none;
-  padding: 0.875rem 1rem;
-  margin: 0.25rem 0;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: 56px; /* Touch target size */
-
-  @media (max-width: ${breakpoints.mobile}) {
-    padding: 1rem;
-    min-height: 64px;
-  }
-
-  ${({ $selected }) =>
-    $selected &&
-    css`
-      background: linear-gradient(
-        135deg,
-        rgba(102, 126, 234, 0.1) 0%,
-        rgba(118, 75, 162, 0.1) 100%
-      );
-      border: 1px solid rgba(102, 126, 234, 0.3);
-    `}
-
-  ${({ $status }) =>
-    $status === "SUCCESS" &&
-    css`
-      background: #e8f5e9;
-      border: 1px solid #c8e6c9;
-    `}
-
-  ${({ $status }) =>
-    $status === "FAILED" &&
-    css`
-      background: #ffebee;
-      border: 1px solid ${OS_LEGAL_COLORS.dangerBorder};
-    `}
-
-  &:hover {
-    background: ${({ $selected }) =>
-      $selected ? "rgba(102, 126, 234, 0.15)" : OS_LEGAL_COLORS.gray50};
-  }
-`;
-
-export const FileItemContent = styled.div`
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-`;
-
-export const FileItemIcon = styled.div<{ $status?: string }>`
-  font-size: 1.5rem;
-  color: ${({ $status }) =>
-    $status === "SUCCESS"
-      ? "#2e7d32"
-      : $status === "FAILED"
-      ? OS_LEGAL_COLORS.dangerText
-      : "#667eea"};
-  flex-shrink: 0;
-`;
-
-export const FileItemDetails = styled.div`
-  flex: 1;
-  min-width: 0;
-
-  .file-name {
-    font-weight: 500;
-    color: #212529;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-
-    @media (max-width: ${breakpoints.mobile}) {
-      font-size: 0.9rem;
-    }
-  }
-
-  .file-status {
-    font-size: 0.75rem;
-    color: ${OS_LEGAL_COLORS.gray500};
-    margin-top: 0.25rem;
-
-    &.error {
-      color: #c62828;
-    }
-
-    &.success {
-      color: #2e7d32;
-    }
-  }
-`;
-
-export const FileItemActions = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-`;
-
-export const DeleteButton = styled.button`
-  padding: 0.5rem !important;
-  margin: 0 !important;
-  background: transparent !important;
-  color: ${OS_LEGAL_COLORS.gray500} !important;
-  border-radius: 6px !important;
-  min-width: 36px;
-  min-height: 36px;
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  cursor: pointer;
-
-  @media (max-width: ${breakpoints.mobile}) {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  &:hover {
-    background: #ffebee !important;
-    color: #c62828 !important;
-  }
-`;
-
-// Form edit section (two-column on desktop)
-export const EditSection = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-
-  @media (max-width: ${breakpoints.tablet}) {
-    grid-template-columns: 1fr;
-    gap: 1rem;
-  }
-`;
-
-export const EditPanel = styled.div`
-  display: flex;
-  flex-direction: column;
-`;
-
-export const EditPanelHeader = styled.h4`
-  font-size: 1rem;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.gray700};
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #667eea;
-`;
-
-export const FormContainer = styled.div`
-  border-radius: 12px;
-  border: 1px solid ${OS_LEGAL_COLORS.gray200};
-  padding: 1.5rem;
-  height: 100%;
-  background: #fff;
-
-  @media (max-width: ${breakpoints.mobile}) {
-    padding: 1rem;
-  }
-`;
-
 // Progress indicator
 export const UploadProgress = styled.div<{ $percent?: number }>`
-  margin: 1rem 0;
-  border-radius: 8px;
+  margin: var(--oc-spacing-md) 0;
+  border-radius: var(--oc-radius-md);
   overflow: hidden;
-  background: ${OS_LEGAL_COLORS.gray200};
-  height: 20px;
+  background: var(--oc-bg-subtle);
+  height: 8px;
   position: relative;
-
-  &::before {
-    content: "${({ $percent }) => Math.round($percent ?? 0)}%";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: ${({ $percent }) =>
-      ($percent ?? 0) > 50 ? "#fff" : OS_LEGAL_COLORS.textTertiary};
-    z-index: 1;
-    line-height: 20px;
-  }
 
   &::after {
     content: "";
     display: block;
     height: 100%;
     width: ${({ $percent }) => $percent ?? 0}%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 8px;
+    background: var(--oc-accent);
+    border-radius: var(--oc-radius-md);
     transition: width 0.3s ease;
   }
 `;
 
-// Action buttons
-export const ActionButton = styled.button<{
-  $variant?: "primary" | "secondary" | "danger";
-}>`
-  border-radius: 8px !important;
-  font-weight: 500 !important;
-  min-height: 44px;
-  padding: 0.875rem 1.5rem !important;
-  transition: all 0.2s ease !important;
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  @media (max-width: ${breakpoints.mobile}) {
-    width: 100%;
-    padding: 1rem !important;
-  }
-
-  ${({ $variant }) =>
-    $variant === "primary" &&
-    css`
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-      color: white !important;
-
-      &:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-      }
-    `}
-
-  ${({ $variant }) =>
-    $variant === "secondary" &&
-    css`
-      background: #f1f3f5 !important;
-      color: ${OS_LEGAL_COLORS.gray700} !important;
-
-      &:hover:not(:disabled) {
-        background: ${OS_LEGAL_COLORS.gray200} !important;
-      }
-    `}
-
-  ${({ $variant }) =>
-    $variant === "danger" &&
-    css`
-      background: #ffebee !important;
-      color: #c62828 !important;
-
-      &:hover:not(:disabled) {
-        background: #ffcdd2 !important;
-      }
-    `}
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-`;
-
-export const FieldLabel = styled.label`
-  display: block;
+export const ProgressLabel = styled.div`
+  font-size: var(--oc-font-size-xs);
+  color: var(--oc-fg-secondary);
+  text-align: center;
+  margin-top: var(--oc-spacing-xs);
   font-weight: 500;
-  color: ${OS_LEGAL_COLORS.gray700};
-  margin-bottom: 0.5rem;
-  font-size: 0.9375rem;
-
-  .required {
-    color: #e03131;
-    margin-left: 0.25rem;
-  }
 `;
 
 // Error message styling
 export const ErrorMessage = styled.div`
-  background: #ffebee;
-  border: 1px solid ${OS_LEGAL_COLORS.dangerBorder};
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  background: var(--oc-error-bg);
+  border: 1px solid var(--oc-error);
+  border-radius: var(--oc-radius-md);
+  padding: var(--oc-spacing-sm) var(--oc-spacing-md);
+  margin-bottom: var(--oc-spacing-md);
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
+  gap: var(--oc-spacing-sm);
 
-  .icon {
-    color: #c62828;
+  svg {
+    color: var(--oc-error);
     flex-shrink: 0;
+    width: 16px;
+    height: 16px;
   }
 
   .content {
@@ -646,27 +394,49 @@ export const ErrorMessage = styled.div`
 
     .header {
       font-weight: 600;
-      color: #c62828;
-      margin-bottom: 0.25rem;
+      color: var(--oc-error);
+      font-size: var(--oc-font-size-xs);
+      margin-bottom: calc(var(--oc-spacing-xs) / 2);
     }
 
     .message {
-      font-size: 0.875rem;
-      color: #6e0000;
+      font-size: var(--oc-font-size-xs);
+      color: var(--oc-fg-secondary);
     }
   }
 `;
 
-// Mobile-specific action bar
-export const MobileActionBar = styled.div`
-  display: none;
+// Spin animation for loader (used internally by SpinnerIcon)
+const spinKeyframes = keyframes`
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+`;
 
-  @media (max-width: ${breakpoints.mobile}) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
-    background: #f8f9fa;
-    border-top: 1px solid ${OS_LEGAL_COLORS.gray200};
+export const SpinnerIcon = styled.div`
+  color: var(--oc-accent);
+  margin-bottom: var(--oc-spacing-md);
+
+  svg {
+    width: 40px;
+    height: 40px;
+    animation: ${spinKeyframes} 1s linear infinite;
+  }
+`;
+
+export const ProgressContent = styled.div`
+  text-align: center;
+  padding: var(--oc-spacing-xl) var(--oc-spacing-lg);
+
+  h3 {
+    font-size: var(--oc-font-size-lg);
+    font-weight: 600;
+    color: var(--oc-fg-primary);
+    margin: 0 0 var(--oc-spacing-xs) 0;
+  }
+
+  p {
+    font-size: var(--oc-font-size-sm);
+    color: var(--oc-fg-secondary);
+    margin: 0 0 var(--oc-spacing-lg) 0;
   }
 `;

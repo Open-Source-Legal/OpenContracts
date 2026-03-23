@@ -83,6 +83,14 @@ def user_created_signal(
     if not created:
         return
 
+    # Skip personal corpus creation for guardian's anonymous user — it is a
+    # system-level account that doesn't need a personal document store.
+    from django.conf import settings
+
+    anon_name = getattr(settings, "ANONYMOUS_USER_NAME", None)
+    if anon_name is not None and instance.username == anon_name:
+        return
+
     # Record telemetry
     try:
         with transaction.atomic():

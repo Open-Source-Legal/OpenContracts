@@ -377,7 +377,7 @@ def sync_admin_claims_from_payload(user, payload):
     namespace = getattr(
         settings,
         "AUTH0_ADMIN_CLAIM_NAMESPACE",
-        "https://opencontracts.opensource.legal/",
+        "https://contracts.opensource.legal/",
     )
 
     logger.debug(

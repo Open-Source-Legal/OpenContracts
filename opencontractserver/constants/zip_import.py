@@ -43,5 +43,12 @@ ZIP_MAX_PATH_COMPONENT_LENGTH = getattr(settings, "ZIP_MAX_PATH_COMPONENT_LENGTH
 # Maximum total path length in characters
 ZIP_MAX_PATH_LENGTH = getattr(settings, "ZIP_MAX_PATH_LENGTH", 1024)
 
+# Maximum size of a single annotation sidecar JSON in bytes (10MB default)
+# Sidecars are fully loaded into memory for JSON parsing; this limit
+# prevents a single oversized sidecar from causing excessive memory usage.
+ZIP_MAX_SIDECAR_SIZE_BYTES = getattr(
+    settings, "ZIP_MAX_SIDECAR_SIZE_BYTES", 10 * 1024 * 1024
+)
+
 # Batch size for document processing (commit after N documents)
 ZIP_DOCUMENT_BATCH_SIZE = getattr(settings, "ZIP_DOCUMENT_BATCH_SIZE", 50)

@@ -13,6 +13,13 @@
  */
 import React, { useState, useRef, useCallback } from "react";
 import { useMutation, useReactiveVar } from "@apollo/client";
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Button,
+} from "@os-legal/ui";
 import { toast } from "react-toastify";
 import {
   CheckCircle,
@@ -23,12 +30,9 @@ import {
   AlertCircle,
   RefreshCw,
   FolderOpen,
-  ArrowRight,
-  ArrowLeft,
   Loader,
 } from "lucide-react";
 
-import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
   showBulkImportModal,
   selectedFolderId as selectedFolderIdVar,
@@ -41,19 +45,23 @@ import {
   ImportZipToCorpusOutputs,
 } from "../../../graphql/mutations";
 import {
-  StyledUploadModal,
-  ModalHeader,
-  ModalHeaderContent,
+  StyledModalWrapper,
+  HeaderIcon,
   DropZone,
   DropZoneIcon,
   DropZoneText,
   DropZoneButton,
   UploadProgress,
-  ActionButton,
+  ProgressLabel,
   ErrorMessage,
   StepIndicator,
   Step,
   StepConnector,
+  AlertBox,
+  AlertTitle,
+  AlertBody,
+  SpinnerIcon,
+  ProgressContent,
 } from "./UploadModalStyles";
 
 type UploadStep = "confirm" | "upload" | "progress";
@@ -260,17 +268,17 @@ export const BulkImportModal: React.FC = () => {
   const renderStepIndicator = () => (
     <StepIndicator>
       <Step $active={step === "confirm"} $completed={step !== "confirm"}>
-        <CheckCircle size={16} />
+        <CheckCircle size={13} />
         Confirm
       </Step>
       <StepConnector $completed={step !== "confirm"} />
       <Step $active={step === "upload"} $completed={step === "progress"}>
-        <FileArchive size={16} />
+        <FileArchive size={13} />
         Select File
       </Step>
       <StepConnector $completed={step === "progress"} />
       <Step $active={step === "progress"}>
-        <CloudUpload size={16} />
+        <CloudUpload size={13} />
         Import
       </Step>
     </StepIndicator>
@@ -281,31 +289,17 @@ export const BulkImportModal: React.FC = () => {
    */
   const renderConfirmStep = () => (
     <div>
-      <div
-        style={{
-          background: OS_LEGAL_COLORS.warningSurface,
-          color: OS_LEGAL_COLORS.warningText,
-          border: `1px solid ${OS_LEGAL_COLORS.warningBorder}`,
-          borderRadius: "4px",
-          padding: "1rem",
-          marginBottom: "1rem",
-          display: "flex",
-          gap: "0.75rem",
-        }}
-      >
-        <AlertTriangle
-          size={20}
-          style={{ flexShrink: 0, marginTop: "0.125rem" }}
-        />
-        <div>
-          <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>
+      <AlertBox $variant="warning">
+        <AlertTriangle />
+        <AlertBody>
+          <AlertTitle>
             Important: Bulk Import Cannot Be Easily Undone
-          </div>
-          <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+          </AlertTitle>
+          <p>
             This will import all documents from the ZIP file into the current
             corpus, preserving the folder structure. Consider the following:
           </p>
-          <ul style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+          <ul>
             <li>
               Documents will be created with the folder structure from the ZIP
             </li>
@@ -322,31 +316,19 @@ export const BulkImportModal: React.FC = () => {
               in batches
             </li>
           </ul>
-        </div>
-      </div>
+        </AlertBody>
+      </AlertBox>
 
-      <div
-        style={{
-          background: OS_LEGAL_COLORS.infoSurface,
-          color: OS_LEGAL_COLORS.infoText,
-          border: `1px solid ${OS_LEGAL_COLORS.infoBorder}`,
-          borderRadius: "4px",
-          padding: "1rem",
-          display: "flex",
-          gap: "0.75rem",
-        }}
-      >
-        <Info size={20} style={{ flexShrink: 0, marginTop: "0.125rem" }} />
-        <div>
-          <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>
-            Supported Format
-          </div>
-          <p style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+      <AlertBox $variant="info">
+        <Info />
+        <AlertBody>
+          <AlertTitle>Supported Format</AlertTitle>
+          <p>
             Upload a ZIP file containing PDF, DOCX, PPTX, XLSX, or TXT files.
             The folder structure within the ZIP will be preserved in the corpus.
           </p>
-        </div>
-      </div>
+        </AlertBody>
+      </AlertBox>
     </div>
   );
 
@@ -357,9 +339,7 @@ export const BulkImportModal: React.FC = () => {
     <div>
       {error && (
         <ErrorMessage>
-          <div className="icon">
-            <AlertCircle size={24} />
-          </div>
+          <AlertCircle />
           <div className="content">
             <div className="header">Error</div>
             <div className="message">{error}</div>
@@ -387,7 +367,7 @@ export const BulkImportModal: React.FC = () => {
         {selectedFile ? (
           <>
             <DropZoneIcon>
-              <FileArchive size={48} />
+              <FileArchive />
             </DropZoneIcon>
             <DropZoneText>
               <div className="primary-text">{selectedFile.name}</div>
@@ -396,14 +376,13 @@ export const BulkImportModal: React.FC = () => {
               </div>
             </DropZoneText>
             <DropZoneButton onClick={handleBrowseClick}>
-              <RefreshCw size={14} style={{ marginRight: "0.25rem" }} /> Choose
-              Different File
+              <RefreshCw /> Choose Different File
             </DropZoneButton>
           </>
         ) : (
           <>
             <DropZoneIcon>
-              <CloudUpload size={48} />
+              <CloudUpload />
             </DropZoneIcon>
             <DropZoneText>
               <div className="primary-text">
@@ -414,8 +393,7 @@ export const BulkImportModal: React.FC = () => {
               <div className="secondary-text">or click to browse</div>
             </DropZoneText>
             <DropZoneButton onClick={handleBrowseClick}>
-              <FolderOpen size={14} style={{ marginRight: "0.25rem" }} /> Browse
-              Files
+              <FolderOpen /> Browse Files
             </DropZoneButton>
           </>
         )}
@@ -427,62 +405,27 @@ export const BulkImportModal: React.FC = () => {
    * Render the progress step content.
    */
   const renderProgressStep = () => (
-    <div style={{ textAlign: "center", padding: "2rem" }}>
-      <Loader
-        size={48}
-        style={{
-          marginBottom: "1rem",
-          animation: "spin 1s linear infinite",
-        }}
-      />
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    <ProgressContent>
+      <SpinnerIcon>
+        <Loader />
+      </SpinnerIcon>
       <h3>Importing Documents...</h3>
-      <p
-        style={{ color: OS_LEGAL_COLORS.textSecondary, marginBottom: "1.5rem" }}
-      >
-        This may take a few moments depending on the size of your ZIP file.
-      </p>
+      <p>This may take a few moments depending on the size of your ZIP file.</p>
       <UploadProgress $percent={uploadProgress} />
-    </div>
+      <ProgressLabel>{Math.round(uploadProgress)}%</ProgressLabel>
+    </ProgressContent>
   );
 
-  /**
-   * Render the modal actions based on current step.
-   */
-  const renderActions = () => {
+  const getSubtitle = () => {
     switch (step) {
       case "confirm":
-        return (
-          <>
-            <ActionButton $variant="secondary" onClick={handleClose}>
-              Cancel
-            </ActionButton>
-            <ActionButton $variant="primary" onClick={handleConfirm}>
-              <ArrowRight size={14} style={{ marginRight: "0.25rem" }} />{" "}
-              Continue
-            </ActionButton>
-          </>
-        );
+        return "Review import details before proceeding";
       case "upload":
-        return (
-          <>
-            <ActionButton $variant="secondary" onClick={handleBack}>
-              <ArrowLeft size={14} style={{ marginRight: "0.25rem" }} /> Back
-            </ActionButton>
-            <ActionButton
-              $variant="primary"
-              onClick={handleImport}
-              disabled={!selectedFile || !base64File || loading}
-            >
-              <CloudUpload size={14} style={{ marginRight: "0.25rem" }} /> Start
-              Import
-            </ActionButton>
-          </>
-        );
+        return "Select a ZIP file to import";
       case "progress":
-        return null; // No actions during progress
+        return "Processing your import...";
       default:
-        return null;
+        return "";
     }
   };
 
@@ -491,27 +434,61 @@ export const BulkImportModal: React.FC = () => {
   }
 
   return (
-    <StyledUploadModal open={visible} onClose={handleClose} size="sm">
-      <div className="header">
-        <ModalHeader>
-          <FileArchive size={24} />
-          <ModalHeaderContent>
-            <div className="title">Bulk Import Documents</div>
-            <div className="subtitle">
-              Import a ZIP file with folder structure
-            </div>
-          </ModalHeaderContent>
-        </ModalHeader>
-      </div>
+    <StyledModalWrapper>
+      <Modal open={visible} onClose={handleClose} size="md">
+        <ModalHeader
+          title={
+            <>
+              <HeaderIcon>
+                <FileArchive />
+              </HeaderIcon>
+              Bulk Import Documents
+            </>
+          }
+          subtitle={getSubtitle()}
+          onClose={handleClose}
+          showCloseButton={step !== "progress"}
+        />
 
-      <div className="content">
-        {renderStepIndicator()}
-        {step === "confirm" && renderConfirmStep()}
-        {step === "upload" && renderUploadStep()}
-        {step === "progress" && renderProgressStep()}
-      </div>
+        <ModalBody>
+          {renderStepIndicator()}
+          {step === "confirm" && renderConfirmStep()}
+          {step === "upload" && renderUploadStep()}
+          {step === "progress" && renderProgressStep()}
+        </ModalBody>
 
-      {step !== "progress" && <div className="actions">{renderActions()}</div>}
-    </StyledUploadModal>
+        {step !== "progress" && (
+          <ModalFooter>
+            {step === "confirm" && (
+              <>
+                <Button variant="secondary" onClick={handleClose}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={handleConfirm}>
+                  Continue
+                </Button>
+              </>
+            )}
+            {step === "upload" && (
+              <>
+                <Button variant="secondary" onClick={handleBack}>
+                  Back
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleImport}
+                  disabled={!selectedFile || !base64File || loading}
+                >
+                  <CloudUpload
+                    style={{ width: 16, height: 16, marginRight: 8 }}
+                  />
+                  Start Import
+                </Button>
+              </>
+            )}
+          </ModalFooter>
+        )}
+      </Modal>
+    </StyledModalWrapper>
   );
 };
