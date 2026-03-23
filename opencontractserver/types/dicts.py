@@ -347,8 +347,8 @@ class BboxAnnotationType(TypedDict):
     """A bounding-box annotation entry in import data.
 
     Used in the ``bbox_annotations`` field of ``OpenContractsDocAnnotations``
-    and ``WorkerDocumentUploadMetadataType``. See
-    ``docs/superpowers/specs/2026-03-21-bbox-annotations-design.md``.
+    and ``WorkerDocumentUploadMetadataType``.
+    See ``docs/upload_methods/`` for usage across import pathways.
     """
 
     id: NotRequired[Optional[Union[str, int]]]
@@ -375,7 +375,7 @@ class OpenContractsDocAnnotations(TypedDict):
     relationships: NotRequired[list[OpenContractsRelationshipPythonType]]
 
     # Bounding-box annotations resolved to TOKEN_LABEL at import time.
-    # See docs/superpowers/specs/2026-03-21-bbox-annotations-design.md
+    # Bounding-box annotations resolved to TOKEN_LABEL at import time
     bbox_annotations: NotRequired[list[BboxAnnotationType]]
 
 

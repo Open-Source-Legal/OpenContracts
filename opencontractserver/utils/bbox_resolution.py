@@ -16,6 +16,7 @@ from opencontractserver.types.dicts import (
     OpenContractsSinglePageAnnotationType,
     PawlsPagePythonType,
 )
+from opencontractserver.types.enums import LabelType
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,8 @@ def resolve_bbox_annotations(
         # page field = minimum page number with matched tokens
         min_page = min(int(p) for p in annotation_json)
 
-        # content_modalities
+        # content_modalities — may be empty if tokens are neither text nor image
+        # (not expected with current PAWLs token types)
         modalities: list[str] = []
         if has_text_tokens:
             modalities.append("TEXT")
@@ -176,7 +178,7 @@ def resolve_bbox_annotations(
             "page": min_page,
             "annotation_json": annotation_json,
             "parent_id": bbox_ann.get("parent_id"),
-            "annotation_type": "TOKEN_LABEL",
+            "annotation_type": LabelType.TOKEN_LABEL.value,
             "structural": bbox_ann.get("structural", False),
             "content_modalities": modalities,
         }

@@ -635,7 +635,8 @@ def _apply_sidecar_annotations(
             logger.warning(f"import_zip_with_folder_structure() - {msg}")
             results["errors"].append(msg)
             results["annotation_sidecars_errored"] += 1
-        merge_bbox_into_labelled_text(doc_data)
+        else:
+            merge_bbox_into_labelled_text(doc_data)
 
         # Import annotations onto the corpus document
         expected_text = len(doc_data.get("labelled_text", []))
