@@ -12,14 +12,26 @@ import { Provider } from "jotai";
 
 import { ExtractGridEmbed } from "../src/components/extracts/ExtractGridEmbed";
 import { GET_EXTRACT_GRID_EMBED } from "../src/graphql/queries";
+import { EXTRACT_GRID_EMBED_MAX_CELLS } from "../src/assets/configurations/constants";
 
 const TEST_EXTRACT_ID = "RXh0cmFjdFR5cGU6MQ==";
+
+/**
+ * Variables passed to GET_EXTRACT_GRID_EMBED. The component sends
+ * `datacellFirst: EXTRACT_GRID_EMBED_MAX_CELLS` as a payload cap, so the mock
+ * variables must match exactly (Apollo's MockedProvider compares variables
+ * by deep equality).
+ */
+const DEFAULT_QUERY_VARIABLES = {
+  extractId: TEST_EXTRACT_ID,
+  datacellFirst: EXTRACT_GRID_EMBED_MAX_CELLS,
+};
 
 /** Mock: populated extract with 2 documents and 2 columns */
 const populatedExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: DEFAULT_QUERY_VARIABLES,
   },
   result: {
     data: {
@@ -140,7 +152,7 @@ const populatedExtractMock: MockedResponse = {
 const emptyExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: DEFAULT_QUERY_VARIABLES,
   },
   result: {
     data: {
@@ -171,7 +183,7 @@ const emptyExtractMock: MockedResponse = {
 const notFoundExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: DEFAULT_QUERY_VARIABLES,
   },
   result: {
     data: {
@@ -184,7 +196,7 @@ const notFoundExtractMock: MockedResponse = {
 const loadingExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: DEFAULT_QUERY_VARIABLES,
   },
   delay: 100_000,
   result: {
@@ -198,7 +210,7 @@ const loadingExtractMock: MockedResponse = {
 const tooManyRowsExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: DEFAULT_QUERY_VARIABLES,
   },
   result: {
     data: {
@@ -249,7 +261,7 @@ const tooManyRowsExtractMock: MockedResponse = {
 const errorExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: DEFAULT_QUERY_VARIABLES,
   },
   error: new Error("Network error"),
 };

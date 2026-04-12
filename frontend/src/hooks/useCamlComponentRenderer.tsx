@@ -29,7 +29,12 @@ export function useCamlComponentRenderer(
 ): (md: string) => React.ReactNode {
   return useCallback(
     (md: string) => {
-      const resolved = resolveComponentMarker(md, registry);
+      // Use the marker string as the React key so that multiple
+      // `[component:...]` blocks in a single article each get a stable,
+      // unique identity for reconciliation. Without a key, React warns
+      // "Each child in a list should have a unique 'key' prop" and falls
+      // back to positional reconciliation.
+      const resolved = resolveComponentMarker(md, registry, md);
       if (resolved) {
         return (
           <ErrorBoundary

@@ -354,6 +354,22 @@ export const EXTRACT_GRID_CELL_TRUNCATE_LENGTH = 100;
  * unbounded (see #1204) so this guards against excessively large payloads.
  */
 export const EXTRACT_GRID_EMBED_MAX_ROWS = 200;
+/**
+ * Worst-case upper bound for the assumed column count of an extract fieldset.
+ * Used together with EXTRACT_GRID_EMBED_MAX_ROWS to compute a server-side cap
+ * (`first:`) for fullDatacellList. Legitimate extracts with up to this many
+ * columns will still render in full; wider extracts will be truncated, which
+ * is an acceptable tradeoff versus the unbounded query.
+ */
+export const EXTRACT_GRID_EMBED_MAX_COLS = 20;
+/**
+ * Hard cap passed as `first:` to fullDatacellList in GET_EXTRACT_GRID_EMBED.
+ * Computed as `(MAX_ROWS + 1) * MAX_COLS` so that the too-many-rows guard can
+ * still fire (`+1`) while bounding the worst-case payload. Remove once
+ * server-side pagination lands (see #1204).
+ */
+export const EXTRACT_GRID_EMBED_MAX_CELLS =
+  (EXTRACT_GRID_EMBED_MAX_ROWS + 1) * EXTRACT_GRID_EMBED_MAX_COLS;
 
 // Datacell status indicator colors (used in ExtractGridEmbed status dots).
 // Values reference OS_LEGAL_COLORS design tokens for consistency.

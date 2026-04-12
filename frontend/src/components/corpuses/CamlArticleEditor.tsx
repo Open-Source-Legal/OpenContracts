@@ -240,17 +240,22 @@ const ExtractPickerDropdown = styled.div`
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 `;
 
-const ExtractPickerItem = styled.button`
+const ExtractPickerItem = styled.button<{ $active?: boolean }>`
   display: block;
   width: 100%;
   padding: 0.5rem 0.75rem;
   border: none;
-  background: transparent;
+  background: ${(p) =>
+    p.$active ? OS_LEGAL_COLORS.surfaceLight : "transparent"};
   text-align: left;
   font-size: 0.8125rem;
   color: ${OS_LEGAL_COLORS.textPrimary};
   cursor: pointer;
   &:hover {
+    background: ${OS_LEGAL_COLORS.surfaceLight};
+  }
+  &:focus {
+    outline: none;
     background: ${OS_LEGAL_COLORS.surfaceLight};
   }
 `;
@@ -364,8 +369,12 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
   const [isNew, setIsNew] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [showExtractPicker, setShowExtractPicker] = useState(false);
+  // Index of the keyboard-focused option within the extract picker dropdown.
+  // `-1` means no option is focused (initial state when the dropdown opens).
+  const [activeExtractIndex, setActiveExtractIndex] = useState<number>(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const extractPickerRef = useRef<HTMLDivElement>(null);
+  const extractPickerTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Query for existing Readme.CAML
   const articleVars = useMemo<GetCorpusArticleInput>(
@@ -534,6 +543,14 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showExtractPicker]);
 
+  // Reset the keyboard-focused option whenever the picker closes so the next
+  // open starts in a clean state.
+  useEffect(() => {
+    if (!showExtractPicker) {
+      setActiveExtractIndex(-1);
+    }
+  }, [showExtractPicker]);
+
   /** Insert a component marker as a prose block at the cursor. */
   const handleInsertComponent = useCallback(
     (type: string, props: Record<string, string>) => {
@@ -565,6 +582,72 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
     []
   );
 
+  /**
+   * Keyboard handler for the extract picker (listbox pattern).
+   *
+   * - ArrowDown / ArrowUp move the focused option (wrapping at the ends).
+   * - Home / End jump to first / last option.
+   * - Enter selects the focused option (inserts the extract grid marker).
+   * - Escape closes the dropdown and returns focus to the trigger button.
+   *
+   * Attached to the wrapper div so the handler fires regardless of which
+   * element inside the picker currently holds DOM focus.
+   */
+  const handleExtractPickerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!showExtractPicker) return;
+      const count = corpusExtracts.length;
+
+      switch (event.key) {
+        case "Escape":
+          event.preventDefault();
+          setShowExtractPicker(false);
+          extractPickerTriggerRef.current?.focus();
+          break;
+        case "ArrowDown":
+          if (count === 0) return;
+          event.preventDefault();
+          setActiveExtractIndex((prev) => (prev + 1 >= count ? 0 : prev + 1));
+          break;
+        case "ArrowUp":
+          if (count === 0) return;
+          event.preventDefault();
+          setActiveExtractIndex((prev) => (prev <= 0 ? count - 1 : prev - 1));
+          break;
+        case "Home":
+          if (count === 0) return;
+          event.preventDefault();
+          setActiveExtractIndex(0);
+          break;
+        case "End":
+          if (count === 0) return;
+          event.preventDefault();
+          setActiveExtractIndex(count - 1);
+          break;
+        case "Enter": {
+          if (count === 0) return;
+          // Only act when a menu option is focused — otherwise let the
+          // default button behaviour on the trigger toggle the picker.
+          if (activeExtractIndex < 0 || activeExtractIndex >= count) return;
+          event.preventDefault();
+          const selected = corpusExtracts[activeExtractIndex];
+          if (selected) {
+            handleInsertComponent("extract-grid", { extractId: selected.id });
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [
+      showExtractPicker,
+      corpusExtracts,
+      activeExtractIndex,
+      handleInsertComponent,
+    ]
+  );
+
   // Markdown renderer with generic component marker interception
   const renderMarkdownPreview = useCamlComponentRenderer(CAML_COMPONENTS);
 
@@ -594,11 +677,17 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
               CAML Source
             </PaneHeader>
             <EditorToolbar>
-              <div ref={extractPickerRef} style={{ position: "relative" }}>
+              <div
+                ref={extractPickerRef}
+                style={{ position: "relative" }}
+                onKeyDown={handleExtractPickerKeyDown}
+              >
                 <ToolbarBtn
+                  ref={extractPickerTriggerRef}
                   type="button"
                   aria-haspopup="listbox"
                   aria-expanded={showExtractPicker}
+                  aria-controls="caml-extract-picker-listbox"
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowExtractPicker((v) => !v);
@@ -610,7 +699,17 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                   Insert Extract Grid
                 </ToolbarBtn>
                 {showExtractPicker && (
-                  <ExtractPickerDropdown role="listbox">
+                  <ExtractPickerDropdown
+                    id="caml-extract-picker-listbox"
+                    role="listbox"
+                    aria-label="Corpus extracts"
+                    aria-activedescendant={
+                      activeExtractIndex >= 0 &&
+                      activeExtractIndex < corpusExtracts.length
+                        ? `caml-extract-picker-option-${corpusExtracts[activeExtractIndex].id}`
+                        : undefined
+                    }
+                  >
                     {extractsLoading ? (
                       <ExtractPickerEmpty>
                         Loading extracts...
@@ -620,11 +719,15 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                         No extracts found for this corpus.
                       </ExtractPickerEmpty>
                     ) : (
-                      corpusExtracts.map((ext) => (
+                      corpusExtracts.map((ext, index) => (
                         <ExtractPickerItem
                           type="button"
                           role="option"
+                          id={`caml-extract-picker-option-${ext.id}`}
                           key={ext.id}
+                          $active={index === activeExtractIndex}
+                          aria-selected={index === activeExtractIndex}
+                          onMouseEnter={() => setActiveExtractIndex(index)}
                           onClick={() =>
                             handleInsertComponent("extract-grid", {
                               extractId: ext.id,

@@ -2131,6 +2131,7 @@ export const GET_DATACELLS_FOR_EXTRACT = gql`
 
 export interface GetExtractGridEmbedInput {
   extractId: string;
+  datacellFirst?: number;
 }
 
 export interface ExtractGridEmbedColumn {
@@ -2177,7 +2178,7 @@ export interface GetExtractGridEmbedOutput {
 }
 
 export const GET_EXTRACT_GRID_EMBED = gql`
-  query GetExtractGridEmbed($extractId: ID!) {
+  query GetExtractGridEmbed($extractId: ID!, $datacellFirst: Int) {
     extract(id: $extractId) {
       id
       name
@@ -2195,10 +2196,13 @@ export const GET_EXTRACT_GRID_EMBED = gql`
           name
         }
       }
-      # NOTE: fullDatacellList is unbounded — for extracts with many documents and
-      # columns this could return thousands of cells. Consider adding server-side
-      # pagination if this is used on large extracts (see #1204).
-      fullDatacellList {
+      # NOTE: fullDatacellList is still an unpaginated list server-side, but
+      # the \`first:\` argument lets the client cap the payload to a sane upper
+      # bound. Callers should pass EXTRACT_GRID_EMBED_MAX_CELLS from
+      # frontend/src/assets/configurations/constants.ts so the too-many-rows
+      # guard can still fire without fetching thousands of cells. Full
+      # server-side pagination is tracked in #1204.
+      fullDatacellList(first: $datacellFirst) {
         id
         column {
           id

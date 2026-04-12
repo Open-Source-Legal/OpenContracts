@@ -62,7 +62,16 @@ class DatacellType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
 
 class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    full_datacell_list = graphene.List(DatacellType)
+    full_datacell_list = graphene.List(
+        DatacellType,
+        first=graphene.Int(
+            description=(
+                "Optional cap on the number of datacells returned. When "
+                "provided, the resolver slices the queryset after permission "
+                "filtering so the payload stays bounded for large extracts."
+            ),
+        ),
+    )
     full_document_list = graphene.List(DocumentType)
 
     @classmethod
@@ -82,12 +91,18 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
-    def resolve_full_datacell_list(self, info):
+    def resolve_full_datacell_list(self, info, first=None):
         from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
 
-        return ExtractQueryOptimizer.get_extract_datacells(
+        qs = ExtractQueryOptimizer.get_extract_datacells(
             self, info.context.user, document_id=None
         )
+        # Bound the payload when `first` is supplied. Negative / zero values
+        # are treated as "no cap" so misconfigured clients can't accidentally
+        # blank the grid — the frontend's row guard still handles too-many-rows.
+        if first is not None and first > 0:
+            qs = qs[:first]
+        return qs
 
     def resolve_full_document_list(self, info):
         from opencontractserver.types.enums import PermissionTypes

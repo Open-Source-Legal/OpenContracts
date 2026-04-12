@@ -20,6 +20,7 @@ import styled, { keyframes } from "styled-components";
 import {
   DATACELL_STATUS_COLORS,
   EXTRACT_GRID_CELL_TRUNCATE_LENGTH,
+  EXTRACT_GRID_EMBED_MAX_CELLS,
   EXTRACT_GRID_EMBED_MAX_ROWS,
 } from "../../assets/configurations/constants";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
@@ -191,15 +192,32 @@ function formatCellValue(
   if (typeof data === "boolean") return data ? "Yes" : "No";
   if (typeof data === "object") {
     const json = JSON.stringify(data);
-    if (json.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
-      return json.substring(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH) + "\u2026";
+    // Use `Array.from` to truncate at code-point boundaries rather than
+    // UTF-16 code units — `substring` would split surrogate pairs (emoji /
+    // non-BMP characters) and emit U+FFFD replacement characters.
+    const codePoints = Array.from(json);
+    if (codePoints.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
+      return (
+        codePoints.slice(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH).join("") +
+        "\u2026"
+      );
     }
     return json;
   }
   return String(data);
 }
 
-/** Build a link to the document viewer at a specific source annotation. */
+/**
+ * Build a link to the document viewer at a specific source annotation.
+ *
+ * NOTE: We pass only `annotationIds`, not a `page` query param. The document
+ * viewer resolves the annotation by id and scrolls to its own stored page +
+ * bounding box, so there is no indexing convention to worry about at the URL
+ * layer. The 1-based `sources[0].page` is used purely for the chip label
+ * (e.g. `p.2`) — see the `p.{page || 1}` render below. Annotation.page is
+ * stored 1-based in the model (default=1) and the `|| 1` guard handles
+ * legacy null / 0 values.
+ */
 function buildSourceLink(
   cell: ExtractGridEmbedCell,
   sourceId: string,
@@ -246,7 +264,14 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
     GetExtractGridEmbedOutput,
     GetExtractGridEmbedInput
   >(GET_EXTRACT_GRID_EMBED, {
-    variables: { extractId: extractId ?? "" },
+    variables: {
+      extractId: extractId ?? "",
+      // Cap the datacell payload server-side so pathological extracts (many
+      // documents × many columns) do not send tens of thousands of cells just
+      // to trigger the row guard below. Full pagination plumbing lands with
+      // #1204 — this is a minimum mitigation.
+      datacellFirst: EXTRACT_GRID_EMBED_MAX_CELLS,
+    },
     skip: !extractId,
     fetchPolicy: "cache-first",
   });

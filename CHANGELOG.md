@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **PR #1177 follow-up: CAML extract embed polish** (Issue #1227):
+  - **`fullDatacellList` payload now bounded server-side**: `ExtractType.full_datacell_list` accepts an optional `first` argument that slices the queryset after permission filtering (`config/graphql/extract_types.py`). `GET_EXTRACT_GRID_EMBED` passes `EXTRACT_GRID_EMBED_MAX_CELLS = (EXTRACT_GRID_EMBED_MAX_ROWS + 1) * EXTRACT_GRID_EMBED_MAX_COLS = 4020` so pathological extracts no longer transmit thousands of cells just to trigger the too-many-rows guard (`frontend/src/graphql/queries.ts`, `frontend/src/components/extracts/ExtractGridEmbed.tsx`, `frontend/src/assets/configurations/constants.ts`). Full server-side pagination is still tracked in #1204.
+  - **`resolveComponentMarker` now receives a stable React key from both call sites**: `useCamlComponentRenderer` and `CamlDirectiveRenderer` pass the marker string as the `key` argument so multiple `[component:...]` blocks in a single article reconcile correctly without React's "missing key prop" warnings (`frontend/src/hooks/useCamlComponentRenderer.tsx`, `frontend/src/components/corpuses/caml/CamlDirectiveRenderer.tsx`). Added regression tests in `frontend/src/utils/__tests__/camlComponents.test.ts`.
+  - **Code-point-safe cell value truncation**: `formatCellValue` in `ExtractGridEmbed` now slices on `Array.from(json)` instead of `String.substring`, so cell values containing emoji or other non-BMP characters are no longer truncated mid-surrogate-pair (which previously emitted `U+FFFD` replacement glyphs).
+  - **Keyboard navigation in CAML extract picker**: Added a listbox keyboard handler to the "Insert Extract Grid" dropdown in `CamlArticleEditor` — Arrow keys / Home / End move the focused option, Enter selects, Escape closes and returns focus to the trigger button. Active option is reflected via `aria-activedescendant` and an `$active` highlight on `ExtractPickerItem`.
+  - **`buildSourceLink` page-indexing convention documented**: Added an explanatory comment clarifying that `Annotation.page` is 1-based (model default=1) and is only used for the chip label (`p.{page}`) — the document viewer navigates by `annotationId` alone, so there is no URL-layer indexing convention to worry about (`frontend/src/components/extracts/ExtractGridEmbed.tsx`).
+  - **Verified `GET_EXTRACTS` already selects `fullDocumentList`** (`frontend/src/graphql/queries.ts:1901`) and that `CamlDirectiveRenderer` still wires `resolveImageSrc` through to `MarkdownMessageRenderer` — both no-ops requested by the issue's verification items.
+
 ### Added
 
 - **Agent memory system**: Per-corpus memory that lets agents accumulate reusable insights from conversations. Memory is stored as a first-class markdown Document in the corpus (visible and editable by users). Features include:
