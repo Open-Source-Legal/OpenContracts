@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
+from django.db.models.signals import post_save
 
 from opencontractserver.constants.document_processing import (
     MAX_PATH_DISAMBIGUATION_SUFFIX,
@@ -852,12 +853,12 @@ class DocumentFolderService:
                 # else: cascade delete will handle children automatically
 
                 # Move documents in folder to root with history tracking.
-                # TODO(perf): O(N) queries — consider bulk_update/bulk_create
-                # for large batches. Blocked on per-document disambiguation
-                # and parent link assignment which require sequential
-                # processing today.
+                # select_related("document") + of=("self",) match the pattern
+                # in move_documents_to_folder — see that method for the
+                # rationale (N+1 avoidance, scoped row locking).
                 affected_paths = list(
-                    DocumentPath.objects.select_for_update()
+                    DocumentPath.objects.select_for_update(of=("self",))
+                    .select_related("document")
                     .filter(
                         folder=folder,
                         is_current=True,
@@ -866,39 +867,56 @@ class DocumentFolderService:
                     .order_by("pk")
                 )
 
-                for current in affected_paths:
-                    # Note: _compute_moved_path extracts only the filename;
-                    # intermediate directory segments are dropped (the new
-                    # path is derived from the target folder's tree position).
-                    #
-                    # Unlike move_documents_to_folder (which pre-computes all
-                    # paths and needs extra_occupied to detect within-batch
-                    # conflicts), this loop is sequential: each iteration
-                    # writes the new DocumentPath row before the next
-                    # _disambiguate_path query runs.  Because we are inside
-                    # a single transaction.atomic() block, each new row is
-                    # immediately visible to subsequent queries in the same
-                    # transaction, so _disambiguate_path naturally sees all
-                    # previously relocated documents without extra_occupied.
-                    new_path = cls._compute_moved_path(current.path, None)
-                    new_path = cls._disambiguate_path(
-                        new_path, current.corpus, exclude_pk=current.pk
-                    )
+                if affected_paths:
+                    corpus = folder.corpus
+                    # Pre-fetch all occupied paths at the corpus root with a
+                    # SINGLE query, replacing the previous per-document
+                    # _disambiguate_path fetch.  Because we filter to rows
+                    # whose ``folder=folder`` (not root), none of
+                    # ``affected_paths`` live in the root directory, so no
+                    # per-row exclusion is needed — the shared mutable set
+                    # captures within-batch claims on the fly (issue #1199).
+                    occupied_paths = cls._fetch_occupied_paths_in_directory(corpus, "/")
 
-                    current.is_current = False
-                    current.save(update_fields=["is_current"])
+                    planned_paths: list[tuple] = []  # (current, new_path)
+                    for current in affected_paths:
+                        # Note: _compute_moved_path extracts only the filename;
+                        # intermediate directory segments are dropped (the new
+                        # path is derived from the target folder's tree position).
+                        new_path = cls._compute_moved_path(current.path, None)
+                        new_path = cls._disambiguate_path(
+                            new_path,
+                            corpus,
+                            occupied_override=occupied_paths,
+                        )
+                        occupied_paths.add(new_path)
+                        planned_paths.append((current, new_path))
 
-                    DocumentPath.objects.create(
-                        document=current.document,
-                        corpus=current.corpus,
-                        folder=None,  # Moved to root
-                        path=new_path,
-                        version_number=current.version_number,
-                        parent=current,
-                        is_current=True,
-                        is_deleted=False,
-                        creator=user,
+                    # Execute all relocations in exactly TWO queries instead
+                    # of ~2N individual save/create round-trips.
+                    old_path_pks = [current.pk for current, _ in planned_paths]
+                    DocumentPath.objects.filter(pk__in=old_path_pks).update(
+                        is_current=False
                     )
+                    for current, _ in planned_paths:
+                        current.is_current = False
+
+                    new_path_rows = [
+                        DocumentPath(
+                            document=current.document,
+                            corpus=corpus,
+                            folder=None,  # Moved to root
+                            path=new_path,
+                            version_number=current.version_number,
+                            parent=current,
+                            is_current=True,
+                            is_deleted=False,
+                            creator=user,
+                        )
+                        for current, new_path in planned_paths
+                    ]
+                    created_paths = DocumentPath.objects.bulk_create(new_path_rows)
+                    cls._dispatch_document_path_created_signals(created_paths)
 
                 # Delete folder — safe because all documents were relocated.
                 folder_id = folder.id
@@ -1121,9 +1139,15 @@ class DocumentFolderService:
                 # Get all current paths for these documents.
                 # ORDER BY pk to acquire row locks in a deterministic order,
                 # preventing deadlocks when concurrent calls overlap on the
-                # same document set.
+                # same document set.  select_related("document") avoids an
+                # N+1 when building successor rows (``current.document`` is
+                # read for each entry in the loop below).  ``of=("self",)``
+                # scopes the row lock to the DocumentPath table so we don't
+                # accidentally lock Document rows for the duration of the
+                # transaction.
                 current_paths = list(
-                    DocumentPath.objects.select_for_update()
+                    DocumentPath.objects.select_for_update(of=("self",))
+                    .select_related("document")
                     .filter(
                         document_id__in=document_ids,
                         corpus=corpus,
@@ -1141,46 +1165,54 @@ class DocumentFolderService:
                 if not paths_to_move:
                     return 0, ""
 
+                # Pre-fetch all occupied paths in the target directory with a
+                # SINGLE query, instead of letting each _disambiguate_path call
+                # re-fetch them.  Because we filtered out paths whose folder
+                # already equals the target, none of ``paths_to_move`` lives
+                # in the target directory — so no per-row exclusion is needed.
+                target_dir = cls._target_directory_string(folder)
+                occupied_paths = cls._fetch_occupied_paths_in_directory(
+                    corpus, target_dir
+                )
+
                 # Pre-compute all target paths and detect within-batch
-                # conflicts up front.  We track paths already claimed by
-                # earlier items in this batch so that two documents with
-                # the same filename get disambiguated relative to each
-                # other, not just relative to what is already in the DB.
+                # conflicts up front.  ``occupied_paths`` is mutated after each
+                # disambiguation so that two documents with the same filename
+                # get distinct suffixes (within-batch conflict resolution).
                 planned_paths: list[tuple] = []  # (current, new_path)
-                batch_claimed: set[str] = set()
 
                 for current in paths_to_move:
                     # Note: _compute_moved_path extracts only the filename;
                     # intermediate directory segments are dropped.
                     new_path = cls._compute_moved_path(current.path, folder)
-                    # Always pass batch_claimed so disambiguation considers
-                    # both DB-occupied paths and paths already claimed by
-                    # earlier items in this batch.  Without this, two docs
-                    # sharing a filename that also conflicts with an existing
-                    # DB path would both resolve to the same suffix.
                     new_path = cls._disambiguate_path(
                         new_path,
                         corpus,
-                        exclude_pk=current.pk,
-                        extra_occupied=batch_claimed,
+                        occupied_override=occupied_paths,
                     )
-
-                    batch_claimed.add(new_path)
+                    # Claim this candidate so subsequent siblings in the same
+                    # batch resolve to a different disambiguated suffix.
+                    occupied_paths.add(new_path)
                     planned_paths.append((current, new_path))
 
-                # Execute all moves now that paths are validated.
-                # TODO(perf): O(N) queries — consider bulk_update/bulk_create
-                # for large batches. Blocked on per-document disambiguation
-                # and parent link assignment which require sequential
-                # processing today.
-                moved_count = 0
-                for current, new_path in planned_paths:
-                    # Mark old path as not current
+                # Execute all moves in exactly TWO queries:
+                #   1. Batch-deactivate every superseded path
+                #   2. Batch-insert every new successor row
+                # This replaces the previous O(N) save/create loop which
+                # issued ~2N round-trips for a batch of N documents
+                # (see issue #1199).
+                old_path_pks = [current.pk for current, _ in planned_paths]
+                DocumentPath.objects.filter(pk__in=old_path_pks).update(
+                    is_current=False
+                )
+                # Keep in-memory instances in sync with the DB update so that
+                # callers relying on ``current.is_current`` after this method
+                # returns see the correct value without a refetch.
+                for current, _ in planned_paths:
                     current.is_current = False
-                    current.save(update_fields=["is_current"])
 
-                    # Create new node linked to previous (audit chain)
-                    DocumentPath.objects.create(
+                new_path_rows = [
+                    DocumentPath(
                         document=current.document,
                         corpus=corpus,
                         folder=folder,
@@ -1191,7 +1223,18 @@ class DocumentFolderService:
                         is_deleted=False,
                         creator=user,
                     )
-                    moved_count += 1
+                    for current, new_path in planned_paths
+                ]
+                created_paths = DocumentPath.objects.bulk_create(new_path_rows)
+
+                # bulk_create bypasses per-row post_save signals, so we fire
+                # them manually to preserve the text-embedding side effect
+                # wired up in ``documents.signals.connect_corpus_document_signals``.
+                # The handler's ``transaction.on_commit`` callbacks still run
+                # against the outer atomic block, matching legacy semantics.
+                cls._dispatch_document_path_created_signals(created_paths)
+
+                moved_count = len(created_paths)
 
                 logger.info(
                     f"Bulk moved {moved_count} documents to folder "
@@ -1266,11 +1309,101 @@ class DocumentFolderService:
             return f"/{filename}"
 
     @staticmethod
+    def _target_directory_string(target_folder: CorpusFolder | None) -> str:
+        """
+        Return the directory string for a target folder in the same format
+        ``_fetch_occupied_paths_in_directory`` expects (a trailing slash).
+
+        - ``None`` (root) → ``"/"``
+        - Folder ``Legal/Contracts`` → ``"/Legal/Contracts/"``
+        """
+        if target_folder is None:
+            return "/"
+        folder_path = target_folder.get_path().strip("/")
+        return f"/{folder_path}/"
+
+    @staticmethod
+    def _dispatch_document_path_created_signals(
+        paths: list[DocumentPath],
+    ) -> None:
+        """
+        Manually dispatch ``post_save`` (``created=True``) for rows created via
+        :meth:`DocumentPath.objects.bulk_create`.
+
+        ``bulk_create`` bypasses per-row ``pre_save``/``post_save`` signal
+        delivery, which would silently drop the document-text embedding
+        side-effect wired up in
+        ``documents.signals.process_doc_on_document_path_create``.  Bulk
+        write paths replicate the single-row semantics by sending the signal
+        themselves after the INSERT.
+
+        Args:
+            paths: DocumentPath instances returned by ``bulk_create``.
+        """
+        # Nested import to avoid circular dependency during app initialization.
+        from opencontractserver.documents.models import DocumentPath
+
+        for path in paths:
+            post_save.send(sender=DocumentPath, instance=path, created=True)
+
+    @staticmethod
+    def _fetch_occupied_paths_in_directory(
+        corpus: Corpus,
+        directory: str,
+        exclude_pk: int | None = None,
+    ) -> set[str]:
+        """
+        Fetch the set of occupied active-path strings in a single directory.
+
+        Performs a **single** SQL query that matches immediate children of
+        ``directory`` only (not nested subdirectories).  Used both by the
+        single-doc disambiguation fast path and by batch operations that
+        need to pre-fetch the entire target directory once, instead of
+        once per document.
+
+        Args:
+            corpus: Corpus to query.
+            directory: Directory string terminated by ``/`` (e.g. ``/Target/``
+                       for folder ``Target``, or ``/`` for corpus root).  An
+                       empty string is treated as "no leading slash" (matches
+                       all active paths — rare fallback).
+            exclude_pk: Optional DocumentPath PK to exclude from the result
+                        (e.g. the record being superseded by a single move).
+
+        Returns:
+            Set of path strings currently occupied in ``directory``.
+        """
+        # Nested import to avoid circular dependency:
+        # folder_service -> documents.models -> corpuses.models -> folder_service
+        from opencontractserver.documents.models import DocumentPath
+
+        qs = DocumentPath.objects.filter(
+            corpus=corpus,
+            is_current=True,
+            is_deleted=False,
+        )
+        # Special-case root-level paths: for directory="/", path__startswith="/"
+        # would match EVERY active path in the corpus.  Instead, use a regex
+        # that only matches single-segment root paths (e.g. "/report.pdf"
+        # but not "/folder/report.pdf").
+        if directory == "/":
+            qs = qs.filter(path__regex=r"^/[^/]+$")
+        elif directory:
+            # Match only immediate children (not nested subdirectories)
+            # to avoid pulling the entire subtree into memory.
+            qs = qs.filter(path__regex=rf"^{re.escape(directory)}[^/]+$")
+        # else: directory == "" means no leading slash; match all (rare)
+        if exclude_pk is not None:
+            qs = qs.exclude(pk=exclude_pk)
+        return set(qs.values_list("path", flat=True))
+
+    @classmethod
     def _disambiguate_path(
+        cls,
         base_path: str,
         corpus: Corpus,
         exclude_pk: int | None = None,
-        extra_occupied: set[str] | None = None,
+        occupied_override: set[str] | None = None,
     ) -> str:
         """
         Generate a unique path by appending numeric suffixes when a conflict exists.
@@ -1283,9 +1416,12 @@ class DocumentFolderService:
         A hard cap (``MAX_PATH_DISAMBIGUATION_SUFFIX``) prevents unbounded loops
         if many documents share the same filename in the same folder.
 
-        **Performance**: Uses a single ``startswith`` query to pre-fetch all
-        occupied paths in the target directory, then checks candidates in memory
-        (O(1) per candidate instead of O(1)-per-query).
+        **Performance**: Uses a single query (via
+        :meth:`_fetch_occupied_paths_in_directory`) to pre-fetch all occupied
+        paths in the target directory, then checks candidates in memory
+        (O(1) per candidate instead of O(1)-per-query).  Bulk operations may
+        pass ``occupied_override`` to skip the per-call query entirely and
+        share a single pre-fetched set across many disambiguations.
 
         **Concurrency note**: The caller's ``select_for_update()`` only prevents
         two concurrent moves of the **same** document from racing.  It does NOT
@@ -1299,13 +1435,20 @@ class DocumentFolderService:
             base_path: The ideal path string to use.
             corpus: Corpus to check for conflicts in.
             exclude_pk: Optional DocumentPath PK to exclude from conflict check
-                        (the record being superseded).
-            extra_occupied: Optional set of additional paths to treat as occupied
-                           (used during bulk moves to avoid within-batch collisions).
+                        (the record being superseded).  Ignored when
+                        ``occupied_override`` is provided — the caller is
+                        responsible for filtering their own pre-fetched set.
+            occupied_override: Optional pre-fetched set of occupied paths.  When
+                               provided, the per-call DB query is skipped and
+                               this set is used as the authoritative occupancy
+                               snapshot.  Callers in bulk operations pass a
+                               shared **mutable** set and append each
+                               disambiguated result to it so subsequent
+                               disambiguations see the within-batch claim.
 
         Returns:
             A path string unique among active paths in the corpus (and the
-            extra_occupied set, if provided) *at query time*.  This is a
+            ``occupied_override`` set, if provided) *at query time*.  This is a
             best-effort check — concurrent transactions may claim the same
             path between the SELECT and INSERT (TOCTOU race).  The database's
             ``unique_active_path_per_corpus`` partial unique constraint is the
@@ -1315,42 +1458,22 @@ class DocumentFolderService:
         Raises:
             ValueError: If no unique path can be found within the suffix limit.
         """
-        # Nested import to avoid circular dependency:
-        # folder_service -> documents.models -> corpuses.models -> folder_service
-        from opencontractserver.documents.models import DocumentPath
-
-        # Pre-fetch all occupied paths in the target directory with a single
-        # query, then check candidates in memory.  This avoids O(N) EXISTS
-        # queries when many documents share the same filename.
-        if "/" in base_path:
-            directory = base_path.rsplit("/", 1)[0] + "/"
+        if occupied_override is not None:
+            # Caller pre-fetched the occupied set — skip the DB query entirely.
+            # This is the hot path for bulk operations which share a single
+            # fetch across N disambiguations.
+            occupied = occupied_override
         else:
-            directory = ""
+            # Derive the directory once so that both the fetch and the candidate
+            # loop agree on which namespace we're searching.
+            if "/" in base_path:
+                directory = base_path.rsplit("/", 1)[0] + "/"
+            else:
+                directory = ""
 
-        # Special-case root-level paths: for paths like "/report.pdf",
-        # rsplit produces directory="/", and path__startswith="/" would
-        # match EVERY active path in the corpus.  Instead, use a regex
-        # that only matches single-segment root paths (e.g. "/report.pdf"
-        # but not "/folder/report.pdf").
-        qs = DocumentPath.objects.filter(
-            corpus=corpus,
-            is_current=True,
-            is_deleted=False,
-        )
-        if directory == "/":
-            qs = qs.filter(path__regex=r"^/[^/]+$")
-        elif directory:
-            # Match only immediate children (not nested subdirectories)
-            # to avoid pulling the entire subtree into memory.
-            qs = qs.filter(path__regex=rf"^{re.escape(directory)}[^/]+$")
-        # else: directory == "" means no leading slash; match all (rare)
-        if exclude_pk is not None:
-            qs = qs.exclude(pk=exclude_pk)
-        occupied = set(qs.values_list("path", flat=True))
-
-        # Merge in any extra occupied paths (e.g. from within-batch claims)
-        if extra_occupied:
-            occupied = occupied | extra_occupied
+            occupied = cls._fetch_occupied_paths_in_directory(
+                corpus, directory, exclude_pk=exclude_pk
+            )
 
         if base_path not in occupied:
             return base_path
@@ -1385,7 +1508,9 @@ class DocumentFolderService:
             candidate = f"{stem}_{counter}{ext}"
             if candidate not in occupied:
                 log_prefix = (
-                    "Within-batch path conflict" if extra_occupied else "Path conflict"
+                    "Within-batch path conflict"
+                    if occupied_override is not None
+                    else "Path conflict"
                 )
                 logger.warning(
                     "%s for %r in corpus %s — disambiguated to %r",

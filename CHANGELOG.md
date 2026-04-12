@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **O(N) query regression in bulk folder operations** (Issue #1199): `DocumentFolderService.move_documents_to_folder()` and `DocumentFolderService.delete_folder()` in `opencontractserver/corpuses/folder_service.py` previously issued ~3 DB round-trips per document (an EXISTS-style disambiguation fetch, an `UPDATE` via `save(update_fields=…)`, and an `INSERT` via `DocumentPath.objects.create()`). For a 100-document batch that was ~300 queries instead of the single-query `.update()` the old non-lineage code used. Both methods now:
+  1. Pre-fetch all occupied paths in the target directory in a **single** query via the new `_fetch_occupied_paths_in_directory` helper and pass the shared mutable set to `_disambiguate_path` via a new `occupied_override` parameter (replaces the single-purpose `extra_occupied` kwarg).
+  2. Batch-deactivate every superseded `DocumentPath` row with one `.filter(pk__in=…).update(is_current=False)` call.
+  3. Batch-insert every successor row with one `.bulk_create()` call, then manually dispatch `post_save` (`created=True`) via the new `_dispatch_document_path_created_signals` helper so the document-text embedding side effect wired up in `documents/signals.py::process_doc_on_document_path_create` still fires (bulk_create normally bypasses per-row signals).
+  4. Use `select_related("document")` + `select_for_update(of=("self",))` on the affected-path query so `current.document` accesses inside the build loop no longer N+1, and the row lock stays scoped to the `DocumentPath` table. Net result: a 100-document bulk move now executes roughly 4 DB round-trips instead of ~300, and the old batched `.update()` performance is restored without sacrificing the Path Tree history nodes introduced in PR #1195.
+
 - **Document lineage fields dropped on move/delete/restore** (PR #1197): `move_document`, `delete_document`, and `restore_document` in `opencontractserver/documents/versioning.py` now forward `ingestion_source`, `external_id`, and `ingestion_metadata` from the parent path record to newly-created path nodes. Previously these fields were silently dropped, losing lineage provenance on any path operation.
 
 - **`ingestion_metadata` truthiness check** (PR #1197): Changed `if ingestion_metadata:` to `if ingestion_metadata is not None:` in `config/graphql/document_mutations.py` so that an empty dict `{}` is correctly stored rather than silently discarded.

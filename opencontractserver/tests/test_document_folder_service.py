@@ -617,9 +617,11 @@ class TestFolderDelete_BasicOperations(DocumentFolderServiceTestBase):
         deleted both are relocated to root; the second should be
         disambiguated (e.g. /report_1.pdf).
 
-        This exercises the sequential disambiguation in delete_folder:
-        each iteration writes the new DocumentPath row before the next
-        _disambiguate_path query, so extra_occupied is not needed.
+        This exercises the batch disambiguation in delete_folder: all
+        candidate paths are resolved in-memory against a single
+        pre-fetched occupancy snapshot, with each newly-claimed path
+        added to the shared set so siblings in the same batch get
+        unique suffixes.
         """
         folder, _ = DocumentFolderService.create_folder(
             user=self.owner, corpus=self.corpus, name="MyFolder"
@@ -3139,12 +3141,12 @@ class TestErrorPaths_DeleteFolderAtomicRollback(DocumentFolderServiceTestBase):
         original_disambiguate = DocumentFolderService._disambiguate_path
         call_count = 0
 
-        def fail_on_second(base_path, corpus, exclude_pk=None):
+        def fail_on_second(base_path, corpus, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 2:
                 raise ValueError("suffix exhausted")
-            return original_disambiguate(base_path, corpus, exclude_pk=exclude_pk)
+            return original_disambiguate(base_path, corpus, **kwargs)
 
         with patch.object(
             DocumentFolderService,
@@ -3414,18 +3416,13 @@ class TestErrorPaths_BulkMoveAtomicRollback(DocumentFolderServiceTestBase):
         original_disambiguate = DocumentFolderService._disambiguate_path
         call_count = 0
 
-        def selective_fail(base_path, corpus, exclude_pk=None, extra_occupied=None):
+        def selective_fail(base_path, corpus, **kwargs):
             nonlocal call_count
             call_count += 1
             # Fail on the second document only
             if call_count == 2:
                 raise ValueError("suffix exhausted")
-            return original_disambiguate(
-                base_path,
-                corpus,
-                exclude_pk=exclude_pk,
-                extra_occupied=extra_occupied,
-            )
+            return original_disambiguate(base_path, corpus, **kwargs)
 
         with patch.object(
             DocumentFolderService, "_disambiguate_path", staticmethod(selective_fail)
@@ -3783,7 +3780,7 @@ class TestCoverageGap_BulkMoveIntegrityErrorRollback(DocumentFolderServiceTestBa
         )
 
     def test_integrity_error_during_bulk_move_rolls_back(self):
-        """IntegrityError during create rolls back the entire batch."""
+        """IntegrityError during bulk insert rolls back the entire batch."""
         doc = Document.objects.create(
             title="Doc 1", creator=self.owner, pdf_file="doc1.pdf"
         )
@@ -3798,14 +3795,15 @@ class TestCoverageGap_BulkMoveIntegrityErrorRollback(DocumentFolderServiceTestBa
             is_deleted=False,
         )
 
-        original_create = DocumentPath.objects.create
+        # Simulate the ``unique_active_path_per_corpus`` partial unique
+        # constraint violating on the batched INSERT (the DB-level guard
+        # that catches TOCTOU races — see _disambiguate_path docstring).
+        def failing_bulk_create(*args, **kwargs):
+            raise IntegrityError("unique_active_path_per_corpus")
 
-        def failing_create(**kwargs):
-            if kwargs.get("parent") is not None:
-                raise IntegrityError("unique_active_path_per_corpus")
-            return original_create(**kwargs)
-
-        with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
+        with patch.object(
+            DocumentPath.objects, "bulk_create", side_effect=failing_bulk_create
+        ):
             moved_count, error = DocumentFolderService.move_documents_to_folder(
                 user=self.owner,
                 document_ids=[doc.id],
@@ -3857,14 +3855,12 @@ class TestCoverageGap_BulkMoveToRootRollback(DocumentFolderServiceTestBase):
             is_deleted=False,
         )
 
-        original_create = DocumentPath.objects.create
+        def failing_bulk_create(*args, **kwargs):
+            raise IntegrityError("unique_active_path_per_corpus")
 
-        def failing_create(**kwargs):
-            if kwargs.get("parent") is not None:
-                raise IntegrityError("unique_active_path_per_corpus")
-            return original_create(**kwargs)
-
-        with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
+        with patch.object(
+            DocumentPath.objects, "bulk_create", side_effect=failing_bulk_create
+        ):
             moved_count, error = DocumentFolderService.move_documents_to_folder(
                 user=self.owner,
                 document_ids=[doc.id],
