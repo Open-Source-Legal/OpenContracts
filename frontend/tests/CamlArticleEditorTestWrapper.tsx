@@ -219,7 +219,11 @@ export const CamlArticleEditorTestWrapper: React.FC<
   CamlArticleEditorTestWrapperProps
 > = ({ hasExistingArticle = false, isOpen = true, extraMocks = [] }) => {
   const baseMock = hasExistingArticle ? existingArticleMock : noArticleMock;
-  // Provide enough duplicates for refetches during interaction sequences
+  // Apollo MockedProvider consumes each mock once per matching request.
+  // The editor fires the article query on mount and again on save/refetch
+  // cycles, while the extract picker dropdown triggers GET_EXTRACTS on open.
+  // Four article mocks cover: initial load + up to 3 save-then-refetch cycles.
+  // Three extract mocks cover: initial picker open + up to 2 re-opens.
   const allMocks = [
     baseMock,
     baseMock,

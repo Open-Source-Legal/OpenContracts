@@ -267,14 +267,21 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
         self.assertEqual(len(datacells), 3)
 
     def test_first_capped_at_server_maximum(self):
-        """Server-side cap (MAX_DATACELL_FIRST) prevents unbounded payloads."""
-        from opencontractserver.constants.annotations import MAX_DATACELL_FIRST
+        """Server-side cap (MAX_DATACELL_FIRST) prevents unbounded payloads.
 
-        # Requesting more than the server cap should silently clamp
-        result = self._query_datacells(first_arg=MAX_DATACELL_FIRST + 500)
+        We temporarily lower the cap to 2 (below the 3 fixture cells) so we
+        can verify the resolver actually clamps the queryset.  Requesting a
+        value above the cap should return at most `cap` results.
+        """
+        from unittest.mock import patch
+
+        with patch("config.graphql.extract_types.MAX_DATACELL_FIRST", 2):
+            # Ask for 500 — the patched cap of 2 should bind.
+            result = self._query_datacells(first_arg=500)
         self.assertIsNone(result.get("errors"))
-        # Only 3 cells exist, so the cap doesn't visibly reduce the count,
-        # but the resolver path through `min(first, MAX_DATACELL_FIRST)` is
-        # exercised without error.
         datacells = result["data"]["extract"]["fullDatacellList"]
-        self.assertEqual(len(datacells), 3)
+        self.assertEqual(
+            len(datacells),
+            2,
+            "Server-side cap should limit results even when `first` is higher",
+        )
