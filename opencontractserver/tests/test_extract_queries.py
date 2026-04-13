@@ -241,22 +241,49 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
         datacells = result["data"]["extract"]["fullDatacellList"]
         self.assertEqual(len(datacells), 2)
 
-    def test_first_zero_returns_all(self):
-        """Zero `first` is treated as 'no cap' and returns all cells."""
+    def test_first_zero_falls_back_to_default_cap(self):
+        """Zero `first` falls back to the default MAX_DATACELL_FIRST cap.
+
+        With only 3 fixture cells and a cap of 10 000, all cells are returned.
+        """
         result = self._query_datacells(first_arg=0)
         self.assertIsNone(result.get("errors"))
         datacells = result["data"]["extract"]["fullDatacellList"]
         self.assertEqual(len(datacells), 3)
 
-    def test_first_negative_returns_all(self):
-        """Negative `first` is treated as 'no cap' and returns all cells."""
+    def test_first_negative_falls_back_to_default_cap(self):
+        """Negative `first` falls back to the default MAX_DATACELL_FIRST cap.
+
+        With only 3 fixture cells and a cap of 10 000, all cells are returned.
+        """
         result = self._query_datacells(first_arg=-1)
         self.assertIsNone(result.get("errors"))
         datacells = result["data"]["extract"]["fullDatacellList"]
         self.assertEqual(len(datacells), 3)
 
-    def test_first_omitted_returns_all(self):
-        """Omitting `first` should return all cells."""
+    def test_first_zero_still_capped_by_server_maximum(self):
+        """first=0 must not bypass the server-side cap.
+
+        Regression test: previously first<=0 skipped the MAX_DATACELL_FIRST
+        guard entirely, allowing unbounded payloads.
+        """
+        from unittest.mock import patch
+
+        with patch("config.graphql.extract_types.MAX_DATACELL_FIRST", 2):
+            result = self._query_datacells(first_arg=0)
+        self.assertIsNone(result.get("errors"))
+        datacells = result["data"]["extract"]["fullDatacellList"]
+        self.assertEqual(
+            len(datacells),
+            2,
+            "first=0 should still be capped by MAX_DATACELL_FIRST",
+        )
+
+    def test_first_omitted_uses_default_cap(self):
+        """Omitting `first` applies the default MAX_DATACELL_FIRST cap.
+
+        With only 3 fixture cells and a cap of 10 000, all cells are returned.
+        """
         result = self._query_datacells(first_arg=None)
         self.assertIsNone(result.get("errors"))
         datacells = result["data"]["extract"]["fullDatacellList"]

@@ -98,11 +98,16 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         qs = ExtractQueryOptimizer.get_extract_datacells(
             self, info.context.user, document_id=None
         )
-        # Bound the payload when `first` is supplied. Negative / zero values
-        # are treated as "no cap" so misconfigured clients can't accidentally
-        # blank the grid — the frontend's row guard still handles too-many-rows.
-        if first is not None and first > 0:
-            qs = qs[: min(first, MAX_DATACELL_FIRST)]
+        # Always apply a hard ceiling so no client (including third-party API
+        # consumers) can retrieve unbounded payloads.  When `first` is a
+        # positive integer the request is honoured up to MAX_DATACELL_FIRST;
+        # otherwise the default cap applies.
+        effective_first = (
+            min(first, MAX_DATACELL_FIRST)
+            if first is not None and first > 0
+            else MAX_DATACELL_FIRST
+        )
+        qs = qs[:effective_first]
         return qs
 
     def resolve_full_document_list(self, info):
