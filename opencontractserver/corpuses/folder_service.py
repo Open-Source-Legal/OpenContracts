@@ -1350,6 +1350,10 @@ class DocumentFolderService:
         if target_folder is None:
             return "/"
         folder_path = target_folder.get_path().strip("/")
+        if not folder_path:
+            raise ValueError(
+                f"CorpusFolder {target_folder.pk} returned empty path from get_path()"
+            )
         return f"/{folder_path}/"
 
     @staticmethod
@@ -1444,13 +1448,12 @@ class DocumentFolderService:
             qs = qs.filter(path__regex=rf"^{re.escape(directory)}[^/]+$")
         else:
             # directory == "" means base_path had no leading slash — structurally
-            # unexpected since all stored paths start with "/".  Fall through to
-            # the unfiltered query rather than crashing, but log a warning so
-            # regressions that produce malformed paths are caught early.
-            logger.warning(
-                "_fetch_occupied_paths_in_directory called with empty directory "
-                "for corpus %s — this will load all active paths",
-                corpus.id,
+            # unexpected since all stored paths start with "/".  Raise rather
+            # than silently loading ALL active paths, which would mask a bug
+            # in the caller and degrade performance on large corpuses.
+            raise ValueError(
+                f"_fetch_occupied_paths_in_directory: empty directory "
+                f"for corpus {corpus.id}"
             )
         if exclude_pk is not None:
             qs = qs.exclude(pk=exclude_pk)

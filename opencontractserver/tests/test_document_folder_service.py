@@ -2562,6 +2562,51 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         )
         self.assertEqual(current.path, "/summary.pdf")
 
+    @patch("opencontractserver.corpuses.folder_service.post_save")
+    def test_delete_folder_dispatches_post_save_for_each_created_path(
+        self, mock_signal
+    ):
+        """bulk_create in delete_folder bypasses signals; verify manual dispatch fires."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="ToDelete"
+        )
+        docs = []
+        for i in range(3):
+            doc = Document.objects.create(
+                title=f"Doc {i}", creator=self.owner, pdf_file=f"del{i}.pdf"
+            )
+            DocumentPath.objects.create(
+                document=doc,
+                corpus=self.corpus,
+                creator=self.owner,
+                folder=folder,
+                path=f"/ToDelete/del{i}.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+            )
+            docs.append(doc)
+
+        success, error = DocumentFolderService.delete_folder(
+            user=self.owner, folder=folder
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(error, "")
+
+        # post_save.send should have been called exactly 3 times (once per doc)
+        send_calls = mock_signal.send.call_args_list
+        self.assertEqual(len(send_calls), 3)
+
+        for call in send_calls:
+            kwargs = call.kwargs if call.kwargs else {}
+            if not kwargs and len(call) > 1:
+                kwargs = call[1]
+            self.assertEqual(kwargs["sender"], DocumentPath)
+            self.assertTrue(kwargs["created"])
+            self.assertFalse(kwargs["raw"])
+            self.assertIsNotNone(kwargs.get("using"))
+
 
 class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
     """
