@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Benchmark harness for external RAG datasets** (new app `opencontractserver/benchmarks/`): Generate an OpenContracts corpus from a third-party benchmark (LegalBench-RAG today, pluggable for CUAD/MAUD/etc. via a small adapter interface), run the production extract-grid pipeline against the benchmark's queries with a configurable LLM, probe retrieval independently via `CoreAnnotationVectorStore`, and compute standard metrics (SQuAD-style exact match / token F1 for answers; character-span recall@k / precision@k / IoU for retrieval). Results are written as `report.json` / `report.csv` / `config.json` / `gold.json` under a run directory.
+  - Adapter interface and `LegalBenchRAGAdapter` at `opencontractserver/benchmarks/adapters/` (reads the authoritative ZeroEntropy schema — `{"tests": [{"query", "snippets": [{"file_path", "span": [start, end]}], "tags"}]}`)
+  - Loader, runner, evaluator, and report modules under `opencontractserver/benchmarks/`
+  - Django management command: `python manage.py run_benchmark --benchmark legalbench-rag --path /data/legalbench-rag --user admin --model openai:gpt-4o-mini --top-k 10`
+  - Micro fixture under `fixtures/benchmarks/legalbench_rag_micro/` for end-to-end tests without downloading the full dataset
+  - Test coverage: `opencontractserver/tests/test_benchmarks.py` (metric unit tests, adapter unit tests, loader materialization test, runner end-to-end test with mocked structured-response agent)
+- **`model_override` kwarg on `doc_extract_query_task`** (`opencontractserver/tasks/data_extract_tasks.py`): Optional, backward-compatible kwarg that lets callers override the hardcoded `openai:gpt-4o-mini` default for a single invocation. Consumed by the benchmark runner to sweep models without affecting production defaults; still defaults to `openai:gpt-4o-mini` when not supplied.
+
 - **Agent memory system**: Per-corpus memory that lets agents accumulate reusable insights from conversations. Memory is stored as a first-class markdown Document in the corpus (visible and editable by users). Features include:
   - Corpus model fields: `memory_enabled` toggle and `memory_document` FK (`opencontractserver/corpuses/models.py`)
   - Memory CRUD utilities with hybrid retrieval (full injection for small memory, keyword-scored section filtering for large) (`opencontractserver/agents/memory.py`)

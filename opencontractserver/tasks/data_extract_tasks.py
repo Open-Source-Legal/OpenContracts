@@ -81,12 +81,24 @@ def get_column_extraction_params(datacell):
 
 @celery_task_with_async_to_sync()
 async def doc_extract_query_task(
-    cell_id: int, similarity_top_k: int = 10, max_token_length: int = 64000
+    cell_id: int,
+    similarity_top_k: int = 10,
+    max_token_length: int = 64000,
+    model_override: str | None = None,
 ) -> None:
     """
     OpenContracts' BLAZING FAST agent-based data extraction pipeline.
     Powered by our battle-tested structured extraction API.
     No more marvin. No more flakiness. Just pure extraction power! 🚀
+
+    Args:
+        cell_id: Primary key of the Datacell to populate.
+        similarity_top_k: Top-k neighbours to retrieve when calling the agent.
+        max_token_length: Soft cap on prompt tokens (reserved for future use).
+        model_override: Optional model identifier (e.g. ``"openai:gpt-4o"``,
+            ``"anthropic:claude-opus-4-6"``). When provided it overrides the
+            default extraction model. Used by the benchmark runner to sweep
+            models without touching production defaults.
     """
     import traceback
     from typing import get_origin
@@ -271,7 +283,7 @@ async def doc_extract_query_task(
                     framework=AgentFramework.PYDANTIC_AI,
                     temperature=0.3,  # Low temperature for consistent extraction
                     similarity_top_k=similarity_top_k,
-                    model="openai:gpt-4o-mini",  # Fast and reliable
+                    model=model_override or "openai:gpt-4o-mini",
                     user_id=datacell.creator.id,
                 )
 
