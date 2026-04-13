@@ -2158,6 +2158,42 @@ class TestDocumentPathHistory_ComputeMovedPath(_DocumentPathHistoryTestBase):
         result = DocumentFolderService._compute_moved_path("documents/report.pdf", None)
         self.assertEqual(result, "/report.pdf")
 
+    def test_precomputed_target_folder_path_matches_on_demand(self):
+        """Passing target_folder_path produces the same result as on-demand computation."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Cached"
+        )
+        current_path = "/old/dir/report.pdf"
+
+        on_demand = DocumentFolderService._compute_moved_path(current_path, folder)
+        precomputed = DocumentFolderService._compute_moved_path(
+            current_path, folder, target_folder_path=folder.get_path()
+        )
+
+        self.assertEqual(on_demand, precomputed)
+        self.assertEqual(precomputed, "/Cached/report.pdf")
+
+    def test_precomputed_target_folder_path_takes_precedence(self):
+        """The pre-computed value is used over the folder's actual path."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="RealName"
+        )
+        # Pass a different path to verify the pre-computed value wins.
+        result = DocumentFolderService._compute_moved_path(
+            "/doc.pdf", folder, target_folder_path="Override/Path"
+        )
+        self.assertEqual(result, "/Override/Path/doc.pdf")
+
+    def test_none_target_folder_path_falls_back_to_get_path(self):
+        """Only None triggers the on-demand get_path() fallback."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Fallback"
+        )
+        result = DocumentFolderService._compute_moved_path(
+            "/doc.pdf", folder, target_folder_path=None
+        )
+        self.assertEqual(result, "/Fallback/doc.pdf")
+
 
 class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
     """
@@ -4004,3 +4040,68 @@ class TestCoverageGap_BulkMoveVersionPreservation(DocumentFolderServiceTestBase)
             # Original marked not current
             original_path.refresh_from_db()
             self.assertFalse(original_path.is_current)
+
+
+class TestCoverageGap_BulkMoveGetPathCallCount(DocumentFolderServiceTestBase):
+    """
+    SCENARIO: Bulk move caches the target folder path before the loop.
+
+    BUSINESS RULE: CorpusFolder.get_path() issues a recursive CTE query per
+    invocation.  The bulk-move method must resolve the target folder's path
+    exactly once, regardless of how many documents are moved.  This test
+    locks in that performance invariant so a future refactor cannot
+    accidentally regress to O(N) CTE queries.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus", creator=self.owner, is_public=False
+        )
+        self.folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Target"
+        )
+
+    def test_bulk_move_calls_get_path_once(self):
+        """get_path() is called at most once during a bulk move (cached path)."""
+        docs = []
+        for i in range(5):
+            doc = Document.objects.create(
+                title=f"Doc {i}", creator=self.owner, pdf_file=f"doc{i}.pdf"
+            )
+            DocumentPath.objects.create(
+                document=doc,
+                corpus=self.corpus,
+                creator=self.owner,
+                folder=None,
+                path=f"/doc{i}.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+            )
+            docs.append(doc)
+
+        original_get_path = CorpusFolder.get_path
+
+        with patch.object(
+            CorpusFolder, "get_path", autospec=True, side_effect=original_get_path
+        ) as mock_get_path:
+            moved_count, error = DocumentFolderService.move_documents_to_folder(
+                user=self.owner,
+                document_ids=[d.id for d in docs],
+                corpus=self.corpus,
+                folder=self.folder,
+            )
+
+        self.assertEqual(moved_count, 5)
+        self.assertEqual(error, "")
+        self.assertEqual(
+            mock_get_path.call_count,
+            1,
+            f"get_path() should be called exactly once for a bulk move of "
+            f"{len(docs)} documents, but was called {mock_get_path.call_count} "
+            f"times — the cached path optimisation may have regressed",
+        )
