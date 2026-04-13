@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import Optional
 
+import requests
+
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.types.enums import ContentModality
 from opencontractserver.utils.logging import redact_sensitive_kwargs
@@ -223,8 +225,6 @@ class BaseEmbedder(PipelineComponentBase, ABC):
             List of embedding vectors (or None per item on failure),
             or None if the entire batch fails.
         """
-        import requests as _requests
-
         if not self.supports_text:
             logger.warning(
                 f"{self.__class__.__name__} does not support text embeddings."
@@ -239,8 +239,8 @@ class BaseEmbedder(PipelineComponentBase, ABC):
             try:
                 results.append(self.embed_text(text, **direct_kwargs))
             except (
-                _requests.exceptions.Timeout,
-                _requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
             ):
                 # Transient HTTP errors must propagate so callers can retry.
                 raise

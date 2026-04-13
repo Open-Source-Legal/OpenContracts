@@ -462,7 +462,20 @@ def _import_ingestion_sources(
                 )
         except IntegrityError as exc:
             logger.debug("IntegrityError on create, falling back to get: %s", exc)
-            source = IngestionSource.objects.get(creator=user_obj, name=name)
+            # Guard the fallback: in the rare case where a concurrent request
+            # created-then-deleted the row between the IntegrityError and this
+            # .get(), skip the source rather than aborting the entire corpus
+            # import with an unhandled DoesNotExist.
+            try:
+                source = IngestionSource.objects.get(creator=user_obj, name=name)
+            except IngestionSource.DoesNotExist:
+                logger.warning(
+                    "IngestionSource '%s' for user %s vanished between "
+                    "IntegrityError and fallback get; skipping.",
+                    name,
+                    user_obj.id,
+                )
+                continue
             created = False
         source_map[name] = source
 
@@ -566,6 +579,11 @@ def _reconstruct_document_paths(
         if external_id is not None:
             updates["external_id"] = external_id
 
+        # Asymmetry note: export omits ``ingestion_metadata`` entirely when
+        # the value is falsy (see ``package_document_paths``), so a missing
+        # key here is the expected "empty" signal.  An explicit ``None`` is
+        # treated the same as absent — we only restore a dict payload when
+        # the exporter actually wrote one.
         ingestion_metadata = path_data.get("ingestion_metadata")
         if ingestion_metadata is not None:
             updates["ingestion_metadata"] = ingestion_metadata

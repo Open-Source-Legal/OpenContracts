@@ -11,7 +11,10 @@ from opencontractserver.constants.document_processing import EMBEDDING_API_BATCH
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
-from opencontractserver.pipeline.base.exceptions import EmbeddingServerError
+from opencontractserver.pipeline.base.exceptions import (
+    EmbeddingClientError,
+    EmbeddingServerError,
+)
 from opencontractserver.pipeline.utils import (
     get_component_by_name,
     get_default_embedder,
@@ -153,22 +156,23 @@ def _create_embedding_for_annotation(
                 "annotation",
                 annotation.id,
             )
-    else:
-        # Standard text-only embedding
-        if has_images and not can_embed_images:
-            logger.debug(
-                f"Annotation {annotation.id} has image content "
-                f"(modalities={modalities}) but embedder {embedder_path} "
-                f"does not support images; image content will be dropped."
-            )
-        return _create_text_embedding(
-            annotation,
-            embedder,
-            embedder_path,
-            annotation.raw_text or "",
-            "annotation",
-            annotation.id,
+    # Standard text-only embedding (annotation is either text-only, or
+    # contains images that the embedder cannot handle and will drop).
+    if has_images and not can_embed_images:
+        logger.debug(
+            f"Annotation {annotation.id} has image content "
+            f"(modalities={modalities}) but embedder {embedder_path} "
+            f"does not support images; image content will be dropped."
         )
+
+    return _create_text_embedding(
+        annotation,
+        embedder,
+        embedder_path,
+        annotation.raw_text or "",
+        "annotation",
+        annotation.id,
+    )
 
 
 class EmbeddingGenerationError(Exception):
@@ -451,6 +455,9 @@ def _batch_embed_text_annotations(
         - ``ValueError``: Re-raised immediately (programming/contract error).
         - ``requests.exceptions.Timeout``, ``requests.exceptions.ConnectionError``,
           ``EmbeddingServerError``: Re-raised so Celery task-level retry fires.
+        - ``EmbeddingClientError``: Recorded as a permanent per-annotation
+          failure for the chunk. Not re-raised so Celery retries are not burned
+          on invalid input.
         - All other exceptions: Recorded as permanent per-annotation failures.
 
     Args:
@@ -499,6 +506,19 @@ def _batch_embed_text_annotations(
             # Transient HTTP errors: re-raise so the task-level Celery
             # autoretry_for=(Exception,) decorator can fire a retry.
             raise
+        except EmbeddingClientError as e:
+            # Client errors (4xx): non-retriable, record as permanent
+            # per-annotation failures. We explicitly swallow the exception
+            # here (instead of letting it propagate) so the task's
+            # autoretry_for=(Exception,) decorator does NOT burn retries
+            # on invalid input that will never succeed.
+            logger.error(f"embed_texts_batch client error (4xx): {e}")
+            for annot, _ in chunk:
+                result["failed"] += 1
+                result["errors"].append(
+                    f"Annotation {annot.id}: client error (4xx): {e}"
+                )
+            continue
         except Exception as e:
             # Non-retriable errors (malformed response, unexpected data, etc.)
             # are recorded as permanent per-annotation failures.
@@ -592,12 +612,25 @@ def calculate_embeddings_for_annotation_batch(
           ``requests.exceptions.ConnectionError``, ``EmbeddingServerError``
           from 5xx responses) propagate up and trigger the Celery
           ``autoretry_for=(Exception,)`` decorator for automatic retry.
+        - ``EmbeddingClientError`` (4xx responses) is caught inside
+          ``_batch_embed_text_annotations`` and recorded as a permanent
+          per-annotation failure so retries are not burned on invalid input.
         - Non-retriable operational errors (malformed response, NaN
           values, count mismatch) are caught internally and recorded
           in ``result["errors"]`` without re-raising.
         - ``ValueError`` from contract violations (e.g., batch size
           exceeds embedder maximum) is caught at the task level and
           returned as an immediate failure without burning retries.
+
+    Note on retry result counts:
+        On Celery retry, the returned ``result`` dict is re-initialised
+        to zero counts at the start of each attempt. Because
+        ``add_embedding()`` is idempotent (upserts via ``store_embedding``),
+        annotations that succeeded in a previous attempt are re-processed
+        safely, but the final counts reflect only the last attempt — not
+        the cumulative work across all retries. This is intentional; any
+        monitoring that needs per-attempt vs cumulative distinction should
+        read from Celery task state rather than ``result``.
 
     Args:
         self: Celery task instance (passed automatically when bind=True)

@@ -12,6 +12,11 @@ coverage:
     changes: false
 
 flags:
+  backend:
+    paths:
+      - opencontractserver/
+      - config/
+    carryforward: true
   frontend-unit:
     paths:
       - frontend/src/

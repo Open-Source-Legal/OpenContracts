@@ -22,7 +22,15 @@ import numpy as np
 import requests
 
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
-from opencontractserver.pipeline.base.exceptions import EmbeddingServerError
+
+# Re-export EmbeddingClientError / EmbeddingServerError at the original module
+# path so external embedders that imported them from this module continue to
+# work. The canonical location is now
+# ``opencontractserver.pipeline.base.exceptions``.
+from opencontractserver.pipeline.base.exceptions import (  # noqa: F401
+    EmbeddingClientError,
+    EmbeddingServerError,
+)
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.settings_schema import (
     PipelineSetting,
@@ -324,11 +332,17 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
                     return None
                 return embeddings_array.tolist()
             elif 400 <= response.status_code < 500:
-                logger.error(
+                # Client errors (4xx) - not retriable. Raise
+                # EmbeddingClientError so callers can distinguish a
+                # client-side failure from a parsing error (which still
+                # returns None) and record it as a permanent failure
+                # without triggering Celery retry.
+                error_msg = (
                     f"Batch text embedding service returned client error "
                     f"{response.status_code}. Batch size: {len(texts)}"
                 )
-                return None
+                logger.error(error_msg)
+                raise EmbeddingClientError(error_msg)
             else:
                 # Server errors (5xx) - retriable, re-raise for Celery retry
                 error_msg = (
@@ -342,8 +356,13 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
             requests.exceptions.Timeout,
             requests.exceptions.ConnectionError,
             EmbeddingServerError,
+            EmbeddingClientError,
         ):
-            # Transient HTTP errors: re-raise so Celery task retry can fire
+            # HTTP-specific errors: re-raise so callers can distinguish
+            # them from generic parsing errors. Transient errors (5xx,
+            # timeouts, connection resets) trigger Celery retry; client
+            # errors (4xx) are handled as permanent failures by the
+            # batch helper.
             raise
         except Exception as e:
             # Non-retriable errors (malformed data, unexpected parsing, etc.)
@@ -402,11 +421,17 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
                     return None
                 return embeddings_array.tolist()
             elif 400 <= response.status_code < 500:
-                logger.error(
+                # Client errors (4xx) - not retriable. Raise
+                # EmbeddingClientError so callers can distinguish a
+                # client-side failure from a parsing error (which still
+                # returns None) and record it as a permanent failure
+                # without triggering Celery retry.
+                error_msg = (
                     f"Batch image embedding service returned client error "
                     f"{response.status_code}. Batch size: {len(images_base64)}"
                 )
-                return None
+                logger.error(error_msg)
+                raise EmbeddingClientError(error_msg)
             else:
                 # Server errors (5xx) - retriable, re-raise for Celery retry
                 error_msg = (
@@ -420,8 +445,13 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
             requests.exceptions.Timeout,
             requests.exceptions.ConnectionError,
             EmbeddingServerError,
+            EmbeddingClientError,
         ):
-            # Transient HTTP errors: re-raise so Celery task retry can fire
+            # HTTP-specific errors: re-raise so callers can distinguish
+            # them from generic parsing errors. Transient errors (5xx,
+            # timeouts, connection resets) trigger Celery retry; client
+            # errors (4xx) are handled as permanent failures by the
+            # batch helper.
             raise
         except Exception as e:
             # Non-retriable errors (malformed data, unexpected parsing, etc.)
