@@ -633,6 +633,7 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
           // default button behaviour on the trigger toggle the picker.
           if (activeExtractIndex < 0 || activeExtractIndex >= count) return;
           event.preventDefault();
+          event.stopPropagation();
           const selected = corpusExtracts[activeExtractIndex];
           if (selected) {
             handleInsertComponent("extract-grid", { extractId: selected.id });
@@ -690,7 +691,11 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                   type="button"
                   aria-haspopup="listbox"
                   aria-expanded={showExtractPicker}
-                  aria-controls="caml-extract-picker-listbox"
+                  aria-controls={
+                    showExtractPicker
+                      ? "caml-extract-picker-listbox"
+                      : undefined
+                  }
                   aria-activedescendant={
                     showExtractPicker &&
                     activeExtractIndex >= 0 &&

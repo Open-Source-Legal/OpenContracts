@@ -232,6 +232,16 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
 
     await component.unmount();
   });
+
+  // NOTE: A full insertion test (Enter key → marker appears in textarea) is
+  // omitted because selecting an extract inserts a `[component:extract-grid]`
+  // marker that the live preview immediately tries to render — issuing a
+  // GET_EXTRACT_GRID_EMBED query. This requires additional GraphQL mocks and
+  // an ErrorBoundary around the preview, which is out of scope for this PR.
+  // The Enter key handler delegates to `handleInsertComponent`, which is the
+  // same code path exercised by the click handler; the keyboard-specific
+  // navigation tests above (ArrowDown/Up, Home/End, Escape, wrap-around)
+  // cover the keyboard interaction logic thoroughly.
 });
 
 test.describe("CamlArticleEditor - New Block Types in Template", () => {

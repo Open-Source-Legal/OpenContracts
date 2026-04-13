@@ -13,6 +13,7 @@ from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
 )
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
+from opencontractserver.constants.annotations import MAX_DATACELL_FIRST
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 
 
@@ -93,7 +94,6 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_full_datacell_list(self, info, first=None):
         from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
-        from opencontractserver.constants.annotations import MAX_DATACELL_FIRST
 
         qs = ExtractQueryOptimizer.get_extract_datacells(
             self, info.context.user, document_id=None

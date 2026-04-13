@@ -11,7 +11,7 @@
  * marker text. Will migrate to a proper `customBlocks` prop once upstream
  * @os-legal/caml-react supports it (see issue #1172).
  */
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@apollo/client";
 import { Link } from "react-router-dom";
 import { ExternalLink, AlertCircle, Loader2, Table2 } from "lucide-react";
@@ -310,13 +310,19 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
   // EXTRACT_GRID_EMBED_MAX_COLS and some columns are silently missing.
   // Also warn when the row count exceeds the embed limit so the developer is
   // aware the full grid is not rendered.
+  // useRef guards prevent repeated warnings on re-renders / Apollo cache updates.
+  const hasWarnedCap = useRef(false);
+  const hasWarnedRows = useRef(false);
+
   useEffect(() => {
     if (process.env.NODE_ENV !== "development" || !extract) return;
 
     if (
+      !hasWarnedCap.current &&
       extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
       rows.length < EXTRACT_GRID_EMBED_MAX_ROWS
     ) {
+      hasWarnedCap.current = true;
       console.warn(
         `[ExtractGridEmbed] Datacell cap (${EXTRACT_GRID_EMBED_MAX_CELLS}) ` +
           `reached before row limit — extract "${extract.name}" likely has ` +
@@ -325,7 +331,8 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
       );
     }
 
-    if (rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
+    if (!hasWarnedRows.current && rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
+      hasWarnedRows.current = true;
       console.warn(
         `[ExtractGridEmbed] Extract "${extract.name}" has ${rows.length} rows ` +
           `(limit: ${EXTRACT_GRID_EMBED_MAX_ROWS}). The full datacell payload ` +

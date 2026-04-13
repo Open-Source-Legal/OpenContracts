@@ -278,7 +278,9 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
         """
         from unittest.mock import patch
 
-        with patch("opencontractserver.constants.annotations.MAX_DATACELL_FIRST", 2):
+        # Patch at the resolver's lookup site so the mock survives if the
+        # import is ever hoisted to module level in extract_types.py.
+        with patch("config.graphql.extract_types.MAX_DATACELL_FIRST", 2):
             # Ask for 500 — the patched cap of 2 should bind.
             result = self._query_datacells(first_arg=500)
         self.assertIsNone(result.get("errors"))
