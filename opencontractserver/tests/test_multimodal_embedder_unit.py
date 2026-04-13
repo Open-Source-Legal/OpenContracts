@@ -16,7 +16,10 @@ from django.test import TestCase
 from PIL import Image
 from requests.exceptions import ConnectionError, Timeout
 
-from opencontractserver.pipeline.base.exceptions import EmbeddingServerError
+from opencontractserver.pipeline.base.exceptions import (
+    EmbeddingClientError,
+    EmbeddingServerError,
+)
 from opencontractserver.pipeline.embedders.multimodal_microservice import (
     CLIPMicroserviceEmbedder,
 )
@@ -678,27 +681,34 @@ class TestCLIPMicroserviceEmbedderUnit(TestCase):
         "opencontractserver.pipeline.embedders.multimodal_microservice.requests.post"
     )
     def test_embed_texts_batch_client_error_4xx(self, mock_post):
-        """Test batch text embedding handles 4xx client errors."""
+        """Test batch text embedding raises EmbeddingClientError on 4xx.
+
+        Batch methods raise EmbeddingClientError on 4xx so callers can
+        distinguish a client-side failure from a parsing error (which
+        still returns None). The batch task helper swallows it and
+        records permanent failures without triggering Celery retry.
+        """
         mock_post.return_value = MockResponse(413, {"error": "Payload too large"})
 
-        result = self.embedder.embed_texts_batch(
-            ["Text 1", "Text 2"], multimodal_embedder_url="http://test:8000"
-        )
-
-        self.assertIsNone(result)
+        with self.assertRaises(EmbeddingClientError):
+            self.embedder.embed_texts_batch(
+                ["Text 1", "Text 2"], multimodal_embedder_url="http://test:8000"
+            )
 
     @patch(
         "opencontractserver.pipeline.embedders.multimodal_microservice.requests.post"
     )
     def test_embed_images_batch_client_error_4xx(self, mock_post):
-        """Test batch image embedding handles 4xx client errors."""
+        """Test batch image embedding raises EmbeddingClientError on 4xx.
+
+        Same asymmetry rationale as ``test_embed_texts_batch_client_error_4xx``.
+        """
         mock_post.return_value = MockResponse(400, {"error": "Bad request"})
 
-        result = self.embedder.embed_images_batch(
-            [create_test_image_base64()], multimodal_embedder_url="http://test:8000"
-        )
-
-        self.assertIsNone(result)
+        with self.assertRaises(EmbeddingClientError):
+            self.embedder.embed_images_batch(
+                [create_test_image_base64()], multimodal_embedder_url="http://test:8000"
+            )
 
     # =========================================================================
     # New-Style Service Config Tests (clip_embedder_url, clip_embedder_api_key)

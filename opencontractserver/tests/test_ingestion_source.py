@@ -600,6 +600,30 @@ class TestIngestionSourceQuery(TestCase):
         self.assertIsNone(result.get("errors"))
         self.assertIsNone(result["data"]["ingestionSource"])
 
+    def test_internal_fields_not_exposed_on_type(self):
+        """``userLock``, ``backendLock``, and ``isPublic`` from BaseOCModel
+        must not be queryable on IngestionSourceType — they were explicitly
+        excluded from the Meta fields allowlist to avoid leaking internal
+        state (user_lock would leak the username of whoever holds the lock).
+        """
+        leak_query = """
+            query GetIngestionSource($id: ID!) {
+                ingestionSource(id: $id) {
+                    id
+                    userLock { username }
+                    backendLock
+                    isPublic
+                }
+            }
+        """
+        gid = to_global_id("IngestionSourceType", self.source.pk)
+        result = self.client.execute(leak_query, variables={"id": gid})
+        # A GraphQL validation error is expected because these fields should
+        # not exist on the type at all.
+        self.assertIsNotNone(result.get("errors"))
+        error_messages = " ".join(str(e.get("message", "")) for e in result["errors"])
+        self.assertIn("userLock", error_messages)
+
 
 # ------------------------------------------------------------------ #
 # ingestionSources list query
@@ -1046,6 +1070,39 @@ class TestImportIngestionSourcesIntegrityFallback(TestCase):
         self.assertIn("race_source", source_map)
         self.assertEqual(source_map["race_source"].pk, existing.pk)
         self.assertEqual(source_map["race_source"].source_type, "api")
+
+    def test_integrity_error_fallback_skips_vanished_row(self):
+        """When the row vanishes between IntegrityError and the fallback
+        .get() (concurrent created-then-deleted), the import should log a
+        warning and skip the source rather than aborting the entire corpus
+        import with a bubbled DoesNotExist."""
+        from django.db import IntegrityError
+
+        sources_data = [
+            {
+                "name": "vanished_source",
+                "source_type": "api",
+                "config": {},
+                "active": True,
+            }
+        ]
+
+        # Patch get_or_create to always raise IntegrityError, and do NOT
+        # pre-create the row.  The fallback .get() will then raise
+        # DoesNotExist, simulating the "created-then-deleted between the
+        # IntegrityError and the fallback" race.  The import must not
+        # bubble DoesNotExist; it must log a warning and continue.
+        with patch.object(
+            type(IngestionSource.objects),
+            "get_or_create",
+            side_effect=IntegrityError("duplicate key value"),
+        ):
+            source_map = _import_ingestion_sources(sources_data, self.user)
+
+        # Vanished source is silently skipped rather than aborting the
+        # whole corpus import.
+        self.assertNotIn("vanished_source", source_map)
+        self.assertEqual(source_map, {})
 
 
 # ------------------------------------------------------------------ #

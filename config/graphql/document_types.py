@@ -69,6 +69,19 @@ class IngestionSourceType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         model = IngestionSource
         interfaces = [relay.Node]
         connection_class = CountableConnection
+        # Explicit allowlist: do NOT expose ``user_lock`` (leaks username of
+        # the user holding the lock), ``backend_lock``, or ``is_public`` from
+        # the BaseOCModel parent.  Keep the API surface limited to the
+        # source's descriptive + lifecycle fields.
+        fields = (
+            "id",
+            "name",
+            "source_type",
+            "config",
+            "active",
+            "created",
+            "modified",
+        )
 
     @classmethod
     def get_queryset(cls, queryset, info):

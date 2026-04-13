@@ -11,7 +11,10 @@ from opencontractserver.constants.document_processing import (
     MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
 )
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
-from opencontractserver.pipeline.base.exceptions import EmbeddingServerError
+from opencontractserver.pipeline.base.exceptions import (
+    EmbeddingClientError,
+    EmbeddingServerError,
+)
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.settings_schema import (
     PipelineSetting,
@@ -268,12 +271,18 @@ class MicroserviceEmbedder(BaseEmbedder):
                         results.append(row.tolist())
                 return results
             elif 400 <= response.status_code < 500:
-                # Client errors (4xx) - not retriable, likely invalid input
-                logger.error(
+                # Client errors (4xx) - not retriable, likely invalid input.
+                # Raise EmbeddingClientError so callers can distinguish a
+                # client-side failure ("we sent bad data") from a caller-side
+                # `None` return ("call completed with no vectors"). Callers
+                # must NOT re-raise this at the Celery task level since it
+                # would burn retries on a permanent failure.
+                error_msg = (
                     f"Batch text embedding service returned client error "
                     f"{response.status_code}. Batch size: {len(texts)}"
                 )
-                return None
+                logger.error(error_msg)
+                raise EmbeddingClientError(error_msg)
             else:
                 # Server errors (5xx) - retriable, re-raise for Celery retry
                 error_msg = (
@@ -287,8 +296,13 @@ class MicroserviceEmbedder(BaseEmbedder):
             requests.exceptions.Timeout,
             requests.exceptions.ConnectionError,
             EmbeddingServerError,
+            EmbeddingClientError,
         ):
-            # Transient HTTP errors: re-raise so Celery task retry can fire
+            # HTTP-specific errors: re-raise so callers can distinguish
+            # them from generic parsing errors. Transient errors (5xx,
+            # timeouts, connection resets) trigger Celery retry; client
+            # errors (4xx) are handled as permanent failures by the
+            # batch helper.
             raise
         except Exception as e:
             # Non-retriable errors (malformed data, unexpected parsing, etc.)

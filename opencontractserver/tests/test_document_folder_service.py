@@ -1959,7 +1959,26 @@ class TestValidateFileType(DocumentFolderServiceTestBase):
 # =============================================================================
 
 
-class TestDocumentPathHistory_MoveTracking(DocumentFolderServiceTestBase):
+class _DocumentPathHistoryTestBase(DocumentFolderServiceTestBase):
+    """
+    Shared fixtures for the DocumentPathHistory_* test group.
+
+    Every test in this group needs an owner and a corpus. Subclasses layer on
+    whatever folders / documents their specific scenarios require by calling
+    ``super().setUp()`` first.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus", creator=self.owner, is_public=False
+        )
+
+
+class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
     """
     SCENARIO: Document moves create auditable history via DocumentPath tree.
 
@@ -1968,12 +1987,7 @@ class TestDocumentPathHistory_MoveTracking(DocumentFolderServiceTestBase):
     """
 
     def setUp(self):
-        self.owner = User.objects.create_user(
-            username="owner", email="owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus", creator=self.owner, is_public=False
-        )
+        super().setUp()
         self.folder_a, _ = DocumentFolderService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder A"
         )
@@ -2098,21 +2112,13 @@ class TestDocumentPathHistory_MoveTracking(DocumentFolderServiceTestBase):
         self.assertIn("No active document path found", error)
 
 
-class TestDocumentPathHistory_ComputeMovedPath(DocumentFolderServiceTestBase):
+class TestDocumentPathHistory_ComputeMovedPath(_DocumentPathHistoryTestBase):
     """
     SCENARIO: _compute_moved_path() correctly builds new path strings.
 
     BUSINESS RULE: When moving, the path should reflect the target folder
     hierarchy while preserving the document filename.
     """
-
-    def setUp(self):
-        self.owner = User.objects.create_user(
-            username="owner", email="owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus", creator=self.owner, is_public=False
-        )
 
     def test_move_to_root_strips_folder_prefix(self):
         """Moving to root produces /<filename>."""
@@ -2153,7 +2159,7 @@ class TestDocumentPathHistory_ComputeMovedPath(DocumentFolderServiceTestBase):
         self.assertEqual(result, "/report.pdf")
 
 
-class TestDocumentPathHistory_PathConflicts(DocumentFolderServiceTestBase):
+class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
     """
     SCENARIO: Move operations handle path conflicts gracefully.
 
@@ -2164,12 +2170,7 @@ class TestDocumentPathHistory_PathConflicts(DocumentFolderServiceTestBase):
     """
 
     def setUp(self):
-        self.owner = User.objects.create_user(
-            username="owner", email="owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus", creator=self.owner, is_public=False
-        )
+        super().setUp()
         self.folder, _ = DocumentFolderService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
@@ -2422,21 +2423,13 @@ class TestDocumentPathHistory_PathConflicts(DocumentFolderServiceTestBase):
             self.assertIn(str(MAX_PATH_DISAMBIGUATION_SUFFIX), str(ctx.exception))
 
 
-class TestDocumentPathHistory_DeleteFolderTracking(DocumentFolderServiceTestBase):
+class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase):
     """
     SCENARIO: Deleting a folder creates history nodes for displaced documents.
 
     BUSINESS RULE: When a folder is deleted, documents are moved to root
     with proper audit trail, not silent in-place updates.
     """
-
-    def setUp(self):
-        self.owner = User.objects.create_user(
-            username="owner", email="owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus", creator=self.owner, is_public=False
-        )
 
     def test_delete_folder_creates_history_for_each_document(self):
         """Each document in a deleted folder gets its own history node."""
@@ -2532,7 +2525,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(DocumentFolderServiceTestBase
         self.assertEqual(current.path, "/summary.pdf")
 
 
-class TestDocumentPathHistory_BulkMoveTracking(DocumentFolderServiceTestBase):
+class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
     """
     SCENARIO: Bulk move operations create per-document history nodes.
 
@@ -2541,12 +2534,7 @@ class TestDocumentPathHistory_BulkMoveTracking(DocumentFolderServiceTestBase):
     """
 
     def setUp(self):
-        self.owner = User.objects.create_user(
-            username="owner", email="owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus", creator=self.owner, is_public=False
-        )
+        super().setUp()
         self.folder, _ = DocumentFolderService.create_folder(
             user=self.owner, corpus=self.corpus, name="Archive"
         )
@@ -2636,7 +2624,7 @@ class TestDocumentPathHistory_BulkMoveTracking(DocumentFolderServiceTestBase):
         )
 
 
-class TestDocumentPathHistory_FullLifecycleIntegration(DocumentFolderServiceTestBase):
+class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestBase):
     """
     SCENARIO: Full lifecycle integration — move, delete, restore, move again.
 
@@ -2646,12 +2634,7 @@ class TestDocumentPathHistory_FullLifecycleIntegration(DocumentFolderServiceTest
     """
 
     def setUp(self):
-        self.owner = User.objects.create_user(
-            username="owner", email="owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus", creator=self.owner, is_public=False
-        )
+        super().setUp()
         self.folder_a, _ = DocumentFolderService.create_folder(
             user=self.owner, corpus=self.corpus, name="Active"
         )

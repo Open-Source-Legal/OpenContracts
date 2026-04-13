@@ -18,7 +18,10 @@ from opencontractserver.constants.document_processing import (
     MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
 )
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
-from opencontractserver.pipeline.base.exceptions import EmbeddingServerError
+from opencontractserver.pipeline.base.exceptions import (
+    EmbeddingClientError,
+    EmbeddingServerError,
+)
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.embedders.sent_transformer_microservice import (
     MicroserviceEmbedder,
@@ -360,6 +363,33 @@ class TestBatchEmbedTextAnnotations(unittest.TestCase):
                 annots, ServerErrorEmbedder(), "test.ServerErrorEmbedder", 50, result
             )
 
+    def test_client_error_recorded_as_permanent_failure(self):
+        """EmbeddingClientError from embed_texts_batch is caught and recorded.
+
+        Unlike 5xx (which re-raises to trigger Celery retry), 4xx errors are
+        caught inside the batch helper and recorded as permanent per-annotation
+        failures. This prevents retries from burning on invalid input that will
+        never succeed, while still surfacing the failure in ``result["errors"]``.
+        """
+
+        class ClientErrorEmbedder(DummyEmbedder384):
+            def embed_texts_batch(self, texts, **kw):
+                raise EmbeddingClientError("400 Bad Request")
+
+        annots = [_make_mock_annotation(i, f"Text {i}") for i in range(3)]
+        result = self._make_result()
+
+        # Should NOT raise — client errors are swallowed.
+        _batch_embed_text_annotations(
+            annots, ClientErrorEmbedder(), "test.ClientErrorEmbedder", 50, result
+        )
+
+        self.assertEqual(result["failed"], 3)
+        self.assertEqual(result["succeeded"], 0)
+        self.assertEqual(len(result["errors"]), 3)
+        for error in result["errors"]:
+            self.assertIn("client error (4xx)", error)
+
 
 class TestMicroserviceEmbedderBatch(unittest.TestCase):
     """Test MicroserviceEmbedder.embed_texts_batch with mocked HTTP calls."""
@@ -405,14 +435,20 @@ class TestMicroserviceEmbedderBatch(unittest.TestCase):
     @patch(
         "opencontractserver.pipeline.embedders.sent_transformer_microservice.requests.post"
     )
-    def test_client_error_returns_none(self, mock_post):
-        """4xx response returns None."""
+    def test_client_error_raises(self, mock_post):
+        """4xx response raises EmbeddingClientError.
+
+        Batch methods raise EmbeddingClientError on 4xx so callers can
+        distinguish a client-side failure ("we sent bad data") from a
+        parsing error that still returns None. The batch task helper
+        swallows it and records permanent per-annotation failures
+        without triggering Celery retry.
+        """
         embedder = self._make_embedder()
         mock_post.return_value = self._mock_response(400)
 
-        result = embedder.embed_texts_batch(["hello"])
-
-        self.assertIsNone(result)
+        with self.assertRaises(EmbeddingClientError):
+            embedder.embed_texts_batch(["hello"])
 
     @patch(
         "opencontractserver.pipeline.embedders.sent_transformer_microservice.requests.post"

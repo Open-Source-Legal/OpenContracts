@@ -15,6 +15,7 @@ from config.graphql.document_types import (
     IngestionSourceType,
     IngestionSourceTypeEnum,
 )
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.documents.models import (
     IngestionSource,
     IngestionSourceCategory,
@@ -73,6 +74,7 @@ class CreateIngestionSourceMutation(graphene.Mutation):
     ingestion_source = graphene.Field(IngestionSourceType)
 
     @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(_root, info, name, source_type=None, config=None):
         user = info.context.user
 
@@ -119,6 +121,7 @@ class UpdateIngestionSourceMutation(graphene.Mutation):
     ingestion_source = graphene.Field(IngestionSourceType)
 
     @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(_root, info, id, **kwargs):
         user = info.context.user
 
@@ -186,6 +189,7 @@ class DeleteIngestionSourceMutation(graphene.Mutation):
     message = graphene.String()
 
     @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(_root, info, id):
         user = info.context.user
 
