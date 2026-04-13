@@ -245,6 +245,7 @@ const ExtractPickerItem = styled.button<{ $active?: boolean }>`
   width: 100%;
   padding: 0.5rem 0.75rem;
   border: none;
+  /* Keyboard-active ($active) and mouse-hover share the same visual highlight. */
   background: ${(p) =>
     p.$active ? OS_LEGAL_COLORS.surfaceLight : "transparent"};
   text-align: left;

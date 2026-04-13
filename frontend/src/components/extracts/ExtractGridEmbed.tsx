@@ -311,8 +311,14 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
   // Also warn when the row count exceeds the embed limit so the developer is
   // aware the full grid is not rendered.
   // useRef guards prevent repeated warnings on re-renders / Apollo cache updates.
+  // Reset when `extractId` changes so each extract gets its own warning.
   const hasWarnedCap = useRef(false);
   const hasWarnedRows = useRef(false);
+
+  useEffect(() => {
+    hasWarnedCap.current = false;
+    hasWarnedRows.current = false;
+  }, [extractId]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development" || !extract) return;
@@ -339,6 +345,8 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
           `was still fetched — consider server-side pagination (#1204).`
       );
     }
+    // `rows` and `columns` are derived from `extract` via useMemo — they only
+    // change when `extract` changes — so `[extract]` is the real driver here.
   }, [extract, rows, columns]);
 
   if (!extractId) {

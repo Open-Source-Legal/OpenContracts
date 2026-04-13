@@ -44,9 +44,8 @@ class ExtractsQueryTestCase(TestCase):
             creator=self.user,
         )
 
-        pdf_file = ContentFile(
-            SAMPLE_PDF_FILE_TWO_PATH.open("rb").read(), name="test.pdf"
-        )
+        with SAMPLE_PDF_FILE_TWO_PATH.open("rb") as f:
+            pdf_file = ContentFile(f.read(), name="test.pdf")
 
         # We're going to manually process three docs
         self.doc = Document.objects.create(
@@ -177,9 +176,8 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
             creator=self.user,
         )
 
-        pdf_file = ContentFile(
-            SAMPLE_PDF_FILE_TWO_PATH.open("rb").read(), name="test.pdf"
-        )
+        with SAMPLE_PDF_FILE_TWO_PATH.open("rb") as f:
+            pdf_file = ContentFile(f.read(), name="test.pdf")
 
         # Create 3 documents with one datacell each
         self.docs = []
