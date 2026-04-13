@@ -13,25 +13,24 @@ This package provides building blocks to:
 5. Emit a per-task and aggregate report as JSON and CSV for downstream
    comparison.
 
-The public entry points are :func:`run_benchmark` (Python API) and the
-``run_benchmark`` Django management command.
+The public entry points are ``run_benchmark`` (Python API, importable from
+``opencontractserver.benchmarks.runner``) and the ``run_benchmark`` Django
+management command.
+
+Imports are **not** re-exported at the package level because several
+submodules transitively depend on Django models, and importing those at
+package-init time triggers ``AppRegistryNotReady`` when Django discovers
+this app.  Import from the submodules directly instead::
+
+    from opencontractserver.benchmarks.runner import run_benchmark
+    from opencontractserver.benchmarks.adapters.legalbench_rag import LegalBenchRAGAdapter
 """
 
-from opencontractserver.benchmarks.adapters.base import (
-    BaseBenchmarkAdapter,
-    BenchmarkDocument,
-    BenchmarkTask,
-)
-from opencontractserver.benchmarks.adapters.legalbench_rag import LegalBenchRAGAdapter
-from opencontractserver.benchmarks.report import BenchmarkReport, TaskResult
-from opencontractserver.benchmarks.runner import run_benchmark
-
 __all__ = [
-    "BaseBenchmarkAdapter",
-    "BenchmarkDocument",
-    "BenchmarkReport",
-    "BenchmarkTask",
-    "LegalBenchRAGAdapter",
-    "TaskResult",
-    "run_benchmark",
+    "adapters",
+    "loader",
+    "metrics",
+    "report",
+    "retrieval",
+    "runner",
 ]

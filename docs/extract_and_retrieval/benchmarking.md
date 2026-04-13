@@ -22,13 +22,13 @@ of the pipeline is underperforming on a given task.
 
 ## Directory layout
 
-LegalBench-RAG ships as::
+LegalBench-RAG ships as:
 
     <root>/
       corpus/<subset>/<file>.txt         # raw text documents
       benchmarks/<subset>.json           # test cases (query + gold snippets)
 
-Each `benchmarks/<subset>.json` deserializes to::
+Each `benchmarks/<subset>.json` deserializes to:
 
     {
       "tests": [
@@ -82,10 +82,8 @@ Everything the command writes lives under the run directory:
 ## Programmatic API
 
 ```python
-from opencontractserver.benchmarks import (
-    LegalBenchRAGAdapter,
-    run_benchmark,
-)
+from opencontractserver.benchmarks.adapters.legalbench_rag import LegalBenchRAGAdapter
+from opencontractserver.benchmarks.runner import run_benchmark
 
 adapter = LegalBenchRAGAdapter(
     root="/data/legalbench-rag",
@@ -104,8 +102,8 @@ for result in report.task_results[:5]:
     print(result.task_id, result.answer_token_f1, result.retrieval_recall_at_k)
 ```
 
-Every object in the harness is importable from the package root, so the
-same flow works from notebooks and ad-hoc scripts.
+Import from the submodules directly (the package ``__init__`` does not
+re-export symbols to avoid ``AppRegistryNotReady`` at startup).
 
 ## Adding a new benchmark
 
