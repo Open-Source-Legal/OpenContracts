@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 
 from django.utils import timezone
@@ -32,7 +33,6 @@ from opencontractserver.benchmarks.retrieval import (
     RetrievalResult,
     probe_retrieval,
 )
-from opencontractserver.benchmarks.utils import null_context
 from opencontractserver.constants.benchmarks import (
     BENCHMARK_DEFAULT_MODEL,
     BENCHMARK_DEFAULT_TOP_K,
@@ -165,7 +165,7 @@ def _run_extraction(
     ``model_override`` kwarg (which ``run_extract``'s celery chord does
     not expose).
     """
-    ctx = force_celery_eager() if use_eager_extraction else null_context()
+    ctx = force_celery_eager() if use_eager_extraction else nullcontext()
     with ctx:
         for cell in loaded.datacells:
             try:

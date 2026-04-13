@@ -11,7 +11,7 @@ import logging
 import re
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 
 from celery import current_app
@@ -23,7 +23,6 @@ from opencontractserver.benchmarks.adapters.base import (
     BenchmarkDocument,
     BenchmarkTask,
 )
-from opencontractserver.benchmarks.utils import null_context
 from opencontractserver.constants.benchmarks import BENCHMARK_COLUMN_NAME_MAX_LEN
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentProcessingStatus
@@ -76,6 +75,10 @@ def force_celery_eager():
     finish so retrieval has something to retrieve.  Rather than polling the
     database, we temporarily force celery into eager mode.  This is safe
     because the management command is a one-off CLI, not a web worker.
+
+    Warning: This mutates the global Celery config for the current process.
+    Do not call from a shared worker process or web request handler — only
+    from one-off CLIs, notebooks, and test suites.
     """
     conf = current_app.conf
     prev_always_eager = conf.task_always_eager
@@ -151,7 +154,7 @@ def load_benchmark_into_corpus(
     benchmark_documents: list[BenchmarkDocument] = list(adapter.iter_documents())
     logger.info("Ingesting %d documents for %s", len(benchmark_documents), adapter_name)
 
-    ingestion_ctx = force_celery_eager() if use_eager_ingestion else null_context()
+    ingestion_ctx = force_celery_eager() if use_eager_ingestion else nullcontext()
     with ingestion_ctx:
         for bench_doc in benchmark_documents:
             document = _ingest_benchmark_document(

@@ -86,11 +86,15 @@ class BenchmarkReport:
         ok_results = [r for r in self.task_results if r.extraction_ok]
         total = len(self.task_results)
         self.aggregates = {
+            # Counts are stored as int; rates/means as float.
             "task_count": total,
             "extraction_success_count": len(ok_results),
             "extraction_success_rate": (len(ok_results) / total) if total else 0.0,
+            # Answer metrics are averaged over successful extractions only.
             "answer_exact_match": mean(r.answer_exact_match for r in ok_results),
             "answer_token_f1": mean(r.answer_token_f1 for r in ok_results),
+            # Retrieval is independent of extraction success; average over
+            # all tasks so a failed extraction doesn't hide a retrieval miss.
             "retrieval_recall_at_k": mean(
                 r.retrieval_recall_at_k for r in self.task_results
             ),

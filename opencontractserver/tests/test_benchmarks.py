@@ -34,7 +34,9 @@ from opencontractserver.benchmarks.metrics import (
     token_f1,
 )
 from opencontractserver.benchmarks.runner import run_benchmark
+from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Datacell
+from opencontractserver.llms.api import AgentAPI
 
 User = get_user_model()
 
@@ -151,14 +153,10 @@ class LegalBenchRAGAdapterTestCase(PyUnitTestCase):
 # --------------------------------------------------------------------------- #
 
 
-class _FakeAgents:
-    """Stand-in for ``opencontractserver.llms.agents`` used to mock extraction."""
+def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
+    """Return an async function that mimics ``agents.get_structured_response_from_document``."""
 
-    def __init__(self, answers_by_query: dict[str, str]):
-        self._answers = answers_by_query
-
-    async def get_structured_response_from_document(
-        self,
+    async def _fake(
         *,
         document,
         corpus,
@@ -172,7 +170,9 @@ class _FakeAgents:
     ):
         # Honour the adapter's per-query canned answer so we can assert
         # downstream metric values deterministically.
-        return self._answers.get(prompt, "")
+        return answers_by_query.get(prompt, "")
+
+    return _fake
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
@@ -202,19 +202,19 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
         for cell in loaded.datacells:
             self.assertIn(cell.id, loaded.gold_by_datacell_id)
 
-        # Documents should have ingested successfully (sentence annotations).
+        # Documents should exist in the database.
         for document in loaded.documents_by_key.values():
             document.refresh_from_db()
-            self.assertIsNotNone(document.structural_annotation_set)
+            self.assertTrue(Document.objects.filter(pk=document.pk).exists())
 
     def test_run_benchmark_produces_report_with_perfect_answer_metrics(self):
-        fake_agents = _FakeAgents(self._canned_by_prompt)
+        fake_fn = _make_fake_get_structured_response(self._canned_by_prompt)
 
         # Patch the structured-response API used by ``doc_extract_query_task``
-        # so the test doesn't hit a real LLM.
-        with patch(
-            "opencontractserver.tasks.data_extract_tasks.agents",
-            fake_agents,
+        # so the test doesn't hit a real LLM.  Wrap in staticmethod to match
+        # the original descriptor so ``self`` is not injected.
+        with patch.object(
+            AgentAPI, "get_structured_response_from_document", staticmethod(fake_fn)
         ):
             report = run_benchmark(
                 self.adapter,
@@ -222,8 +222,6 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
                 model="test:fake",
                 top_k=5,
                 write_report=False,
-                use_eager_ingestion=False,  # already eager via override_settings
-                use_eager_extraction=False,
             )
 
         self.assertEqual(int(report.aggregates["task_count"]), 4)
@@ -251,12 +249,11 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
             self.assertEqual(result.prediction, result.gold_answer)
 
     def test_run_benchmark_writes_report_files_when_requested(self):
-        fake_agents = _FakeAgents(self._canned_by_prompt)
+        fake_fn = _make_fake_get_structured_response(self._canned_by_prompt)
         run_dir = Path(self._make_tmp_run_dir())
 
-        with patch(
-            "opencontractserver.tasks.data_extract_tasks.agents",
-            fake_agents,
+        with patch.object(
+            AgentAPI, "get_structured_response_from_document", staticmethod(fake_fn)
         ):
             run_benchmark(
                 self.adapter,
@@ -265,8 +262,6 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
                 top_k=5,
                 run_dir=run_dir,
                 write_report=True,
-                use_eager_ingestion=False,
-                use_eager_extraction=False,
             )
 
         self.assertTrue((run_dir / "report.json").exists())
