@@ -308,10 +308,12 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
   // Warn when the server-side datacell cap was the binding constraint rather
   // than the row limit — this means the extract likely has more columns than
   // EXTRACT_GRID_EMBED_MAX_COLS and some columns are silently missing.
+  // Also warn when the row count exceeds the embed limit so the developer is
+  // aware the full grid is not rendered.
   useEffect(() => {
+    if (process.env.NODE_ENV !== "development" || !extract) return;
+
     if (
-      process.env.NODE_ENV === "development" &&
-      extract &&
       extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
       rows.length < EXTRACT_GRID_EMBED_MAX_ROWS
     ) {
@@ -320,6 +322,14 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
           `reached before row limit — extract "${extract.name}" likely has ` +
           `> ${columns.length} usable columns. Some columns may not be shown. ` +
           `Track in #1204.`
+      );
+    }
+
+    if (rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
+      console.warn(
+        `[ExtractGridEmbed] Extract "${extract.name}" has ${rows.length} rows ` +
+          `(limit: ${EXTRACT_GRID_EMBED_MAX_ROWS}). The full datacell payload ` +
+          `was still fetched — consider server-side pagination (#1204).`
       );
     }
   }, [extract, rows, columns]);
@@ -376,13 +386,6 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
 
   // --- Too-large guard (#1204) ---
   if (rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
-    if (process.env.NODE_ENV === "development") {
-      console.warn(
-        `[ExtractGridEmbed] Extract "${extract.name}" has ${rows.length} rows ` +
-          `(limit: ${EXTRACT_GRID_EMBED_MAX_ROWS}). The full datacell payload ` +
-          `was still fetched — consider server-side pagination (#1204).`
-      );
-    }
     return (
       <EmbedWrapper>
         <EmbedHeader>

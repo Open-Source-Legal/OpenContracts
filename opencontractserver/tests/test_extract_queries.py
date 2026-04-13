@@ -154,7 +154,7 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
     """
 
     def setUp(self):
-        self.user = User.objects.create_user(
+        self.user = User.objects.create_superuser(
             username="firstarguser", password="testpassword"
         )
         self.client = Client(schema, context_value=TestContext(self.user))
@@ -203,6 +203,9 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
                 document=doc,
             )
             self.cells.append(cell)
+
+        # Add documents to the extract's M2M so the resolver can find them
+        self.extract.documents.add(*self.docs)
 
     def _query_datacells(self, first_arg=None):
         """Helper to query fullDatacellList with optional first argument."""
@@ -275,7 +278,7 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
         """
         from unittest.mock import patch
 
-        with patch("config.graphql.extract_types.MAX_DATACELL_FIRST", 2):
+        with patch("opencontractserver.constants.annotations.MAX_DATACELL_FIRST", 2):
             # Ask for 500 — the patched cap of 2 should bind.
             result = self._query_datacells(first_arg=500)
         self.assertIsNone(result.get("errors"))
