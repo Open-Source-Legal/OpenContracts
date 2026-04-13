@@ -93,6 +93,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_full_datacell_list(self, info, first=None):
         from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
+        from opencontractserver.constants.annotations import MAX_DATACELL_FIRST
 
         qs = ExtractQueryOptimizer.get_extract_datacells(
             self, info.context.user, document_id=None
@@ -101,7 +102,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # are treated as "no cap" so misconfigured clients can't accidentally
         # blank the grid — the frontend's row guard still handles too-many-rows.
         if first is not None and first > 0:
-            qs = qs[:first]
+            qs = qs[: min(first, MAX_DATACELL_FIRST)]
         return qs
 
     def resolve_full_document_list(self, info):

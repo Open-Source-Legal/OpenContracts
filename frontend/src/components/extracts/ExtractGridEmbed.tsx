@@ -11,7 +11,7 @@
  * marker text. Will migrate to a proper `customBlocks` prop once upstream
  * @os-legal/caml-react supports it (see issue #1172).
  */
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { useQuery } from "@apollo/client";
 import { Link } from "react-router-dom";
 import { ExternalLink, AlertCircle, Loader2, Table2 } from "lucide-react";
@@ -192,6 +192,10 @@ function formatCellValue(
   if (typeof data === "boolean") return data ? "Yes" : "No";
   if (typeof data === "object") {
     const json = JSON.stringify(data);
+    // Fast path: UTF-16 length is always >= code-point count, so if the
+    // string is short enough in UTF-16 it's definitely short enough in
+    // code points — skip the Array.from allocation entirely.
+    if (json.length <= EXTRACT_GRID_CELL_TRUNCATE_LENGTH) return json;
     // Use `Array.from` to truncate at code-point boundaries rather than
     // UTF-16 code units — `substring` would split surrogate pairs (emoji /
     // non-BMP characters) and emit U+FFFD replacement characters.
@@ -304,19 +308,21 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
   // Warn when the server-side datacell cap was the binding constraint rather
   // than the row limit — this means the extract likely has more columns than
   // EXTRACT_GRID_EMBED_MAX_COLS and some columns are silently missing.
-  if (
-    process.env.NODE_ENV === "development" &&
-    extract &&
-    extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
-    rows.length < EXTRACT_GRID_EMBED_MAX_ROWS
-  ) {
-    console.warn(
-      `[ExtractGridEmbed] Datacell cap (${EXTRACT_GRID_EMBED_MAX_CELLS}) ` +
-        `reached before row limit — extract "${extract.name}" likely has ` +
-        `> ${columns.length} usable columns. Some columns may not be shown. ` +
-        `Track in #1204.`
-    );
-  }
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV === "development" &&
+      extract &&
+      extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
+      rows.length < EXTRACT_GRID_EMBED_MAX_ROWS
+    ) {
+      console.warn(
+        `[ExtractGridEmbed] Datacell cap (${EXTRACT_GRID_EMBED_MAX_CELLS}) ` +
+          `reached before row limit — extract "${extract.name}" likely has ` +
+          `> ${columns.length} usable columns. Some columns may not be shown. ` +
+          `Track in #1204.`
+      );
+    }
+  }, [extract, rows, columns]);
 
   if (!extractId) {
     return (

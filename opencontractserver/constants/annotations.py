@@ -28,6 +28,12 @@ DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500
 # Maximum number of results returned by semantic search queries.
 SEMANTIC_SEARCH_MAX_RESULTS = 200
 
+# Maximum value accepted for the `first` argument on
+# `ExtractType.full_datacell_list`. Prevents uncapped payloads if the field
+# is ever exposed to third-party API clients. Generous enough to serve the
+# frontend's embed widget (currently ~4 000 cells) without issue.
+MAX_DATACELL_FIRST = 10_000
+
 # ── Compact annotation JSON v2 safety limits ──
 # Maximum span for a single range segment (safety guard).
 COMPACT_JSON_MAX_RANGE_SPAN = 10_000

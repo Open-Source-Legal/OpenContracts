@@ -265,3 +265,16 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
         self.assertIsNone(result.get("errors"))
         datacells = result["data"]["extract"]["fullDatacellList"]
         self.assertEqual(len(datacells), 3)
+
+    def test_first_capped_at_server_maximum(self):
+        """Server-side cap (MAX_DATACELL_FIRST) prevents unbounded payloads."""
+        from opencontractserver.constants.annotations import MAX_DATACELL_FIRST
+
+        # Requesting more than the server cap should silently clamp
+        result = self._query_datacells(first_arg=MAX_DATACELL_FIRST + 500)
+        self.assertIsNone(result.get("errors"))
+        # Only 3 cells exist, so the cap doesn't visibly reduce the count,
+        # but the resolver path through `min(first, MAX_DATACELL_FIRST)` is
+        # exercised without error.
+        datacells = result["data"]["extract"]["fullDatacellList"]
+        self.assertEqual(len(datacells), 3)
