@@ -160,29 +160,60 @@ def char_iou(
 ) -> float:
     """Character-level IoU between unioned predicted and gold spans.
 
-    Both sides are flattened into sets of character indices; returns
-    ``|pred ∩ gold| / |pred ∪ gold|``.  Returns 0.0 when the union is empty
+    Both sides are merged into non-overlapping intervals, then intersection
+    and union lengths are computed in O(n log n) time without materializing
+    individual character indices.  Returns 0.0 when the union is empty
     (i.e. there is literally nothing to compare).  This metric is more
     forgiving than strict span matching because it rewards partial hits.
     """
-    pred_chars = _union_of_spans(predicted)
-    gold_chars = _union_of_spans(gold)
-    if not pred_chars and not gold_chars:
+    pred_merged = _merge_spans(predicted)
+    gold_merged = _merge_spans(gold)
+    pred_len = _total_span_length(pred_merged)
+    gold_len = _total_span_length(gold_merged)
+    if pred_len == 0 and gold_len == 0:
         return 0.0
-    intersection = pred_chars & gold_chars
-    union = pred_chars | gold_chars
-    if not union:
+    intersection_len = _intersection_length(pred_merged, gold_merged)
+    union_len = pred_len + gold_len - intersection_len
+    if union_len == 0:
         return 0.0
-    return len(intersection) / len(union)
+    return intersection_len / union_len
 
 
-def _union_of_spans(spans: Iterable[Span]) -> set[int]:
-    """Return the set of character offsets covered by ``spans``."""
-    covered: set[int] = set()
-    for start, end in spans:
-        if end > start:
-            covered.update(range(start, end))
-    return covered
+def _merge_spans(spans: Iterable[Span]) -> list[Span]:
+    """Merge overlapping/adjacent half-open spans into sorted, disjoint intervals."""
+    valid = sorted((s, e) for s, e in spans if e > s)
+    if not valid:
+        return []
+    merged: list[Span] = [valid[0]]
+    for start, end in valid[1:]:
+        prev_start, prev_end = merged[-1]
+        if start <= prev_end:
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _total_span_length(merged: Sequence[Span]) -> int:
+    """Sum of lengths of non-overlapping merged spans."""
+    return sum(e - s for s, e in merged)
+
+
+def _intersection_length(a: Sequence[Span], b: Sequence[Span]) -> int:
+    """Total length of the intersection of two sorted, merged span lists."""
+    total = 0
+    i = j = 0
+    while i < len(a) and j < len(b):
+        start = max(a[i][0], b[j][0])
+        end = min(a[i][1], b[j][1])
+        if start < end:
+            total += end - start
+        # Advance whichever interval ends first.
+        if a[i][1] < b[j][1]:
+            i += 1
+        else:
+            j += 1
+    return total
 
 
 # --------------------------------------------------------------------------- #

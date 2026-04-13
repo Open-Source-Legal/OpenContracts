@@ -32,21 +32,23 @@ from opencontractserver.benchmarks.retrieval import (
     RetrievalResult,
     probe_retrieval,
 )
+from opencontractserver.benchmarks.utils import null_context
+from opencontractserver.constants.benchmarks import (
+    BENCHMARK_DEFAULT_MODEL,
+    BENCHMARK_DEFAULT_TOP_K,
+)
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.tasks.data_extract_tasks import doc_extract_query_task
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MODEL = "openai:gpt-4o-mini"
-DEFAULT_TOP_K = 10
 
 
 def run_benchmark(
     adapter: BaseBenchmarkAdapter,
     *,
     user,
-    model: str = DEFAULT_MODEL,
-    top_k: int = DEFAULT_TOP_K,
+    model: str = BENCHMARK_DEFAULT_MODEL,
+    top_k: int = BENCHMARK_DEFAULT_TOP_K,
     run_dir: Path | str | None = None,
     corpus_title: str | None = None,
     run_label: str | None = None,
@@ -83,7 +85,7 @@ def run_benchmark(
     Returns:
         The populated :class:`BenchmarkReport`.
     """
-    config = {
+    config: dict[str, object] = {
         "model": model,
         "top_k": top_k,
         "run_label": run_label,
@@ -111,7 +113,7 @@ def run_benchmark(
 
     report = BenchmarkReport(
         adapter=loaded.adapter_description,
-        config=config,
+        config=dict(config),  # snapshot; avoid aliasing with the mutable local
         corpus_id=loaded.corpus.id,
         extract_id=loaded.extract.id,
         task_results=task_results,
@@ -163,7 +165,7 @@ def _run_extraction(
     ``model_override`` kwarg (which ``run_extract``'s celery chord does
     not expose).
     """
-    ctx = force_celery_eager() if use_eager_extraction else _null_context()
+    ctx = force_celery_eager() if use_eager_extraction else null_context()
     with ctx:
         for cell in loaded.datacells:
             try:
@@ -245,7 +247,13 @@ def _probe_retrieval_safely(**kwargs) -> RetrievalResult:
 
 
 def _extract_prediction_string(cell: Datacell) -> str:
-    """Coerce a datacell's extracted value to a string for F1 comparison."""
+    """Coerce a datacell's extracted value to a string for F1 comparison.
+
+    ``Datacell.data`` is a JSON dict written by ``doc_extract_query_task``.
+    The extraction result is nested under the ``"data"`` key, i.e.
+    ``{"data": <value>}`` where ``<value>`` is whatever the structured-
+    response agent returned (typically a string, list, or dict).
+    """
     data = cell.data or {}
     payload = data.get("data") if isinstance(data, dict) else None
     if payload is None:
@@ -309,11 +317,3 @@ def _write_run_config(
         ),
         encoding="utf-8",
     )
-
-
-class _null_context:  # pragma: no cover - trivial helper
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False

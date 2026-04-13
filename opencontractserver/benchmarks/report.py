@@ -74,7 +74,7 @@ class BenchmarkReport:
     corpus_id: int
     extract_id: int
     task_results: list[TaskResult]
-    aggregates: dict[str, float] = field(default_factory=dict)
+    aggregates: dict[str, int | float] = field(default_factory=dict)
 
     def compute_aggregates(self) -> None:
         """Refresh :attr:`aggregates` from ``task_results``.
@@ -86,8 +86,8 @@ class BenchmarkReport:
         ok_results = [r for r in self.task_results if r.extraction_ok]
         total = len(self.task_results)
         self.aggregates = {
-            "task_count": float(total),
-            "extraction_success_count": float(len(ok_results)),
+            "task_count": total,
+            "extraction_success_count": len(ok_results),
             "extraction_success_rate": (len(ok_results) / total) if total else 0.0,
             "answer_exact_match": mean(r.answer_exact_match for r in ok_results),
             "answer_token_f1": mean(r.answer_token_f1 for r in ok_results),

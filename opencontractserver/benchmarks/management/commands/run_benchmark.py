@@ -26,10 +26,10 @@ from opencontractserver.benchmarks.adapters.legalbench_rag import (
     LEGALBENCH_RAG_SUBSETS,
     LegalBenchRAGAdapter,
 )
-from opencontractserver.benchmarks.runner import (
-    DEFAULT_MODEL,
-    DEFAULT_TOP_K,
-    run_benchmark,
+from opencontractserver.benchmarks.runner import run_benchmark
+from opencontractserver.constants.benchmarks import (
+    BENCHMARK_DEFAULT_MODEL,
+    BENCHMARK_DEFAULT_TOP_K,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,13 +72,15 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--model",
-            default=DEFAULT_MODEL,
-            help=(f"LLM identifier passed to the extractor. Default: {DEFAULT_MODEL}."),
+            default=BENCHMARK_DEFAULT_MODEL,
+            help=(
+                f"LLM identifier passed to the extractor. Default: {BENCHMARK_DEFAULT_MODEL}."
+            ),
         )
         parser.add_argument(
             "--top-k",
             type=int,
-            default=DEFAULT_TOP_K,
+            default=BENCHMARK_DEFAULT_TOP_K,
             help="Top-k used by the retrieval probe.",
         )
         parser.add_argument(
@@ -125,15 +127,11 @@ class Command(BaseCommand):
 
         benchmark_name = options["benchmark"]
         adapter_cls = BENCHMARK_REGISTRY[benchmark_name]
-
-        if benchmark_name == "legalbench-rag":
-            adapter = adapter_cls(
-                root=options["path"],
-                subsets=options.get("subsets") or None,
-                limit=options.get("limit"),
-            )
-        else:  # pragma: no cover - guarded by choices=
-            raise CommandError(f"Unsupported benchmark: {benchmark_name}")
+        adapter = adapter_cls(
+            root=options["path"],
+            subsets=options.get("subsets") or None,
+            limit=options.get("limit"),
+        )
 
         self.stdout.write(
             self.style.NOTICE(

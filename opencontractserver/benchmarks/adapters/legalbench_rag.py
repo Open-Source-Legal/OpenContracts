@@ -254,19 +254,27 @@ class LegalBenchRAGAdapter(BaseBenchmarkAdapter):
         )
 
     def _load_document(self, file_path: str) -> None:
-        """Read a corpus file and cache it as a :class:`BenchmarkDocument`."""
+        """Read a corpus file and cache it as a :class:`BenchmarkDocument`.
+
+        If the resolved path escapes the corpus directory (path traversal)
+        or the file is missing, we log a warning and leave the document out
+        of ``self._documents`` so callers can skip tasks that reference it.
+        """
         absolute = (self.corpus_dir / file_path).resolve()
         try:
             absolute.relative_to(self.corpus_dir)
-        except ValueError as exc:
-            raise ValueError(
-                f"Refusing to load corpus file outside of corpus dir: {file_path}"
-            ) from exc
+        except ValueError:
+            logger.warning(
+                "Skipping corpus file outside of corpus dir (path traversal): %s",
+                file_path,
+            )
+            return
 
         if not absolute.is_file():
-            raise FileNotFoundError(
-                f"Corpus file referenced by benchmark but not on disk: {absolute}"
+            logger.warning(
+                "Corpus file referenced by benchmark but not on disk: %s", absolute
             )
+            return
 
         text = absolute.read_text(encoding="utf-8")
         title = absolute.name

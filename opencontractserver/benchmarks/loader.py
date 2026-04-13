@@ -23,6 +23,8 @@ from opencontractserver.benchmarks.adapters.base import (
     BenchmarkDocument,
     BenchmarkTask,
 )
+from opencontractserver.benchmarks.utils import null_context
+from opencontractserver.constants.benchmarks import BENCHMARK_COLUMN_NAME_MAX_LEN
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentProcessingStatus
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
@@ -33,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 _INGEST_POLL_INTERVAL_S = 0.2
 _DEFAULT_INGEST_TIMEOUT_S = 300
-_COLUMN_NAME_MAX_LEN = 128
 
 
 @dataclass
@@ -150,7 +151,7 @@ def load_benchmark_into_corpus(
     benchmark_documents: list[BenchmarkDocument] = list(adapter.iter_documents())
     logger.info("Ingesting %d documents for %s", len(benchmark_documents), adapter_name)
 
-    ingestion_ctx = force_celery_eager() if use_eager_ingestion else _null_context()
+    ingestion_ctx = force_celery_eager() if use_eager_ingestion else null_context()
     with ingestion_ctx:
         for bench_doc in benchmark_documents:
             document = _ingest_benchmark_document(
@@ -315,7 +316,7 @@ def _make_column_name(task: BenchmarkTask) -> str:
     base = _COLUMN_NAME_SANITIZER.sub(" ", task.query).strip()
     if len(base) > 64:
         base = base[:61].rstrip() + "..."
-    return f"{task.task_id} — {base}"[:_COLUMN_NAME_MAX_LEN]
+    return f"{task.task_id} — {base}"[:BENCHMARK_COLUMN_NAME_MAX_LEN]
 
 
 def _format_instructions(task: BenchmarkTask) -> str:
@@ -324,8 +325,3 @@ def _format_instructions(task: BenchmarkTask) -> str:
     if task.tags:
         parts.append("Tags: " + ", ".join(task.tags))
     return "\n".join(parts)
-
-
-@contextmanager
-def _null_context():
-    yield
