@@ -95,6 +95,145 @@ test.describe("CamlArticleEditor - Close Behavior", () => {
   });
 });
 
+test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
+  test("should open picker and navigate with arrow keys", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    // Wait for editor to load
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Click the "Insert Extract Grid" button to open the picker
+    const triggerBtn = page.getByRole("button", {
+      name: "Insert extract grid table",
+    });
+    await expect(triggerBtn).toBeVisible({ timeout: 5000 });
+    await triggerBtn.click();
+
+    // Dropdown should appear with extract options
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Contract Key Terms")).toBeVisible();
+    await expect(page.getByText("Compliance Tracker")).toBeVisible();
+    await expect(page.getByText("Risk Assessment")).toBeVisible();
+
+    // ArrowDown should highlight the first item
+    await page.keyboard.press("ArrowDown");
+    const firstOption = page.locator('[role="option"]').first();
+    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+
+    // ArrowDown again should move to second item
+    await page.keyboard.press("ArrowDown");
+    const secondOption = page.locator('[role="option"]').nth(1);
+    await expect(secondOption).toHaveAttribute("aria-selected", "true");
+    // First item should no longer be selected
+    await expect(firstOption).toHaveAttribute("aria-selected", "false");
+
+    // ArrowUp should go back to first item
+    await page.keyboard.press("ArrowUp");
+    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+
+    await component.unmount();
+  });
+
+  test("should wrap around at list boundaries", async ({ mount, page }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("button", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // ArrowUp from initial state (-1) should wrap to the last item
+    await page.keyboard.press("ArrowUp");
+    const lastOption = page.locator('[role="option"]').last();
+    await expect(lastOption).toHaveAttribute("aria-selected", "true");
+
+    // ArrowDown from last item should wrap to first
+    await page.keyboard.press("ArrowDown");
+    const firstOption = page.locator('[role="option"]').first();
+    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+
+    await component.unmount();
+  });
+
+  test("should close picker with Escape and return focus to trigger", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("button", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Press Escape
+    await page.keyboard.press("Escape");
+
+    // Dropdown should close
+    await expect(page.getByRole("listbox")).not.toBeVisible({ timeout: 3000 });
+
+    // Focus should return to the trigger button
+    await expect(triggerBtn).toBeFocused();
+
+    await component.unmount();
+  });
+
+  test("should use Home and End keys to jump to boundaries", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("button", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // End should jump to last option
+    await page.keyboard.press("End");
+    const lastOption = page.locator('[role="option"]').last();
+    await expect(lastOption).toHaveAttribute("aria-selected", "true");
+
+    // Home should jump to first option
+    await page.keyboard.press("Home");
+    const firstOption = page.locator('[role="option"]').first();
+    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+
+    await component.unmount();
+  });
+});
+
 test.describe("CamlArticleEditor - New Block Types in Template", () => {
   test("should render map and case-history blocks in preview from template", async ({
     mount,

@@ -301,6 +301,23 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
     return { columns: cols, rows: Array.from(rowMap.values()) };
   }, [extract]);
 
+  // Warn when the server-side datacell cap was the binding constraint rather
+  // than the row limit — this means the extract likely has more columns than
+  // EXTRACT_GRID_EMBED_MAX_COLS and some columns are silently missing.
+  if (
+    process.env.NODE_ENV === "development" &&
+    extract &&
+    extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
+    rows.length < EXTRACT_GRID_EMBED_MAX_ROWS
+  ) {
+    console.warn(
+      `[ExtractGridEmbed] Datacell cap (${EXTRACT_GRID_EMBED_MAX_CELLS}) ` +
+        `reached before row limit — extract "${extract.name}" likely has ` +
+        `> ${columns.length} usable columns. Some columns may not be shown. ` +
+        `Track in #1204.`
+    );
+  }
+
   if (!extractId) {
     return (
       <EmbedWrapper>

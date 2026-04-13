@@ -142,3 +142,126 @@ class ExtractsQueryTestCase(TestCase):
         )
         self.assertEqual(result["data"]["datacell"]["data"], {"data": "TestData"})
         self.assertEqual(result["data"]["datacell"]["dataDefinition"], "str")
+
+
+class ExtractFullDatacellListFirstArgTestCase(TestCase):
+    """Tests for the `first` argument on ExtractType.fullDatacellList.
+
+    Verifies that:
+    - A positive `first` caps the returned datacell count.
+    - Zero or negative `first` returns all cells (no-cap path).
+    - Omitting `first` returns all cells.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="firstarguser", password="testpassword"
+        )
+        self.client = Client(schema, context_value=TestContext(self.user))
+        self.fieldset = Fieldset.objects.create(
+            name="FirstArgFieldset",
+            description="Fieldset for first-arg tests",
+            creator=self.user,
+        )
+        self.column = Column.objects.create(
+            creator=self.user,
+            fieldset=self.fieldset,
+            query="TestQuery",
+            output_type="str",
+        )
+        self.corpus = Corpus.objects.create(title="FirstArgCorpus", creator=self.user)
+        self.extract = Extract.objects.create(
+            corpus=self.corpus,
+            name="FirstArgExtract",
+            fieldset=self.fieldset,
+            creator=self.user,
+        )
+
+        pdf_file = ContentFile(
+            SAMPLE_PDF_FILE_TWO_PATH.open("rb").read(), name="test.pdf"
+        )
+
+        # Create 3 documents with one datacell each
+        self.docs = []
+        self.cells = []
+        for i in range(3):
+            doc = Document.objects.create(
+                creator=self.user,
+                title=f"Doc {i}",
+                description=f"Test doc {i}",
+                custom_meta={},
+                pdf_file=pdf_file,
+                backend_lock=True,
+            )
+            self.docs.append(doc)
+            cell = Datacell.objects.create(
+                extract=self.extract,
+                column=self.column,
+                data={"value": f"data-{i}"},
+                data_definition="str",
+                creator=self.user,
+                document=doc,
+            )
+            self.cells.append(cell)
+
+    def _query_datacells(self, first_arg=None):
+        """Helper to query fullDatacellList with optional first argument."""
+        extract_gid = to_global_id("ExtractType", self.extract.id)
+        if first_arg is not None:
+            query = """
+                query {
+                    extract(id: "%s") {
+                        fullDatacellList(first: %d) {
+                            id
+                            data
+                        }
+                    }
+                }
+            """ % (extract_gid, first_arg)
+        else:
+            query = """
+                query {
+                    extract(id: "%s") {
+                        fullDatacellList {
+                            id
+                            data
+                        }
+                    }
+                }
+            """ % extract_gid
+        return self.client.execute(query)
+
+    def test_first_positive_caps_results(self):
+        """A positive `first` should limit the returned datacell count."""
+        result = self._query_datacells(first_arg=2)
+        self.assertIsNone(result.get("errors"))
+        datacells = result["data"]["extract"]["fullDatacellList"]
+        self.assertEqual(len(datacells), 2)
+
+    def test_first_zero_returns_all(self):
+        """Zero `first` is treated as 'no cap' and returns all cells."""
+        result = self._query_datacells(first_arg=0)
+        self.assertIsNone(result.get("errors"))
+        datacells = result["data"]["extract"]["fullDatacellList"]
+        self.assertEqual(len(datacells), 3)
+
+    def test_first_negative_returns_all(self):
+        """Negative `first` is treated as 'no cap' and returns all cells."""
+        result = self._query_datacells(first_arg=-1)
+        self.assertIsNone(result.get("errors"))
+        datacells = result["data"]["extract"]["fullDatacellList"]
+        self.assertEqual(len(datacells), 3)
+
+    def test_first_omitted_returns_all(self):
+        """Omitting `first` should return all cells."""
+        result = self._query_datacells(first_arg=None)
+        self.assertIsNone(result.get("errors"))
+        datacells = result["data"]["extract"]["fullDatacellList"]
+        self.assertEqual(len(datacells), 3)
+
+    def test_first_larger_than_count_returns_all(self):
+        """A `first` larger than the total count returns all cells."""
+        result = self._query_datacells(first_arg=100)
+        self.assertIsNone(result.get("errors"))
+        datacells = result["data"]["extract"]["fullDatacellList"]
+        self.assertEqual(len(datacells), 3)

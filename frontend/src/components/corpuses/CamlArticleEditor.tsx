@@ -254,9 +254,9 @@ const ExtractPickerItem = styled.button<{ $active?: boolean }>`
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceLight};
   }
-  &:focus {
-    outline: none;
-    background: ${OS_LEGAL_COLORS.surfaceLight};
+  &:focus-visible {
+    outline: 2px solid ${OS_LEGAL_COLORS.accent};
+    outline-offset: -2px;
   }
 `;
 
@@ -612,6 +612,9 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
         case "ArrowUp":
           if (count === 0) return;
           event.preventDefault();
+          // `prev <= 0` covers both `0` (first item → wrap to last) and `-1`
+          // (no item focused → jump to last). This is intentional per WAI-ARIA
+          // Authoring Practices for listbox keyboard interaction.
           setActiveExtractIndex((prev) => (prev <= 0 ? count - 1 : prev - 1));
           break;
         case "Home":
@@ -688,6 +691,13 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                   aria-haspopup="listbox"
                   aria-expanded={showExtractPicker}
                   aria-controls="caml-extract-picker-listbox"
+                  aria-activedescendant={
+                    showExtractPicker &&
+                    activeExtractIndex >= 0 &&
+                    activeExtractIndex < corpusExtracts.length
+                      ? `caml-extract-picker-option-${corpusExtracts[activeExtractIndex].id}`
+                      : undefined
+                  }
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowExtractPicker((v) => !v);
@@ -703,12 +713,6 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                     id="caml-extract-picker-listbox"
                     role="listbox"
                     aria-label="Corpus extracts"
-                    aria-activedescendant={
-                      activeExtractIndex >= 0 &&
-                      activeExtractIndex < corpusExtracts.length
-                        ? `caml-extract-picker-option-${corpusExtracts[activeExtractIndex].id}`
-                        : undefined
-                    }
                   >
                     {extractsLoading ? (
                       <ExtractPickerEmpty>
