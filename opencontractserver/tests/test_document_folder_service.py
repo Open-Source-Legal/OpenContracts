@@ -3086,9 +3086,10 @@ class TestErrorPaths_DeleteFolderAtomicRollback(DocumentFolderServiceTestBase):
         )
         self.assertEqual(stuck_path.folder_id, folder.id)
 
-    def test_delete_folder_rolls_back_successful_relocations_on_later_failure(self):
-        """When the second document fails, the first document's relocation
-        is also rolled back (atomic all-or-nothing)."""
+    def test_delete_folder_rolls_back_on_planning_failure(self):
+        """When the second document fails path disambiguation during the
+        planning phase (before any DB writes), the entire operation is
+        rolled back atomically and no state changes are persisted."""
         folder, _ = DocumentFolderService.create_folder(
             user=self.owner, corpus=self.corpus, name="Mixed"
         )

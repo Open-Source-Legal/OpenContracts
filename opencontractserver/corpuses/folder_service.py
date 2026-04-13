@@ -1343,6 +1343,11 @@ class DocumentFolderService:
         # Nested import to avoid circular dependency during app initialization.
         from opencontractserver.documents.models import DocumentPath
 
+        # ``update_fields`` is intentionally omitted (defaults to ``None``),
+        # matching the kwargs a regular ``Model.save()`` would send when
+        # ``created=True``.  The downstream handler
+        # ``process_doc_on_document_path_create`` does not inspect
+        # ``update_fields``, so this is semantically identical.
         for path in paths:
             post_save.send(sender=DocumentPath, instance=path, created=True)
 
@@ -1386,6 +1391,13 @@ class DocumentFolderService:
         # would match EVERY active path in the corpus.  Instead, use a regex
         # that only matches single-segment root paths (e.g. "/report.pdf"
         # but not "/folder/report.pdf").
+        #
+        # NOTE: These regex filters cannot use a btree index on ``path``
+        # (PostgreSQL requires anchored patterns with no alternation for
+        # index-only scans).  For typical corpus sizes this is fine, but
+        # corpuses with thousands of files at the same directory level may
+        # benefit from a GIN/pg_trgm index or a rewrite using
+        # ``path__startswith`` + a slash-count annotation.
         if directory == "/":
             qs = qs.filter(path__regex=r"^/[^/]+$")
         elif directory:
@@ -1462,6 +1474,10 @@ class DocumentFolderService:
             # Caller pre-fetched the occupied set — skip the DB query entirely.
             # This is the hot path for bulk operations which share a single
             # fetch across N disambiguations.
+            #
+            # ``occupied_override`` is treated as read-only inside this method;
+            # callers are responsible for appending the returned path to the
+            # set after this method returns.
             occupied = occupied_override
         else:
             # Derive the directory once so that both the fetch and the candidate
