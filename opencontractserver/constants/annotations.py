@@ -12,6 +12,7 @@ MANUAL_ANNOTATION_SENTINEL = "~~MANUAL~~"
 # Labels prefixed with OC_ are reserved for platform-generated annotations.
 # They drive built-in features such as the document index.
 OC_SECTION_LABEL = "OC_SECTION"
+OC_EXTRACT_SOURCE_LABEL = "OC_EXTRACT_SOURCE"
 
 # Maximum number of entries allowed in a single create_document_index call.
 DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
