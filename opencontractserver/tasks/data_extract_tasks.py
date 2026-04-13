@@ -9,6 +9,9 @@ from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.shared.decorators import celery_task_with_async_to_sync
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.extraction_grounding import (
+    ground_extraction_to_annotations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -314,8 +317,27 @@ async def doc_extract_query_task(
             logger.info(f"  Final saved data: {data}")
             logger.info(f"  LLM log saved: {len(llm_log) if llm_log else 0} characters")
 
-            # Note: The new API doesn't expose sources directly in structured_response
-            # This is actually better - sources are for chat, not extraction!
+            # Auto-ground: find extracted text values in the source document
+            # and create linked source annotations with PDF/text coordinates.
+            try:
+                grounding_annotations = await ground_extraction_to_annotations(
+                    datacell=datacell,
+                    document=document,
+                    corpus=corpus_id,
+                    user_id=datacell.creator.id,
+                )
+                if grounding_annotations:
+                    logger.info(
+                        f"Auto-grounded {len(grounding_annotations)} source "
+                        f"annotations for datacell {cell_id}"
+                    )
+            except Exception as grounding_err:
+                # Grounding is best-effort — never fail the extraction
+                logger.warning(
+                    f"Auto-grounding failed for datacell {cell_id}: "
+                    f"{grounding_err}",
+                    exc_info=True,
+                )
 
         else:
             # Extraction returned None
