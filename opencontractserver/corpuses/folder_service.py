@@ -995,7 +995,7 @@ class DocumentFolderService:
         # path while we create the successor node.
         with transaction.atomic():
             current = (
-                DocumentPath.objects.select_for_update()
+                DocumentPath.objects.select_for_update(of=("self",))
                 .filter(
                     document=document,
                     corpus=corpus,
@@ -1314,6 +1314,10 @@ class DocumentFolderService:
         Return the directory string for a target folder in the same format
         ``_fetch_occupied_paths_in_directory`` expects (a trailing slash).
 
+        ``CorpusFolder.get_path()`` returns a path that may include
+        leading/trailing slashes depending on tree depth, so ``.strip("/")``
+        normalises it before wrapping with a canonical ``/prefix/`` format.
+
         - ``None`` (root) → ``"/"``
         - Folder ``Legal/Contracts`` → ``"/Legal/Contracts/"``
         """
@@ -1345,11 +1349,19 @@ class DocumentFolderService:
 
         # ``update_fields`` is intentionally omitted (defaults to ``None``),
         # matching the kwargs a regular ``Model.save()`` would send when
-        # ``created=True``.  The downstream handler
-        # ``process_doc_on_document_path_create`` does not inspect
-        # ``update_fields``, so this is semantically identical.
+        # ``created=True``.  ``raw`` and ``using`` are supplied explicitly
+        # so that any future handler inspecting these kwargs (e.g. a
+        # data-import guard checking ``raw``, or a multi-DB router checking
+        # ``using``) receives values consistent with Django's native
+        # ``Model.save()`` dispatch.
         for path in paths:
-            post_save.send(sender=DocumentPath, instance=path, created=True)
+            post_save.send(
+                sender=DocumentPath,
+                instance=path,
+                created=True,
+                raw=False,
+                using=path._state.db,
+            )
 
     @staticmethod
     def _fetch_occupied_paths_in_directory(
@@ -1404,7 +1416,16 @@ class DocumentFolderService:
             # Match only immediate children (not nested subdirectories)
             # to avoid pulling the entire subtree into memory.
             qs = qs.filter(path__regex=rf"^{re.escape(directory)}[^/]+$")
-        # else: directory == "" means no leading slash; match all (rare)
+        else:
+            # directory == "" means base_path had no leading slash — structurally
+            # unexpected since all stored paths start with "/".  Fall through to
+            # the unfiltered query rather than crashing, but log a warning so
+            # regressions that produce malformed paths are caught early.
+            logger.warning(
+                "_fetch_occupied_paths_in_directory called with empty directory "
+                "for corpus %s — this will load all active paths",
+                corpus.id,
+            )
         if exclude_pk is not None:
             qs = qs.exclude(pk=exclude_pk)
         return set(qs.values_list("path", flat=True))

@@ -2625,6 +2625,37 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
             DocumentPath.objects.filter(document=doc2, corpus=self.corpus).count(), 1
         )
 
+    @patch("opencontractserver.corpuses.folder_service.post_save")
+    def test_bulk_move_dispatches_post_save_for_each_created_path(self, mock_signal):
+        """bulk_create bypasses Django signals; verify manual dispatch fires once per doc."""
+        doc1, _ = self._create_doc_at_root("Doc 1", "doc1.pdf")
+        doc2, _ = self._create_doc_at_root("Doc 2", "doc2.pdf")
+        doc3, _ = self._create_doc_at_root("Doc 3", "doc3.pdf")
+
+        moved_count, error = DocumentFolderService.move_documents_to_folder(
+            user=self.owner,
+            document_ids=[doc1.id, doc2.id, doc3.id],
+            corpus=self.corpus,
+            folder=self.folder,
+        )
+
+        self.assertEqual(moved_count, 3)
+        self.assertEqual(error, "")
+
+        # post_save.send should have been called exactly 3 times (once per doc)
+        send_calls = mock_signal.send.call_args_list
+        self.assertEqual(len(send_calls), 3)
+
+        for call in send_calls:
+            kwargs = call.kwargs if call.kwargs else {}
+            # If called with positional + kwargs, kwargs are in the second element
+            if not kwargs and len(call) > 1:
+                kwargs = call[1]
+            self.assertEqual(kwargs["sender"], DocumentPath)
+            self.assertTrue(kwargs["created"])
+            self.assertFalse(kwargs["raw"])
+            self.assertIsNotNone(kwargs.get("using"))
+
 
 class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestBase):
     """
