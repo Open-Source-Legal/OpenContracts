@@ -76,6 +76,11 @@ class BenchmarkReport:
     task_results: list[TaskResult]
     aggregates: dict[str, int | float] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Auto-compute aggregates when task_results are provided at init."""
+        if self.task_results:
+            self.compute_aggregates()
+
     def compute_aggregates(self) -> None:
         """Refresh :attr:`aggregates` from ``task_results``.
 

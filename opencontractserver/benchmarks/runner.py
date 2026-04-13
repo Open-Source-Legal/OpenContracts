@@ -85,6 +85,14 @@ def run_benchmark(
     Returns:
         The populated :class:`BenchmarkReport`.
     """
+    if not use_eager_extraction:
+        raise NotImplementedError(
+            "Non-eager extraction is not yet supported because child tasks "
+            "dispatched by doc_extract_query_task go to the real broker and "
+            "may not finish before _evaluate() runs. "
+            "Set use_eager_extraction=True."
+        )
+
     config: dict[str, object] = {
         "model": model,
         "top_k": top_k,
@@ -118,7 +126,8 @@ def run_benchmark(
         extract_id=loaded.extract.id,
         task_results=task_results,
     )
-    report.compute_aggregates()
+    # compute_aggregates() is auto-called by __post_init__ when
+    # task_results is non-empty.
     config["finished_at"] = timezone.now().isoformat()
 
     if write_report:

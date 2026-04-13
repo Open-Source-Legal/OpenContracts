@@ -292,7 +292,11 @@ def _ingest_benchmark_document(
 
 
 def _wait_for_document_ready(*, document_id: int, timeout_seconds: int) -> None:
-    """Block until the referenced document leaves the PENDING/PROCESSING state."""
+    """Block until the referenced document leaves the PENDING/PROCESSING state.
+
+    Handles the case where a document is deleted mid-poll (`.first()` returns
+    ``None``) by returning immediately rather than spinning until timeout.
+    """
     deadline = time.monotonic() + max(1, timeout_seconds)
     while time.monotonic() < deadline:
         status = (
@@ -300,14 +304,14 @@ def _wait_for_document_ready(*, document_id: int, timeout_seconds: int) -> None:
             .values_list("processing_status", flat=True)
             .first()
         )
-        if status in (
+        if status is None or status in (
             DocumentProcessingStatus.COMPLETED,
             DocumentProcessingStatus.FAILED,
         ):
             return
         time.sleep(_INGEST_POLL_INTERVAL_S)
     raise TimeoutError(
-        f"Document {document_id} did not finish ingestion within " f"{timeout_seconds}s"
+        f"Document {document_id} did not finish ingestion within {timeout_seconds}s"
     )
 
 
