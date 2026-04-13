@@ -177,12 +177,17 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
         )
 
         with SAMPLE_PDF_FILE_TWO_PATH.open("rb") as f:
-            pdf_file = ContentFile(f.read(), name="test.pdf")
+            pdf_bytes = f.read()
 
         # Create 3 documents with one datacell each
         self.docs = []
         self.cells = []
         for i in range(3):
+            # Create a fresh ContentFile per iteration — ContentFile wraps a
+            # BytesIO whose pointer advances to the end after Django's storage
+            # backend reads it during save(), so reusing a single instance
+            # would produce empty files for the 2nd and 3rd documents.
+            pdf_file = ContentFile(pdf_bytes, name="test.pdf")
             doc = Document.objects.create(
                 creator=self.user,
                 title=f"Doc {i}",

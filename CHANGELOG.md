@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`buildSourceLink` page-indexing convention documented**: Added an explanatory comment clarifying that `Annotation.page` is 1-based (model default=1) and is only used for the chip label (`p.{page}`) — the document viewer navigates by `annotationId` alone, so there is no URL-layer indexing convention to worry about (`frontend/src/components/extracts/ExtractGridEmbed.tsx`).
   - **Verified `GET_EXTRACTS` already selects `fullDocumentList`** (`frontend/src/graphql/queries.ts:1901`) and that `CamlDirectiveRenderer` still wires `resolveImageSrc` through to `MarkdownMessageRenderer` — both no-ops requested by the issue's verification items.
 
+### Changed
+
+- **`fullDatacellList` now capped at `MAX_DATACELL_FIRST` (10 000) by default** (Issue #1227): Previously, querying `ExtractType.fullDatacellList` without a `first` argument returned every datacell for that extract. It is now capped at `MAX_DATACELL_FIRST = 10_000` (`opencontractserver/constants/annotations.py`). Callers that relied on unbounded results should pass an explicit `first` argument if they need more than 10 000 cells, though the server-side cap will still apply. Full Relay-style pagination is tracked in #1204.
+
 ### Added
 
 - **Agent memory system**: Per-corpus memory that lets agents accumulate reusable insights from conversations. Memory is stored as a first-class markdown Document in the corpus (visible and editable by users). Features include:
