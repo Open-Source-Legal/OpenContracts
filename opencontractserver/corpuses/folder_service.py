@@ -1165,12 +1165,20 @@ class DocumentFolderService:
                 if not paths_to_move:
                     return 0, ""
 
+                # Resolve the target folder's path once up front.  Each
+                # invocation of CorpusFolder.get_path() walks ancestors via
+                # a recursive CTE query, so doing it inside the loop would
+                # cost O(N) round trips for an O(1) value.  We reuse the
+                # same value for both _target_directory_string and
+                # _compute_moved_path to guarantee exactly one CTE query.
+                target_folder_path = folder.get_path() if folder is not None else None
+
                 # Pre-fetch all occupied paths in the target directory with a
                 # SINGLE query, instead of letting each _disambiguate_path call
                 # re-fetch them.  Because we filtered out paths whose folder
                 # already equals the target, none of ``paths_to_move`` lives
                 # in the target directory — so no per-row exclusion is needed.
-                target_dir = cls._target_directory_string(folder)
+                target_dir = cls._target_directory_string_from_path(target_folder_path)
                 occupied_paths = cls._fetch_occupied_paths_in_directory(
                     corpus, target_dir
                 )
@@ -1180,12 +1188,6 @@ class DocumentFolderService:
                 # disambiguation so that two documents with the same filename
                 # get distinct suffixes (within-batch conflict resolution).
                 planned_paths: list[tuple] = []  # (current, new_path)
-
-                # Resolve the target folder's path once up front.  Each
-                # invocation of CorpusFolder.get_path() walks ancestors via
-                # a recursive CTE query, so doing it inside the loop would
-                # cost O(N) round trips for an O(1) value.
-                target_folder_path = folder.get_path() if folder is not None else None
 
                 for current in paths_to_move:
                     # Note: _compute_moved_path extracts only the filename;
@@ -1355,6 +1357,31 @@ class DocumentFolderService:
                 f"CorpusFolder {target_folder.pk} returned empty path from get_path()"
             )
         return f"/{folder_path}/"
+
+    @staticmethod
+    def _target_directory_string_from_path(
+        folder_path: str | None,
+    ) -> str:
+        """
+        Return the directory string from a pre-computed folder path.
+
+        Same semantics as ``_target_directory_string`` but accepts the
+        already-resolved ``get_path()`` value so callers that cache the
+        folder path (e.g. ``move_documents_to_folder``) avoid a redundant
+        CTE query.
+
+        - ``None`` (root) → ``"/"``
+        - ``"Legal/Contracts"`` → ``"/Legal/Contracts/"``
+        """
+        if folder_path is None:
+            return "/"
+        stripped = folder_path.strip("/")
+        if not stripped:
+            raise ValueError(
+                "_target_directory_string_from_path: folder_path is empty "
+                f"after stripping slashes (original: {folder_path!r})"
+            )
+        return f"/{stripped}/"
 
     @staticmethod
     def _dispatch_document_path_created_signals(

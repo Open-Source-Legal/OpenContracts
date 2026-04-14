@@ -3798,8 +3798,10 @@ class TestCoverageGap_DisambiguateNoSlashPath(DocumentFolderServiceTestBase):
     SCENARIO: _disambiguate_path is called with a path that has no slash
     (e.g. "report.pdf" instead of "/report.pdf").
 
-    BUSINESS RULE: Even unusual path formats are handled correctly; the
-    directory="" and dir_part=None branches must not crash.
+    BUSINESS RULE: All stored paths start with "/".  A bare filename with
+    no leading slash is structurally invalid and should raise ValueError
+    rather than silently loading all active paths (which would mask a bug
+    in the caller and degrade performance on large corpuses).
     """
 
     def setUp(self):
@@ -3810,13 +3812,13 @@ class TestCoverageGap_DisambiguateNoSlashPath(DocumentFolderServiceTestBase):
             title="Test Corpus", creator=self.owner, is_public=False
         )
 
-    def test_no_slash_path_no_conflict(self):
-        """A no-slash path with no conflict returns unchanged."""
-        result = DocumentFolderService._disambiguate_path("report.pdf", self.corpus)
-        self.assertEqual(result, "report.pdf")
+    def test_no_slash_path_raises_value_error(self):
+        """A no-slash path raises ValueError (structurally invalid)."""
+        with self.assertRaises(ValueError):
+            DocumentFolderService._disambiguate_path("report.pdf", self.corpus)
 
-    def test_no_slash_path_with_conflict_disambiguates(self):
-        """A no-slash path that conflicts gets a suffix."""
+    def test_no_slash_path_with_conflict_raises_value_error(self):
+        """A no-slash path raises ValueError even when a conflict exists."""
         doc = Document.objects.create(
             title="Existing", creator=self.owner, pdf_file="report.pdf"
         )
@@ -3831,11 +3833,11 @@ class TestCoverageGap_DisambiguateNoSlashPath(DocumentFolderServiceTestBase):
             is_deleted=False,
         )
 
-        result = DocumentFolderService._disambiguate_path("report.pdf", self.corpus)
-        self.assertEqual(result, "report_1.pdf")
+        with self.assertRaises(ValueError):
+            DocumentFolderService._disambiguate_path("report.pdf", self.corpus)
 
-    def test_no_slash_extensionless_path_with_conflict(self):
-        """A no-slash, extensionless path that conflicts gets a suffix."""
+    def test_no_slash_extensionless_path_raises_value_error(self):
+        """A no-slash, extensionless path raises ValueError."""
         doc = Document.objects.create(
             title="Existing", creator=self.owner, pdf_file="Makefile"
         )
@@ -3850,8 +3852,8 @@ class TestCoverageGap_DisambiguateNoSlashPath(DocumentFolderServiceTestBase):
             is_deleted=False,
         )
 
-        result = DocumentFolderService._disambiguate_path("Makefile", self.corpus)
-        self.assertEqual(result, "Makefile_1")
+        with self.assertRaises(ValueError):
+            DocumentFolderService._disambiguate_path("Makefile", self.corpus)
 
 
 class TestCoverageGap_BulkMoveIntegrityErrorRollback(DocumentFolderServiceTestBase):
