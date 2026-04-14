@@ -345,8 +345,8 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
           `was still fetched — consider server-side pagination (#1204).`
       );
     }
-    // `rows` and `columns` are derived from `extract` via useMemo — they only
-    // change when `extract` changes — so `[extract]` is the real driver here.
+    // `rows` and `columns` are derived from `extract` via useMemo, but are
+    // listed explicitly to satisfy the exhaustive-deps lint rule.
   }, [extract, rows, columns]);
 
   if (!extractId) {
