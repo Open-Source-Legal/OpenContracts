@@ -5,7 +5,7 @@
  * 1. Default rendering with error message
  * 2. Presence of the static fallback text
  */
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
 import { ComponentEmbedErrorFallback } from "../src/components/widgets/ComponentEmbedErrorFallback";
 

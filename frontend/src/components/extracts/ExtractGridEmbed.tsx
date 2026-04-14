@@ -185,7 +185,7 @@ const CenterMessage = styled.div`
 // ---------------------------------------------------------------------------
 
 /** Format a datacell value for display, truncating long objects. */
-function formatCellValue(
+export function formatCellValue(
   data: string | number | boolean | Record<string, unknown> | null | undefined
 ): string {
   if (data === null || data === undefined) return "\u2014";

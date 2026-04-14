@@ -9,7 +9,7 @@
  * 5. Loading state (spinner while fetching)
  * 6. Missing extractId prop
  */
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
 import { ExtractGridEmbedTestWrapper } from "./ExtractGridEmbedTestWrapper";
 

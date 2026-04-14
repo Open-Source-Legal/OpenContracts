@@ -638,6 +638,7 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
           const selected = corpusExtracts[activeExtractIndex];
           if (selected) {
             handleInsertComponent("extract-grid", { extractId: selected.id });
+            extractPickerTriggerRef.current?.focus();
           }
           break;
         }
@@ -697,6 +698,13 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                       ? "caml-extract-picker-listbox"
                       : undefined
                   }
+                  aria-activedescendant={
+                    showExtractPicker &&
+                    activeExtractIndex >= 0 &&
+                    activeExtractIndex < corpusExtracts.length
+                      ? `caml-extract-picker-option-${corpusExtracts[activeExtractIndex].id}`
+                      : undefined
+                  }
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowExtractPicker((v) => !v);
@@ -712,12 +720,6 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                     id="caml-extract-picker-listbox"
                     role="listbox"
                     aria-label="Corpus extracts"
-                    aria-activedescendant={
-                      activeExtractIndex >= 0 &&
-                      activeExtractIndex < corpusExtracts.length
-                        ? `caml-extract-picker-option-${corpusExtracts[activeExtractIndex].id}`
-                        : undefined
-                    }
                   >
                     {extractsLoading ? (
                       <ExtractPickerEmpty>

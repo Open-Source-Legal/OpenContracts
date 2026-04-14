@@ -1,0 +1,73 @@
+import { describe, it, expect } from "vitest";
+import { formatCellValue } from "../ExtractGridEmbed";
+
+describe("formatCellValue()", () => {
+  it("returns em-dash for null", () => {
+    expect(formatCellValue(null)).toBe("\u2014");
+  });
+
+  it("returns em-dash for undefined", () => {
+    expect(formatCellValue(undefined)).toBe("\u2014");
+  });
+
+  it('returns "Yes" for true', () => {
+    expect(formatCellValue(true)).toBe("Yes");
+  });
+
+  it('returns "No" for false', () => {
+    expect(formatCellValue(false)).toBe("No");
+  });
+
+  it("converts number to string", () => {
+    expect(formatCellValue(42)).toBe("42");
+  });
+
+  it("passes through short strings", () => {
+    expect(formatCellValue("hello")).toBe("hello");
+  });
+
+  it("returns JSON for short objects (fast path)", () => {
+    const obj = { key: "value" };
+    expect(formatCellValue(obj)).toBe('{"key":"value"}');
+  });
+
+  it("truncates long JSON at code-point boundary with ellipsis", () => {
+    // Build an object whose JSON representation exceeds 100 chars
+    const longValue = "x".repeat(120);
+    const obj = { data: longValue };
+    const result = formatCellValue(obj);
+    // Should end with ellipsis and be at most 101 chars (100 code points + ellipsis)
+    expect(result.endsWith("\u2026")).toBe(true);
+    const codePoints = Array.from(result);
+    // 100 code points from the slice + 1 ellipsis = 101
+    expect(codePoints.length).toBe(101);
+  });
+
+  it("handles emoji in long objects without splitting surrogate pairs", () => {
+    // Each emoji is 1 code point but 2 UTF-16 code units (surrogate pair).
+    // JSON wrapper `{"e":"..."}` adds 8 code points, so 95 emoji = 103 code points > 100.
+    const emojis = "\u{1F600}".repeat(95);
+    const obj = { e: emojis };
+    const result = formatCellValue(obj);
+    // Should truncate cleanly without U+FFFD replacement characters
+    expect(result).not.toContain("\uFFFD");
+    expect(result.endsWith("\u2026")).toBe(true);
+    const codePoints = Array.from(result);
+    expect(codePoints.length).toBe(101);
+  });
+
+  it("does not truncate object whose JSON has >100 UTF-16 units but <=100 code points", () => {
+    // Build a string of 48 emoji: JSON = {"e":"<48 emoji>"} = 7 wrapper chars + 48 code points = 55 code points
+    // But 7 + 48*2 = 103 UTF-16 units (exceeds 100 in .length but not in code points)
+    const emojis = "\u{1F600}".repeat(48);
+    const obj = { e: emojis };
+    const json = JSON.stringify(obj);
+    // Verify our premise: UTF-16 length > 100 but code point count <= 100
+    expect(json.length).toBeGreaterThan(100);
+    expect(Array.from(json).length).toBeLessThanOrEqual(100);
+    const result = formatCellValue(obj);
+    // Should return the full JSON without truncation
+    expect(result).toBe(json);
+    expect(result.endsWith("\u2026")).toBe(false);
+  });
+});
