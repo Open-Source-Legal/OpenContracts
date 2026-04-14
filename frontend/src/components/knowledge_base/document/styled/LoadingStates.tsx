@@ -60,57 +60,6 @@ export const PlaceholderItem = styled(PlaceholderBase)<{ delay: number }>`
   animation-delay: ${(props) => props.delay}s;
 `;
 
-export const DocumentLoadingContainer = styled.div`
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  width: 90%;
-  max-width: 600px;
-
-  .progress-text {
-    color: ${OS_LEGAL_COLORS.primaryBlue};
-    font-size: 1.1rem;
-    font-weight: 500;
-    margin-top: 1rem;
-    opacity: 0.9;
-  }
-
-  .progress-bar {
-    width: 100%;
-    height: 4px;
-    background: ${OS_LEGAL_COLORS.gray200};
-    border-radius: 2px;
-    overflow: hidden;
-    margin-top: 0.5rem;
-
-    .progress-fill {
-      height: 100%;
-      background: ${OS_LEGAL_COLORS.primaryBlue};
-      border-radius: 2px;
-      transition: width 0.3s ease;
-      position: relative;
-
-      &::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.3),
-          transparent
-        );
-        animation: progressPulse 1.5s infinite;
-      }
-    }
-  }
-`;
-
 export const SummaryPlaceholder = styled.div`
   padding: 2rem;
   max-width: 800px;
