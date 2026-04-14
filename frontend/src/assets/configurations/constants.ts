@@ -367,6 +367,10 @@ export const EXTRACT_GRID_EMBED_MAX_COLS = 20;
  * Computed as `(MAX_ROWS + 1) * MAX_COLS` so that the too-many-rows guard can
  * still fire (`+1`) while bounding the worst-case payload. Remove once
  * server-side pagination lands (see #1204).
+ *
+ * The backend enforces its own independent cap: `MAX_DATACELL_FIRST = 10_000`
+ * in `opencontractserver/constants/annotations.py`. This frontend value must
+ * stay below the backend cap to avoid silently truncated results.
  */
 export const EXTRACT_GRID_EMBED_MAX_CELLS =
   (EXTRACT_GRID_EMBED_MAX_ROWS + 1) * EXTRACT_GRID_EMBED_MAX_COLS;

@@ -208,7 +208,17 @@ export function formatCellValue(
     }
     return json;
   }
-  return String(data);
+  // Apply the same code-point-safe truncation to raw string/number values
+  // so that unexpectedly long cell contents don't blow out the table layout.
+  const str = String(data);
+  if (str.length <= EXTRACT_GRID_CELL_TRUNCATE_LENGTH) return str;
+  const codePoints = Array.from(str);
+  if (codePoints.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
+    return (
+      codePoints.slice(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH).join("") + "\u2026"
+    );
+  }
+  return str;
 }
 
 /**

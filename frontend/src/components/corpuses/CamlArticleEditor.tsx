@@ -591,11 +591,12 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
    * - Enter selects the focused option (inserts the extract grid marker).
    * - Escape closes the dropdown and returns focus to the trigger button.
    *
-   * Attached to the wrapper div so the handler fires regardless of which
-   * element inside the picker currently holds DOM focus.
+   * Attached to the trigger button itself so `aria-activedescendant` and
+   * the keyboard handler share the same DOM focus context — required by
+   * WAI-ARIA for virtual-focus listbox patterns.
    */
   const handleExtractPickerKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
       if (!showExtractPicker) return;
       const count = corpusExtracts.length;
 
@@ -683,11 +684,7 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
               CAML Source
             </PaneHeader>
             <EditorToolbar>
-              <div
-                ref={extractPickerRef}
-                style={{ position: "relative" }}
-                onKeyDown={handleExtractPickerKeyDown}
-              >
+              <div ref={extractPickerRef} style={{ position: "relative" }}>
                 <ToolbarBtn
                   ref={extractPickerTriggerRef}
                   type="button"
@@ -705,6 +702,7 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                       ? `caml-extract-picker-option-${corpusExtracts[activeExtractIndex].id}`
                       : undefined
                   }
+                  onKeyDown={handleExtractPickerKeyDown}
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowExtractPicker((v) => !v);

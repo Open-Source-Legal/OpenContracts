@@ -67,15 +67,16 @@ class ExtractsQueryTestCase(TestCase):
         )
 
     def test_fieldset_query(self):
-        query = """
-            query {
-                fieldset(id: "%s") {
+        fieldset_gid = to_global_id("FieldsetType", self.fieldset.id)
+        query = f"""
+            query {{
+                fieldset(id: "{fieldset_gid}") {{
                     id
                     name
                     description
-                }
-            }
-        """ % to_global_id("FieldsetType", self.fieldset.id)
+                }}
+            }}
+        """
 
         result = self.client.execute(query)
         self.assertIsNone(result.get("errors"))
@@ -87,15 +88,16 @@ class ExtractsQueryTestCase(TestCase):
         self.assertEqual(result["data"]["fieldset"]["description"], "Test description")
 
     def test_column_query(self):
-        query = """
-            query {
-                column(id: "%s") {
+        column_gid = to_global_id("ColumnType", self.column.id)
+        query = f"""
+            query {{
+                column(id: "{column_gid}") {{
                     id
                     query
                     outputType
-                }
-            }
-        """ % to_global_id("ColumnType", self.column.id)
+                }}
+            }}
+        """
 
         result = self.client.execute(query)
         self.assertIsNone(result.get("errors"))
@@ -106,14 +108,15 @@ class ExtractsQueryTestCase(TestCase):
         self.assertEqual(result["data"]["column"]["outputType"], "str")
 
     def test_extract_query(self):
-        query = """
-            query {
-                extract(id: "%s") {
+        extract_gid = to_global_id("ExtractType", self.extract.id)
+        query = f"""
+            query {{
+                extract(id: "{extract_gid}") {{
                     id
                     name
-                }
-            }
-        """ % to_global_id("ExtractType", self.extract.id)
+                }}
+            }}
+        """
 
         result = self.client.execute(query)
         self.assertIsNone(result.get("errors"))
@@ -124,15 +127,16 @@ class ExtractsQueryTestCase(TestCase):
         self.assertEqual(result["data"]["extract"]["name"], "TestExtract")
 
     def test_datacell_query(self):
-        query = """
-            query {
-                datacell(id: "%s") {
+        datacell_gid = to_global_id("DatacellType", self.row.id)
+        query = f"""
+            query {{
+                datacell(id: "{datacell_gid}") {{
                     id
                     data
                     dataDefinition
-                }
-            }
-        """ % to_global_id("DatacellType", self.row.id)
+                }}
+            }}
+        """
 
         result = self.client.execute(query)
         self.assertIsNone(result.get("errors"))
@@ -214,27 +218,27 @@ class ExtractFullDatacellListFirstArgTestCase(TestCase):
         """Helper to query fullDatacellList with optional first argument."""
         extract_gid = to_global_id("ExtractType", self.extract.id)
         if first_arg is not None:
-            query = """
-                query {
-                    extract(id: "%s") {
-                        fullDatacellList(first: %d) {
+            query = f"""
+                query {{
+                    extract(id: "{extract_gid}") {{
+                        fullDatacellList(first: {first_arg}) {{
                             id
                             data
-                        }
-                    }
-                }
-            """ % (extract_gid, first_arg)
+                        }}
+                    }}
+                }}
+            """
         else:
-            query = """
-                query {
-                    extract(id: "%s") {
-                        fullDatacellList {
+            query = f"""
+                query {{
+                    extract(id: "{extract_gid}") {{
+                        fullDatacellList {{
                             id
                             data
-                        }
-                    }
-                }
-            """ % extract_gid
+                        }}
+                    }}
+                }}
+            """
         return self.client.execute(query)
 
     def test_first_positive_caps_results(self):

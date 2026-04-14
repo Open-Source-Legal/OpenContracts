@@ -56,6 +56,23 @@ describe("formatCellValue()", () => {
     expect(codePoints.length).toBe(101);
   });
 
+  it("truncates long raw strings at code-point boundary with ellipsis", () => {
+    const longString = "a".repeat(150);
+    const result = formatCellValue(longString);
+    expect(result.endsWith("\u2026")).toBe(true);
+    const codePoints = Array.from(result);
+    expect(codePoints.length).toBe(101);
+  });
+
+  it("handles emoji in long raw strings without splitting surrogate pairs", () => {
+    const emojis = "\u{1F600}".repeat(105);
+    const result = formatCellValue(emojis);
+    expect(result).not.toContain("\uFFFD");
+    expect(result.endsWith("\u2026")).toBe(true);
+    const codePoints = Array.from(result);
+    expect(codePoints.length).toBe(101);
+  });
+
   it("does not truncate object whose JSON has >100 UTF-16 units but <=100 code points", () => {
     // Build a string of 48 emoji: JSON = {"e":"<48 emoji>"} = 7 wrapper chars + 48 code points = 55 code points
     // But 7 + 48*2 = 103 UTF-16 units (exceeds 100 in .length but not in code points)
