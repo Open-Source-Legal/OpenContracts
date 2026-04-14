@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { formatCellValue, truncateAtCodePoint } from "../ExtractGridEmbed";
+import {
+  formatCellValue,
+  truncateAtCodePoint,
+} from "../../../utils/formatters";
 
 describe("truncateAtCodePoint()", () => {
   it("returns the string unchanged when within limit", () => {

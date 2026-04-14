@@ -67,9 +67,11 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         DatacellType,
         first=graphene.Int(
             description=(
-                "Optional cap on the number of datacells returned. When "
-                "provided, the resolver slices the queryset after permission "
-                "filtering so the payload stays bounded for large extracts."
+                "Optional cap on the number of datacells returned. "
+                "Positive values are honoured up to MAX_DATACELL_FIRST. "
+                "Zero, negative, or absent values default to MAX_DATACELL_FIRST. "
+                "Note: this is NOT a Relay cursor-based pagination argument — "
+                "full pagination is tracked in #1204."
             ),
         ),
     )

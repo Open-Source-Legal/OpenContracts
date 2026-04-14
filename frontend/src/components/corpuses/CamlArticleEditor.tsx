@@ -732,6 +732,7 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                     ) : (
                       corpusExtracts.map((ext, index) => (
                         <ExtractPickerItem
+                          tabIndex={-1}
                           type="button"
                           role="option"
                           id={`caml-extract-picker-option-${ext.id}`}

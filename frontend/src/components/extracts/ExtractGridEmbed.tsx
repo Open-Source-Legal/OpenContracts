@@ -19,7 +19,6 @@ import styled, { keyframes } from "styled-components";
 
 import {
   DATACELL_STATUS_COLORS,
-  EXTRACT_GRID_CELL_TRUNCATE_LENGTH,
   EXTRACT_GRID_EMBED_MAX_CELLS,
   EXTRACT_GRID_EMBED_MAX_ROWS,
 } from "../../assets/configurations/constants";
@@ -31,6 +30,7 @@ import {
   ExtractGridEmbedCell,
   ExtractGridEmbedColumn,
 } from "../../graphql/queries";
+import { formatCellValue } from "../../utils/formatters";
 import { getDocumentUrl, buildQueryParams } from "../../utils/navigationUtils";
 
 // ---------------------------------------------------------------------------
@@ -185,37 +185,6 @@ const CenterMessage = styled.div`
 // ---------------------------------------------------------------------------
 
 /**
- * Truncate a string at a code-point boundary, appending an ellipsis if needed.
- *
- * Uses `Array.from` to iterate code points rather than UTF-16 code units so
- * that surrogate pairs (emoji / non-BMP characters) are never split.  The fast
- * path (`s.length <= maxLen`) skips the `Array.from` allocation entirely since
- * UTF-16 length is always >= code-point count.
- */
-export function truncateAtCodePoint(s: string, maxLen: number): string {
-  if (s.length <= maxLen) return s;
-  const cps = Array.from(s);
-  return cps.length > maxLen ? cps.slice(0, maxLen).join("") + "\u2026" : s;
-}
-
-/** Format a datacell value for display, truncating long objects. */
-export function formatCellValue(
-  data: string | number | boolean | Record<string, unknown> | null | undefined
-): string {
-  if (data === null || data === undefined) return "\u2014";
-  if (typeof data === "boolean") return data ? "Yes" : "No";
-  if (typeof data === "object") {
-    return truncateAtCodePoint(
-      JSON.stringify(data),
-      EXTRACT_GRID_CELL_TRUNCATE_LENGTH
-    );
-  }
-  // Apply the same code-point-safe truncation to raw string/number values
-  // so that unexpectedly long cell contents don't blow out the table layout.
-  return truncateAtCodePoint(String(data), EXTRACT_GRID_CELL_TRUNCATE_LENGTH);
-}
-
-/**
  * Build a link to the document viewer at a specific source annotation.
  *
  * NOTE: We pass only `annotationIds`, not a `page` query param. The document
@@ -281,6 +250,9 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
       datacellFirst: EXTRACT_GRID_EMBED_MAX_CELLS,
     },
     skip: !extractId,
+    // NOTE: If another caller queries the same extract with a different `first`
+    // value (e.g. undefined), Apollo will serve this capped result from cache.
+    // Acceptable while there is a single call site; revisit with #1204 cleanup.
     fetchPolicy: "cache-first",
   });
 
