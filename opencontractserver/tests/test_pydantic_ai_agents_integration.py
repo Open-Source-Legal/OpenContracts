@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TransactionTestCase
+from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
@@ -82,6 +83,8 @@ class TestPydanticAIAgentsIntegration(TransactionTestCase):
             creator=self.user,
             is_public=True,
             file_type="text/plain",
+            processing_started=timezone.now(),
+            backend_lock=False,
         )
         self.doc1.txt_extract_file.save(
             "payment_contract.txt", ContentFile(doc1_text.encode("utf-8")), save=True
@@ -96,6 +99,8 @@ class TestPydanticAIAgentsIntegration(TransactionTestCase):
             creator=self.user,
             is_public=True,
             file_type="text/plain",
+            processing_started=timezone.now(),
+            backend_lock=False,
         )
         self.doc2.txt_extract_file.save(
             "service_agreement.txt", ContentFile(doc2_text.encode("utf-8")), save=True
@@ -498,13 +503,17 @@ class TestPydanticAIAgentsEdgeCases(TransactionTestCase):
             is_public=True,
         )
 
-        # Document with minimal content
+        # Document with minimal content — processing_started prevents the
+        # post_save signal from triggering ingest_doc eagerly before
+        # txt_extract_file is saved (flaky under pytest-xdist).
         self.doc = Document.objects.create(
             title="Minimal Doc",
             description="Minimal document for edge cases",
             creator=self.user,
             is_public=True,
             file_type="text/plain",
+            processing_started=timezone.now(),
+            backend_lock=False,
         )
         self.doc.txt_extract_file.save(
             "minimal.txt", ContentFile(b"Short text."), save=True
