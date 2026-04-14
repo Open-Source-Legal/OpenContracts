@@ -880,7 +880,7 @@ class DocumentFolderService:
                     # captures within-batch claims on the fly (issue #1199).
                     occupied_paths = cls._fetch_occupied_paths_in_directory(corpus, "/")
 
-                    planned_paths: list[tuple] = []  # (current, new_path)
+                    planned_paths: list[tuple[DocumentPath, str]] = []
                     for current in affected_paths:
                         # Note: _compute_moved_path extracts only the filename;
                         # intermediate directory segments are dropped (the new
@@ -1171,7 +1171,7 @@ class DocumentFolderService:
                 # invocation of CorpusFolder.get_path() walks ancestors via
                 # a recursive CTE query, so doing it inside the loop would
                 # cost O(N) round trips for an O(1) value.  We reuse the
-                # same value for both _target_directory_string and
+                # same value for both _target_directory_string_from_path and
                 # _compute_moved_path to guarantee exactly one CTE query.
                 target_folder_path = folder.get_path() if folder is not None else None
 
@@ -1189,7 +1189,7 @@ class DocumentFolderService:
                 # conflicts up front.  ``occupied_paths`` is mutated after each
                 # disambiguation so that two documents with the same filename
                 # get distinct suffixes (within-batch conflict resolution).
-                planned_paths: list[tuple] = []  # (current, new_path)
+                planned_paths: list[tuple[DocumentPath, str]] = []
 
                 for current in paths_to_move:
                     # Note: _compute_moved_path extracts only the filename;
@@ -1361,23 +1361,6 @@ class DocumentFolderService:
                 f"after stripping slashes (original: {folder_path!r})"
             )
         return f"/{stripped}/"
-
-    @staticmethod
-    def _target_directory_string(target_folder: CorpusFolder | None) -> str:
-        """
-        Return the directory string for a target folder in the same format
-        ``_fetch_occupied_paths_in_directory`` expects (a trailing slash).
-
-        Delegates to ``_target_directory_string_from_path`` after resolving
-        the folder's path via ``get_path()``.
-
-        - ``None`` (root) → ``"/"``
-        - Folder ``Legal/Contracts`` → ``"/Legal/Contracts/"``
-        """
-        if target_folder is None:
-            return DocumentFolderService._target_directory_string_from_path(None)
-        folder_path = target_folder.get_path()
-        return DocumentFolderService._target_directory_string_from_path(folder_path)
 
     @staticmethod
     def _dispatch_document_path_created_signals(

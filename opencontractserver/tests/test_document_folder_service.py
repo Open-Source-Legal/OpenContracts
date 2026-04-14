@@ -2617,14 +2617,12 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         self.assertEqual(len(send_calls), 3)
 
         for call in send_calls:
-            kwargs = call.kwargs if call.kwargs else {}
-            if not kwargs and len(call) > 1:
-                kwargs = call[1]
-            self.assertEqual(kwargs["sender"], DocumentPath)
-            self.assertTrue(kwargs["created"])
-            self.assertFalse(kwargs["raw"])
-            self.assertIsNotNone(kwargs.get("using"))
-            self.assertIsNone(kwargs.get("update_fields"))
+            _, call_kwargs = call
+            self.assertEqual(call_kwargs["sender"], DocumentPath)
+            self.assertTrue(call_kwargs["created"])
+            self.assertFalse(call_kwargs["raw"])
+            self.assertIsNotNone(call_kwargs.get("using"))
+            self.assertIsNone(call_kwargs.get("update_fields"))
 
 
 class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
@@ -2747,15 +2745,12 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
         self.assertEqual(len(send_calls), 3)
 
         for call in send_calls:
-            kwargs = call.kwargs if call.kwargs else {}
-            # If called with positional + kwargs, kwargs are in the second element
-            if not kwargs and len(call) > 1:
-                kwargs = call[1]
-            self.assertEqual(kwargs["sender"], DocumentPath)
-            self.assertTrue(kwargs["created"])
-            self.assertFalse(kwargs["raw"])
-            self.assertIsNotNone(kwargs.get("using"))
-            self.assertIsNone(kwargs.get("update_fields"))
+            _, call_kwargs = call
+            self.assertEqual(call_kwargs["sender"], DocumentPath)
+            self.assertTrue(call_kwargs["created"])
+            self.assertFalse(call_kwargs["raw"])
+            self.assertIsNotNone(call_kwargs.get("using"))
+            self.assertIsNone(call_kwargs.get("update_fields"))
 
 
 class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestBase):
@@ -4563,36 +4558,40 @@ class TestCoverageGap_DeleteFolderIntegrityErrorRollback(DocumentFolderServiceTe
         self.assertEqual(original_path.folder_id, folder.id)
 
 
-class TestCoverageGap_TargetDirectoryStringEmptyPath(DocumentFolderServiceTestBase):
+class TestCoverageGap_TargetDirectoryStringFromPathEdgeCases(
+    DocumentFolderServiceTestBase
+):
     """
-    SCENARIO: _target_directory_string raises when CorpusFolder.get_path()
-    returns an empty string.
+    SCENARIO: _target_directory_string_from_path raises on empty input
+    and handles None (root) correctly.
 
-    BUSINESS RULE: A non-root folder whose get_path() returns empty is a
+    BUSINESS RULE: A non-root folder whose path resolves to empty is a
     data integrity violation.  The method must raise ValueError rather than
     producing the malformed directory string "//".
     """
 
-    def setUp(self):
-        self.owner = User.objects.create_user(
-            username="owner", email="owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus", creator=self.owner, is_public=False
-        )
+    def test_raises_on_empty_string(self):
+        """ValueError raised when folder_path is empty after stripping."""
+        with self.assertRaises(ValueError):
+            DocumentFolderService._target_directory_string_from_path("")
 
-    def test_target_directory_string_raises_on_empty_get_path(self):
-        """ValueError raised when get_path() returns empty string."""
-        folder, _ = DocumentFolderService.create_folder(
-            user=self.owner, corpus=self.corpus, name="Broken"
-        )
-        with patch.object(CorpusFolder, "get_path", return_value=""):
-            with self.assertRaises(ValueError):
-                DocumentFolderService._target_directory_string(folder)
+    def test_raises_on_slash_only(self):
+        """ValueError raised when folder_path is only slashes."""
+        with self.assertRaises(ValueError):
+            DocumentFolderService._target_directory_string_from_path("/")
 
-    def test_target_directory_string_root_returns_slash(self):
+    def test_root_returns_slash(self):
         """None (root) returns '/'."""
-        self.assertEqual(DocumentFolderService._target_directory_string(None), "/")
+        self.assertEqual(
+            DocumentFolderService._target_directory_string_from_path(None), "/"
+        )
+
+    def test_normal_path(self):
+        """Normal folder path returns canonical directory string."""
+        self.assertEqual(
+            DocumentFolderService._target_directory_string_from_path("Legal/Contracts"),
+            "/Legal/Contracts/",
+        )
 
 
 class TestCoverageGap_BulkMoveGetPathCallCount(DocumentFolderServiceTestBase):
