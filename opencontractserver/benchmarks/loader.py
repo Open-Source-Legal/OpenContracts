@@ -319,11 +319,23 @@ _COLUMN_NAME_SANITIZER = re.compile(r"\s+")
 
 
 def _make_column_name(task: BenchmarkTask) -> str:
-    """Build a short, unique column name derived from the task ID and query."""
+    """Build a short, unique column name derived from the task ID and query.
+
+    When the combined name exceeds :data:`BENCHMARK_COLUMN_NAME_MAX_LEN`,
+    the query portion is truncated and a suffix derived from the task ID is
+    appended to prevent collisions between tasks whose queries share a long
+    common prefix.
+    """
     base = _COLUMN_NAME_SANITIZER.sub(" ", task.query).strip()
     if len(base) > 64:
         base = base[:61].rstrip() + "..."
-    return f"{task.task_id} — {base}"[:BENCHMARK_COLUMN_NAME_MAX_LEN]
+    name = f"{task.task_id} — {base}"
+    if len(name) > BENCHMARK_COLUMN_NAME_MAX_LEN:
+        # Append a task_id suffix so two tasks with similar queries don't
+        # produce identical truncated names.
+        suffix = f"…{task.task_id[-6:]}"
+        name = name[: BENCHMARK_COLUMN_NAME_MAX_LEN - len(suffix)] + suffix
+    return name
 
 
 def _format_instructions(task: BenchmarkTask) -> str:

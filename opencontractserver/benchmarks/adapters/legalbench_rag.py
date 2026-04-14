@@ -106,6 +106,7 @@ class LegalBenchRAGAdapter(BaseBenchmarkAdapter):
         self._documents: dict[str, BenchmarkDocument] = {}
         self._tasks: list[BenchmarkTask] = []
         self._loaded = False
+        self._subset_names: list[str] = []
 
     # ------------------------------------------------------------------ #
     # Adapter protocol
@@ -120,10 +121,16 @@ class LegalBenchRAGAdapter(BaseBenchmarkAdapter):
         return list(self._tasks)
 
     def describe(self) -> dict[str, Any]:
+        # Use cached subset names if loaded; otherwise discover from disk.
+        subsets = (
+            list(self._subset_names)
+            if self._loaded
+            else list(self._discover_subset_files().keys())
+        )
         return {
             "adapter": self.name,
             "root": str(self.root),
-            "subsets": list(self._discover_subset_files().keys()),
+            "subsets": subsets,
             "requested_subsets": (
                 list(self.requested_subsets) if self.requested_subsets else None
             ),
@@ -243,6 +250,7 @@ class LegalBenchRAGAdapter(BaseBenchmarkAdapter):
             if self.limit is not None and task_counter >= self.limit:
                 break
 
+        self._subset_names = list(subset_files.keys())
         self._loaded = True
         logger.info(
             "LegalBench-RAG adapter loaded %d documents and %d tasks "
@@ -250,7 +258,7 @@ class LegalBenchRAGAdapter(BaseBenchmarkAdapter):
             len(self._documents),
             len(self._tasks),
             self.root,
-            ", ".join(subset_files.keys()),
+            ", ".join(self._subset_names),
         )
 
     def _load_document(self, file_path: str) -> None:
