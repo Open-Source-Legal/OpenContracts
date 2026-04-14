@@ -24,6 +24,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase, TransactionTestCase
+from django.utils import timezone
 from PIL import Image
 
 from opencontractserver.corpuses.models import Corpus
@@ -311,11 +312,13 @@ class TestDoclingImageExtraction(TransactionTestCase):
             image_color="blue",
         )
 
-        # Create document
+        # Create document with processing_started set to prevent the
+        # post_save signal from triggering ingest_doc before pdf_file is saved.
         doc = Document.objects.create(
             title="PDF with Image for Docling Test",
             creator=self.user,
             file_type="application/pdf",
+            processing_started=timezone.now(),
         )
         doc.pdf_file.save("test_with_image.pdf", ContentFile(pdf_bytes))
 
@@ -407,11 +410,13 @@ class TestFullMultimodalPipeline(TransactionTestCase):
             chart_title="Quarterly Revenue Growth",
         )
 
-        # 2. Create document and parse
+        # 2. Create document and parse (processing_started prevents auto-ingest
+        # signal from firing before pdf_file is saved)
         doc = Document.objects.create(
             title="Revenue Report",
             creator=self.user,
             file_type="application/pdf",
+            processing_started=timezone.now(),
         )
         doc.pdf_file.save("revenue_report.pdf", ContentFile(pdf_bytes))
 

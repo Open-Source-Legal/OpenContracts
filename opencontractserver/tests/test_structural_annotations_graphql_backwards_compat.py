@@ -74,7 +74,6 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
             creator=self.user,
             page_count=5,
             processing_started=timezone.now(),
-            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,
@@ -558,7 +557,6 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
             creator=self.user,
             page_count=5,
             processing_started=timezone.now(),
-            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,
@@ -718,7 +716,6 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
             pdf_file_hash="empty_doc_hash",
             creator=self.user,
             processing_started=timezone.now(),
-            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,
@@ -796,7 +793,6 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TransactionTestCa
             pdf_file_hash="rel_test_hash_001",
             creator=self.user,
             processing_started=timezone.now(),
-            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,

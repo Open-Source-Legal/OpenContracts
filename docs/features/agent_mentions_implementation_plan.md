@@ -68,7 +68,7 @@
 | `frontend/src/graphql/queries.ts` | Modified | Added `SEARCH_AGENTS_FOR_MENTION` query |
 | `frontend/src/components/threads/hooks/useAgentMentionSearch.ts` | Created | Hook for agent mention search |
 | `frontend/src/components/widgets/selectors/AgentMentionPicker.tsx` | Created | Agent mention picker component |
-| `frontend/src/hooks/useThreadWebSocket.ts` | Created | Hook for thread updates WebSocket |
+| `frontend/src/hooks/useThreadWebSocket.ts` | Removed (PR #1245) | Hook for thread updates WebSocket (removed as dead code; was never wired into thread components) |
 
 **Phase 3:**
 - Added `mentioned_agents` M2M field to `ChatMessage` model
@@ -110,8 +110,8 @@
 - Added `getThreadUpdatesWebSocket()` to `frontend/src/components/chat/get_websockets.ts`
   - Builds WebSocket URL for `/ws/thread-updates/` endpoint
   - Takes conversationId and optional token
-- Created `useThreadWebSocket` hook in `frontend/src/hooks/useThreadWebSocket.ts`
-  - Subscribes to thread updates for agent mention streaming
+- Created `useThreadWebSocket` hook in `frontend/src/hooks/useThreadWebSocket.ts` (removed in PR #1245 as dead code; was never integrated into thread components)
+  - Subscribed to thread updates for agent mention streaming
   - Handles message types: AGENT_STREAM_START, AGENT_STREAM_TOKEN, AGENT_TOOL_CALL, AGENT_STREAM_COMPLETE, AGENT_STREAM_ERROR
   - Auto-reconnect with configurable delay
   - Heartbeat/ping-pong for connection health
@@ -1825,7 +1825,7 @@ export function MentionChip({ mention }: { mention: ParsedMention }) {
 
 #### 7.1 Create Thread WebSocket Hook
 
-**File:** `frontend/src/hooks/useThreadWebSocket.ts` (NEW)
+**File:** `frontend/src/hooks/useThreadWebSocket.ts` (NEW — removed in PR #1245 as dead code; was never wired into thread components. See Issues #623, #697 for future real-time streaming work.)
 
 ```tsx
 import { useEffect, useRef, useCallback, useState } from "react";
@@ -2084,7 +2084,7 @@ test.describe("AgentMentionPicker", () => {
 | `config/websocket/consumers/thread_conversation.py` | WebSocket consumer for thread updates | 5 |
 | `frontend/src/components/threads/AgentMentionPicker.tsx` | Agent autocomplete component | 6 |
 | `frontend/src/hooks/useAgentMentionSearch.ts` | Hook for agent search queries | 6 |
-| `frontend/src/hooks/useThreadWebSocket.ts` | Hook for thread WebSocket connection | 7 |
+| `frontend/src/hooks/useThreadWebSocket.ts` | Hook for thread WebSocket connection (removed in PR #1245) | 7 |
 | `opencontractserver/tests/test_agent_mentions.py` | Backend tests | 8 |
 | `frontend/tests/AgentMentionPicker.spec.tsx` | Frontend tests | 8 |
 

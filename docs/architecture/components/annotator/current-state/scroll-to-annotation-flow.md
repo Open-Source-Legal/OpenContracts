@@ -51,9 +51,9 @@ setSelectedAnnotations(["ann-123"]);
    ```
 
 3. **URL Synchronization**
-   - `useUrlAnnotationSync()` hook keeps URL and selection in sync
-   - If URL has `?ann=...`, it updates `selectedAnnotationIds` atom
-   - If selection changes, it updates the URL
+   - `CentralRouteManager` keeps URL and selection in sync (the earlier `useUrlAnnotationSync()` hook was removed as redundant — it created competing sync loops)
+   - If URL has `?ann=...`, CentralRouteManager updates `selectedAnnotationIds` atom
+   - If selection changes, CentralRouteManager updates the URL
 
 ### Phase 1: Page-Level Scrolling (PDF.tsx)
 
@@ -148,7 +148,7 @@ Once the page is rendered and visible:
 
 ### Hooks
 - `useAnnotationSelection()` - Access and update selected annotations
-- `useUrlAnnotationSync()` - Keep URL and selection in sync
+- `CentralRouteManager` - Keeps URL and selection in sync (replaced `useUrlAnnotationSync`)
 - `useVisibleAnnotations()` - Get filtered list of visible annotations
 
 ### Components
