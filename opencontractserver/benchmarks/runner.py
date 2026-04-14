@@ -191,8 +191,12 @@ def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[Task
     """Compute answer and retrieval metrics for every datacell."""
     task_results: list[TaskResult] = []
 
+    # Bulk-fetch all datacells in one query to avoid N+1 per-cell SELECTs.
+    cell_ids = [c.id for c in loaded.datacells]
+    refreshed = {c.id: c for c in Datacell.objects.filter(id__in=cell_ids)}
+
     for cell in loaded.datacells:
-        cell.refresh_from_db()
+        cell = refreshed.get(cell.id, cell)
         gold_entry = loaded.gold_by_datacell_id.get(cell.id, {})
         gold_answer = gold_entry.get("gold_answer", "")
         gold_spans_raw = gold_entry.get("gold_spans", [])
@@ -242,14 +246,27 @@ def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[Task
     return task_results
 
 
-def _probe_retrieval_safely(**kwargs) -> RetrievalResult:
+def _probe_retrieval_safely(
+    *,
+    corpus_id: int,
+    document_id: int,
+    query_text: str,
+    top_k: int,
+    user_id: int,
+) -> RetrievalResult:
     """Swallow retrieval errors so a broken probe can't tank the whole run."""
     try:
-        return probe_retrieval(**kwargs)
+        return probe_retrieval(
+            corpus_id=corpus_id,
+            document_id=document_id,
+            query_text=query_text,
+            top_k=top_k,
+            user_id=user_id,
+        )
     except Exception as exc:
         logger.warning(
             "Retrieval probe failed for document %s: %s",
-            kwargs.get("document_id"),
+            document_id,
             exc,
         )
         return RetrievalResult(annotation_ids=[], spans=[], similarity_scores=[])

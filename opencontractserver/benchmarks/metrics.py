@@ -51,7 +51,12 @@ def token_f1(prediction: str, gold: str) -> float:
     """SQuAD-style token F1 between ``prediction`` and ``gold``.
 
     Returns 0.0 when either side is empty (except in the symmetric empty
-    case, where it returns 1.0 — matching the SQuAD convention).
+    case, where it returns 1.0 -- matching the SQuAD convention).
+
+    Note: This differs from :func:`char_iou`, which returns 0.0 when both
+    sides are empty.  The asymmetry follows each metric's upstream
+    convention (SQuAD for token F1, LegalBench-RAG for span IoU) and is
+    intentional.
     """
     pred_tokens = normalize_answer(prediction).split()
     gold_tokens = normalize_answer(gold).split()
@@ -165,6 +170,10 @@ def char_iou(
     individual character indices.  Returns 0.0 when the union is empty
     (i.e. there is literally nothing to compare).  This metric is more
     forgiving than strict span matching because it rewards partial hits.
+
+    Note: Unlike :func:`token_f1`, the empty-vs-empty case returns 0.0
+    (not 1.0) because IoU is undefined when the union is empty.  See
+    :func:`token_f1` for more on this intentional asymmetry.
     """
     pred_merged = _merge_spans(predicted)
     gold_merged = _merge_spans(gold)
