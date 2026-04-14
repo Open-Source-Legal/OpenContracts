@@ -1854,17 +1854,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
    * with router-based state — e.g. navigate to URL when opening modal, restore on close.
    */
 
-  /* ------------------------------------------------------------------ */
-  /* NOTE: useUrlAnnotationSync removed - redundant with CentralRouteManager
-   *
-   * CentralRouteManager handles ALL URL ↔ State synchronization:
-   * - Phase 2: URL query params → reactive vars (selectedAnnotationIds, etc.)
-   * - Phase 4: Reactive vars → URL updates
-   *
-   * useUrlAnnotationSync created competing sync loops causing infinite navigation cycles.
-   * See routing_system.md for architecture details.
-   */
-
   /* ------------------------------------------------------ */
   /*  Cleanup on unmount                                    */
   /* ------------------------------------------------------ */

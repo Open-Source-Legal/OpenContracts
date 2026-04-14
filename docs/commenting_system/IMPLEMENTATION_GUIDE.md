@@ -137,7 +137,6 @@ Data Layer
 |-----------|----------|
 | Thread Atoms | `frontend/src/atoms/threadAtoms.ts` |
 | Thread Preferences Hook | `frontend/src/components/threads/hooks/useThreadPreferences.ts` |
-| Thread WebSocket Hook | `frontend/src/hooks/useThreadWebSocket.ts` |
 | Badge Notifications Hook | `frontend/src/hooks/useBadgeNotifications.ts` |
 | Mention Search Hooks | `frontend/src/components/threads/hooks/useUnifiedMentionSearch.ts` |
 
