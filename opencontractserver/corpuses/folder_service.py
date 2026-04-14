@@ -1337,38 +1337,15 @@ class DocumentFolderService:
             return f"/{filename}"
 
     @staticmethod
-    def _target_directory_string(target_folder: CorpusFolder | None) -> str:
-        """
-        Return the directory string for a target folder in the same format
-        ``_fetch_occupied_paths_in_directory`` expects (a trailing slash).
-
-        ``CorpusFolder.get_path()`` returns a path that may include
-        leading/trailing slashes depending on tree depth, so ``.strip("/")``
-        normalises it before wrapping with a canonical ``/prefix/`` format.
-
-        - ``None`` (root) → ``"/"``
-        - Folder ``Legal/Contracts`` → ``"/Legal/Contracts/"``
-        """
-        if target_folder is None:
-            return "/"
-        folder_path = target_folder.get_path().strip("/")
-        if not folder_path:
-            raise ValueError(
-                f"CorpusFolder {target_folder.pk} returned empty path from get_path()"
-            )
-        return f"/{folder_path}/"
-
-    @staticmethod
     def _target_directory_string_from_path(
         folder_path: str | None,
     ) -> str:
         """
-        Return the directory string from a pre-computed folder path.
+        Return a canonical directory string from a folder path string.
 
-        Same semantics as ``_target_directory_string`` but accepts the
-        already-resolved ``get_path()`` value so callers that cache the
-        folder path (e.g. ``move_documents_to_folder``) avoid a redundant
-        CTE query.
+        Normalises the path by stripping leading/trailing slashes and
+        wrapping with ``/prefix/`` format, matching the format that
+        ``_fetch_occupied_paths_in_directory`` expects.
 
         - ``None`` (root) → ``"/"``
         - ``"Legal/Contracts"`` → ``"/Legal/Contracts/"``
@@ -1382,6 +1359,23 @@ class DocumentFolderService:
                 f"after stripping slashes (original: {folder_path!r})"
             )
         return f"/{stripped}/"
+
+    @staticmethod
+    def _target_directory_string(target_folder: CorpusFolder | None) -> str:
+        """
+        Return the directory string for a target folder in the same format
+        ``_fetch_occupied_paths_in_directory`` expects (a trailing slash).
+
+        Delegates to ``_target_directory_string_from_path`` after resolving
+        the folder's path via ``get_path()``.
+
+        - ``None`` (root) → ``"/"``
+        - Folder ``Legal/Contracts`` → ``"/Legal/Contracts/"``
+        """
+        if target_folder is None:
+            return DocumentFolderService._target_directory_string_from_path(None)
+        folder_path = target_folder.get_path()
+        return DocumentFolderService._target_directory_string_from_path(folder_path)
 
     @staticmethod
     def _dispatch_document_path_created_signals(
@@ -1545,8 +1539,19 @@ class DocumentFolderService:
             ``IntegrityError`` for the rare conflict case.
 
         Raises:
-            ValueError: If no unique path can be found within the suffix limit.
+            ValueError: If ``base_path`` lacks a leading ``/``, or if no unique
+                path can be found within the suffix limit.
         """
+        # All stored DocumentPath.path values start with "/".  Reject
+        # slashless paths early with a clear message rather than letting
+        # them propagate to _fetch_occupied_paths_in_directory where the
+        # resulting empty-directory ValueError is harder to diagnose.
+        if not base_path.startswith("/"):
+            raise ValueError(
+                f"_disambiguate_path: base_path must start with '/' "
+                f"(got {base_path!r})"
+            )
+
         if occupied_override is not None:
             # Caller pre-fetched the occupied set — skip the DB query entirely.
             # This is the hot path for bulk operations which share a single
@@ -1558,11 +1563,10 @@ class DocumentFolderService:
             occupied = occupied_override
         else:
             # Derive the directory once so that both the fetch and the candidate
-            # loop agree on which namespace we're searching.
-            if "/" in base_path:
-                directory = base_path.rsplit("/", 1)[0] + "/"
-            else:
-                directory = ""
+            # loop agree on which namespace we're searching.  The leading-slash
+            # guard above guarantees "/" is present, so rsplit always produces a
+            # non-empty directory prefix (at worst "/" for root-level paths).
+            directory = base_path.rsplit("/", 1)[0] + "/"
 
             occupied = cls._fetch_occupied_paths_in_directory(
                 corpus, directory, exclude_pk=exclude_pk
