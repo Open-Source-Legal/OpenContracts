@@ -18,6 +18,7 @@ import io
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TransactionTestCase
+from django.utils import timezone
 from graphene.test import Client
 from graphql_relay import to_global_id
 
@@ -65,11 +66,15 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
         )
 
         # Create document with content hash (for structural set keying)
+        # Set processing_started to prevent the document processing signal
+        # from firing (it would fail because test documents have no actual files).
         self.doc = Document.objects.create(
             title="Document With Structural Annotations",
             pdf_file_hash="graphql_compat_hash_001",
             creator=self.user,
             page_count=5,
+            processing_started=timezone.now(),
+            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,
@@ -552,6 +557,8 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
             pdf_file_hash=self.doc.pdf_file_hash,  # SAME HASH!
             creator=self.user,
             page_count=5,
+            processing_started=timezone.now(),
+            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,
@@ -710,6 +717,8 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
             title="Document Without Structural",
             pdf_file_hash="empty_doc_hash",
             creator=self.user,
+            processing_started=timezone.now(),
+            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,
@@ -780,10 +789,14 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TransactionTestCa
             [PermissionTypes.READ, PermissionTypes.UPDATE, PermissionTypes.DELETE],
         )
 
+        # Set processing_started to prevent the document processing signal
+        # from firing (it would fail because test documents have no actual files).
         self.doc = Document.objects.create(
             title="Document With Structural Relationships",
             pdf_file_hash="rel_test_hash_001",
             creator=self.user,
+            processing_started=timezone.now(),
+            backend_lock=False,
         )
         set_permissions_for_obj_to_user(
             self.user,
