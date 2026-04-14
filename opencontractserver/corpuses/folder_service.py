@@ -1404,18 +1404,18 @@ class DocumentFolderService:
         # Nested import to avoid circular dependency during app initialization.
         from opencontractserver.documents.models import DocumentPath
 
-        # ``update_fields`` is intentionally omitted (defaults to ``None``),
-        # matching the kwargs a regular ``Model.save()`` would send when
-        # ``created=True``.  ``raw`` and ``using`` are supplied explicitly
-        # so that any future handler inspecting these kwargs (e.g. a
-        # data-import guard checking ``raw``, or a multi-DB router checking
-        # ``using``) receives values consistent with Django's native
-        # ``Model.save()`` dispatch.
+        # All kwargs match what Django's ``Model.save()`` dispatches for a
+        # newly created instance: ``created=True``, ``update_fields=None``,
+        # ``raw=False``, and the actual database alias from ``_state.db``.
+        # Passing ``update_fields`` explicitly (rather than omitting it)
+        # ensures future signal handlers that declare it as an explicit
+        # keyword argument won't raise ``TypeError``.
         for path in paths:
             post_save.send(
                 sender=DocumentPath,
                 instance=path,
                 created=True,
+                update_fields=None,
                 raw=False,
                 using=path._state.db,
             )

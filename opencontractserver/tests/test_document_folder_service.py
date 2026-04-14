@@ -2606,6 +2606,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
             self.assertTrue(kwargs["created"])
             self.assertFalse(kwargs["raw"])
             self.assertIsNotNone(kwargs.get("using"))
+            self.assertIsNone(kwargs.get("update_fields"))
 
 
 class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
@@ -2736,6 +2737,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
             self.assertTrue(kwargs["created"])
             self.assertFalse(kwargs["raw"])
             self.assertIsNotNone(kwargs.get("using"))
+            self.assertIsNone(kwargs.get("update_fields"))
 
 
 class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestBase):
@@ -4115,6 +4117,99 @@ class TestCoverageGap_BulkMoveVersionPreservation(DocumentFolderServiceTestBase)
             # Original marked not current
             original_path.refresh_from_db()
             self.assertFalse(original_path.is_current)
+
+
+class TestCoverageGap_DeleteFolderIntegrityErrorRollback(DocumentFolderServiceTestBase):
+    """
+    SCENARIO: An IntegrityError during delete_folder's bulk_create causes
+    full atomic rollback.
+
+    BUSINESS RULE: delete_folder uses the same bulk_create -> signal dispatch
+    pattern as move_documents_to_folder.  An IntegrityError (e.g. from a
+    concurrent path conflict hitting the unique constraint) after the
+    filter().update(is_current=False) must roll back both the deactivation
+    and the folder deletion.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_delete_folder_integrity_error_during_bulk_create_rolls_back(self):
+        """IntegrityError during bulk_create rolls back delete_folder entirely."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="ToDelete"
+        )
+        doc = Document.objects.create(
+            title="Doc 1", creator=self.owner, pdf_file="doc1.pdf"
+        )
+        original_path = DocumentPath.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=folder,
+            path="/ToDelete/doc1.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        def failing_bulk_create(*args, **kwargs):
+            raise IntegrityError("unique_active_path_per_corpus")
+
+        with patch.object(
+            DocumentPath.objects, "bulk_create", side_effect=failing_bulk_create
+        ):
+            success, error = DocumentFolderService.delete_folder(
+                user=self.owner, folder=folder
+            )
+
+        self.assertFalse(success)
+        self.assertIn("rolled back", error)
+
+        # Folder must still exist
+        self.assertTrue(CorpusFolder.objects.filter(pk=folder.pk).exists())
+
+        # Original path must still be current and in the folder
+        original_path.refresh_from_db()
+        self.assertTrue(original_path.is_current)
+        self.assertEqual(original_path.folder_id, folder.id)
+
+
+class TestCoverageGap_TargetDirectoryStringEmptyPath(DocumentFolderServiceTestBase):
+    """
+    SCENARIO: _target_directory_string raises when CorpusFolder.get_path()
+    returns an empty string.
+
+    BUSINESS RULE: A non-root folder whose get_path() returns empty is a
+    data integrity violation.  The method must raise ValueError rather than
+    producing the malformed directory string "//".
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_target_directory_string_raises_on_empty_get_path(self):
+        """ValueError raised when get_path() returns empty string."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Broken"
+        )
+        with patch.object(CorpusFolder, "get_path", return_value=""):
+            with self.assertRaises(ValueError):
+                DocumentFolderService._target_directory_string(folder)
+
+    def test_target_directory_string_root_returns_slash(self):
+        """None (root) returns '/'."""
+        self.assertEqual(DocumentFolderService._target_directory_string(None), "/")
 
 
 class TestCoverageGap_BulkMoveGetPathCallCount(DocumentFolderServiceTestBase):
