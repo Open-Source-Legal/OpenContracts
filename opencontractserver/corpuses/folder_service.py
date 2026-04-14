@@ -45,7 +45,9 @@ from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 
 from opencontractserver.constants.document_processing import (
+    MAX_PATH_CREATE_RETRIES,
     MAX_PATH_DISAMBIGUATION_SUFFIX,
+    PATH_CONFLICT_MSG,
 )
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.enums import PermissionTypes
@@ -959,6 +961,11 @@ class DocumentFolderService:
         - The old node is marked ``is_current=False`` so only one node is active.
         - ``version_number`` is preserved (moves do not bump the version).
 
+        **TOCTOU race recovery**: The successor insert runs in a savepoint
+        and is retried (with a freshly disambiguated path) on
+        ``IntegrityError`` from the ``unique_active_path_per_corpus``
+        partial unique index — see ``_create_successor_path_with_retry``.
+
         Args:
             user: Moving user
             document: Document to move
@@ -1012,51 +1019,39 @@ class DocumentFolderService:
             if current.folder_id == (folder.id if folder else None):
                 return True, ""
 
-            # Compute new path reflecting the folder location,
-            # disambiguating with a numeric suffix if there is a conflict.
+            # Compute new base path reflecting the folder location.
             # Note: _compute_moved_path extracts only the filename;
             # intermediate directory segments are dropped (the new path is
             # derived entirely from the target folder's tree position).
-            new_path = cls._compute_moved_path(current.path, folder)
             try:
-                new_path = cls._disambiguate_path(
-                    new_path, corpus, exclude_pk=current.pk
-                )
+                base_path = cls._compute_moved_path(current.path, folder)
             except ValueError as exc:
                 return False, str(exc)
 
-            # Savepoint: both the old-path deactivation and the new-path
-            # creation must be inside the same savepoint so that an
-            # IntegrityError on create rolls back the save too —
-            # otherwise the document is left with no active path.
+            # Disambiguate + create with TOCTOU race recovery: the helper
+            # retries on IntegrityError from the unique_active_path_per_corpus
+            # partial unique constraint, treating each losing path as
+            # occupied so the next attempt picks a different suffix.
             try:
-                with transaction.atomic():
-                    # Mark old path as not current
-                    current.is_current = False
-                    current.save(update_fields=["is_current"])
-
-                    # Create new node linked to previous (audit chain)
-                    DocumentPath.objects.create(
-                        document=current.document,
-                        corpus=corpus,
-                        folder=folder,
-                        path=new_path,
-                        version_number=current.version_number,  # no increment on move
-                        parent=current,
-                        is_current=True,
-                        is_deleted=False,
-                        creator=user,
-                    )
+                cls._create_successor_path_with_retry(
+                    current=current,
+                    corpus=corpus,
+                    folder=folder,
+                    base_path=base_path,
+                    user=user,
+                )
+            except ValueError as exc:
+                return False, str(exc)
             except IntegrityError as exc:
                 logger.warning(
-                    "IntegrityError creating path %r for document %s in "
-                    "corpus %s — concurrent path conflict: %s",
-                    new_path,
+                    "IntegrityError creating path for document %s in "
+                    "corpus %s after exhausting retries — concurrent path "
+                    "conflict could not be resolved: %s",
                     document.id,
                     corpus.id,
                     exc,
                 )
-                return False, f"Path conflict, please retry: {exc}"
+                return False, f"{PATH_CONFLICT_MSG}, please retry: {exc}"
 
             logger.info(
                 f"Moved document {document.id} to folder {folder.id if folder else 'root'} "
@@ -1087,11 +1082,18 @@ class DocumentFolderService:
         some documents end up in the target folder while others remain in
         their original locations.
 
-        **Within-batch conflict detection**: Before executing any moves,
-        this method pre-computes all target paths and checks for duplicates
-        within the batch itself (e.g. two documents with the same filename
-        being moved to the same folder).  Conflicts are resolved by
-        disambiguation before any database writes occur.
+        **Within-batch conflict detection**: Each move runs sequentially
+        inside the outer transaction.  As each successor row is committed,
+        subsequent disambiguations naturally see the new path via both an
+        in-memory ``batch_claimed`` set and a re-query of the corpus's
+        active paths.  This resolves filename collisions between documents
+        in the same batch (e.g. two documents named ``report.pdf`` being
+        moved to the same folder) without pre-computation.
+
+        **TOCTOU race recovery**: Each successor insert runs in a savepoint
+        and is retried (with a freshly disambiguated path) on
+        ``IntegrityError`` from the ``unique_active_path_per_corpus``
+        partial unique index — see ``_create_successor_path_with_retry``.
 
         **Retry safety**: Because a failed call leaves the database in its
         original state (full rollback), the caller can safely retry the
@@ -1487,6 +1489,7 @@ class DocumentFolderService:
         corpus: Corpus,
         exclude_pk: int | None = None,
         occupied_override: set[str] | None = None,
+        extra_occupied: set[str] | None = None,
     ) -> str:
         """
         Generate a unique path by appending numeric suffixes when a conflict exists.
@@ -1528,6 +1531,10 @@ class DocumentFolderService:
                                shared **mutable** set and append each
                                disambiguated result to it so subsequent
                                disambiguations see the within-batch claim.
+            extra_occupied: Optional set of additional paths to treat as occupied
+                           (used during retry loops to avoid within-batch
+                           collisions).  Merged into the DB-queried set; ignored
+                           when ``occupied_override`` is provided.
 
         Returns:
             A path string unique among active paths in the corpus (and the
@@ -1572,6 +1579,11 @@ class DocumentFolderService:
                 corpus, directory, exclude_pk=exclude_pk
             )
 
+            # Merge in any extra occupied paths (e.g. from within-batch claims
+            # during retry loops)
+            if extra_occupied:
+                occupied = occupied | extra_occupied
+
         if base_path not in occupied:
             return base_path
 
@@ -1605,9 +1617,9 @@ class DocumentFolderService:
             candidate = f"{stem}_{counter}{ext}"
             if candidate not in occupied:
                 log_prefix = (
-                    "Within-batch path conflict"
-                    if occupied_override is not None
-                    else "Path conflict"
+                    f"Within-batch {PATH_CONFLICT_MSG.lower()}"
+                    if occupied_override is not None or extra_occupied
+                    else PATH_CONFLICT_MSG
                 )
                 logger.warning(
                     "%s for %r in corpus %s — disambiguated to %r",
@@ -1628,6 +1640,154 @@ class DocumentFolderService:
             f"Cannot find a unique path for {base_path!r} in corpus {corpus.id} "
             f"after {MAX_PATH_DISAMBIGUATION_SUFFIX} attempts"
         )
+
+    @classmethod
+    def _create_successor_path_with_retry(
+        cls,
+        *,
+        current: DocumentPath,
+        corpus: Corpus,
+        folder: CorpusFolder | None,
+        base_path: str,
+        user: User,
+        extra_occupied: set[str] | None = None,
+    ) -> tuple[DocumentPath, str]:
+        """
+        Atomically deactivate ``current`` and create a successor DocumentPath,
+        retrying on ``IntegrityError`` from the ``unique_active_path_per_corpus``
+        partial unique constraint.
+
+        This is the TOCTOU race recovery layer for path uniqueness:
+        ``_disambiguate_path`` checks for occupied paths at query time, but a
+        concurrent transaction can claim the same path between the SELECT and
+        the INSERT.  Each retry runs:
+
+        1. ``_disambiguate_path`` to choose a free path (treating any
+           previously-lost paths as occupied)
+        2. A nested ``transaction.atomic()`` savepoint
+        3. ``current.is_current = False`` save
+        4. ``DocumentPath.objects.create(...)`` for the successor
+
+        On ``IntegrityError`` the savepoint is rolled back (so ``current``
+        remains the active path in the DB), the losing path is added to the
+        in-memory occupied set, and the loop tries again with a fresh
+        disambiguation.
+
+        After ``MAX_PATH_CREATE_RETRIES`` consecutive failures the most
+        recent ``IntegrityError`` is re-raised so the caller can roll back
+        the outer transaction.
+
+        **Caller contract**: must already be inside an outer
+        ``transaction.atomic()`` block that holds a ``select_for_update``
+        lock on ``current``.  The lock prevents two callers from racing on
+        the *same* document; this helper only handles races on the *target
+        path slot* (different documents racing for the same filename).
+
+        Args:
+            current: Currently active DocumentPath being superseded.
+            corpus: Owning corpus (must equal ``current.corpus``).
+            folder: Target folder for the successor (None = corpus root).
+            base_path: Initial proposed path; disambiguated each attempt.
+            user: User performing the operation (set as creator).
+            extra_occupied: Optional set of paths already claimed by earlier
+                items in a batch operation; merged into the in-memory
+                occupied set on every disambiguation.
+
+        Returns:
+            ``(new_path_record, chosen_path_string)`` — the path string may
+            differ from ``base_path`` after disambiguation/retries.
+
+        Raises:
+            ValueError: If ``_disambiguate_path`` exhausts its suffix cap.
+            IntegrityError: If ``MAX_PATH_CREATE_RETRIES`` consecutive
+                INSERT attempts all lose the race.
+        """
+        # Deferred to break circular import (documents -> corpuses -> documents).
+        from opencontractserver.documents.models import DocumentPath
+
+        # Track paths we've attempted unsuccessfully so disambiguation
+        # avoids them on subsequent retries within the same call.
+        occupied_after_loss: set[str] = set(extra_occupied or ())
+        last_exc: IntegrityError | None = None
+
+        for attempt in range(MAX_PATH_CREATE_RETRIES + 1):
+            new_path = cls._disambiguate_path(
+                base_path,
+                corpus,
+                exclude_pk=current.pk,
+                extra_occupied=occupied_after_loss,
+            )
+            try:
+                # Savepoint: both the deactivation and the create must
+                # succeed together, or neither commits.  An IntegrityError
+                # rolls back the savepoint without poisoning the outer
+                # transaction, allowing retry.
+                with transaction.atomic():
+                    current.is_current = False
+                    current.save(update_fields=["is_current"])
+
+                    new_record = DocumentPath.objects.create(
+                        document=current.document,
+                        corpus=corpus,
+                        folder=folder,
+                        path=new_path,
+                        version_number=current.version_number,
+                        parent=current,
+                        is_current=True,
+                        is_deleted=False,
+                        creator=user,
+                    )
+                    return new_record, new_path
+            except IntegrityError as exc:
+                # Only retry for the specific partial-unique constraint;
+                # other IntegrityErrors (null, FK) are real bugs and
+                # should not be retried.
+                #
+                # Guard order: first check the psycopg2 pgcode so we only
+                # inspect the error message for UniqueViolation errors
+                # (pgcode 23505); then confirm the constraint name.  This
+                # avoids retrying on unrelated IntegrityErrors that happen
+                # to contain the constraint name as a substring, and also
+                # avoids matching on non-English Postgres error messages.
+                cause = getattr(exc, "__cause__", None)
+                pgcode = getattr(cause, "pgcode", None)
+                if pgcode != "23505" or "unique_active_path_per_corpus" not in str(exc):
+                    raise
+                last_exc = exc
+                occupied_after_loss.add(new_path)
+                # The savepoint rollback restored ``current.is_current=True``
+                # in the database, but the in-memory attribute still reflects
+                # the unsaved write.  Reset it so the next iteration's save()
+                # actually writes ``False`` again.
+                current.is_current = True
+                logger.warning(
+                    "IntegrityError on attempt %d/%d creating path %r for "
+                    "document %s in corpus %s — concurrent path conflict, "
+                    "retrying with fresh disambiguation: %s",
+                    attempt + 1,
+                    MAX_PATH_CREATE_RETRIES + 1,
+                    new_path,
+                    current.document_id,
+                    corpus.id,
+                    exc,
+                )
+
+        logger.error(
+            "DocumentPath creation failed after %d retries for document %s "
+            "in corpus %s — concurrent path conflicts could not be resolved",
+            MAX_PATH_CREATE_RETRIES + 1,
+            current.document_id,
+            corpus.id,
+        )
+        # last_exc is guaranteed non-None here: the loop runs at least once
+        # and only exits via return-on-success or via the except block which
+        # always sets last_exc.  Guard defensively so ``python -O`` doesn't
+        # silently turn this into ``raise None``.
+        if last_exc is None:
+            raise RuntimeError(
+                "Unreachable: retry loop exited without setting last_exc"
+            )
+        raise last_exc
 
     @classmethod
     def soft_delete_document(

@@ -113,3 +113,21 @@ MAX_CHUNK_RETRY_BACKOFF_SECONDS = 30
 # Prevents unbounded loops in _disambiguate_path() if a corpus has hundreds
 # of documents sharing the same filename in the same folder.
 MAX_PATH_DISAMBIGUATION_SUFFIX = 1000
+
+# Maximum number of *retries* (after the initial attempt) when
+# DocumentPath.objects.create() raises IntegrityError due to a TOCTOU race
+# against the `unique_active_path_per_corpus` partial unique constraint.
+# Each retry re-runs _disambiguate_path() with the losing path added to the
+# in-memory occupied set, so a small number of retries is sufficient to
+# resolve transient concurrent collisions even under heavy load.
+#
+# The total number of INSERT *attempts* is therefore MAX_PATH_CREATE_RETRIES + 1
+# (the initial attempt plus this many retries).  All call sites use
+# ``range(MAX_PATH_CREATE_RETRIES + 1)`` and log ``MAX_PATH_CREATE_RETRIES + 1``
+# as the attempt ceiling to make this intent explicit.
+MAX_PATH_CREATE_RETRIES = 5
+
+# Human-readable prefix for path-uniqueness collision messages.
+# Used in both user-facing error strings and log messages when
+# _disambiguate_path() detects a naming conflict.
+PATH_CONFLICT_MSG = "Path conflict"
