@@ -638,6 +638,8 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
           event.stopPropagation();
           const selected = corpusExtracts[activeExtractIndex];
           if (selected) {
+            // handleInsertComponent already calls setShowExtractPicker(false)
+            // internally, so the picker is closed as part of the insertion.
             handleInsertComponent("extract-grid", { extractId: selected.id });
             extractPickerTriggerRef.current?.focus();
           }

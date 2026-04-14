@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { formatCellValue } from "../ExtractGridEmbed";
+import { formatCellValue, truncateAtCodePoint } from "../ExtractGridEmbed";
+
+describe("truncateAtCodePoint()", () => {
+  it("returns the string unchanged when within limit", () => {
+    expect(truncateAtCodePoint("hello", 10)).toBe("hello");
+  });
+
+  it("truncates at code-point boundary with ellipsis", () => {
+    const result = truncateAtCodePoint("a".repeat(150), 100);
+    expect(result.endsWith("\u2026")).toBe(true);
+    expect(Array.from(result).length).toBe(101);
+  });
+
+  it("handles emoji without splitting surrogate pairs", () => {
+    const emojis = "\u{1F600}".repeat(105);
+    const result = truncateAtCodePoint(emojis, 100);
+    expect(result).not.toContain("\uFFFD");
+    expect(result.endsWith("\u2026")).toBe(true);
+    expect(Array.from(result).length).toBe(101);
+  });
+
+  it("returns unchanged when UTF-16 length exceeds limit but code-point count does not", () => {
+    // 50 emoji = 50 code points but 100 UTF-16 code units
+    const emojis = "\u{1F600}".repeat(50);
+    expect(emojis.length).toBeGreaterThan(50);
+    expect(Array.from(emojis).length).toBe(50);
+    expect(truncateAtCodePoint(emojis, 50)).toBe(emojis);
+  });
+});
 
 describe("formatCellValue()", () => {
   it("returns em-dash for null", () => {

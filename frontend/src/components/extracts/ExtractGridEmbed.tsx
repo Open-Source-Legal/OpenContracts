@@ -184,6 +184,20 @@ const CenterMessage = styled.div`
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Truncate a string at a code-point boundary, appending an ellipsis if needed.
+ *
+ * Uses `Array.from` to iterate code points rather than UTF-16 code units so
+ * that surrogate pairs (emoji / non-BMP characters) are never split.  The fast
+ * path (`s.length <= maxLen`) skips the `Array.from` allocation entirely since
+ * UTF-16 length is always >= code-point count.
+ */
+export function truncateAtCodePoint(s: string, maxLen: number): string {
+  if (s.length <= maxLen) return s;
+  const cps = Array.from(s);
+  return cps.length > maxLen ? cps.slice(0, maxLen).join("") + "\u2026" : s;
+}
+
 /** Format a datacell value for display, truncating long objects. */
 export function formatCellValue(
   data: string | number | boolean | Record<string, unknown> | null | undefined
@@ -191,34 +205,14 @@ export function formatCellValue(
   if (data === null || data === undefined) return "\u2014";
   if (typeof data === "boolean") return data ? "Yes" : "No";
   if (typeof data === "object") {
-    const json = JSON.stringify(data);
-    // Fast path: UTF-16 length is always >= code-point count, so if the
-    // string is short enough in UTF-16 it's definitely short enough in
-    // code points — skip the Array.from allocation entirely.
-    if (json.length <= EXTRACT_GRID_CELL_TRUNCATE_LENGTH) return json;
-    // Use `Array.from` to truncate at code-point boundaries rather than
-    // UTF-16 code units — `substring` would split surrogate pairs (emoji /
-    // non-BMP characters) and emit U+FFFD replacement characters.
-    const codePoints = Array.from(json);
-    if (codePoints.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
-      return (
-        codePoints.slice(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH).join("") +
-        "\u2026"
-      );
-    }
-    return json;
+    return truncateAtCodePoint(
+      JSON.stringify(data),
+      EXTRACT_GRID_CELL_TRUNCATE_LENGTH
+    );
   }
   // Apply the same code-point-safe truncation to raw string/number values
   // so that unexpectedly long cell contents don't blow out the table layout.
-  const str = String(data);
-  if (str.length <= EXTRACT_GRID_CELL_TRUNCATE_LENGTH) return str;
-  const codePoints = Array.from(str);
-  if (codePoints.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
-    return (
-      codePoints.slice(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH).join("") + "\u2026"
-    );
-  }
-  return str;
+  return truncateAtCodePoint(String(data), EXTRACT_GRID_CELL_TRUNCATE_LENGTH);
 }
 
 /**
@@ -333,6 +327,9 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
   useEffect(() => {
     if (process.env.NODE_ENV !== "development" || !extract) return;
 
+    // TODO(#1204): When the datacell cap is the binding constraint (not the
+    // row limit), some columns are silently omitted. Surface this to the user
+    // with a visible banner or info chip once server-side pagination lands.
     if (
       !hasWarnedCap.current &&
       extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
