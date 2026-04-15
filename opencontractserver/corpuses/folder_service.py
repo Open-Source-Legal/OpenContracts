@@ -929,8 +929,9 @@ class DocumentFolderService:
 
         except (ValueError, IntegrityError) as exc:
             logger.error(
-                "Atomic rollback during folder %s deletion: %s",
+                "Atomic rollback during folder %s deletion in corpus %s: %s",
                 folder.id,
+                folder.corpus_id,
                 exc,
             )
             return False, (
@@ -1082,18 +1083,19 @@ class DocumentFolderService:
         some documents end up in the target folder while others remain in
         their original locations.
 
-        **Within-batch conflict detection**: Each move runs sequentially
-        inside the outer transaction.  As each successor row is committed,
-        subsequent disambiguations naturally see the new path via both an
-        in-memory ``batch_claimed`` set and a re-query of the corpus's
-        active paths.  This resolves filename collisions between documents
-        in the same batch (e.g. two documents named ``report.pdf`` being
-        moved to the same folder) without pre-computation.
+        **Within-batch conflict detection**: All target paths are planned
+        in a single pass before any DB writes.  A shared ``occupied_paths``
+        set (pre-fetched once via ``_fetch_occupied_paths_in_directory``)
+        is mutated after each disambiguation so that two documents with
+        the same filename (e.g. two ``report.pdf`` files being moved to
+        the same folder) receive distinct suffixes.
 
-        **TOCTOU race recovery**: Each successor insert runs in a savepoint
-        and is retried (with a freshly disambiguated path) on
-        ``IntegrityError`` from the ``unique_active_path_per_corpus``
-        partial unique index — see ``_create_successor_path_with_retry``.
+        **TOCTOU race note**: A concurrent transaction can claim a path
+        between the occupied-paths pre-fetch and the ``bulk_create``.
+        If that happens, the ``unique_active_path_per_corpus`` partial
+        unique constraint raises ``IntegrityError``, which rolls back
+        the entire batch.  The caller can safely retry because the full
+        rollback leaves the database in its original state.
 
         **Retry safety**: Because a failed call leaves the database in its
         original state (full rollback), the caller can safely retry the
