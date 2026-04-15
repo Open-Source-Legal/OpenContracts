@@ -26,7 +26,7 @@ _ARTICLE_RE = re.compile(r"\b(a|an|the)\b", re.UNICODE)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
-def normalize_answer(text: str) -> str:
+def normalize_answer(text: str | None) -> str:
     """Lower-case, strip punctuation/articles, and collapse whitespace.
 
     This is the canonical SQuAD answer normalizer (Rajpurkar 2016).  Using

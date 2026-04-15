@@ -6,9 +6,12 @@ It MUST remain free of Django imports (models, apps, etc.) to avoid
 AppRegistryNotReady errors during settings loading.
 """
 
+from opencontractserver.constants.extraction import DEFAULT_EXTRACT_MODEL
+
 # Default LLM identifier passed to the extraction agent when no explicit
-# model is supplied.  Any string pydantic-ai accepts is valid.
-BENCHMARK_DEFAULT_MODEL = "openai:gpt-4o-mini"
+# model is supplied.  Re-exports the extraction default so benchmarks and
+# production tasks always use the same fallback.
+BENCHMARK_DEFAULT_MODEL = DEFAULT_EXTRACT_MODEL
 
 # Default top-k for the retrieval probe.
 BENCHMARK_DEFAULT_TOP_K = 10

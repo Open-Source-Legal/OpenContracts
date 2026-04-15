@@ -23,3 +23,7 @@ MAX_DOC_LENGTH_FOR_FUZZY = 500_000
 # This is the standard output format used by data_extract_tasks.py:
 # datacell.data = {"data": <extraction_result>}
 DATACELL_DATA_KEY = "data"
+
+# Default LLM identifier used by doc_extract_query_task when no explicit
+# model_override is supplied.  Any string pydantic-ai accepts is valid.
+DEFAULT_EXTRACT_MODEL = "openai:gpt-4o-mini"
