@@ -44,7 +44,9 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 
 from opencontractserver.constants.document_processing import (
+    MAX_PATH_CREATE_RETRIES,
     MAX_PATH_DISAMBIGUATION_SUFFIX,
+    PATH_CONFLICT_MSG,
 )
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.enums import PermissionTypes
@@ -871,33 +873,27 @@ class DocumentFolderService:
                     # intermediate directory segments are dropped (the new
                     # path is derived from the target folder's tree position).
                     #
-                    # Unlike move_documents_to_folder (which pre-computes all
-                    # paths and needs extra_occupied to detect within-batch
-                    # conflicts), this loop is sequential: each iteration
-                    # writes the new DocumentPath row before the next
-                    # _disambiguate_path query runs.  Because we are inside
-                    # a single transaction.atomic() block, each new row is
-                    # immediately visible to subsequent queries in the same
-                    # transaction, so _disambiguate_path naturally sees all
-                    # previously relocated documents without extra_occupied.
-                    new_path = cls._compute_moved_path(current.path, None)
-                    new_path = cls._disambiguate_path(
-                        new_path, current.corpus, exclude_pk=current.pk
-                    )
-
-                    current.is_current = False
-                    current.save(update_fields=["is_current"])
-
-                    DocumentPath.objects.create(
-                        document=current.document,
+                    # Each iteration commits its successor row before the
+                    # next _disambiguate_path query runs.  Because we are
+                    # inside a single transaction.atomic() block, each new
+                    # row is immediately visible to subsequent queries in
+                    # the same transaction, so disambiguation naturally
+                    # sees all previously relocated documents without an
+                    # explicit extra_occupied set.
+                    #
+                    # _create_successor_path_with_retry handles
+                    # IntegrityError from concurrent path conflicts on the
+                    # unique_active_path_per_corpus partial unique index.
+                    base_path = cls._compute_moved_path(current.path, None)
+                    # Return value intentionally discarded: delete_folder
+                    # does not track batch_claimed because intra-transaction
+                    # visibility handles within-batch disambiguation.
+                    _ = cls._create_successor_path_with_retry(
+                        current=current,
                         corpus=current.corpus,
                         folder=None,  # Moved to root
-                        path=new_path,
-                        version_number=current.version_number,
-                        parent=current,
-                        is_current=True,
-                        is_deleted=False,
-                        creator=user,
+                        base_path=base_path,
+                        user=user,
                     )
 
                 # Delete folder — safe because all documents were relocated.
@@ -940,6 +936,11 @@ class DocumentFolderService:
         - Each new node links to its predecessor via ``parent`` for traversal.
         - The old node is marked ``is_current=False`` so only one node is active.
         - ``version_number`` is preserved (moves do not bump the version).
+
+        **TOCTOU race recovery**: The successor insert runs in a savepoint
+        and is retried (with a freshly disambiguated path) on
+        ``IntegrityError`` from the ``unique_active_path_per_corpus``
+        partial unique index — see ``_create_successor_path_with_retry``.
 
         Args:
             user: Moving user
@@ -994,51 +995,39 @@ class DocumentFolderService:
             if current.folder_id == (folder.id if folder else None):
                 return True, ""
 
-            # Compute new path reflecting the folder location,
-            # disambiguating with a numeric suffix if there is a conflict.
+            # Compute new base path reflecting the folder location.
             # Note: _compute_moved_path extracts only the filename;
             # intermediate directory segments are dropped (the new path is
             # derived entirely from the target folder's tree position).
-            new_path = cls._compute_moved_path(current.path, folder)
             try:
-                new_path = cls._disambiguate_path(
-                    new_path, corpus, exclude_pk=current.pk
-                )
+                base_path = cls._compute_moved_path(current.path, folder)
             except ValueError as exc:
                 return False, str(exc)
 
-            # Savepoint: both the old-path deactivation and the new-path
-            # creation must be inside the same savepoint so that an
-            # IntegrityError on create rolls back the save too —
-            # otherwise the document is left with no active path.
+            # Disambiguate + create with TOCTOU race recovery: the helper
+            # retries on IntegrityError from the unique_active_path_per_corpus
+            # partial unique constraint, treating each losing path as
+            # occupied so the next attempt picks a different suffix.
             try:
-                with transaction.atomic():
-                    # Mark old path as not current
-                    current.is_current = False
-                    current.save(update_fields=["is_current"])
-
-                    # Create new node linked to previous (audit chain)
-                    DocumentPath.objects.create(
-                        document=current.document,
-                        corpus=corpus,
-                        folder=folder,
-                        path=new_path,
-                        version_number=current.version_number,  # no increment on move
-                        parent=current,
-                        is_current=True,
-                        is_deleted=False,
-                        creator=user,
-                    )
+                cls._create_successor_path_with_retry(
+                    current=current,
+                    corpus=corpus,
+                    folder=folder,
+                    base_path=base_path,
+                    user=user,
+                )
+            except ValueError as exc:
+                return False, str(exc)
             except IntegrityError as exc:
                 logger.warning(
-                    "IntegrityError creating path %r for document %s in "
-                    "corpus %s — concurrent path conflict: %s",
-                    new_path,
+                    "IntegrityError creating path for document %s in "
+                    "corpus %s after exhausting retries — concurrent path "
+                    "conflict could not be resolved: %s",
                     document.id,
                     corpus.id,
                     exc,
                 )
-                return False, f"Path conflict, please retry: {exc}"
+                return False, f"{PATH_CONFLICT_MSG}, please retry: {exc}"
 
             logger.info(
                 f"Moved document {document.id} to folder {folder.id if folder else 'root'} "
@@ -1069,11 +1058,18 @@ class DocumentFolderService:
         some documents end up in the target folder while others remain in
         their original locations.
 
-        **Within-batch conflict detection**: Before executing any moves,
-        this method pre-computes all target paths and checks for duplicates
-        within the batch itself (e.g. two documents with the same filename
-        being moved to the same folder).  Conflicts are resolved by
-        disambiguation before any database writes occur.
+        **Within-batch conflict detection**: Each move runs sequentially
+        inside the outer transaction.  As each successor row is committed,
+        subsequent disambiguations naturally see the new path via both an
+        in-memory ``batch_claimed`` set and a re-query of the corpus's
+        active paths.  This resolves filename collisions between documents
+        in the same batch (e.g. two documents named ``report.pdf`` being
+        moved to the same folder) without pre-computation.
+
+        **TOCTOU race recovery**: Each successor insert runs in a savepoint
+        and is retried (with a freshly disambiguated path) on
+        ``IntegrityError`` from the ``unique_active_path_per_corpus``
+        partial unique index — see ``_create_successor_path_with_retry``.
 
         **Retry safety**: Because a failed call leaves the database in its
         original state (full rollback), the caller can safely retry the
@@ -1141,66 +1137,57 @@ class DocumentFolderService:
                 if not paths_to_move:
                     return 0, ""
 
-                # Pre-compute all target paths and detect within-batch
-                # conflicts up front.  We track paths already claimed by
-                # earlier items in this batch so that two documents with
-                # the same filename get disambiguated relative to each
-                # other, not just relative to what is already in the DB.
-                planned_paths: list[tuple] = []  # (current, new_path)
-                batch_claimed: set[str] = set()
-
+                # Compute base paths once and execute moves sequentially.
+                # Each move uses _create_successor_path_with_retry, which
+                # disambiguates immediately before insert and retries on
+                # IntegrityError from the partial unique constraint.  We
+                # track paths actually committed by earlier iterations in
+                # batch_claimed so that within-batch filename collisions
+                # are resolved against each other (not just against
+                # pre-existing DB rows).
+                #
                 # Resolve the target folder's path once up front.  Each
                 # invocation of CorpusFolder.get_path() walks ancestors via
                 # a recursive CTE query, so doing it inside the loop would
                 # cost O(N) round trips for an O(1) value.
                 target_folder_path = folder.get_path() if folder is not None else None
 
-                for current in paths_to_move:
-                    # Note: _compute_moved_path extracts only the filename;
-                    # intermediate directory segments are dropped.
-                    new_path = cls._compute_moved_path(
-                        current.path,
-                        folder,
-                        target_folder_path=target_folder_path,
-                    )
-                    # Always pass batch_claimed so disambiguation considers
-                    # both DB-occupied paths and paths already claimed by
-                    # earlier items in this batch.  Without this, two docs
-                    # sharing a filename that also conflicts with an existing
-                    # DB path would both resolve to the same suffix.
-                    new_path = cls._disambiguate_path(
-                        new_path,
-                        corpus,
-                        exclude_pk=current.pk,
-                        extra_occupied=batch_claimed,
-                    )
-
-                    batch_claimed.add(new_path)
-                    planned_paths.append((current, new_path))
-
-                # Execute all moves now that paths are validated.
                 # TODO(perf): O(N) queries — consider bulk_update/bulk_create
                 # for large batches. Blocked on per-document disambiguation
                 # and parent link assignment which require sequential
                 # processing today.
+                batch_claimed: set[str] = set()
                 moved_count = 0
-                for current, new_path in planned_paths:
-                    # Mark old path as not current
-                    current.is_current = False
-                    current.save(update_fields=["is_current"])
+                for current in paths_to_move:
+                    # Note: _compute_moved_path extracts only the filename;
+                    # intermediate directory segments are dropped.
+                    base_path = cls._compute_moved_path(
+                        current.path,
+                        folder,
+                        target_folder_path=target_folder_path,
+                    )
 
-                    # Create new node linked to previous (audit chain)
-                    DocumentPath.objects.create(
-                        document=current.document,
+                    # Helper performs disambiguation + create with retry on
+                    # IntegrityError.  Passing batch_claimed ensures the
+                    # disambiguator considers paths already committed by
+                    # earlier iterations of this batch as occupied.
+                    _, committed_path = cls._create_successor_path_with_retry(
+                        current=current,
                         corpus=corpus,
                         folder=folder,
-                        path=new_path,
-                        version_number=current.version_number,
-                        parent=current,
-                        is_current=True,
-                        is_deleted=False,
-                        creator=user,
+                        base_path=base_path,
+                        user=user,
+                        extra_occupied=batch_claimed,
                     )
+
+                    # Only the *committed* path is added to batch_claimed —
+                    # failed intermediate paths (rolled back by the savepoint)
+                    # are not in the DB, so subsequent batch items can
+                    # naturally reuse them without a conflict.  The helper
+                    # tracks those losing paths internally in
+                    # ``occupied_after_loss`` for the duration of a single
+                    # document's retry loop.
+                    batch_claimed.add(committed_path)
                     moved_count += 1
 
                 logger.info(
@@ -1411,7 +1398,9 @@ class DocumentFolderService:
             candidate = f"{stem}_{counter}{ext}"
             if candidate not in occupied:
                 log_prefix = (
-                    "Within-batch path conflict" if extra_occupied else "Path conflict"
+                    f"Within-batch {PATH_CONFLICT_MSG.lower()}"
+                    if extra_occupied
+                    else PATH_CONFLICT_MSG
                 )
                 logger.warning(
                     "%s for %r in corpus %s — disambiguated to %r",
@@ -1432,6 +1421,154 @@ class DocumentFolderService:
             f"Cannot find a unique path for {base_path!r} in corpus {corpus.id} "
             f"after {MAX_PATH_DISAMBIGUATION_SUFFIX} attempts"
         )
+
+    @classmethod
+    def _create_successor_path_with_retry(
+        cls,
+        *,
+        current: DocumentPath,
+        corpus: Corpus,
+        folder: CorpusFolder | None,
+        base_path: str,
+        user: User,
+        extra_occupied: set[str] | None = None,
+    ) -> tuple[DocumentPath, str]:
+        """
+        Atomically deactivate ``current`` and create a successor DocumentPath,
+        retrying on ``IntegrityError`` from the ``unique_active_path_per_corpus``
+        partial unique constraint.
+
+        This is the TOCTOU race recovery layer for path uniqueness:
+        ``_disambiguate_path`` checks for occupied paths at query time, but a
+        concurrent transaction can claim the same path between the SELECT and
+        the INSERT.  Each retry runs:
+
+        1. ``_disambiguate_path`` to choose a free path (treating any
+           previously-lost paths as occupied)
+        2. A nested ``transaction.atomic()`` savepoint
+        3. ``current.is_current = False`` save
+        4. ``DocumentPath.objects.create(...)`` for the successor
+
+        On ``IntegrityError`` the savepoint is rolled back (so ``current``
+        remains the active path in the DB), the losing path is added to the
+        in-memory occupied set, and the loop tries again with a fresh
+        disambiguation.
+
+        After ``MAX_PATH_CREATE_RETRIES`` consecutive failures the most
+        recent ``IntegrityError`` is re-raised so the caller can roll back
+        the outer transaction.
+
+        **Caller contract**: must already be inside an outer
+        ``transaction.atomic()`` block that holds a ``select_for_update``
+        lock on ``current``.  The lock prevents two callers from racing on
+        the *same* document; this helper only handles races on the *target
+        path slot* (different documents racing for the same filename).
+
+        Args:
+            current: Currently active DocumentPath being superseded.
+            corpus: Owning corpus (must equal ``current.corpus``).
+            folder: Target folder for the successor (None = corpus root).
+            base_path: Initial proposed path; disambiguated each attempt.
+            user: User performing the operation (set as creator).
+            extra_occupied: Optional set of paths already claimed by earlier
+                items in a batch operation; merged into the in-memory
+                occupied set on every disambiguation.
+
+        Returns:
+            ``(new_path_record, chosen_path_string)`` — the path string may
+            differ from ``base_path`` after disambiguation/retries.
+
+        Raises:
+            ValueError: If ``_disambiguate_path`` exhausts its suffix cap.
+            IntegrityError: If ``MAX_PATH_CREATE_RETRIES`` consecutive
+                INSERT attempts all lose the race.
+        """
+        # Deferred to break circular import (documents -> corpuses -> documents).
+        from opencontractserver.documents.models import DocumentPath
+
+        # Track paths we've attempted unsuccessfully so disambiguation
+        # avoids them on subsequent retries within the same call.
+        occupied_after_loss: set[str] = set(extra_occupied or ())
+        last_exc: IntegrityError | None = None
+
+        for attempt in range(MAX_PATH_CREATE_RETRIES + 1):
+            new_path = cls._disambiguate_path(
+                base_path,
+                corpus,
+                exclude_pk=current.pk,
+                extra_occupied=occupied_after_loss,
+            )
+            try:
+                # Savepoint: both the deactivation and the create must
+                # succeed together, or neither commits.  An IntegrityError
+                # rolls back the savepoint without poisoning the outer
+                # transaction, allowing retry.
+                with transaction.atomic():
+                    current.is_current = False
+                    current.save(update_fields=["is_current"])
+
+                    new_record = DocumentPath.objects.create(
+                        document=current.document,
+                        corpus=corpus,
+                        folder=folder,
+                        path=new_path,
+                        version_number=current.version_number,
+                        parent=current,
+                        is_current=True,
+                        is_deleted=False,
+                        creator=user,
+                    )
+                    return new_record, new_path
+            except IntegrityError as exc:
+                # Only retry for the specific partial-unique constraint;
+                # other IntegrityErrors (null, FK) are real bugs and
+                # should not be retried.
+                #
+                # Guard order: first check the psycopg2 pgcode so we only
+                # inspect the error message for UniqueViolation errors
+                # (pgcode 23505); then confirm the constraint name.  This
+                # avoids retrying on unrelated IntegrityErrors that happen
+                # to contain the constraint name as a substring, and also
+                # avoids matching on non-English Postgres error messages.
+                cause = getattr(exc, "__cause__", None)
+                pgcode = getattr(cause, "pgcode", None)
+                if pgcode != "23505" or "unique_active_path_per_corpus" not in str(exc):
+                    raise
+                last_exc = exc
+                occupied_after_loss.add(new_path)
+                # The savepoint rollback restored ``current.is_current=True``
+                # in the database, but the in-memory attribute still reflects
+                # the unsaved write.  Reset it so the next iteration's save()
+                # actually writes ``False`` again.
+                current.is_current = True
+                logger.warning(
+                    "IntegrityError on attempt %d/%d creating path %r for "
+                    "document %s in corpus %s — concurrent path conflict, "
+                    "retrying with fresh disambiguation: %s",
+                    attempt + 1,
+                    MAX_PATH_CREATE_RETRIES + 1,
+                    new_path,
+                    current.document_id,
+                    corpus.id,
+                    exc,
+                )
+
+        logger.error(
+            "DocumentPath creation failed after %d retries for document %s "
+            "in corpus %s — concurrent path conflicts could not be resolved",
+            MAX_PATH_CREATE_RETRIES + 1,
+            current.document_id,
+            corpus.id,
+        )
+        # last_exc is guaranteed non-None here: the loop runs at least once
+        # and only exits via return-on-success or via the except block which
+        # always sets last_exc.  Guard defensively so ``python -O`` doesn't
+        # silently turn this into ``raise None``.
+        if last_exc is None:
+            raise RuntimeError(
+                "Unreachable: retry loop exited without setting last_exc"
+            )
+        raise last_exc
 
     @classmethod
     def soft_delete_document(

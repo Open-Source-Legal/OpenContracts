@@ -21,6 +21,11 @@ from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.test import TransactionTestCase
 
+from opencontractserver.constants.document_processing import (
+    MAX_PATH_CREATE_RETRIES,
+    MAX_PATH_DISAMBIGUATION_SUFFIX,
+    PATH_CONFLICT_MSG,
+)
 from opencontractserver.corpuses.folder_service import DocumentFolderService
 from opencontractserver.corpuses.models import (
     Corpus,
@@ -31,6 +36,23 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
+
+
+def _make_constraint_error(
+    message: str = "unique_active_path_per_corpus",
+) -> IntegrityError:
+    """Create an IntegrityError that mimics real Django/psycopg2 constraint violations.
+
+    Production IntegrityErrors from psycopg2 have a ``__cause__`` with a
+    ``pgcode`` attribute (``"23505"`` for UniqueViolation).  The service
+    layer's ``_create_successor_path_with_retry`` guards on this pgcode
+    before retrying, so test mocks must chain the cause correctly.
+    """
+    cause = Exception()
+    cause.pgcode = "23505"  # PostgreSQL UniqueViolation
+    exc = IntegrityError(message)
+    exc.__cause__ = cause
+    return exc
 
 
 # =============================================================================
@@ -2420,10 +2442,6 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
         """_disambiguate_path raises ValueError when suffix cap is exhausted."""
         from unittest.mock import patch
 
-        from opencontractserver.constants.document_processing import (
-            MAX_PATH_DISAMBIGUATION_SUFFIX,
-        )
-
         # Build a set of all candidate paths the disambiguation loop will try.
         # _disambiguate_path pre-fetches occupied paths with a single query;
         # we patch that queryset's values_list to return every candidate so
@@ -3158,12 +3176,17 @@ class TestErrorPaths_DeleteFolderAtomicRollback(DocumentFolderServiceTestBase):
         original_disambiguate = DocumentFolderService._disambiguate_path
         call_count = 0
 
-        def fail_on_second(base_path, corpus, exclude_pk=None):
+        def fail_on_second(base_path, corpus, exclude_pk=None, extra_occupied=None):
             nonlocal call_count
             call_count += 1
             if call_count == 2:
                 raise ValueError("suffix exhausted")
-            return original_disambiguate(base_path, corpus, exclude_pk=exclude_pk)
+            return original_disambiguate(
+                base_path,
+                corpus,
+                exclude_pk=exclude_pk,
+                extra_occupied=extra_occupied,
+            )
 
         with patch.object(
             DocumentFolderService,
@@ -3323,7 +3346,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(DocumentFolderServiceTestBase):
 
         def failing_create(**kwargs):
             if kwargs.get("parent") is not None:
-                raise IntegrityError("unique_active_path_per_corpus")
+                raise _make_constraint_error()
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
@@ -3335,7 +3358,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(DocumentFolderServiceTestBase):
             )
 
         self.assertFalse(success)
-        self.assertIn("Path conflict", error)
+        self.assertIn(PATH_CONFLICT_MSG, error)
 
     def test_integrity_error_preserves_old_path_as_current(self):
         """IntegrityError must not orphan the document by leaving no active path.
@@ -3349,7 +3372,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(DocumentFolderServiceTestBase):
 
         def failing_create(**kwargs):
             if kwargs.get("parent") is not None:
-                raise IntegrityError("unique_active_path_per_corpus")
+                raise _make_constraint_error()
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
@@ -3676,7 +3699,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(DocumentFolderServiceTestBase):
 # =============================================================================
 
 
-class TestCoverageGap_ComputeMovedPathTrailingSlash(TransactionTestCase):
+class TestCoverageGapComputeMovedPathTrailingSlash(TransactionTestCase):
     """
     SCENARIO: _compute_moved_path encounters a path with a trailing slash
     (e.g. "/dir/") which produces an empty filename after rsplit.
@@ -3698,7 +3721,7 @@ class TestCoverageGap_ComputeMovedPathTrailingSlash(TransactionTestCase):
         self.assertIn("empty or root-only", str(ctx.exception))
 
 
-class TestCoverageGap_ComputeMovedPathWhitespace(TransactionTestCase):
+class TestCoverageGapComputeMovedPathWhitespace(TransactionTestCase):
     """
     SCENARIO: _compute_moved_path receives a whitespace-only path.
 
@@ -3719,7 +3742,7 @@ class TestCoverageGap_ComputeMovedPathWhitespace(TransactionTestCase):
         self.assertIn("empty or root-only", str(ctx.exception))
 
 
-class TestCoverageGap_DisambiguateNoSlashPath(DocumentFolderServiceTestBase):
+class TestCoverageGapDisambiguateNoSlashPath(DocumentFolderServiceTestBase):
     """
     SCENARIO: _disambiguate_path is called with a path that has no slash
     (e.g. "report.pdf" instead of "/report.pdf").
@@ -3780,7 +3803,7 @@ class TestCoverageGap_DisambiguateNoSlashPath(DocumentFolderServiceTestBase):
         self.assertEqual(result, "Makefile_1")
 
 
-class TestCoverageGap_BulkMoveIntegrityErrorRollback(DocumentFolderServiceTestBase):
+class TestCoverageGapBulkMoveIntegrityErrorRollback(DocumentFolderServiceTestBase):
     """
     SCENARIO: An IntegrityError during bulk move execution causes full
     atomic rollback.
@@ -3821,7 +3844,7 @@ class TestCoverageGap_BulkMoveIntegrityErrorRollback(DocumentFolderServiceTestBa
 
         def failing_create(**kwargs):
             if kwargs.get("parent") is not None:
-                raise IntegrityError("unique_active_path_per_corpus")
+                raise _make_constraint_error()
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
@@ -3841,7 +3864,7 @@ class TestCoverageGap_BulkMoveIntegrityErrorRollback(DocumentFolderServiceTestBa
         self.assertIsNone(original_path.folder_id)
 
 
-class TestCoverageGap_BulkMoveToRootRollback(DocumentFolderServiceTestBase):
+class TestCoverageGapBulkMoveToRootRollback(DocumentFolderServiceTestBase):
     """
     SCENARIO: Bulk move to root (folder=None) fails and rolls back.
 
@@ -3880,7 +3903,7 @@ class TestCoverageGap_BulkMoveToRootRollback(DocumentFolderServiceTestBase):
 
         def failing_create(**kwargs):
             if kwargs.get("parent") is not None:
-                raise IntegrityError("unique_active_path_per_corpus")
+                raise _make_constraint_error()
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
@@ -3899,7 +3922,372 @@ class TestCoverageGap_BulkMoveToRootRollback(DocumentFolderServiceTestBase):
         self.assertEqual(original_path.folder_id, self.source_folder.id)
 
 
-class TestCoverageGap_DeleteFolderMultiDocHistory(DocumentFolderServiceTestBase):
+class TestMoveDocumentIntegrityRecovery(DocumentFolderServiceTestBase):
+    """
+    SCENARIO: A transient IntegrityError on the
+    ``unique_active_path_per_corpus`` partial unique index — caused by a
+    concurrent transaction claiming the same target path between
+    ``_disambiguate_path``'s SELECT and ``DocumentPath.objects.create``'s
+    INSERT — is automatically recovered via retry inside
+    ``_create_successor_path_with_retry``.
+
+    BUSINESS RULE: Callers do not have to retry move operations on
+    transient races; the helper retries with a fresh disambiguation
+    (treating the lost path as occupied) until either an attempt succeeds
+    or ``MAX_PATH_CREATE_RETRIES`` is exhausted.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus", creator=self.owner, is_public=False
+        )
+        self.folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Target"
+        )
+        self.document = Document.objects.create(
+            title="Race Doc", creator=self.owner, pdf_file="race.pdf"
+        )
+        self.original_path = DocumentPath.objects.create(
+            document=self.document,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/race.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+    def test_first_attempt_fails_second_succeeds(self):
+        """A single IntegrityError on create is recovered by retrying with
+        a freshly disambiguated path."""
+        original_create = DocumentPath.objects.create
+        attempts = {"count": 0}
+
+        def flaky_create(**kwargs):
+            # Only fail successor inserts (parent is set), and only on
+            # the very first attempt; subsequent attempts succeed.
+            if kwargs.get("parent") is not None:
+                attempts["count"] += 1
+                if attempts["count"] == 1:
+                    raise _make_constraint_error()
+            return original_create(**kwargs)
+
+        with patch.object(DocumentPath.objects, "create", side_effect=flaky_create):
+            success, error = DocumentFolderService.move_document_to_folder(
+                user=self.owner,
+                document=self.document,
+                corpus=self.corpus,
+                folder=self.folder,
+            )
+
+        self.assertTrue(success, f"Retry should succeed, got error: {error}")
+        self.assertEqual(error, "")
+        # The mock fails on attempt 1 and succeeds on attempt 2 — exactly 2 creates.
+        self.assertEqual(attempts["count"], 2)
+
+        # The new path should be committed and live in the target folder
+        new_path = DocumentPath.objects.get(
+            document=self.document,
+            corpus=self.corpus,
+            is_current=True,
+            is_deleted=False,
+        )
+        self.assertEqual(new_path.folder_id, self.folder.id)
+        self.assertEqual(new_path.parent_id, self.original_path.id)
+
+        # The original path is no longer current
+        self.original_path.refresh_from_db()
+        self.assertFalse(self.original_path.is_current)
+
+    def test_retry_uses_disambiguated_path_after_loss(self):
+        """After an IntegrityError, the next disambiguation should treat
+        the previously-tried path as occupied and pick a different one."""
+        original_create = DocumentPath.objects.create
+        observed_paths: list[str] = []
+
+        def flaky_create(**kwargs):
+            if kwargs.get("parent") is not None:
+                observed_paths.append(kwargs["path"])
+                if len(observed_paths) == 1:
+                    raise _make_constraint_error()
+            return original_create(**kwargs)
+
+        with patch.object(DocumentPath.objects, "create", side_effect=flaky_create):
+            success, error = DocumentFolderService.move_document_to_folder(
+                user=self.owner,
+                document=self.document,
+                corpus=self.corpus,
+                folder=self.folder,
+            )
+
+        self.assertTrue(success, f"Retry should succeed, got error: {error}")
+        self.assertEqual(len(observed_paths), 2)
+        # Second attempt must have used a different disambiguated path
+        self.assertNotEqual(
+            observed_paths[0],
+            observed_paths[1],
+            "Retry should use a fresh disambiguated path, not the same one",
+        )
+
+    def test_persistent_failure_returns_error_after_exhausting_retries(self):
+        """If every attempt fails, the move ultimately surfaces a path
+        conflict error and the original path remains active."""
+        original_create = DocumentPath.objects.create
+        attempts = {"count": 0}
+
+        def always_failing_create(**kwargs):
+            if kwargs.get("parent") is not None:
+                attempts["count"] += 1
+                raise _make_constraint_error()
+            return original_create(**kwargs)
+
+        with patch.object(
+            DocumentPath.objects, "create", side_effect=always_failing_create
+        ):
+            success, error = DocumentFolderService.move_document_to_folder(
+                user=self.owner,
+                document=self.document,
+                corpus=self.corpus,
+                folder=self.folder,
+            )
+
+        self.assertFalse(success)
+        self.assertIn(PATH_CONFLICT_MSG, error)
+        # All MAX_PATH_CREATE_RETRIES + 1 attempts must have run
+        self.assertEqual(attempts["count"], MAX_PATH_CREATE_RETRIES + 1)
+
+        # The original path must still be the active one — savepoint
+        # rollbacks must have restored is_current=True after every loss.
+        self.original_path.refresh_from_db()
+        self.assertTrue(self.original_path.is_current)
+        self.assertIsNone(self.original_path.folder_id)
+
+    def test_non_constraint_integrity_error_is_not_retried(self):
+        """An IntegrityError that does NOT mention the partial unique
+        constraint should propagate immediately without retry."""
+        original_create = DocumentPath.objects.create
+        attempts = {"count": 0}
+
+        def fk_violation_create(**kwargs):
+            if kwargs.get("parent") is not None:
+                attempts["count"] += 1
+                raise IntegrityError("null value in column 'corpus_id'")
+            return original_create(**kwargs)
+
+        with patch.object(
+            DocumentPath.objects, "create", side_effect=fk_violation_create
+        ):
+            success, error = DocumentFolderService.move_document_to_folder(
+                user=self.owner,
+                document=self.document,
+                corpus=self.corpus,
+                folder=self.folder,
+            )
+
+        # Should fail immediately on the first attempt (no retries)
+        self.assertEqual(attempts["count"], 1)
+        self.assertFalse(success)
+        # The non-constraint IntegrityError is re-raised from the helper and
+        # caught by move_document_to_folder's outer IntegrityError handler,
+        # which formats a PATH_CONFLICT_MSG error string.
+        self.assertIn(PATH_CONFLICT_MSG, error)
+
+
+class TestBulkMoveIntegrityRecovery(DocumentFolderServiceTestBase):
+    """
+    SCENARIO: Bulk move automatically recovers from a transient
+    IntegrityError on the partial unique index for an individual document
+    in the batch, without aborting the whole batch.
+
+    BUSINESS RULE: All documents that can be moved within
+    ``MAX_PATH_CREATE_RETRIES`` attempts each are moved; only persistent
+    conflicts trigger a full rollback.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus", creator=self.owner, is_public=False
+        )
+        self.folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Target"
+        )
+
+    def test_bulk_move_recovers_from_transient_integrity_error(self):
+        """A single transient IntegrityError mid-batch should be recovered
+        and the entire batch should still complete successfully."""
+        docs = []
+        for i in range(2):
+            doc = Document.objects.create(
+                title=f"Doc {i}", creator=self.owner, pdf_file=f"doc{i}.pdf"
+            )
+            DocumentPath.objects.create(
+                document=doc,
+                corpus=self.corpus,
+                creator=self.owner,
+                folder=None,
+                path=f"/doc{i}.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+            )
+            docs.append(doc)
+
+        original_create = DocumentPath.objects.create
+        attempts = {"count": 0}
+
+        def flaky_create(**kwargs):
+            # Fail on the very first successor insert only.
+            if kwargs.get("parent") is not None:
+                attempts["count"] += 1
+                if attempts["count"] == 1:
+                    raise _make_constraint_error()
+            return original_create(**kwargs)
+
+        with patch.object(DocumentPath.objects, "create", side_effect=flaky_create):
+            moved_count, error = DocumentFolderService.move_documents_to_folder(
+                user=self.owner,
+                document_ids=[d.id for d in docs],
+                corpus=self.corpus,
+                folder=self.folder,
+            )
+
+        self.assertEqual(moved_count, 2, f"Both should move, got error: {error}")
+        self.assertEqual(error, "")
+        # First doc retried (2 attempts) + second doc (1 attempt) = exactly 3 inserts
+        self.assertEqual(attempts["count"], 3)
+
+        # All docs should now live in the target folder
+        for doc in docs:
+            current = DocumentPath.objects.get(
+                document=doc, corpus=self.corpus, is_current=True, is_deleted=False
+            )
+            self.assertEqual(current.folder_id, self.folder.id)
+
+
+class TestDeleteFolderIntegrityRecovery(DocumentFolderServiceTestBase):
+    """
+    SCENARIO: ``delete_folder`` relocates documents to root via the same
+    helper, so it inherits the IntegrityError retry behavior.
+
+    BUSINESS RULE: A transient race on the destination path slot does not
+    abort folder deletion; only persistent conflicts trigger rollback.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Test Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_delete_folder_recovers_from_transient_integrity_error(self):
+        """A transient IntegrityError during document relocation should
+        be transparently retried so the folder deletion still succeeds."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Doomed"
+        )
+        doc = Document.objects.create(
+            title="Reloc Doc", creator=self.owner, pdf_file="reloc.pdf"
+        )
+        DocumentPath.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=folder,
+            path="/Doomed/reloc.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        original_create = DocumentPath.objects.create
+        attempts = {"count": 0}
+
+        def flaky_create(**kwargs):
+            if kwargs.get("parent") is not None:
+                attempts["count"] += 1
+                if attempts["count"] == 1:
+                    raise _make_constraint_error()
+            return original_create(**kwargs)
+
+        with patch.object(DocumentPath.objects, "create", side_effect=flaky_create):
+            success, error = DocumentFolderService.delete_folder(
+                user=self.owner, folder=folder
+            )
+
+        self.assertTrue(
+            success, f"delete_folder should retry and succeed, got error: {error}"
+        )
+        self.assertEqual(error, "")
+        # The mock fails on attempt 1 and succeeds on attempt 2 — exactly 2 creates.
+        self.assertEqual(attempts["count"], 2)
+
+        # Folder removed and document is now at corpus root
+        self.assertFalse(CorpusFolder.objects.filter(pk=folder.pk).exists())
+        current = DocumentPath.objects.get(
+            document=doc, corpus=self.corpus, is_current=True, is_deleted=False
+        )
+        self.assertIsNone(current.folder_id)
+
+    def test_persistent_failure_preserves_folder_and_documents(self):
+        """If every retry attempt fails, the folder is NOT deleted and
+        all documents remain in their original locations."""
+        folder, _ = DocumentFolderService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Sticky"
+        )
+        doc = Document.objects.create(
+            title="Stuck Doc", creator=self.owner, pdf_file="stuck.pdf"
+        )
+        original_path = DocumentPath.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=folder,
+            path="/Sticky/stuck.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        original_create = DocumentPath.objects.create
+        attempts = {"count": 0}
+
+        def always_failing_create(**kwargs):
+            if kwargs.get("parent") is not None:
+                attempts["count"] += 1
+                raise _make_constraint_error()
+            return original_create(**kwargs)
+
+        with patch.object(
+            DocumentPath.objects, "create", side_effect=always_failing_create
+        ):
+            success, error = DocumentFolderService.delete_folder(
+                user=self.owner, folder=folder
+            )
+
+        self.assertFalse(success)
+        self.assertIn("rolled back", error)
+
+        self.assertEqual(attempts["count"], MAX_PATH_CREATE_RETRIES + 1)
+
+        # Folder must still exist
+        self.assertTrue(CorpusFolder.objects.filter(pk=folder.pk).exists())
+
+        # Document's original path must still be current and in the folder
+        original_path.refresh_from_db()
+        self.assertTrue(original_path.is_current)
+        self.assertEqual(original_path.folder_id, folder.id)
+
+
+class TestCoverageGapDeleteFolderMultiDocHistory(DocumentFolderServiceTestBase):
     """
     SCENARIO: Deleting a folder with multiple documents creates a history
     node for each document.
@@ -3965,7 +4353,7 @@ class TestCoverageGap_DeleteFolderMultiDocHistory(DocumentFolderServiceTestBase)
             self.assertFalse(original_path.is_current)
 
 
-class TestCoverageGap_BulkMoveVersionPreservation(DocumentFolderServiceTestBase):
+class TestCoverageGapBulkMoveVersionPreservation(DocumentFolderServiceTestBase):
     """
     SCENARIO: Bulk move preserves version numbers and creates proper
     parent chain for each document.
@@ -4042,7 +4430,7 @@ class TestCoverageGap_BulkMoveVersionPreservation(DocumentFolderServiceTestBase)
             self.assertFalse(original_path.is_current)
 
 
-class TestCoverageGap_BulkMoveGetPathCallCount(DocumentFolderServiceTestBase):
+class TestCoverageGapBulkMoveGetPathCallCount(DocumentFolderServiceTestBase):
     """
     SCENARIO: Bulk move caches the target folder path before the loop.
 
