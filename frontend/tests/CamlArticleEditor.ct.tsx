@@ -6,6 +6,7 @@
  * 2. Editor pane with CAML source
  * 3. Preview pane with rendered output
  * 4. Unsaved changes indicator
+ * 5. Extract picker keyboard navigation (Arrow keys, Home/End, Escape, Enter)
  */
 import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
@@ -233,15 +234,79 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     await component.unmount();
   });
 
-  // NOTE: A full insertion test (Enter key → marker appears in textarea) is
-  // omitted because selecting an extract inserts a `[component:extract-grid]`
-  // marker that the live preview immediately tries to render — issuing a
-  // GET_EXTRACT_GRID_EMBED query. This requires additional GraphQL mocks and
-  // an ErrorBoundary around the preview, which is out of scope for this PR.
-  // The Enter key handler delegates to `handleInsertComponent`, which is the
-  // same code path exercised by the click handler; the keyboard-specific
-  // navigation tests above (ArrowDown/Up, Home/End, Escape, wrap-around)
-  // cover the keyboard interaction logic thoroughly.
+  test("should not insert when Enter is pressed with no item focused", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Capture initial textarea content
+    const textarea = page.locator("textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+    const initialValue = await textarea.inputValue();
+
+    // Open picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Press Enter WITHOUT navigating to any item (activeExtractIndex is -1).
+    // This should NOT insert anything — the Enter guard checks that
+    // activeExtractIndex is a valid index before acting.
+    await page.keyboard.press("Enter");
+
+    // Give time for any potential state changes
+    await page.waitForTimeout(300);
+
+    // Textarea content should be unchanged
+    const afterValue = await textarea.inputValue();
+    expect(afterValue).toBe(initialValue);
+
+    await component.unmount();
+  });
+
+  test("should highlight item on mouse enter for seamless keyboard/mouse interaction", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Hover over the second option to trigger onMouseEnter
+    const secondOption = page.locator('[role="option"]').nth(1);
+    await secondOption.hover();
+
+    // The second option should become active (aria-selected) via onMouseEnter
+    await expect(secondOption).toHaveAttribute("aria-selected", "true", {
+      timeout: 3000,
+    });
+
+    // The first option should NOT be selected
+    const firstOption = page.locator('[role="option"]').first();
+    await expect(firstOption).toHaveAttribute("aria-selected", "false");
+
+    await component.unmount();
+  });
 });
 
 test.describe("CamlArticleEditor - New Block Types in Template", () => {

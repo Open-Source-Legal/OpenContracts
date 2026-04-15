@@ -297,11 +297,16 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
   }, [extractId]);
 
   useEffect(() => {
+    // Guard: warnings are only useful during local development.  Vite inlines
+    // NODE_ENV="production" in component-test and release builds, making the
+    // body unreachable — hence the istanbul ignore.
+    /* istanbul ignore next -- dev-only diagnostic, unreachable in prod builds */
     if (process.env.NODE_ENV !== "development" || !extract) return;
 
     // TODO(#1204): When the datacell cap is the binding constraint (not the
     // row limit), some columns are silently omitted. Surface this to the user
     // with a visible banner or info chip once server-side pagination lands.
+    /* istanbul ignore next -- dev-only diagnostic, unreachable in prod builds */
     if (
       !hasWarnedCap.current &&
       extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
@@ -316,6 +321,7 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
       );
     }
 
+    /* istanbul ignore next -- dev-only diagnostic, unreachable in prod builds */
     if (!hasWarnedRows.current && rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
       hasWarnedRows.current = true;
       console.warn(
