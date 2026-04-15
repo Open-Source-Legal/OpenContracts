@@ -48,3 +48,5 @@ ignore:
   - "config/settings/test*.py"
   - "frontend/src/**/*.test.{ts,tsx}"
   - "frontend/src/setupTests.ts"
+  - "frontend/tests/**"
+  - "frontend/*.config.ts"
