@@ -591,9 +591,9 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
    * - Enter selects the focused option (inserts the extract grid marker).
    * - Escape closes the dropdown and returns focus to the trigger button.
    *
-   * Attached to the trigger button itself so `aria-activedescendant` and
-   * the keyboard handler share the same DOM focus context — required by
-   * WAI-ARIA for virtual-focus listbox patterns.
+   * Attached to the trigger button (role="combobox") so
+   * `aria-activedescendant` and the keyboard handler share the same DOM
+   * focus context — required by WAI-ARIA for virtual-focus patterns.
    */
   const handleExtractPickerKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -690,6 +690,11 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                 <ToolbarBtn
                   ref={extractPickerTriggerRef}
                   type="button"
+                  // WAI-ARIA combobox pattern: role="combobox" is required for
+                  // aria-activedescendant to be valid.  A plain role="button"
+                  // is NOT in the spec's allowed list, causing screen readers
+                  // to silently ignore the active descendant announcement.
+                  role="combobox"
                   aria-haspopup="listbox"
                   aria-expanded={showExtractPicker}
                   aria-controls={

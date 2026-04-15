@@ -110,7 +110,7 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     });
 
     // Click the "Insert Extract Grid" button to open the picker
-    const triggerBtn = page.getByRole("button", {
+    const triggerBtn = page.getByRole("combobox", {
       name: "Insert extract grid table",
     });
     await expect(triggerBtn).toBeVisible({ timeout: 5000 });
@@ -151,7 +151,7 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     });
 
     // Open picker
-    const triggerBtn = page.getByRole("button", {
+    const triggerBtn = page.getByRole("combobox", {
       name: "Insert extract grid table",
     });
     await triggerBtn.click();
@@ -183,7 +183,7 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     });
 
     // Open picker
-    const triggerBtn = page.getByRole("button", {
+    const triggerBtn = page.getByRole("combobox", {
       name: "Insert extract grid table",
     });
     await triggerBtn.click();
@@ -214,7 +214,7 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     });
 
     // Open picker
-    const triggerBtn = page.getByRole("button", {
+    const triggerBtn = page.getByRole("combobox", {
       name: "Insert extract grid table",
     });
     await triggerBtn.click();
