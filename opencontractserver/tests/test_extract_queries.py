@@ -153,6 +153,7 @@ class ExtractsQueryTestCase(TestCase):
         )
         self.assertEqual(result["data"]["datacell"]["data"], {"data": "TestData"})
         self.assertEqual(result["data"]["datacell"]["dataDefinition"], "str")
+
     def test_full_datacell_list_limit_offset_and_count(self):
         """
         Covers the ExtractType.full_datacell_list pagination arguments (`limit`,
@@ -445,4 +446,3 @@ class ExtractsQueryTestCase(TestCase):
         )
         self.assertIsNone(result.get("errors"))
         self.assertEqual(len(result["data"]["extract"]["fullDatacellList"]), 0)
-
