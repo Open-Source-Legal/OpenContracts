@@ -11,15 +11,26 @@ import { MemoryRouter } from "react-router-dom";
 import { Provider } from "jotai";
 
 import { ExtractGridEmbed } from "../src/components/extracts/ExtractGridEmbed";
+import { EXTRACT_GRID_EMBED_CELL_LIMIT } from "../src/assets/configurations/constants";
 import { GET_EXTRACT_GRID_EMBED } from "../src/graphql/queries";
 
 const TEST_EXTRACT_ID = "RXh0cmFjdFR5cGU6MQ==";
+
+/**
+ * Shared mock variables for the GET_EXTRACT_GRID_EMBED query. All mocks must
+ * match these exactly — Apollo's MockedProvider does strict variable matching
+ * and the component now passes an explicit `limit` (see #1204).
+ */
+const MOCK_VARS = {
+  extractId: TEST_EXTRACT_ID,
+  limit: EXTRACT_GRID_EMBED_CELL_LIMIT,
+};
 
 /** Mock: populated extract with 2 documents and 2 columns */
 const populatedExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: MOCK_VARS,
   },
   result: {
     data: {
@@ -41,6 +52,7 @@ const populatedExtractMock: MockedResponse = {
             { __typename: "ColumnType", id: "col-2", name: "Governing Law" },
           ],
         },
+        datacellCount: 4,
         fullDatacellList: [
           {
             __typename: "DatacellType",
@@ -140,7 +152,7 @@ const populatedExtractMock: MockedResponse = {
 const emptyExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: MOCK_VARS,
   },
   result: {
     data: {
@@ -161,6 +173,7 @@ const emptyExtractMock: MockedResponse = {
             { __typename: "ColumnType", id: "col-1", name: "Term" },
           ],
         },
+        datacellCount: 0,
         fullDatacellList: [],
       },
     },
@@ -171,7 +184,7 @@ const emptyExtractMock: MockedResponse = {
 const notFoundExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: MOCK_VARS,
   },
   result: {
     data: {
@@ -184,7 +197,7 @@ const notFoundExtractMock: MockedResponse = {
 const loadingExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: MOCK_VARS,
   },
   delay: 100_000,
   result: {
@@ -194,11 +207,18 @@ const loadingExtractMock: MockedResponse = {
   },
 };
 
-/** Mock: extract with more than EXTRACT_GRID_EMBED_MAX_ROWS documents (too-many-rows guard) */
+/**
+ * Mock: extract whose derived row count exceeds `EXTRACT_GRID_EMBED_MAX_ROWS`.
+ *
+ * The server-side `limit` is already capped at `EXTRACT_GRID_EMBED_CELL_LIMIT`
+ * so the fetched payload is bounded; the component still clips the rendered
+ * row count as a display bound and surfaces the truncation via the partial-
+ * data footer banner ("Showing N of M documents").
+ */
 const tooManyRowsExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: MOCK_VARS,
   },
   result: {
     data: {
@@ -219,9 +239,191 @@ const tooManyRowsExtractMock: MockedResponse = {
             { __typename: "ColumnType", id: "col-1", name: "Term" },
           ],
         },
+        datacellCount: 201,
         fullDatacellList: Array.from({ length: 201 }, (_, i) => ({
           __typename: "DatacellType" as const,
           id: `cell-${i}`,
+          column: {
+            __typename: "ColumnType" as const,
+            id: "col-1",
+            name: "Term",
+          },
+          document: {
+            __typename: "DocumentType" as const,
+            id: `doc-${i}`,
+            title: `Document ${i}`,
+            slug: `document-${i}`,
+            creator: { __typename: "UserType" as const, slug: "test-user" },
+          },
+          data: `value-${i}`,
+          correctedData: null,
+          completed: "2024-03-01T12:00:00Z",
+          failed: null,
+          fullSourceList: [],
+        })),
+      },
+    },
+  },
+};
+
+/**
+ * Mock: fetched payload is bounded by the server-side `limit`. Simulates an
+ * extract where the true `datacellCount` (800) exceeds the returned slice
+ * (4 cells = 2 rows × 2 columns). The component should render the partial
+ * table and show a "Showing 4 of 800 cells" footer banner.
+ */
+const partialExtractMock: MockedResponse = {
+  request: {
+    query: GET_EXTRACT_GRID_EMBED,
+    variables: MOCK_VARS,
+  },
+  result: {
+    data: {
+      extract: {
+        __typename: "ExtractType",
+        id: TEST_EXTRACT_ID,
+        name: "Partial Extract",
+        corpus: {
+          __typename: "CorpusType",
+          id: "Q29ycHVzVHlwZTox",
+          slug: "supply-chain-analysis",
+          creator: { __typename: "UserType", slug: "test-user" },
+        },
+        fieldset: {
+          __typename: "FieldsetType",
+          id: "fieldset-1",
+          fullColumnList: [
+            { __typename: "ColumnType", id: "col-1", name: "Effective Date" },
+            { __typename: "ColumnType", id: "col-2", name: "Governing Law" },
+          ],
+        },
+        datacellCount: 800,
+        fullDatacellList: [
+          {
+            __typename: "DatacellType",
+            id: "partial-cell-1",
+            column: {
+              __typename: "ColumnType",
+              id: "col-1",
+              name: "Effective Date",
+            },
+            document: {
+              __typename: "DocumentType",
+              id: "doc-a",
+              title: "Document A",
+              slug: "document-a",
+              creator: { __typename: "UserType", slug: "test-user" },
+            },
+            data: "2024-01-01",
+            correctedData: null,
+            completed: "2024-03-01T12:00:00Z",
+            failed: null,
+            fullSourceList: [],
+          },
+          {
+            __typename: "DatacellType",
+            id: "partial-cell-2",
+            column: {
+              __typename: "ColumnType",
+              id: "col-2",
+              name: "Governing Law",
+            },
+            document: {
+              __typename: "DocumentType",
+              id: "doc-a",
+              title: "Document A",
+              slug: "document-a",
+              creator: { __typename: "UserType", slug: "test-user" },
+            },
+            data: "Delaware",
+            correctedData: null,
+            completed: "2024-03-01T12:00:00Z",
+            failed: null,
+            fullSourceList: [],
+          },
+          {
+            __typename: "DatacellType",
+            id: "partial-cell-3",
+            column: {
+              __typename: "ColumnType",
+              id: "col-1",
+              name: "Effective Date",
+            },
+            document: {
+              __typename: "DocumentType",
+              id: "doc-b",
+              title: "Document B",
+              slug: "document-b",
+              creator: { __typename: "UserType", slug: "test-user" },
+            },
+            data: "2024-02-01",
+            correctedData: null,
+            completed: "2024-03-01T12:00:00Z",
+            failed: null,
+            fullSourceList: [],
+          },
+          {
+            __typename: "DatacellType",
+            id: "partial-cell-4",
+            column: {
+              __typename: "ColumnType",
+              id: "col-2",
+              name: "Governing Law",
+            },
+            document: {
+              __typename: "DocumentType",
+              id: "doc-b",
+              title: "Document B",
+              slug: "document-b",
+              creator: { __typename: "UserType", slug: "test-user" },
+            },
+            data: "New York",
+            correctedData: null,
+            completed: "2024-03-01T12:00:00Z",
+            failed: null,
+            fullSourceList: [],
+          },
+        ],
+      },
+    },
+  },
+};
+
+/**
+ * Mock: both truncation paths fire simultaneously. The fetched payload has
+ * 201 cells (one per document, 1 column) but `datacellCount` is 1000,
+ * meaning the server bounded the payload. The component also clips the
+ * rendered rows at EXTRACT_GRID_EMBED_MAX_ROWS (200). The combined banner
+ * should mention both the document clip and the cell bound.
+ */
+const bothTruncatedExtractMock: MockedResponse = {
+  request: {
+    query: GET_EXTRACT_GRID_EMBED,
+    variables: MOCK_VARS,
+  },
+  result: {
+    data: {
+      extract: {
+        __typename: "ExtractType",
+        id: TEST_EXTRACT_ID,
+        name: "Both Truncated Extract",
+        corpus: {
+          __typename: "CorpusType",
+          id: "Q29ycHVzVHlwZTox",
+          slug: "supply-chain-analysis",
+          creator: { __typename: "UserType", slug: "test-user" },
+        },
+        fieldset: {
+          __typename: "FieldsetType",
+          id: "fieldset-1",
+          fullColumnList: [
+            { __typename: "ColumnType", id: "col-1", name: "Term" },
+          ],
+        },
+        datacellCount: 1000,
+        fullDatacellList: Array.from({ length: 201 }, (_, i) => ({
+          __typename: "DatacellType" as const,
+          id: `both-cell-${i}`,
           column: {
             __typename: "ColumnType" as const,
             id: "col-1",
@@ -249,7 +451,7 @@ const tooManyRowsExtractMock: MockedResponse = {
 const errorExtractMock: MockedResponse = {
   request: {
     query: GET_EXTRACT_GRID_EMBED,
-    variables: { extractId: TEST_EXTRACT_ID },
+    variables: MOCK_VARS,
   },
   error: new Error("Network error"),
 };
@@ -269,7 +471,9 @@ export type ExtractGridEmbedState =
   | "error"
   | "missing-id"
   | "loading"
-  | "too-many-rows";
+  | "too-many-rows"
+  | "partial"
+  | "both-truncated";
 
 export interface ExtractGridEmbedTestWrapperProps {
   state?: ExtractGridEmbedState;
@@ -288,6 +492,8 @@ export const ExtractGridEmbedTestWrapper: React.FC<
     error: errorExtractMock,
     loading: loadingExtractMock,
     "too-many-rows": tooManyRowsExtractMock,
+    partial: partialExtractMock,
+    "both-truncated": bothTruncatedExtractMock,
   };
 
   const extractId = state === "missing-id" ? undefined : TEST_EXTRACT_ID;

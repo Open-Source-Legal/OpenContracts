@@ -19,7 +19,7 @@ import styled, { keyframes } from "styled-components";
 
 import {
   DATACELL_STATUS_COLORS,
-  EXTRACT_GRID_CELL_TRUNCATE_LENGTH,
+  EXTRACT_GRID_EMBED_CELL_LIMIT,
   EXTRACT_GRID_EMBED_MAX_ROWS,
 } from "../../assets/configurations/constants";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
@@ -30,6 +30,7 @@ import {
   ExtractGridEmbedCell,
   ExtractGridEmbedColumn,
 } from "../../graphql/queries";
+import { formatCellValue } from "../../utils/formatters";
 import { getDocumentUrl, buildQueryParams } from "../../utils/navigationUtils";
 
 // ---------------------------------------------------------------------------
@@ -179,25 +180,26 @@ const CenterMessage = styled.div`
   font-size: 0.8125rem;
 `;
 
+/**
+ * Footer banner shown below the table when the fetched/rendered payload is
+ * a bounded slice of the full datacell list (server-side `limit` applied,
+ * or too many rows for inline rendering). Communicates "showing N of M".
+ */
+const OverflowFooter = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: ${OS_LEGAL_COLORS.surfaceLight};
+  border-top: 1px solid ${OS_LEGAL_COLORS.border};
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  font-size: 0.75rem;
+  font-weight: 500;
+`;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Format a datacell value for display, truncating long objects. */
-function formatCellValue(
-  data: string | number | boolean | Record<string, unknown> | null | undefined
-): string {
-  if (data === null || data === undefined) return "\u2014";
-  if (typeof data === "boolean") return data ? "Yes" : "No";
-  if (typeof data === "object") {
-    const json = JSON.stringify(data);
-    if (json.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
-      return json.substring(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH) + "\u2026";
-    }
-    return json;
-  }
-  return String(data);
-}
 
 /** Build a link to the document viewer at a specific source annotation. */
 function buildSourceLink(
@@ -246,17 +248,24 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
     GetExtractGridEmbedOutput,
     GetExtractGridEmbedInput
   >(GET_EXTRACT_GRID_EMBED, {
-    variables: { extractId: extractId ?? "" },
+    variables: {
+      extractId: extractId ?? "",
+      // Server-side cap on datacell payload size (#1204). The server bounds
+      // the returned list; `datacellCount` (also fetched) reports the total
+      // so the UI can show a "showing N of M" indicator when truncated.
+      limit: EXTRACT_GRID_EMBED_CELL_LIMIT,
+    },
     skip: !extractId,
     fetchPolicy: "cache-first",
   });
 
   const extract = data?.extract;
 
-  // Build row-major grid: group datacells by document
+  // Build row-major grid: group datacells by document.
   // NOTE: This hook must remain above all early returns (Rules of Hooks).
-  // TODO(#1204): fullDatacellList is unbounded — add server-side pagination
-  // for extracts with many documents/columns.
+  // The fullDatacellList is already bounded server-side via the `limit`
+  // argument (#1204); `datacellCount` on the extract payload gives the
+  // true total so we can render a partial-data banner below the table.
   const { columns, rows } = useMemo(() => {
     if (!extract)
       return { columns: [] as ExtractGridEmbedColumn[], rows: [] as GridRow[] };
@@ -326,30 +335,22 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
     );
   }
 
-  // --- Too-large guard (#1204) ---
-  if (rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
-    if (process.env.NODE_ENV === "development") {
-      console.warn(
-        `[ExtractGridEmbed] Extract "${extract.name}" has ${rows.length} rows ` +
-          `(limit: ${EXTRACT_GRID_EMBED_MAX_ROWS}). The full datacell payload ` +
-          `was still fetched — consider server-side pagination (#1204).`
-      );
-    }
-    return (
-      <EmbedWrapper>
-        <EmbedHeader>
-          <Table2 size={14} />
-          {extract.name}
-        </EmbedHeader>
-        <CenterMessage>
-          <AlertCircle size={20} color={OS_LEGAL_COLORS.textMuted} />
-          This extract has {rows.length} documents, which exceeds the embed
-          limit of {EXTRACT_GRID_EMBED_MAX_ROWS}. View the full extract in the
-          Extracts panel instead.
-        </CenterMessage>
-      </EmbedWrapper>
-    );
-  }
+  // --- Pagination / overflow bookkeeping (#1204) ---------------------------
+  // The server-side `limit` caps the number of datacells returned. If the
+  // true visible count (`datacellCount`) exceeds the fetched slice, we show
+  // a "showing N of M cells" banner below the table. Separately, we clip
+  // the rendered row count to `EXTRACT_GRID_EMBED_MAX_ROWS` as a defensive
+  // display bound on extracts with many documents; the same banner surfaces
+  // that truncation as a "showing X of Y documents" message.
+  const fetchedCellCount = extract.fullDatacellList?.length ?? 0;
+  const totalCellCount = extract.datacellCount ?? fetchedCellCount;
+  const cellsTruncated = fetchedCellCount < totalCellCount;
+
+  const totalRowCount = rows.length;
+  const rowsTruncated = totalRowCount > EXTRACT_GRID_EMBED_MAX_ROWS;
+  const visibleRows = rowsTruncated
+    ? rows.slice(0, EXTRACT_GRID_EMBED_MAX_ROWS)
+    : rows;
 
   // --- Table ---
   return (
@@ -369,7 +370,7 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {visibleRows.map((row) => (
               <Tr key={row.document.id}>
                 <Td>
                   <DocLink
@@ -450,6 +451,20 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
           </tbody>
         </StyledTable>
       </TableScrollContainer>
+      {(cellsTruncated || rowsTruncated) && (
+        <OverflowFooter>
+          <AlertCircle size={14} color={OS_LEGAL_COLORS.textMuted} />
+          {rowsTruncated && cellsTruncated
+            ? `Showing ${visibleRows.length} of ${totalRowCount} documents. ` +
+              `${fetchedCellCount} of ${totalCellCount} total cells loaded. ` +
+              "View the full extract in the Extracts panel."
+            : rowsTruncated
+            ? `Showing ${visibleRows.length} of ${totalRowCount} documents. ` +
+              "View the full extract in the Extracts panel."
+            : `Showing ${fetchedCellCount} of ${totalCellCount} cells. ` +
+              "View the full extract in the Extracts panel."}
+        </OverflowFooter>
+      )}
     </EmbedWrapper>
   );
 };

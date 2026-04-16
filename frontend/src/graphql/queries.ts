@@ -2131,6 +2131,12 @@ export const GET_DATACELLS_FOR_EXTRACT = gql`
 
 export interface GetExtractGridEmbedInput {
   extractId: string;
+  /**
+   * Server-side cap on the number of datacells fetched. The server also
+   * reports `datacellCount` (total visible cells) so the client can display
+   * a "showing N of M" indicator when the payload is bounded. Resolves #1204.
+   */
+  limit?: number;
 }
 
 export interface ExtractGridEmbedColumn {
@@ -2173,11 +2179,13 @@ export interface GetExtractGridEmbedOutput {
       fullColumnList: ExtractGridEmbedColumn[];
     };
     fullDatacellList: ExtractGridEmbedCell[];
+    /** Total cells visible to the user, ignoring the `limit` applied above. */
+    datacellCount?: number | null;
   } | null;
 }
 
 export const GET_EXTRACT_GRID_EMBED = gql`
-  query GetExtractGridEmbed($extractId: ID!) {
+  query GetExtractGridEmbed($extractId: ID!, $limit: Int) {
     extract(id: $extractId) {
       id
       name
@@ -2195,10 +2203,13 @@ export const GET_EXTRACT_GRID_EMBED = gql`
           name
         }
       }
-      # NOTE: fullDatacellList is unbounded — for extracts with many documents and
-      # columns this could return thousands of cells. Consider adding server-side
-      # pagination if this is used on large extracts (see #1204).
-      fullDatacellList {
+      # Bounded payload: the server applies the limit arg to cap datacells
+      # returned, and datacellCount reports the total visible cells so the
+      # client can show a "showing N of M" indicator. Resolves #1204.
+      # Note: the server also accepts an offset argument for client-driven
+      # pagination, but the embed currently fetches only the first page.
+      datacellCount
+      fullDatacellList(limit: $limit) {
         id
         column {
           id

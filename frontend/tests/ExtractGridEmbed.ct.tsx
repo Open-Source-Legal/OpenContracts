@@ -9,7 +9,7 @@
  * 5. Loading state (spinner while fetching)
  * 6. Missing extractId prop
  */
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
 import { ExtractGridEmbedTestWrapper } from "./ExtractGridEmbedTestWrapper";
 
@@ -136,7 +136,7 @@ test.describe("ExtractGridEmbed - Loading", () => {
 });
 
 test.describe("ExtractGridEmbed - Too Many Rows", () => {
-  test("should show limit message when document count exceeds max rows", async ({
+  test("should render partial table with 'showing N of M documents' banner", async ({
     mount,
     page,
   }) => {
@@ -148,11 +148,65 @@ test.describe("ExtractGridEmbed - Too Many Rows", () => {
       timeout: 10000,
     });
 
-    // Guard message should appear with the row count and limit
-    await expect(page.getByText(/201 documents/)).toBeVisible();
-    await expect(page.getByText(/exceeds the embed limit/)).toBeVisible();
+    // Partial-data banner should report visible-of-total document count.
+    await expect(page.getByText(/Showing 200 of 201 documents/)).toBeVisible();
+    await expect(
+      page.getByText(/View the full extract in the Extracts panel/)
+    ).toBeVisible();
 
     await docScreenshot(page, "caml--extract-grid-embed--too-many-rows");
+
+    await component.unmount();
+  });
+});
+
+test.describe("ExtractGridEmbed - Partial (server-side limit)", () => {
+  test("should render table with 'showing N of M cells' banner when payload is bounded", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <ExtractGridEmbedTestWrapper state="partial" />
+    );
+
+    await expect(page.getByText("Partial Extract")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Table should render the returned slice.
+    await expect(page.getByText("Document A")).toBeVisible();
+    await expect(page.getByText("Document B")).toBeVisible();
+
+    // Partial-data footer should report fetched-vs-total cell count.
+    await expect(page.getByText(/Showing 4 of 800 cells/)).toBeVisible();
+
+    await docScreenshot(page, "caml--extract-grid-embed--partial");
+
+    await component.unmount();
+  });
+});
+
+test.describe("ExtractGridEmbed - Both Truncated", () => {
+  test("should show combined banner when both row clip and server-side limit apply", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <ExtractGridEmbedTestWrapper state="both-truncated" />
+    );
+
+    await expect(page.getByText("Both Truncated Extract")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // The combined banner should mention documents and cell counts, covering
+    // the branch where both cellsTruncated and rowsTruncated are true.
+    await expect(page.getByText(/Showing 200 of 201 documents/)).toBeVisible();
+    await expect(
+      page.getByText(/201 of 1000 total cells loaded/)
+    ).toBeVisible();
+
+    await docScreenshot(page, "caml--extract-grid-embed--both-truncated");
 
     await component.unmount();
   });

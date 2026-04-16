@@ -69,7 +69,7 @@ django-graphql-jwt==0.4.0
 
 # Telemetry
 # ------------------------------------------------------------------------------
-posthog==7.11.1  # https://github.com/posthog/posthog-python
+posthog==7.11.2  # https://github.com/posthog/posthog-python
 
 # JSON Schema
 # ------------------------------------------------------------------------------

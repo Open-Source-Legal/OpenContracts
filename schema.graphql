@@ -2620,8 +2620,23 @@ type ExtractType implements Node {
   myPermissions: GenericScalar
   isPublished: Boolean
   objectSharedWith: GenericScalar
-  fullDatacellList: [DatacellType]
+  fullDatacellList(
+    """
+    Maximum number of datacells to return. Use to bound payload size for extracts with many documents and columns. Returns all visible datacells if omitted.
+    """
+    limit: Int
+
+    """
+    Number of datacells to skip before applying `limit`. Use together with `limit` for client-driven pagination.
+    """
+    offset: Int
+  ): [DatacellType]
   fullDocumentList: [DocumentType]
+
+  """
+  Total number of datacells in this extract visible to the current user, ignoring any `limit`/`offset` applied to `fullDatacellList`. Use together with `fullDatacellList(limit: ...)` to display 'showing N of M' indicators when the payload is bounded.
+  """
+  datacellCount: Int
 }
 
 type FieldsetType implements Node {

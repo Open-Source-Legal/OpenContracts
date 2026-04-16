@@ -14,7 +14,7 @@ import {
 /**
  * Route parsing types
  */
-export interface ParsedRoute {
+interface ParsedRoute {
   type:
     | "corpus"
     | "document"
@@ -59,13 +59,13 @@ export interface QueryParams {
  * Minimal location shape needed by update*Param utilities.
  * Accepts React Router's Location or any object with a search string.
  */
-export type LocationLike = { search: string };
+type LocationLike = { search: string };
 
 /**
  * Minimal navigate shape needed by update*Param utilities.
  * Accepts React Router's NavigateFunction when called with a search-only object.
  */
-export type NavigateFn = (
+type NavigateFn = (
   to: { search: string },
   options?: { replace?: boolean }
 ) => void;
@@ -376,34 +376,6 @@ export function getDocumentUrl(
 }
 
 /**
- * Builds the URL for an extract
- * Uses ID-based URL with /e/ prefix (extracts don't have slugs yet)
- *
- * @param extract - Extract object with id and creator
- * @param queryParams - Optional query parameters for URL-driven state
- * @returns Full extract URL with query string, or "#" if required fields missing
- */
-export function getExtractUrl(
-  extract: Pick<ExtractType, "id" | "name"> & {
-    creator?: Pick<UserType, "id" | "slug"> | null;
-  },
-  queryParams?: QueryParams
-): string {
-  // Extracts don't have slugs yet, so we use ID-based URLs
-  if (!extract.id || !extract.creator?.slug) {
-    console.warn(
-      "Cannot generate extract URL without id and creator slug:",
-      extract
-    );
-    return "#"; // Return a safe fallback that won't navigate
-  }
-
-  const basePath = `/e/${extract.creator.slug}/${extract.id}`;
-  const query = queryParams ? buildQueryParams(queryParams) : "";
-  return basePath + query;
-}
-
-/**
  * Builds the URL for a labelset
  * Uses ID-based URL since labelsets don't have slugs
  *
@@ -417,36 +389,6 @@ export function getLabelsetUrl(labelset: Pick<LabelSetType, "id">): string {
   }
 
   return `/label_sets/${labelset.id}`;
-}
-
-/**
- * Smart navigation function for labelsets
- * Only navigates if not already at the destination
- *
- * @param labelset - LabelSet to navigate to
- * @param navigate - React Router navigate function
- * @param currentPath - Current path to check if already at destination
- */
-export function navigateToLabelset(
-  labelset: Pick<LabelSetType, "id">,
-  navigate: (path: string, options?: { replace?: boolean }) => void,
-  currentPath?: string
-) {
-  const targetPath = getLabelsetUrl(labelset);
-
-  // Don't navigate to invalid URL
-  if (targetPath === "#") {
-    console.error("Cannot navigate to labelset without id");
-    return;
-  }
-
-  // Don't navigate if we're already there
-  if (currentPath && isCanonicalPath(currentPath, targetPath)) {
-    return;
-  }
-
-  // Push to history (not replace) so back button works
-  navigate(targetPath);
 }
 
 /**
@@ -528,40 +470,6 @@ export function navigateToDocument(
   // Don't navigate to invalid URL
   if (targetPath === "#") {
     console.error("Cannot navigate to document without slugs");
-    return;
-  }
-
-  // Don't navigate if we're already there
-  if (currentPath && isCanonicalPath(currentPath, targetPath)) {
-    return;
-  }
-
-  // Push to history (not replace) so back button works
-  navigate(targetPath);
-}
-
-/**
- * Smart navigation function for extracts
- * Only navigates if not already at the destination
- *
- * @param extract - Extract to navigate to
- * @param navigate - React Router navigate function
- * @param currentPath - Current path to check if already at destination
- * @param queryParams - Optional query parameters to preserve in URL
- */
-export function navigateToExtract(
-  extract: Pick<ExtractType, "id" | "name"> & {
-    creator?: Pick<UserType, "id" | "slug"> | null;
-  },
-  navigate: (path: string, options?: { replace?: boolean }) => void,
-  currentPath?: string,
-  queryParams?: QueryParams
-) {
-  const targetPath = getExtractUrl(extract, queryParams);
-
-  // Don't navigate to invalid URL
-  if (targetPath === "#") {
-    console.error("Cannot navigate to extract without id and creator slug");
     return;
   }
 
@@ -743,24 +651,6 @@ export function updateAnnotationSelectionParams(
   navigate({ search: searchParams.toString() }, { replace: true });
 }
 
-/**
- * SACRED UTILITY: Clear all annotation selection via URL
- * Use this for cleanup on unmount
- *
- * @param location - Current location from useLocation()
- * @param navigate - Navigate function from useNavigate()
- */
-export function clearAnnotationSelection(
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void
-) {
-  updateAnnotationSelectionParams(location, navigate, {
-    annotationIds: [],
-    analysisIds: [],
-    extractIds: [],
-  });
-}
-
 // ═══════════════════════════════════════════════════════════════
 // Thread/Discussion Navigation Utilities
 // ═══════════════════════════════════════════════════════════════
@@ -786,45 +676,6 @@ export function getCorpusThreadUrl(
     return "#";
   }
   return `/c/${corpus.creator.slug}/${corpus.slug}/discussions/${threadId}`;
-}
-
-/**
- * Navigate to corpus thread (full page)
- * @param corpus - Corpus object with creator and slug
- * @param threadId - Thread/conversation ID
- * @param navigate - React Router navigate function
- * @param currentPath - Current pathname to avoid redundant navigation
- */
-export function navigateToCorpusThread(
-  corpus: {
-    creator?: { slug?: string | null } | null;
-    slug?: string | null;
-  },
-  threadId: string,
-  navigate: (path: string) => void,
-  currentPath: string
-) {
-  const url = getCorpusThreadUrl(corpus, threadId);
-  if (url !== "#" && currentPath !== url) {
-    navigate(url);
-  }
-}
-
-/**
- * Navigate to document thread (sidebar via query param)
- * Used for document-scoped threads that open in sidebars rather than full-page views
- * @param threadId - Thread/conversation ID
- * @param location - React Router location object
- * @param navigate - React Router navigate function
- */
-export function navigateToDocumentThread(
-  threadId: string,
-  location: { search: string },
-  navigate: (to: { search: string }, options?: { replace?: boolean }) => void
-) {
-  const searchParams = new URLSearchParams(location.search);
-  searchParams.set("thread", threadId);
-  navigate({ search: searchParams.toString() }, { replace: true });
 }
 
 /**
@@ -902,29 +753,6 @@ export function updateThreadParam(
   } else {
     navigate(searchString);
   }
-}
-
-/**
- * Update corpus home view selection in URL
- * Used for deep-linking to specific view (about/summary vs table of contents) on corpus home
- * @param location - React Router location object
- * @param navigate - React Router navigate function
- * @param homeView - View identifier ("about" or "toc")
- *                   Pass null to clear and use default (about)
- */
-export function updateHomeViewParam(
-  location: LocationLike,
-  navigate: NavigateFn,
-  homeView: "about" | "toc" | null
-) {
-  const searchParams = new URLSearchParams(location.search);
-  if (homeView && homeView !== "about") {
-    // Only add to URL if not default value
-    searchParams.set("homeView", homeView);
-  } else {
-    searchParams.delete("homeView");
-  }
-  navigate({ search: searchParams.toString() }, { replace: true });
 }
 
 /**
@@ -1068,7 +896,7 @@ export function updateModeParam(
  * Minimal document interface for relationship views
  * Used by DocumentTableOfContents and CorpusDocumentRelationships
  */
-export interface RelationshipDocumentInfo {
+interface RelationshipDocumentInfo {
   id: string;
   title: string;
   slug?: string | null;

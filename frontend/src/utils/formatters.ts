@@ -1,4 +1,8 @@
-import { FILE_SIZE, TIME_UNITS } from "../assets/configurations/constants";
+import {
+  EXTRACT_GRID_CELL_TRUNCATE_LENGTH,
+  FILE_SIZE,
+  TIME_UNITS,
+} from "../assets/configurations/constants";
 
 /**
  * Formats a byte count into a human-readable file size string.
@@ -119,4 +123,25 @@ export function formatSettingLabel(
     return description.trim();
   }
   return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+/**
+ * Formats a datacell value for display in extract grids, truncating long objects.
+ * @param data - The datacell value (string, number, boolean, object, null, or undefined)
+ * @returns Formatted string representation with em-dash for null/undefined,
+ *          "Yes"/"No" for booleans, and truncated JSON for large objects
+ */
+export function formatCellValue(
+  data: string | number | boolean | Record<string, unknown> | null | undefined
+): string {
+  if (data === null || data === undefined) return "\u2014";
+  if (typeof data === "boolean") return data ? "Yes" : "No";
+  if (typeof data === "object") {
+    const json = JSON.stringify(data);
+    if (json.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
+      return json.substring(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH) + "\u2026";
+    }
+    return json;
+  }
+  return String(data);
 }

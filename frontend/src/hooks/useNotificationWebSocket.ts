@@ -59,7 +59,7 @@ export type NotificationType =
 /**
  * Message types from the notification updates WebSocket consumer.
  */
-export type NotificationMessageType =
+type NotificationMessageType =
   | "CONNECTED"
   | "NOTIFICATION_CREATED"
   | "NOTIFICATION_UPDATED"
@@ -70,7 +70,7 @@ export type NotificationMessageType =
 /**
  * Actor (user who triggered the notification).
  */
-export interface NotificationActor {
+interface NotificationActor {
   id: string;
   username: string;
 }
@@ -78,7 +78,7 @@ export interface NotificationActor {
 /**
  * Structure of notification update messages received from the consumer.
  */
-export interface NotificationUpdateMessage {
+interface NotificationUpdateMessage {
   type: NotificationMessageType;
   user_id?: string;
   session_id?: string;
@@ -110,16 +110,12 @@ export interface NotificationUpdate {
 /**
  * Connection state for the WebSocket.
  */
-export type ConnectionState =
-  | "disconnected"
-  | "connecting"
-  | "connected"
-  | "error";
+type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
 
 /**
  * Hook options.
  */
-export interface UseNotificationWebSocketOptions {
+interface UseNotificationWebSocketOptions {
   /** Callback when new notification is created */
   onNotificationCreated?: (notification: NotificationUpdate) => void;
   /** Callback when notification is updated (e.g., marked as read) */
@@ -139,7 +135,7 @@ export interface UseNotificationWebSocketOptions {
 /**
  * Hook return value.
  */
-export interface UseNotificationWebSocketReturn {
+interface UseNotificationWebSocketReturn {
   /** Current connection state */
   connectionState: ConnectionState;
   /** Session ID from the server */

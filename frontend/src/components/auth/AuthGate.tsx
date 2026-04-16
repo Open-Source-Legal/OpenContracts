@@ -84,6 +84,11 @@ export const AuthGate: React.FC<AuthGateProps> = ({
 
   // Handle Auth0 authentication
   useEffect(() => {
+    // Cancellation flag: when the effect re-runs or the component unmounts,
+    // in-flight promise callbacks must not update shared reactive variables.
+    // Without this, unmounted components leak stale values into authToken/etc.
+    let cancelled = false;
+
     if (!useAuth0Flag) {
       // Non-Auth0 mode: immediately mark as initialized
       if (authStatusVar() === "LOADING") {
@@ -91,13 +96,17 @@ export const AuthGate: React.FC<AuthGateProps> = ({
       }
       authInitCompleteVar(true);
       setAuthInitialized(true);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     // Auth0 mode
     if (auth0Loading) {
       console.log("[AuthGate] Auth0 is still loading...");
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     // Auth0 has finished loading
@@ -107,7 +116,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         console.log(
           "[AuthGate] Auth flow already in progress, skipping duplicate..."
         );
-        return;
+        return () => {
+          cancelled = true;
+        };
       }
 
       console.log("[AuthGate] User is authenticated, fetching access token...");
@@ -119,6 +130,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         },
       })
         .then(async (token) => {
+          if (cancelled) return;
           if (token) {
             console.log("[AuthGate] Token obtained successfully");
 
@@ -161,6 +173,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({
               });
             }
 
+            if (cancelled) return;
+
             // Signal that auth initialization (including cache clear) is complete.
             // This MUST be set AFTER clearStore() to prevent GET_ME from being aborted.
             authInitCompleteVar(true);
@@ -176,6 +190,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           }
         })
         .catch((error) => {
+          if (cancelled) return;
           console.error("[AuthGate] Error getting access token:", error);
 
           // Token fetch failed even though isAuthenticated was true.
@@ -216,7 +231,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         console.log(
           "[AuthGate] Auth flow already in progress, skipping duplicate..."
         );
-        return;
+        return () => {
+          cancelled = true;
+        };
       }
 
       // Detect if we're in an OAuth callback (URL has code + state params).
@@ -238,7 +255,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         authStatusVar("ANONYMOUS");
         authInitCompleteVar(true);
         setAuthInitialized(true);
-        return;
+        return () => {
+          cancelled = true;
+        };
       }
 
       console.log(
@@ -260,6 +279,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         timeoutInSeconds: 10,
       })
         .then((token) => {
+          if (cancelled) return;
           // We have a token despite isAuthenticated being false!
           // This is the race condition. The SDK has tokens but hasn't updated isAuthenticated yet.
           // Set auth state now rather than waiting for the next effect run.
@@ -284,6 +304,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
               console.warn("[AuthGate] Cache reset failed:", cacheError);
             })
             .finally(() => {
+              if (cancelled) return;
               authInitCompleteVar(true);
               setAuthInitialized(true);
               // Note: we don't reset authFlowInProgressRef here because
@@ -291,6 +312,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
             });
         })
         .catch((error) => {
+          if (cancelled) return;
           // getAccessTokenSilently failed - user is not authenticated
           // This could be:
           // 1. First-time visitor (no prior session)
@@ -324,6 +346,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           setAuthInitialized(true);
         });
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     useAuth0Flag,
     auth0Loading,

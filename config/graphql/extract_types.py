@@ -13,6 +13,7 @@ from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
 )
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
+from opencontractserver.constants.extracts import MAX_FULL_DATACELL_LIST_LIMIT
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 
 
@@ -61,9 +62,54 @@ class DatacellType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         connection_class = CountableConnection
 
 
+def _get_datacell_qs(extract, user):
+    """Return the permission-filtered, deterministically ordered queryset.
+
+    Note: this is a module-level function because Graphene-Django resolvers
+    receive the Django model instance as ``self``, not the GraphQL type.
+
+    Graphene-Django creates a fresh model instance per resolved object per
+    request, so both ``resolve_full_datacell_list`` and ``resolve_datacell_count``
+    call this with the same ``(extract, user)`` pair within a single query.
+    The queryset itself is lazy (no DB hit until evaluated), so constructing
+    it twice is cheap.
+    """
+    # Inline import to avoid circular dependency with the annotations module.
+    from opencontractserver.annotations.query_optimizer import (
+        ExtractQueryOptimizer,
+    )
+
+    return ExtractQueryOptimizer.get_extract_datacells(
+        extract, user, document_id=None
+    ).order_by("document_id", "column_id", "id")
+
+
 class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    full_datacell_list = graphene.List(DatacellType)
+    full_datacell_list = graphene.List(
+        DatacellType,
+        limit=graphene.Int(
+            description=(
+                "Maximum number of datacells to return. Use to bound payload size "
+                "for extracts with many documents and columns. Returns all visible "
+                "datacells if omitted."
+            )
+        ),
+        offset=graphene.Int(
+            description=(
+                "Number of datacells to skip before applying `limit`. Use together "
+                "with `limit` for client-driven pagination."
+            )
+        ),
+    )
     full_document_list = graphene.List(DocumentType)
+    datacell_count = graphene.Int(
+        description=(
+            "Total number of datacells in this extract visible to the current "
+            "user, ignoring any `limit`/`offset` applied to `fullDatacellList`. "
+            "Use together with `fullDatacellList(limit: ...)` to display "
+            "'showing N of M' indicators when the payload is bounded."
+        )
+    )
 
     @classmethod
     def get_node(cls, info, id):
@@ -82,12 +128,31 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
-    def resolve_full_datacell_list(self, info):
-        from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
+    def resolve_full_datacell_list(self, info, limit=None, offset=None):
+        qs = _get_datacell_qs(self, info.context.user)
 
-        return ExtractQueryOptimizer.get_extract_datacells(
-            self, info.context.user, document_id=None
-        )
+        # Guard against negative offset — Django does not support negative
+        # indexing on querysets and would raise AssertionError.
+        start = max(0, offset) if offset is not None else 0
+
+        if limit is not None:
+            # Clamp to [0, MAX_FULL_DATACELL_LIST_LIMIT] so callers cannot
+            # bypass the intended payload cap via the GraphQL API.
+            limit = max(0, min(limit, MAX_FULL_DATACELL_LIST_LIMIT))
+            return qs[start : start + limit]
+        # Offset without limit: apply the server cap so callers cannot
+        # bypass the payload bound by providing only an offset.
+        if start:
+            return qs[start : start + MAX_FULL_DATACELL_LIST_LIMIT]
+        # No limit, no offset: backward-compatible full list for callers
+        # that need all visible cells (e.g., the Extracts panel).
+        return qs
+
+    def resolve_datacell_count(self, info) -> int:
+        # N+1 warning: issues a COUNT(*) per ExtractType instance. Safe for
+        # the single-extract embed query; add a DataLoader before exposing
+        # this field on list queries.
+        return _get_datacell_qs(self, info.context.user).count()
 
     def resolve_full_document_list(self, info):
         from opencontractserver.types.enums import PermissionTypes

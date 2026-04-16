@@ -209,7 +209,7 @@ const PAGE_SIZE = 25;
  * - Responsive layout
  *
  * Routing Compliance:
- * - Uses getDocumentUrl/getExtractUrl utilities
+ * - Uses getDocumentUrl utility
  * - Never sets reactive vars directly
  */
 export const ActionExecutionTrail: React.FC<ActionExecutionTrailProps> = ({

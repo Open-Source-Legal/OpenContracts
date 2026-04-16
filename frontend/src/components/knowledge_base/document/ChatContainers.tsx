@@ -265,15 +265,6 @@ export const SendButton = styled(motion.button)<{ $hasText?: boolean }>`
   }
 `;
 
-export const InputActions = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-top: 1px solid rgba(226, 232, 240, 0.5);
-  background: rgba(249, 250, 251, 0.5);
-`;
-
 export const ActionButton = styled(motion.button)`
   background: transparent;
   border: none;
@@ -303,110 +294,6 @@ export const ConversationIndicator = styled.div`
   flex-direction: column;
   overflow: hidden;
   background: linear-gradient(180deg, #f7fafc 0%, #edf2f7 100%);
-`;
-
-export const ConversationCount = styled(motion.div)`
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 50%;
-  background: linear-gradient(
-    135deg,
-    ${OS_LEGAL_COLORS.primaryBlue} 0%,
-    #1678c2 100%
-  );
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(33, 133, 208, 0.2);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(33, 133, 208, 0.3);
-  }
-`;
-
-export const ConversationSelector = styled(motion.div)`
-  position: absolute;
-  top: 0;
-  right: 3.5rem;
-  background: white;
-  border-radius: 1rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  width: 300px;
-  overflow: hidden;
-  border: 1px solid rgba(231, 234, 237, 0.7);
-`;
-
-export const ConversationList = styled.div`
-  max-height: 400px;
-  overflow-y: auto;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: #dee2e6;
-    border-radius: 2px;
-
-    &:hover {
-      background: #ced4da;
-    }
-  }
-`;
-
-export const ConversationItem = styled(motion.button)`
-  width: 100%;
-  padding: 0.875rem 1rem;
-  background: none;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  border-bottom: 1px solid rgba(231, 234, 237, 0.7);
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: rgba(33, 133, 208, 0.05);
-  }
-
-  .title {
-    font-weight: 500;
-    color: #212529;
-    font-size: 0.875rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .meta {
-    font-size: 0.75rem;
-    color: ${OS_LEGAL_COLORS.gray500};
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .message-count {
-    margin-left: auto;
-    background: rgba(33, 133, 208, 0.1);
-    color: ${OS_LEGAL_COLORS.primaryBlue};
-    padding: 0.125rem 0.5rem;
-    border-radius: 1rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-  }
 `;
 
 export const NewChatButton = styled(motion.button)`
@@ -682,44 +569,6 @@ export const MessageCount = styled(motion.div)<{
       props.children === "0"
         ? "0 4px 12px rgba(0, 0, 0, 0.08)"
         : "0 8px 16px rgba(43, 108, 176, 0.2), 0 0 0 1px rgba(43, 108, 176, 0.25)"};
-  }
-`;
-
-export const AnimatedCard = motion.div;
-
-export const ConversationCardSkeleton = styled(motion.div)`
-  background: #ffffff;
-  opacity: 0.7;
-  backdrop-filter: blur(12px);
-  border-radius: 16px;
-  padding: 1.5rem;
-  border: 1px solid #ffffff4d;
-  position: relative;
-  overflow: hidden;
-
-  &::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.8) 50%,
-      transparent 100%
-    );
-    animation: shimmer 1.5s infinite;
-  }
-
-  @keyframes shimmer {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(100%);
-    }
   }
 `;
 
