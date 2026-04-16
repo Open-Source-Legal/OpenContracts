@@ -12,10 +12,13 @@ python manage.py migrate_pipeline_settings
 # Run Django dev server under coverage.py so that every HTTP request
 # exercised by e2e tests is measured.
 #
-# exec  – replaces bash so coverage.py becomes PID 1 and receives
-#          SIGTERM directly from `docker compose stop`.
+# exec      – replaces bash so coverage.py becomes PID 1 and receives
+#              SIGTERM directly from `docker compose stop`.
+# --sigterm – installs a SIGTERM handler that calls sys.exit(), which
+#              triggers atexit handlers. Without this, Python's default
+#              SIG_DFL terminates the process immediately and .coverage
+#              is NEVER written.
 # --noreload – prevents the auto-reloader from forking a child process,
-#              keeping everything in one process so coverage's atexit
-#              handler fires reliably on shutdown.
-exec coverage run --source=opencontractserver,config \
+#              keeping everything in one process for clean shutdown.
+exec coverage run --sigterm --source=opencontractserver,config \
   manage.py runserver --noreload 0.0.0.0:8000

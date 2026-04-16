@@ -170,13 +170,30 @@ jobs:
       # ────────────────────────────────────────────────────────────────
       # Collect backend coverage.
       #
-      # Gracefully stopping Django triggers coverage.py's atexit handler
-      # which writes /app/.coverage (visible on the host via the volume
-      # mount).  We then spin up a throwaway container to convert to XML.
+      # The start-with-coverage script uses `coverage run --sigterm`,
+      # which installs a SIGTERM handler that calls sys.exit() — this
+      # triggers atexit handlers so coverage.py writes /app/.coverage.
+      # Without --sigterm, Python's default SIG_DFL kills the process
+      # immediately and no coverage data is saved.
+      #
+      # After stopping Django, we spin up a throwaway container to
+      # convert the binary .coverage file to Cobertura XML for Codecov.
       # ────────────────────────────────────────────────────────────────
       - name: Stop Django gracefully (triggers coverage write)
         if: success() || failure()
         run: docker compose -f test.yml stop -t 15 django
+
+      - name: Verify backend coverage data was written
+        if: success() || failure()
+        run: |
+          if [ -f .coverage ]; then
+            echo "OK: .coverage file found ($(stat -c%s .coverage) bytes)"
+          else
+            echo "ERROR: .coverage file not found — SIGTERM handler may not have fired"
+            echo "Django container logs (last 30 lines):"
+            docker compose -f test.yml logs --tail 30 django || true
+            exit 1
+          fi
 
       - name: Export backend coverage to XML
         if: success() || failure()
