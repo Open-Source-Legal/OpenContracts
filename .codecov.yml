@@ -29,6 +29,11 @@ flags:
     paths:
       - frontend/src/
     carryforward: true
+  backend-e2e:
+    paths:
+      - opencontractserver/
+      - config/
+    carryforward: true
 
 parsers:
   gcov:

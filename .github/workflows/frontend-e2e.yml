@@ -3,9 +3,11 @@ name: Frontend E2E Integration
 # Runs the Playwright integration spec at
 # `frontend/tests/e2e/login-and-navigation.spec.ts` against a real
 # Django + Postgres + Redis backend stack. The spec exercises the
-# password-login flow and walks every routed view in `src/views/`,
-# emitting Istanbul coverage that is uploaded to Codecov under the
-# `frontend-e2e` flag.
+# password-login flow and walks every routed view in `src/views/`.
+#
+# Coverage is captured on BOTH sides:
+#   - Frontend: Istanbul (vite-plugin-istanbul) → Codecov `frontend-e2e`
+#   - Backend:  coverage.py wrapping Django runserver → Codecov `backend-e2e`
 #
 # Triggered on PRs that touch the frontend, the spec, or this workflow,
 # plus pushes to release branches.
@@ -30,6 +32,7 @@ on:
       - 'opencontractserver/users/migrations/0003_create_initial_superuser.py'
       - 'config/settings/**'
       - 'test.yml'
+      - 'test.e2e-coverage.yml'
       - 'compose/local/django/**'
 
 concurrency:
@@ -69,9 +72,13 @@ jobs:
       #
       # `test.yml` already reads from `.envs/.test/.django` and
       # `.envs/.test/.postgres`, both of which are committed to the repo.
-      # The django service runs `/start` which executes
-      # `python manage.py migrate` — that triggers the
-      # `0003_create_initial_superuser` migration, creating the
+      # The compose override `test.e2e-coverage.yml` swaps the default
+      # `/start` command for `/start-with-coverage`, which runs Django
+      # under coverage.py so every request exercised by the Playwright
+      # spec is measured.
+      #
+      # The start script runs `python manage.py migrate` — that triggers
+      # the `0003_create_initial_superuser` migration, creating the
       # admin/Openc0ntracts_def@ult user that the Playwright spec
       # logs in as.
       #
@@ -100,10 +107,10 @@ jobs:
             sleep 2
           done
 
-      - name: Start django (no parser/embedder deps)
+      - name: Start django with coverage (no parser/embedder deps)
         run: |
-          docker compose -f test.yml up -d --no-deps django
-          echo "Started django without parser/embedder deps"
+          docker compose -f test.yml -f test.e2e-coverage.yml up -d --no-deps django
+          echo "Started django with backend coverage instrumentation"
 
       - name: Wait for Django to be ready
         run: |
@@ -160,6 +167,25 @@ jobs:
           E2E_TEST_PASSWORD: 'Openc0ntracts_def@ult'
         run: yarn run test:e2e:coverage
 
+      # ────────────────────────────────────────────────────────────────
+      # Collect backend coverage.
+      #
+      # Gracefully stopping Django triggers coverage.py's atexit handler
+      # which writes /app/.coverage (visible on the host via the volume
+      # mount).  We then spin up a throwaway container to convert to XML.
+      # ────────────────────────────────────────────────────────────────
+      - name: Stop Django gracefully (triggers coverage write)
+        if: success() || failure()
+        run: docker compose -f test.yml stop -t 15 django
+
+      - name: Export backend coverage to XML
+        if: success() || failure()
+        run: |
+          docker compose -f test.yml run --rm --no-deps django \
+            coverage xml -o /app/coverage-backend-e2e.xml
+          echo "Backend e2e coverage report:"
+          ls -la coverage-backend-e2e.xml
+
       - name: Capture backend logs on failure
         if: failure()
         run: |
@@ -182,7 +208,7 @@ jobs:
           path: frontend/playwright-report-e2e/
           if-no-files-found: ignore
 
-      - name: Upload E2E coverage to Codecov
+      - name: Upload frontend E2E coverage to Codecov
         if: success() || failure()
         uses: codecov/codecov-action@v6
         with:
@@ -190,6 +216,16 @@ jobs:
           files: frontend/coverage/e2e/lcov.info
           flags: frontend-e2e
           name: frontend-e2e-coverage
+          fail_ci_if_error: false
+
+      - name: Upload backend E2E coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-backend-e2e.xml
+          flags: backend-e2e
+          name: backend-e2e-coverage
           fail_ci_if_error: false
 
       - name: Tear down backend stack

@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+
+python manage.py migrate
+python manage.py migrate_pipeline_settings --sync-preferences --init-only
+python manage.py migrate_pipeline_settings
+
+# Run Django dev server under coverage.py so that every HTTP request
+# exercised by e2e tests is measured.
+#
+# exec  – replaces bash so coverage.py becomes PID 1 and receives
+#          SIGTERM directly from `docker compose stop`.
+# --noreload – prevents the auto-reloader from forking a child process,
+#              keeping everything in one process so coverage's atexit
+#              handler fires reliably on shutdown.
+exec coverage run --source=opencontractserver,config \
+  manage.py runserver --noreload 0.0.0.0:8000

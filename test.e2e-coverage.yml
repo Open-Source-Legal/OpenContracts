@@ -1,0 +1,10 @@
+# Compose override for the frontend-e2e CI job.
+# Swaps the Django start command so the dev server runs under coverage.py,
+# measuring all backend code exercised by Playwright e2e requests.
+#
+# Usage:
+#   docker compose -f test.yml -f test.e2e-coverage.yml up -d --no-deps django
+
+services:
+  django:
+    command: /start-with-coverage
