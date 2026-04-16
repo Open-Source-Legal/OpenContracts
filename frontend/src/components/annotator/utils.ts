@@ -3,51 +3,14 @@
  * application.
  */
 import _ from "lodash";
-import source_icon from "../../assets/icons/noun-bow-and-arrow-559923.png";
-import target_icon from "../../assets/icons/noun-target-746597.png";
 
-import { useEffect, useRef } from "react";
-
-import { Token, TokenId } from "../types";
-import { PageTokenMapBuilderProps } from "../../types/ui";
-import { PageTokenMapProps } from "../../types/ui";
+import { TokenId } from "../types";
 import {
   RelationGroup,
   ServerTokenAnnotation,
   ServerSpanAnnotation,
 } from "./types/annotations";
 import { PDFPageInfo } from "./types/pdf";
-
-/**
- * Query string values can be strings or an array of strings. This utility
- * retrieves the value if it's a string, or takes the first string if it's an
- * array of strings.
- *
- * If no value is provided, the provided default value is returned.
- *
- * @param {string} value
- * @param {string} defaultValue
- *
- * @returns {string}
- */
-export function unwrap(
-  value: string | string[] | undefined | null,
-  defaultValue: string = ""
-): string {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  } else if (Array.isArray(value)) {
-    return value[0];
-  } else {
-    return value;
-  }
-}
-
-export function getRelationImageHref(type: string): string {
-  if (type === "SOURCE") return source_icon;
-  else if (type === "TARGET") return target_icon;
-  else return "";
-}
 
 export function annotationSelectedViaRelationship(
   this_annotation: ServerTokenAnnotation | ServerSpanAnnotation,
@@ -158,64 +121,3 @@ export const createTokenStringSearch = (
     string_index_token_map: token_map,
   };
 };
-
-// Lets you compare previous and new values of reference in useEffect
-// Going to use this to hook into the listeners and look for label
-// ids that are added or removed rather than mucking about deeper in the
-// pawls codebase.
-export const usePrevious = <T extends unknown>(value: T): T | undefined => {
-  const ref = useRef<T>();
-  useEffect(() => {
-    ref.current = value;
-  });
-  return ref.current;
-};
-
-// Basic set operations for determining which objs were added or deleted based on id
-// sets. These are *NOT* built-in in JavaScript
-export function isSuperset(set: Set<string>, subset: Set<string>) {
-  for (let elem of subset) {
-    if (!set.has(elem)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-export function union(setA: Set<string>, setB: Set<string>) {
-  let _union = new Set(setA);
-  for (let elem of setB) {
-    _union.add(elem);
-  }
-  return _union;
-}
-
-export function intersection(setA: Set<string>, setB: Set<string>) {
-  let _intersection = new Set();
-  for (let elem of setB) {
-    if (setA.has(elem)) {
-      _intersection.add(elem);
-    }
-  }
-  return _intersection;
-}
-
-export function symmetricDifference(setA: Set<string>, setB: Set<string>) {
-  let _difference = new Set(setA);
-  for (let elem of setB) {
-    if (_difference.has(elem)) {
-      _difference.delete(elem);
-    } else {
-      _difference.add(elem);
-    }
-  }
-  return _difference;
-}
-
-export function difference(setA: Set<string>, setB: Set<string>) {
-  let _difference = new Set(setA);
-  for (let elem of setB) {
-    _difference.delete(elem);
-  }
-  return _difference;
-}

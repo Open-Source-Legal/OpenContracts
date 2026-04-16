@@ -7,7 +7,6 @@ import {
   REQUEST_DELETE_ANNOTATION,
   REQUEST_UPDATE_ANNOTATION,
   REQUEST_ADD_DOC_TYPE_ANNOTATION,
-  REQUEST_CREATE_RELATIONSHIP,
   REQUEST_REMOVE_RELATIONSHIP,
   REQUEST_REMOVE_RELATIONSHIPS,
   REQUEST_UPDATE_RELATIONS,
@@ -21,8 +20,6 @@ import {
   UpdateAnnotationOutputType,
   NewDocTypeAnnotationInputType,
   NewDocTypeAnnotationOutputType,
-  NewRelationshipInputType,
-  NewRelationshipOutputType,
   RemoveRelationshipInputType,
   RemoveRelationshipOutputType,
   RemoveRelationshipsInputType,
@@ -44,8 +41,6 @@ import {
 import {
   pdfAnnotationsAtom,
   structuralAnnotationsAtom,
-  annotationObjsAtom,
-  docTypeAnnotationsAtom,
   initialAnnotationsAtom,
   initialRelationsAtom,
 } from "../context/AnnotationAtoms";
@@ -185,24 +180,6 @@ export function useStructuralAnnotations() {
     structuralAnnotationsAtom
   );
   return { structuralAnnotations, setStructuralAnnotations };
-}
-
-/**
- * Hook to manage all annotation objects.
- */
-export function useAnnotationObjs() {
-  const [annotationObjs, setAnnotationObjs] = useAtom(annotationObjsAtom);
-  return { annotationObjs, setAnnotationObjs };
-}
-
-/**
- * Hook to manage document type annotations.
- */
-export function useDocTypeAnnotations() {
-  const [docTypeAnnotations, setDocTypeAnnotations] = useAtom(
-    docTypeAnnotationsAtom
-  );
-  return { docTypeAnnotations, setDocTypeAnnotations };
 }
 
 /**
@@ -749,66 +726,6 @@ export function useAddDocTypeAnnotation() {
 }
 
 /**
- * Hook to create a new relationship (relation).
- */
-export function useCreateRelationship() {
-  const { replaceRelations } = usePdfAnnotations();
-  const selectedDocument = useAtomValue(selectedDocumentAtom);
-  const { selectedCorpus } = useCorpusState();
-
-  const [createRelationshipMutation] = useMutation<
-    NewRelationshipOutputType,
-    NewRelationshipInputType
-  >(REQUEST_CREATE_RELATIONSHIP);
-
-  const handleCreateRelationship = useCallback(
-    async (relation: RelationGroup) => {
-      if (!selectedCorpus || !selectedDocument) {
-        toast.warning("No corpus or document selected");
-        return;
-      }
-
-      try {
-        const { data } = await createRelationshipMutation({
-          variables: {
-            sourceIds: relation.sourceIds,
-            targetIds: relation.targetIds,
-            relationshipLabelId: relation.label.id,
-            corpusId: selectedCorpus.id,
-            documentId: selectedDocument.id,
-          },
-        });
-
-        if (data?.addRelationship?.relationship) {
-          const newRelationData = data.addRelationship.relationship;
-
-          const newRelation = new RelationGroup(
-            newRelationData.sourceAnnotations.edges.map((edge) => edge.node.id),
-            newRelationData.targetAnnotations.edges.map((edge) => edge.node.id),
-            newRelationData.relationshipLabel,
-            newRelationData.id
-          );
-
-          replaceRelations([newRelation]);
-          toast.success("Relation added successfully.");
-        }
-      } catch (error) {
-        toast.error("Failed to add relation");
-        console.error(error);
-      }
-    },
-    [
-      selectedCorpus,
-      selectedDocument,
-      createRelationshipMutation,
-      replaceRelations,
-    ]
-  );
-
-  return handleCreateRelationship;
-}
-
-/**
  * Hook to remove a relationship (relation).
  */
 export function useRemoveRelationship() {
@@ -848,58 +765,6 @@ export function useRemoveRelationship() {
   );
 
   return handleRemoveRelationship;
-}
-
-/**
- * Hook to update existing relations.
- */
-export function useUpdateRelations() {
-  const { replaceRelations } = usePdfAnnotations();
-  const selectedDocument = useAtomValue(selectedDocumentAtom);
-  const { selectedCorpus } = useCorpusState();
-
-  const [updateRelationsMutation] = useMutation<
-    UpdateRelationOutputType,
-    UpdateRelationInputType
-  >(REQUEST_UPDATE_RELATIONS);
-
-  const handleUpdateRelations = useCallback(
-    async (relations: RelationGroup[]) => {
-      if (!selectedCorpus || !selectedDocument) {
-        toast.warning("No corpus or document selected");
-        return;
-      }
-
-      try {
-        await updateRelationsMutation({
-          variables: {
-            relationships: relations.map((relation) => ({
-              id: relation.id,
-              sourceIds: relation.sourceIds,
-              targetIds: relation.targetIds,
-              relationshipLabelId: relation.label.id,
-              corpusId: selectedCorpus.id,
-              documentId: selectedDocument.id,
-            })),
-          },
-        });
-
-        replaceRelations(relations);
-        toast.success("Relations updated successfully.");
-      } catch (error) {
-        toast.error("Failed to update relations");
-        console.error(error);
-      }
-    },
-    [
-      selectedCorpus,
-      selectedDocument,
-      updateRelationsMutation,
-      replaceRelations,
-    ]
-  );
-
-  return handleUpdateRelations;
 }
 
 /**

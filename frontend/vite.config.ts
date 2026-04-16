@@ -115,6 +115,11 @@ export default defineConfig(async () => {
       ...istanbulPlugins,
     ],
     server: {
+      // Explicitly bind to 127.0.0.1 (IPv4) so that Playwright's webServer
+      // health-check URL (http://127.0.0.1:5173) works reliably in CI.
+      // Without this, Vite may bind to ::1 (IPv6 localhost) on modern Linux,
+      // causing the Playwright webServer timeout to expire.
+      host: "127.0.0.1",
       proxy: {
         // Proxy WebSocket connections to Django backend
         "/ws": {

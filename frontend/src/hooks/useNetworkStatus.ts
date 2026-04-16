@@ -27,7 +27,7 @@ const JUST_RESUMED_CLEAR_DELAY = 100;
 /**
  * Network and visibility status.
  */
-export interface NetworkStatus {
+interface NetworkStatus {
   /** Whether the browser reports being online */
   isOnline: boolean;
   /** Whether the page is currently visible */
@@ -43,7 +43,7 @@ export interface NetworkStatus {
 /**
  * Options for the useNetworkStatus hook.
  */
-export interface UseNetworkStatusOptions {
+interface UseNetworkStatusOptions {
   /** Callback when the page becomes visible after being hidden */
   onResume?: () => void;
   /** Callback when the page becomes hidden */
@@ -61,7 +61,7 @@ export interface UseNetworkStatusOptions {
 /**
  * Return value of the useNetworkStatus hook.
  */
-export interface UseNetworkStatusReturn {
+interface UseNetworkStatusReturn {
   /** Current network and visibility status */
   status: NetworkStatus;
   /** Manually trigger a resume action (useful for testing) */

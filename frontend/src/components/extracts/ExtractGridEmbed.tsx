@@ -11,7 +11,7 @@
  * marker text. Will migrate to a proper `customBlocks` prop once upstream
  * @os-legal/caml-react supports it (see issue #1172).
  */
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import { useQuery } from "@apollo/client";
 import { Link } from "react-router-dom";
 import { ExternalLink, AlertCircle, Loader2, Table2 } from "lucide-react";
@@ -19,7 +19,7 @@ import styled, { keyframes } from "styled-components";
 
 import {
   DATACELL_STATUS_COLORS,
-  EXTRACT_GRID_EMBED_MAX_CELLS,
+  EXTRACT_GRID_EMBED_CELL_LIMIT,
   EXTRACT_GRID_EMBED_MAX_ROWS,
 } from "../../assets/configurations/constants";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
@@ -180,21 +180,28 @@ const CenterMessage = styled.div`
   font-size: 0.8125rem;
 `;
 
+/**
+ * Footer banner shown below the table when the fetched/rendered payload is
+ * a bounded slice of the full datacell list (server-side `limit` applied,
+ * or too many rows for inline rendering). Communicates "showing N of M".
+ */
+const OverflowFooter = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: ${OS_LEGAL_COLORS.surfaceLight};
+  border-top: 1px solid ${OS_LEGAL_COLORS.border};
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  font-size: 0.75rem;
+  font-weight: 500;
+`;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Build a link to the document viewer at a specific source annotation.
- *
- * NOTE: We pass only `annotationIds`, not a `page` query param. The document
- * viewer resolves the annotation by id and scrolls to its own stored page +
- * bounding box, so there is no indexing convention to worry about at the URL
- * layer. The 1-based `sources[0].page` is used purely for the chip label
- * (e.g. `p.2`) — see the `p.{page || 1}` render below. Annotation.page is
- * stored 1-based in the model (default=1) and the `|| 1` guard handles
- * legacy null / 0 values.
- */
+/** Build a link to the document viewer at a specific source annotation. */
 function buildSourceLink(
   cell: ExtractGridEmbedCell,
   sourceId: string,
@@ -243,11 +250,10 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
   >(GET_EXTRACT_GRID_EMBED, {
     variables: {
       extractId: extractId ?? "",
-      // Cap the datacell payload server-side so pathological extracts (many
-      // documents × many columns) do not send tens of thousands of cells just
-      // to trigger the row guard below. Full pagination plumbing lands with
-      // #1204 — this is a minimum mitigation.
-      datacellFirst: EXTRACT_GRID_EMBED_MAX_CELLS,
+      // Server-side cap on datacell payload size (#1204). The server bounds
+      // the returned list; `datacellCount` (also fetched) reports the total
+      // so the UI can show a "showing N of M" indicator when truncated.
+      limit: EXTRACT_GRID_EMBED_CELL_LIMIT,
     },
     skip: !extractId,
     // NOTE: If another caller queries the same extract with a different `first`
@@ -258,10 +264,11 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
 
   const extract = data?.extract;
 
-  // Build row-major grid: group datacells by document
+  // Build row-major grid: group datacells by document.
   // NOTE: This hook must remain above all early returns (Rules of Hooks).
-  // TODO(#1204): fullDatacellList is unbounded — add server-side pagination
-  // for extracts with many documents/columns.
+  // The fullDatacellList is already bounded server-side via the `limit`
+  // argument (#1204); `datacellCount` on the extract payload gives the
+  // true total so we can render a partial-data banner below the table.
   const { columns, rows } = useMemo(() => {
     if (!extract)
       return { columns: [] as ExtractGridEmbedColumn[], rows: [] as GridRow[] };
@@ -280,59 +287,6 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
 
     return { columns: cols, rows: Array.from(rowMap.values()) };
   }, [extract]);
-
-  // Warn when the server-side datacell cap was the binding constraint rather
-  // than the row limit — this means the extract likely has more columns than
-  // EXTRACT_GRID_EMBED_MAX_COLS and some columns are silently missing.
-  // Also warn when the row count exceeds the embed limit so the developer is
-  // aware the full grid is not rendered.
-  // useRef guards prevent repeated warnings on re-renders / Apollo cache updates.
-  // Reset when `extractId` changes so each extract gets its own warning.
-  const hasWarnedCap = useRef(false);
-  const hasWarnedRows = useRef(false);
-
-  useEffect(() => {
-    hasWarnedCap.current = false;
-    hasWarnedRows.current = false;
-  }, [extractId]);
-
-  useEffect(() => {
-    // Guard: warnings are only useful during local development.  Vite inlines
-    // NODE_ENV="production" in component-test and release builds, making the
-    // body unreachable — hence the istanbul ignore.
-    /* istanbul ignore next -- dev-only diagnostic, unreachable in prod builds */
-    if (process.env.NODE_ENV !== "development" || !extract) return;
-
-    // TODO(#1204): When the datacell cap is the binding constraint (not the
-    // row limit), some columns are silently omitted. Surface this to the user
-    // with a visible banner or info chip once server-side pagination lands.
-    /* istanbul ignore next -- dev-only diagnostic, unreachable in prod builds */
-    if (
-      !hasWarnedCap.current &&
-      extract.fullDatacellList.length >= EXTRACT_GRID_EMBED_MAX_CELLS &&
-      rows.length < EXTRACT_GRID_EMBED_MAX_ROWS
-    ) {
-      hasWarnedCap.current = true;
-      console.warn(
-        `[ExtractGridEmbed] Datacell cap (${EXTRACT_GRID_EMBED_MAX_CELLS}) ` +
-          `reached before row limit — extract "${extract.name}" likely has ` +
-          `> ${columns.length} usable columns. Some columns may not be shown. ` +
-          `Track in #1204.`
-      );
-    }
-
-    /* istanbul ignore next -- dev-only diagnostic, unreachable in prod builds */
-    if (!hasWarnedRows.current && rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
-      hasWarnedRows.current = true;
-      console.warn(
-        `[ExtractGridEmbed] Extract "${extract.name}" has ${rows.length} rows ` +
-          `(limit: ${EXTRACT_GRID_EMBED_MAX_ROWS}). The full datacell payload ` +
-          `was still fetched — consider server-side pagination (#1204).`
-      );
-    }
-    // `rows` and `columns` are derived from `extract` via useMemo, but are
-    // listed explicitly to satisfy the exhaustive-deps lint rule.
-  }, [extract, rows, columns]);
 
   if (!extractId) {
     return (
@@ -384,23 +338,22 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
     );
   }
 
-  // --- Too-large guard (#1204) ---
-  if (rows.length > EXTRACT_GRID_EMBED_MAX_ROWS) {
-    return (
-      <EmbedWrapper>
-        <EmbedHeader>
-          <Table2 size={14} />
-          {extract.name}
-        </EmbedHeader>
-        <CenterMessage>
-          <AlertCircle size={20} color={OS_LEGAL_COLORS.textMuted} />
-          This extract has {rows.length} documents, which exceeds the embed
-          limit of {EXTRACT_GRID_EMBED_MAX_ROWS}. View the full extract in the
-          Extracts panel instead.
-        </CenterMessage>
-      </EmbedWrapper>
-    );
-  }
+  // --- Pagination / overflow bookkeeping (#1204) ---------------------------
+  // The server-side `limit` caps the number of datacells returned. If the
+  // true visible count (`datacellCount`) exceeds the fetched slice, we show
+  // a "showing N of M cells" banner below the table. Separately, we clip
+  // the rendered row count to `EXTRACT_GRID_EMBED_MAX_ROWS` as a defensive
+  // display bound on extracts with many documents; the same banner surfaces
+  // that truncation as a "showing X of Y documents" message.
+  const fetchedCellCount = extract.fullDatacellList?.length ?? 0;
+  const totalCellCount = extract.datacellCount ?? fetchedCellCount;
+  const cellsTruncated = fetchedCellCount < totalCellCount;
+
+  const totalRowCount = rows.length;
+  const rowsTruncated = totalRowCount > EXTRACT_GRID_EMBED_MAX_ROWS;
+  const visibleRows = rowsTruncated
+    ? rows.slice(0, EXTRACT_GRID_EMBED_MAX_ROWS)
+    : rows;
 
   // --- Table ---
   return (
@@ -420,7 +373,7 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {visibleRows.map((row) => (
               <Tr key={row.document.id}>
                 <Td>
                   <DocLink
@@ -501,6 +454,20 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
           </tbody>
         </StyledTable>
       </TableScrollContainer>
+      {(cellsTruncated || rowsTruncated) && (
+        <OverflowFooter>
+          <AlertCircle size={14} color={OS_LEGAL_COLORS.textMuted} />
+          {rowsTruncated && cellsTruncated
+            ? `Showing ${visibleRows.length} of ${totalRowCount} documents. ` +
+              `${fetchedCellCount} of ${totalCellCount} total cells loaded. ` +
+              "View the full extract in the Extracts panel."
+            : rowsTruncated
+            ? `Showing ${visibleRows.length} of ${totalRowCount} documents. ` +
+              "View the full extract in the Extracts panel."
+            : `Showing ${fetchedCellCount} of ${totalCellCount} cells. ` +
+              "View the full extract in the Extracts panel."}
+        </OverflowFooter>
+      )}
     </EmbedWrapper>
   );
 };

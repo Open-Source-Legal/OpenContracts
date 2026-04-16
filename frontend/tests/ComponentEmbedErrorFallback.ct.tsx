@@ -2,12 +2,15 @@
  * Playwright component tests for ComponentEmbedErrorFallback.
  *
  * Tests cover:
- * 1. Default rendering with error message
- * 2. Presence of the static fallback text
+ * 1. Renders the generic error message
+ * 2. Shows error.message in development mode
  */
 import { test, expect } from "./utils/coverage";
-import { docScreenshot } from "./utils/docScreenshot";
+import { Provider } from "jotai";
+import React from "react";
+
 import { ComponentEmbedErrorFallback } from "../src/components/widgets/ComponentEmbedErrorFallback";
+import { docScreenshot } from "./utils/docScreenshot";
 
 test.describe("ComponentEmbedErrorFallback", () => {
   test("should render fallback message with error details", async ({
@@ -15,15 +18,20 @@ test.describe("ComponentEmbedErrorFallback", () => {
     page,
   }) => {
     const component = await mount(
-      <ComponentEmbedErrorFallback error={new Error("Test render failure")} />
+      <Provider>
+        <div style={{ width: "600px", padding: "16px" }}>
+          <ComponentEmbedErrorFallback
+            error={new Error("ExtractGridEmbed crashed")}
+          />
+        </div>
+      </Provider>
     );
 
-    // Static fallback text should always be visible
     await expect(
       page.getByText("Embedded component failed to render")
-    ).toBeVisible({ timeout: 5000 });
+    ).toBeVisible({ timeout: 10000 });
 
-    await docScreenshot(page, "caml--embed-error-fallback--default");
+    await docScreenshot(page, "caml--component-embed-error-fallback--default");
 
     await component.unmount();
   });

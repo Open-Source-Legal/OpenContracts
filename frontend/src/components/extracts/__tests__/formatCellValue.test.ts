@@ -51,6 +51,7 @@ describe("formatCellValue()", () => {
 
   it("converts number to string", () => {
     expect(formatCellValue(42)).toBe("42");
+    expect(formatCellValue(0)).toBe("0");
   });
 
   it("passes through short strings", () => {

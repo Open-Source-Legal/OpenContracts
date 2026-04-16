@@ -1,19 +1,6 @@
 import { ReactElement } from "react";
-import {
-  AnnotationLabelType,
-  LabelDisplayBehavior,
-} from "../types/graphql-api";
+import { AnnotationLabelType } from "../types/graphql-api";
 import { PDFPageInfo } from "./annotator/types/pdf";
-
-/**
- * Type-related functions
- */
-export function notEmpty<TValue>(
-  value: TValue | null | undefined
-): value is TValue {
-  if (value === null || value === undefined) return false;
-  return true;
-}
 
 /**
  *  Types
@@ -32,30 +19,6 @@ export enum PermissionTypes {
   CAN_READ = "CAN_READ",
   CAN_UPDATE = "CAN_UPDATE",
   CAN_REMOVE = "CAN_REMOVE",
-}
-
-export interface PaperStatus {
-  id: string;
-  sha: string;
-  name: string;
-  annotations: number;
-  relations: number;
-  comments: string;
-  completedAt: Date | null;
-}
-
-export interface PaperStatusRequestOutputs {
-  id: string;
-  sha: string;
-  name: string;
-  annotations: {
-    totalCount: number;
-  };
-  relations: {
-    totalCount: number;
-  };
-  comments: string;
-  completedAt: string;
 }
 
 export enum ViewState {
@@ -102,36 +65,8 @@ export interface LabelSet {
   description?: string;
 }
 
-export interface OCUser {
-  id: string;
-  email?: string;
-  username?: string;
-}
-
 export interface LooseObject {
   [key: string]: any;
-}
-
-export interface LabelOptionProps {
-  key: string;
-  text: string;
-  value: string;
-  content: JSX.Element;
-}
-
-export interface LabelsetOptionProps {
-  key: string;
-  title: string;
-  value: string;
-  content: JSX.Element;
-}
-
-export interface ActionDropdownItem {
-  key: string;
-  title: string;
-  icon: string;
-  color: string;
-  action_function: (props: any) => void;
 }
 
 export type EditMode = "EDIT" | "VIEW" | "CREATE";
@@ -147,13 +82,10 @@ export interface CRUDProps {
 }
 
 // Define a more flexible prop type for property widgets
-export interface PropertyWidgetProps<T = any> {
+interface PropertyWidgetProps<T = any> {
   onChange: (updatedFields: Record<string, T>) => void;
   [key: string]: any; // Allow any additional props
 }
-
-// Define a type for the components that can be used as property widgets
-export type PropertyWidgetComponent = React.ComponentType<PropertyWidgetProps>;
 
 // Define a type for the propertyWidgets prop
 export type PropertyWidgets = {
@@ -213,9 +145,3 @@ export interface PageProps {
   read_only: boolean;
   onError: (_err: Error) => void;
 }
-
-export const label_display_options = [
-  { key: 1, text: "Always Show", value: LabelDisplayBehavior.ALWAYS },
-  { key: 2, text: "Always Hide", value: LabelDisplayBehavior.HIDE },
-  { key: 3, text: "Show on Hover", value: LabelDisplayBehavior.ON_HOVER },
-];

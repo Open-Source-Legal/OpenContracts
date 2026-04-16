@@ -1,0 +1,197 @@
+name: Frontend E2E Integration
+
+# Runs the Playwright integration spec at
+# `frontend/tests/e2e/login-and-navigation.spec.ts` against a real
+# Django + Postgres + Redis backend stack. The spec exercises the
+# password-login flow and walks every routed view in `src/views/`,
+# emitting Istanbul coverage that is uploaded to Codecov under the
+# `frontend-e2e` flag.
+#
+# Triggered on PRs that touch the frontend, the spec, or this workflow,
+# plus pushes to release branches.
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+defaults:
+  run:
+    working-directory: ./
+
+on:
+  push:
+    branches:
+      - main
+      - v*
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-e2e.yml'
+      - 'opencontractserver/users/migrations/0003_create_initial_superuser.py'
+      - 'config/settings/**'
+      - 'test.yml'
+      - 'compose/local/django/**'
+
+concurrency:
+  group: frontend-e2e-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Login + Navigate All Views
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install Yarn
+        run: npm install -g yarn
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: yarn playwright install --with-deps chromium
+
+      # ────────────────────────────────────────────────────────────────
+      # Bring up the minimal backend stack.
+      #
+      # `test.yml` already reads from `.envs/.test/.django` and
+      # `.envs/.test/.postgres`, both of which are committed to the repo.
+      # The django service runs `/start` which executes
+      # `python manage.py migrate` — that triggers the
+      # `0003_create_initial_superuser` migration, creating the
+      # admin/Openc0ntracts_def@ult user that the Playwright spec
+      # logs in as.
+      #
+      # We use `--no-deps` for django so we don't have to pull the
+      # multi-gigabyte parser/embedder images. The `config.settings.test`
+      # module wires `DEFAULT_EMBEDDER = TestEmbedder` (no HTTP calls)
+      # and the spec only exercises login + view rendering, so those
+      # services are never reached at runtime.
+      # ────────────────────────────────────────────────────────────────
+      - name: Build backend image
+        run: docker compose -f test.yml build django
+
+      - name: Start postgres and redis
+        run: |
+          docker compose -f test.yml up -d postgres redis
+          echo "Waiting for postgres health…"
+          for i in {1..30}; do
+            state=$(docker inspect -f '{{.State.Health.Status}}' \
+              $(docker compose -f test.yml ps -q postgres) 2>/dev/null || echo "starting")
+            if [ "$state" = "healthy" ]; then echo "postgres healthy"; break; fi
+            if [ "$i" = "30" ]; then
+              echo "postgres did not become healthy in time"
+              docker compose -f test.yml logs postgres | tail -50
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Start django (no parser/embedder deps)
+        run: |
+          docker compose -f test.yml up -d --no-deps django
+          echo "Started django without parser/embedder deps"
+
+      - name: Wait for Django to be ready
+        run: |
+          echo "Waiting for Django to respond on /api/health/…"
+          for i in {1..90}; do
+            if curl -sf -o /dev/null http://localhost:8000/api/health/; then
+              echo "Django health endpoint responding"
+              break
+            fi
+            if [ "$i" = "90" ]; then
+              echo "Django did not become ready in time"
+              docker compose -f test.yml ps
+              docker compose -f test.yml logs django | tail -200
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Verify admin superuser exists
+        run: |
+          docker compose -f test.yml exec -T django python -c "
+          import django, os
+          # DATABASE_URL is constructed by /entrypoint at container start but is
+          # not visible to processes spawned by 'docker compose exec'. Build it
+          # from the individual POSTGRES_* vars that are injected via env_file.
+          pg = {k: os.environ[k] for k in ('POSTGRES_USER','POSTGRES_PASSWORD','POSTGRES_HOST','POSTGRES_PORT','POSTGRES_DB')}
+          os.environ.setdefault('DATABASE_URL', 'postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}'.format(**pg))
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.test')
+          django.setup()
+          from django.contrib.auth import get_user_model
+          User = get_user_model()
+          assert User.objects.filter(username='admin').exists(), 'admin user missing - migration 0003 did not run'
+          print('OK: admin superuser exists')
+          "
+
+      # ────────────────────────────────────────────────────────────────
+      # Run the Playwright integration spec.
+      #
+      # COVERAGE=true causes vite-plugin-istanbul to instrument the
+      # frontend source. The fixture in `tests/e2e/fixtures.ts` then
+      # extracts `window.__coverage__` after each test and dumps it
+      # under `coverage/e2e/.nyc_output/`. The npm script's `nyc report`
+      # invocation merges those JSON files into an lcov report.
+      #
+      # The Playwright config `webServer` block manages the vite dev
+      # server lifecycle (start before tests, kill after).
+      # ────────────────────────────────────────────────────────────────
+      - name: Run Playwright integration tests with coverage
+        working-directory: ./frontend
+        env:
+          CI: 'true'
+          COVERAGE: 'true'
+          E2E_TEST_USERNAME: admin
+          E2E_TEST_PASSWORD: 'Openc0ntracts_def@ult'
+        run: yarn run test:e2e:coverage
+
+      - name: Capture backend logs on failure
+        if: failure()
+        run: |
+          mkdir -p artifacts
+          docker compose -f test.yml ps > artifacts/docker-ps.txt || true
+          docker compose -f test.yml logs --no-color > artifacts/docker-compose-logs.txt || true
+
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-backend-logs
+          path: artifacts/
+
+      - name: Upload Playwright HTML report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-e2e
+          path: frontend/playwright-report-e2e/
+          if-no-files-found: ignore
+
+      - name: Upload E2E coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: frontend/coverage/e2e/lcov.info
+          flags: frontend-e2e
+          name: frontend-e2e-coverage
+          fail_ci_if_error: false
+
+      - name: Tear down backend stack
+        if: always()
+        run: docker compose -f test.yml down -v

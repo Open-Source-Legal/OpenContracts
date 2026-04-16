@@ -119,8 +119,13 @@ export const App = () => {
   // Track when auth initialization (including cache clear) is complete
   const auth_init_complete = useReactiveVar(authInitCompleteVar);
 
-  // Auth0 hooks for conditional rendering only
-  const { isLoading } = useAuth0();
+  // useAuth0() must be called unconditionally (React hooks rules), but
+  // its return values are only meaningful when Auth0 is enabled. Without
+  // an Auth0Provider the hook returns the default context whose isLoading
+  // is permanently true — guarding with REACT_APP_USE_AUTH0 matches the
+  // pattern used by AuthGate and useNavMenu for the same reason.
+  const { isLoading: auth0Loading } = useAuth0();
+  const isLoading = REACT_APP_USE_AUTH0 ? auth0Loading : false;
 
   const [tryUpdateDocument] = useMutation<
     UpdateDocumentOutputs,

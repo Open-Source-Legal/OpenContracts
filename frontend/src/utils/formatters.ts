@@ -139,7 +139,12 @@ export function truncateAtCodePoint(s: string, maxLen: number): string {
   return cps.length > maxLen ? cps.slice(0, maxLen).join("") + "\u2026" : s;
 }
 
-/** Format a datacell value for display, truncating long objects. */
+/**
+ * Formats a datacell value for display in extract grids, truncating long objects.
+ * @param data - The datacell value (string, number, boolean, object, null, or undefined)
+ * @returns Formatted string representation with em-dash for null/undefined,
+ *          "Yes"/"No" for booleans, and truncated JSON for large objects
+ */
 export function formatCellValue(
   data: string | number | boolean | Record<string, unknown> | null | undefined
 ): string {

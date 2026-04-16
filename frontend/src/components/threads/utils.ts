@@ -99,24 +99,3 @@ export function findMessageInTree(
   }
   return null;
 }
-
-/**
- * Calculates total upvotes for a thread (sum of all message upvotes)
- */
-export function calculateThreadUpvotes(messages: ChatMessageType[]): number {
-  return messages.reduce((sum, msg) => sum + (msg.upvoteCount || 0), 0);
-}
-
-/**
- * Gets the last activity timestamp for a thread
- * (most recent message creation time)
- */
-export function getLastActivityTime(messages: ChatMessageType[]): Date | null {
-  if (!messages || messages.length === 0) return null;
-
-  const timestamps = messages
-    .map((msg) => new Date(msg.created))
-    .sort((a, b) => b.getTime() - a.getTime());
-
-  return timestamps[0];
-}
