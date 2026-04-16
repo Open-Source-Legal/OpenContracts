@@ -4307,7 +4307,7 @@ class TestCoverageGapBulkMoveVersionPreservation(DocumentFolderServiceTestBase):
             self.assertFalse(original_path.is_current)
 
 
-class TestCoverageGap_DeleteFolderIntegrityErrorRollback(DocumentFolderServiceTestBase):
+class TestCoverageGapDeleteFolderIntegrityErrorRollback(DocumentFolderServiceTestBase):
     """
     SCENARIO: An IntegrityError during delete_folder's bulk_create causes
     full atomic rollback.
@@ -4368,7 +4368,7 @@ class TestCoverageGap_DeleteFolderIntegrityErrorRollback(DocumentFolderServiceTe
         self.assertEqual(original_path.folder_id, folder.id)
 
 
-class TestCoverageGap_TargetDirectoryStringFromPathEdgeCases(
+class TestCoverageGapTargetDirectoryStringFromPathEdgeCases(
     DocumentFolderServiceTestBase
 ):
     """
