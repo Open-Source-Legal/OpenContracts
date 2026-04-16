@@ -98,6 +98,7 @@
     "serve": "vite preview",
     "test:unit": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:coverage": "COVERAGE=true playwright test; E2E_EXIT=$?; mkdir -p coverage/e2e/.nyc_output && nyc report --reporter=lcov --reporter=text --report-dir=coverage/e2e --temp-dir=coverage/e2e/.nyc_output || echo 'No coverage data to report'; exit $E2E_EXIT",
     "test:coverage:unit": "vitest run --coverage --watch=false",
     "test:coverage:ct": "COVERAGE=true playwright test -c playwright-ct.config.ts --reporter=list && mkdir -p coverage/ct/.nyc_output && nyc report --reporter=lcov --reporter=text --report-dir=coverage/ct --temp-dir=coverage/ct/.nyc_output",
     "lint": "prettier . --check --ignore-unknown",

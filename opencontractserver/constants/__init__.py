@@ -13,6 +13,7 @@ from opencontractserver.constants.context_guardrails import *  # noqa: F401, F40
 from opencontractserver.constants.corpus_actions import *  # noqa: F401, F403
 from opencontractserver.constants.discovery import *  # noqa: F401, F403
 from opencontractserver.constants.document_processing import *  # noqa: F401, F403
+from opencontractserver.constants.extracts import *  # noqa: F401, F403
 from opencontractserver.constants.moderation import *  # noqa: F401, F403
 from opencontractserver.constants.truncation import *  # noqa: F401, F403
 from opencontractserver.constants.zip_import import *  # noqa: F401, F403

@@ -349,9 +349,25 @@ export const PARTIALLY_SUPPORTED_WARNING_COLOR = "#D69E2E";
 /** Maximum character length for cell values before truncation in ExtractGridEmbed. */
 export const EXTRACT_GRID_CELL_TRUNCATE_LENGTH = 100;
 /**
- * Maximum number of document rows shown in an ExtractGridEmbed before a
- * warning is displayed instead of the full table. fullDatacellList is
- * unbounded (see #1204) so this guards against excessively large payloads.
+ * Server-side cap on the number of datacells fetched for an extract grid
+ * embed. Passed as the `limit` argument to `fullDatacellList` so the payload
+ * is bounded even for extracts with hundreds of documents and columns. When
+ * the extract has more cells than this, the component displays a
+ * "showing N of M" indicator and the overflow rows are omitted.
+ *
+ * Sized so that typical use cases (a few dozen documents x <= 20 columns)
+ * fit comfortably without truncation. Resolves #1204.
+ *
+ * Must match the backend constant
+ * ``opencontractserver/constants/extracts.py::MAX_FULL_DATACELL_LIST_LIMIT``.
+ */
+export const EXTRACT_GRID_EMBED_CELL_LIMIT = 500;
+/**
+ * Maximum number of document rows rendered in an ExtractGridEmbed. If the
+ * fetched (already server-bounded) payload resolves to more rows than this,
+ * the table is clipped and a "showing N of M" indicator is displayed. This
+ * is a pure display bound — the fetched payload is always bounded by
+ * `EXTRACT_GRID_EMBED_CELL_LIMIT` on the server side.
  */
 export const EXTRACT_GRID_EMBED_MAX_ROWS = 200;
 

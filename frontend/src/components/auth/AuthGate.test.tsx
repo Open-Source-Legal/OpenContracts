@@ -577,15 +577,16 @@ describe("AuthGate", () => {
         </AuthGate>
       );
 
-      // Should render children after detecting we have tokens
+      // Should render children after detecting we have tokens, and auth
+      // state should be set correctly despite isAuthenticated being false.
+      // All assertions in one waitFor to avoid reading stale reactive vars
+      // between async promise resolutions.
       await waitFor(() => {
         expect(screen.getByText("Protected Content")).toBeInTheDocument();
+        expect(authToken()).toBe(mockToken);
+        expect(authStatusVar()).toBe("AUTHENTICATED");
+        expect(authInitCompleteVar()).toBe(true);
       });
-
-      // Auth state should be set correctly despite isAuthenticated being false
-      expect(authToken()).toBe(mockToken);
-      expect(authStatusVar()).toBe("AUTHENTICATED");
-      expect(authInitCompleteVar()).toBe(true);
 
       // Verify getAccessTokenSilently was called to verify auth state
       expect(mockGetAccessTokenSilently).toHaveBeenCalled();

@@ -1381,8 +1381,19 @@ export interface ExtractType extends Node {
   documents?: DocumentType[];
   corpusAction?: CorpusActionType;
   extractedDatacells?: DatacellTypeConnection;
+  /**
+   * Datacells visible to the current user. Accepts optional `limit`/`offset`
+   * arguments on the server; callers that need a bounded payload should
+   * fetch `datacellCount` alongside this field to display "N of M" indicators.
+   */
   fullDatacellList?: DatacellType[];
   fullDocumentList?: DocumentType[];
+  /**
+   * Total number of datacells visible to the current user, ignoring any
+   * `limit`/`offset` applied to `fullDatacellList`. Used alongside a bounded
+   * `fullDatacellList` to render "showing N of M" indicators (see #1204).
+   */
+  datacellCount?: number | null;
   myPermissions?: PermissionTypes[];
 }
 
