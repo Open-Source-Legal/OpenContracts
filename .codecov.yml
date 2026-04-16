@@ -1,5 +1,16 @@
 codecov:
   require_ci_to_pass: yes
+  # Wait for all 5 coverage uploads before sending notifications and
+  # posting status checks. The 5 streams are:
+  #   1. backend          – pytest unit/integration  (backend.yml)
+  #   2. frontend-unit    – vitest                   (frontend.yml)
+  #   3. frontend-component – Playwright CT          (frontend.yml)
+  #   4. frontend-e2e     – Istanbul via Playwright  (frontend-e2e.yml)
+  #   5. backend-e2e      – coverage.py via Playwright (frontend-e2e.yml)
+  # carryforward flags let partial workflow runs still satisfy the threshold.
+  notify:
+    after_n_builds: 5
+    wait_for_ci: true
 
 coverage:
   precision: 2
@@ -7,8 +18,12 @@ coverage:
   range: "70...100"
 
   status:
-    project: true
-    patch: true
+    project:
+      default:
+        after_n_builds: 5
+    patch:
+      default:
+        after_n_builds: 5
     changes: false
 
 flags:
@@ -47,6 +62,7 @@ comment:
   layout: "reach,diff,flags,files,footer"
   behavior: default
   require_changes: no
+  after_n_builds: 5
 
 ignore:
   - "opencontractserver/tasks/data_extract_tasks.py"
