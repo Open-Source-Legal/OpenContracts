@@ -743,7 +743,7 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
                           id={`caml-extract-picker-option-${ext.id}`}
                           key={ext.id}
                           $active={index === activeExtractIndex}
-                          aria-selected={index === activeExtractIndex}
+                          aria-selected={false}
                           onMouseEnter={() => setActiveExtractIndex(index)}
                           onClick={() =>
                             handleInsertComponent("extract-grid", {
