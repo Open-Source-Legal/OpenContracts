@@ -165,6 +165,9 @@ from config.graphql.moderation_mutations import (
     UpdateModeratorPermissionsMutation,
 )
 
+# Import Bolivian Laws mutations
+from config.graphql.bolivian_laws_mutations import AskBolivianLawMutation
+
 # Import notification mutations
 from config.graphql.notification_mutations import (
     DeleteNotificationMutation,
@@ -396,6 +399,9 @@ class Mutation(graphene.ObjectType):
     create_agent_configuration = CreateAgentConfigurationMutation.Field()
     update_agent_configuration = UpdateAgentConfigurationMutation.Field()
     delete_agent_configuration = DeleteAgentConfigurationMutation.Field()
+
+    # BOLIVIAN LAWS RAG ##########################################################
+    ask_bolivian_law = AskBolivianLawMutation.Field()
 
     # PIPELINE SETTINGS MUTATIONS (Superuser only) ###############################
     update_pipeline_settings = UpdatePipelineSettingsMutation.Field()

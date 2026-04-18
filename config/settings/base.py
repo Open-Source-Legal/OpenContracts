@@ -155,6 +155,7 @@ LOCAL_APPS = [
     "opencontractserver.agents",
     "opencontractserver.worker_uploads",
     "opencontractserver.discovery",
+    "opencontractserver.bolivian_laws",
 ]
 
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -1241,3 +1242,21 @@ MCP_SERVER = {
     },
     "cache_ttl": env.int("MCP_CACHE_TTL", default=300),
 }
+
+
+# Bolivian Laws RAG Service
+# ------------------------------------------------------------------------------
+# See docs/services/bolivian_laws.md
+BOLIVIAN_LAWS_DEFAULT_EMBEDDER = env.str(
+    "BOLIVIAN_LAWS_DEFAULT_EMBEDDER",
+    default=DEFAULT_EMBEDDER,
+)
+BOLIVIAN_LAWS_CLASSIFIER_MODEL = env.str(
+    "BOLIVIAN_LAWS_CLASSIFIER_MODEL", default="gpt-4o-mini"
+)
+BOLIVIAN_LAWS_ORCHESTRATOR_MODEL = env.str(
+    "BOLIVIAN_LAWS_ORCHESTRATOR_MODEL", default="gpt-4o-mini"
+)
+BOLIVIAN_LAWS_SPECIALIST_MODEL = env.str(
+    "BOLIVIAN_LAWS_SPECIALIST_MODEL", default=""
+)

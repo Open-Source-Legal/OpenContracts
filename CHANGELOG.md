@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Bolivian Laws RAG service** (`opencontractserver/bolivian_laws/`): multi-agent RAG over Bolivian legal sources, organised by legal area to keep embeddings cost-aware and retrieval precise.
+  - One Corpus per `LegalArea` (constitucional, penal, civil, administrativo, laboral, tributario, familia, comercial, agrario, ambiental, otros), seeded idempotently from `AREA_PROFILES` (`opencontractserver/bolivian_laws/constants.py`).
+  - Tracking model `BolivianLegalDocument` with global SHA-256 dedupe and source attribution (`gaceta`, `tsj`, `tcp`, `manual`).
+  - Bulk ingestion via management command `python manage.py ingest_bolivian_laws --path ... --area ...` with optional LLM-based `--auto-classify`, dry-run and async (Celery) modes.
+  - Specialist agents per area + orchestrator agent (pydantic_ai) that routes questions to one or more specialists and synthesises answers (`opencontractserver/bolivian_laws/services/agents.py`).
+  - GraphQL mutation `askBolivianLaw(question, areas?)` returns the synthesised answer plus area-tagged source citations (`config/graphql/bolivian_laws_mutations.py`).
+  - Settings: `BOLIVIAN_LAWS_DEFAULT_EMBEDDER`, `BOLIVIAN_LAWS_CLASSIFIER_MODEL`, `BOLIVIAN_LAWS_ORCHESTRATOR_MODEL`, `BOLIVIAN_LAWS_SPECIALIST_MODEL` (`config/settings/base.py`).
+  - Documentation in `docs/services/bolivian_laws.md`.
+  - Phase 3 (automatic scrapers for Gaceta Oficial, TSJ, TCP) is documented as a follow-up.
+
 ### Fixed
 
 - **GraphQL security hardening cleanup** (Issue #1198):
