@@ -1,5 +1,13 @@
 codecov:
   require_ci_to_pass: yes
+  notify:
+    # Coverage uploads arrive from three independent workflows (backend.yml,
+    # frontend.yml, frontend-e2e.yml) with staggered finish times, and any
+    # subset may skip due to path filters. manual_trigger suppresses auto-
+    # notifications so Codecov only fires status/comments once the
+    # codecov-notify.yml workflow calls send-notifications after every
+    # upload-producing workflow has finished for this SHA.
+    manual_trigger: true
 
 coverage:
   precision: 2

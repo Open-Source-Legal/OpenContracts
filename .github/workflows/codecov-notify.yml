@@ -1,0 +1,78 @@
+name: Codecov Notify
+
+# Coverage uploads are split across three workflows with different triggers
+# and path filters, so we can't set a static after_n_builds threshold
+# (backend-only PRs produce 1 upload, mixed PRs produce 5). Instead,
+# .codecov.yml sets manual_trigger: true and this workflow explicitly calls
+# send-notifications once every upload-producing workflow has finished for
+# the triggering SHA. Workflows that skipped due to path filters don't block
+# the notify step.
+
+on:
+  workflow_run:
+    workflows: ["Backend CI", "Frontend CI", "Frontend E2E Integration"]
+    types: [completed]
+
+concurrency:
+  group: codecov-notify-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Wait for all coverage workflows
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.workflow_run.head_sha;
+            const expected = [
+              "Backend CI",
+              "Frontend CI",
+              "Frontend E2E Integration",
+            ];
+
+            // Fetch every workflow run attached to this SHA. The API returns
+            // the most recent attempt per workflow first, which is the one we
+            // care about after re-runs.
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head_sha: sha,
+                per_page: 100,
+              }
+            );
+
+            let allDone = true;
+            for (const name of expected) {
+              const matching = runs.filter((r) => r.name === name);
+              if (matching.length === 0) {
+                core.info(`${name}: no run for this SHA (path-filtered) — OK`);
+                continue;
+              }
+              const latest = matching[0];
+              core.info(
+                `${name}: status=${latest.status} conclusion=${latest.conclusion}`
+              );
+              if (latest.status !== "completed") {
+                allDone = false;
+              }
+            }
+
+            core.setOutput("all_done", allDone ? "true" : "false");
+            core.setOutput("sha", sha);
+
+      - name: Send notifications to Codecov
+        if: steps.check.outputs.all_done == 'true'
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          run_command: send-notifications
+          override_commit: ${{ steps.check.outputs.sha }}
+          fail_ci_if_error: false
