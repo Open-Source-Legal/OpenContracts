@@ -1,0 +1,16 @@
+# =============================================================================
+# OpenContracts — Frontend env (production build)
+# Copy to .envs/.production/.frontend and replace <REPLACE-ME-domain>.
+# These are baked into the Vite bundle at container build time.
+# =============================================================================
+
+REACT_APP_API_ROOT_URL=https://<REPLACE-ME-domain>
+REACT_APP_APPLICATION_DOMAIN=<REPLACE-ME-domain>
+
+# Auth0 off — match the django service's USE_AUTH0 setting.
+REACT_APP_USE_AUTH0=false
+
+# Optional: pre-fill an Auth0 client if you switch USE_AUTH0=true.
+# REACT_APP_AUTH0_DOMAIN=
+# REACT_APP_AUTH0_CLIENT_ID=
+# REACT_APP_AUTH0_AUDIENCE=

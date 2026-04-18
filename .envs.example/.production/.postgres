@@ -1,0 +1,12 @@
+# =============================================================================
+# OpenContracts — Postgres env (production)
+# Copy to .envs/.production/.postgres and fill in <REPLACE-ME>.
+# POSTGRES_PASSWORD MUST match the password embedded in DATABASE_URL.
+# =============================================================================
+
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=opencontractserver
+POSTGRES_USER=opencontractserver
+POSTGRES_PASSWORD=<REPLACE-ME-strong-password>
+DATABASE_URL=postgres://opencontractserver:<REPLACE-ME-same-strong-password>@postgres:5432/opencontractserver

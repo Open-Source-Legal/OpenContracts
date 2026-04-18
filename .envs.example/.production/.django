@@ -1,0 +1,63 @@
+# =============================================================================
+# OpenContracts — Django service env (production)
+# Copy to .envs/.production/.django and fill in every <REPLACE-ME> below.
+# Generate strong secrets with: ./scripts/easypanel/generate-env.sh
+# =============================================================================
+
+# --- Django core ----------------------------------------------------------
+DJANGO_SETTINGS_MODULE=config.settings.production
+DJANGO_DEBUG=False
+DJANGO_SECRET_KEY=<REPLACE-ME-64-char-random>
+DJANGO_ADMIN_URL=admin/<REPLACE-ME-30-char-random>/
+DJANGO_ALLOWED_HOSTS=<REPLACE-ME-domain>,django
+
+# Initial superuser (created via `createsuperuser` or signal)
+DJANGO_SUPERUSER_USERNAME=admin
+DJANGO_SUPERUSER_EMAIL=<REPLACE-ME-email>
+DJANGO_SUPERUSER_PASSWORD=<REPLACE-ME-superuser-password>
+
+# Worker timeout for daphne (seconds). 60 is safe for most production loads.
+DJANGO_WORKER_TIMEOUT=60
+
+# --- Storage --------------------------------------------------------------
+# LOCAL = files on the django container's disk (fine for a single-host setup).
+# Set to AWS or GCP for object storage; see docs/deployment/.
+STORAGE_BACKEND=LOCAL
+
+# --- Redis / Celery -------------------------------------------------------
+REDIS_URL=redis://redis:6379/0
+
+# Flower (Celery monitor) — protect with strong creds; port 5555 is exposed
+# by the bundled traefik. Set both to a long random string.
+CELERY_FLOWER_USER=<REPLACE-ME-flower-user>
+CELERY_FLOWER_PASSWORD=<REPLACE-ME-flower-password>
+
+# --- Auth --------------------------------------------------------------------
+# Auth0 is OFF by default; OC falls back to JWT/session auth.
+USE_AUTH0=false
+
+# --- LLM credentials ------------------------------------------------------
+# Required for embeddings + agent answers. The Bolivian-laws RAG service
+# uses these for both per-area specialists and the orchestrator.
+OPENAI_API_KEY=<REPLACE-ME-openai-key>
+OPENAI_MODEL=gpt-4o
+ANTHROPIC_API_KEY=
+
+# --- Pipeline microservices (in-network URLs) ----------------------------
+EMBEDDINGS_MICROSERVICE_URL=http://vector-embedder:8000
+VECTOR_EMBEDDER_API_KEY=<REPLACE-ME-vector-embedder-key>
+DOCLING_PARSER_SERVICE_URL=http://docling-parser:8000/parse/
+DOCXODUS_PARSER_SERVICE_URL=http://docxodus-parser:8080/parse
+DOCXODUS_PARSER_TIMEOUT=120
+
+# --- Bolivian Laws RAG (overrides; sane defaults baked into settings) ----
+# Override only if a target site moves or you mirror it elsewhere.
+# BOLIVIAN_LAWS_GACETA_BASE_URL=https://gacetaoficialdebolivia.gob.bo/
+# BOLIVIAN_LAWS_GACETA_LISTING_PATHS=/
+# BOLIVIAN_LAWS_TSJ_BASE_URL=https://tsj.bo/
+# BOLIVIAN_LAWS_TSJ_LISTING_PATHS=/jurisprudencia/
+# BOLIVIAN_LAWS_TCP_BASE_URL=https://tcpbolivia.bo/
+# BOLIVIAN_LAWS_TCP_LISTING_PATHS=/jurisprudencia/
+BOLIVIAN_LAWS_SCRAPER_USER_AGENT=OpenContractsBolivianLawsBot/1.0 (+contact: <REPLACE-ME-email>)
+BOLIVIAN_LAWS_SCRAPE_LOOKBACK_DAYS=30
+BOLIVIAN_LAWS_REQUEST_DELAY_SECONDS=1.0

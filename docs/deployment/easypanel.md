@@ -43,6 +43,42 @@ Volumes to preserve across rebuilds:
 
 EasyPanel has native support for Docker Compose. This is the fastest path.
 
+### Quick start (5 commands locally + a click in EasyPanel)
+
+The repo ships ready-to-use templates under `.envs.example/.production/` and
+two helper scripts under `scripts/easypanel/`. From a fresh clone of your
+fork on your laptop:
+
+```bash
+# 1. Generate strong secrets and write .envs/.production/{.django,.postgres,.frontend}
+./scripts/easypanel/generate-env.sh \
+    --domain oc.example.com \
+    --email you@example.com \
+    --openai-key sk-...
+
+# 2. Bake your domain + ACME email into the bundled Traefik config
+./scripts/easypanel/configure-traefik.sh \
+    --domain oc.example.com \
+    --email you@example.com
+
+# 3. Commit the Traefik change (the env files are gitignored — keep them off git)
+git add compose/production/traefik/traefik.yml
+git commit -m "Configure traefik for oc.example.com"
+git push origin <your-branch>
+```
+
+Now upload the env files onto the server. Two options:
+
+- **EasyPanel Files UI**: open your app → *Files* → create
+  `.envs/.production/.django`, `.envs/.production/.postgres`,
+  `.envs/.production/.frontend` and paste the contents your local script
+  produced.
+- **SSH**: `scp` the three files into the deploy directory on the VPS,
+  then redeploy from EasyPanel.
+
+After that, follow steps 1 → 7 below for the EasyPanel app wiring,
+deploy, migration and verification.
+
 ### 1. Create the app
 
 1. In the EasyPanel dashboard: **Create Service → App**.
@@ -55,77 +91,16 @@ EasyPanel has native support for Docker Compose. This is the fastest path.
 
 ### 2. Configure environment files
 
-`production.yml` reads env files from `./.envs/.production/`. These are **not**
-committed, so create them on the server using EasyPanel's mounted files
-feature — or commit them to a **private** fork. Create three files under
-`.envs/.production/` at deploy time:
+`production.yml` reads env files from `./.envs/.production/`. They are
+**gitignored**, so you must place them at deploy time. The
+`./scripts/easypanel/generate-env.sh` helper above creates all three for
+you with strong random secrets — run it locally and paste the result into
+EasyPanel's Files UI (or `scp` to the host).
 
-#### `.envs/.production/.django`
-
-```bash
-# --- Django core ---
-DJANGO_SETTINGS_MODULE=config.settings.production
-DJANGO_SECRET_KEY=<run: python -c "import secrets;print(secrets.token_urlsafe(64))">
-DJANGO_ADMIN_URL=admin/<random-slug>/
-DJANGO_ALLOWED_HOSTS=oc.example.com,django
-DJANGO_SUPERUSER_USERNAME=admin
-DJANGO_SUPERUSER_EMAIL=you@example.com
-DJANGO_SUPERUSER_PASSWORD=<strong-password>
-
-# --- Storage ---
-STORAGE_BACKEND=LOCAL   # or AWS / GCP (see docs/deployment/)
-
-# --- Redis / Celery ---
-REDIS_URL=redis://redis:6379/0
-CELERY_FLOWER_USER=<random>
-CELERY_FLOWER_PASSWORD=<random>
-
-# --- Auth0 (optional) ---
-USE_AUTH0=false
-
-# --- LLM ---
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o
-ANTHROPIC_API_KEY=                 # optional
-
-# --- Pipeline microservices (in-network URLs) ---
-EMBEDDINGS_MICROSERVICE_URL=http://vector-embedder:8000
-VECTOR_EMBEDDER_API_KEY=<random>
-DOCLING_PARSER_SERVICE_URL=http://docling-parser:8000/parse/
-DOCXODUS_PARSER_SERVICE_URL=http://docxodus-parser:8080/parse
-DOCXODUS_PARSER_TIMEOUT=120
-
-# --- Bolivian Laws RAG (optional overrides) ---
-BOLIVIAN_LAWS_GACETA_BASE_URL=https://gacetaoficialdebolivia.gob.bo/
-BOLIVIAN_LAWS_GACETA_LISTING_PATHS=/
-BOLIVIAN_LAWS_TSJ_BASE_URL=https://tsj.bo/
-BOLIVIAN_LAWS_TSJ_LISTING_PATHS=/jurisprudencia/
-BOLIVIAN_LAWS_TCP_BASE_URL=https://tcpbolivia.bo/
-BOLIVIAN_LAWS_TCP_LISTING_PATHS=/jurisprudencia/
-BOLIVIAN_LAWS_SCRAPER_USER_AGENT=YourOrg-OpenContracts/1.0 (contact@yourorg)
-BOLIVIAN_LAWS_SCRAPE_LOOKBACK_DAYS=30
-BOLIVIAN_LAWS_REQUEST_DELAY_SECONDS=1.0
-```
-
-#### `.envs/.production/.postgres`
-
-```bash
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-POSTGRES_DB=opencontractserver
-POSTGRES_USER=opencontractserver
-POSTGRES_PASSWORD=<strong-password>
-DATABASE_URL=postgres://opencontractserver:<strong-password>@postgres:5432/opencontractserver
-```
-
-#### `.envs/.production/.frontend`
-
-```bash
-# Point the SPA at the same public domain (Traefik routes /graphql, /api, /ws)
-REACT_APP_API_ROOT_URL=https://oc.example.com
-REACT_APP_APPLICATION_DOMAIN=oc.example.com
-REACT_APP_USE_AUTH0=false
-```
+If you'd rather hand-write them, copy the templates from
+`.envs.example/.production/` and replace every `<REPLACE-ME-...>` token.
+Each placeholder is unique so you can't accidentally reuse a value across
+two settings.
 
 ### 3. Traefik / domain wiring
 
@@ -139,10 +114,12 @@ REACT_APP_USE_AUTH0=false
   internal port. You'll need to customise `compose/production/traefik` or
   disable the bundled Traefik. This is more work — prefer 3a.
 
-Configure the bundled Traefik by editing
-`compose/production/traefik/traefik.yml` (domain, email) before the first
-deploy. This file is baked into the Traefik image at build time, so re-deploy
-after changes.
+Configure the bundled Traefik via `./scripts/easypanel/configure-traefik.sh`
+(see Quick start). It rewrites `compose/production/traefik/traefik.yml`
+in place, swapping every reference to the upstream sample domain
+(`contracts.opensource.legal`) for yours and updating the ACME email.
+The file is baked into the Traefik image at build time, so commit your
+edit and re-deploy.
 
 ### 4. First deploy
 

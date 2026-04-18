@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **EasyPanel deployment kit**:
+  - Commit-able env templates under `.envs.example/.production/` (`.django`, `.postgres`, `.frontend`) — every placeholder is unique so substitution can't accidentally cross-pollute.
+  - `scripts/easypanel/generate-env.sh` — interactive bootstrap that generates strong random secrets (`DJANGO_SECRET_KEY`, admin URL slug, Flower creds, Postgres password, vector-embedder API key) and writes filled `.envs/.production/{.django,.postgres,.frontend}` files. Idempotent (`--force` to overwrite).
+  - `scripts/easypanel/configure-traefik.sh` — patches `compose/production/traefik/traefik.yml` to swap the upstream sample domain (`contracts.opensource.legal`) and ACME email for the operator's, with an automatic `.bak` backup.
+  - Docs (`docs/deployment/easypanel.md`) gain a "Quick start" section: 5 commands locally + a click in EasyPanel get the full stack (with the daily Bolivian-laws scrape) up and serving on a custom domain.
 - **Bolivian Laws RAG service** (`opencontractserver/bolivian_laws/`): multi-agent RAG over Bolivian legal sources, organised by legal area to keep embeddings cost-aware and retrieval precise.
   - One Corpus per `LegalArea` (constitucional, penal, civil, administrativo, laboral, tributario, familia, comercial, agrario, ambiental, otros), seeded idempotently from `AREA_PROFILES` (`opencontractserver/bolivian_laws/constants.py`).
   - Tracking model `BolivianLegalDocument` with global SHA-256 dedupe and source attribution (`gaceta`, `tsj`, `tcp`, `manual`).
