@@ -383,7 +383,11 @@ export async function uploadDocumentViaUI(
     await page.waitForTimeout(300);
 
     // Click the Upload button in the modal footer (last one to avoid matching header text)
-    await page.locator("button").filter({ hasText: /Upload/i }).last().click();
+    await page
+      .locator("button")
+      .filter({ hasText: /Upload/i })
+      .last()
+      .click();
   } else {
     // Skip corpus association and upload directly
     await page.getByRole("button", { name: /Skip Corpus/i }).click();

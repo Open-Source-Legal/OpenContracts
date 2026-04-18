@@ -185,9 +185,7 @@ test.describe("Corpus workflow", () => {
       // The floating bar at the bottom has search (🔍) and chat (💬) icons
       // Try clicking each to expand them
       const floatingButtons = await page
-        .locator(
-          '[class*="floating"] button, [class*="Floating"] button'
-        )
+        .locator('[class*="floating"] button, [class*="Floating"] button')
         .all();
       for (const btn of floatingButtons.slice(0, 2)) {
         if (await btn.isVisible().catch(() => false)) {
@@ -197,9 +195,7 @@ test.describe("Corpus workflow", () => {
       }
 
       // Look for any expanded input (search or chat)
-      const anyInput = page.getByPlaceholder(
-        /Search document|Ask a question/i
-      );
+      const anyInput = page.getByPlaceholder(/Search document|Ask a question/i);
       if (await anyInput.isVisible().catch(() => false)) {
         await anyInput.fill("analytics platform");
         await page.waitForTimeout(500);
