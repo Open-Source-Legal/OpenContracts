@@ -16,8 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Specialist agents per area + orchestrator agent (pydantic_ai) that routes questions to one or more specialists and synthesises answers (`opencontractserver/bolivian_laws/services/agents.py`).
   - GraphQL mutation `askBolivianLaw(question, areas?)` returns the synthesised answer plus area-tagged source citations (`config/graphql/bolivian_laws_mutations.py`).
   - Settings: `BOLIVIAN_LAWS_DEFAULT_EMBEDDER`, `BOLIVIAN_LAWS_CLASSIFIER_MODEL`, `BOLIVIAN_LAWS_ORCHESTRATOR_MODEL`, `BOLIVIAN_LAWS_SPECIALIST_MODEL` (`config/settings/base.py`).
-  - Documentation in `docs/services/bolivian_laws.md`.
-  - Phase 3 (automatic scrapers for Gaceta Oficial, TSJ, TCP) is documented as a follow-up.
+  - Documentation in `docs/features/bolivian_laws_rag.md`.
+- **Bolivian Laws automatic scrapers** (`opencontractserver/bolivian_laws/scrapers/`): three pluggable scrapers that fetch legal PDFs from the Gaceta Oficial (`gacetaoficialdebolivia.gob.bo`), Tribunal Supremo de Justicia (`tsj.bo`) and Tribunal Constitucional Plurinacional (`tcpbolivia.bo`).
+  - `BaseScraper` with injectable `httpx.Client`, configurable User-Agent, rate limiting, and defensive per-listing error handling so a single broken page cannot abort a batch.
+  - Per-source classes (`GacetaOficialScraper`, `TribunalSupremoJusticiaScraper`, `TribunalConstitucionalScraper`) extract best-effort metadata: external ID (e.g. `LEY-1178`, `AS-123/2023`, `SCP-0250/2012`), publication date, and a suggested `LegalArea` via keyword heuristics (sala name for TSJ, SAFCO/tributario/etc. for Gaceta, always `constitucional` for TCP).
+  - Celery tasks `scrape_and_ingest_source(source_key)` and `scrape_and_ingest_all()` (`opencontractserver/bolivian_laws/tasks.py`). A SHA-256 pre-check before `ingest_pdf` makes re-runs cheap; download failures are logged and counted per-source without aborting the batch.
+  - New Beat schedule entry `bolivian-laws-scrape-all` running once daily (`config/settings/base.py`).
+  - Management command `python manage.py scrape_bolivian_laws [--source gaceta|tsj|tcp | --all] [--since-days N] [--max-entries N] [--sync]` for on-demand runs.
+  - Settings: `BOLIVIAN_LAWS_{GACETA,TSJ,TCP}_BASE_URL` / `_LISTING_PATHS`, `BOLIVIAN_LAWS_SCRAPER_USER_AGENT`, `BOLIVIAN_LAWS_SCRAPE_LOOKBACK_DAYS`, `BOLIVIAN_LAWS_REQUEST_DELAY_SECONDS`.
+  - Added `beautifulsoup4>=4.12,<5` to `requirements/base.txt` for HTML parsing.
+  - Tests use `httpx.MockTransport` with inline HTML fixtures; no real HTTP traffic.
 
 ### Fixed
 

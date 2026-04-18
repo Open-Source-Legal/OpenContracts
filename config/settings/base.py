@@ -681,7 +681,47 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,  # every 5 minutes
         "options": {"queue": "worker_uploads"},
     },
+    # Bolivian-laws RAG: fan out a scrape+ingest task per registered
+    # source (Gaceta Oficial, TSJ, TCP) once a day. Ingestion dedupes
+    # by SHA-256 so re-running is cheap.
+    "bolivian-laws-scrape-all": {
+        "task": "bolivian_laws.scrape_and_ingest_all",
+        "schedule": 86400.0,  # daily
+    },
 }
+
+# Bolivian Laws RAG service
+# ------------------------------------------------------------------------------
+# Base URLs can be overridden per-deployment (useful for staging mirrors
+# or archive snapshots). Listing paths are comma-separated strings.
+BOLIVIAN_LAWS_GACETA_BASE_URL = env(
+    "BOLIVIAN_LAWS_GACETA_BASE_URL", default="https://gacetaoficialdebolivia.gob.bo/"
+)
+BOLIVIAN_LAWS_GACETA_LISTING_PATHS = env.list(
+    "BOLIVIAN_LAWS_GACETA_LISTING_PATHS", default=["/"]
+)
+BOLIVIAN_LAWS_TSJ_BASE_URL = env(
+    "BOLIVIAN_LAWS_TSJ_BASE_URL", default="https://tsj.bo/"
+)
+BOLIVIAN_LAWS_TSJ_LISTING_PATHS = env.list(
+    "BOLIVIAN_LAWS_TSJ_LISTING_PATHS", default=["/jurisprudencia/"]
+)
+BOLIVIAN_LAWS_TCP_BASE_URL = env(
+    "BOLIVIAN_LAWS_TCP_BASE_URL", default="https://tcpbolivia.bo/"
+)
+BOLIVIAN_LAWS_TCP_LISTING_PATHS = env.list(
+    "BOLIVIAN_LAWS_TCP_LISTING_PATHS", default=["/jurisprudencia/"]
+)
+BOLIVIAN_LAWS_SCRAPER_USER_AGENT = env(
+    "BOLIVIAN_LAWS_SCRAPER_USER_AGENT",
+    default="OpenContractsBolivianLawsBot/1.0 (+https://github.com/JSv4/OpenContracts)",
+)
+BOLIVIAN_LAWS_SCRAPE_LOOKBACK_DAYS = env.int(
+    "BOLIVIAN_LAWS_SCRAPE_LOOKBACK_DAYS", default=30
+)
+BOLIVIAN_LAWS_REQUEST_DELAY_SECONDS = env.float(
+    "BOLIVIAN_LAWS_REQUEST_DELAY_SECONDS", default=1.0
+)
 
 # Worker Upload Processing
 # ------------------------------------------------------------------------------
@@ -1257,6 +1297,4 @@ BOLIVIAN_LAWS_CLASSIFIER_MODEL = env.str(
 BOLIVIAN_LAWS_ORCHESTRATOR_MODEL = env.str(
     "BOLIVIAN_LAWS_ORCHESTRATOR_MODEL", default="gpt-4o-mini"
 )
-BOLIVIAN_LAWS_SPECIALIST_MODEL = env.str(
-    "BOLIVIAN_LAWS_SPECIALIST_MODEL", default=""
-)
+BOLIVIAN_LAWS_SPECIALIST_MODEL = env.str("BOLIVIAN_LAWS_SPECIALIST_MODEL", default="")

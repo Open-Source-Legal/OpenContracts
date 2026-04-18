@@ -12,6 +12,7 @@ pydantic==2.*
 typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests==2.*  # https://requests.readthedocs.io/en/latest/
 httpx>=0.27.0,<1  # https://github.com/encode/httpx - async HTTP for agent tools
+beautifulsoup4>=4.12,<5  # HTML parsing for Bolivian legal source scrapers
 tokenizers>=0.21,<0.23  # Pin to prevent conflicts with transformers
 
 
