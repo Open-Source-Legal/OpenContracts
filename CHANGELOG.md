@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **EasyPanel deployment kit**:
+  - **One-command deploy**: `./scripts/easypanel/deploy.sh` asks four questions (domain, email, OpenAI key, admin password), generates every secret, patches Traefik, builds, runs migrations, and smoke-tests the Bolivian-laws scrape — end-to-end. Re-runs are idempotent.
   - Commit-able env templates under `.envs.example/.production/` (`.django`, `.postgres`, `.frontend`) — every placeholder is unique so substitution can't accidentally cross-pollute.
-  - `scripts/easypanel/generate-env.sh` — interactive bootstrap that generates strong random secrets (`DJANGO_SECRET_KEY`, admin URL slug, Flower creds, Postgres password, vector-embedder API key) and writes filled `.envs/.production/{.django,.postgres,.frontend}` files. Idempotent (`--force` to overwrite).
-  - `scripts/easypanel/configure-traefik.sh` — patches `compose/production/traefik/traefik.yml` to swap the upstream sample domain (`contracts.opensource.legal`) and ACME email for the operator's, with an automatic `.bak` backup.
-  - Docs (`docs/deployment/easypanel.md`) gain a "Quick start" section: 5 commands locally + a click in EasyPanel get the full stack (with the daily Bolivian-laws scrape) up and serving on a custom domain.
+  - Building blocks `scripts/easypanel/generate-env.sh` (writes `.envs/.production/*` with strong random secrets) and `scripts/easypanel/configure-traefik.sh` (patches `compose/production/traefik/traefik.yml` with the operator's domain + ACME email, with `.bak` backup) for users who prefer the manual flow.
+  - Docs (`docs/deployment/easypanel.md`) trimmed to a 3-step TL;DR plus an EasyPanel pre-deploy hook recipe.
 - **Bolivian Laws RAG service** (`opencontractserver/bolivian_laws/`): multi-agent RAG over Bolivian legal sources, organised by legal area to keep embeddings cost-aware and retrieval precise.
   - One Corpus per `LegalArea` (constitucional, penal, civil, administrativo, laboral, tributario, familia, comercial, agrario, ambiental, otros), seeded idempotently from `AREA_PROFILES` (`opencontractserver/bolivian_laws/constants.py`).
   - Tracking model `BolivianLegalDocument` with global SHA-256 dedupe and source attribution (`gaceta`, `tsj`, `tcp`, `manual`).

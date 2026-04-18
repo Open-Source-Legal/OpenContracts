@@ -1,264 +1,160 @@
 # Deploying OpenContracts to EasyPanel
 
-This guide walks through deploying the full OpenContracts stack (including the
-Bolivian-laws RAG service with its scheduled scrapers) to an [EasyPanel](https://easypanel.io/)
-server using the existing `production.yml` Docker Compose file.
+Get the full stack — Django + Celery + pgvector + the Bolivian-laws RAG
+service with its daily scrapers — running on an [EasyPanel](https://easypanel.io/)
+host with **one command**.
 
-## Prerequisites
+## TL;DR — three steps
 
-- A VPS with EasyPanel installed (Hetzner, DigitalOcean, etc.). Minimum:
-  **4 vCPU / 8 GB RAM / 40 GB disk**. The Docling parser + embedder
-  microservices are memory-hungry; 16 GB is comfortable.
-- A domain you control (e.g. `oc.example.com`). Point an `A` record at the
-  server.
-- An OpenAI API key (or equivalent) for embeddings and agent LLMs.
-- Your fork of this repository on GitHub/GitLab, on the branch you want to
-  deploy (e.g. `claude/rag-bolivian-laws-service-OYXry`).
+You need: a VPS with Docker, a domain pointing at it, and an OpenAI API
+key.
 
-## Architecture recap
+```bash
+# 1. SSH into the VPS, clone the repo
+git clone <your-fork-url> opencontracts
+cd opencontracts
+git checkout <branch-you-want-to-deploy>
+
+# 2. Run the one-command deploy (you'll be asked 4 questions)
+./scripts/easypanel/deploy.sh
+
+# 3. Open https://<your-domain> in a browser
+```
+
+That's it. The script:
+
+1. Generates strong random secrets (`DJANGO_SECRET_KEY`, admin URL slug,
+   Postgres password, Flower creds, vector-embedder API key) and writes
+   `.envs/.production/{.django,.postgres,.frontend}` for you.
+2. Patches `compose/production/traefik/traefik.yml` with your domain and
+   ACME email so Let's Encrypt issues a real cert.
+3. Builds images, runs migrations, brings the stack up, and runs a 3-PDF
+   smoke test of the Bolivian-laws scrape so you can see Flower light up.
+
+It prints the credentials it generated at the end — copy them into a
+password manager.
+
+### Non-interactive (CI / re-runs)
+
+```bash
+./scripts/easypanel/deploy.sh \
+    --domain oc.example.com \
+    --email you@example.com \
+    --openai-key sk-... \
+    --admin-password 'StrongPass!'
+```
+
+Re-running is safe: env files are kept, Traefik is re-patched
+idempotently, Compose just brings any missing services up.
+
+## Plugging it into EasyPanel
+
+The script is plain Docker Compose under the hood, so EasyPanel only
+needs to know which Compose file to boot:
+
+1. **Create Service → App** in the EasyPanel dashboard.
+2. **Source**: Git, pointing at your fork + branch.
+3. **Build Method**: Docker Compose. **File**: `production.yml`.
+4. **Pre-deploy hook** (optional but recommended for fresh installs):
+   `./scripts/easypanel/deploy.sh --domain $DOMAIN --email $EMAIL --openai-key $OPENAI_KEY --admin-password $ADMIN_PASSWORD --skip-scrape-test`
+5. Set `DOMAIN`, `EMAIL`, `OPENAI_KEY`, `ADMIN_PASSWORD` as EasyPanel env
+   vars on the App so the hook picks them up.
+6. **Deploy**.
+
+If you'd rather wire EasyPanel up by hand (no script), see "Manual
+wiring" below.
+
+## What gets deployed
 
 `production.yml` brings up:
 
-| Service | Purpose | Needs persistence? |
+| Service | Purpose | Persistent volume? |
 |---|---|---|
-| `postgres` | PostgreSQL 16 + pgvector | **yes** (DB volume) |
-| `redis` | Broker + cache | no (OK to rebuild) |
-| `django` | ASGI app (GraphQL + REST + WebSockets) on port 5000 | no |
-| `celeryworker` | Background jobs (parsing, embedding, ingestion, scraping) | no |
-| `celerybeat` | Periodic task scheduler (runs the daily Bolivian-laws scrape) | no |
+| `postgres` | PostgreSQL 16 + pgvector | yes |
+| `redis` | Broker + cache | no |
+| `django` | ASGI app (GraphQL + REST + WebSockets) | no |
+| `celeryworker` | Background jobs (parsing, embedding, scraping) | no |
+| `celerybeat` | Periodic task scheduler — runs the daily Bolivian-laws scrape | no |
 | `vector-embedder` | Sentence-transformers microservice | no |
 | `docling-parser` | Docling PDF parser microservice | no |
 | `docxodus-parser` | DOCX/XLSX/PPTX parser microservice | no |
 | `frontend` | React SPA (Vite build behind nginx) | no |
-| `traefik` | TLS termination + reverse proxy | **yes** (ACME volume) |
-| `migrate` | One-shot migration container (profile: `migrate`) | no |
+| `traefik` | TLS termination + reverse proxy | yes (ACME volume) |
 
-Volumes to preserve across rebuilds:
+Persistent volumes you should back up: `production_postgres_data`,
+`production_postgres_data_backups`, `production_traefik`.
 
-- `production_postgres_data`
-- `production_postgres_data_backups`
-- `production_traefik`
+## Verifying the deploy
 
-## Option A — single "App" service running Compose (recommended)
+- Browse to `https://<your-domain>` — the React SPA loads.
+- `https://<your-domain>/admin/<slug>/` — Django admin (slug printed at
+  the end of `deploy.sh`).
+- `https://<your-domain>:5555` — Flower (Celery monitor) protected by
+  basic auth. Confirm `bolivian-laws-scrape-all` appears under
+  *Scheduled tasks*.
+- In Django admin → *Bolivian Legal Documents* you should see entries
+  with `status=ingested` from the smoke test.
 
-EasyPanel has native support for Docker Compose. This is the fastest path.
-
-### Quick start (5 commands locally + a click in EasyPanel)
-
-The repo ships ready-to-use templates under `.envs.example/.production/` and
-two helper scripts under `scripts/easypanel/`. From a fresh clone of your
-fork on your laptop:
-
-```bash
-# 1. Generate strong secrets and write .envs/.production/{.django,.postgres,.frontend}
-./scripts/easypanel/generate-env.sh \
-    --domain oc.example.com \
-    --email you@example.com \
-    --openai-key sk-...
-
-# 2. Bake your domain + ACME email into the bundled Traefik config
-./scripts/easypanel/configure-traefik.sh \
-    --domain oc.example.com \
-    --email you@example.com
-
-# 3. Commit the Traefik change (the env files are gitignored — keep them off git)
-git add compose/production/traefik/traefik.yml
-git commit -m "Configure traefik for oc.example.com"
-git push origin <your-branch>
-```
-
-Now upload the env files onto the server. Two options:
-
-- **EasyPanel Files UI**: open your app → *Files* → create
-  `.envs/.production/.django`, `.envs/.production/.postgres`,
-  `.envs/.production/.frontend` and paste the contents your local script
-  produced.
-- **SSH**: `scp` the three files into the deploy directory on the VPS,
-  then redeploy from EasyPanel.
-
-After that, follow steps 1 → 7 below for the EasyPanel app wiring,
-deploy, migration and verification.
-
-### 1. Create the app
-
-1. In the EasyPanel dashboard: **Create Service → App**.
-2. **Source**: Git. Provide the repository URL and the branch you want
-   (`main` or a feature branch).
-3. **Build Method**: **Docker Compose**.
-4. **Compose File**: `production.yml`.
-5. **Compose Project Name**: leave as default (EasyPanel scopes volumes
-   under the app).
-
-### 2. Configure environment files
-
-`production.yml` reads env files from `./.envs/.production/`. They are
-**gitignored**, so you must place them at deploy time. The
-`./scripts/easypanel/generate-env.sh` helper above creates all three for
-you with strong random secrets — run it locally and paste the result into
-EasyPanel's Files UI (or `scp` to the host).
-
-If you'd rather hand-write them, copy the templates from
-`.envs.example/.production/` and replace every `<REPLACE-ME-...>` token.
-Each placeholder is unique so you can't accidentally reuse a value across
-two settings.
-
-### 3. Traefik / domain wiring
-
-`production.yml` exposes Traefik on ports 80/443/5555. On EasyPanel:
-
-- **Option 3a (recommended)**: disable EasyPanel's built-in Traefik for this
-  app (or bind the ports) and point your domain at the VPS directly. The
-  bundled Traefik in `production.yml` handles Let's Encrypt via the
-  `production_traefik` volume.
-- **Option 3b**: keep EasyPanel's proxy and bind the `django` service to an
-  internal port. You'll need to customise `compose/production/traefik` or
-  disable the bundled Traefik. This is more work — prefer 3a.
-
-Configure the bundled Traefik via `./scripts/easypanel/configure-traefik.sh`
-(see Quick start). It rewrites `compose/production/traefik/traefik.yml`
-in place, swapping every reference to the upstream sample domain
-(`contracts.opensource.legal`) for yours and updating the ACME email.
-The file is baked into the Traefik image at build time, so commit your
-edit and re-deploy.
-
-### 4. First deploy
-
-Push the **Deploy** button in EasyPanel. The stack comes up; Postgres
-initialises the `opencontractserver` database on first boot.
-
-### 5. Run migrations
-
-Migrations do **not** run automatically. From the EasyPanel app console
-(or SSH into the host and `cd` to the deployment directory):
+## Day-2 operations
 
 ```bash
+# Re-deploy after pulling new code:
+git pull && docker compose -f production.yml up -d --build
+
+# Run new migrations:
 docker compose -f production.yml --profile migrate up migrate
-```
 
-This runs:
-
-1. `python manage.py migrate` — schema migrations, including
-   `bolivian_laws/0001_initial.py`.
-2. `python manage.py migrate_pipeline_settings` — wires up parsers/embedders.
-
-### 6. Verify the deploy
-
-- Browse to `https://oc.example.com` — the React SPA should load.
-- `https://oc.example.com/graphql/` — GraphiQL (if `ALLOW_GRAPHQL_DEBUG=true`
-  is set) or `405 Method Not Allowed` on GET.
-- `https://oc.example.com/admin/<your-slug>/` — Django admin.
-- Flower (Celery monitor) at `https://oc.example.com:5555` with the Flower
-  credentials from `.django`.
-- In Flower, confirm that **`bolivian-laws-scrape-all`** appears under
-  scheduled tasks.
-
-### 7. Bootstrap the Bolivian-laws corpora
-
-From the `django` container:
-
-```bash
-# Create the superuser if you haven't already:
-docker compose -f production.yml exec django python manage.py createsuperuser
-
-# Optionally seed one area corpus up-front (not required — it's lazy):
-docker compose -f production.yml exec django python manage.py shell -c "\
-from opencontractserver.bolivian_laws.services.ingestion import ensure_area_corpus;\
-from django.contrib.auth import get_user_model;\
-u = get_user_model().objects.filter(is_superuser=True).first();\
-ensure_area_corpus('constitucional', user=u);\
-"
-
-# Kick a first scrape manually (good smoke test — pass --max-entries to keep it small):
+# Run the Bolivian-laws scrape on demand:
 docker compose -f production.yml exec django \
-  python manage.py scrape_bolivian_laws --all --since-days 7 --max-entries 5 --sync
+    python manage.py scrape_bolivian_laws --all --since-days 7 --sync
+
+# Tail logs:
+docker compose -f production.yml logs -f django celeryworker celerybeat
 ```
 
-After that, `celerybeat` runs `scrape_and_ingest_all` daily. Re-runs are
-cheap because SHA-256 dedupe skips already-ingested PDFs.
+The Beat schedule re-runs `scrape_and_ingest_all` once a day. SHA-256
+dedupe makes re-runs cheap.
 
-## Option B — one EasyPanel service per image
+## Manual wiring (without `deploy.sh`)
 
-Useful if you want independent scaling (e.g. more workers for heavy
-embedding batches) or EasyPanel-managed backups.
+The deploy script is a thin wrapper. If you prefer to do each step by
+hand:
 
-Create one service per row in the architecture table. Key wiring:
+1. `./scripts/easypanel/generate-env.sh --domain ... --email ... --openai-key ...`
+   creates the three env files under `.envs/.production/`.
+2. `./scripts/easypanel/configure-traefik.sh --domain ... --email ...`
+   patches the Traefik config (a `.bak` is left next to the file).
+3. `docker compose -f production.yml --profile migrate up migrate`
+   runs migrations.
+4. `docker compose -f production.yml up -d` brings the stack up.
 
-| EasyPanel service | Image / build | Depends on | Ports |
-|---|---|---|---|
-| `oc-postgres` | Build `compose/production/postgres/Dockerfile` | — | 5432 (internal) |
-| `oc-redis` | `redis:6` | — | 6379 (internal) |
-| `oc-vector-embedder` | `jscrudato/vector-embedder-microservice` | — | 8000 (internal) |
-| `oc-docling-parser` | `jscrudato/docsling-local` | — | 8000 (internal) |
-| `oc-docxodus-parser` | `ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2` | — | 8080 (internal) |
-| `oc-django` | Build `compose/production/django/Dockerfile`, command as in `production.yml` | postgres, redis, vector-embedder, docling-parser, docxodus-parser | 5000 (proxied) |
-| `oc-celeryworker` | Same image as `oc-django`, command `/start-celeryworker` | postgres, redis | — |
-| `oc-celerybeat` | Same image, command `/start-celerybeat` | postgres, redis | — |
-| `oc-frontend` | Build `./frontend/Dockerfile` | oc-django | 80 (proxied) |
-
-Set the same env files on `oc-django`, `oc-celeryworker`, `oc-celerybeat`
-(they share the `&django` anchor in `production.yml` for a reason). Expose
-only `oc-frontend` and `oc-django` through EasyPanel's reverse proxy — give
-both the same hostname, with `oc-django` handling `/graphql`, `/api`, `/ws`,
-`/admin` and `oc-frontend` the default.
-
-## Persistence & backups
-
-EasyPanel maps Compose volumes onto the host. Point your backup tool at:
-
-- `production_postgres_data` (PostgreSQL data — use the
-  `production_postgres_data_backups` volume plus
-  `compose/production/postgres/maintenance/backup`).
-- `production_traefik` (ACME certificates — small, but saves re-issuing).
-
-If you're on AWS/GCP object storage (`STORAGE_BACKEND=AWS`/`GCP`), uploaded
-documents live outside the container and only the DB matters on-host.
-
-## Upgrades
-
-- Commit to `main` (or your deployment branch), then **Redeploy** in
-  EasyPanel.
-- After pulling a new commit that adds migrations: re-run
-  `docker compose -f production.yml --profile migrate up migrate` **before**
-  the new `django` image starts serving traffic. EasyPanel supports a
-  "pre-deploy command" field — put the migrate line there.
-
-## Operational tips
-
-- **Scaling workers**: duplicate the `celeryworker` service (or bump the
-  concurrency of `/start-celeryworker`). The Bolivian-laws scrape task is
-  independent per source — running three workers lets all three scrapers
-  run in parallel on the daily Beat trigger.
-- **Logs**: EasyPanel tails container logs. `celerybeat` should log
-  `Scheduler: Sending due task bolivian-laws-scrape-all` once per day.
-- **Metrics**: Flower (port 5555) shows task throughput, retries, and the
-  scrape summary dict (`discovered` / `ingested` / `dedupe_hits` / `failed`).
+Each helper accepts `--help` and is safe to re-run.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `django` keeps restarting | Missing env vars (e.g. `DJANGO_SECRET_KEY`) | Check `.envs/.production/.django` is mounted and populated |
-| `psycopg2.OperationalError: could not connect` | DB init race | `postgres` needs ~30 s on first boot; Compose has `depends_on` but EasyPanel may skip health gates |
-| Scrape summary shows `discovered=0` | Site HTML changed, or listing URL blocked | Override `BOLIVIAN_LAWS_<SOURCE>_LISTING_PATHS`; inspect one listing manually via `docker compose exec django python -c "import httpx;print(httpx.get('https://...').text[:500])"` |
-| Beat never fires `bolivian-laws-scrape-all` | `celerybeat` service not running | EasyPanel dashboard → ensure the service is up; check `docker compose logs celerybeat` |
-| `500` on `POST /graphql/` | Missing `OPENAI_API_KEY` reaching the worker | Verify all three services (`django`, `celeryworker`, `celerybeat`) share the same env file |
-| Embedding calls fail | `vector-embedder` sidecar didn't start | `docker compose logs vector-embedder`; the image pulls ~1 GB of model weights on first boot |
+| `django` keeps restarting | Missing env vars | Inspect `docker compose logs django`; re-run `deploy.sh` |
+| `psycopg2.OperationalError: could not connect` | DB still warming up on first boot | Give Postgres ~30 s and retry the `--profile migrate` step |
+| Scrape summary shows `discovered=0` | Site HTML changed or blocked | Override `BOLIVIAN_LAWS_<SOURCE>_LISTING_PATHS` in `.envs/.production/.django` and restart |
+| Beat never fires `bolivian-laws-scrape-all` | `celerybeat` service down | `docker compose logs celerybeat`; redeploy that service |
+| `500` on `POST /graphql/` | `OPENAI_API_KEY` empty in worker | All three services share the same env file — re-run `deploy.sh` to refresh |
+| Embeddings fail | `vector-embedder` still pulling weights on first boot (~1 GB) | Wait a few minutes, retry |
+| Cert never issues | Domain doesn't resolve to the VPS | `dig <domain>` should return your server IP; fix DNS first |
 
 ## Security checklist
 
-- [ ] `DJANGO_DEBUG=False` (production settings default).
-- [ ] `DJANGO_SECRET_KEY` is randomly generated and **not** the sample value.
-- [ ] `DJANGO_ADMIN_URL` is obfuscated (the sample uses a random 30-char slug).
-- [ ] Flower's basic-auth credentials are strong; the port 5555 is firewalled
-  to your IP or disabled if unused.
-- [ ] `POSTGRES_PASSWORD` matches between `.postgres` and `DATABASE_URL`.
-- [ ] The `BOLIVIAN_LAWS_SCRAPER_USER_AGENT` identifies your deployment with
-  a contact email — respect `robots.txt` on each target site.
-- [ ] TLS certificate issued by Traefik (check
-  `https://oc.example.com` in a browser).
+- [ ] `DJANGO_DEBUG=False` (`.django` template default).
+- [ ] `DJANGO_SECRET_KEY` is randomly generated (script-handled).
+- [ ] `DJANGO_ADMIN_URL` slug is random (script-handled).
+- [ ] Flower port 5555 firewalled to your IP (or behind a VPN) — basic
+      auth alone is not enough for production.
+- [ ] `BOLIVIAN_LAWS_SCRAPER_USER_AGENT` identifies your deployment with
+      a contact email — respect each target site's `robots.txt`.
+- [ ] TLS cert visible in browser (Traefik via Let's Encrypt).
 
 ## Related docs
 
-- [Bolivian Laws RAG service](../features/bolivian_laws_rag.md) — feature,
-  tasks, and query examples.
-- [GPU setup](./docker-gpu-setup.md) — if you want to co-locate a local LLM.
+- [Bolivian Laws RAG service](../features/bolivian_laws_rag.md) — how
+  the scrapers work and how to query the corpus from GraphQL.
+- [GPU setup](./docker-gpu-setup.md) — for co-locating a local LLM.
