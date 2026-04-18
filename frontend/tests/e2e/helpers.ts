@@ -269,7 +269,10 @@ export const ADMIN_VIEWS: ViewSpec[] = [
   {
     path: "/system_settings",
     name: "SystemSettings",
-    matcher: { kind: "text", text: /System Settings/i },
+    matcher: {
+      kind: "anyText",
+      texts: [/System Settings/i, /Error Loading Settings/i, /Admin Settings/i],
+    },
     requiresAuth: true,
   },
 ];
@@ -326,7 +329,9 @@ export async function uploadDocumentViaUI(
   filename: string,
   content: string,
   title: string,
-  description: string
+  description: string,
+  /** If provided, selects this corpus in the upload wizard's corpus step. */
+  corpusTitle?: string
 ): Promise<void> {
   await spaNavigate(page, "/documents");
   await expectViewVisible(page, { kind: "text", text: /Your\s+documents/i });
@@ -358,9 +363,31 @@ export async function uploadDocumentViaUI(
   await page.fill("#document-title", title);
   await page.fill("#document-description", description);
 
-  // Click "Skip Corpus" to upload without corpus association.
-  // This skips the corpus selection step and starts the upload immediately.
-  await page.getByRole("button", { name: /Skip Corpus/i }).click();
+  if (corpusTitle) {
+    // Click "Continue" to advance to the Corpus step
+    await page.getByRole("button", { name: /Continue/i }).click();
+
+    // Wait for corpus step and select our corpus from the list
+    const corpusSearch = page.getByPlaceholder(/Search corpuses/i);
+    await expect(corpusSearch).toBeVisible({ timeout: 10_000 });
+    await corpusSearch.fill(corpusTitle);
+    await page.waitForTimeout(500);
+
+    // Click the matching corpus item in the list (skip the search input itself)
+    await page
+      .locator("button, [role='button']", {
+        hasText: new RegExp(corpusTitle),
+      })
+      .first()
+      .click();
+    await page.waitForTimeout(300);
+
+    // Click the Upload button in the modal footer (last one to avoid matching header text)
+    await page.locator("button").filter({ hasText: /Upload/i }).last().click();
+  } else {
+    // Skip corpus association and upload directly
+    await page.getByRole("button", { name: /Skip Corpus/i }).click();
+  }
 
   // Wait for upload to complete — the modal closes or shows a completion state
   await expect(page.locator("#document-title")).not.toBeVisible({

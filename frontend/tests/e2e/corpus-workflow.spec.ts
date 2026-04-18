@@ -56,7 +56,8 @@ test.describe("Corpus workflow", () => {
         "test-document.txt",
         TEST_DOCUMENT_CONTENT,
         DOC_TITLE,
-        DOC_DESCRIPTION
+        DOC_DESCRIPTION,
+        CORPUS_TITLE
       );
     });
 
@@ -100,7 +101,117 @@ test.describe("Corpus workflow", () => {
       }
     });
 
-    // ── Step 7: Visit extracts page ────────────────────────────────
+    // ── Step 7: Open document in knowledge base ─────────────────────
+    await test.step("open document in knowledge base viewer", async () => {
+      // Navigate back to corpus landing page
+      await spaNavigate(page, "/corpuses");
+      await page.getByText(CORPUS_TITLE).first().click();
+
+      // The corpus landing page shows a home view. Click "Explore" to
+      // switch to the power user view with full document list.
+      const exploreBtn = page.getByRole("button", { name: /Explore/i });
+      await expect(exploreBtn).toBeVisible({ timeout: 10_000 });
+      await exploreBtn.click();
+      await page.waitForTimeout(1000);
+
+      // In Explore mode, look for the Documents tab and click it
+      const docsTab = page.getByText(/Documents/i).first();
+      if (await docsTab.isVisible().catch(() => false)) {
+        await docsTab.click();
+        await page.waitForTimeout(1000);
+      }
+
+      // Now look for and click the document
+      await expect(page.getByText(DOC_TITLE).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.getByText(DOC_TITLE).first().click();
+
+      // Wait for the document viewer to render — the header shows the
+      // document title and metadata, and the sidebar tabs appear
+      await expect(page.getByText(DOC_TITLE).first()).toBeVisible({
+        timeout: 20_000,
+      });
+      // Verify the knowledge base chrome loaded (sidebar tabs)
+      await expect(page.getByText(/INDEX/i).first()).toBeVisible({
+        timeout: 10_000,
+      });
+    });
+
+    // ── Step 8: Exercise knowledge base sidebar tabs ───────────────
+    await test.step("browse knowledge base sidebar tabs", async () => {
+      // The sidebar tabs are vertical text labels on the right edge.
+      // Click each by matching the tab label text.
+      const tabLabels = ["FEED", "DISCUSSIONS", "INDEX"];
+
+      for (const label of tabLabels) {
+        const tab = page.getByText(label, { exact: true });
+        if (await tab.isVisible().catch(() => false)) {
+          await tab.click();
+          await page.waitForTimeout(500);
+          // Dismiss any unexpected modals
+          if (
+            await page
+              .getByRole("button", { name: /Cancel/i })
+              .isVisible()
+              .catch(() => false)
+          ) {
+            await page.getByRole("button", { name: /Cancel/i }).click();
+            await page.waitForTimeout(300);
+          }
+        }
+      }
+
+      // Click the CHAT tab separately — this exercises the chat tray
+      const chatTab = page.getByText("CHAT", { exact: true });
+      if (await chatTab.isVisible().catch(() => false)) {
+        await chatTab.click();
+        await page.waitForTimeout(1000);
+        // Dismiss any "Add to Corpus" modal that may appear
+        if (
+          await page
+            .getByRole("button", { name: /Cancel/i })
+            .isVisible()
+            .catch(() => false)
+        ) {
+          await page.getByRole("button", { name: /Cancel/i }).click();
+          await page.waitForTimeout(300);
+        }
+      }
+    });
+
+    // ── Step 9: Interact with floating search/chat bar ─────────────
+    await test.step("interact with floating search and chat bar", async () => {
+      // The floating bar at the bottom has search (🔍) and chat (💬) icons
+      // Try clicking each to expand them
+      const floatingButtons = await page
+        .locator(
+          '[class*="floating"] button, [class*="Floating"] button'
+        )
+        .all();
+      for (const btn of floatingButtons.slice(0, 2)) {
+        if (await btn.isVisible().catch(() => false)) {
+          await btn.click();
+          await page.waitForTimeout(500);
+        }
+      }
+
+      // Look for any expanded input (search or chat)
+      const anyInput = page.getByPlaceholder(
+        /Search document|Ask a question/i
+      );
+      if (await anyInput.isVisible().catch(() => false)) {
+        await anyInput.fill("analytics platform");
+        await page.waitForTimeout(500);
+        await anyInput.clear();
+      }
+
+      // Press Escape to close any expanded floating bar
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    });
+
+    // ── Step 11: Visit extracts page ───────────────────────────────
     await test.step("visit extracts page with data", async () => {
       await spaNavigate(page, "/extracts");
       await expectViewVisible(page, {
@@ -109,7 +220,7 @@ test.describe("Corpus workflow", () => {
       });
     });
 
-    // ── Step 8: Visit annotations page ─────────────────────────────
+    // ── Step 12: Visit annotations page ────────────────────────────
     await test.step("visit annotations page with data", async () => {
       await spaNavigate(page, "/annotations");
       await expectViewVisible(page, {
