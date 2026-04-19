@@ -1,0 +1,164 @@
+# =============================================================================
+# easypanel.yml — EasyPanel-native Compose file.
+#
+# Differences from production.yml:
+#   - All env vars are read directly from the EasyPanel service env (no
+#     gitignored .envs/.production/* files required).
+#   - No bundled Traefik service: EasyPanel's built-in proxy handles TLS
+#     and routing. Expose `django` and `frontend` via the EasyPanel UI.
+#   - Safe defaults where it makes sense; required secrets fail-fast.
+#
+# Required env vars (set these in EasyPanel → App → Environment):
+#
+#   DOMAIN                     e.g. oc.example.com
+#   DJANGO_SECRET_KEY          python -c 'import secrets;print(secrets.token_urlsafe(64))'
+#   DJANGO_ADMIN_URL_SLUG      python -c 'import secrets;print(secrets.token_urlsafe(24))'
+#   ADMIN_EMAIL                you@example.com
+#   ADMIN_PASSWORD             initial superuser password
+#   OPENAI_API_KEY             sk-...
+#   POSTGRES_PASSWORD          openssl rand -hex 24
+#   CELERY_FLOWER_USER         short random string
+#   CELERY_FLOWER_PASSWORD     openssl rand -hex 24
+#   VECTOR_EMBEDDER_API_KEY    openssl rand -hex 16
+#
+# ./scripts/easypanel/print-env.sh generates all of the above at once.
+# =============================================================================
+
+volumes:
+  easypanel_postgres_data: {}
+  easypanel_postgres_data_backups: {}
+
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: ./compose/production/django/Dockerfile
+    image: opencontractserver_easypanel_django
+    depends_on:
+      - postgres
+    environment: &django_env
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_DEBUG: "False"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}
+      DJANGO_ADMIN_URL: admin/${DJANGO_ADMIN_URL_SLUG:?DJANGO_ADMIN_URL_SLUG is required}/
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN:?DOMAIN is required},django,localhost
+      DJANGO_WORKER_TIMEOUT: "60"
+      DJANGO_SUPERUSER_USERNAME: ${ADMIN_USERNAME:-admin}
+      DJANGO_SUPERUSER_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      DJANGO_SUPERUSER_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-LOCAL}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_FLOWER_USER: ${CELERY_FLOWER_USER:?CELERY_FLOWER_USER is required}
+      CELERY_FLOWER_PASSWORD: ${CELERY_FLOWER_PASSWORD:?CELERY_FLOWER_PASSWORD is required}
+      USE_AUTH0: ${USE_AUTH0:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      EMBEDDINGS_MICROSERVICE_URL: http://vector-embedder:8000
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:?VECTOR_EMBEDDER_API_KEY is required}
+      DOCLING_PARSER_SERVICE_URL: http://docling-parser:8000/parse/
+      DOCXODUS_PARSER_SERVICE_URL: http://docxodus-parser:8080/parse
+      DOCXODUS_PARSER_TIMEOUT: "120"
+      # Bolivian-laws RAG (defaults from settings.base are fine)
+      BOLIVIAN_LAWS_SCRAPER_USER_AGENT: ${BOLIVIAN_LAWS_SCRAPER_USER_AGENT:-OpenContractsBolivianLawsBot/1.0}
+      BOLIVIAN_LAWS_SCRAPE_LOOKBACK_DAYS: ${BOLIVIAN_LAWS_SCRAPE_LOOKBACK_DAYS:-30}
+      BOLIVIAN_LAWS_REQUEST_DELAY_SECONDS: ${BOLIVIAN_LAWS_REQUEST_DELAY_SECONDS:-1.0}
+      # Postgres connection
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: opencontractserver
+      POSTGRES_USER: opencontractserver
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DATABASE_URL: postgres://opencontractserver:${POSTGRES_PASSWORD}@postgres:5432/opencontractserver
+    command: /bin/bash -c "python manage.py migrate --noinput && python manage.py migrate_pipeline_settings --sync-preferences --init-only && python manage.py migrate_pipeline_settings"
+    profiles:
+      - migrate
+
+  django: &django
+    build:
+      context: .
+      dockerfile: ./compose/production/django/Dockerfile
+    image: opencontractserver_easypanel_django
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      vector-embedder:
+        condition: service_started
+      docling-parser:
+        condition: service_started
+        required: false
+      docxodus-parser:
+        condition: service_started
+        required: false
+    environment: *django_env
+    # Expose port 5000 to EasyPanel's proxy (point the domain root + /graphql,
+    # /api, /admin, /ws here).
+    expose:
+      - "5000"
+    command: /bin/bash -c "daphne -b 0.0.0.0 -p 5000 --websocket_timeout $$DJANGO_WORKER_TIMEOUT config.asgi:application"
+
+  celeryworker:
+    <<: *django
+    image: opencontractserver_easypanel_celeryworker
+    expose: []
+    command: /start-celeryworker
+
+  celerybeat:
+    <<: *django
+    image: opencontractserver_easypanel_celerybeat
+    expose: []
+    command: /start-celerybeat
+
+  postgres:
+    build:
+      context: .
+      dockerfile: ./compose/production/postgres/Dockerfile
+    image: opencontractserver_easypanel_postgres
+    shm_size: "4g"
+    volumes:
+      - easypanel_postgres_data:/var/lib/postgresql/data:Z
+      - easypanel_postgres_data_backups:/backups:z
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: opencontractserver
+      POSTGRES_USER: opencontractserver
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    command: >
+      postgres
+      -c shared_buffers=1GB
+      -c maintenance_work_mem=512MB
+      -c effective_cache_size=4GB
+      -c work_mem=128MB
+
+  redis:
+    image: redis:6
+
+  vector-embedder:
+    image: jscrudato/vector-embedder-microservice
+    environment:
+      PORT: "8000"
+
+  docling-parser:
+    image: jscrudato/docsling-local
+
+  docxodus-parser:
+    image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ./Dockerfile
+    image: opencontractserver_easypanel_frontend
+    depends_on:
+      - django
+    environment:
+      REACT_APP_API_ROOT_URL: https://${DOMAIN:?DOMAIN is required}
+      REACT_APP_APPLICATION_DOMAIN: ${DOMAIN}
+      REACT_APP_USE_AUTH0: ${USE_AUTH0:-false}
+    # Expose nginx on 80 to EasyPanel's proxy (point the domain root here;
+    # the paths /graphql, /admin, /api, /ws should route to django:5000).
+    expose:
+      - "80"

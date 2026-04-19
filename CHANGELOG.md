@@ -10,10 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **EasyPanel deployment kit**:
-  - **One-command deploy**: `./scripts/easypanel/deploy.sh` asks four questions (domain, email, OpenAI key, admin password), generates every secret, patches Traefik, builds, runs migrations, and smoke-tests the Bolivian-laws scrape — end-to-end. Re-runs are idempotent.
-  - Commit-able env templates under `.envs.example/.production/` (`.django`, `.postgres`, `.frontend`) — every placeholder is unique so substitution can't accidentally cross-pollute.
-  - Building blocks `scripts/easypanel/generate-env.sh` (writes `.envs/.production/*` with strong random secrets) and `scripts/easypanel/configure-traefik.sh` (patches `compose/production/traefik/traefik.yml` with the operator's domain + ACME email, with `.bak` backup) for users who prefer the manual flow.
-  - Docs (`docs/deployment/easypanel.md`) trimmed to a 3-step TL;DR plus an EasyPanel pre-deploy hook recipe.
+  - **`easypanel.yml`** — dedicated Compose file parameterised entirely by environment variables (no `.envs/.production/*` files), with no bundled Traefik service: EasyPanel's built-in proxy handles TLS and domain routing. Missing required secrets fail-fast thanks to `${VAR:?error}` syntax.
+  - **`scripts/easypanel/print-env.sh`** — prints a ready-to-paste `KEY=value` block for the EasyPanel app's Environment tab, with all random secrets (`DJANGO_SECRET_KEY`, admin URL slug, Postgres password, Flower creds, vector-embedder API key) pre-generated.
+  - **`scripts/easypanel/deploy.sh`** — optional one-command bootstrap for folks SSH-ing into the host (wraps generate-env + configure-traefik + docker compose build/migrate/up + smoke test of the Bolivian-laws scrape). Used with the legacy `production.yml`.
+  - Building blocks for the legacy flow: commit-able env templates under `.envs.example/.production/`, `scripts/easypanel/generate-env.sh`, `scripts/easypanel/configure-traefik.sh`.
+  - Docs (`docs/deployment/easypanel.md`) rewritten around the GitHub-native flow: paste env vars → wire domain → deploy.
 - **Bolivian Laws RAG service** (`opencontractserver/bolivian_laws/`): multi-agent RAG over Bolivian legal sources, organised by legal area to keep embeddings cost-aware and retrieval precise.
   - One Corpus per `LegalArea` (constitucional, penal, civil, administrativo, laboral, tributario, familia, comercial, agrario, ambiental, otros), seeded idempotently from `AREA_PROFILES` (`opencontractserver/bolivian_laws/constants.py`).
   - Tracking model `BolivianLegalDocument` with global SHA-256 dedupe and source attribution (`gaceta`, `tsj`, `tcp`, `manual`).
