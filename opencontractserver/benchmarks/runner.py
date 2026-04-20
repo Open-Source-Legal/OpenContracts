@@ -76,8 +76,11 @@ def run_benchmark(
             documents so sentence annotations exist before extraction runs.
             Tests and notebooks should leave this on.
         use_eager_extraction: Force celery into eager mode while
-            extracting.  Required in non-eager deployments for the same
-            reason.
+            extracting.  Currently only ``True`` is supported — passing
+            ``False`` raises :class:`NotImplementedError` because child
+            tasks dispatched by ``doc_extract_query_task`` would be sent
+            to the real broker and may not finish before ``_evaluate()``
+            runs.
         write_report: When False, skip writing ``report.json`` / ``.csv``
             and just return the in-memory :class:`BenchmarkReport`.  Tests
             use this to avoid touching the filesystem.
@@ -126,8 +129,7 @@ def run_benchmark(
         extract_id=loaded.extract.id,
         task_results=task_results,
     )
-    # compute_aggregates() is auto-called by __post_init__ when
-    # task_results is non-empty.
+    # compute_aggregates() is auto-called unconditionally by __post_init__.
     config["finished_at"] = timezone.now().isoformat()
 
     if write_report:
@@ -193,7 +195,10 @@ def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[Task
 
     # Bulk-fetch all datacells in one query to avoid N+1 per-cell SELECTs.
     cell_ids = [c.id for c in loaded.datacells]
-    refreshed = {c.id: c for c in Datacell.objects.filter(id__in=cell_ids)}
+    refreshed = {
+        c.id: c
+        for c in Datacell.objects.select_related("column").filter(id__in=cell_ids)
+    }
 
     for cell in loaded.datacells:
         cell = refreshed.get(cell.id, cell)

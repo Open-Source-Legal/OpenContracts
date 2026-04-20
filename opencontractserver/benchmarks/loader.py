@@ -23,7 +23,11 @@ from opencontractserver.benchmarks.adapters.base import (
     BenchmarkDocument,
     BenchmarkTask,
 )
-from opencontractserver.constants.benchmarks import BENCHMARK_COLUMN_NAME_MAX_LEN
+from opencontractserver.constants.benchmarks import (
+    BENCHMARK_COLUMN_NAME_MAX_LEN,
+    BENCHMARK_QUERY_PREVIEW_MAX_LEN,
+    BENCHMARK_QUERY_PREVIEW_TRIM_LEN,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentProcessingStatus
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
@@ -327,8 +331,8 @@ def _make_column_name(task: BenchmarkTask) -> str:
     common prefix.
     """
     base = _COLUMN_NAME_SANITIZER.sub(" ", task.query).strip()
-    if len(base) > 64:
-        base = base[:61].rstrip() + "..."
+    if len(base) > BENCHMARK_QUERY_PREVIEW_MAX_LEN:
+        base = base[:BENCHMARK_QUERY_PREVIEW_TRIM_LEN].rstrip() + "…"
     name = f"{task.task_id} — {base}"
     if len(name) > BENCHMARK_COLUMN_NAME_MAX_LEN:
         # Append a task_id suffix so two tasks with similar queries don't

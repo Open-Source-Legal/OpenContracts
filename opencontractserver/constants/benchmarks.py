@@ -18,3 +18,12 @@ BENCHMARK_DEFAULT_TOP_K = 10
 
 # Maximum character length for auto-generated benchmark Column names.
 BENCHMARK_COLUMN_NAME_MAX_LEN = 128
+
+# Maximum character length of the query portion embedded in a generated
+# column name before it is truncated and an ellipsis appended.
+BENCHMARK_QUERY_PREVIEW_MAX_LEN = 64
+
+# Character budget left for the query preview after reserving room for the
+# trailing "…" ellipsis marker. Equals
+# ``BENCHMARK_QUERY_PREVIEW_MAX_LEN - 1``.
+BENCHMARK_QUERY_PREVIEW_TRIM_LEN = 63
