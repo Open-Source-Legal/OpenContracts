@@ -1,0 +1,23 @@
+#!/bin/bash
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+
+source /run-migrations
+
+# Run Django dev server under coverage.py so that every HTTP request
+# exercised by e2e tests is measured.
+#
+# exec  – replaces bash so coverage.py becomes PID 1 and receives
+#          SIGTERM directly from `docker compose stop`.
+# --noreload – prevents the auto-reloader from forking a child process,
+#              keeping everything in one process so coverage's atexit
+#              handler fires reliably on shutdown.
+# --source and --omit must match setup.cfg [coverage:run] include/omit
+#              to avoid counting migrations/tests at 0% which dilutes totals.
+exec coverage run \
+  --source=opencontractserver \
+  --omit='*migrations*,*tests*,*/temp_*,*/tmp_*,*/__pycache__/*' \
+  manage.py runserver --noreload 0.0.0.0:8000

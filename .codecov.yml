@@ -1,5 +1,13 @@
 codecov:
   require_ci_to_pass: yes
+  notify:
+    # Coverage uploads arrive from three independent workflows (backend.yml,
+    # frontend.yml, frontend-e2e.yml) with staggered finish times, and any
+    # subset may skip due to path filters. manual_trigger suppresses auto-
+    # notifications so Codecov only fires status/comments once the
+    # codecov-notify.yml workflow calls send-notifications after every
+    # upload-producing workflow has finished for this SHA.
+    manual_trigger: true
 
 coverage:
   precision: 2
@@ -7,8 +15,16 @@ coverage:
   range: "70...100"
 
   status:
-    project: true
-    patch: true
+    project:
+      default:
+        target: auto
+        # informational: true forces the status to always post, even
+        # without a baseline on main. Once a baseline is established,
+        # this can be removed and the status will start gating PRs.
+        informational: true
+    patch:
+      default:
+        target: auto
     changes: false
 
 flags:
@@ -25,6 +41,26 @@ flags:
     paths:
       - frontend/src/
     carryforward: true
+  frontend-e2e:
+    paths:
+      - frontend/src/
+    carryforward: true
+  # Merged frontend flag uploaded by codecov-notify.yml after combining the
+  # three per-suite lcovs (frontend-unit, frontend-component, frontend-e2e).
+  # This is what the README badge reads so it reflects the union of all
+  # frontend test suites, not just the Vitest slice. Intentionally does NOT
+  # match the `frontend-.*` regex used by the component_management block
+  # below, so the `frontend` component keeps aggregating only the three
+  # per-suite flags and doesn't double-count this merged upload.
+  frontend:
+    paths:
+      - frontend/src/
+    carryforward: true
+  backend-e2e:
+    paths:
+      - opencontractserver/
+      - config/
+    carryforward: true
 
 parsers:
   gcov:
@@ -35,9 +71,38 @@ parsers:
       macro: no
 
 comment:
-  layout: "reach,diff,flags,files,footer"
+  layout: "reach,diff,flags,components,files,footer"
   behavior: default
   require_changes: no
+
+# Components group flags into logical areas for reporting and PR status.
+# Flags alone can't express "frontend union" because the three frontend
+# flags overlap on the same paths. Components merge them so PR comments
+# and the Codecov UI show a single backend number and a single frontend
+# number instead of five flag numbers that users must mentally combine.
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 1%
+      - type: patch
+        target: auto
+        threshold: 1%
+  individual_components:
+    - component_id: backend
+      name: Backend
+      paths:
+        - opencontractserver/**
+        - config/**
+      flag_regexes:
+        - backend.*
+    - component_id: frontend
+      name: Frontend
+      paths:
+        - frontend/src/**
+      flag_regexes:
+        - frontend-.*
 
 ignore:
   - "opencontractserver/tasks/data_extract_tasks.py"

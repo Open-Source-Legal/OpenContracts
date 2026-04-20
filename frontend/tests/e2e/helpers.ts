@@ -253,3 +253,148 @@ export async function spaNavigate(
     );
   }
 }
+
+/**
+ * Admin views that require superuser access. Separated from the main
+ * VIEWS catalog because the navigation spec runs on an empty database
+ * where these are not relevant.
+ */
+export const ADMIN_VIEWS: ViewSpec[] = [
+  {
+    path: "/admin/settings",
+    name: "GlobalSettings",
+    matcher: { kind: "text", text: /Global Settings/i },
+    requiresAuth: true,
+  },
+  {
+    path: "/system_settings",
+    name: "SystemSettings",
+    matcher: {
+      kind: "anyText",
+      texts: [/System Settings/i, /Error Loading Settings/i, /Admin Settings/i],
+    },
+    requiresAuth: true,
+  },
+];
+
+/**
+ * Create a corpus via the UI by clicking the Add button on /corpuses,
+ * filling the modal, and submitting. Waits for the success toast.
+ *
+ * Caller must already be authenticated and on a page where spaNavigate works.
+ */
+export async function createCorpusViaUI(
+  page: Page,
+  title: string,
+  description: string
+): Promise<void> {
+  await spaNavigate(page, "/corpuses");
+  await expectViewVisible(page, { kind: "text", text: /Your\s+corpuses/i });
+
+  // Click the "New Corpus" button (or "Create Your First Corpus" on empty state)
+  const createBtn = page.getByRole("button", {
+    name: /New Corpus|Create Your First Corpus/i,
+  });
+  await createBtn.first().click();
+
+  // Fill the modal form
+  await expect(page.locator("#corpus-title")).toBeVisible({ timeout: 10_000 });
+  await page.fill("#corpus-title", title);
+  await page.fill("#corpus-description", description);
+
+  // Submit — the button text "Create Corpus" appears twice (menu item + modal button).
+  // Target the one inside the modal footer.
+  await page
+    .locator(".oc-modal-footer button", { hasText: /Create Corpus/i })
+    .click();
+
+  // Wait for the success toast and modal to close
+  await expect(page.getByText(/Created corpus/i)).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.locator("#corpus-title")).not.toBeVisible({
+    timeout: 5_000,
+  });
+}
+
+/**
+ * Upload a plain-text document from the /documents view. Opens the upload
+ * modal, attaches a file created from `content`, fills title/description,
+ * and submits. Waits for the upload to complete.
+ *
+ * Caller must already be authenticated.
+ */
+export async function uploadDocumentViaUI(
+  page: Page,
+  filename: string,
+  content: string,
+  title: string,
+  description: string,
+  /** If provided, selects this corpus in the upload wizard's corpus step. */
+  corpusTitle?: string
+): Promise<void> {
+  await spaNavigate(page, "/documents");
+  await expectViewVisible(page, { kind: "text", text: /Your\s+documents/i });
+
+  // Click the "Upload" button
+  await page.getByRole("button", { name: /^Upload$/i }).click();
+
+  // Wait for the upload modal's file dropzone
+  await expect(page.getByTestId("file-dropzone")).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Create a text file buffer and attach it via the hidden file input
+  const buffer = Buffer.from(content, "utf-8");
+  const fileInput = page.locator('input[type="file"]').first();
+  await fileInput.setInputFiles({
+    name: filename,
+    mimeType: "text/plain",
+    buffer,
+  });
+
+  // Click "Continue" to move from Select step to Details step
+  await page.getByRole("button", { name: /Continue/i }).click();
+
+  // Wait for the "Details" step to appear
+  await expect(page.locator("#document-title")).toBeVisible({
+    timeout: 10_000,
+  });
+  await page.fill("#document-title", title);
+  await page.fill("#document-description", description);
+
+  if (corpusTitle) {
+    // Click "Continue" to advance to the Corpus step
+    await page.getByRole("button", { name: /Continue/i }).click();
+
+    // Wait for corpus step and select our corpus from the list
+    const corpusSearch = page.getByPlaceholder(/Search corpuses/i);
+    await expect(corpusSearch).toBeVisible({ timeout: 10_000 });
+    await corpusSearch.fill(corpusTitle);
+    await page.waitForTimeout(500);
+
+    // Click the matching corpus item in the list (skip the search input itself)
+    await page
+      .locator("button, [role='button']", {
+        hasText: new RegExp(corpusTitle),
+      })
+      .first()
+      .click();
+    await page.waitForTimeout(300);
+
+    // Click the Upload button in the modal footer (last one to avoid matching header text)
+    await page
+      .locator("button")
+      .filter({ hasText: /Upload/i })
+      .last()
+      .click();
+  } else {
+    // Skip corpus association and upload directly
+    await page.getByRole("button", { name: /Skip Corpus/i }).click();
+  }
+
+  // Wait for upload to complete — the modal closes or shows a completion state
+  await expect(page.locator("#document-title")).not.toBeVisible({
+    timeout: 60_000,
+  });
+}

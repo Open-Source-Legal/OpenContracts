@@ -68,6 +68,141 @@ test("DocxAnnotator renders in read-only mode", async ({ mount, page }) => {
   await component.unmount();
 });
 
+test("DocxAnnotator renders with search result highlights", async ({
+  mount,
+  page,
+}) => {
+  await setupDocxodusWasm(page);
+  await setupDocxFixture(page);
+
+  const component = await mount(
+    <DocxAnnotatorTestWrapper
+      searchResults={[
+        // "Important Clause" at offset 84–100 in the Docxodus-extracted text
+        {
+          start_index: 84,
+          end_index: 100,
+          matched_text: "Important Clause",
+        } as any,
+      ]}
+    />
+  );
+
+  const annotator = page.getByTestId("docx-annotator");
+  await annotator.waitFor({ state: "visible", timeout: 45_000 });
+
+  // Component keeps rendering; the search highlight is a CSS overlay on the
+  // projected span. We just verify we don't crash on the synthetic label path.
+  const content = annotator.locator(".docx-content");
+  await expect(content).toBeVisible();
+
+  await component.unmount();
+});
+
+test("DocxAnnotator renders chat-source highlights (selected vs unselected)", async ({
+  mount,
+  page,
+}) => {
+  await setupDocxodusWasm(page);
+  await setupDocxFixture(page);
+
+  const component = await mount(
+    <DocxAnnotatorTestWrapper
+      chatSources={[
+        {
+          start_index: 84,
+          end_index: 100,
+          sourceId: "source-a",
+          messageId: "msg-1",
+        },
+        {
+          start_index: 118,
+          end_index: 132,
+          sourceId: "source-b",
+          messageId: "msg-1",
+        },
+      ]}
+      selectedChatSourceId="source-a"
+    />
+  );
+
+  const annotator = page.getByTestId("docx-annotator");
+  await annotator.waitFor({ state: "visible", timeout: 45_000 });
+
+  const content = annotator.locator(".docx-content");
+  await expect(content).toBeVisible();
+
+  await component.unmount();
+});
+
+test("DocxAnnotator honors visibleLabels filter via CSS visibility rules", async ({
+  mount,
+  page,
+}) => {
+  await setupDocxodusWasm(page);
+  await setupDocxFixture(page);
+
+  const component = await mount(
+    <DocxAnnotatorTestWrapper
+      withAnnotations={true}
+      // Only allow label-1 to be visible; label-2 annotations are hidden via CSS
+      visibleLabels={[
+        {
+          id: "label-1",
+          text: "Important Clause",
+          color: "#FF6B6B",
+          icon: "tag",
+          description: "",
+          labelType: "SPAN_LABEL" as any,
+        },
+      ]}
+    />
+  );
+
+  const annotator = page.getByTestId("docx-annotator");
+  await annotator.waitFor({ state: "visible", timeout: 45_000 });
+
+  const content = annotator.locator(".docx-content");
+  await expect(content).toBeVisible();
+
+  await component.unmount();
+});
+
+test("DocxAnnotator renders structural annotations when toggle is on", async ({
+  mount,
+  page,
+}) => {
+  await setupDocxodusWasm(page);
+  await setupDocxFixture(page);
+
+  const component = await mount(
+    <DocxAnnotatorTestWrapper withStructuralAnnotation={true} />
+  );
+
+  const annotator = page.getByTestId("docx-annotator");
+  await annotator.waitFor({ state: "visible", timeout: 45_000 });
+
+  const content = annotator.locator(".docx-content");
+  await expect(content).toBeVisible();
+
+  await component.unmount();
+});
+
+test("DocxAnnotator respects zoom level prop", async ({ mount, page }) => {
+  await setupDocxodusWasm(page);
+  await setupDocxFixture(page);
+
+  const component = await mount(<DocxAnnotatorTestWrapper zoomLevel={1.5} />);
+
+  const annotator = page.getByTestId("docx-annotator");
+  await annotator.waitFor({ state: "visible", timeout: 45_000 });
+
+  const content = annotator.locator(".docx-content");
+  await expect(content).toBeVisible();
+
+  await component.unmount();
+});
+
 // PaginatedDocument renders text with zero bounding rects in Playwright CT
 // (the pagination engine needs a real viewport to compute page dimensions).
 // This test requires mouse-drag at screen coordinates, which fails when

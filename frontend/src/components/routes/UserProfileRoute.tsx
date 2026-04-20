@@ -21,6 +21,15 @@ export const UserProfileRoute: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const currentUser = useReactiveVar(backendUserObj);
 
+  // Must be unconditional — skip: !slug gates the network call; see #1295.
+  const { data, loading, error } = useQuery<GetUserOutput, GetUserInput>(
+    GET_USER,
+    {
+      variables: { slug: slug ?? "" },
+      skip: !slug,
+    }
+  );
+
   // If no slug provided, redirect to current user's profile
   if (!slug) {
     if (!currentUser?.slug) {
@@ -28,14 +37,6 @@ export const UserProfileRoute: React.FC = () => {
     }
     return <Navigate to={`/users/${currentUser.slug}`} replace />;
   }
-
-  const { data, loading, error } = useQuery<GetUserOutput, GetUserInput>(
-    GET_USER,
-    {
-      variables: { slug },
-      skip: !slug,
-    }
-  );
 
   if (loading) {
     return <ModernLoadingDisplay type="default" message="Loading profile..." />;

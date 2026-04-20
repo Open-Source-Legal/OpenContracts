@@ -47,6 +47,39 @@ import { ErrorMessage, WarningMessage } from "../widgets/feedback";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+type LabelLike = {
+  id: string;
+  text?: string | null;
+  labelType?: string | null;
+};
+
+/**
+ * Filter a list of labels down to relationship-typed labels that match
+ * `searchTerm`. When `hasCorpus` is false, returns an empty array (relationship
+ * labels only make sense inside a corpus). An empty `searchTerm` returns all
+ * relationship labels unfiltered. Case-insensitive substring match on `text`.
+ */
+export function filterRelationshipLabels<T extends LabelLike>(
+  labels: T[] | null | undefined,
+  searchTerm: string,
+  hasCorpus: boolean
+): T[] {
+  if (!hasCorpus) return [];
+  const relationshipOnly =
+    labels?.filter(
+      (label) => label.labelType === LabelType.RelationshipLabel
+    ) || [];
+  if (!searchTerm) return relationshipOnly;
+  const needle = searchTerm.toLowerCase();
+  return relationshipOnly.filter((label) =>
+    (label.text ?? "").toLowerCase().includes(needle)
+  );
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -396,18 +429,11 @@ export const DocumentRelationshipModal: React.FC<
     return allDocuments.filter((doc) => !usedIds.has(doc.id));
   }, [allDocuments, sourceIds, targetIds]);
 
-  // Get all relationship labels (Dropdown's search prop handles filtering)
-  const filteredRelationshipLabels = useMemo(() => {
-    if (!hasCorpus) {
-      return [];
-    }
-
-    return (
-      relationLabels?.filter(
-        (label) => label.labelType === LabelType.RelationshipLabel
-      ) || []
-    );
-  }, [relationLabels, hasCorpus]);
+  // Manual filter keeps `labelSearchTerm` in sync — @os-legal/ui's Dropdown only fires `onSearchChange` in `async` mode.
+  const filteredRelationshipLabels = useMemo(
+    () => filterRelationshipLabels(relationLabels, labelSearchTerm, hasCorpus),
+    [relationLabels, hasCorpus, labelSearchTerm]
+  );
 
   // Get selected label info
   const selectedLabel = useMemo(() => {
@@ -986,7 +1012,7 @@ export const DocumentRelationshipModal: React.FC<
                           mode="select"
                           placeholder="Search or type to create..."
                           fluid
-                          searchable="local"
+                          searchable="async"
                           options={filteredRelationshipLabels.map((label) => ({
                             value: label.id,
                             label: label.text || "",

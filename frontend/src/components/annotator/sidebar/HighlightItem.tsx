@@ -15,7 +15,7 @@ import { useAnnotationRefs } from "../hooks/useAnnotationRefs";
 import { useAnnotationSelection } from "../context/UISettingsAtom";
 import { updateAnnotationSelectionParams } from "../../../utils/navigationUtils";
 import { ServerTokenAnnotation, ServerAnnotation } from "../types/annotations";
-import { PermissionTypes } from "../../types";
+import { canDeleteAnnotation } from "../../../utils/annotationPermissions";
 import { ModalityBadge } from "./ModalityBadge";
 import { AnnotationImagePreview } from "./AnnotationImagePreview";
 import { useAnnotationImages } from "../hooks/useAnnotationImages";
@@ -239,20 +239,17 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
           {annotation.annotationLabel.text}
         </AnnotationLabel>
         <ModalityBadge modalities={contentModalities || []} />
-        {!read_only &&
-          !annotation.structural &&
-          annotation.myPermissions.includes(PermissionTypes.CAN_REMOVE) &&
-          onDelete && (
-            <DeleteButton
-              aria-label="Delete annotation"
-              onClick={(e: React.MouseEvent) => {
-                e.stopPropagation();
-                onDelete(annotation.id);
-              }}
-            >
-              <Trash2 size={16} />
-            </DeleteButton>
-          )}
+        {canDeleteAnnotation(annotation, read_only) && onDelete && (
+          <DeleteButton
+            aria-label="Delete annotation"
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              onDelete(annotation.id);
+            }}
+          >
+            <Trash2 size={16} />
+          </DeleteButton>
+        )}
       </div>
       {/* Show content based on modality:
           - IMAGE only: Featured image, no text

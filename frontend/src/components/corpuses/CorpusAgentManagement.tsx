@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useQuery, useMutation, gql } from "@apollo/client";
+import { useQuery, useMutation } from "@apollo/client";
 import styled from "styled-components";
 import { toast } from "react-toastify";
 import { Plus, Edit, Trash2, Cpu } from "lucide-react";
@@ -20,146 +20,12 @@ import { ErrorMessage, InfoMessage, LoadingState } from "../widgets/feedback";
 import { StatusBadge, ToolBadge, ToolsList } from "../agents/AgentBadges";
 import { StyledTextArea } from "../widgets/modals/styled";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-
-// GraphQL Queries and Mutations
-const GET_CORPUS_AGENTS = gql`
-  query GetCorpusAgents($corpusId: String!) {
-    agentConfigurations(corpusId: $corpusId) {
-      edges {
-        node {
-          id
-          name
-          slug
-          description
-          systemInstructions
-          availableTools
-          permissionRequiredTools
-          badgeConfig
-          avatarUrl
-          scope
-          isActive
-          isPublic
-          creator {
-            id
-            username
-          }
-          created
-          modified
-        }
-      }
-    }
-  }
-`;
-
-const GET_AVAILABLE_TOOLS = gql`
-  query GetAvailableTools {
-    availableTools {
-      name
-      description
-      category
-      requiresCorpus
-      requiresApproval
-    }
-    availableToolCategories
-  }
-`;
-
-const CREATE_AGENT_CONFIGURATION = gql`
-  mutation CreateAgentConfiguration(
-    $name: String!
-    $slug: String
-    $description: String!
-    $systemInstructions: String!
-    $availableTools: [String]
-    $permissionRequiredTools: [String]
-    $badgeConfig: GenericScalar
-    $avatarUrl: String
-    $scope: String!
-    $corpusId: ID
-    $isPublic: Boolean
-  ) {
-    createAgentConfiguration(
-      name: $name
-      slug: $slug
-      description: $description
-      systemInstructions: $systemInstructions
-      availableTools: $availableTools
-      permissionRequiredTools: $permissionRequiredTools
-      badgeConfig: $badgeConfig
-      avatarUrl: $avatarUrl
-      scope: $scope
-      corpusId: $corpusId
-      isPublic: $isPublic
-    ) {
-      ok
-      message
-      agent {
-        id
-        name
-        slug
-        description
-        badgeConfig
-        availableTools
-        permissionRequiredTools
-        isActive
-        isPublic
-      }
-    }
-  }
-`;
-
-const UPDATE_AGENT_CONFIGURATION = gql`
-  mutation UpdateAgentConfiguration(
-    $agentId: ID!
-    $name: String
-    $slug: String
-    $description: String
-    $systemInstructions: String
-    $availableTools: [String]
-    $permissionRequiredTools: [String]
-    $badgeConfig: GenericScalar
-    $avatarUrl: String
-    $isActive: Boolean
-    $isPublic: Boolean
-  ) {
-    updateAgentConfiguration(
-      agentId: $agentId
-      name: $name
-      slug: $slug
-      description: $description
-      systemInstructions: $systemInstructions
-      availableTools: $availableTools
-      permissionRequiredTools: $permissionRequiredTools
-      badgeConfig: $badgeConfig
-      avatarUrl: $avatarUrl
-      isActive: $isActive
-      isPublic: $isPublic
-    ) {
-      ok
-      message
-      agent {
-        id
-        name
-        slug
-        description
-        badgeConfig
-        availableTools
-        permissionRequiredTools
-        isActive
-        isPublic
-      }
-    }
-  }
-`;
-
-const DELETE_AGENT_CONFIGURATION = gql`
-  mutation DeleteAgentConfiguration($agentId: ID!) {
-    deleteAgentConfiguration(agentId: $agentId) {
-      ok
-      message
-    }
-  }
-`;
+import { GET_CORPUS_AGENTS, GET_AVAILABLE_TOOLS } from "../../graphql/queries";
+import {
+  CREATE_AGENT_CONFIGURATION,
+  UPDATE_AGENT_CONFIGURATION,
+  DELETE_AGENT_CONFIGURATION,
+} from "../../graphql/mutations";
 
 const Container = styled.div`
   padding: 1.5rem;

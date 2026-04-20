@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import styled from "styled-components";
-import { gql } from "@apollo/client";
 import { toast } from "react-toastify";
 import { Plus, Edit, Trash2, Cpu } from "lucide-react";
 import {
@@ -25,117 +24,12 @@ import {
 } from "../../types/graphql-api";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { CardSegment as StyledSegment } from "../layout/SharedSegments";
-
-// GraphQL Queries and Mutations
-const GET_GLOBAL_AGENTS = gql`
-  query GetGlobalAgents {
-    agentConfigurations(scope: "GLOBAL") {
-      edges {
-        node {
-          id
-          name
-          slug
-          description
-          systemInstructions
-          availableTools
-          permissionRequiredTools
-          badgeConfig
-          avatarUrl
-          scope
-          isActive
-          isPublic
-          creator {
-            id
-            username
-          }
-          created
-          modified
-        }
-      }
-    }
-  }
-`;
-
-const CREATE_AGENT_CONFIGURATION = gql`
-  mutation CreateAgentConfiguration(
-    $name: String!
-    $description: String!
-    $systemInstructions: String!
-    $availableTools: [String]
-    $permissionRequiredTools: [String]
-    $badgeConfig: JSONString
-    $avatarUrl: String
-    $scope: String!
-    $isPublic: Boolean
-  ) {
-    createAgentConfiguration(
-      name: $name
-      description: $description
-      systemInstructions: $systemInstructions
-      availableTools: $availableTools
-      permissionRequiredTools: $permissionRequiredTools
-      badgeConfig: $badgeConfig
-      avatarUrl: $avatarUrl
-      scope: $scope
-      isPublic: $isPublic
-    ) {
-      ok
-      message
-      agent {
-        id
-        name
-        slug
-        description
-      }
-    }
-  }
-`;
-
-const UPDATE_AGENT_CONFIGURATION = gql`
-  mutation UpdateAgentConfiguration(
-    $agentId: ID!
-    $name: String
-    $description: String
-    $systemInstructions: String
-    $availableTools: [String]
-    $permissionRequiredTools: [String]
-    $badgeConfig: JSONString
-    $avatarUrl: String
-    $isActive: Boolean
-    $isPublic: Boolean
-  ) {
-    updateAgentConfiguration(
-      agentId: $agentId
-      name: $name
-      description: $description
-      systemInstructions: $systemInstructions
-      availableTools: $availableTools
-      permissionRequiredTools: $permissionRequiredTools
-      badgeConfig: $badgeConfig
-      avatarUrl: $avatarUrl
-      isActive: $isActive
-      isPublic: $isPublic
-    ) {
-      ok
-      message
-      agent {
-        id
-        name
-        slug
-        description
-      }
-    }
-  }
-`;
-
-const DELETE_AGENT_CONFIGURATION = gql`
-  mutation DeleteAgentConfiguration($agentId: ID!) {
-    deleteAgentConfiguration(agentId: $agentId) {
-      ok
-      message
-    }
-  }
-`;
+import {
+  GET_GLOBAL_AGENTS,
+  CREATE_GLOBAL_AGENT_CONFIGURATION,
+  UPDATE_GLOBAL_AGENT_CONFIGURATION,
+  DELETE_GLOBAL_AGENT_CONFIGURATION,
+} from "./global_agent_management.graphql";
 
 const Container = styled.div`
   padding: 2rem;
@@ -294,7 +188,7 @@ export const GlobalAgentManagement: React.FC = () => {
   const { loading, error, data, refetch } = useQuery(GET_GLOBAL_AGENTS);
 
   const [createAgent, { loading: creating }] = useMutation(
-    CREATE_AGENT_CONFIGURATION,
+    CREATE_GLOBAL_AGENT_CONFIGURATION,
     {
       onCompleted: (data) => {
         if (data.createAgentConfiguration.ok) {
@@ -311,7 +205,7 @@ export const GlobalAgentManagement: React.FC = () => {
   );
 
   const [updateAgent, { loading: updating }] = useMutation(
-    UPDATE_AGENT_CONFIGURATION,
+    UPDATE_GLOBAL_AGENT_CONFIGURATION,
     {
       onCompleted: (data) => {
         if (data.updateAgentConfiguration.ok) {
@@ -328,7 +222,7 @@ export const GlobalAgentManagement: React.FC = () => {
   );
 
   const [deleteAgent, { loading: deleting }] = useMutation(
-    DELETE_AGENT_CONFIGURATION,
+    DELETE_GLOBAL_AGENT_CONFIGURATION,
     {
       onCompleted: (data) => {
         if (data.deleteAgentConfiguration.ok) {

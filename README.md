@@ -6,10 +6,11 @@ The open source platform for building knowledge bases that humans and AI agents 
 
 [![Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/JSv4)
 
-| | |
-|---|---|
-| Backend CI/CD | [![codecov](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?token=RdVsiuaTVz)](https://app.codecov.io/gh/open-source-legal/OpenContracts) |
-| Meta | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](https://www.gnu.org/licenses/agpl-3.0) |
+|                   |                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend coverage  | [![backend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=backend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=backend)                                                                                                                                                                                                                                         |
+| Frontend coverage | [![frontend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=frontend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=frontend)                                                                                                                                                                                                                                      |
+| Meta              | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](https://www.gnu.org/licenses/agpl-3.0) |
 
 ---
 
@@ -119,9 +120,11 @@ This is the DRY principle applied to institutional knowledge: annotate once, bui
 ## See it in Action
 
 ### PDF Annotation Flow
+
 ![PDF Annotation Flow](docs/assets/images/gifs/PDF%20Annotation%20Flow.gif)
 
 ### Text Format Support
+
 ![Text Annotation Flow](docs/assets/images/gifs/Txt%20Annotation%20Flow.gif)
 
 ---
@@ -165,16 +168,16 @@ docker compose -f production.yml up -d
 
 Browse the full documentation at [jsv4.github.io/OpenContracts](https://jsv4.github.io/OpenContracts/) or in the repo:
 
-| Guide | Description |
-|-------|-------------|
-| [Quick Start](docs/quick_start.md) | Get running with Docker in minutes |
-| [Key Concepts](docs/walkthrough/key-concepts.md) | Core workflows and terminology |
-| [PDF Data Format](docs/architecture/PDF-data-layer.md) | How text maps to PDF coordinates |
-| [LLM Framework](docs/architecture/llms/README.md) | PydanticAI integration and agents |
-| [Vector Stores](docs/extract_and_retrieval/vector_stores.md) | Semantic search architecture |
-| [Pipeline Overview](docs/pipelines/pipeline_overview.md) | Parser and embedder system |
+| Guide                                                                       | Description                          |
+| --------------------------------------------------------------------------- | ------------------------------------ |
+| [Quick Start](docs/quick_start.md)                                          | Get running with Docker in minutes   |
+| [Key Concepts](docs/walkthrough/key-concepts.md)                            | Core workflows and terminology       |
+| [PDF Data Format](docs/architecture/PDF-data-layer.md)                      | How text maps to PDF coordinates     |
+| [LLM Framework](docs/architecture/llms/README.md)                           | PydanticAI integration and agents    |
+| [Vector Stores](docs/extract_and_retrieval/vector_stores.md)                | Semantic search architecture         |
+| [Pipeline Overview](docs/pipelines/pipeline_overview.md)                    | Parser and embedder system           |
 | [Custom Extractors](docs/walkthrough/advanced/write-your-own-extractors.md) | Build your own data extraction tasks |
-| [v3.0.0.b3 Release Notes](docs/releases/v3.0.0.b3.md) | Latest features and migration guide |
+| [v3.0.0.b3 Release Notes](docs/releases/v3.0.0.b3.md)                       | Latest features and migration guide  |
 
 ---
 
@@ -194,6 +197,7 @@ The modular pipeline supports custom parsers, embedders, and thumbnail generator
 ![Pipeline Diagram](docs/assets/images/diagrams/parser_pipeline.svg)
 
 Each component inherits from a base class with a defined interface:
+
 - **Parsers** — Extract text and structure from documents
 - **Embedders** — Generate vector embeddings for search
 - **Thumbnailers** — Create document previews
@@ -225,6 +229,7 @@ OpenContracts collects anonymous usage data to guide development priorities: ins
 ## Acknowledgements
 
 This project builds on work from:
+
 - [AllenAI PAWLS](https://github.com/allenai/pawls) — PDF annotation data format and concepts
 - [NLMatics nlm-ingestor](https://github.com/nlmatics/nlm-ingestor) — Document parsing pipeline
 
