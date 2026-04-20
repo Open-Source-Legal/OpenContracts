@@ -208,23 +208,28 @@ export default defineConfig(async () => {
         ),
       },
       coverage: {
-        provider: "v8",
+        // Use Istanbul (statement-level) instead of v8 (physical-line-level)
+        // so this suite measures coverage on the same yardstick as the
+        // Playwright component and E2E suites (which use vite-plugin-istanbul
+        // + nyc). Without this, the merged `frontend` Codecov flag's
+        // denominator was dominated by v8's inclusive line counting (~3x
+        // larger per file than Istanbul statement counting), which deflated
+        // the badge to ~44% even when the same code paths reported ~60% under
+        // the Istanbul-based component flag. Trade-off: Istanbul instruments
+        // source ahead of test execution, so unit-test runtime grows somewhat.
+        provider: "istanbul",
         reporter: ["text", "json", "html", "lcov"],
         reportsDirectory: "./coverage/unit",
-        // Adjust coverage include/exclude if needed, based on the new test patterns
-        include: ["src/**/*.{ts,tsx}"], // Keep covering src
+        include: ["src/**/*.{ts,tsx}"],
         exclude: [
-          "src/**/*.test.{ts,tsx}", // Exclude test files themselves
-          "src/setupTests.ts", // Exclude setup file
-          "src/main.tsx", // Exclude entry point if desired
-          // Add any other files/patterns to exclude from coverage
+          "src/**/*.test.{ts,tsx}",
+          "src/setupTests.ts",
+          "src/main.tsx",
         ],
-        // Count every file matched by `include`, not just files imported by a
-        // test. Without this, v8 silently drops untested files from the lcov,
-        // which inflates the `frontend-unit` ratio (small denominator) and
-        // misaligns with the Istanbul-based component/e2e lcovs (which do
-        // enumerate all source files). Aligning the two universes is required
-        // for the merged `frontend` lcov to be meaningful.
+        // Enumerate every include-matched file, not just files imported by a
+        // test. Required for the per-file universe to match the Istanbul-
+        // based component/e2e lcovs so the merged `frontend` flag aggregates
+        // cleanly.
         all: true,
       },
     },
