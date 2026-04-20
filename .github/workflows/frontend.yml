@@ -35,15 +35,6 @@ jobs:
       - name: Clear Yarn Cache
         run: yarn cache clean
 
-      - name: Debug - Check for tippy references
-        run: |
-          echo "=== Checking package.json for tippy ==="
-          grep -i tippy package.json || echo "No tippy in package.json"
-          echo "=== Checking yarn.lock for tippy ==="
-          grep -i tippy yarn.lock || echo "No tippy in yarn.lock"
-          echo "=== yarn.lock hash ==="
-          shasum yarn.lock
-
       - name: Install Dependencies
         run: yarn install --frozen-lockfile # Use frozen lockfile for CI
 
