@@ -123,21 +123,35 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     await expect(page.getByText("Compliance Tracker")).toBeVisible();
     await expect(page.getByText("Risk Assessment")).toBeVisible();
 
-    // ArrowDown should highlight the first item
+    // ArrowDown should highlight the first item. The active option is
+    // tracked on the combobox trigger via aria-activedescendant (the
+    // ARIA-correct mechanism for a pick-to-execute listbox), not via
+    // aria-selected on the options themselves — aria-selected is reserved
+    // for the actually-selected option in a stateful listbox, which this
+    // dropdown doesn't have.
     await page.keyboard.press("ArrowDown");
     const firstOption = page.locator('[role="option"]').first();
-    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+    const firstOptionId = await firstOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
 
     // ArrowDown again should move to second item
     await page.keyboard.press("ArrowDown");
     const secondOption = page.locator('[role="option"]').nth(1);
-    await expect(secondOption).toHaveAttribute("aria-selected", "true");
-    // First item should no longer be selected
-    await expect(firstOption).toHaveAttribute("aria-selected", "false");
+    const secondOptionId = await secondOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      secondOptionId ?? ""
+    );
 
     // ArrowUp should go back to first item
     await page.keyboard.press("ArrowUp");
-    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
 
     await component.unmount();
   });
@@ -161,12 +175,20 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     // ArrowUp from initial state (-1) should wrap to the last item
     await page.keyboard.press("ArrowUp");
     const lastOption = page.locator('[role="option"]').last();
-    await expect(lastOption).toHaveAttribute("aria-selected", "true");
+    const lastOptionId = await lastOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      lastOptionId ?? ""
+    );
 
     // ArrowDown from last item should wrap to first
     await page.keyboard.press("ArrowDown");
     const firstOption = page.locator('[role="option"]').first();
-    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+    const firstOptionId = await firstOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
 
     await component.unmount();
   });
@@ -224,12 +246,20 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     // End should jump to last option
     await page.keyboard.press("End");
     const lastOption = page.locator('[role="option"]').last();
-    await expect(lastOption).toHaveAttribute("aria-selected", "true");
+    const lastOptionId = await lastOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      lastOptionId ?? ""
+    );
 
     // Home should jump to first option
     await page.keyboard.press("Home");
     const firstOption = page.locator('[role="option"]').first();
-    await expect(firstOption).toHaveAttribute("aria-selected", "true");
+    const firstOptionId = await firstOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
 
     await component.unmount();
   });
@@ -296,14 +326,16 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     const secondOption = page.locator('[role="option"]').nth(1);
     await secondOption.hover();
 
-    // The second option should become active (aria-selected) via onMouseEnter
-    await expect(secondOption).toHaveAttribute("aria-selected", "true", {
-      timeout: 3000,
-    });
-
-    // The first option should NOT be selected
-    const firstOption = page.locator('[role="option"]').first();
-    await expect(firstOption).toHaveAttribute("aria-selected", "false");
+    // The second option should become the activedescendant via onMouseEnter
+    // (the combobox's aria-activedescendant now points at the hovered
+    // option's id — this is the ARIA mechanism for a pick-to-execute
+    // listbox; aria-selected is reserved for actually-selected options).
+    const secondOptionId = await secondOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      secondOptionId ?? "",
+      { timeout: 3000 }
+    );
 
     await component.unmount();
   });
