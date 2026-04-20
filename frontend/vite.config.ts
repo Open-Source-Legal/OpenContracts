@@ -219,6 +219,13 @@ export default defineConfig(async () => {
           "src/main.tsx", // Exclude entry point if desired
           // Add any other files/patterns to exclude from coverage
         ],
+        // Count every file matched by `include`, not just files imported by a
+        // test. Without this, v8 silently drops untested files from the lcov,
+        // which inflates the `frontend-unit` ratio (small denominator) and
+        // misaligns with the Istanbul-based component/e2e lcovs (which do
+        // enumerate all source files). Aligning the two universes is required
+        // for the merged `frontend` lcov to be meaningful.
+        all: true,
       },
     },
   };

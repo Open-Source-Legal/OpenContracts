@@ -53,8 +53,10 @@ export function useVisibleAnnotations(): (
 
     const forcedIds = new Set(forcedBySelection);
 
+    // Explicit relation selection always wins — not gated on showStructural (unlike forcedByRelationships).
+    forcedBySelectedRelationIds.forEach((id) => forcedIds.add(id));
+
     if (showStructural) {
-      forcedBySelectedRelationIds.forEach((id) => forcedIds.add(id));
       forcedByRelationships.forEach((id) => forcedIds.add(id));
     }
 

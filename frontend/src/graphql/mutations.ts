@@ -3890,3 +3890,105 @@ export const IMPORT_ZIP_TO_CORPUS = gql`
     }
   }
 `;
+
+/**
+ * Agent configuration CRUD mutations used by CorpusAgentManagement.
+ * Scoped to a single agent at a time (no bulk operations); returns the
+ * updated agent so the UI can re-render without a refetch round-trip.
+ */
+export const CREATE_AGENT_CONFIGURATION = gql`
+  mutation CreateAgentConfiguration(
+    $name: String!
+    $slug: String
+    $description: String!
+    $systemInstructions: String!
+    $availableTools: [String]
+    $permissionRequiredTools: [String]
+    $badgeConfig: GenericScalar
+    $avatarUrl: String
+    $scope: String!
+    $corpusId: ID
+    $isPublic: Boolean
+  ) {
+    createAgentConfiguration(
+      name: $name
+      slug: $slug
+      description: $description
+      systemInstructions: $systemInstructions
+      availableTools: $availableTools
+      permissionRequiredTools: $permissionRequiredTools
+      badgeConfig: $badgeConfig
+      avatarUrl: $avatarUrl
+      scope: $scope
+      corpusId: $corpusId
+      isPublic: $isPublic
+    ) {
+      ok
+      message
+      agent {
+        id
+        name
+        slug
+        description
+        badgeConfig
+        availableTools
+        permissionRequiredTools
+        isActive
+        isPublic
+      }
+    }
+  }
+`;
+
+export const UPDATE_AGENT_CONFIGURATION = gql`
+  mutation UpdateAgentConfiguration(
+    $agentId: ID!
+    $name: String
+    $slug: String
+    $description: String
+    $systemInstructions: String
+    $availableTools: [String]
+    $permissionRequiredTools: [String]
+    $badgeConfig: GenericScalar
+    $avatarUrl: String
+    $isActive: Boolean
+    $isPublic: Boolean
+  ) {
+    updateAgentConfiguration(
+      agentId: $agentId
+      name: $name
+      slug: $slug
+      description: $description
+      systemInstructions: $systemInstructions
+      availableTools: $availableTools
+      permissionRequiredTools: $permissionRequiredTools
+      badgeConfig: $badgeConfig
+      avatarUrl: $avatarUrl
+      isActive: $isActive
+      isPublic: $isPublic
+    ) {
+      ok
+      message
+      agent {
+        id
+        name
+        slug
+        description
+        badgeConfig
+        availableTools
+        permissionRequiredTools
+        isActive
+        isPublic
+      }
+    }
+  }
+`;
+
+export const DELETE_AGENT_CONFIGURATION = gql`
+  mutation DeleteAgentConfiguration($agentId: ID!) {
+    deleteAgentConfiguration(agentId: $agentId) {
+      ok
+      message
+    }
+  }
+`;

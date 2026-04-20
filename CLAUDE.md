@@ -149,7 +149,7 @@ docker compose -f production.yml up
 
 1. **State Management - Jotai Atoms**:
    - **Global state via atoms** in `frontend/src/atoms/` (NOT Redux/Context)
-   - Key atoms: `selectedCorpusIdAtom`, `selectedFolderIdAtom`, `currentThreadIdAtom`
+   - Key atoms: `selectedFolderIdAtom`, `folderCorpusIdAtom`, `selectedMessageIdAtom`
    - Derived atoms automatically update when dependencies change
    - Apollo reactive vars in `frontend/src/graphql/cache.ts` for UI state
    - AuthGate pattern ensures auth completes before rendering
@@ -561,7 +561,8 @@ Run manually: `pre-commit run --all-files`
 13. **Writing sync agent tools**: All agent tools must be async. The `PydanticAIToolWrapper` accepts sync functions but calls them directly (no thread pool) — sync Django ORM calls will raise `SynchronousOnlyOperation`. Use the `a`-prefixed async versions in `core_tools.py`.
 14. **PydanticAI `system_prompt` silently dropped**: When creating `PydanticAIAgent`, use `instructions=` NOT `system_prompt=`. The `system_prompt` parameter is only included when `message_history` is `None`, but OpenContracts' `chat()` persists a HUMAN message before calling pydantic-ai's `run()`, so history is always non-empty. This causes the system prompt to be silently dropped. See `docs/architecture/llms/README.md` for full details.
 15. **Apollo cache `keyArgs` must use field argument names, not variable names**: In `cache.ts`, `relayStylePagination(["corpus", "name_Contains"])` uses the GraphQL **field argument** names (e.g., `extracts(corpus: $id, name_Contains: $text)`), NOT the variable names (`$id`, `$text`). Mismatched keyArgs silently fail to isolate cache entries, causing queries with different filters to share stale cached results.
-16. **Corrupted Docker iptables chains** (RARE): If you see `Chain 'DOCKER-ISOLATION-STAGE-2' does not exist` errors, Docker's iptables chains have been corrupted during docker cycling. Run this nuclear fix:
+16. **Playwright CT split-import rule**: In `frontend/tests/*.ct.tsx`, keep JSX-component imports in their own `import { Wrapper } from "./Wrapper"` statement, separate from any helper/constant imports from the same file. Playwright CT's babel transform only rewrites component references into `importRefs` when every specifier in the statement is a JSX component; mixing a component with helpers leaves the component unrewritten and `mount()` throws. Do not let auto-import organisers merge them.
+17. **Corrupted Docker iptables chains** (RARE): If you see `Chain 'DOCKER-ISOLATION-STAGE-2' does not exist` errors, Docker's iptables chains have been corrupted during docker cycling. Run this nuclear fix:
     ```bash
     sudo systemctl stop docker && sudo systemctl stop docker.socket && sudo ip link delete docker0 2>/dev/null || true && sudo iptables -t nat -F && sudo iptables -t nat -X && sudo iptables -t filter -F && sudo iptables -t filter -X 2>/dev/null || true && sudo iptables -t mangle -F && sudo iptables -t mangle -X && sudo iptables -t filter -N INPUT 2>/dev/null || true && sudo iptables -t filter -N FORWARD 2>/dev/null || true && sudo iptables -t filter -N OUTPUT 2>/dev/null || true && sudo iptables -P INPUT ACCEPT && sudo iptables -P FORWARD ACCEPT && sudo iptables -P OUTPUT ACCEPT && sudo systemctl start docker
     ```

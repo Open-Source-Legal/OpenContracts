@@ -55,7 +55,7 @@ import { PDFDocumentLoadingTask } from "pdfjs-dist";
 import { useUISettings } from "../../annotator/hooks/useUISettings";
 import useWindowDimensions from "../../hooks/WindowDimensionHook";
 import { PDFPageInfo } from "../../annotator/types/pdf";
-import { ViewState, PermissionTypes } from "../../types";
+import { ViewState } from "../../types";
 import { toast } from "react-toastify";
 import {
   useDocText,
@@ -102,6 +102,7 @@ import {
 import { useNavigate, useLocation } from "react-router-dom";
 import { updateAnnotationSelectionParams } from "../../../utils/navigationUtils";
 import { routingLogger } from "../../../utils/routingLogger";
+import { canEditAnnotationsInCorpus } from "../../../utils/annotationPermissions";
 
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
@@ -468,25 +469,16 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   const { setPdfDoc } = usePdfDoc();
 
   // Determine if user can edit based on permissions and corpus context
-  const canEdit = React.useMemo(() => {
-    // If explicitly marked as readOnly, respect that
-    if (readOnly) {
-      return false;
-    }
-
-    // If no corpus context, can't edit (annotations require corpus)
-    if (!corpusId) {
-      return false;
-    }
-
-    // Check corpus permissions first (these are more readily available)
-    if (canUpdateCorpus) {
-      return true;
-    }
-
-    // Fallback to document permissions
-    return permissions.includes(PermissionTypes.CAN_UPDATE);
-  }, [readOnly, corpusId, permissions, canUpdateCorpus, corpusPermissions]);
+  const canEdit = React.useMemo(
+    () =>
+      canEditAnnotationsInCorpus({
+        readOnly: Boolean(readOnly),
+        corpusId,
+        canUpdateCorpus,
+        documentPermissions: permissions,
+      }),
+    [readOnly, corpusId, permissions, canUpdateCorpus]
+  );
 
   // Call the hook ONCE here
   const originalCreateAnnotationHandler = useCreateAnnotation();

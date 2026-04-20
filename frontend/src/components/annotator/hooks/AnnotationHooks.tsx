@@ -326,7 +326,7 @@ export function useCreateAnnotation() {
  * Hook to update an existing annotation.
  */
 export function useUpdateAnnotation() {
-  const { replaceAnnotations } = usePdfAnnotations();
+  const [, setPdfAnnotations] = useAtom(pdfAnnotationsAtom);
   const selectedDocument = useAtomValue(selectedDocumentAtom);
 
   const [updateAnnotationMutation] = useMutation<
@@ -383,7 +383,22 @@ export function useUpdateAnnotation() {
             );
           }
 
-          replaceAnnotations([updatedAnnotation]);
+          // Swap the updated annotation in place so sibling annotations
+          // on the document survive — unlike replaceAnnotations which
+          // collapses the whole list to the single argument.
+          setPdfAnnotations(
+            (prev) =>
+              new PdfAnnotations(
+                prev.annotations.map((existing) =>
+                  existing.id === updatedAnnotation.id
+                    ? updatedAnnotation
+                    : existing
+                ),
+                prev.relations,
+                prev.docTypes,
+                true
+              )
+          );
           toast.success("Updated the annotation in the database.");
         }
       } catch (error) {
@@ -391,7 +406,7 @@ export function useUpdateAnnotation() {
         console.error(error);
       }
     },
-    [selectedDocument, updateAnnotationMutation, replaceAnnotations]
+    [selectedDocument, updateAnnotationMutation, setPdfAnnotations]
   );
 
   return handleUpdateAnnotation;

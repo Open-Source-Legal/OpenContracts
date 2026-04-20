@@ -1,7 +1,6 @@
 import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
 import { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
 import { PDFPageInfo } from "../types/pdf";
-import { BoundingBox } from "../types/annotations";
 import { ViewState } from "../types/enums";
 import {
   PermissionTypes,
@@ -17,7 +16,6 @@ import { RefObject, useMemo } from "react";
  * Core document data atoms.
  */
 export const selectedDocumentAtom = atom<DocumentType | null>(null);
-export const fileTypeAtom = atom<string>("");
 export const docTextAtom = atom<string>("");
 
 /**
@@ -37,7 +35,6 @@ export const documentTypeAtom = atom<string>("");
 /**
  * Document state atoms.
  */
-export const isLoadingAtom = atom<boolean>(false);
 export const viewStateAtom = atom<ViewState>(ViewState.LOADING);
 export const setViewStateErrorAtom = atom(
   null, // read
@@ -53,34 +50,10 @@ export const rawPermissionsAtom = atom<string[]>(["READ"]);
 export const permissionsAtom = atom<PermissionTypes[]>((get) =>
   getPermissions(get(rawPermissionsAtom))
 );
-export const canUpdateDocumentAtom = atom<boolean>((get) =>
-  get(permissionsAtom).includes(PermissionTypes.CAN_UPDATE)
-);
-export const canDeleteDocumentAtom = atom<boolean>((get) =>
-  get(permissionsAtom).includes(PermissionTypes.CAN_REMOVE)
-);
-export const hasDocumentPermissionAtom = atom<
-  (permission: PermissionTypes) => boolean
->(
-  (get) => (permission: PermissionTypes) =>
-    get(permissionsAtom).includes(permission)
-);
 
 /**
  * Page and scroll management atoms.
  */
-/**
- * Page selection atom to track the currently selected page and bounds.
- */
-export const pageSelectionAtom = atom<
-  | {
-      pageNumber: number;
-      bounds: BoundingBox;
-    }
-  | undefined
->(undefined);
-
-export const pageSelectionQueueAtom = atom<Record<number, BoundingBox[]>>({});
 export const scrollContainerRefAtom = atom<RefObject<HTMLDivElement> | null>(
   null
 );
@@ -111,11 +84,6 @@ export function useSelectedDocument() {
     () => ({ selectedDocument, setSelectedDocument }),
     [selectedDocument, setSelectedDocument]
   );
-}
-
-export function useFileType() {
-  const [fileType, setFileType] = useAtom(fileTypeAtom);
-  return useMemo(() => ({ fileType, setFileType }), [fileType, setFileType]);
 }
 
 export function useDocText() {
@@ -156,52 +124,6 @@ export function useDocumentType() {
   return useMemo(
     () => ({ documentType, setDocumentType }),
     [documentType, setDocumentType]
-  );
-}
-
-export function useIsLoading() {
-  const [isLoading, setIsLoading] = useAtom(isLoadingAtom);
-  return useMemo(
-    () => ({ isLoading, setIsLoading }),
-    [isLoading, setIsLoading]
-  );
-}
-
-export function useViewState() {
-  const [viewState, setViewState] = useAtom(viewStateAtom);
-  return useMemo(
-    () => ({ viewState, setViewState }),
-    [viewState, setViewState]
-  );
-}
-
-export function usePermissions() {
-  const permissions = useAtomValue(permissionsAtom);
-  return permissions;
-}
-
-export function useCanUpdateDocument() {
-  const canUpdateDocument = useAtomValue(canUpdateDocumentAtom);
-  return canUpdateDocument;
-}
-
-export function useCanDeleteDocument() {
-  const canDeleteDocument = useAtomValue(canDeleteDocumentAtom);
-  return canDeleteDocument;
-}
-
-export function useHasDocumentPermission() {
-  const hasPermission = useAtomValue(hasDocumentPermissionAtom);
-  return hasPermission;
-}
-
-export function usePageSelectionQueue() {
-  const [pageSelectionQueue, setPageSelectionQueue] = useAtom(
-    pageSelectionQueueAtom
-  );
-  return useMemo(
-    () => ({ pageSelectionQueue, setPageSelectionQueue }),
-    [pageSelectionQueue, setPageSelectionQueue]
   );
 }
 

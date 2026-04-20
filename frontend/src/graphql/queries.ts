@@ -4609,6 +4609,58 @@ export const GET_AGENT_CONFIGURATIONS = gql`
 `;
 
 /**
+ * GET_CORPUS_AGENTS - Corpus Agent Management view listing (full agent shape).
+ * Requires a corpusId (the detail view is corpus-scoped). Returns every field
+ * the row/edit UI needs, including moderation/badge metadata that the lighter
+ * GET_AGENT_CONFIGURATIONS query intentionally omits.
+ */
+export const GET_CORPUS_AGENTS = gql`
+  query GetCorpusAgents($corpusId: String!) {
+    agentConfigurations(corpusId: $corpusId) {
+      edges {
+        node {
+          id
+          name
+          slug
+          description
+          systemInstructions
+          availableTools
+          permissionRequiredTools
+          badgeConfig
+          avatarUrl
+          scope
+          isActive
+          isPublic
+          creator {
+            id
+            username
+          }
+          created
+          modified
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * GET_AVAILABLE_TOOLS - All registered tools plus the category list.
+ * Used by the agent management modal to populate the tool-picker UI.
+ */
+export const GET_AVAILABLE_TOOLS = gql`
+  query GetAvailableTools {
+    availableTools {
+      name
+      description
+      category
+      requiresCorpus
+      requiresApproval
+    }
+    availableToolCategories
+  }
+`;
+
+/**
  * GET_AVAILABLE_MODERATION_TOOLS - Get available moderation tools from backend
  * Used in CreateCorpusActionModal for inline agent creation with pre-selected tools
  */

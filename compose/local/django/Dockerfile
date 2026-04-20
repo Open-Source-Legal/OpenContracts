@@ -109,9 +109,17 @@ COPY ./compose/production/django/entrypoint /entrypoint
 RUN sed -i 's/\r$//g' /entrypoint
 RUN chmod +x /entrypoint
 
+COPY ./compose/local/django/run-migrations /run-migrations
+RUN sed -i 's/\r$//g' /run-migrations
+RUN chmod +x /run-migrations
+
 COPY ./compose/local/django/start /start
 RUN sed -i 's/\r$//g' /start
 RUN chmod +x /start
+
+COPY ./compose/local/django/start-with-coverage /start-with-coverage
+RUN sed -i 's/\r$//g' /start-with-coverage
+RUN chmod +x /start-with-coverage
 
 COPY ./compose/local/django/celery/worker/start /start-celeryworker
 RUN sed -i 's/\r$//g' /start-celeryworker
