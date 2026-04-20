@@ -935,8 +935,10 @@ class DocumentFolderService:
                 exc,
             )
             return False, (
-                f"Cannot delete folder: document relocation failed "
-                f"and all changes have been rolled back: {exc}"
+                "Cannot delete folder: document relocation failed and all "
+                "changes have been rolled back; the entire deletion is "
+                "safe to retry: "
+                f"{exc}"
             )
 
     # =========================================================================
@@ -1268,7 +1270,11 @@ class DocumentFolderService:
                 corpus.id,
                 exc,
             )
-            return 0, (f"Bulk move failed and all changes have been rolled back: {exc}")
+            return 0, (
+                "Bulk move failed and all changes have been rolled back; "
+                "the entire batch is safe to retry: "
+                f"{exc}"
+            )
 
     @staticmethod
     def _compute_moved_path(
@@ -1356,6 +1362,12 @@ class DocumentFolderService:
         """
         if folder_path is None:
             return "/"
+        # Normalise "/" (the root-equivalent path string that
+        # ``CorpusFolder.get_path()`` may return for a root folder) to the
+        # canonical root directory rather than raising — callers should
+        # not need to know that ``None`` is the internal root sentinel.
+        if folder_path == "/":
+            return "/"
         stripped = folder_path.strip("/")
         if not stripped:
             raise ValueError(
@@ -1378,6 +1390,14 @@ class DocumentFolderService:
         ``documents.signals.process_doc_on_document_path_create``.  Bulk
         write paths replicate the single-row semantics by sending the signal
         themselves after the INSERT.
+
+        Note: only ``post_save`` is replayed here. ``pre_save`` is still
+        skipped — consistent with ``bulk_create``'s own contract and
+        acceptable today because ``DocumentPath`` has no registered
+        ``pre_save`` receivers. If a ``pre_save`` receiver is added in the
+        future (e.g. to auto-populate a field or stamp a timestamp), this
+        method must be extended to dispatch it before the INSERT rather
+        than after.
 
         Args:
             paths: DocumentPath instances returned by ``bulk_create``.
@@ -1516,10 +1536,15 @@ class DocumentFolderService:
                                shared **mutable** set and append each
                                disambiguated result to it so subsequent
                                disambiguations see the within-batch claim.
-            extra_occupied: Optional set of additional paths to treat as occupied
-                           (used during retry loops to avoid within-batch
-                           collisions).  Merged into the DB-queried set; ignored
-                           when ``occupied_override`` is provided.
+            extra_occupied: Optional set of additional paths to treat as
+                           occupied. Now used only by the single-document
+                           retry loop in
+                           :meth:`_create_successor_path_with_retry` to
+                           mark paths claimed by prior failed attempts
+                           within that same call; bulk callers should use
+                           ``occupied_override`` instead. Merged into the
+                           DB-queried set; ignored when
+                           ``occupied_override`` is provided.
 
         Returns:
             A path string unique among active paths in the corpus (and the

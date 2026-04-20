@@ -4372,12 +4372,15 @@ class TestCoverageGapTargetDirectoryStringFromPathEdgeCases(
     DocumentFolderServiceTestBase
 ):
     """
-    SCENARIO: _target_directory_string_from_path raises on empty input
-    and handles None (root) correctly.
+    SCENARIO: _target_directory_string_from_path raises on an empty
+    non-root path and normalises the root-equivalent inputs ('/' and
+    ``None``) to the canonical root directory.
 
     BUSINESS RULE: A non-root folder whose path resolves to empty is a
-    data integrity violation.  The method must raise ValueError rather than
-    producing the malformed directory string "//".
+    data integrity violation.  The method must raise ValueError rather
+    than producing the malformed directory string "//".  The literal
+    "/" and ``None``, however, are legitimate root-equivalent inputs and
+    must normalise to "/".
     """
 
     def test_raises_on_empty_string(self):
@@ -4385,10 +4388,11 @@ class TestCoverageGapTargetDirectoryStringFromPathEdgeCases(
         with self.assertRaises(ValueError):
             DocumentFolderService._target_directory_string_from_path("")
 
-    def test_raises_on_slash_only(self):
-        """ValueError raised when folder_path is only slashes."""
-        with self.assertRaises(ValueError):
-            DocumentFolderService._target_directory_string_from_path("/")
+    def test_slash_normalises_to_root(self):
+        """Bare '/' is treated as the root directory (not an error)."""
+        self.assertEqual(
+            DocumentFolderService._target_directory_string_from_path("/"), "/"
+        )
 
     def test_root_returns_slash(self):
         """None (root) returns '/'."""
@@ -4404,7 +4408,7 @@ class TestCoverageGapTargetDirectoryStringFromPathEdgeCases(
         )
 
 
-class TestCoverageGap_BulkMoveGetPathCallCount(DocumentFolderServiceTestBase):
+class TestCoverageGapBulkMoveGetPathCallCount(DocumentFolderServiceTestBase):
     """
     SCENARIO: Bulk move caches the target folder path before the loop.
 
