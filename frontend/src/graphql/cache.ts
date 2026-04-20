@@ -17,7 +17,6 @@ import {
   AnalysisType,
   ExtractType,
   FieldsetType,
-  ColumnType,
   ConversationType,
   LabelType,
   UserType,
@@ -376,8 +375,6 @@ export const showQueryViewState = makeVar<"ASK" | "VIEW" | "DETAILS">("ASK");
 export const showSelectCorpusAnalyzerOrFieldsetModal = makeVar<boolean>(false);
 
 export const viewStateVar = makeVar<ViewState>(ViewState.LOADING);
-export const editMode = makeVar<"ANNOTATE" | "ANALYZE">("ANNOTATE");
-export const allowUserInput = makeVar<boolean>(false);
 
 /**
  *  Document-related global variables.
@@ -422,7 +419,7 @@ export const documentsLoading = makeVar<boolean>(false);
  * - Drag and drop one document onto another
  * - Multi-select + click "Link Documents" button
  */
-export interface LinkDocumentsModalState {
+interface LinkDocumentsModalState {
   open: boolean;
   initialSourceIds: string[];
   initialTargetIds: string[];
@@ -493,7 +490,6 @@ export const selectedLabelsetIds = makeVar<string[]>([]);
  */
 export const filterToAnnotationType = makeVar<LabelType | null>(null);
 export const filterToLabelId = makeVar<string>("");
-export const filterToAnnotationLabelId = makeVar<string>(""); // Not used elsewhere. Maybe should be?
 export const selectedAnnotation = makeVar<ServerAnnotationType | null>(null);
 export const showStructuralAnnotations = makeVar<boolean>(false);
 export const filterToStructuralAnnotations = makeVar<
@@ -509,11 +505,6 @@ export const annotationContentSearchTerm = makeVar<string>("");
 export const selectedMetaAnnotationId = makeVar<string>("");
 export const includeStructuralAnnotations = makeVar<boolean>(false); // These are weird as they don't have a labelset and user probably doesn't want to see them.
 export const selectedAnnotationIds = makeVar<string[]>([]);
-
-/**
- * Analyzer-related global variables
- */
-export const analyzerSearchTerm = makeVar<string | null>(null);
 
 /**
  * Analysis-related global variables
@@ -533,9 +524,6 @@ export const analysisSearchTerm = makeVar<string>("");
  */
 export const exportSearchTerm = makeVar<string>("");
 export const selectedFieldset = makeVar<FieldsetType | null>(null);
-export const editingExtract = makeVar<ExtractType | null>(null);
-export const addingColumnToExtract = makeVar<ExtractType | null>(null);
-export const editingColumnForExtract = makeVar<ColumnType | null>(null);
 
 /**
  * Thread/Discussion-related global variables

@@ -288,6 +288,16 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     useState<PendingApproval | null>(null);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
 
+  // Mirror `pendingApproval` in a ref so the WebSocket effect below can read
+  // the latest value without having to include `pendingApproval` in its
+  // dependency array. Without this, every approval-state transition tore
+  // down and recreated the socket mid-conversation (issue #1296), which
+  // dropped streaming tokens and made approval decisions race the reconnect.
+  const pendingApprovalRef = useRef<PendingApproval | null>(pendingApproval);
+  useEffect(() => {
+    pendingApprovalRef.current = pendingApproval;
+  }, [pendingApproval]);
+
   // Context status (token usage, compaction info)
   const [contextStatus, setContextStatus] = useState<ContextStatus | null>(
     null
@@ -648,19 +658,21 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
             appendStreamingToken(content, data?.message_id);
             break;
 
-          case "ASYNC_CONTENT":
+          case "ASYNC_CONTENT": {
             appendStreamingToken(content, data?.message_id);
+            const currentApproval = pendingApprovalRef.current;
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
               updateMessageApprovalStatus(
-                pendingApproval.messageId,
+                currentApproval.messageId,
                 "approved"
               );
             }
             break;
+          }
 
           case "ASYNC_THOUGHT":
             appendThought(content, data);
@@ -693,29 +705,31 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
             }
             break;
 
-          case "ASYNC_APPROVAL_RESULT":
+          case "ASYNC_APPROVAL_RESULT": {
             // Informational – backend echoes the user's decision.
+            const currentApproval = pendingApprovalRef.current;
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
               setShowApprovalModal(false);
               if (data?.decision) {
                 updateMessageApprovalStatus(
-                  pendingApproval.messageId,
+                  currentApproval.messageId,
                   data.decision as "approved" | "rejected"
                 );
               }
             }
             break;
+          }
 
           case "ASYNC_RESUME":
             // Agent is resuming after approval – keep processing indicator.
             setIsProcessing(true);
             break;
 
-          case "ASYNC_FINISH":
+          case "ASYNC_FINISH": {
             finalizeResponse(
               content,
               data?.sources,
@@ -726,19 +740,21 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
             if (data?.context_status) {
               setContextStatus(data.context_status as ContextStatus);
             }
+            const currentApproval = pendingApprovalRef.current;
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
               if (data?.approval_decision) {
                 updateMessageApprovalStatus(
-                  pendingApproval.messageId,
+                  currentApproval.messageId,
                   data.approval_decision as "approved" | "rejected"
                 );
               }
             }
             break;
+          }
 
           case "ASYNC_ERROR":
             setError(data?.error || "Agent error");
@@ -807,7 +823,9 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     finalizeResponse,
     handleCompleteMessage,
     updateMessageApprovalStatus,
-    pendingApproval,
+    // `pendingApproval` intentionally omitted — handlers read it via
+    // `pendingApprovalRef.current` so the socket does not reconnect on
+    // every approval-gate transition (issue #1296).
   ]);
 
   // Send initial message once connected

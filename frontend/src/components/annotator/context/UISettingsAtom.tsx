@@ -104,11 +104,6 @@ export const showStructuralRelationshipsAtom = atom<boolean>(false);
 export const onSidebarToggleAtom = atom<(() => void) | undefined>(undefined);
 
 /**
- * Atom to track if we've scrolled to a specific annotation
- */
-export const hasScrolledToAnnotationAtom = atom<string | null>(null);
-
-/**
  * ChatTray persistence atom
  */
 export interface ChatTrayPersist {

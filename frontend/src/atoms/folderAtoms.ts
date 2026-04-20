@@ -84,18 +84,6 @@ export const folderBreadcrumbAtom = atom<ParsedCorpusFolderType[]>((get) => {
 });
 
 /**
- * Currently selected folder object (or null if root)
- */
-export const currentFolderAtom = atom<CorpusFolderType | null>((get) => {
-  const folderId = get(selectedFolderIdAtom);
-  const folders = get(folderListAtom);
-
-  if (!folderId) return null;
-
-  return folders.find((f) => f.id === folderId) || null;
-});
-
-/**
  * Folder map for quick lookups
  */
 export const folderMapAtom = atom<Map<string, CorpusFolderType>>((get) => {
@@ -202,19 +190,9 @@ export const folderSearchQueryAtom = atom<string>("");
 export const draggingFolderIdAtom = atom<string | null>(null);
 
 /**
- * Currently dragging document ID
- */
-export const draggingDocumentIdAtom = atom<string | null>(null);
-
-/**
  * Drop target folder ID
  */
 export const dropTargetFolderIdAtom = atom<string | null>(null);
-
-/**
- * Whether drag-and-drop is enabled
- */
-export const enableDragDropAtom = atom<boolean>(true);
 
 // ============================================================================
 // PERMISSION DERIVED ATOMS
@@ -235,34 +213,6 @@ export const canCreateFoldersAtom = atom<boolean>((get) => {
 
   // Per permission model: folder write operations require UPDATE on corpus
   return corpusPermissions.includes("update_corpus");
-});
-
-/**
- * Can user update currently selected folder?
- */
-export const canUpdateCurrentFolderAtom = atom<boolean>((get) => {
-  const currentFolder = get(currentFolderAtom);
-
-  if (!currentFolder) return false;
-
-  const perms = currentFolder.myPermissions;
-  // Handle case where permissions haven't loaded yet
-  if (!perms || !Array.isArray(perms)) return false;
-  return perms.includes("update_corpusfolder");
-});
-
-/**
- * Can user delete currently selected folder?
- */
-export const canDeleteCurrentFolderAtom = atom<boolean>((get) => {
-  const currentFolder = get(currentFolderAtom);
-
-  if (!currentFolder) return false;
-
-  const perms = currentFolder.myPermissions;
-  // Handle case where permissions haven't loaded yet
-  if (!perms || !Array.isArray(perms)) return false;
-  return perms.includes("remove_corpusfolder");
 });
 
 // ============================================================================
@@ -304,22 +254,6 @@ export const expandFolderPathAtom = atom(null, (get, set, folderId: string) => {
 });
 
 /**
- * Collapse all folders in tree
- */
-export const collapseAllFoldersAtom = atom(null, (_get, set) => {
-  set(expandedFolderIdsAtom, new Set<string>());
-});
-
-/**
- * Expand all folders in tree
- */
-export const expandAllFoldersAtom = atom(null, (get, set) => {
-  const folders = get(folderListAtom);
-  const allIds = new Set(folders.map((f) => f.id));
-  set(expandedFolderIdsAtom, allIds);
-});
-
-/**
  * Select folder and expand path to it
  */
 export const selectAndExpandFolderAtom = atom(
@@ -355,17 +289,6 @@ export const openEditFolderModalAtom = atom(
   (_get, set, folderId: string) => {
     set(activeFolderModalIdAtom, folderId);
     set(showEditFolderModalAtom, true);
-  }
-);
-
-/**
- * Open move folder modal
- */
-export const openMoveFolderModalAtom = atom(
-  null,
-  (_get, set, folderId: string) => {
-    set(activeFolderModalIdAtom, folderId);
-    set(showMoveFolderModalAtom, true);
   }
 );
 

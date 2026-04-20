@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { Provider as JotaiProvider } from "jotai";
@@ -6,6 +6,18 @@ import { MemoryRouter } from "react-router-dom";
 import { CorpusChat } from "../src/components/corpuses/CorpusChat";
 import { authToken, userObj } from "../src/graphql/cache";
 import { relayStylePagination } from "@apollo/client/utilities";
+
+// Module-level init: the WebSocket effect in CorpusChat needs authToken/userObj
+// populated *before* the first render. Calling these in the component body is a
+// side-effect-in-render that fires on every re-render (and in StrictMode, twice
+// on mount). Priming them once at module load is equivalent, safer, and fires
+// exactly before the first render of any test using this wrapper.
+authToken("test-auth-token");
+userObj({
+  id: "test-user",
+  email: "test@example.com",
+  username: "testuser",
+});
 
 const createTestCache = () =>
   new InMemoryCache({
@@ -29,22 +41,19 @@ interface Props {
   corpusId: string;
   /** Set to true to start in the new-chat view rather than the conversation list */
   forceNewChat?: boolean;
+  initialQuery?: string;
+  onNavigateHome?: () => void;
+  onMessageSelect?: (id: string) => void;
 }
 
 export const CorpusChatTestWrapper: React.FC<Props> = ({
   mocks,
   corpusId,
   forceNewChat = false,
+  initialQuery,
+  onNavigateHome,
+  onMessageSelect = () => {},
 }) => {
-  useEffect(() => {
-    authToken("test-auth-token");
-    userObj({
-      id: "test-user",
-      email: "test@example.com",
-      username: "testuser",
-    });
-  }, []);
-
   return (
     <MemoryRouter initialEntries={["/"]}>
       <JotaiProvider>
@@ -54,8 +63,10 @@ export const CorpusChatTestWrapper: React.FC<Props> = ({
               corpusId={corpusId}
               showLoad={false}
               setShowLoad={() => {}}
-              onMessageSelect={() => {}}
+              onMessageSelect={onMessageSelect}
               forceNewChat={forceNewChat}
+              initialQuery={initialQuery}
+              onNavigateHome={onNavigateHome}
             />
           </div>
         </MockedProvider>

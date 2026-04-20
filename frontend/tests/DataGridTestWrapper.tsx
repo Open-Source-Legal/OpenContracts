@@ -1,8 +1,11 @@
-import React from "react";
+import React, { useRef } from "react";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { MemoryRouter } from "react-router-dom";
-import { ExtractDataGrid } from "../src/components/extracts/datagrid/DataGrid";
+import {
+  ExtractDataGrid,
+  ExtractDataGridHandle,
+} from "../src/components/extracts/datagrid/DataGrid";
 import {
   REQUEST_APPROVE_DATACELL,
   REQUEST_EDIT_DATACELL,
@@ -414,6 +417,14 @@ interface DataGridTestWrapperProps {
   cells?: DatacellType[];
   loading?: boolean;
   additionalMocks?: MockedResponse[];
+  onAddDocIds?: (extractId: string, documentIds: string[]) => void;
+  onRemoveDocIds?: (extractId: string, documentIds: string[]) => void;
+  onRemoveColumnId?: (columnId: string) => void;
+  onAddColumn?: () => void;
+  /** When true, renders a test-only "Trigger Export" button that calls the
+   *  imperative `exportToCsv` handle on the grid, letting us exercise CSV
+   *  export without reaching into internal refs from test code. */
+  withExportButton?: boolean;
 }
 
 export const DataGridTestWrapper: React.FC<DataGridTestWrapperProps> = ({
@@ -423,7 +434,13 @@ export const DataGridTestWrapper: React.FC<DataGridTestWrapperProps> = ({
   cells = defaultCells,
   loading = false,
   additionalMocks = [],
+  onAddDocIds = () => {},
+  onRemoveDocIds = () => {},
+  onRemoveColumnId = () => {},
+  onAddColumn = () => {},
+  withExportButton = false,
 }) => {
+  const gridRef = useRef<ExtractDataGridHandle>(null);
   // InMemoryCache must be created inside the component to avoid
   // serialization crashes across test workers (see CLAUDE.md pitfall #8).
   const cache = new InMemoryCache({
@@ -451,15 +468,24 @@ export const DataGridTestWrapper: React.FC<DataGridTestWrapperProps> = ({
               background: "#f8fafc",
             }}
           >
+            {withExportButton && (
+              <button
+                data-testid="trigger-export-csv"
+                onClick={() => gridRef.current?.exportToCsv()}
+              >
+                Trigger Export
+              </button>
+            )}
             <ExtractDataGrid
+              ref={gridRef}
               extract={extract}
               cells={cells}
               rows={rows}
               columns={columns}
-              onAddDocIds={() => {}}
-              onRemoveDocIds={() => {}}
-              onRemoveColumnId={() => {}}
-              onAddColumn={() => {}}
+              onAddDocIds={onAddDocIds}
+              onRemoveDocIds={onRemoveDocIds}
+              onRemoveColumnId={onRemoveColumnId}
+              onAddColumn={onAddColumn}
               loading={loading}
             />
           </div>

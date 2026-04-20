@@ -3,12 +3,14 @@ import {
   encodeTextBlock,
   decodeTextBlock,
   textBlockFromSpan,
+  textBlockFromMultipageJson,
   textBlockFromTokensByPage,
   textBlockToTokenIds,
   textBlockToBounds,
   TextSpanBlock,
   PdfTokenBlock,
 } from "./textBlockEncoding";
+import type { MultipageAnnotationJson } from "../components/types";
 
 describe("textBlockEncoding", () => {
   // ───────────────────────────────────────────────────────────────
@@ -24,6 +26,11 @@ describe("textBlockEncoding", () => {
     it("encodes a zero-start span", () => {
       const block: TextSpanBlock = { type: "span", start: 0, end: 10 };
       expect(encodeTextBlock(block)).toBe("s0-10");
+    });
+
+    it("encodes a zero-length span (caret-at-position reference)", () => {
+      const block: TextSpanBlock = { type: "span", start: 42, end: 42 };
+      expect(encodeTextBlock(block)).toBe("s42-42");
     });
   });
 
@@ -90,6 +97,14 @@ describe("textBlockEncoding", () => {
       };
       expect(encodeTextBlock(block)).toBe("p1:5");
     });
+
+    it("sorts unordered tokens before collapsing into ranges", () => {
+      const block: PdfTokenBlock = {
+        type: "pdf",
+        tokensByPage: { 0: [5, 1, 3, 2, 4] },
+      };
+      expect(encodeTextBlock(block)).toBe("p0:1-5");
+    });
   });
 
   describe("decodeTextBlock (pdf)", () => {
@@ -115,6 +130,13 @@ describe("textBlockEncoding", () => {
     it("returns null for empty pdf token set", () => {
       // "p0:" has no valid ranges → empty page → null
       expect(decodeTextBlock("p0:")).toBeNull();
+    });
+
+    it("skips malformed segments but keeps valid ones in a mixed string", () => {
+      expect(decodeTextBlock("p0:1-3;garbage;p1:5")).toEqual({
+        type: "pdf",
+        tokensByPage: { 0: [1, 2, 3], 1: [5] },
+      });
     });
   });
 
@@ -198,6 +220,45 @@ describe("textBlockEncoding", () => {
         type: "span",
         start: 10,
         end: 50,
+      });
+    });
+  });
+
+  describe("textBlockFromMultipageJson", () => {
+    it("extracts token indices per page from a MultipageAnnotationJson", () => {
+      const json: MultipageAnnotationJson = {
+        0: {
+          bounds: { top: 0, bottom: 10, left: 0, right: 10 },
+          rawText: "hello",
+          tokensJsons: [
+            { pageIndex: 0, tokenIndex: 5 },
+            { pageIndex: 0, tokenIndex: 6 },
+            { pageIndex: 0, tokenIndex: 7 },
+          ],
+        },
+        2: {
+          bounds: { top: 0, bottom: 10, left: 0, right: 10 },
+          rawText: "world",
+          tokensJsons: [{ pageIndex: 2, tokenIndex: 0 }],
+        },
+      };
+      expect(textBlockFromMultipageJson(json)).toEqual({
+        type: "pdf",
+        tokensByPage: { 0: [5, 6, 7], 2: [0] },
+      });
+    });
+
+    it("omits pages that have no tokensJsons entries", () => {
+      const json: MultipageAnnotationJson = {
+        0: {
+          bounds: { top: 0, bottom: 10, left: 0, right: 10 },
+          rawText: "",
+          tokensJsons: [],
+        },
+      };
+      expect(textBlockFromMultipageJson(json)).toEqual({
+        type: "pdf",
+        tokensByPage: {},
       });
     });
   });

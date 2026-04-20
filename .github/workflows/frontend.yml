@@ -1,8 +1,8 @@
 name: Frontend CI
 
 defaults:
- run:
-  working-directory: ./frontend
+  run:
+    working-directory: ./frontend
 
 on:
   push:
@@ -11,8 +11,8 @@ on:
       - v*
   pull_request:
     paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend.yml'
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
 
 jobs:
   lint:
@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install Yarn
         run: npm install -g yarn
@@ -63,7 +63,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install Yarn
         run: npm install -g yarn # Still need global yarn
@@ -98,6 +98,18 @@ jobs:
           name: frontend-ct-coverage
           fail_ci_if_error: false
 
+      # Publish the raw lcov so the cross-workflow merge job in
+      # `codecov-notify.yml` can pull it via `actions/download-artifact` and
+      # combine it with the unit + e2e lcovs into a single `frontend` flag.
+      - name: Upload CT lcov artifact
+        if: success() || failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-ct-lcov
+          path: frontend/coverage/ct/lcov.info
+          if-no-files-found: warn
+          retention-days: 7
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -110,7 +122,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: "20"
       - name: Install Yarn
         run: npm install -g yarn
       - name: Clear Yarn Cache
@@ -132,7 +144,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: "20"
       - name: Install Yarn
         run: npm install -g yarn
       - name: Clear Yarn Cache
@@ -150,6 +162,18 @@ jobs:
           flags: frontend-unit
           name: frontend-unit-coverage
           fail_ci_if_error: false
+
+      # Publish the raw lcov so the cross-workflow merge job in
+      # `codecov-notify.yml` can pull it via `actions/download-artifact` and
+      # combine it with the component + e2e lcovs into a single `frontend` flag.
+      - name: Upload Unit lcov artifact
+        if: success() || failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-unit-lcov
+          path: frontend/coverage/unit/lcov.info
+          if-no-files-found: warn
+          retention-days: 7
 
   docker-build:
     name: Build Docker Image

@@ -103,6 +103,55 @@ describe("GraphQL Guards", () => {
 
       expect(result.error).toBe(error);
     });
+
+    it("should log and return error when queryFn rejects (catch branch)", async () => {
+      // Covers the `catch (error)` branch on line 129 of graphqlGuards.ts.
+      // The branch must log via console.error AND surface the error in
+      // the returned object without re-throwing.
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+
+      const boom = new Error("simulated apollo failure");
+      const queryFn = vi.fn().mockRejectedValue(boom);
+      const safeExecutor = createSafeQueryExecutor(queryFn, {});
+
+      const result = await safeExecutor({ corpusId: validId });
+
+      expect(result.error).toBe(boom);
+      expect(result.data).toBeUndefined();
+      expect(result.skipped).toBeUndefined();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Query execution error:",
+        boom
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("should warn and return skipped=true when validation blocks execution", async () => {
+      // Covers the `console.warn(...)` path in the validation-blocked branch.
+      const consoleWarnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+
+      const queryFn = vi.fn();
+      const safeExecutor = createSafeQueryExecutor(queryFn, {
+        idFields: ["corpusId"],
+      });
+
+      const result = await safeExecutor({ corpusId: invalidId });
+
+      expect(result.skipped).toBe(true);
+      expect(result.error).toBeInstanceOf(Error);
+      expect(queryFn).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "Query execution blocked due to validation errors:",
+        expect.any(Array)
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
   });
 
   describe("ensureValidCorpusId", () => {

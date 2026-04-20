@@ -28,7 +28,7 @@ export class RelationGroup {
     public sourceIds: string[],
     public targetIds: string[],
     public label: AnnotationLabelType,
-    public id: string | string = uuidv4(),
+    public id: string = uuidv4(),
     public structural: boolean = false
   ) {
     this.id = id;
@@ -46,8 +46,8 @@ export class RelationGroup {
     const newSourceIds = this.sourceIds.filter((id) => id !== a.id);
     const newTargetIds = this.targetIds.filter((id) => id !== a.id);
 
-    const nowSourceEmpty = this.sourceIds.length === 0;
-    const nowTargetEmpty = this.targetIds.length === 0;
+    const nowSourceEmpty = newSourceIds.length === 0;
+    const nowTargetEmpty = newTargetIds.length === 0;
 
     // Only target had any annotations, now it has none,
     // so delete.
@@ -68,7 +68,14 @@ export class RelationGroup {
       return undefined;
     }
 
-    return new RelationGroup(newSourceIds, newTargetIds, this.label);
+    // Preserve id/structural so surviving relation stays the same entity.
+    return new RelationGroup(
+      newSourceIds,
+      newTargetIds,
+      this.label,
+      this.id,
+      this.structural
+    );
   }
 
   static fromObject(obj: RelationGroup) {
@@ -309,17 +316,18 @@ export class PdfAnnotations {
 
   /** Remove the most recently added annotation and clean up any relations referencing it. */
   undoAnnotation(): PdfAnnotations {
-    const popped = this.annotations.pop();
-    if (!popped) {
+    if (this.annotations.length === 0) {
       // No annotations, nothing to update
       return this;
     }
+    const popped = this.annotations[this.annotations.length - 1];
+    const remaining = this.annotations.slice(0, -1);
     const newRelations = this.relations
       .map((r) => r.updateForAnnotationDeletion(popped))
       .filter((r) => r !== undefined);
 
     return new PdfAnnotations(
-      this.annotations,
+      remaining,
       newRelations as RelationGroup[],
       this.docTypes,
       true

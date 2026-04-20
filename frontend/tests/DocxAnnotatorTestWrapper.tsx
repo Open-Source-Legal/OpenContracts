@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import DocxAnnotator from "../src/components/annotator/renderers/docx/DocxAnnotator";
 import { ServerSpanAnnotation } from "../src/components/annotator/types/annotations";
 import { AnnotationLabelType, LabelType } from "../src/types/graphql-api";
-import { PermissionTypes } from "../src/components/types";
+import { PermissionTypes, TextSearchSpanResult } from "../src/components/types";
 
 /**
  * The test DOCX fixture is served at runtime via page.route() in
@@ -95,15 +95,62 @@ const sampleAnnotation2 = new ServerSpanAnnotation(
   "ann-2"
 );
 
-export const DocxAnnotatorTestWrapper: React.FC<{
+interface ChatSourceHighlight {
+  start_index: number;
+  end_index: number;
+  sourceId: string;
+  messageId: string;
+}
+
+interface WrapperProps {
   readOnly?: boolean;
   withAnnotations?: boolean;
-}> = ({ readOnly = true, withAnnotations = false }) => {
+  /** Provide search results for highlighting in the DOCX body. */
+  searchResults?: TextSearchSpanResult[];
+  /** Provide chat-source highlights. Active source gets a brighter color. */
+  chatSources?: ChatSourceHighlight[];
+  /** Which chat source is currently selected by the user. */
+  selectedChatSourceId?: string;
+  /** Restrict visible labels (controls CSS visibility rules). */
+  visibleLabels?: AnnotationLabelType[];
+  /** Include structural annotations + show them (tests the structural toggle branch). */
+  withStructuralAnnotation?: boolean;
+  /** Adjust zoom to exercise the zoom branch. */
+  zoomLevel?: number;
+}
+
+export const DocxAnnotatorTestWrapper: React.FC<WrapperProps> = ({
+  readOnly = true,
+  withAnnotations = false,
+  searchResults,
+  chatSources,
+  selectedChatSourceId,
+  visibleLabels,
+  withStructuralAnnotation = false,
+  zoomLevel,
+}) => {
   const [selected, setSelected] = useState<string[]>([]);
   const { docxBytes, loading } = useTestDocxBytes();
 
+  const structuralAnn = new ServerSpanAnnotation(
+    0,
+    sampleLabels[0],
+    "The Definition",
+    true,
+    { start: 118, end: 132 },
+    [PermissionTypes.CAN_READ],
+    false,
+    false,
+    false,
+    "struct-ann-1"
+  );
+
   const annotations = withAnnotations
-    ? [sampleAnnotation1, sampleAnnotation2]
+    ? withStructuralAnnotation
+      ? [sampleAnnotation1, sampleAnnotation2, structuralAnn]
+      : [sampleAnnotation1, sampleAnnotation2]
+    : withStructuralAnnotation
+    ? [structuralAnn]
     : [];
 
   if (loading) {
@@ -117,7 +164,9 @@ export const DocxAnnotatorTestWrapper: React.FC<{
           docxBytes={docxBytes}
           docText={sampleDocText}
           annotations={annotations}
-          searchResults={[]}
+          searchResults={searchResults ?? []}
+          chatSources={chatSources}
+          selectedChatSourceId={selectedChatSourceId}
           getSpan={(span) =>
             new ServerSpanAnnotation(
               0,
@@ -135,7 +184,7 @@ export const DocxAnnotatorTestWrapper: React.FC<{
               false
             )
           }
-          visibleLabels={sampleLabels}
+          visibleLabels={visibleLabels ?? sampleLabels}
           availableLabels={sampleLabels}
           selectedLabelTypeId={readOnly ? null : "label-1"}
           readOnly={readOnly}
@@ -147,7 +196,8 @@ export const DocxAnnotatorTestWrapper: React.FC<{
           deleteAnnotation={() => {}}
           selectedAnnotations={selected}
           setSelectedAnnotations={setSelected}
-          showStructuralAnnotations={false}
+          showStructuralAnnotations={withStructuralAnnotation}
+          zoomLevel={zoomLevel}
         />
       </div>
     </MemoryRouter>
