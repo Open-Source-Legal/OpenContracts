@@ -45,9 +45,11 @@ jobs:
               "Frontend E2E Integration",
             ];
 
-            // Fetch every workflow run attached to this SHA. The API returns
-            // the most recent attempt per workflow first, which is the one we
-            // care about after re-runs.
+            // Fetch every workflow run attached to this SHA. The API generally
+            // returns most-recent-first, but we sort explicitly by run_number
+            // (desc) below rather than relying on that undocumented ordering —
+            // re-runs bump run_attempt while keeping run_number, so picking the
+            // highest run_number consistently selects the latest attempt.
             const runs = await github.paginate(
               github.rest.actions.listWorkflowRunsForRepo,
               {
@@ -61,7 +63,9 @@ jobs:
             let allDone = true;
             const runIds = {};
             for (const name of expected) {
-              const matching = runs.filter((r) => r.name === name);
+              const matching = runs
+                .filter((r) => r.name === name)
+                .sort((a, b) => b.run_number - a.run_number);
               if (matching.length === 0) {
                 core.info(`${name}: no run for this SHA (path-filtered) — OK`);
                 continue;
