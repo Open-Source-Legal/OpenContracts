@@ -5,7 +5,7 @@ import hashlib
 import logging
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import django
 from django.contrib.auth import get_user_model
@@ -346,7 +346,9 @@ class Corpus(TreeNode):
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def update_description(self, *, new_content: str, author: Any) -> Optional["CorpusDescriptionRevision"]:
+    def update_description(
+        self, *, new_content: str, author: AbstractBaseUser | int
+    ) -> CorpusDescriptionRevision | None:
         """Create a new revision and update md_description.
 
         Also keeps the plain-text ``description`` field in sync so that
@@ -452,7 +454,7 @@ class Corpus(TreeNode):
         ]
 
     # Override save to update modified on save
-    def save(self, *args: Any, **kwargs: Any) -> Any:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """On save, update timestamps and freeze embedder on creation."""
         from opencontractserver.pipeline.utils import get_default_embedder_path
 
@@ -511,12 +513,10 @@ class Corpus(TreeNode):
                 if old_is_public is not None and old_is_public != self.is_public:
                     _propagate_public = True
 
-        result = super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
         if _propagate_public:
             self._propagate_public_status_to_documents()
-
-        return result
 
     def _propagate_public_status_to_documents(self) -> None:
         """Propagate this corpus's is_public flag to its documents.
@@ -611,7 +611,7 @@ class Corpus(TreeNode):
                     {"post_processors": f"Invalid Python path: {processor}"}
                 )
 
-    def embed_text(self, text: str) -> tuple[Optional[str], Optional[list[float]]]:
+    def embed_text(self, text: str) -> tuple[str | None, list[float] | None]:
         """
         Use a unified embeddings function from utils to create embeddings for the text.
 
@@ -645,7 +645,7 @@ class Corpus(TreeNode):
         create_permissions(app_config, verbosity=0)
 
     @classmethod
-    def get_or_create_personal_corpus(cls, user: Any) -> "Corpus":
+    def get_or_create_personal_corpus(cls, user: AbstractBaseUser) -> Corpus:
         """
         Get or create the user's personal "My Documents" corpus.
 
@@ -713,12 +713,12 @@ class Corpus(TreeNode):
 
     def add_document(
         self,
-        document: Optional["Document"] = None,
-        path: Optional[str] = None,
-        user: Optional[Any] = None,
-        folder: Optional["CorpusFolder"] = None,
+        document: Document | None = None,
+        path: str | None = None,
+        user: Any | None = None,
+        folder: CorpusFolder | None = None,
         **doc_kwargs: Any,
-    ) -> tuple["Document", str, "DocumentPath"]:
+    ) -> tuple[Document, str, DocumentPath]:
         """
         Add a document to this corpus, creating a corpus-isolated copy.
 
@@ -919,12 +919,12 @@ class Corpus(TreeNode):
         self,
         content: bytes,
         user: Any,
-        path: Optional[str] = None,
-        folder: Optional["CorpusFolder"] = None,
-        filename: Optional[str] = None,
-        file_type: Optional[str] = None,
+        path: str | None = None,
+        folder: CorpusFolder | None = None,
+        filename: str | None = None,
+        file_type: str | None = None,
         **doc_kwargs: Any,
-    ) -> tuple["Document", str, "DocumentPath"]:
+    ) -> tuple[Document, str, DocumentPath]:
         """
         Import content into this corpus with automatic file type handling.
 
@@ -989,10 +989,10 @@ class Corpus(TreeNode):
 
     def remove_document(
         self,
-        document: Optional["Document"] = None,
-        path: Optional[str] = None,
-        user: Optional[Any] = None,
-    ) -> list["DocumentPath"]:
+        document: Document | None = None,
+        path: str | None = None,
+        user: Any | None = None,
+    ) -> list[DocumentPath]:
         """
         Remove a document from this corpus (soft delete).
 
@@ -1106,7 +1106,7 @@ class Corpus(TreeNode):
 
         return deleted_paths
 
-    def get_documents(self, include_caml: bool = False) -> "QuerySet[Document]":
+    def get_documents(self, include_caml: bool = False) -> QuerySet[Document]:
         """
         Get all documents with active paths in this corpus.
 
@@ -1163,7 +1163,7 @@ class Corpus(TreeNode):
         color: str = "#05313d",
         description: str = "",
         icon: str = "tags",
-    ) -> "AnnotationLabel":
+    ) -> AnnotationLabel:
         """Return an AnnotationLabel for *label_text*, creating prerequisites.
 
         Ensures the corpus has a label-set and that a label with the given text
@@ -1389,9 +1389,9 @@ class CorpusAction(BaseOCModel):
                 "task_instructions is required for agent-based actions."
             )
 
-    def save(self, *args: Any, **kwargs: Any) -> Any:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         self.full_clean()
-        return super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         if self.fieldset:
@@ -1510,7 +1510,7 @@ class CorpusActionTemplate(BaseOCModel):
         return f"CorpusActionTemplate: {self.name} ({self.get_trigger_display()})"
 
     def to_action_kwargs(
-        self, corpus: "Corpus", creator: Optional[Any] = None
+        self, corpus: Corpus, creator: Any | None = None
     ) -> dict[str, Any]:
         """Return kwargs dict for constructing a CorpusAction from this template.
 
@@ -1548,8 +1548,8 @@ class CorpusActionTemplate(BaseOCModel):
         )
 
     def clone_to_corpus(
-        self, corpus: "Corpus", creator: Optional[Any] = None
-    ) -> "CorpusAction":
+        self, corpus: Corpus, creator: Any | None = None
+    ) -> CorpusAction:
         """Create a CorpusAction from this template for the given corpus.
 
         Returns the created CorpusAction instance.
@@ -2099,14 +2099,14 @@ class CorpusActionExecution(BaseOCModel):
         return f"{self.action_type}:{self.corpus_action.name}@{target} ({self.status})"
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         """Calculate execution duration in seconds."""
         if self.started_at and self.completed_at:
             return (self.completed_at - self.started_at).total_seconds()
         return None
 
     @property
-    def wait_time_seconds(self) -> Optional[float]:
+    def wait_time_seconds(self) -> float | None:
         """Calculate time spent in queue before execution."""
         if self.queued_at and self.started_at:
             return (self.started_at - self.queued_at).total_seconds()
@@ -2134,8 +2134,8 @@ class CorpusActionExecution(BaseOCModel):
 
     def mark_completed(
         self,
-        affected_objects: Optional[list[dict]] = None,
-        metadata: Optional[dict] = None,
+        affected_objects: list[dict] | None = None,
+        metadata: dict | None = None,
         save: bool = True,
     ) -> None:
         """Mark execution as successfully completed."""
@@ -2199,11 +2199,11 @@ class CorpusActionExecution(BaseOCModel):
     @classmethod
     def bulk_queue(
         cls,
-        corpus_action: "CorpusAction",
+        corpus_action: CorpusAction,
         document_ids: list[int],
         trigger: str,
         user_id: int,
-    ) -> list["CorpusActionExecution"]:
+    ) -> list[CorpusActionExecution]:
         """
         Efficiently queue multiple executions in a single INSERT.
 

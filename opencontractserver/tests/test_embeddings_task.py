@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 
+from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.utils.embeddings import get_embedder
@@ -299,7 +300,7 @@ class TestAnnotationSignals(unittest.TestCase):
 
         # Call the signal handler
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Verify embedding calculation was scheduled with corpus_id=None
@@ -327,7 +328,7 @@ class TestAnnotationSignals(unittest.TestCase):
 
         # Call the signal handler
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Verify embedding calculation was scheduled with the corpus_id
@@ -354,7 +355,7 @@ class TestAnnotationSignals(unittest.TestCase):
 
         # Call the signal handler
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Verify embedding calculation was NOT scheduled
@@ -375,7 +376,7 @@ class TestAnnotationSignals(unittest.TestCase):
         mock_note.embedding = None
 
         # Call the signal handler
-        process_note_on_create_atomic(sender=None, instance=mock_note, created=True)
+        process_note_on_create_atomic(sender=Note, instance=mock_note, created=True)
 
         # Verify embedding calculation was scheduled with corpus_id
         mock_calc_embedding.si.assert_called_with(note_id=1, corpus_id=100)
@@ -401,7 +402,7 @@ class TestAnnotationSignals(unittest.TestCase):
         mock_annotation.embedding = None
 
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Should schedule embedding with corpus_id=None

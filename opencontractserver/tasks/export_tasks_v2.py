@@ -18,11 +18,11 @@ import io
 import json
 import logging
 import zipfile
-from typing import TYPE_CHECKING
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
 
+from opencontractserver.annotations.models import StructuralAnnotationSet
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import DocumentPath
 from opencontractserver.tasks.export_tasks import finalize_export
@@ -53,9 +53,6 @@ from opencontractserver.utils.packaging import (
     package_label_set_for_export,
 )
 from opencontractserver.utils.text import only_alphanumeric_chars
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser  # noqa: F401
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -114,7 +111,7 @@ def package_corpus_export_v2(
 
         # ===== PART 1: Export Documents (V1 compatible) =====
         annotated_docs: dict[str, OpenContractDocExport] = {}
-        structural_sets_seen: set = set()
+        structural_sets_seen: set[StructuralAnnotationSet] = set()
 
         for doc in documents:
             logger.info("Exporting document %s", doc.id)

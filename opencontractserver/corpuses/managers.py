@@ -8,7 +8,7 @@ supporting efficient filtering, aggregation, and permission-aware queries.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 from django.utils import timezone
@@ -22,32 +22,32 @@ if TYPE_CHECKING:
 class CorpusActionExecutionQuerySet(models.QuerySet):
     """Optimized querysets for action trail queries."""
 
-    def for_corpus(self, corpus_id: int) -> "CorpusActionExecutionQuerySet":
+    def for_corpus(self, corpus_id: int) -> CorpusActionExecutionQuerySet:
         """Get executions for a corpus, uses denormalized corpus field."""
         return self.filter(corpus_id=corpus_id)
 
-    def for_document(self, document_id: int) -> "CorpusActionExecutionQuerySet":
+    def for_document(self, document_id: int) -> CorpusActionExecutionQuerySet:
         """Get all action executions that affected a document."""
         return self.filter(document_id=document_id)
 
-    def by_type(self, action_type: str) -> "CorpusActionExecutionQuerySet":
+    def by_type(self, action_type: str) -> CorpusActionExecutionQuerySet:
         """Filter by action type (fieldset/analyzer/agent)."""
         return self.filter(action_type=action_type)
 
-    def pending(self) -> "CorpusActionExecutionQuerySet":
+    def pending(self) -> CorpusActionExecutionQuerySet:
         """Get executions that haven't completed yet."""
         return self.filter(status__in=["queued", "running"])
 
-    def failed(self) -> "CorpusActionExecutionQuerySet":
+    def failed(self) -> CorpusActionExecutionQuerySet:
         """Get failed executions for retry/monitoring."""
         return self.filter(status="failed")
 
-    def recent(self, hours: int = 24) -> "CorpusActionExecutionQuerySet":
+    def recent(self, hours: int = 24) -> CorpusActionExecutionQuerySet:
         """Get recent executions within time window."""
         cutoff = timezone.now() - timedelta(hours=hours)
         return self.filter(queued_at__gte=cutoff)
 
-    def with_stats(self) -> "CorpusActionExecutionQuerySet":
+    def with_stats(self) -> CorpusActionExecutionQuerySet:
         """Annotate with computed fields for display."""
         return self.annotate(
             duration=models.ExpressionWrapper(
@@ -133,7 +133,7 @@ class CorpusActionExecutionManager(BaseVisibilityManager):
         return self.get_queryset().recent(hours)
 
     def visible_to_user(
-        self, user: Optional[AbstractBaseUser] = None
+        self, user: AbstractBaseUser | None = None
     ) -> CorpusActionExecutionQuerySet:
         """
         Override to return our custom QuerySet type while preserving permission

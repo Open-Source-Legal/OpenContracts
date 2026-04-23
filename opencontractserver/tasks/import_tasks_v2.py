@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -32,7 +32,6 @@ from opencontractserver.documents.models import (
     IngestionSourceCategory,
 )
 from opencontractserver.types.dicts import (
-    AnnotationLabelPythonType,
     DocumentPathExport,
     IngestionSourceExport,
     OpenContractsExportDataJsonPythonType,
@@ -174,7 +173,7 @@ def _import_document_with_annotations(
     label_lookup: dict[str, AnnotationLabel],
     doc_label_lookup: dict[str, AnnotationLabel],
     structural_sets: dict[str, StructuralAnnotationSet] | None = None,
-) -> tuple[Optional[Document], dict[str, int]]:
+) -> tuple[Document | None, dict[str, int]]:
     """
     Import a single document into a corpus, handling:
     - Document creation (standalone) via shared create_document_from_export_data
@@ -252,7 +251,7 @@ def _import_corpus(
     user_obj: AbstractBaseUser,
     seed_corpus_id: int | None,
     version: str = "1.0",
-) -> Optional[int]:
+) -> int | None:
     """
     Unified import handler for both V1 and V2 formats.
 

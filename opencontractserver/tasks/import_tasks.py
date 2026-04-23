@@ -6,7 +6,7 @@ import json
 import logging
 import pathlib
 import zipfile
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser
@@ -58,8 +58,8 @@ User = get_user_model()
 
 @celery_app.task()
 def import_corpus(
-    temporary_file_handle_id: str | int, user_id: int, seed_corpus_id: Optional[int]
-) -> Optional[int]:
+    temporary_file_handle_id: str | int, user_id: int, seed_corpus_id: int | None
+) -> int | None:
     """
     Import a corpus from a V1-format export ZIP.
 
@@ -77,7 +77,7 @@ def import_document_to_corpus(
     target_corpus_id: int,
     user_id: int,
     document_import_data: OpenContractsAnnotatedDocumentImportType,
-) -> Optional[str]:
+) -> str | None:
     """
     Import a single annotated document into an existing corpus.
 
@@ -175,11 +175,11 @@ def process_documents_zip(
     temporary_file_handle_id: str | int,
     user_id: int,
     job_id: str,
-    title_prefix: Optional[str] = None,
-    description: Optional[str] = None,
-    custom_meta: Optional[dict[str, Any]] = None,
+    title_prefix: str | None = None,
+    description: str | None = None,
+    custom_meta: dict[str, Any] | None = None,
     make_public: bool = False,
-    corpus_id: Optional[int] = None,
+    corpus_id: int | None = None,
 ) -> dict[str, Any]:
     """
     Process a zip file containing documents, extract each file, and create Document objects
@@ -797,10 +797,10 @@ def import_zip_with_folder_structure(
     user_id: int,
     job_id: str,
     corpus_id: int,
-    target_folder_id: Optional[int] = None,
-    title_prefix: Optional[str] = None,
-    description: Optional[str] = None,
-    custom_meta: Optional[dict[str, Any]] = None,
+    target_folder_id: int | None = None,
+    title_prefix: str | None = None,
+    description: str | None = None,
+    custom_meta: dict[str, Any] | None = None,
     make_public: bool = False,
 ) -> dict[str, Any]:
     """
@@ -1008,7 +1008,7 @@ def import_zip_with_folder_structure(
                 )
 
             # Parse metadata file if present (used in Phase 3)
-            metadata_lookup: dict[str, "DocumentMetadata"] = {}
+            metadata_lookup: dict[str, DocumentMetadata] = {}
             if manifest.metadata_file:
                 from opencontractserver.utils.metadata_file_parser import (
                     parse_metadata_file,
@@ -1042,8 +1042,8 @@ def import_zip_with_folder_structure(
 
             # Phase 3: Load annotation labels if labels.json is present
             # These are needed when importing annotation sidecars
-            label_lookup: dict[str, "AnnotationLabel"] = {}
-            doc_label_lookup: dict[str, "AnnotationLabel"] = {}
+            label_lookup: dict[str, AnnotationLabel] = {}
+            doc_label_lookup: dict[str, AnnotationLabel] = {}
             if manifest.labels_file:
                 results["labels_file_found"] = True
             if manifest.labels_file and manifest.annotation_sidecars:

@@ -7,7 +7,7 @@ import logging
 import uuid
 
 # Typed representations for the `json` payload
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Union, cast
 
 import django
 from django.contrib.auth import get_user_model
@@ -678,7 +678,7 @@ class StructuralAnnotationSet(BaseOCModel):
         """Get the count of structural relationships in this set."""
         return self.structural_relationships.count()
 
-    def duplicate(self, corpus_id: Optional[int] = None) -> StructuralAnnotationSet:
+    def duplicate(self, corpus_id: int | None = None) -> StructuralAnnotationSet:
         """
         Create a copy of this set with all its annotations for corpus isolation.
 
@@ -1005,7 +1005,7 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     # ---------------------------------------------------------------------
 
     @property
-    def typed_json(self) -> Union[MultipageAnnotationJson, SpanAnnotationJson]:
+    def typed_json(self) -> MultipageAnnotationJson | SpanAnnotationJson:
         """Return `self.json` with a precise static type.
 
         This helper exists purely for IDE / static-analysis benefit. It performs
@@ -1415,7 +1415,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
         10  # store full snapshot every N revisions for fast reconstruction
     )
 
-    def save(self, *args: Any, **kwargs: Any) -> Any:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Override save to automatically create a NoteRevision when `content` changes.
         Set `skip_revision=True` in kwargs to bypass automatic revision creation
         (used internally by `version_up`).
@@ -1443,7 +1443,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
         self.modified = timezone.now()
 
         with transaction.atomic():
-            super_result = super().save(*args, **kwargs)
+            super().save(*args, **kwargs)
 
             # Auto-create a NoteRevision unless explicitly skipped
             if not skip_revision and (
@@ -1485,14 +1485,12 @@ class Note(BaseOCModel, HasEmbeddingMixin):
                     ).hexdigest(),
                 )
 
-            return super_result
-
     def version_up(
         self,
         *,
         new_content: str,
-        author: Union[AbstractBaseUser, int],
-    ) -> Optional[NoteRevision]:
+        author: AbstractBaseUser | int,
+    ) -> NoteRevision | None:
         """Utility to bump the note to a new version.
 
         Args:

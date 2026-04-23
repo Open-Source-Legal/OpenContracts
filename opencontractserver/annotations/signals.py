@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.tasks.embeddings_task import (
     calculate_embedding_for_annotation_text,
@@ -54,9 +54,7 @@ def process_annot_on_create_atomic(
     if created and instance.embedding is None:
         # Get corpus_id from annotation's corpus
         # Note: structural_set doesn't have a corpus field, so we only use direct corpus_id
-        corpus_id: Optional[int] = (
-            instance.corpus_id if instance.corpus_id else None
-        )
+        corpus_id: int | None = instance.corpus_id if instance.corpus_id else None
 
         logger.debug(
             f"Calculating embeddings for newly created annotation {instance.id} "
@@ -94,7 +92,7 @@ def process_note_on_create_atomic(
         **kwargs: Additional keyword arguments.
     """
     if created and instance.embedding is None:
-        corpus_id: Optional[int] = instance.corpus_id if instance.corpus else None
+        corpus_id: int | None = instance.corpus_id if instance.corpus else None
         logger.debug(
             f"Calculating embeddings for newly created note {instance.id} "
             f"(corpus_id={corpus_id})"
@@ -147,7 +145,7 @@ def process_relationship_m2m_changed(
     action: str,
     reverse: bool,
     model: type[Any],
-    pk_set: Optional[set[int]],
+    pk_set: set[int] | None,
     **kwargs: Any,
 ) -> None:
     """

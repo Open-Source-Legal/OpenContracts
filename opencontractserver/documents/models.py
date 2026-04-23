@@ -4,7 +4,7 @@ import difflib
 import functools
 import hashlib
 import uuid
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import django
 from django.contrib.auth import get_user_model
@@ -200,7 +200,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
     # ------ Revision mechanics ------ #
     REVISION_SNAPSHOT_INTERVAL = 10
 
-    def get_summary_for_corpus(self, corpus: "Corpus") -> str:
+    def get_summary_for_corpus(self, corpus: Corpus) -> str:
         """Get the latest summary content for this document in a specific corpus.
 
         Args:
@@ -232,9 +232,9 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         self,
         *,
         new_content: str,
-        author: Union["AbstractBaseUser", int],
-        corpus: "Corpus",
-    ) -> Optional["DocumentSummaryRevision"]:
+        author: AbstractBaseUser | int,
+        corpus: Corpus,
+    ) -> DocumentSummaryRevision | None:
         """Create a new revision and update md_summary_file for a specific corpus.
 
         Args:
@@ -303,10 +303,10 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
 
         return revision
 
-    def get_embedding_reference_kwargs(self) -> dict:
+    def get_embedding_reference_kwargs(self) -> dict[str, Any]:
         return {"document_id": self.pk}
 
-    def compute_pdf_hash(self) -> Optional[str]:
+    def compute_pdf_hash(self) -> str | None:
         """
         Compute SHA-256 hash of the PDF file content.
         Returns None if no PDF file exists.
@@ -1066,7 +1066,7 @@ class PipelineSettings(django.db.models.Model):
         cache.delete(cls.CACHE_KEY)
 
     @classmethod
-    def get_instance(cls, use_cache: bool = True) -> "PipelineSettings":
+    def get_instance(cls, use_cache: bool = True) -> PipelineSettings:
         """
         Get the singleton PipelineSettings instance.
 
