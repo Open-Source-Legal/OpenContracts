@@ -147,6 +147,17 @@ def _overlaps(a: Span, b: Span) -> bool:
     return _overlap_length(a, b) > 0
 
 
+def overlaps_any(predicted: Iterable[Span], gold: Iterable[Span]) -> bool:
+    """Return ``True`` iff any predicted span overlaps any gold span.
+
+    Public helper so callers outside this module (e.g. the runner's
+    citation-vs-gold comparison) can share a single definition of "a span
+    hit" and stay in sync with the recall / precision / IoU metrics.
+    """
+    gold_list = list(gold)
+    return any(_overlaps(p, g) for p in predicted for g in gold_list)
+
+
 def gold_spans_covered(
     predicted: Sequence[Span],
     gold: Sequence[Span],

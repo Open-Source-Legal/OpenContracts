@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 _INGEST_POLL_INTERVAL_S = 0.2
 _DEFAULT_INGEST_TIMEOUT_S = 300
 
+# Single-glyph ellipsis used when a task's query or ID has to be shortened to
+# fit ``BENCHMARK_COLUMN_NAME_MAX_LEN``.  Kept as a module-level constant so
+# the truncation marker isn't scattered across the loader as magic literals.
+_TRUNCATION_MARKER = "…"
+
 
 @dataclass
 class LoadedBenchmark:
@@ -332,12 +337,12 @@ def _make_column_name(task: BenchmarkTask) -> str:
     """
     base = _COLUMN_NAME_SANITIZER.sub(" ", task.query).strip()
     if len(base) > BENCHMARK_QUERY_PREVIEW_MAX_LEN:
-        base = base[:BENCHMARK_QUERY_PREVIEW_TRIM_LEN].rstrip() + "…"
+        base = base[:BENCHMARK_QUERY_PREVIEW_TRIM_LEN].rstrip() + _TRUNCATION_MARKER
     name = f"{task.task_id} — {base}"
     if len(name) > BENCHMARK_COLUMN_NAME_MAX_LEN:
         # Append a task_id suffix so two tasks with similar queries don't
         # produce identical truncated names.
-        suffix = f"…{task.task_id[-6:]}"
+        suffix = f"{_TRUNCATION_MARKER}{task.task_id[-6:]}"
         name = name[: BENCHMARK_COLUMN_NAME_MAX_LEN - len(suffix)] + suffix
     return name
 

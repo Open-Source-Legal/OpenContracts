@@ -163,32 +163,13 @@ def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
     tests don't need real Annotation rows to pass.
     """
 
-    async def _fake_result_only(
-        *,
-        document,
-        corpus,
-        prompt,
-        target_type,
-        framework,
-        temperature,
-        similarity_top_k,
-        model,
-        user_id,
-    ):
+    # Accept arbitrary kwargs so these fakes don't break when new parameters
+    # (e.g. ``embedder=``) are added to the real extract-API signatures — the
+    # test only cares about mapping ``prompt`` to a canned answer.
+    async def _fake_result_only(*, prompt, **kwargs):
         return answers_by_query.get(prompt, "")
 
-    async def _fake_result_and_sources(
-        *,
-        document,
-        corpus,
-        prompt,
-        target_type,
-        framework,
-        temperature,
-        similarity_top_k,
-        model,
-        user_id,
-    ):
+    async def _fake_result_and_sources(*, prompt, **kwargs):
         return answers_by_query.get(prompt, ""), []
 
     return _fake_result_only, _fake_result_and_sources

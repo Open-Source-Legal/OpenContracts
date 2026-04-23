@@ -218,23 +218,29 @@ class LegalBenchRAGAdapter(BaseBenchmarkAdapter):
                         self._load_document(document_key)
 
                     document = self._documents[document_key]
-                    # Skip out-of-bounds gold spans with a warning rather than
-                    # silently clamping — clamping would inflate retrieval
-                    # denominators / deflate answer-match scores with no
-                    # visible signal that the benchmark data is bad.
+                    # Clamp out-of-bounds gold spans defensively but emit a
+                    # warning so bad benchmark rows are visible in the logs.
+                    # We deliberately do NOT skip the snippet — dropping a
+                    # gold span mid-stream would change evaluation semantics
+                    # (fewer gold spans => easier recall), so preserve the
+                    # original behavior while surfacing the condition.
                     doc_len = len(document.text)
-                    if start < 0 or end > doc_len:
+                    orig_start, orig_end = start, end
+                    start = max(0, min(start, doc_len))
+                    end = max(start, min(end, doc_len))
+                    if (orig_start, orig_end) != (start, end):
                         logger.warning(
-                            "Gold span [%d, %d] exceeds document length %d "
-                            "in %s test %s (%s); skipping snippet",
-                            start,
-                            end,
+                            "Gold span [%d, %d] out of bounds for document "
+                            "length %d in %s test %s (%s); clamped to [%d, %d]",
+                            orig_start,
+                            orig_end,
                             doc_len,
                             subset_name,
                             test_index,
                             file_path,
+                            start,
+                            end,
                         )
-                        continue
 
                     spans_by_doc.setdefault(document_key, []).append((start, end))
                     answer_parts.append(document.text[start:end])

@@ -88,6 +88,10 @@ class BenchmarkReport:
     extract_id: int
     task_results: list[TaskResult]
     aggregates: dict[str, int | float] = field(default_factory=dict)
+    # Populated by :meth:`write` so callers (e.g. the management command)
+    # can surface the path where ``report.json`` / ``report.csv`` landed
+    # without re-deriving it.
+    run_dir: Path | None = None
 
     def __post_init__(self) -> None:
         """Auto-compute aggregates at init (including the empty-list case)."""
@@ -229,6 +233,7 @@ class BenchmarkReport:
                         r.error or "",
                     ]
                 )
+        self.run_dir = run_dir
         return run_dir
 
 

@@ -165,6 +165,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Benchmark run complete."))
         self.stdout.write(f"  Corpus ID:  {report.corpus_id}")
         self.stdout.write(f"  Extract ID: {report.extract_id}")
+        # Surface the report directory so operators don't have to grep logs
+        # for "Benchmark report written to …" to find report.json / report.csv.
+        if report.run_dir is not None:
+            self.stdout.write(f"  Report dir: {report.run_dir}")
         for key, value in sorted(report.aggregates.items()):
             if isinstance(value, float):
                 self.stdout.write(f"  {key:<28} {value:.4f}")

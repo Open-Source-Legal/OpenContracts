@@ -24,6 +24,7 @@ from opencontractserver.benchmarks.metrics import (
     char_iou,
     contains_verbatim_span,
     exact_match,
+    overlaps_any,
     precision_at_k,
     recall_at_k,
     token_f1,
@@ -289,13 +290,10 @@ def _evaluate(
             user_id=user_id,
         )
 
-        citation_span_hit = float(
-            any(
-                max(cs[0], gs[0]) < min(cs[1], gs[1])
-                for cs in cited_spans
-                for gs in gold_spans
-            )
-        )
+        # Use the shared overlap helper from ``metrics`` so the citation-hit
+        # definition stays in lockstep with ``recall_at_k`` / ``char_iou``
+        # rather than reimplementing interval-intersection logic inline.
+        citation_span_hit = float(overlaps_any(cited_spans, gold_spans))
         citation_verbatim_hit = contains_verbatim_span(cited_text, gold_answer)
 
         task_results.append(
