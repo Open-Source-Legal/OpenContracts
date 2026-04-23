@@ -100,7 +100,7 @@ class CohereReranker(BaseReranker):
     def _rerank_impl(
         self, query: str, passages: list[str], **all_kwargs
     ) -> list[RerankResult]:
-        s = self.settings if self.settings is not None else self.Settings()
+        s = self._effective_settings()
 
         api_key: str = all_kwargs.get("cohere_api_key", s.cohere_api_key)
         model: str = all_kwargs.get("cohere_model", s.cohere_model)

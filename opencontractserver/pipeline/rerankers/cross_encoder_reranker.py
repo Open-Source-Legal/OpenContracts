@@ -59,7 +59,7 @@ def _load_cross_encoder(model_name: str, device: str) -> Any:
         try:
             # Import lazily so environments without sentence-transformers /
             # torch can still import this module.
-            from sentence_transformers import CrossEncoder  # type: ignore
+            from sentence_transformers import CrossEncoder
         except ImportError as exc:  # pragma: no cover - env dependent
             raise ImportError(
                 "CrossEncoderReranker requires the 'sentence-transformers' "
@@ -157,7 +157,7 @@ class CrossEncoderReranker(BaseReranker):
     def _rerank_impl(
         self, query: str, passages: list[str], **all_kwargs
     ) -> list[RerankResult]:
-        s = self.settings if self.settings is not None else self.Settings()
+        s = self._effective_settings()
 
         model_name: str = all_kwargs.get("model_name", s.model_name)
         device: str = all_kwargs.get("device", s.device)
@@ -166,14 +166,18 @@ class CrossEncoderReranker(BaseReranker):
 
         model = _load_cross_encoder(model_name, device)
 
+        # Apply max_length at the model level so the tokenizer truncates
+        # long (query, passage) pairs rather than failing. Supported by
+        # ``sentence-transformers`` >= 2.x; silently ignored if the
+        # attribute doesn't exist on an older version.
+        if hasattr(model, "max_length"):
+            model.max_length = max_length
+
         pairs = [(query, p or "") for p in passages]
         scores = model.predict(
             pairs,
             batch_size=batch_size,
             show_progress_bar=False,
-            # Newer sentence-transformers versions accept max_length; older
-            # versions ignore unknown kwargs on .predict() and warn instead.
-            # We guard with try/except below for maximum compatibility.
         )
 
         # Some cross-encoders (activation=sigmoid) return 0D arrays per pair
@@ -195,10 +199,6 @@ class CrossEncoderReranker(BaseReranker):
             while len(score_list) < len(passages):
                 score_list.append(float("-inf"))
             score_list = score_list[: len(passages)]
-
-        # Use max_length to silence 'argument ignored' warnings on older
-        # versions; newer versions pass it to the tokenizer.
-        del max_length  # noqa: F841 (not used on this path; reserved for future)
 
         return [
             RerankResult(index=i, score=score_list[i]) for i in range(len(passages))

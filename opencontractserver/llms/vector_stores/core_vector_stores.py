@@ -835,8 +835,14 @@ class CoreAnnotationVectorStore:
         queryset = async_to_sync(self._build_base_queryset)()
         queryset = self._apply_metadata_filters(queryset, query.filters)
 
-        # RRF oversample applies to each arm *before* fusion; when a reranker
-        # is active we scale it further so the pool stays rich.
+        # RRF oversample applies to each arm *before* fusion. The oversample
+        # factors compound intentionally when a reranker is active:
+        # ``fusion_top_k`` is already ``top_k * RERANK_OVERSAMPLE_FACTOR`` so
+        # each arm fetches ``top_k * RERANK_OVERSAMPLE_FACTOR *
+        # HYBRID_SEARCH_OVERSAMPLE_FACTOR`` candidates. Compounding keeps the
+        # pool rich enough that RRF + rerank has meaningful choices even
+        # after fusion dedupes; bounded overall by ``RERANK_MAX_CANDIDATES``
+        # on the reranker side.
         oversample_k = fusion_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR
 
         # --- Vector search arm ---

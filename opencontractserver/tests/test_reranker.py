@@ -13,12 +13,13 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import requests
 from django.test import TestCase, TransactionTestCase
 
+from opencontractserver.annotations.models import Annotation
 from opencontractserver.llms.vector_stores.core_vector_stores import (
     CoreAnnotationVectorStore,
     VectorSearchResult,
@@ -170,7 +171,7 @@ class NoopRerankerTest(TestCase):
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int = 200, payload: Optional[dict] = None):
+    def __init__(self, status_code: int = 200, payload: dict | None = None):
         self.status_code = status_code
         self._payload = payload if payload is not None else {}
         self.text = str(self._payload)
@@ -366,7 +367,10 @@ class CoreVectorStoreRerankerIntegrationTest(TestCase):
         ]
         return [
             VectorSearchResult(
-                annotation=_FakeAnnotation(i, text, similarity_score=1.0 - i * 0.1),
+                annotation=cast(
+                    Annotation,
+                    _FakeAnnotation(i, text, similarity_score=1.0 - i * 0.1),
+                ),
                 similarity_score=1.0 - i * 0.1,
             )
             for i, text in enumerate(passages)
@@ -490,7 +494,7 @@ class RerankerRegistryTest(TestCase):
         defn = registry.get_by_class_name(
             "opencontractserver.pipeline.rerankers.noop_reranker.NoopReranker"
         )
-        self.assertIsNotNone(defn)
+        assert defn is not None
         self.assertEqual(defn.name, "NoopReranker")
 
 

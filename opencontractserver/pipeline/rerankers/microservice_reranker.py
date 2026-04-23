@@ -115,7 +115,7 @@ class MicroserviceReranker(BaseReranker):
         )
 
     def _get_service_config(self, all_kwargs: dict) -> tuple[str, dict, int]:
-        s = self.settings if self.settings is not None else self.Settings()
+        s = self._effective_settings()
 
         service_url = all_kwargs.get(
             "reranker_microservice_url", s.reranker_microservice_url

@@ -2,7 +2,7 @@ import importlib
 import inspect
 import logging
 import pkgutil
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME, FileTypeEnum
@@ -512,8 +512,17 @@ def run_post_processors(
 # ``__init__`` loads component settings from the database; we also don't want
 # cross-encoder model weights reloading every call. Callers that need a fresh
 # instance (e.g. after a settings change) should call ``invalidate_reranker_cache``.
+#
+# NOTE: This cache is process-local. Multi-worker deployments (gunicorn,
+# Celery) will continue serving the old instance in already-warm workers
+# after a PipelineSettings change until each worker recycles or explicitly
+# calls invalidate_reranker_cache(). Operators changing the reranker in
+# production should plan for a rolling restart.
 
-_RERANKER_INSTANCE_CACHE: dict[str, "BaseReranker"] = {}
+# Sentinel value stored for configurations that failed to load so we don't
+# re-hit the database / re-import on every call.
+_RERANKER_LOAD_FAILED: object = object()
+_RERANKER_INSTANCE_CACHE: dict[str, object] = {}
 
 
 def get_default_reranker_path() -> str:
@@ -561,18 +570,23 @@ def get_default_reranker_instance() -> Optional[BaseReranker]:
 
     Returns ``None`` when no reranker is configured or instantiation fails.
     Instantiation failures are logged but never propagated — the caller
-    should gracefully fall back to first-stage retrieval order.
+    should gracefully fall back to first-stage retrieval order. Failed
+    loads are cached as well so a misconfiguration doesn't re-query the
+    DB and re-attempt the import on every retrieval call.
     """
     class_path = get_default_reranker_path()
     if not class_path:
         return None
 
     cached = _RERANKER_INSTANCE_CACHE.get(class_path)
+    if cached is _RERANKER_LOAD_FAILED:
+        return None
     if cached is not None:
-        return cached
+        return cast(BaseReranker, cached)
 
     reranker_class = get_default_reranker_class()
     if reranker_class is None:
+        _RERANKER_INSTANCE_CACHE[class_path] = _RERANKER_LOAD_FAILED
         return None
 
     try:
@@ -582,6 +596,7 @@ def get_default_reranker_instance() -> Optional[BaseReranker]:
             f"Failed to instantiate reranker '{class_path}': {e}. "
             "Reranking will be skipped for this process."
         )
+        _RERANKER_INSTANCE_CACHE[class_path] = _RERANKER_LOAD_FAILED
         return None
 
     _RERANKER_INSTANCE_CACHE[class_path] = instance

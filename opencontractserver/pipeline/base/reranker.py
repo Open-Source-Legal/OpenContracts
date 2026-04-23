@@ -25,9 +25,10 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Optional
 
 from asgiref.sync import sync_to_async
+
+from opencontractserver.constants.search import RERANK_MAX_CANDIDATES
 
 from .base_component import PipelineComponentBase
 
@@ -72,9 +73,12 @@ class BaseReranker(PipelineComponentBase, ABC):
     input_schema: Mapping = {}
 
     # Hard upper bound on candidates per call. Cross-encoders quadratic in
-    # this number (per-pair scoring), so keep it reasonable. Callers can
-    # raise this on an instance if they know what they're doing.
-    max_candidates: int = 256
+    # this number (per-pair scoring), so keep it reasonable. Shares a single
+    # source of truth with the retrieval-side cap
+    # (:data:`RERANK_MAX_CANDIDATES`) so oversampling and reranker-side
+    # truncation stay aligned. Callers can raise this on an instance if
+    # they know what they're doing.
+    max_candidates: int = RERANK_MAX_CANDIDATES
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -83,11 +87,67 @@ class BaseReranker(PipelineComponentBase, ABC):
     # Public API
     # ------------------------------------------------------------------ #
 
+    def _effective_settings(self):
+        """Return ``self.settings`` or a fresh default-configured Settings().
+
+        Shared by all concrete backends so fallback behaviour stays consistent
+        if :attr:`PipelineComponentBase.settings` semantics ever change.
+        Concrete reranker subclasses always declare a ``Settings`` dataclass,
+        so the fallback path is always callable at runtime.
+        """
+        if self.settings is not None:
+            return self.settings
+        settings_cls = self.Settings
+        assert (
+            settings_cls is not None
+        ), f"{type(self).__name__} must declare a Settings dataclass"
+        return settings_cls()
+
+    def _prepare_call(
+        self,
+        query: str,
+        passages: list[str],
+        top_k: int | None,
+        direct_kwargs: dict,
+    ) -> tuple[list[str], dict, list[RerankResult] | None]:
+        """Apply shared input validation for sync + async entry points.
+
+        Returns ``(passages, merged_kwargs, short_circuit)`` where
+        ``short_circuit`` is a non-None result list when the caller should
+        skip the concrete impl (empty passages or empty query).
+        """
+        if not passages:
+            return passages, {}, []
+
+        if not query or not query.strip():
+            logger.debug("Reranker received empty query; returning identity ordering.")
+            return (
+                passages,
+                {},
+                [RerankResult(index=i, score=1.0) for i in range(len(passages))],
+            )
+
+        if len(passages) > self.max_candidates:
+            logger.warning(
+                "Reranker '%s' received %d candidates (max=%d); "
+                "truncating to the first %d.",
+                self.__class__.__name__,
+                len(passages),
+                self.max_candidates,
+                self.max_candidates,
+            )
+            passages = passages[: self.max_candidates]
+
+        merged_kwargs = {**self.get_component_settings(), **direct_kwargs}
+        if top_k is not None:
+            merged_kwargs.setdefault("top_k", top_k)
+        return passages, merged_kwargs, None
+
     def rerank(
         self,
         query: str,
         passages: list[str],
-        top_k: Optional[int] = None,
+        top_k: int | None = None,
         **direct_kwargs,
     ) -> list[RerankResult]:
         """Re-order passages by relevance to the query.
@@ -101,36 +161,20 @@ class BaseReranker(PipelineComponentBase, ABC):
                 return all re-scored passages sorted by score descending.
             **direct_kwargs: Runtime overrides merged with component
                 settings before being forwarded to the concrete impl.
+                ``top_k`` is forwarded as a hint so backends that can
+                short-circuit (HTTP services, hosted APIs) have access to
+                it; the base class still performs the authoritative trim.
 
         Returns:
             A list of :class:`RerankResult`, sorted by ``score`` descending.
             When ``top_k`` is provided, the list length is
             ``min(top_k, len(passages))``.
         """
-        if not passages:
-            return []
-
-        if not query or not query.strip():
-            logger.debug("Reranker received empty query; returning identity ordering.")
-            return [RerankResult(index=i, score=1.0) for i in range(len(passages))]
-
-        if len(passages) > self.max_candidates:
-            logger.warning(
-                "Reranker '%s' received %d candidates (max=%d); "
-                "truncating to the first %d.",
-                self.__class__.__name__,
-                len(passages),
-                self.max_candidates,
-                self.max_candidates,
-            )
-            passages = passages[: self.max_candidates]
-
-        # Forward ``top_k`` as a hint into ``all_kwargs`` so backends that
-        # can short-circuit (HTTP reranker services, hosted APIs) have access
-        # to it. The base class still performs the authoritative trim.
-        merged_kwargs = {**self.get_component_settings(), **direct_kwargs}
-        if top_k is not None:
-            merged_kwargs.setdefault("top_k", top_k)
+        passages, merged_kwargs, short_circuit = self._prepare_call(
+            query, passages, top_k, direct_kwargs
+        )
+        if short_circuit is not None:
+            return short_circuit
         results = self._rerank_impl(query, passages, **merged_kwargs)
         return self._finalize_results(results, len(passages), top_k)
 
@@ -138,7 +182,7 @@ class BaseReranker(PipelineComponentBase, ABC):
         self,
         query: str,
         passages: list[str],
-        top_k: Optional[int] = None,
+        top_k: int | None = None,
         **direct_kwargs,
     ) -> list[RerankResult]:
         """Async variant of :meth:`rerank`.
@@ -148,26 +192,11 @@ class BaseReranker(PipelineComponentBase, ABC):
         :meth:`_arerank_impl` instead of overriding this method — the
         validation/finalization steps in :meth:`rerank` are not trivial.
         """
-        if not passages:
-            return []
-
-        if not query or not query.strip():
-            return [RerankResult(index=i, score=1.0) for i in range(len(passages))]
-
-        if len(passages) > self.max_candidates:
-            logger.warning(
-                "Reranker '%s' received %d candidates (max=%d); "
-                "truncating to the first %d.",
-                self.__class__.__name__,
-                len(passages),
-                self.max_candidates,
-                self.max_candidates,
-            )
-            passages = passages[: self.max_candidates]
-
-        merged_kwargs = {**self.get_component_settings(), **direct_kwargs}
-        if top_k is not None:
-            merged_kwargs.setdefault("top_k", top_k)
+        passages, merged_kwargs, short_circuit = self._prepare_call(
+            query, passages, top_k, direct_kwargs
+        )
+        if short_circuit is not None:
+            return short_circuit
         results = await self._arerank_impl(query, passages, **merged_kwargs)
         return self._finalize_results(results, len(passages), top_k)
 
@@ -214,7 +243,7 @@ class BaseReranker(PipelineComponentBase, ABC):
     def _finalize_results(
         results: list[RerankResult],
         n_candidates: int,
-        top_k: Optional[int],
+        top_k: int | None,
     ) -> list[RerankResult]:
         """Validate indices, sort by score, and trim to ``top_k``."""
         # Defensive: drop any invalid indices rather than raising, to keep
@@ -244,12 +273,12 @@ class BaseReranker(PipelineComponentBase, ABC):
 
 
 def safe_rerank(
-    reranker: Optional[BaseReranker],
+    reranker: BaseReranker | None,
     query: str,
     passages: list[str],
-    top_k: Optional[int] = None,
+    top_k: int | None = None,
     **direct_kwargs,
-) -> Optional[list[RerankResult]]:
+) -> list[RerankResult] | None:
     """Run :meth:`BaseReranker.rerank` without propagating failures.
 
     Returns ``None`` if the reranker is ``None``, the inputs are unusable,
@@ -270,12 +299,12 @@ def safe_rerank(
 
 
 async def safe_arerank(
-    reranker: Optional[BaseReranker],
+    reranker: BaseReranker | None,
     query: str,
     passages: list[str],
-    top_k: Optional[int] = None,
+    top_k: int | None = None,
     **direct_kwargs,
-) -> Optional[list[RerankResult]]:
+) -> list[RerankResult] | None:
     """Async counterpart of :func:`safe_rerank`."""
     if reranker is None or not passages:
         return None
