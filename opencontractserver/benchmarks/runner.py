@@ -126,9 +126,7 @@ def run_benchmark(
     # embedder, since that is a common silent-fallback footgun when running
     # the harness through the test.yml compose stack.
     embedder_path = (
-        loaded.corpus.preferred_embedder
-        or loaded.corpus.created_with_embedder
-        or ""
+        loaded.corpus.preferred_embedder or loaded.corpus.created_with_embedder or ""
     )
     config["embedder"] = embedder_path
     config["embedder_created_with"] = loaded.corpus.created_with_embedder or ""
@@ -225,9 +223,7 @@ def _run_extraction(
     ctx = force_celery_eager() if use_eager_extraction else nullcontext()
 
     def _run_one(cell_id: int) -> None:
-        doc_extract_query_task.apply(
-            args=[cell_id], kwargs={"model_override": model}
-        )
+        doc_extract_query_task.apply(args=[cell_id], kwargs={"model_override": model})
 
     with ctx:
         if concurrency <= 1:
@@ -333,9 +329,7 @@ def _evaluate(
                     prediction, gold_answer
                 ),
                 probe_recall_at_k=recall_at_k(retrieval.spans, gold_spans, top_k),
-                probe_precision_at_k=precision_at_k(
-                    retrieval.spans, gold_spans, top_k
-                ),
+                probe_precision_at_k=precision_at_k(retrieval.spans, gold_spans, top_k),
                 probe_char_iou=char_iou(retrieval.spans, gold_spans),
                 citation_span_overlaps_gold=citation_span_hit,
                 citation_text_contains_gold_span=citation_verbatim_hit,

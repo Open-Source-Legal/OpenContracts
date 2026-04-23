@@ -144,9 +144,7 @@ class BenchmarkReport:
             # Single-shot top-k vector-store probe (NOT what the agent
             # actually retrieved).  Kept as a second axis for debugging
             # retrieval-algorithm changes in isolation; treat as secondary.
-            "probe_recall_at_k": mean(
-                r.probe_recall_at_k for r in self.task_results
-            ),
+            "probe_recall_at_k": mean(r.probe_recall_at_k for r in self.task_results),
             "probe_precision_at_k": mean(
                 r.probe_precision_at_k for r in self.task_results
             ),

@@ -217,20 +217,20 @@ def load_benchmark_into_corpus(
             # A task may target multiple documents; attach every one to the
             # extract and create one datacell per (task, document) pair.
             for document_key in task.document_keys:
-                document = documents_by_key.get(document_key)
-                if document is None:
+                task_document = documents_by_key.get(document_key)
+                if task_document is None:
                     logger.warning(
                         "Task %s references missing document %s; skipping",
                         task.task_id,
                         document_key,
                     )
                     continue
-                extract.documents.add(document)
+                extract.documents.add(task_document)
 
                 cell = Datacell.objects.create(
                     extract=extract,
                     column=column,
-                    document=document,
+                    document=task_document,
                     data_definition=task.output_type,
                     creator=user,
                 )

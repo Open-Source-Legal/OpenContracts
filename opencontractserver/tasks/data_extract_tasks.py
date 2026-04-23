@@ -367,9 +367,7 @@ async def doc_extract_query_task(
             # that weren't part of a retrieved annotation.
             if retrieved_annotation_ids:
                 try:
-                    await _link_retrieval_citations(
-                        datacell, retrieved_annotation_ids
-                    )
+                    await _link_retrieval_citations(datacell, retrieved_annotation_ids)
                     logger.info(
                         "Linked %d retrieval citations to datacell %s",
                         len(retrieved_annotation_ids),

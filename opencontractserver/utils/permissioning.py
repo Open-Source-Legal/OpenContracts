@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def set_permissions_for_obj_to_user(
-    user_val: int | str | type[User],
-    instance: type[django.db.models.Model],
+    user_val: int | str | User,
+    instance: django.db.models.Model,
     permissions: list[PermissionTypes],
 ) -> None:
     """
