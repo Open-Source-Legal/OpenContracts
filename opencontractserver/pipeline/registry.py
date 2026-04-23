@@ -31,6 +31,7 @@ from opencontractserver.pipeline.base.file_types import (
 )
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
+from opencontractserver.pipeline.base.reranker import BaseReranker
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.types.enums import ContentModality
 
@@ -44,6 +45,7 @@ class ComponentType(str, Enum):
     EMBEDDER = "embedder"
     THUMBNAILER = "thumbnailer"
     POST_PROCESSOR = "post_processor"
+    RERANKER = "reranker"
 
 
 @dataclass(frozen=True)
@@ -143,6 +145,7 @@ class PipelineComponentRegistry:
         self._embedders: tuple[PipelineComponentDefinition, ...] = ()
         self._thumbnailers: tuple[PipelineComponentDefinition, ...] = ()
         self._post_processors: tuple[PipelineComponentDefinition, ...] = ()
+        self._rerankers: tuple[PipelineComponentDefinition, ...] = ()
 
         # Name -> Definition lookup for fast access
         self._by_name: dict[str, PipelineComponentDefinition] = {}
@@ -367,12 +370,25 @@ class PipelineComponentRegistry:
                 self._post_processors_by_filetype.setdefault(ft, []).append(defn)
         self._post_processors = tuple(post_processors)
 
+        # Discover rerankers
+        reranker_classes = self._discover_subclasses(
+            "opencontractserver.pipeline.rerankers", BaseReranker
+        )
+        rerankers = []
+        for cls in reranker_classes:
+            defn = self._create_definition(cls, ComponentType.RERANKER)
+            rerankers.append(defn)
+            self._by_name[defn.name] = defn
+            self._by_class_name[defn.class_name] = defn
+        self._rerankers = tuple(rerankers)
+
         logger.info(
             f"Pipeline registry initialized: "
             f"{len(self._parsers)} parsers, "
             f"{len(self._embedders)} embedders, "
             f"{len(self._thumbnailers)} thumbnailers, "
-            f"{len(self._post_processors)} post-processors"
+            f"{len(self._post_processors)} post-processors, "
+            f"{len(self._rerankers)} rerankers"
         )
 
     # -------------------------------------------------------------------------
@@ -398,6 +414,11 @@ class PipelineComponentRegistry:
     def post_processors(self) -> tuple[PipelineComponentDefinition, ...]:
         """Get all registered post-processors."""
         return self._post_processors
+
+    @property
+    def rerankers(self) -> tuple[PipelineComponentDefinition, ...]:
+        """Get all registered rerankers."""
+        return self._rerankers
 
     def get_by_name(self, name: str) -> Optional[PipelineComponentDefinition]:
         """Get a component definition by class name (e.g., 'DoclingParser')."""
@@ -468,6 +489,11 @@ def get_all_post_processors_cached() -> tuple[PipelineComponentDefinition, ...]:
     return get_registry().post_processors
 
 
+def get_all_rerankers_cached() -> tuple[PipelineComponentDefinition, ...]:
+    """Get all registered rerankers (cached)."""
+    return get_registry().rerankers
+
+
 def get_component_by_name_cached(name: str) -> Optional[PipelineComponentDefinition]:
     """Get a component definition by name (cached)."""
     return get_registry().get_by_name(name)
@@ -502,6 +528,7 @@ def get_components_by_mimetype_cached(
         "embedders": list(registry.embedders),  # Embedders work on all text
         "thumbnailers": registry.get_thumbnailers_for_filetype(file_type_value),
         "post_processors": registry.get_post_processors_for_filetype(file_type_value),
+        "rerankers": list(registry.rerankers),  # Rerankers work on all text
     }
 
 
@@ -517,6 +544,7 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
         "embedders": registry.embedders,
         "thumbnailers": registry.thumbnailers,
         "post_processors": registry.post_processors,
+        "rerankers": registry.rerankers,
     }
 
 

@@ -957,6 +957,20 @@ class PipelineSettings(django.db.models.Model):
         help_text="Default embedder class path",
     )
 
+    # Default post-retrieval reranker. Empty = reranking disabled (callers
+    # return first-stage vector / hybrid search results as-is). When set, the
+    # vector store oversamples candidates and re-orders them through this
+    # reranker before returning the final top_k to callers.
+    default_reranker = django.db.models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "Default post-retrieval reranker class path. Empty string "
+            "disables reranking (first-stage vector / hybrid search only)."
+        ),
+    )
+
     # Encrypted secrets storage (API keys, tokens, credentials)
     # Stored as Fernet-encrypted JSON blob
     encrypted_secrets = django.db.models.BinaryField(
@@ -1099,6 +1113,9 @@ class PipelineSettings(django.db.models.Model):
                     "default_embedder": getattr(
                         django_settings, "DEFAULT_EMBEDDER", ""
                     ),
+                    "default_reranker": getattr(
+                        django_settings, "DEFAULT_RERANKER", ""
+                    ),
                 },
             )
 
@@ -1207,6 +1224,19 @@ class PipelineSettings(django.db.models.Model):
             Default embedder class path.
         """
         return self.default_embedder or ""
+
+    def get_default_reranker(self) -> str:
+        """
+        Get the default reranker class path.
+
+        Database is the single source of truth at runtime. An empty string
+        means reranking is disabled — callers should return first-stage
+        retrieval results as-is.
+
+        Returns:
+            Default reranker class path, or empty string if unset.
+        """
+        return self.default_reranker or ""
 
     def is_component_enabled(self, class_path: str) -> bool:
         """Check if a component is enabled.

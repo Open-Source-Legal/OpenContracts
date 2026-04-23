@@ -83,6 +83,9 @@ class PipelineQueryMixin:
             if settings_instance.default_embedder:
                 configured_components.add(settings_instance.default_embedder)
 
+            if settings_instance.default_reranker:
+                configured_components.add(settings_instance.default_reranker)
+
             if settings_instance.parser_kwargs:
                 configured_components.update(settings_instance.parser_kwargs.keys())
 
@@ -105,6 +108,7 @@ class PipelineQueryMixin:
                 "post_processors": filter_configured(
                     components_data["post_processors"]
                 ),
+                "rerankers": filter_configured(components_data.get("rerankers", [])),
             }
 
         # Convert PipelineComponentDefinition objects to GraphQL types
@@ -164,6 +168,10 @@ class PipelineQueryMixin:
             post_processors=[
                 to_graphql_type(d, "post_processor")
                 for d in components_data["post_processors"]
+            ],
+            rerankers=[
+                to_graphql_type(d, "reranker")
+                for d in components_data.get("rerankers", [])
             ],
         )
 
@@ -233,6 +241,7 @@ class PipelineQueryMixin:
             parser_kwargs=settings_instance.parser_kwargs or {},
             component_settings=settings_instance.component_settings or {},
             default_embedder=settings_instance.default_embedder or "",
+            default_reranker=settings_instance.default_reranker or "",
             components_with_secrets=components_with_secrets,
             tools_with_secrets=settings_instance.get_tools_with_secrets(),
             enabled_components=settings_instance.enabled_components or [],

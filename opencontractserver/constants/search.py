@@ -34,6 +34,25 @@ RRF_K = 60
 HYBRID_SEARCH_OVERSAMPLE_FACTOR = 3
 
 # =============================================================================
+# Reranker Parameters
+# =============================================================================
+# When a global reranker is configured (PipelineSettings.default_reranker),
+# vector / hybrid search fetches ``top_k * RERANK_OVERSAMPLE_FACTOR`` candidates
+# from the first-stage retrieval, feeds them through the reranker, and returns
+# the top ``top_k`` results. A factor of 3 matches the industry-standard recipe
+# (e.g. the bge-reranker paper). Tune higher for better recall, lower for
+# cheaper latency.
+RERANK_OVERSAMPLE_FACTOR = 3
+
+# Hard cap on candidates sent to the reranker, regardless of oversample. Keeps
+# the worst case bounded when callers request very large top_k values.
+RERANK_MAX_CANDIDATES = 128
+
+# Default number of candidates the reranker should operate on when no caller
+# explicitly specifies ``similarity_top_k``. Matches vector-store defaults.
+RERANK_DEFAULT_TOP_K = 10
+
+# =============================================================================
 # Embedding Dimensions
 # =============================================================================
 # All supported vector embedding dimensions across the platform.

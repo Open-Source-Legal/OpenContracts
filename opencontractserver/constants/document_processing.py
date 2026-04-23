@@ -49,6 +49,12 @@ EMBEDDER_SINGLE_REQUEST_TIMEOUT_SECONDS = 30
 # Larger than the single timeout because batches process multiple texts.
 EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS = 60
 
+# HTTP request timeout (seconds) for reranker microservice calls.
+# Reranking typically runs over tens of candidates (top_k * oversample), so
+# a modest timeout is sufficient. Retrieval degrades gracefully to the
+# first-stage ordering on reranker failure.
+RERANKER_REQUEST_TIMEOUT_SECONDS = 30
+
 # Maximum number of embedding batch tasks to queue in a single reembed_corpus run.
 # For very large corpuses (millions of annotations), this prevents flooding the
 # Celery queue. Remaining annotations will be logged but not queued; re-running

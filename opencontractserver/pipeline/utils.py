@@ -8,6 +8,7 @@ from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME, FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
+from opencontractserver.pipeline.base.reranker import BaseReranker
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.types.dicts import OpenContractsExportDataJsonPythonType
 
@@ -80,6 +81,16 @@ def get_all_post_processors() -> list[type[BasePostProcessor]]:
     return get_all_subclasses(
         "opencontractserver.pipeline.post_processors", BasePostProcessor
     )
+
+
+def get_all_rerankers() -> list[type[BaseReranker]]:
+    """
+    Get all reranker classes.
+
+    Returns:
+        List[Type[BaseReranker]]: List of reranker classes.
+    """
+    return get_all_subclasses("opencontractserver.pipeline.rerankers", BaseReranker)
 
 
 def get_components_by_mimetype(
@@ -265,6 +276,7 @@ def get_component_by_name(component_name: str) -> type:
                     or issubclass(obj, BaseEmbedder)
                     or issubclass(obj, BaseThumbnailGenerator)
                     or issubclass(obj, BasePostProcessor)
+                    or issubclass(obj, BaseReranker)
                 ):
                     return obj
         except (ModuleNotFoundError, AttributeError):
@@ -276,6 +288,7 @@ def get_component_by_name(component_name: str) -> type:
         "opencontractserver.pipeline.embedders",
         "opencontractserver.pipeline.thumbnailers",
         "opencontractserver.pipeline.post_processors",
+        "opencontractserver.pipeline.rerankers",
     ]
 
     for base_path in base_paths:
@@ -290,6 +303,7 @@ def get_component_by_name(component_name: str) -> type:
                         and obj != BaseThumbnailGenerator
                     )
                     or (issubclass(obj, BasePostProcessor) and obj != BasePostProcessor)
+                    or (issubclass(obj, BaseReranker) and obj != BaseReranker)
                 ):
                     return obj
         except ModuleNotFoundError:
@@ -488,3 +502,92 @@ def run_post_processors(
             raise
 
     return current_zip_bytes, current_export_data
+
+
+# --------------------------------------------------------------------------- #
+# Reranker helpers
+# --------------------------------------------------------------------------- #
+# Process-local cache of reranker *instances* keyed by class path. Rerankers
+# (especially cross-encoder backends) can be expensive to instantiate because
+# ``__init__`` loads component settings from the database; we also don't want
+# cross-encoder model weights reloading every call. Callers that need a fresh
+# instance (e.g. after a settings change) should call ``invalidate_reranker_cache``.
+
+_RERANKER_INSTANCE_CACHE: dict[str, "BaseReranker"] = {}
+
+
+def get_default_reranker_path() -> str:
+    """
+    Get the default reranker class path from the database PipelineSettings
+    singleton. Returns empty string when no reranker is configured.
+    """
+    from opencontractserver.documents.models import PipelineSettings
+
+    return PipelineSettings.get_instance().get_default_reranker()
+
+
+def get_default_reranker_class() -> Optional[type[BaseReranker]]:
+    """
+    Resolve the configured default reranker class path to an actual class.
+
+    Returns ``None`` when no reranker is configured, or when the configured
+    class path cannot be imported (missing optional dependency, typo, etc.).
+    The caller is responsible for treating ``None`` as "reranking disabled".
+    """
+    class_path = get_default_reranker_path()
+    if not class_path:
+        return None
+    try:
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        reranker_class = getattr(module, class_name)
+    except (ModuleNotFoundError, AttributeError, ValueError) as e:
+        logger.error(f"Error loading reranker '{class_path}': {e}")
+        return None
+
+    if not isinstance(reranker_class, type) or not issubclass(
+        reranker_class, BaseReranker
+    ):
+        logger.error(
+            f"Configured default reranker '{class_path}' is not a BaseReranker subclass"
+        )
+        return None
+    return reranker_class
+
+
+def get_default_reranker_instance() -> Optional[BaseReranker]:
+    """
+    Return a process-cached instance of the configured default reranker.
+
+    Returns ``None`` when no reranker is configured or instantiation fails.
+    Instantiation failures are logged but never propagated — the caller
+    should gracefully fall back to first-stage retrieval order.
+    """
+    class_path = get_default_reranker_path()
+    if not class_path:
+        return None
+
+    cached = _RERANKER_INSTANCE_CACHE.get(class_path)
+    if cached is not None:
+        return cached
+
+    reranker_class = get_default_reranker_class()
+    if reranker_class is None:
+        return None
+
+    try:
+        instance = reranker_class()
+    except Exception as e:  # pragma: no cover - defensive
+        logger.error(
+            f"Failed to instantiate reranker '{class_path}': {e}. "
+            "Reranking will be skipped for this process."
+        )
+        return None
+
+    _RERANKER_INSTANCE_CACHE[class_path] = instance
+    return instance
+
+
+def invalidate_reranker_cache() -> None:
+    """Drop cached reranker instances (use after changing PipelineSettings)."""
+    _RERANKER_INSTANCE_CACHE.clear()
