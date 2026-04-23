@@ -218,11 +218,23 @@ class LegalBenchRAGAdapter(BaseBenchmarkAdapter):
                         self._load_document(document_key)
 
                     document = self._documents[document_key]
-                    # Clamp spans defensively — LegalBench-RAG data is
-                    # authoritative but malformed rows should not abort the
-                    # whole run.
-                    start = max(0, min(start, len(document.text)))
-                    end = max(start, min(end, len(document.text)))
+                    # Skip out-of-bounds gold spans with a warning rather than
+                    # silently clamping — clamping would inflate retrieval
+                    # denominators / deflate answer-match scores with no
+                    # visible signal that the benchmark data is bad.
+                    doc_len = len(document.text)
+                    if start < 0 or end > doc_len:
+                        logger.warning(
+                            "Gold span [%d, %d] exceeds document length %d "
+                            "in %s test %s (%s); skipping snippet",
+                            start,
+                            end,
+                            doc_len,
+                            subset_name,
+                            test_index,
+                            file_path,
+                        )
+                        continue
 
                     spans_by_doc.setdefault(document_key, []).append((start, end))
                     answer_parts.append(document.text[start:end])

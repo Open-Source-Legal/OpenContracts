@@ -181,7 +181,7 @@ async def doc_extract_query_task(
         """
         from opencontractserver.annotations.models import Annotation
 
-        valid_ids = [int(a) for a in annotation_ids if isinstance(a, int) and a > 0]
+        valid_ids = [a for a in annotation_ids if isinstance(a, int) and a > 0]
         if not valid_ids:
             return
         # Guard against IDs that don't exist (e.g. race with deletion).

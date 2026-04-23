@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-from contextlib import nullcontext
 from pathlib import Path
 
 from django.utils import timezone
@@ -55,7 +54,6 @@ def run_benchmark(
     corpus_title: str | None = None,
     run_label: str | None = None,
     use_eager_ingestion: bool = True,
-    use_eager_extraction: bool = True,
     write_report: bool = True,
     extraction_concurrency: int = 1,
 ) -> BenchmarkReport:
@@ -78,27 +76,20 @@ def run_benchmark(
         use_eager_ingestion: Force celery into eager mode while ingesting
             documents so sentence annotations exist before extraction runs.
             Tests and notebooks should leave this on.
-        use_eager_extraction: Force celery into eager mode while
-            extracting.  Currently only ``True`` is supported — passing
-            ``False`` raises :class:`NotImplementedError` because child
-            tasks dispatched by ``doc_extract_query_task`` would be sent
-            to the real broker and may not finish before ``_evaluate()``
-            runs.
         write_report: When False, skip writing ``report.json`` / ``.csv``
             and just return the in-memory :class:`BenchmarkReport`.  Tests
             use this to avoid touching the filesystem.
 
+    Note:
+        Extraction always runs under ``force_celery_eager()`` so that child
+        tasks dispatched by ``doc_extract_query_task`` are executed in-process
+        and complete before ``_evaluate()`` inspects the datacells.
+        Non-eager extraction is not yet supported; support will be added
+        once the evaluator learns to wait on real broker-backed tasks.
+
     Returns:
         The populated :class:`BenchmarkReport`.
     """
-    if not use_eager_extraction:
-        raise NotImplementedError(
-            "Non-eager extraction is not yet supported because child tasks "
-            "dispatched by doc_extract_query_task go to the real broker and "
-            "may not finish before _evaluate() runs. "
-            "Set use_eager_extraction=True."
-        )
-
     config: dict[str, object] = {
         "model": model,
         "top_k": top_k,
@@ -147,7 +138,6 @@ def run_benchmark(
     _run_extraction(
         loaded=loaded,
         model=model,
-        use_eager_extraction=use_eager_extraction,
         concurrency=extraction_concurrency,
     )
 
@@ -207,7 +197,6 @@ def _run_extraction(
     *,
     loaded: LoadedBenchmark,
     model: str,
-    use_eager_extraction: bool,
     concurrency: int = 1,
 ) -> None:
     """Invoke the production extract task for every datacell.
@@ -220,7 +209,7 @@ def _run_extraction(
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    ctx = force_celery_eager() if use_eager_extraction else nullcontext()
+    ctx = force_celery_eager()
 
     def _run_one(cell_id: int) -> None:
         doc_extract_query_task.apply(args=[cell_id], kwargs={"model_override": model})
@@ -382,10 +371,16 @@ def _probe_retrieval_safely(
             user_id=user_id,
         )
     except Exception as exc:
+        # Broad catch is intentional — the probe runs once per datacell and
+        # we'd rather degrade to zero retrieval hits than abort the whole run
+        # because one document hit a transient DB/embedder error.  Logging
+        # with ``exc_info=True`` preserves the traceback for diagnosis
+        # instead of silently swallowing it.
         logger.warning(
             "Retrieval probe failed for document %s: %s",
             document_id,
             exc,
+            exc_info=True,
         )
         return RetrievalResult(annotation_ids=[], spans=[], similarity_scores=[])
 
