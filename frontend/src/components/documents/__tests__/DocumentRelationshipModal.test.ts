@@ -6,7 +6,7 @@ const makeLabel = (
   overrides: Partial<{
     id: string;
     text: string | null;
-    labelType: string;
+    labelType: string | undefined;
   }> = {}
 ) => ({
   id: "l-1",
@@ -34,6 +34,18 @@ describe("filterRelationshipLabels", () => {
     ];
     const out = filterRelationshipLabels(labels, "", true);
     expect(out.map((l) => l.id)).toEqual(["l-1", "l-3"]);
+  });
+
+  it("excludes labels whose labelType is undefined (not just null)", () => {
+    // Strict equality `=== LabelType.RelationshipLabel` excludes both null
+    // and undefined; this exercises the undefined edge-case explicitly so a
+    // future refactor doesn't accidentally start accepting unset labelType.
+    const labels = [
+      makeLabel({ id: "l-1", text: "references" }),
+      makeLabel({ id: "l-2", text: "header", labelType: undefined }),
+    ];
+    const out = filterRelationshipLabels(labels, "", true);
+    expect(out.map((l) => l.id)).toEqual(["l-1"]);
   });
 
   it("returns all relationship labels unfiltered when searchTerm is empty", () => {

@@ -8,14 +8,11 @@ name: Codecov Notify
 # the triggering SHA. Workflows that skipped due to path filters don't block
 # the notify step.
 #
-# This workflow also merges the three per-suite frontend lcov reports
-# (`frontend-unit-lcov`, `frontend-ct-lcov`, `frontend-e2e-lcov`, each
-# published as a GitHub Actions artifact by its producing job) into a
-# single lcov and uploads it to Codecov under the `frontend` flag. That
-# gives one authoritative Frontend coverage number — the README badge
-# reads it, and PR comments show the merged total alongside the per-suite
-# flags. The three individual flag uploads still happen in their own
-# workflows, so drill-in by suite continues to work.
+# The merged `frontend` flag that the README badge reads is produced
+# server-side: each per-suite frontend upload (`frontend-unit`,
+# `frontend-component`, `frontend-e2e`) is tagged with `frontend` as an
+# additional flag in its own workflow, so Codecov aggregates the union
+# of all three without any cross-workflow lcov merging here.
 
 on:
   workflow_run:
@@ -35,7 +32,7 @@ jobs:
     steps:
       - name: Wait for all coverage workflows
         id: check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const sha = context.payload.workflow_run.head_sha;
@@ -45,9 +42,10 @@ jobs:
               "Frontend E2E Integration",
             ];
 
-            // Fetch every workflow run attached to this SHA. The API returns
-            // the most recent attempt per workflow first, which is the one we
-            // care about after re-runs.
+            // Fetch every workflow run attached to this SHA. Sort explicitly
+            // by created_at desc so we always pick the most recent attempt
+            // per workflow (after re-runs) rather than relying on undocumented
+            // API ordering.
             const runs = await github.paginate(
               github.rest.actions.listWorkflowRunsForRepo,
               {
@@ -59,9 +57,14 @@ jobs:
             );
 
             let allDone = true;
-            const runIds = {};
             for (const name of expected) {
-              const matching = runs.filter((r) => r.name === name);
+              const matching = runs
+                .filter((r) => r.name === name)
+                .sort(
+                  (a, b) =>
+                    new Date(b.created_at).getTime() -
+                    new Date(a.created_at).getTime()
+                );
               if (matching.length === 0) {
                 core.info(`${name}: no run for this SHA (path-filtered) — OK`);
                 continue;
@@ -70,7 +73,6 @@ jobs:
               core.info(
                 `${name}: status=${latest.status} conclusion=${latest.conclusion} id=${latest.id}`
               );
-              runIds[name] = latest.id;
               if (latest.status !== "completed") {
                 allDone = false;
               }
@@ -78,94 +80,6 @@ jobs:
 
             core.setOutput("all_done", allDone ? "true" : "false");
             core.setOutput("sha", sha);
-            core.setOutput(
-              "frontend_ci_run_id",
-              runIds["Frontend CI"] || ""
-            );
-            core.setOutput(
-              "frontend_e2e_run_id",
-              runIds["Frontend E2E Integration"] || ""
-            );
-
-      # ────────────────────────────────────────────────────────────────
-      # Download per-suite lcov artifacts from each producing workflow.
-      #
-      # Each download is guarded by the producing workflow's run id (empty
-      # string when that workflow was path-filtered for this SHA), and
-      # `continue-on-error: true` tolerates a completed run that did not
-      # publish the artifact (for example, when the suite failed before
-      # the upload step ran).
-      # ────────────────────────────────────────────────────────────────
-      - name: Download unit lcov artifact
-        if: steps.check.outputs.all_done == 'true' && steps.check.outputs.frontend_ci_run_id != ''
-        continue-on-error: true
-        uses: actions/download-artifact@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ steps.check.outputs.frontend_ci_run_id }}
-          name: frontend-unit-lcov
-          path: coverage/unit
-
-      - name: Download component lcov artifact
-        if: steps.check.outputs.all_done == 'true' && steps.check.outputs.frontend_ci_run_id != ''
-        continue-on-error: true
-        uses: actions/download-artifact@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ steps.check.outputs.frontend_ci_run_id }}
-          name: frontend-ct-lcov
-          path: coverage/ct
-
-      - name: Download e2e lcov artifact
-        if: steps.check.outputs.all_done == 'true' && steps.check.outputs.frontend_e2e_run_id != ''
-        continue-on-error: true
-        uses: actions/download-artifact@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ steps.check.outputs.frontend_e2e_run_id }}
-          name: frontend-e2e-lcov
-          path: coverage/e2e
-
-      - name: Check for downloaded lcov files
-        id: lcov
-        if: steps.check.outputs.all_done == 'true'
-        run: |
-          shopt -s nullglob
-          files=(coverage/*/lcov.info)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No lcov artifacts retrieved; skipping merged frontend upload."
-            echo "has_lcov=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Found ${#files[@]} lcov file(s):"
-            printf '  - %s\n' "${files[@]}"
-            echo "has_lcov=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Setup Node.js
-        if: steps.lcov.outputs.has_lcov == 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-
-      - name: Merge frontend lcov reports
-        if: steps.lcov.outputs.has_lcov == 'true'
-        run: |
-          mkdir -p coverage/merged
-          npx --yes lcov-result-merger@5 'coverage/*/lcov.info' coverage/merged/lcov.info
-          echo "Merged lcov source-file count:"
-          grep -c "^SF:" coverage/merged/lcov.info || true
-
-      - name: Upload merged frontend coverage to Codecov
-        if: steps.lcov.outputs.has_lcov == 'true'
-        uses: codecov/codecov-action@v6
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage/merged/lcov.info
-          flags: frontend
-          name: frontend-merged-coverage
-          fail_ci_if_error: false
-          disable_search: true
-          override_commit: ${{ steps.check.outputs.sha }}
 
       - name: Send notifications to Codecov
         if: steps.check.outputs.all_done == 'true'

@@ -33,6 +33,91 @@ repos:
         args: ["--config=setup.cfg"]
         additional_dependencies: [flake8-isort]
 
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.1
+    hooks:
+      - id: mypy
+        # Always check the full project surface, not just staged files —
+        # the Django plugin is a per-project load so partial runs miss
+        # cross-module errors. See docs/typing/README.md.
+        pass_filenames: false
+        args: ["--config-file=mypy.ini", "opencontractserver", "config"]
+        # mypy-django-plugin imports config.settings.mypy at startup, which
+        # pulls in most of INSTALLED_APPS. Pinning the Django + stub runtime
+        # here keeps the hook self-contained (contributors don't need the
+        # full dev env installed locally).
+        # pre-commit autoupdate only bumps `rev`; additional_dependencies
+        # are resolved fresh every time the hook env is (re)built, so
+        # anything less than `==` can drift. Direct dependencies whose
+        # API surface mypy actually checks against are `==`-pinned and
+        # MUST match requirements/base.txt + requirements/local.txt. The
+        # admin autodiscover that django-stubs triggers transitively
+        # imports most of the project, which is why the list is long.
+        # A handful of transitive deps (pandas, python-docx, openpyxl,
+        # python-pptx, spacy) are left unpinned or range-pinned — they
+        # are import-only (mypy never follows into their types with
+        # ignore_missing_imports=True), so a compatible bump cannot
+        # introduce new type errors. Range pins upper-bound known
+        # major breakages (e.g. pypdf 7, openai 3) for the same reason.
+        additional_dependencies:
+          # --- Type stubs -----------------------------------------------
+          - django-stubs==6.0.2
+          - djangorestframework-stubs==3.16.9
+          - types-requests==2.33.0.20260408
+          - types-PyYAML==6.0.12.20260408
+          # --- Django runtime (must match requirements/base.txt) --------
+          - django==5.2.13
+          - django-environ==0.13.0
+          - django-model-utils==5.0.0
+          - django-redis==6.0.0
+          - django-filter==25.1
+          - django-storages[boto3,google]==1.14.6
+          - django-tree-queries[admin]==0.24.0
+          - django-cte==3.0.0
+          - django-guardian==3.3.1
+          - django-celery-beat==2.9.0
+          - django-cors-headers==4.9.0
+          - djangorestframework==3.17.1
+          - drf-extra-fields==3.7.0
+          - whitenoise==6.12.0
+          - channels==4.3.2
+          - channels-redis==4.3.0
+          - daphne==4.2.1
+          - celery==5.6.3
+          - pgvector==0.4.2
+          - graphene-django==3.2.3
+          - django-graphql-jwt==0.4.0
+          - pydantic==2.13.3
+          - psycopg2-binary==2.9.11
+          # --- Pulled in transitively by app admin autodiscover ---------
+          - Pillow>=10.4.0
+          - pypdf>=4.0.0,<7
+          - plasmapdf==0.1.3
+          - pdfplumber>=0.10.0
+          - pdf2image>=1.16.0
+          - shapely>=2.0.0
+          - opencv-python-headless==4.13.0.92
+          - filetype==1.2.0
+          - python-docx
+          - openpyxl
+          - python-pptx
+          - pandas
+          - tiktoken==0.12.0
+          - openai>=2.11.0,<3
+          - pydantic-ai>=1.56.0,<2
+          - spacy
+          - tokenizers>=0.21,<0.23
+          - posthog==7.12.0
+          - jsonschema==4.26.0
+          - mcp>=1.0.0
+          - python-slugify==8.0.4
+          - argon2-cffi==25.1.0
+          - cryptography==46.0.7
+          - pyjwt==2.12.1
+          - requests>=2.32.2
+          - httpx>=0.27.0,<1
+          - redis==7.4.0
+
 # sets up .pre-commit-ci.yaml to ensure pre-commit dependencies stay up to date
 ci:
   autoupdate_schedule: weekly

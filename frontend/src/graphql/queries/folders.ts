@@ -44,46 +44,6 @@ export const GET_CORPUS_FOLDERS = gql`
   }
 `;
 
-export interface GetCorpusFolderInputs {
-  id: string;
-}
-
-export interface GetCorpusFolderOutputs {
-  corpusFolder: CorpusFolderType;
-}
-
-export const GET_CORPUS_FOLDER = gql`
-  query GetCorpusFolder($id: ID!) {
-    corpusFolder(id: $id) {
-      id
-      name
-      description
-      color
-      icon
-      tags
-      path
-      documentCount
-      descendantDocumentCount
-      created
-      modified
-      isPublic
-      parent {
-        id
-        name
-      }
-      children {
-        id
-        name
-        documentCount
-        color
-        icon
-      }
-      myPermissions
-      isPublished
-    }
-  }
-`;
-
 export interface DeletedDocumentPathType {
   id: string;
   path: string;
@@ -106,14 +66,6 @@ export interface DeletedDocumentPathType {
     id: string;
     name: string;
   } | null;
-}
-
-export interface GetDeletedDocumentsInputs {
-  corpusId: string;
-}
-
-export interface GetDeletedDocumentsOutputs {
-  deletedDocumentsInCorpus: DeletedDocumentPathType[];
 }
 
 export const GET_DELETED_DOCUMENTS_IN_CORPUS = gql`
@@ -341,38 +293,6 @@ export const MOVE_DOCUMENT_TO_FOLDER = gql`
         id
         title
       }
-    }
-  }
-`;
-
-export interface MoveDocumentsToFolderInputs {
-  documentIds: string[];
-  corpusId: string;
-  folderId?: string | null;
-}
-
-export interface MoveDocumentsToFolderOutputs {
-  moveDocumentsToFolder: {
-    ok: boolean;
-    message: string;
-    movedCount: number;
-  };
-}
-
-export const MOVE_DOCUMENTS_TO_FOLDER = gql`
-  mutation MoveDocumentsToFolder(
-    $documentIds: [ID]!
-    $corpusId: ID!
-    $folderId: ID
-  ) {
-    moveDocumentsToFolder(
-      documentIds: $documentIds
-      corpusId: $corpusId
-      folderId: $folderId
-    ) {
-      ok
-      message
-      movedCount
     }
   }
 `;

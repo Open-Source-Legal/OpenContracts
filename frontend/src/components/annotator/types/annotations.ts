@@ -40,31 +40,12 @@ export class RelationGroup {
   updateForAnnotationDeletion(
     a: ServerTokenAnnotation | ServerSpanAnnotation
   ): RelationGroup | undefined {
-    const sourceEmpty = this.sourceIds.length === 0;
-    const targetEmpty = this.targetIds.length === 0;
-
     const newSourceIds = this.sourceIds.filter((id) => id !== a.id);
     const newTargetIds = this.targetIds.filter((id) => id !== a.id);
 
-    const nowSourceEmpty = newSourceIds.length === 0;
-    const nowTargetEmpty = newTargetIds.length === 0;
-
-    // Only target had any annotations, now it has none,
-    // so delete.
-    if (sourceEmpty && nowTargetEmpty) {
-      return undefined;
-    }
-    // Only source had any annotations, now it has none,
-    // so delete.
-    if (targetEmpty && nowSourceEmpty) {
-      return undefined;
-    }
-    // Source was not empty, but now it is, so delete.
-    if (!sourceEmpty && nowSourceEmpty) {
-      return undefined;
-    }
-    // Target was not empty, but now it is, so delete.
-    if (!targetEmpty && nowTargetEmpty) {
+    // A relation requires at least one source and one target; if either side
+    // is empty after pruning, the relation is orphaned and must be dropped.
+    if (newSourceIds.length === 0 || newTargetIds.length === 0) {
       return undefined;
     }
 

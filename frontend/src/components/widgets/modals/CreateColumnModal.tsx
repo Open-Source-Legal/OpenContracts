@@ -22,7 +22,7 @@ const PRIMITIVE_TYPE_OPTIONS = [
   { value: "bool", label: "Boolean" },
 ];
 
-const DEFAULT_TASK =
+export const DEFAULT_EXTRACT_TASK_NAME =
   "opencontractserver.tasks.data_extract_tasks.doc_extract_query_task";
 
 // ---------------------------------------------------------------------------
@@ -443,7 +443,7 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
           limitToLabel: "",
           instructions: "",
           mustContainText: "",
-          taskName: DEFAULT_TASK,
+          taskName: DEFAULT_EXTRACT_TASK_NAME,
         });
         setOutputTypeOption("primitive");
         setPrimitiveType("str");
@@ -535,7 +535,7 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
         limitToLabel: "",
         instructions: "",
         mustContainText: "",
-        taskName: DEFAULT_TASK,
+        taskName: DEFAULT_EXTRACT_TASK_NAME,
       });
       setOutputTypeOption("primitive");
       setPrimitiveType("str");

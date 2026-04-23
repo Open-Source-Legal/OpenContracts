@@ -473,32 +473,6 @@ export const CREATE_LABELSET = gql`
   }
 `;
 
-export interface UpdateLabelsetInputs {
-  id: string;
-  title?: string;
-  description?: string;
-  icon?: string;
-}
-
-export interface UpdateLabelsetOutputs {
-  ok?: boolean;
-  message?: string;
-}
-
-export const UPDATE_LABELSET = gql`
-  mutation ($id: String!, $title: String, $description: String, $icon: String) {
-    updateLabelset(
-      id: $id
-      title: $title
-      description: $description
-      icon: $icon
-    ) {
-      ok
-      message
-    }
-  }
-`;
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// ANNOTATION LABEL-RELATED MUTATIONS
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -535,40 +509,6 @@ export const UPDATE_ANNOTATION_LABEL = gql`
       id: $id
       text: $text
       labelType: $labelType
-    ) {
-      ok
-      message
-    }
-  }
-`;
-
-export interface CreateAnnotationLabelInputs {
-  color?: string;
-  description?: string;
-  icon?: string;
-  title?: string;
-  type?: LabelType;
-}
-
-export interface CreateAnnotationLabelOutputs {
-  ok?: boolean;
-  message?: string;
-}
-
-export const CREATE_ANNOTATION_LABEL = gql`
-  mutation (
-    $color: String
-    $description: String
-    $icon: String
-    $title: String
-    $type: String
-  ) {
-    createLabel(
-      color: $color
-      description: $description
-      icon: $icon
-      title: $title
-      type: $type
     ) {
       ok
       message
@@ -677,80 +617,6 @@ export const SMART_LABEL_SEARCH_OR_CREATE = gql`
       }
       labelsetCreated
       labelCreated
-    }
-  }
-`;
-
-export interface SmartLabelListInputs {
-  corpusId: string;
-  labelType?: string;
-}
-
-export interface SmartLabelListOutputs {
-  smartLabelList: {
-    ok: boolean;
-    message: string;
-    labels: AnnotationLabelType[];
-    hasLabelset: boolean;
-    canCreateLabels: boolean;
-  };
-}
-
-export const SMART_LABEL_LIST = gql`
-  mutation ($corpusId: String!, $labelType: String) {
-    smartLabelList(corpusId: $corpusId, labelType: $labelType) {
-      ok
-      message
-      labels {
-        id
-        text
-        description
-        color
-        icon
-        labelType
-      }
-      hasLabelset
-      canCreateLabels
-    }
-  }
-`;
-
-export interface RemoveAnnotationLabelsFromLabelsetInputs {
-  label_ids: string[];
-  labelset_id: string;
-}
-
-export interface RemoveAnnotationLabelsFromLabelsetOutputs {
-  ok?: boolean;
-  message?: string;
-}
-
-export const REMOVE_ANNOTATION_LABELS_FROM_LABELSET = gql`
-  mutation ($labelIds: [String]!, $labelsetId: String!) {
-    removeAnnotationLabelsFromLabelset(
-      labelIds: $labelIds
-      labelsetId: $labelsetId
-    ) {
-      ok
-      message
-    }
-  }
-`;
-
-export interface DeleteAnnotationLabelInputs {
-  id: string;
-}
-
-export interface DeleteAnnotationLabelOutputs {
-  ok?: boolean;
-  message?: string;
-}
-
-export const DELETE_ANNOTATION_LABEL = gql`
-  mutation ($id: String!) {
-    deleteLabel(id: $id) {
-      ok
-      message
     }
   }
 `;
@@ -998,24 +864,6 @@ export const UPDATE_ME = gql`
   }
 `;
 
-export interface DeleteDocumenInputs {
-  id: string;
-}
-
-export interface DeleteDocumentOutputs {
-  ok?: boolean;
-  message?: string;
-}
-
-export const DELETE_DOCUMENT = gql`
-  mutation ($id: String!) {
-    deleteDocument(id: $id) {
-      ok
-      message
-    }
-  }
-`;
-
 export interface DeleteMultipleDocumentsInputs {
   documentIdsToDelete: string[];
 }
@@ -1188,24 +1036,6 @@ export const REQUEST_ADD_DOC_TYPE_ANNOTATION = gql`
           labelType
         }
       }
-    }
-  }
-`;
-
-export interface RemoveDocTypeAnnotationOutputType {
-  removeDocTypeAnnotation: {
-    ok: boolean;
-  };
-}
-
-export interface RemoveDocTypeAnnotationInputType {
-  annotationId: string;
-}
-
-export const REQUEST_DELETE_DOC_TYPE_ANNOTATION = gql`
-  mutation ($annotationId: String!) {
-    removeDocTypeAnnotation(annotationId: $annotationId) {
-      ok
     }
   }
 `;
@@ -2162,49 +1992,6 @@ export const REQUEST_UPDATE_EXTRACT = gql`
   }
 `;
 
-export const UPDATE_CORPUS_SETTINGS = gql`
-  mutation UpdateCorpusSettings(
-    $corpusId: ID!
-    $title: String
-    $description: String
-    $allowComments: Boolean
-  ) {
-    updateCorpus(
-      input: {
-        id: $corpusId
-        title: $title
-        description: $description
-        allowComments: $allowComments
-      }
-    ) {
-      corpus {
-        id
-        title
-        description
-        allowComments
-      }
-    }
-  }
-`;
-
-export interface UpdateCorpusSettingsInput {
-  corpusId: string;
-  title?: string;
-  description?: string;
-  allowComments?: boolean;
-}
-
-export interface UpdateCorpusSettingsOutput {
-  updateCorpus: {
-    corpus: {
-      id: string;
-      title?: string;
-      description?: string;
-      allowComments?: boolean;
-    };
-  };
-}
-
 export const CREATE_CORPUS_ACTION = gql`
   mutation CreateCorpusAction(
     $corpusId: ID!
@@ -2550,66 +2337,6 @@ export interface CreateBadgeOutput {
   };
 }
 
-export const UPDATE_BADGE = gql`
-  mutation UpdateBadge(
-    $badgeId: ID!
-    $name: String
-    $description: String
-    $icon: String
-    $color: String
-    $isAutoAwarded: Boolean
-    $criteriaConfig: JSONString
-  ) {
-    updateBadge(
-      badgeId: $badgeId
-      name: $name
-      description: $description
-      icon: $icon
-      color: $color
-      isAutoAwarded: $isAutoAwarded
-      criteriaConfig: $criteriaConfig
-    ) {
-      ok
-      message
-      badge {
-        id
-        name
-        description
-        icon
-        color
-        isAutoAwarded
-        criteriaConfig
-      }
-    }
-  }
-`;
-
-export interface UpdateBadgeInput {
-  badgeId: string;
-  name?: string;
-  description?: string;
-  icon?: string;
-  color?: string;
-  isAutoAwarded?: boolean;
-  criteriaConfig?: any;
-}
-
-export interface UpdateBadgeOutput {
-  updateBadge: {
-    ok: boolean;
-    message: string;
-    badge: {
-      id: string;
-      name: string;
-      description: string;
-      icon: string;
-      color: string;
-      isAutoAwarded: boolean;
-      criteriaConfig: any;
-    } | null;
-  };
-}
-
 export const DELETE_BADGE = gql`
   mutation DeleteBadge($badgeId: ID!) {
     deleteBadge(badgeId: $badgeId) {
@@ -2625,88 +2352,6 @@ export interface DeleteBadgeInput {
 
 export interface DeleteBadgeOutput {
   deleteBadge: {
-    ok: boolean;
-    message: string;
-  };
-}
-
-export const AWARD_BADGE = gql`
-  mutation AwardBadge($badgeId: ID!, $userId: ID!, $corpusId: ID) {
-    awardBadge(badgeId: $badgeId, userId: $userId, corpusId: $corpusId) {
-      ok
-      message
-      userBadge {
-        id
-        awardedAt
-        user {
-          id
-          username
-          email
-        }
-        badge {
-          id
-          name
-          description
-          icon
-          color
-        }
-        awardedBy {
-          id
-          username
-        }
-      }
-    }
-  }
-`;
-
-export interface AwardBadgeInput {
-  badgeId: string;
-  userId: string;
-  corpusId?: string;
-}
-
-export interface AwardBadgeOutput {
-  awardBadge: {
-    ok: boolean;
-    message: string;
-    userBadge: {
-      id: string;
-      awardedAt: string;
-      user: {
-        id: string;
-        username: string;
-        email: string;
-      };
-      badge: {
-        id: string;
-        name: string;
-        description: string;
-        icon: string;
-        color: string;
-      };
-      awardedBy?: {
-        id: string;
-        username: string;
-      };
-    } | null;
-  };
-}
-
-export const REVOKE_BADGE = gql`
-  mutation RevokeBadge($userBadgeId: ID!) {
-    revokeBadge(userBadgeId: $userBadgeId) {
-      ok
-      message
-    }
-  }
-`;
-
-export interface RevokeBadgeInput {
-  userBadgeId: string;
-}
-
-export interface RevokeBadgeOutput {
-  revokeBadge: {
     ok: boolean;
     message: string;
   };
@@ -2905,26 +2550,6 @@ export interface ReplyToMessageOutput {
       downvoteCount: number;
       userVote?: string;
     } | null;
-  };
-}
-
-export const DELETE_CONVERSATION = gql`
-  mutation DeleteConversation($conversationId: ID!) {
-    deleteConversation(conversationId: $conversationId) {
-      ok
-      message
-    }
-  }
-`;
-
-export interface DeleteConversationInput {
-  conversationId: string;
-}
-
-export interface DeleteConversationOutput {
-  deleteConversation: {
-    ok: boolean;
-    message: string;
   };
 }
 
@@ -3410,110 +3035,6 @@ export interface RestoreThreadOutput {
   };
 }
 
-/**
- * ============================================================================
- * NOTIFICATION MUTATIONS
- * ============================================================================
- */
-
-export const MARK_NOTIFICATION_READ = gql`
-  mutation MarkNotificationRead($notificationId: ID!) {
-    markNotificationRead(notificationId: $notificationId) {
-      ok
-      message
-      notification {
-        id
-        isRead
-        modified
-      }
-    }
-  }
-`;
-
-export interface MarkNotificationReadInput {
-  notificationId: string;
-}
-
-export interface MarkNotificationReadOutput {
-  markNotificationRead: {
-    ok: boolean;
-    message: string;
-    notification: {
-      id: string;
-      isRead: boolean;
-      modified: string;
-    } | null;
-  };
-}
-
-export const MARK_NOTIFICATION_UNREAD = gql`
-  mutation MarkNotificationUnread($notificationId: ID!) {
-    markNotificationUnread(notificationId: $notificationId) {
-      ok
-      message
-      notification {
-        id
-        isRead
-        modified
-      }
-    }
-  }
-`;
-
-export interface MarkNotificationUnreadInput {
-  notificationId: string;
-}
-
-export interface MarkNotificationUnreadOutput {
-  markNotificationUnread: {
-    ok: boolean;
-    message: string;
-    notification: {
-      id: string;
-      isRead: boolean;
-      modified: string;
-    } | null;
-  };
-}
-
-export const MARK_ALL_NOTIFICATIONS_READ = gql`
-  mutation MarkAllNotificationsRead {
-    markAllNotificationsRead {
-      ok
-      message
-      count
-    }
-  }
-`;
-
-export interface MarkAllNotificationsReadOutput {
-  markAllNotificationsRead: {
-    ok: boolean;
-    message: string;
-    count: number;
-  };
-}
-
-export const DELETE_NOTIFICATION = gql`
-  mutation DeleteNotification($notificationId: ID!) {
-    deleteNotification(notificationId: $notificationId) {
-      ok
-      message
-    }
-  }
-`;
-
-export interface DeleteNotificationInput {
-  notificationId: string;
-}
-
-export interface DeleteNotificationOutput {
-  deleteNotification: {
-    ok: boolean;
-    message: string;
-  };
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///
 /// DOCUMENT VERSIONING MUTATIONS
@@ -3546,27 +3067,6 @@ export interface RestoreDeletedDocumentOutput {
       id: string;
       title: string;
     } | null;
-  };
-}
-
-export const PERMANENTLY_DELETE_DOCUMENT = gql`
-  mutation PermanentlyDeleteDocument($documentId: String!, $corpusId: String!) {
-    permanentlyDeleteDocument(documentId: $documentId, corpusId: $corpusId) {
-      ok
-      message
-    }
-  }
-`;
-
-export interface PermanentlyDeleteDocumentInput {
-  documentId: string;
-  corpusId: string;
-}
-
-export interface PermanentlyDeleteDocumentOutput {
-  permanentlyDeleteDocument: {
-    ok: boolean;
-    message: string;
   };
 }
 
@@ -3738,65 +3238,6 @@ export const CREATE_DOCUMENT_RELATIONSHIP = gql`
   }
 `;
 
-export interface UpdateDocumentRelationshipInputs {
-  documentRelationshipId: string;
-  relationshipType?: string;
-  annotationLabelId?: string;
-  data?: Record<string, any>;
-}
-
-export interface UpdateDocumentRelationshipOutputs {
-  updateDocumentRelationship: {
-    ok: boolean;
-    message: string;
-    documentRelationship: {
-      id: string;
-      relationshipType: string;
-      data?: Record<string, any>;
-      annotationLabel?: {
-        id: string;
-        text: string;
-        color: string;
-        icon?: string;
-      };
-      modified: string;
-      myPermissions?: string[];
-    } | null;
-  };
-}
-
-export const UPDATE_DOCUMENT_RELATIONSHIP = gql`
-  mutation UpdateDocumentRelationship(
-    $documentRelationshipId: String!
-    $relationshipType: String
-    $annotationLabelId: String
-    $data: GenericScalar
-  ) {
-    updateDocumentRelationship(
-      documentRelationshipId: $documentRelationshipId
-      relationshipType: $relationshipType
-      annotationLabelId: $annotationLabelId
-      data: $data
-    ) {
-      ok
-      message
-      documentRelationship {
-        id
-        relationshipType
-        data
-        annotationLabel {
-          id
-          text
-          color
-          icon
-        }
-        modified
-        myPermissions
-      }
-    }
-  }
-`;
-
 export interface DeleteDocumentRelationshipInputs {
   documentRelationshipId: string;
 }
@@ -3815,30 +3256,6 @@ export const DELETE_DOCUMENT_RELATIONSHIP = gql`
     ) {
       ok
       message
-    }
-  }
-`;
-
-export interface DeleteDocumentRelationshipsInputs {
-  documentRelationshipIds: string[];
-}
-
-export interface DeleteDocumentRelationshipsOutputs {
-  deleteDocumentRelationships: {
-    ok: boolean;
-    message: string;
-    deletedCount: number;
-  };
-}
-
-export const DELETE_DOCUMENT_RELATIONSHIPS = gql`
-  mutation DeleteDocumentRelationships($documentRelationshipIds: [String!]!) {
-    deleteDocumentRelationships(
-      documentRelationshipIds: $documentRelationshipIds
-    ) {
-      ok
-      message
-      deletedCount
     }
   }
 `;

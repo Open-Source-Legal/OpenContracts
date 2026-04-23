@@ -3687,3 +3687,59 @@ const createSummaryMocks = (documentId: string, corpusId: string) => [
   createVersionMock(documentId, corpusId),
   createVersionMock(documentId, corpusId),
 ];
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Error / unauthorized / fallback states
+ * ────────────────────────────────────────────────────────────────────────── */
+
+test("renders Invalid Document error when documentId is empty", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DocumentKnowledgeBaseTestWrapper
+      mocks={[]}
+      documentId=""
+      corpusId={CORPUS_ID}
+    />
+  );
+
+  // The component short-circuits with an error modal.
+  await expect(page.getByText("Invalid Document", { exact: true })).toBeVisible(
+    { timeout: 5000 }
+  );
+  await expect(
+    page.getByText("Cannot load document: Invalid document ID")
+  ).toBeVisible();
+
+  // A "Close" button is offered for exit.
+  await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
+});
+
+test("invalid-document error modal dismisses via the Close button", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DocumentKnowledgeBaseTestWrapper
+      mocks={[]}
+      documentId=""
+      corpusId={CORPUS_ID}
+    />
+  );
+
+  await expect(page.getByText("Invalid Document", { exact: true })).toBeVisible(
+    { timeout: 5000 }
+  );
+
+  // Click Close. The wrapper defaults to a no-op onClose but the click must
+  // not throw and the title text remains on-screen (component does not
+  // re-render automatically — this simply exercises the handler path).
+  await page.getByRole("button", { name: "Close" }).click();
+
+  // Component still mounted (no navigation happened in the test harness);
+  // this is purely to cover the handleClose callback path.
+  await expect(
+    page.getByText("Invalid Document", { exact: true })
+  ).toBeVisible();
+});

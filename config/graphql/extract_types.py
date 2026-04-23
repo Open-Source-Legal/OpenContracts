@@ -75,6 +75,8 @@ def _get_datacell_qs(extract, user):
     it twice is cheap.
     """
     # Inline import to avoid circular dependency with the annotations module.
+    # TODO: Move ExtractQueryOptimizer to a standalone module so this becomes
+    # a top-level import (tracked as part of issue #1256 follow-ups).
     from opencontractserver.annotations.query_optimizer import (
         ExtractQueryOptimizer,
     )
@@ -89,9 +91,9 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         DatacellType,
         limit=graphene.Int(
             description=(
-                "Maximum number of datacells to return. Use to bound payload size "
-                "for extracts with many documents and columns. Returns all visible "
-                "datacells if omitted."
+                "Maximum number of datacells to return. Clamped to the server "
+                f"maximum of {MAX_FULL_DATACELL_LIST_LIMIT} even when omitted; "
+                "callers that need all cells must paginate using `offset`."
             )
         ),
         offset=graphene.Int(
@@ -140,18 +142,14 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             # bypass the intended payload cap via the GraphQL API.
             limit = max(0, min(limit, MAX_FULL_DATACELL_LIST_LIMIT))
             return qs[start : start + limit]
-        # Offset without limit: apply the server cap so callers cannot
-        # bypass the payload bound by providing only an offset.
-        if start:
-            return qs[start : start + MAX_FULL_DATACELL_LIST_LIMIT]
-        # No limit, no offset: backward-compatible full list for callers
-        # that need all visible cells (e.g., the Extracts panel).
-        return qs
+        # No limit supplied: always apply the server cap regardless of offset
+        # so every code path (no-args, offset-only, limit+offset) is bounded.
+        return qs[start : start + MAX_FULL_DATACELL_LIST_LIMIT]
 
     def resolve_datacell_count(self, info) -> int:
-        # N+1 warning: issues a COUNT(*) per ExtractType instance. Safe for
-        # the single-extract embed query; add a DataLoader before exposing
-        # this field on list queries.
+        # N+1 warning: issues a COUNT(*) in addition to the main list query
+        # per ExtractType instance. Safe for the single-extract embed query;
+        # add a DataLoader before exposing this field on list queries.
         return _get_datacell_qs(self, info.context.user).count()
 
     def resolve_full_document_list(self, info):

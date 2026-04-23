@@ -984,6 +984,7 @@ const SourceItem: React.FC<SourceItemProps> = ({
       $isSelected={isSelected}
       onClick={onClick}
       className="source-chip"
+      data-testid="source-chip"
     >
       <SourceHeader>
         <SourceTitle $isSelected={isSelected}>
@@ -1990,7 +1991,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           data-testid="source-indicator"
         >
           <Pin size={14} />
-          {sources.length > 0 ? `${sources.length} sources` : "View sources"}
+          {sources.length > 0
+            ? `${sources.length} ${sources.length === 1 ? "source" : "sources"}`
+            : "View sources"}
         </SourceIndicator>
       )}
       {approvalStatus && (

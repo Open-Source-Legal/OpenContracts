@@ -358,8 +358,10 @@ export const EXTRACT_GRID_CELL_TRUNCATE_LENGTH = 100;
  * Sized so that typical use cases (a few dozen documents x <= 20 columns)
  * fit comfortably without truncation. Resolves #1204.
  *
- * Must match the backend constant
- * ``opencontractserver/constants/extracts.py::MAX_FULL_DATACELL_LIST_LIMIT``.
+ * IMPORTANT: If you change this value, update the backend constant
+ * ``MAX_FULL_DATACELL_LIST_LIMIT`` in
+ * ``opencontractserver/constants/extracts.py`` at the same time.
+ * An automated CI sync-check is tracked in issue #1256.
  */
 export const EXTRACT_GRID_EMBED_CELL_LIMIT = 500;
 /**

@@ -561,6 +561,7 @@ const CollapsibleColumnCard: React.FC<CollapsibleColumnCardProps> = ({
             onClick={() => onDelete(column.id)}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            aria-label="Delete column"
           >
             <Trash2 />
           </IconBtn>
@@ -916,6 +917,7 @@ export const FieldsetModal: React.FC<FieldsetModalProps> = ({
               onClick={onClose}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              aria-label="Close"
             >
               <X />
             </CloseButton>
