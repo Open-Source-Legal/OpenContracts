@@ -25,6 +25,13 @@ concurrency:
 
 jobs:
   changes:
+    # Path filtering only gates pull_request events; pushes to protected
+    # branches always run downstream regardless of which files changed.
+    # dorny/paths-filter@v4 additionally needs a checked-out repo on push
+    # events (it shells out to `git branch --show-current`), so scoping
+    # this job to pull_request avoids the "fatal: not a git repository"
+    # red X that would otherwise appear on every push to main.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # Fail open: if this job errors (e.g., transient GitHub API failure),
     # downstream jobs should still run rather than being silently skipped.
@@ -35,8 +42,9 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
     steps:
-      # No checkout needed: dorny/paths-filter@v3 fetches diffs via the GitHub API.
-      - uses: dorny/paths-filter@v3
+      # No checkout needed: dorny/paths-filter@v4 reads diffs from the
+      # pull_request event payload.
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -50,17 +58,19 @@ jobs:
               - 'Dockerfile*'
               - '.pre-commit-config.yaml'
               - 'setup.cfg'
+              - 'mypy.ini'
               - 'pyproject.toml'
               - '.github/workflows/backend.yml'
 
   linter:
     needs: changes
-    # Skipping via path filter only applies to PRs with no backend changes.
-    # Push events to protected branches always run unconditionally.
-    # Using `!= 'false'` rather than `== 'true'` so a transient `changes` failure
-    # (outputs.backend is '' when the job errors under continue-on-error) still
-    # runs downstream jobs — the actual "fail open" behavior.
-    if: needs.changes.outputs.backend != 'false' || github.event_name == 'push'
+    # Run on every push, and on PRs unless the filter explicitly reports
+    # no backend changes ('false'). `always()` is required because the
+    # `changes` job is skipped on push events (see its `if:` above), and
+    # a skipped `needs` target would otherwise cascade-skip this job.
+    # The `!= 'false'` form also preserves the fail-open behaviour on
+    # PRs where `changes` errors transiently (outputs.backend is '').
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.backend != 'false')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,10 +93,19 @@ jobs:
       - name: Run pre-commit
         run: pre-commit run --all-files
 
+      - name: Run mypy
+        # Runs from requirements/local.txt (not via pre-commit) so CI is
+        # authoritative even when contributors skip the hook. Keep the
+        # mypy pin in requirements/local.txt in sync with the `rev:` of
+        # the mirrors-mypy hook in .pre-commit-config.yaml — a drift
+        # means the hook and CI can disagree silently. See
+        # docs/typing/README.md.
+        run: python -m mypy --config-file mypy.ini opencontractserver config
+
   pytest:
     needs: [changes, linter]
     # Same fail-open semantics as the linter gate above.
-    if: needs.changes.outputs.backend != 'false' || github.event_name == 'push'
+    if: always() && needs.linter.result == 'success' && (github.event_name == 'push' || needs.changes.outputs.backend != 'false')
     runs-on: yuge
     timeout-minutes: 180
     permissions:

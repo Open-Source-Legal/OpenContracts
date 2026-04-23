@@ -111,7 +111,6 @@ All mutations check permissions: creator OR is_public OR explicit corpus permiss
 
 **Queries:**
 - `GET_CORPUS_FOLDERS` - Fetch all folders in corpus (flat list)
-- `GET_CORPUS_FOLDER` - Fetch single folder with children
 
 **Mutations:**
 - `CREATE_CORPUS_FOLDER` - Create new folder (root or nested)
@@ -119,7 +118,6 @@ All mutations check permissions: creator OR is_public OR explicit corpus permiss
 - `MOVE_CORPUS_FOLDER` - Move folder to new parent
 - `DELETE_CORPUS_FOLDER` - Delete folder (with cascade options)
 - `MOVE_DOCUMENT_TO_FOLDER` - Move single document to folder
-- `MOVE_DOCUMENTS_TO_FOLDER` - Bulk move documents
 
 **TypeScript Interfaces:**
 - `CorpusFolderType` - Main folder type

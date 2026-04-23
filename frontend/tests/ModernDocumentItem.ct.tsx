@@ -55,8 +55,13 @@ function renderWithProviders(
  * Invoke the React onClick handler directly via the __reactProps$ fiber.
  *
  * Tested against React 18.x. The `__reactProps$` key is a React internal with
- * no semver guarantee — if this breaks after a React upgrade, check whether
- * DndContext now forwards pointer events to children and remove this shim.
+ * no semver guarantee. Two things can silently break this shim on upgrade:
+ *   1. The property name stem (`__reactProps$`) could be renamed/removed.
+ *   2. The suffix after `$` is a build-specific random ID that changes on
+ *      every React build (including minor/patch versions), so we must never
+ *      hard-code the full key — always find it via `Object.keys(el).find(...)`.
+ * If this breaks after a React upgrade, check whether DndContext now forwards
+ * pointer events to children and remove this shim.
  */
 async function clickViaReact(
   page: import("@playwright/test").Page,
@@ -218,7 +223,12 @@ test.describe("ModernDocumentItem — card view rendering", () => {
 
     // Number is rendered in the badge
     await expect(page.getByText("2").first()).toBeVisible();
-    // Popup text is present in the DOM even before hover (visibility:hidden)
+    // NOTE: toBeAttached() verifies DOM presence only — the relationship
+    // popup uses `visibility: hidden` by default and reveals on hover, so
+    // the nodes are always in the tree. If the popup ever switches to
+    // conditional rendering (mount-on-hover), these assertions would still
+    // pass while the feature breaks; revisit and use toBeVisible() after a
+    // hover step in that case.
     await expect(
       page.locator('text="2 Linked Documents"').first()
     ).toBeAttached();
@@ -326,7 +336,10 @@ test.describe("ModernDocumentItem — list view rendering", () => {
       mount
     );
 
-    // "1 Linked Document" (singular) should be in the popup DOM
+    // "1 Linked Document" (singular) should be in the popup DOM.
+    // NOTE: toBeAttached() verifies DOM presence only — see the card-view
+    // relationship popup test above for the rationale behind not using
+    // toBeVisible() here.
     await expect(
       page.locator('text="1 Linked Document"').first()
     ).toBeAttached();
@@ -664,36 +677,53 @@ test.describe("ModernDocumentItem — processing state", () => {
 // DndContext pointer listeners don't intercept contextmenu, but to avoid
 // relying on coordinate-based click targeting we walk up the DOM from a known
 // element and invoke the React onContextMenu prop directly. Same React 18.x
-// `__reactProps$` caveat as clickViaReact applies.
+// `__reactProps$` caveat as clickViaReact applies (including the build-hash
+// suffix: never hard-code the full key, always discover it via Object.keys).
 // ---------------------------------------------------------------------------
 
 async function openContextMenu(page: import("@playwright/test").Page) {
   await page.evaluate(() => {
-    // Walk up from the title element to find an ancestor with onContextMenu.
+    const dispatch = (el: HTMLElement): boolean => {
+      const propsKey = Object.keys(el).find((k) =>
+        k.startsWith("__reactProps$")
+      );
+      if (!propsKey) return false;
+      const props = (el as any)[propsKey];
+      if (typeof props?.onContextMenu !== "function") return false;
+      props.onContextMenu({
+        preventDefault: () => {},
+        stopPropagation: () => {},
+        clientX: 100,
+        clientY: 100,
+      });
+      return true;
+    };
+
+    // Prefer walking up from the checkbox — it's nested inside the item root
+    // and guarantees we target the correct card/list ancestor. If the
+    // checkbox is ever conditionally hidden (e.g. future read-only view),
+    // fall back to scanning the entire document for the first element with
+    // an onContextMenu React prop, which will be the item root because
+    // nothing else in the tree attaches one.
     let el: HTMLElement | null = document.querySelector(
       ".checkbox"
     ) as HTMLElement | null;
     while (el) {
-      const propsKey = Object.keys(el).find((k) =>
-        k.startsWith("__reactProps$")
-      );
-      if (propsKey) {
-        const props = (el as any)[propsKey];
-        if (typeof props?.onContextMenu === "function") {
-          props.onContextMenu({
-            preventDefault: () => {},
-            stopPropagation: () => {},
-            clientX: 100,
-            clientY: 100,
-          });
-          return;
-        }
-      }
+      if (dispatch(el)) return;
       el = el.parentElement;
     }
+
+    // Fallback: scan every element in the document for a React onContextMenu
+    // handler. Order is document order, so the outermost handler wins — which
+    // is fine because only the item root attaches one.
+    const all = document.querySelectorAll<HTMLElement>("*");
+    for (const candidate of Array.from(all)) {
+      if (dispatch(candidate)) return;
+    }
+
     throw new Error(
-      "openContextMenu: no onContextMenu handler found walking up from .checkbox — " +
-        "is the component rendered with the checkbox present?"
+      "openContextMenu: no element in the document carries a React " +
+        "onContextMenu prop — is the ModernDocumentItem rendered?"
     );
   });
 }

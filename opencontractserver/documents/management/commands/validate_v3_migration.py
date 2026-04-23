@@ -298,9 +298,11 @@ class Command(BaseCommand):
         )
 
         if verbose:
-            for dup in duplicates[:5]:
+            for content_hash, count in duplicates.values_list(
+                "content_hash", "count"
+            )[:5]:
                 self.stdout.write(
-                    f"    - Hash {dup['content_hash'][:16]}...: {dup['count']} duplicates"
+                    f"    - Hash {content_hash[:16]}...: {count} duplicates"
                 )
 
         return {"passed": False, "duplicate_hashes": duplicate_count}

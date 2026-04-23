@@ -163,6 +163,27 @@ interface UnifiedContentFeedTestWrapperProps {
   mocks?: MockedResponse[];
   /** Override the default container style (400×600px) */
   containerStyle?: React.CSSProperties;
+  /**
+   * When true, leaves the corpusStateAtom empty so that tests can exercise
+   * the "no corpus" branches of the feed (hides the selection toolbar,
+   * disables multi-select checkboxes, etc.).
+   */
+  noCorpus?: boolean;
+  /**
+   * When true, seeds a `showStructural=true` entry in
+   * `showStructuralAnnotationsAtom` so tests can verify structural items
+   * appear (they are normally filtered out).
+   */
+  showStructural?: boolean;
+  /**
+   * Optional initial search query applied via the searchTextAtom so the
+   * "search" content type can be driven from tests.
+   */
+  searchText?: string;
+  /**
+   * Optional initial text search matches applied via textSearchStateAtom.
+   */
+  textSearchMatches?: any[];
 }
 
 // Default filters
@@ -195,6 +216,10 @@ const InnerWrapper: React.FC<
   mockAnnotations = [],
   mockRelations = [],
   selectedAnnotationIds: propSelectedAnnotationIds = [],
+  noCorpus = false,
+  showStructural = false,
+  searchText = "",
+  textSearchMatches = [],
   children,
 }) => {
   const setPdfAnnotations = useSetAtom(pdfAnnotationsAtom);
@@ -249,16 +274,16 @@ const InnerWrapper: React.FC<
     );
     setStructuralAnnotations(structuralAnns);
     setTextSearchState({
-      matches: [],
+      matches: textSearchMatches,
       selectedIndex: 0,
     });
-    setSearchText("");
+    setSearchText(searchText);
     setSelectedAnnotations(propSelectedAnnotationIds);
     setSelectedRelations([]);
     // Don't filter by labels - show all annotations
     setSpanLabelsToView(null);
-    setShowStructural(false);
-    setShowStructuralRelationships(false);
+    setShowStructural(showStructural);
+    setShowStructuralRelationships(showStructural);
 
     // Initialize annotation display atoms
     setShowBoundingBoxes(false);
@@ -286,18 +311,20 @@ const InnerWrapper: React.FC<
     } as any);
 
     setCorpusState({
-      selectedCorpus: {
-        id: "test-corpus-id",
-        title: "Test Corpus",
-        description: "Test corpus",
-        icon: null,
-        isPublic: false,
-        backendLock: false,
-        created: new Date().toISOString(),
-        modified: new Date().toISOString(),
-        myPermissions: ["READ", "WRITE", "UPDATE", "DELETE"],
-        __typename: "CorpusType",
-      } as any,
+      selectedCorpus: noCorpus
+        ? null
+        : ({
+            id: "test-corpus-id",
+            title: "Test Corpus",
+            description: "Test corpus",
+            icon: null,
+            isPublic: false,
+            backendLock: false,
+            created: new Date().toISOString(),
+            modified: new Date().toISOString(),
+            myPermissions: ["READ", "WRITE", "UPDATE", "DELETE"],
+            __typename: "CorpusType",
+          } as any),
       myPermissions: [],
       spanLabels: [],
       humanSpanLabels: [],
@@ -338,6 +365,10 @@ export const UnifiedContentFeedTestWrapper: React.FC<
   selectedAnnotationIds = [],
   mocks = [],
   containerStyle,
+  noCorpus = false,
+  showStructural = false,
+  searchText = "",
+  textSearchMatches = [],
 }) => {
   // Create a wildcard link that handles all operations
   const link = createWildcardLink(mocks);
@@ -372,6 +403,10 @@ export const UnifiedContentFeedTestWrapper: React.FC<
               mockAnnotations={mockAnnotations}
               mockRelations={mockRelations}
               selectedAnnotationIds={selectedAnnotationIds}
+              noCorpus={noCorpus}
+              showStructural={showStructural}
+              searchText={searchText}
+              textSearchMatches={textSearchMatches}
             >
               <div
                 style={{

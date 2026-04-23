@@ -6,6 +6,15 @@ FROM python as python-build-stage
 
 ARG BUILD_ENVIRONMENT=production
 
+# Harden pip against transient network failures during large wheel downloads.
+# PIP_RESUME_RETRIES (pip 24.1+) resumes broken downloads; the others bump
+# connection retry count and socket timeout. Without these, a mid-stream SSL
+# drop while fetching a large wheel (e.g. opencv-python-headless) aborts the
+# entire build.
+ENV PIP_RETRIES=10 \
+    PIP_TIMEOUT=60 \
+    PIP_RESUME_RETRIES=5
+
 # Install apt packages
 RUN apt-get update && apt-get install --no-install-recommends -y \
   # dependencies for building Python packages
@@ -49,6 +58,11 @@ ARG APP_HOME=/app
 ENV PYTHONUNBUFFERED 1
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV BUILD_ENV ${BUILD_ENVIRONMENT}
+
+# Harden pip against transient network failures (see python-build-stage for context).
+ENV PIP_RETRIES=10 \
+    PIP_TIMEOUT=60 \
+    PIP_RESUME_RETRIES=5
 
 # CUDA-specific environment variables for optimal performance
 ENV CUDA_MODULE_LOADING=LAZY

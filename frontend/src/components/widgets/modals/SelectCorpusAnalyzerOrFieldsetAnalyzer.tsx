@@ -1130,6 +1130,7 @@ export const SelectAnalyzerOrFieldsetModal: React.FC<
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
       onClick={onClose}
+      data-testid="select-analyzer-or-fieldset-overlay"
     >
       <ModalContainer
         initial={{ opacity: 0 }}
@@ -1152,6 +1153,7 @@ export const SelectAnalyzerOrFieldsetModal: React.FC<
             onClick={onClose}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            aria-label="Close"
           >
             <X />
           </CloseButton>

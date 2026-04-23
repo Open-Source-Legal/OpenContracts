@@ -45,13 +45,17 @@ flags:
     paths:
       - frontend/src/
     carryforward: true
-  # Merged frontend flag uploaded by codecov-notify.yml after combining the
-  # three per-suite lcovs (frontend-unit, frontend-component, frontend-e2e).
-  # This is what the README badge reads so it reflects the union of all
-  # frontend test suites, not just the Vitest slice. Intentionally does NOT
+  # Merged frontend flag that the README badge reads. Populated by tagging
+  # each per-suite upload (`frontend-unit`, `frontend-component`,
+  # `frontend-e2e`) with `frontend` as an additional flag in its workflow,
+  # so Codecov aggregates the union of the three uploads server-side.
+  # `carryforward: true` is load-bearing — a backend-only commit path-filters
+  # all three producing workflows out, so without carryforward the badge
+  # would drop to "unknown" on those commits; with it, the flag reuses the
+  # last known coverage from the parent commit. Intentionally does NOT
   # match the `frontend-.*` regex used by the component_management block
   # below, so the `frontend` component keeps aggregating only the three
-  # per-suite flags and doesn't double-count this merged upload.
+  # per-suite flags and doesn't double-count this merged flag.
   frontend:
     paths:
       - frontend/src/

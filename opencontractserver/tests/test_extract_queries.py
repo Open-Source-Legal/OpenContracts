@@ -354,7 +354,7 @@ class ExtractsQueryTestCase(TestCase):
                 document=self.doc,
             )
 
-        unbounded_query = """
+        no_args_query = """
             query GetExtract($extractId: ID!) {
                 extract(id: $extractId) {
                     fullDatacellList {
@@ -373,9 +373,9 @@ class ExtractsQueryTestCase(TestCase):
             }
         """
 
-        # Unbounded fetch: all 5 cells.
+        # No-args fetch: server-capped, but 5 < cap so all 5 are returned.
         result_all = self.client.execute(
-            unbounded_query, variables={"extractId": extract_id}
+            no_args_query, variables={"extractId": extract_id}
         )
         self.assertIsNone(result_all.get("errors"))
         all_ids = [c["id"] for c in result_all["data"]["extract"]["fullDatacellList"]]
@@ -421,6 +421,57 @@ class ExtractsQueryTestCase(TestCase):
         self.assertEqual(len(result["data"]["extract"]["fullDatacellList"]), 0)
         # datacellCount should still reflect the true total (1 from setUp).
         self.assertEqual(result["data"]["extract"]["datacellCount"], 1)
+
+    def test_full_datacell_list_no_args_capped_at_server_max(self):
+        """
+        Calling ``fullDatacellList`` with no arguments must still cap the
+        response at ``MAX_FULL_DATACELL_LIST_LIMIT``. Prevents authenticated
+        API callers from bypassing the payload bound by omitting ``limit``.
+        """
+        from opencontractserver.constants.extracts import MAX_FULL_DATACELL_LIST_LIMIT
+
+        extract_id = to_global_id("ExtractType", self.extract.id)
+
+        # Create enough datacells so the total exceeds the cap by one.
+        # setUp already created 1, so MAX_FULL_DATACELL_LIST_LIMIT extra
+        # gives total = cap + 1.
+        Datacell.objects.bulk_create(
+            [
+                Datacell(
+                    extract=self.extract,
+                    column=self.column,
+                    data={"data": f"NoArgs{i}"},
+                    data_definition="str",
+                    creator=self.user,
+                    document=self.doc,
+                )
+                for i in range(MAX_FULL_DATACELL_LIST_LIMIT)
+            ]
+        )
+        total_cells = Datacell.objects.filter(extract=self.extract).count()
+        self.assertGreater(total_cells, MAX_FULL_DATACELL_LIST_LIMIT)
+
+        query = """
+            query GetExtract($extractId: ID!) {
+                extract(id: $extractId) {
+                    datacellCount
+                    fullDatacellList {
+                        id
+                    }
+                }
+            }
+        """
+        result = self.client.execute(query, variables={"extractId": extract_id})
+        self.assertIsNone(result.get("errors"))
+        returned = len(result["data"]["extract"]["fullDatacellList"])
+        self.assertEqual(
+            returned,
+            MAX_FULL_DATACELL_LIST_LIMIT,
+            f"Expected no-args path to cap at {MAX_FULL_DATACELL_LIST_LIMIT}, "
+            f"got {returned} (total cells: {total_cells}).",
+        )
+        # datacellCount must reflect the true total, not the capped payload.
+        self.assertEqual(result["data"]["extract"]["datacellCount"], total_cells)
 
     def test_full_datacell_list_negative_limit_clamped_to_zero(self):
         """
