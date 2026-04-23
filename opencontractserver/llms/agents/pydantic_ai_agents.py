@@ -64,7 +64,11 @@ from opencontractserver.llms.context_guardrails import (
     messages_to_proxies,
     strip_compaction_prefix,
 )
-from opencontractserver.llms.exceptions import ToolConfirmationRequired
+from opencontractserver.llms.exceptions import (
+    StructuredResponseError,
+    ToolConfirmationRequired,
+    classify_model_exception,
+)
 from opencontractserver.llms.tools.core_tools import (
     aadd_annotations_from_exact_strings,
     aadd_document_note,
@@ -1388,14 +1392,24 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             # Extract the structured result
             return run_result.output
 
+        except ToolConfirmationRequired:
+            # Approval-gate signal must propagate unchanged so the caller
+            # can pause the run.
+            raise
+        except StructuredResponseError:
+            # Already classified upstream – surface as-is.
+            raise
         except Exception as e:
+            classified = classify_model_exception(e)
             logger.warning(
-                f"Pydantic-AI failed to generate a valid structured response: {e}"
+                "Pydantic-AI structured response failed "
+                f"({classified.error_code}): {e}"
             )
             # Log the problematic response if available
-            if hasattr(e, "body") and e.body:
-                logger.warning(f"Problematic LLM response body: {e.body}")
-            return None
+            body = getattr(e, "body", None)
+            if body:
+                logger.warning(f"Problematic LLM response body: {body}")
+            raise classified from e
 
     async def resume_with_approval(
         self,

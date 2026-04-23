@@ -2,7 +2,9 @@ from __future__ import annotations
 
 """Custom exceptions for the OpenContracts llms package."""
 
-from typing import Any
+import json
+import re
+from typing import Any, Optional
 
 
 class ToolConfirmationRequired(Exception):
@@ -36,3 +38,218 @@ class ToolConfirmationRequired(Exception):
         self.tool_args: dict[str, Any] = tool_args or {}
         self.tool_call_id = tool_call_id
         super().__init__(f"Tool '{tool_name}' requires confirmation before execution.")
+
+
+# ---------------------------------------------------------------------------
+# Structured-response error hierarchy
+# ---------------------------------------------------------------------------
+#
+# When structured-data extraction fails, we want callers (notably
+# :func:`opencontractserver.tasks.data_extract_tasks.doc_extract_query_task`)
+# to distinguish between "the model ran and produced no useful output" and
+# "the request never reached the model or was rejected by the provider for an
+# operational reason (billing, rate limit, auth, 5xx)."
+#
+# The hierarchy below preserves the underlying exception so it can be
+# re-logged or inspected, and exposes a stable ``error_code`` that can be
+# written into :attr:`Datacell.stacktrace` for downstream tooling.
+# ---------------------------------------------------------------------------
+
+
+class StructuredResponseError(Exception):
+    """Base class for structured-response extraction failures."""
+
+    error_code: str = "structured_response_error"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: Optional[int] = None,
+        body: Any = None,
+        original: Optional[BaseException] = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+        self.original = original
+
+    def describe(self) -> str:
+        """Return a human-readable summary suitable for ``Datacell.stacktrace``."""
+
+        lines = [f"[{self.error_code}] {self}"]
+        if self.status_code is not None:
+            lines.append(f"status_code={self.status_code}")
+        if self.body is not None:
+            body_repr = self.body
+            if isinstance(body_repr, (bytes, bytearray)):
+                try:
+                    body_repr = body_repr.decode("utf-8", errors="replace")
+                except Exception:  # pragma: no cover – defensive
+                    body_repr = repr(body_repr)
+            elif not isinstance(body_repr, str):
+                try:
+                    body_repr = json.dumps(body_repr, default=str)
+                except Exception:  # pragma: no cover – defensive
+                    body_repr = repr(body_repr)
+            lines.append(f"body={body_repr}")
+        if self.original is not None and self.original is not self:
+            lines.append(f"original={type(self.original).__name__}: {self.original}")
+        return "\n".join(lines)
+
+
+class StructuredResponseInfraError(StructuredResponseError):
+    """Base class for provider/transport-level failures.
+
+    Infrastructure errors indicate the request did not get a clean response
+    from the model — billing, rate limit, auth, or 5xx class problems.  These
+    should NEVER be reported to users as "information not present in
+    document."
+    """
+
+    error_code = "infra_error"
+
+
+class RateLimitError(StructuredResponseInfraError):
+    error_code = "rate_limit_error"
+
+
+class BillingError(StructuredResponseInfraError):
+    """Billing / quota exhaustion (e.g. OpenAI ``insufficient_quota`` or
+    Anthropic ``credit_balance_too_low``)."""
+
+    error_code = "billing_error"
+
+
+class AuthenticationError(StructuredResponseInfraError):
+    error_code = "authentication_error"
+
+
+class ServerError(StructuredResponseInfraError):
+    """Provider-side 5xx or equivalent transient failure."""
+
+    error_code = "server_error"
+
+
+class ModelError(StructuredResponseError):
+    """Generic model-level error that is neither infra nor a legitimate
+    ``None`` extraction (e.g. unexpected model behavior, validation)."""
+
+    error_code = "model_error"
+
+
+# ---------------------------------------------------------------------------
+# Classifier
+# ---------------------------------------------------------------------------
+
+
+_BILLING_MARKERS = (
+    "insufficient_quota",
+    "credit_balance_too_low",
+    "billing_hard_limit_reached",
+    "quota_exceeded",
+)
+
+_RATE_LIMIT_MARKERS = (
+    "rate_limit",
+    "rate-limit",
+    "ratelimit",
+    "too many requests",
+)
+
+_AUTH_MARKERS = (
+    "authentication_error",
+    "invalid_api_key",
+    "invalid api key",
+    "unauthorized",
+)
+
+
+def _extract_status_code(exc: BaseException) -> Optional[int]:
+    """Best-effort extraction of an HTTP status code from common SDK errors."""
+
+    for attr in ("status_code", "status", "http_status", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int) and 100 <= value <= 599:
+            return value
+    response = getattr(exc, "response", None)
+    if response is not None:
+        value = getattr(response, "status_code", None)
+        if isinstance(value, int):
+            return value
+    # Some pydantic-ai wrappers stringify status codes in the message.
+    msg = str(exc) or ""
+    match = re.search(r"\b(4\d{2}|5\d{2})\b", msg)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _extract_body(exc: BaseException) -> Any:
+    """Best-effort extraction of a provider response body."""
+
+    for attr in ("body", "response_body", "error_body"):
+        value = getattr(exc, attr, None)
+        if value is not None:
+            return value
+    response = getattr(exc, "response", None)
+    if response is not None:
+        for attr in ("text", "content", "data"):
+            value = getattr(response, attr, None)
+            if value:
+                return value
+    return None
+
+
+def _body_as_text(body: Any) -> str:
+    if body is None:
+        return ""
+    if isinstance(body, (bytes, bytearray)):
+        try:
+            return body.decode("utf-8", errors="replace")
+        except Exception:  # pragma: no cover – defensive
+            return ""
+    if isinstance(body, str):
+        return body
+    try:
+        return json.dumps(body, default=str)
+    except Exception:  # pragma: no cover – defensive
+        return repr(body)
+
+
+def classify_model_exception(exc: BaseException) -> StructuredResponseError:
+    """Classify ``exc`` into one of the :class:`StructuredResponseError`
+    subclasses.
+
+    Never returns ``None`` — unclassified exceptions are wrapped in
+    :class:`ModelError` so the caller can uniformly differentiate
+    "model produced None" from "something else went wrong."
+    """
+
+    if isinstance(exc, StructuredResponseError):
+        return exc
+
+    status_code = _extract_status_code(exc)
+    body = _extract_body(exc)
+    haystack = f"{type(exc).__name__} {exc} {_body_as_text(body)}".lower()
+
+    message = f"{type(exc).__name__}: {exc}"
+
+    # Billing signals take precedence because they are sometimes returned
+    # with HTTP 429 (OpenAI ``insufficient_quota``) and would otherwise be
+    # misclassified as rate-limit.
+    if any(marker in haystack for marker in _BILLING_MARKERS):
+        return BillingError(message, status_code=status_code, body=body, original=exc)
+
+    if status_code == 429 or any(marker in haystack for marker in _RATE_LIMIT_MARKERS):
+        return RateLimitError(message, status_code=status_code, body=body, original=exc)
+
+    if status_code in (401, 403) or any(marker in haystack for marker in _AUTH_MARKERS):
+        return AuthenticationError(
+            message, status_code=status_code, body=body, original=exc
+        )
+
+    if status_code is not None and 500 <= status_code < 600:
+        return ServerError(message, status_code=status_code, body=body, original=exc)
+
+    return ModelError(message, status_code=status_code, body=body, original=exc)

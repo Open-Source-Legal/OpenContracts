@@ -624,6 +624,8 @@ class CoreAgentBase(ABC):
         Returns:
             An instance of target_type if successful, otherwise None.
         """
+        from opencontractserver.llms.exceptions import StructuredResponseError
+
         try:
             # Call the framework-specific implementation
             result = await self._structured_response_raw(
@@ -636,8 +638,14 @@ class CoreAgentBase(ABC):
                 **kwargs,
             )
             return result
+        except StructuredResponseError:
+            # Classified provider failures (rate-limit, billing, auth, 5xx,
+            # model-level) must propagate so callers can distinguish them
+            # from a legitimate ``None`` extraction.
+            raise
         except Exception:  # pragma: no cover -- defensive; requires mock failure
-            # Log the error but don't raise - return None per spec
+            # Unknown errors: preserve the historical contract of returning
+            # ``None`` rather than crashing the caller.
             logger.error("Error in structured_response", exc_info=True)
             return None
 

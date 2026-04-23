@@ -100,6 +100,10 @@ async def doc_extract_query_task(
     from pydantic_ai.messages import ModelMessagesTypeAdapter
 
     from opencontractserver.llms import agents
+    from opencontractserver.llms.exceptions import (
+        StructuredResponseError,
+        StructuredResponseInfraError,
+    )
     from opencontractserver.llms.types import AgentFramework
     from opencontractserver.utils.etl import parse_model_or_primitive
 
@@ -283,6 +287,35 @@ async def doc_extract_query_task(
             logger.info(f"LLM message history captured for cell {cell_id}")
             logger.debug(f"Full LLM conversation:\n{llm_log}")
 
+        except StructuredResponseError as struct_err:
+            # Classified model/infra failure — surface the error code so ops
+            # can tell "rate-limited / out of quota / auth" apart from
+            # "information not present in document."
+            if "messages" in locals():
+                llm_log = ModelMessagesTypeAdapter.dump_json(
+                    messages, indent=2
+                ).decode()
+            tb = traceback.format_exc()
+            header = f"[{struct_err.error_code}] {struct_err}"
+            detail = struct_err.describe()
+            if isinstance(struct_err, StructuredResponseInfraError):
+                logger.error(
+                    f"✗ Extraction for cell {cell_id} failed with "
+                    f"infrastructure error {struct_err.error_code}: "
+                    f"{struct_err}"
+                )
+            else:
+                logger.warning(
+                    f"✗ Extraction for cell {cell_id} failed with "
+                    f"{struct_err.error_code}: {struct_err}"
+                )
+            await sync_mark_failed(
+                datacell,
+                header,
+                f"{detail}\n\nTraceback:\n{tb}",
+                llm_log,
+            )
+            return
         except Exception as e:
             # If we have messages, capture them before re-raising
             if "messages" in locals():
@@ -340,15 +373,25 @@ async def doc_extract_query_task(
                 )
 
         else:
-            # Extraction returned None
+            # Extraction returned None — the model ran to completion but
+            # produced no structured output.  Infrastructure errors (rate
+            # limit, billing, auth, 5xx) are raised as
+            # StructuredResponseError and handled above, so reaching this
+            # branch really does mean "the model declined to answer."
             logger.warning(f"✗ Extraction returned None for cell {cell_id}")
-            logger.warning(
-                "  This likely means the requested information is not present in the document"
+            logger.info(
+                "  The model produced no structured output; the requested "
+                "information may not be present in the document."
             )
             await sync_mark_failed(
                 datacell,
-                "Failed to extract requested data from document",
-                "The extraction returned None - the requested information may not be present in the document.",
+                "[answer_was_none] Model produced no structured output",
+                (
+                    "The extraction returned None - the model ran to "
+                    "completion but produced no structured output. The "
+                    "requested information may not be present in the "
+                    "document."
+                ),
                 llm_log,
             )
 
