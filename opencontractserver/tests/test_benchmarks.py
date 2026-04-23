@@ -154,9 +154,16 @@ class LegalBenchRAGAdapterTestCase(PyUnitTestCase):
 
 
 def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
-    """Return an async function that mimics ``agents.get_structured_response_from_document``."""
+    """Return a pair of async fakes mimicking the two extract API methods.
 
-    async def _fake(
+    Returns ``(fake_result_only, fake_result_and_sources)`` matching
+    ``AgentAPI.get_structured_response_from_document`` and
+    ``AgentAPI.get_structured_response_and_sources_from_document``
+    respectively.  The sources variant returns an empty citation list so
+    tests don't need real Annotation rows to pass.
+    """
+
+    async def _fake_result_only(
         *,
         document,
         corpus,
@@ -168,11 +175,23 @@ def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
         model,
         user_id,
     ):
-        # Honour the adapter's per-query canned answer so we can assert
-        # downstream metric values deterministically.
         return answers_by_query.get(prompt, "")
 
-    return _fake
+    async def _fake_result_and_sources(
+        *,
+        document,
+        corpus,
+        prompt,
+        target_type,
+        framework,
+        temperature,
+        similarity_top_k,
+        model,
+        user_id,
+    ):
+        return answers_by_query.get(prompt, ""), []
+
+    return _fake_result_only, _fake_result_and_sources
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
@@ -208,13 +227,20 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
             self.assertTrue(Document.objects.filter(pk=document.pk).exists())
 
     def test_run_benchmark_produces_report_with_perfect_answer_metrics(self):
-        fake_fn = _make_fake_get_structured_response(self._canned_by_prompt)
+        fake_result_only, fake_with_sources = _make_fake_get_structured_response(
+            self._canned_by_prompt
+        )
 
-        # Patch the structured-response API used by ``doc_extract_query_task``
-        # so the test doesn't hit a real LLM.  Wrap in staticmethod to match
-        # the original descriptor so ``self`` is not injected.
+        # Patch both APIs so this test is resilient to whichever entry point
+        # the extract task uses.
         with patch.object(
-            AgentAPI, "get_structured_response_from_document", staticmethod(fake_fn)
+            AgentAPI,
+            "get_structured_response_from_document",
+            staticmethod(fake_result_only),
+        ), patch.object(
+            AgentAPI,
+            "get_structured_response_and_sources_from_document",
+            staticmethod(fake_with_sources),
         ):
             report = run_benchmark(
                 self.adapter,
@@ -237,8 +263,8 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
         # Retrieval recall is harder to assert deterministically because
         # the vector store depends on embeddings and sentence segmentation,
         # but it must be in [0, 1].
-        self.assertGreaterEqual(report.aggregates["retrieval_recall_at_k"], 0.0)
-        self.assertLessEqual(report.aggregates["retrieval_recall_at_k"], 1.0)
+        self.assertGreaterEqual(report.aggregates["probe_recall_at_k"], 0.0)
+        self.assertLessEqual(report.aggregates["probe_recall_at_k"], 1.0)
 
         # Every task result should have a populated prediction and the
         # datacell should have ``completed`` set.
@@ -249,11 +275,19 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
             self.assertEqual(result.prediction, result.gold_answer)
 
     def test_run_benchmark_writes_report_files_when_requested(self):
-        fake_fn = _make_fake_get_structured_response(self._canned_by_prompt)
+        fake_result_only, fake_with_sources = _make_fake_get_structured_response(
+            self._canned_by_prompt
+        )
         run_dir = Path(self._make_tmp_run_dir())
 
         with patch.object(
-            AgentAPI, "get_structured_response_from_document", staticmethod(fake_fn)
+            AgentAPI,
+            "get_structured_response_from_document",
+            staticmethod(fake_result_only),
+        ), patch.object(
+            AgentAPI,
+            "get_structured_response_and_sources_from_document",
+            staticmethod(fake_with_sources),
         ):
             run_benchmark(
                 self.adapter,

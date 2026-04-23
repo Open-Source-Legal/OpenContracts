@@ -10,15 +10,30 @@ and answer metrics.  The first supported benchmark is **LegalBench-RAG**
 
 ## What you get
 
-For every benchmark query the harness captures two independent signals:
+LegalBench-RAG is a **retrieval** benchmark — the paper scores character-
+span recall/precision, not LLM answer text.  The harness follows that
+convention: the headline number is `citation_span_overlaps_gold`, which
+measures whether the annotations the extraction agent actually linked to
+`Datacell.sources` overlap the gold passages.
 
-| Axis | What it measures | Where it comes from |
+| Axis | Metric | Where it comes from |
 | --- | --- | --- |
-| Answer quality | SQuAD-style normalized exact match and token F1 | `Datacell.data` from the existing `doc_extract_query_task` |
-| Retrieval quality | Character-span recall@k, precision@k, and IoU over gold spans | A direct probe of `CoreAnnotationVectorStore` (independent of the extract path) |
+| Retrieval (headline) | `citation_span_overlaps_gold`, `citation_text_contains_gold_span`, `citation_coverage_rate` | Annotations the agent linked into `Datacell.sources` via the `similarity_search` tool |
+| Retrieval (probe) | `probe_recall_at_k`, `probe_precision_at_k`, `probe_char_iou` | A standalone single-shot top-k `CoreAnnotationVectorStore.search` — useful as an isolated retrieval-algorithm A/B, but NOT what the agent actually used |
+| Answer quality (auxiliary) | `answer_token_f1` (SQuAD), `answer_token_recall`, `answer_contains_verbatim_span` | `Datacell.data` from `doc_extract_query_task` |
 
-Answer and retrieval are reported separately so you can diagnose which half
-of the pipeline is underperforming on a given task.
+Answer F1 is reported for completeness but is not the primary signal.
+SQuAD-style token F1 is hostile to the LLM's natural paraphrased output
+style even when the agent has cited the correct passage — measure it to
+track regressions, but read `citation_span_overlaps_gold` first.
+
+### Recommended smoke-test size
+
+Full privacy_qa is 194 tasks; CUAD is ~4,000; MAUD ~1,700; ContractNLI
+~1,000.  A 30-task slice (`--limit 30`) over a subset gives a mean
+within ~0.03 of the full-run number on the citation metrics and is
+roughly 1 / 6 the API cost.  Use the full run only when a measured
+change on the smoke is close to the noise floor.
 
 ## Directory layout
 

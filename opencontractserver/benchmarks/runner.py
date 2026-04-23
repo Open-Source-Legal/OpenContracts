@@ -23,10 +23,12 @@ from opencontractserver.benchmarks.loader import (
 )
 from opencontractserver.benchmarks.metrics import (
     char_iou,
+    contains_verbatim_span,
     exact_match,
     precision_at_k,
     recall_at_k,
     token_f1,
+    token_recall,
 )
 from opencontractserver.benchmarks.report import BenchmarkReport, TaskResult
 from opencontractserver.benchmarks.retrieval import (
@@ -55,6 +57,7 @@ def run_benchmark(
     use_eager_ingestion: bool = True,
     use_eager_extraction: bool = True,
     write_report: bool = True,
+    extraction_concurrency: int = 1,
 ) -> BenchmarkReport:
     """Materialize, execute, evaluate, and (optionally) persist a benchmark run.
 
@@ -117,10 +120,44 @@ def run_benchmark(
         use_eager_ingestion=use_eager_ingestion,
     )
 
-    _run_extraction(
-        loaded=loaded, model=model, use_eager_extraction=use_eager_extraction
+    # Transparency: surface the embedder actually in use for retrieval so
+    # reviewers do not accidentally evaluate the TestEmbedder stub.  The
+    # warning fires loudly when the corpus was frozen against a test
+    # embedder, since that is a common silent-fallback footgun when running
+    # the harness through the test.yml compose stack.
+    embedder_path = (
+        loaded.corpus.preferred_embedder
+        or loaded.corpus.created_with_embedder
+        or ""
     )
-    task_results = _evaluate(loaded=loaded, top_k=top_k, user_id=user.id)
+    config["embedder"] = embedder_path
+    config["embedder_created_with"] = loaded.corpus.created_with_embedder or ""
+    logger.info(
+        "Benchmark corpus embedder: preferred=%s created_with=%s",
+        loaded.corpus.preferred_embedder,
+        loaded.corpus.created_with_embedder,
+    )
+    if "TestEmbedder" in embedder_path or "test_embedder" in embedder_path:
+        logger.warning(
+            "Benchmark corpus is bound to a TEST/fake embedder (%s). "
+            "Retrieval metrics will be meaningless. See docs/extract_and_retrieval/"
+            "benchmarking.md — configure PipelineSettings.default_embedder and "
+            "component_settings before running against real data.",
+            embedder_path,
+        )
+
+    _run_extraction(
+        loaded=loaded,
+        model=model,
+        use_eager_extraction=use_eager_extraction,
+        concurrency=extraction_concurrency,
+    )
+
+    task_results = _evaluate(
+        loaded=loaded,
+        top_k=top_k,
+        user_id=user.id,
+    )
 
     report = BenchmarkReport(
         adapter=loaded.adapter_description,
@@ -151,12 +188,14 @@ def run_benchmark(
         logger.info("Benchmark report written to %s", resolved_run_dir)
 
     logger.info(
-        "Benchmark run finished: tasks=%d success_rate=%.3f f1=%.3f recall@%d=%.3f",
+        "Benchmark run finished: tasks=%d success_rate=%.3f f1=%.3f "
+        "citation_span_overlaps_gold=%.3f probe_recall@%d=%.3f",
         int(report.aggregates["task_count"]),
         report.aggregates["extraction_success_rate"],
         report.aggregates["answer_token_f1"],
+        report.aggregates["citation_span_overlaps_gold"],
         top_k,
-        report.aggregates["retrieval_recall_at_k"],
+        report.aggregates["probe_recall_at_k"],
     )
     return report
 
@@ -167,37 +206,72 @@ def run_benchmark(
 
 
 def _run_extraction(
-    *, loaded: LoadedBenchmark, model: str, use_eager_extraction: bool
+    *,
+    loaded: LoadedBenchmark,
+    model: str,
+    use_eager_extraction: bool,
+    concurrency: int = 1,
 ) -> None:
     """Invoke the production extract task for every datacell.
 
-    We intentionally call ``doc_extract_query_task.si(cell.id, …).apply()``
-    per cell instead of going through ``run_extract`` so we can pass the
-    ``model_override`` kwarg (which ``run_extract``'s celery chord does
-    not expose).
+    With ``concurrency=1`` cells are processed serially (original behavior).
+    With ``concurrency > 1`` a ThreadPoolExecutor runs up to N cells in
+    parallel. Each thread gets its own event loop via ``asyncio.run`` inside
+    the celery task's sync wrapper, so this is safe as long as the remote
+    LLM can handle the fan-out.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     ctx = force_celery_eager() if use_eager_extraction else nullcontext()
+
+    def _run_one(cell_id: int) -> None:
+        doc_extract_query_task.apply(
+            args=[cell_id], kwargs={"model_override": model}
+        )
+
     with ctx:
-        for cell in loaded.datacells:
-            try:
-                doc_extract_query_task.apply(
-                    args=[cell.id], kwargs={"model_override": model}
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.exception(
-                    "Extract task raised for datacell %s: %s", cell.id, exc
-                )
+        if concurrency <= 1:
+            for cell in loaded.datacells:
+                try:
+                    _run_one(cell.id)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.exception(
+                        "Extract task raised for datacell %s: %s", cell.id, exc
+                    )
+            return
+
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            futures = {
+                pool.submit(_run_one, cell.id): cell.id for cell in loaded.datacells
+            }
+            for fut in as_completed(futures):
+                cell_id = futures[fut]
+                try:
+                    fut.result()
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.exception(
+                        "Extract task raised for datacell %s: %s", cell_id, exc
+                    )
 
 
-def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[TaskResult]:
-    """Compute answer and retrieval metrics for every datacell."""
+def _evaluate(
+    *,
+    loaded: LoadedBenchmark,
+    top_k: int,
+    user_id: int,
+) -> list[TaskResult]:
+    """Compute answer, retrieval, and citation metrics for every datacell."""
     task_results: list[TaskResult] = []
 
     # Bulk-fetch all datacells in one query to avoid N+1 per-cell SELECTs.
+    # Prefetch ``sources`` so we can score the agent's own citations against
+    # the gold spans without a second round-trip per cell.
     cell_ids = [c.id for c in loaded.datacells]
     refreshed = {
         c.id: c
-        for c in Datacell.objects.select_related("column").filter(id__in=cell_ids)
+        for c in Datacell.objects.select_related("column")
+        .prefetch_related("sources")
+        .filter(id__in=cell_ids)
     }
 
     for cell in loaded.datacells:
@@ -216,6 +290,12 @@ def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[Task
         extraction_ok = cell.failed is None and cell.completed is not None
         error = cell.stacktrace if cell.failed is not None else None
 
+        # Score the agent's grounded citations linked into
+        # ``Datacell.sources``.  This is the TRUE retrieval signal — what
+        # the retrieval tools surfaced during extraction — independent of
+        # the synthetic top-k probe run by :func:`_probe_retrieval_safely`.
+        cited_spans, cited_text = _extract_cited_spans_and_text(cell)
+
         retrieval = _probe_retrieval_safely(
             corpus_id=loaded.corpus.id,
             document_id=cell.document_id,
@@ -223,6 +303,15 @@ def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[Task
             top_k=top_k,
             user_id=user_id,
         )
+
+        citation_span_hit = float(
+            any(
+                max(cs[0], gs[0]) < min(cs[1], gs[1])
+                for cs in cited_spans
+                for gs in gold_spans
+            )
+        )
+        citation_verbatim_hit = contains_verbatim_span(cited_text, gold_answer)
 
         task_results.append(
             TaskResult(
@@ -235,13 +324,21 @@ def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[Task
                 retrieved_spans=list(retrieval.spans),
                 retrieved_annotation_ids=list(retrieval.annotation_ids),
                 gold_spans=gold_spans,
+                cited_spans=cited_spans,
+                citation_count=len(cited_spans),
                 answer_exact_match=exact_match(prediction, gold_answer),
                 answer_token_f1=token_f1(prediction, gold_answer),
-                retrieval_recall_at_k=recall_at_k(retrieval.spans, gold_spans, top_k),
-                retrieval_precision_at_k=precision_at_k(
+                answer_token_recall=token_recall(prediction, gold_answer),
+                answer_contains_verbatim_span=contains_verbatim_span(
+                    prediction, gold_answer
+                ),
+                probe_recall_at_k=recall_at_k(retrieval.spans, gold_spans, top_k),
+                probe_precision_at_k=precision_at_k(
                     retrieval.spans, gold_spans, top_k
                 ),
-                retrieval_char_iou=char_iou(retrieval.spans, gold_spans),
+                probe_char_iou=char_iou(retrieval.spans, gold_spans),
+                citation_span_overlaps_gold=citation_span_hit,
+                citation_text_contains_gold_span=citation_verbatim_hit,
                 extraction_ok=extraction_ok,
                 error=error,
                 tags=tags,
@@ -249,6 +346,28 @@ def _evaluate(*, loaded: LoadedBenchmark, top_k: int, user_id: int) -> list[Task
         )
 
     return task_results
+
+
+def _extract_cited_spans_and_text(cell) -> tuple[list[tuple[int, int]], str]:
+    """Return (citation char spans, concatenated citation text) for ``cell``.
+
+    Citations are the :class:`Annotation` rows the extract pipeline attached
+    to ``cell.sources`` after grounding the LLM answer back to the document.
+    Each annotation stores ``{"start": int, "end": int}`` in ``json`` (for
+    text documents) plus the quoted text in ``raw_text``.  Non-text or
+    malformed payloads are skipped silently.
+    """
+    spans: list[tuple[int, int]] = []
+    texts: list[str] = []
+    for src in cell.sources.all():
+        payload = src.json if isinstance(src.json, dict) else {}
+        start = payload.get("start")
+        end = payload.get("end")
+        if isinstance(start, int) and isinstance(end, int) and end >= start:
+            spans.append((start, end))
+        if src.raw_text:
+            texts.append(src.raw_text)
+    return spans, " ".join(texts)
 
 
 def _probe_retrieval_safely(

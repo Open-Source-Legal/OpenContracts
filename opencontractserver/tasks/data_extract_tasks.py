@@ -171,6 +171,27 @@ async def doc_extract_query_task(
             if annotation_ids:
                 datacell.sources.add(*annotation_ids)
 
+    @sync_to_async
+    def _link_retrieval_citations(datacell, annotation_ids):
+        """Link raw Annotation PKs retrieved by the agent to ``datacell.sources``.
+
+        Filters defensively: only positive ints that correspond to real
+        Annotation rows are persisted.  Duplicates are deduped by the M2M
+        unique constraint, so ``add(*ids)`` with repeats is safe.
+        """
+        from opencontractserver.annotations.models import Annotation
+
+        valid_ids = [int(a) for a in annotation_ids if isinstance(a, int) and a > 0]
+        if not valid_ids:
+            return
+        # Guard against IDs that don't exist (e.g. race with deletion).
+        existing = set(
+            Annotation.objects.filter(id__in=valid_ids).values_list("id", flat=True)
+        )
+        existing_ids = [aid for aid in valid_ids if aid in existing]
+        if existing_ids:
+            datacell.sources.add(*existing_ids)
+
     # Initialize datacell to None to avoid UnboundLocalError
     datacell = None
 
@@ -278,8 +299,15 @@ async def doc_extract_query_task(
         try:
             # Wrap the agent call in the context manager to capture messages
             with capture_run_messages() as messages:
-                # Create a temporary agent and extract
-                result = await agents.get_structured_response_from_document(
+                # Create a temporary agent and extract.  The ``_and_sources``
+                # variant also returns the real Annotation PKs that the
+                # agent's retrieval tools (similarity_search, ...) returned
+                # during this run, so we can link them to ``datacell.sources``
+                # without relying on the post-hoc fuzzy-match grounder.
+                (
+                    result,
+                    retrieved_annotation_ids,
+                ) = await agents.get_structured_response_and_sources_from_document(
                     document=document.id,
                     corpus=corpus_id,
                     prompt=prompt,
@@ -329,6 +357,31 @@ async def doc_extract_query_task(
             logger.info(f"✓ Successfully extracted and saved data for cell {cell_id}")
             logger.info(f"  Final saved data: {data}")
             logger.info(f"  LLM log saved: {len(llm_log) if llm_log else 0} characters")
+
+            # Link the annotations the agent actually retrieved to
+            # ``datacell.sources``.  This is the TRUE citation signal — what
+            # the retrieval tools surfaced to the model — and it sidesteps
+            # the fragile fuzzy-match grounder below for answers where the
+            # retrieval already pinpointed the right spans.  The grounder
+            # still runs as a complementary pass for extracted substrings
+            # that weren't part of a retrieved annotation.
+            if retrieved_annotation_ids:
+                try:
+                    await _link_retrieval_citations(
+                        datacell, retrieved_annotation_ids
+                    )
+                    logger.info(
+                        "Linked %d retrieval citations to datacell %s",
+                        len(retrieved_annotation_ids),
+                        cell_id,
+                    )
+                except Exception as link_err:
+                    logger.warning(
+                        "Failed to link retrieval citations for datacell %s: %s",
+                        cell_id,
+                        link_err,
+                        exc_info=True,
+                    )
 
             # Auto-ground: find extracted text values in the source document
             # and create linked source annotations with PDF/text coordinates.

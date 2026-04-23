@@ -116,6 +116,17 @@ class Command(BaseCommand):
             default=None,
             help="Override the generated corpus title.",
         )
+        parser.add_argument(
+            "--extraction-concurrency",
+            type=int,
+            default=1,
+            help=(
+                "Number of datacells to extract in parallel. 1 (default) is "
+                "serial. Raise cautiously — per-provider rate limits apply. "
+                "4-8 is typical for Anthropic; 8-16 for OpenAI on "
+                "well-provisioned keys."
+            ),
+        )
 
     def handle(self, *args, **options) -> None:
         username = options["user"]
@@ -148,6 +159,7 @@ class Command(BaseCommand):
             run_dir=options.get("run_dir"),
             corpus_title=options.get("corpus_title"),
             run_label=options.get("run_label"),
+            extraction_concurrency=options["extraction_concurrency"],
         )
 
         self.stdout.write(self.style.SUCCESS("Benchmark run complete."))

@@ -83,6 +83,50 @@ def token_f1(prediction: str, gold: str) -> float:
     return (2 * precision * recall) / (precision + recall)
 
 
+def token_recall(prediction: str, gold: str) -> float:
+    """Fraction of gold tokens that appear in the prediction (unique-token set).
+
+    Use this alongside :func:`token_f1` when gold answers are verbatim slices
+    from source documents and the LLM tends to wrap its answer with preambles
+    or additional explanation.  SQuAD F1 penalises that extra prose heavily
+    through its precision term; set-based token recall measures "did the
+    model surface the gold content" without caring about extra surrounding
+    text.  Defined as ``|unique_gold_tokens ∩ pred_tokens| / |unique_gold_tokens|``
+    after normalisation.
+    """
+    pred_tokens = set(normalize_answer(prediction).split())
+    gold_tokens = list(normalize_answer(gold).split())
+    if not gold_tokens:
+        return 0.0 if pred_tokens else 1.0
+    unique_gold = set(gold_tokens)
+    if not pred_tokens:
+        return 0.0
+    return sum(1 for t in unique_gold if t in pred_tokens) / len(unique_gold)
+
+
+def contains_verbatim_span(
+    prediction: str, gold: str, *, min_consecutive_tokens: int = 12
+) -> float:
+    """1.0 if ``prediction`` contains a verbatim run of ``min_consecutive_tokens``
+    gold tokens (after normalisation), else 0.0.
+
+    This is a coarse but pragmatic signal for "did the model quote the
+    correct passage" that is robust to preamble / summary wrapping.  The
+    default window of 12 tokens is long enough that random overlap is
+    negligible for contract/policy text.  Returns 0.0 when the gold answer
+    is shorter than ``min_consecutive_tokens`` tokens.
+    """
+    pred = normalize_answer(prediction)
+    gold_tokens = normalize_answer(gold).split()
+    if len(gold_tokens) < min_consecutive_tokens or not pred:
+        return 0.0
+    for start in range(len(gold_tokens) - min_consecutive_tokens + 1):
+        window = " ".join(gold_tokens[start : start + min_consecutive_tokens])
+        if window in pred:
+            return 1.0
+    return 0.0
+
+
 # --------------------------------------------------------------------------- #
 # Retrieval metrics (span-overlap)
 # --------------------------------------------------------------------------- #

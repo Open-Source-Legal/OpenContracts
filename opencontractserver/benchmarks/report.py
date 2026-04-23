@@ -34,9 +34,11 @@ class TaskResult:
         gold_spans: Gold character spans for this task/document.
         answer_exact_match: SQuAD-style exact match on normalized strings.
         answer_token_f1: SQuAD-style token F1.
-        retrieval_recall_at_k: Fraction of gold spans covered by top-k.
-        retrieval_precision_at_k: Fraction of top-k that hit a gold span.
-        retrieval_char_iou: Character-level IoU over flattened spans.
+        probe_recall_at_k: Fraction of gold spans covered by a single-shot
+            top-k vector probe (NOT the retrieval the agent actually used).
+        probe_precision_at_k: Fraction of the top-k probe results that hit
+            a gold span.
+        probe_char_iou: Character-level IoU of probe spans vs. gold.
         extraction_ok: Whether the datacell finished without an error.
         error: Optional error text from the extraction task.
         tags: Adapter-provided tags (subset name, etc.).
@@ -51,12 +53,23 @@ class TaskResult:
     retrieved_spans: list[tuple[int, int]]
     retrieved_annotation_ids: list[int]
     gold_spans: list[tuple[int, int]]
-    answer_exact_match: float
-    answer_token_f1: float
-    retrieval_recall_at_k: float
-    retrieval_precision_at_k: float
-    retrieval_char_iou: float
-    extraction_ok: bool
+    cited_spans: list[tuple[int, int]] = field(default_factory=list)
+    citation_count: int = 0
+    answer_exact_match: float = 0.0
+    answer_token_f1: float = 0.0
+    answer_token_recall: float = 0.0
+    answer_contains_verbatim_span: float = 0.0
+    # ``probe_*`` fields score a standalone single-shot top-k vector search
+    # (see :func:`_probe_retrieval_safely`).  This is NOT the retrieval the
+    # extraction agent actually used to answer — for that, see
+    # ``citation_*`` below, which reads the annotations the agent's
+    # similarity_search tool linked to ``Datacell.sources``.
+    probe_recall_at_k: float = 0.0
+    probe_precision_at_k: float = 0.0
+    probe_char_iou: float = 0.0
+    citation_span_overlaps_gold: float = 0.0
+    citation_text_contains_gold_span: float = 0.0
+    extraction_ok: bool = False
     error: str | None = None
     tags: list[str] = field(default_factory=list)
 
@@ -97,15 +110,47 @@ class BenchmarkReport:
             # Answer metrics are averaged over successful extractions only.
             "answer_exact_match": mean(r.answer_exact_match for r in ok_results),
             "answer_token_f1": mean(r.answer_token_f1 for r in ok_results),
-            # Retrieval is independent of extraction success; average over
-            # all tasks so a failed extraction doesn't hide a retrieval miss.
-            "retrieval_recall_at_k": mean(
-                r.retrieval_recall_at_k for r in self.task_results
+            "answer_token_recall": mean(r.answer_token_recall for r in ok_results),
+            "answer_contains_verbatim_span": mean(
+                r.answer_contains_verbatim_span for r in ok_results
             ),
-            "retrieval_precision_at_k": mean(
-                r.retrieval_precision_at_k for r in self.task_results
+            # Citation-based metrics are the HEADLINE retrieval numbers:
+            # what the agent actually retrieved and linked to
+            # ``Datacell.sources`` during extraction.  Averaged over every
+            # task so a failed extraction shows up as zero overlap rather
+            # than being silently dropped.
+            "citation_coverage_rate": (
+                sum(1 for r in self.task_results if r.citation_count > 0) / total
+                if total
+                else 0.0
             ),
-            "retrieval_char_iou": mean(r.retrieval_char_iou for r in self.task_results),
+            "avg_citation_count": mean(r.citation_count for r in self.task_results),
+            "citation_span_overlaps_gold": mean(
+                r.citation_span_overlaps_gold for r in self.task_results
+            ),
+            "citation_text_contains_gold_span": mean(
+                r.citation_text_contains_gold_span for r in self.task_results
+            ),
+            # Conditional on citations existing — shows quality when grounding succeeds.
+            "citation_span_overlaps_gold_given_cited": (
+                mean(
+                    r.citation_span_overlaps_gold
+                    for r in self.task_results
+                    if r.citation_count > 0
+                )
+                if any(r.citation_count > 0 for r in self.task_results)
+                else 0.0
+            ),
+            # Single-shot top-k vector-store probe (NOT what the agent
+            # actually retrieved).  Kept as a second axis for debugging
+            # retrieval-algorithm changes in isolation; treat as secondary.
+            "probe_recall_at_k": mean(
+                r.probe_recall_at_k for r in self.task_results
+            ),
+            "probe_precision_at_k": mean(
+                r.probe_precision_at_k for r in self.task_results
+            ),
+            "probe_char_iou": mean(r.probe_char_iou for r in self.task_results),
         }
 
     # ------------------------------------------------------------------ #
@@ -149,9 +194,14 @@ class BenchmarkReport:
                     "extraction_ok",
                     "answer_exact_match",
                     "answer_token_f1",
-                    "retrieval_recall_at_k",
-                    "retrieval_precision_at_k",
-                    "retrieval_char_iou",
+                    "answer_token_recall",
+                    "answer_contains_verbatim_span",
+                    "citation_count",
+                    "citation_span_overlaps_gold",
+                    "citation_text_contains_gold_span",
+                    "probe_recall_at_k",
+                    "probe_precision_at_k",
+                    "probe_char_iou",
                     "prediction",
                     "gold_answer",
                     "tags",
@@ -167,9 +217,14 @@ class BenchmarkReport:
                         int(r.extraction_ok),
                         f"{r.answer_exact_match:.4f}",
                         f"{r.answer_token_f1:.4f}",
-                        f"{r.retrieval_recall_at_k:.4f}",
-                        f"{r.retrieval_precision_at_k:.4f}",
-                        f"{r.retrieval_char_iou:.4f}",
+                        f"{r.answer_token_recall:.4f}",
+                        f"{r.answer_contains_verbatim_span:.4f}",
+                        r.citation_count,
+                        f"{r.citation_span_overlaps_gold:.4f}",
+                        f"{r.citation_text_contains_gold_span:.4f}",
+                        f"{r.probe_recall_at_k:.4f}",
+                        f"{r.probe_precision_at_k:.4f}",
+                        f"{r.probe_char_iou:.4f}",
                         r.prediction,
                         r.gold_answer,
                         ";".join(r.tags),
