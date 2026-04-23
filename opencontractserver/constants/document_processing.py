@@ -131,3 +131,9 @@ MAX_PATH_CREATE_RETRIES = 5
 # Used in both user-facing error strings and log messages when
 # _disambiguate_path() detects a naming conflict.
 PATH_CONFLICT_MSG = "Path conflict"
+
+# Text-chunker defaults used by SentenceChunker / SlidingWindowChunker
+# (see opencontractserver/pipeline/parsers/text_chunkers.py).
+DEFAULT_SENTENCE_CHUNKER_MODEL = "en_core_web_lg"
+DEFAULT_SLIDING_WINDOW_SIZE = 1000
+DEFAULT_SLIDING_WINDOW_OVERLAP = 200

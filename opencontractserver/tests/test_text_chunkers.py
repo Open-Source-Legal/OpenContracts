@@ -138,6 +138,26 @@ class SlidingWindowChunkerTests(TextChunkOffsetsMixin, TestCase):
                 )
         self.assert_offsets_consistent(chunks, text)
 
+    def test_word_boundary_snapping_caps_overlap(self) -> None:
+        """When word-boundary snapping is active, ``overlap`` is measured
+        from the *snapped* boundary, so the actual shared character count
+        between neighbours may be smaller than the configured ``overlap``.
+
+        Pinning this behaviour prevents silent regressions in RAG callers
+        sizing overlap for retrieval context.
+        """
+        text = "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+        chunker = SlidingWindowChunker(
+            window_size=15, overlap=10, respect_word_boundaries=True
+        )
+        chunks = list(chunker.chunk(text))
+        self.assertGreater(len(chunks), 1)
+        for prev, curr in zip(chunks, chunks[1:]):
+            # Overlap measured from snapped boundary can shrink below
+            # the configured value but must never exceed it.
+            shared = prev.end - curr.start
+            self.assertLessEqual(shared, 10)
+
     def test_short_text_yields_single_chunk(self) -> None:
         text = "short"
         chunks = list(SlidingWindowChunker(window_size=100, overlap=10).chunk(text))

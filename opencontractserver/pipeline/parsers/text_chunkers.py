@@ -12,23 +12,18 @@ retrieval granularity that best matches the downstream workload — sentences
 for fine-grained UI interactions, paragraphs or fixed character windows for
 RAG retrieval.
 
-Registry
---------
+Strategies are looked up by name via :func:`get_chunker`.  Adding a new
+strategy is a two-line change (class definition + ``register_chunker``
+decorator). ``SentenceChunker`` additionally requires the optional
+``spacy`` dependency.
 
-Strategies are looked up by name via :func:`get_chunker`.  The registry is
-intentionally small and explicit: adding a new strategy is a two-line
-change (class definition + ``register_chunker`` decorator).
-
-Example
--------
+Example::
 
     from opencontractserver.pipeline.parsers.text_chunkers import get_chunker
 
     chunker = get_chunker({"name": "sliding_window", "window_size": 1200})
     for chunk in chunker.chunk(text):
         ...
-
-See issue #1348 and PR #1239 for the motivating benchmark work.
 """
 
 from __future__ import annotations
@@ -36,27 +31,25 @@ from __future__ import annotations
 import logging
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar, Iterable, Iterator, Mapping, Optional, Union
+from typing import Any, ClassVar, Union
+
+from opencontractserver.constants.document_processing import (
+    DEFAULT_SENTENCE_CHUNKER_MODEL,
+    DEFAULT_SLIDING_WINDOW_OVERLAP,
+    DEFAULT_SLIDING_WINDOW_SIZE,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# --------------------------------------------------------------------------- #
-# Annotation labels used by the built-in strategies                           #
-# --------------------------------------------------------------------------- #
-# Exposed as module-level constants so callers (parsers, tests, benchmarks)
-# can refer to them without hard-coding the string. They intentionally live
-# with the chunker code because each label is tied to the strategy that
-# emits it.
+# Annotation labels used by the built-in strategies. Exposed as module-level
+# constants so callers (parsers, tests, benchmarks) can refer to them without
+# hard-coding the string; each label is tied to the strategy that emits it.
 SENTENCE_CHUNK_LABEL = "SENTENCE"
 PARAGRAPH_CHUNK_LABEL = "PARAGRAPH"
 SLIDING_WINDOW_CHUNK_LABEL = "WINDOW"
-
-
-# --------------------------------------------------------------------------- #
-# Chunker data model                                                          #
-# --------------------------------------------------------------------------- #
 
 
 @dataclass(frozen=True)
@@ -80,13 +73,8 @@ class TextChunk:
 
 
 # Spec for selecting + configuring a chunker. Either a bare name
-# (``"paragraph"``) or a mapping with ``name`` plus strategy-specific kwargs.
+# ("paragraph") or a mapping with "name" plus strategy-specific kwargs.
 ChunkerSpec = Union[str, Mapping[str, Any]]
-
-
-# --------------------------------------------------------------------------- #
-# Base class + registry                                                       #
-# --------------------------------------------------------------------------- #
 
 
 class BaseTextChunker(ABC):
@@ -179,34 +167,36 @@ def get_chunker(spec: ChunkerSpec) -> BaseTextChunker:
     return cls(**kwargs)
 
 
-# --------------------------------------------------------------------------- #
-# Built-in strategies                                                         #
-# --------------------------------------------------------------------------- #
-
-
 @register_chunker
 class SentenceChunker(BaseTextChunker):
     """
-    Sentence-level chunker backed by spaCy's ``en_core_web_lg`` model.
+    Sentence-level chunker backed by spaCy.
 
-    Preserves the current ``TxtParser`` behaviour so existing corpora do
-    not shift when the configurable-chunking plumbing is introduced.
-
-    The spaCy model is loaded eagerly at construction time — callers that
-    know sentence chunking isn't needed should simply not instantiate this
-    strategy.
+    Preserves the existing ``TxtParser`` behaviour so existing corpora are
+    unchanged. The spaCy model is cached per model name on the class so
+    repeated instantiations (common in test suites and benchmark loops)
+    do not reload ``en_core_web_lg`` from disk.
     """
 
     name: ClassVar[str] = "sentence"
     label: ClassVar[str] = SENTENCE_CHUNK_LABEL
 
-    def __init__(self, model: str = "en_core_web_lg") -> None:
+    # Cache of loaded spaCy pipelines keyed by model name. Loading
+    # en_core_web_lg takes multiple seconds, so reloading on every
+    # ``get_chunker({"name": "sentence"})`` call is a real cost.
+    _nlp_cache: ClassVar[dict[str, Any]] = {}
+
+    def __init__(self, model: str = DEFAULT_SENTENCE_CHUNKER_MODEL) -> None:
         # Imported lazily so test suites that only exercise non-spaCy
         # strategies don't pay the import cost.
         import spacy
 
         self._model_name = model
-        self._nlp = spacy.load(model)
+        nlp = self._nlp_cache.get(model)
+        if nlp is None:
+            nlp = spacy.load(model)
+            self._nlp_cache[model] = nlp
+        self._nlp = nlp
 
     def chunk(self, text: str) -> Iterator[TextChunk]:
         if not text:
@@ -257,7 +247,7 @@ class ParagraphChunker(BaseTextChunker):
     def __init__(
         self,
         min_chars: int = 1,
-        max_chars: Optional[int] = None,
+        max_chars: int | None = None,
     ) -> None:
         if min_chars < 0:
             raise ValueError(f"min_chars must be >= 0, got {min_chars}")
@@ -334,7 +324,10 @@ class SlidingWindowChunker(BaseTextChunker):
             forward to the next whitespace boundary so words are not split
             across chunks. This makes individual chunks slightly larger
             than ``window_size`` but avoids producing fragment tokens
-            that hurt embedding quality.
+            that hurt embedding quality. Note: overlap is measured from
+            the *snapped* boundary, so actual shared characters between
+            neighbours may be smaller than ``overlap`` when a long word
+            forced the boundary forward.
 
     The window is measured in *characters*, not tokens. Callers sizing
     against a tokenizer should pick a conservative ``window_size`` (a
@@ -346,8 +339,8 @@ class SlidingWindowChunker(BaseTextChunker):
 
     def __init__(
         self,
-        window_size: int = 1000,
-        overlap: int = 200,
+        window_size: int = DEFAULT_SLIDING_WINDOW_SIZE,
+        overlap: int = DEFAULT_SLIDING_WINDOW_OVERLAP,
         respect_word_boundaries: bool = True,
     ) -> None:
         if window_size <= 0:
@@ -377,11 +370,6 @@ class SlidingWindowChunker(BaseTextChunker):
         )
 
 
-# --------------------------------------------------------------------------- #
-# Helpers                                                                     #
-# --------------------------------------------------------------------------- #
-
-
 def _split_long_span(
     *,
     text: str,
@@ -398,9 +386,10 @@ def _split_long_span(
     Shared by ``SlidingWindowChunker`` and ``ParagraphChunker``'s oversize
     fallback so both paths handle whitespace snapping identically.
     """
-    # Guarded by the constructors; re-asserted here because this helper is
+    # Guarded by the constructors; re-checked here because this helper is
     # exported for internal reuse and a zero step would loop forever.
-    assert window_size > overlap, "window_size must exceed overlap"
+    if window_size <= overlap:
+        raise ValueError(f"window_size ({window_size}) must exceed overlap ({overlap})")
 
     cursor = start
     while cursor < end:

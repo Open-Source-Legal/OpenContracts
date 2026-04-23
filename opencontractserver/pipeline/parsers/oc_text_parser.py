@@ -28,7 +28,8 @@ from opencontractserver.types.dicts import (
 logger = logging.getLogger(__name__)
 
 
-# Default chunking recipe: preserves pre-#1348 behaviour (sentence-only).
+# Default chunking recipe: sentence-only, matching the historical behaviour
+# of TxtParser prior to the pluggable-chunker migration.
 DEFAULT_CHUNKERS: list[ChunkerSpec] = [{"name": "sentence"}]
 
 
@@ -50,7 +51,11 @@ class TxtParser(BaseParser):
         "structural chunks (sentences, paragraphs, sliding windows)."
     )
     author = "OpenContracts"
-    dependencies = ["spacy"]
+    # SentenceChunker additionally requires the optional ``spacy`` package,
+    # but that dependency is only loaded when the sentence strategy is
+    # actually used; leaving the base parser's dependency list empty keeps
+    # non-sentence pipelines (paragraph / sliding-window) dependency-free.
+    dependencies: list[str] = []
     supported_file_types = [FileTypeEnum.TXT]
 
     @dataclass
@@ -61,9 +66,9 @@ class TxtParser(BaseParser):
         # either a bare name ("sentence") or a mapping with ``name`` plus
         # strategy-specific keyword arguments:
         #     {"name": "sliding_window", "window_size": 1200, "overlap": 200}
-        # Using a list (rather than a single value) supports the "index at
-        # multiple granularities" recipe from issue #1348.
-        chunkers: list = field(
+        # Using a list (rather than a single value) lets a single parse run
+        # index the document at multiple retrieval granularities at once.
+        chunkers: list[ChunkerSpec] = field(
             default_factory=lambda: list(DEFAULT_CHUNKERS),
             metadata={
                 "pipeline_setting": PipelineSetting(
