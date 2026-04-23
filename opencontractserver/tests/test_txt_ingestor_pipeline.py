@@ -85,3 +85,55 @@ class TxtIngestorTestCase(TestCase):
             self.assertTrue(annotation.raw_text.strip())
 
         logger.info(f"Created {annotations.count()} sentence annotations")
+
+    def test_parser_supports_paragraph_chunker_via_kwargs(self):
+        """Benchmark-style override: swap sentence → paragraph chunking.
+
+        Exercises the flexible chunking plumbing introduced for issue #1348:
+        the TxtParser accepts a ``chunkers=[...]`` kwarg that overrides the
+        default sentence-level strategy for a single parse invocation, so
+        benchmark runners can compare retrieval granularities without
+        mutating PipelineSettings.
+        """
+        from opencontractserver.pipeline.parsers.oc_text_parser import TxtParser
+        from opencontractserver.pipeline.parsers.text_chunkers import (
+            PARAGRAPH_CHUNK_LABEL,
+        )
+
+        parser = TxtParser()
+        parsed = parser.parse_document(
+            user_id=self.user.id,
+            doc_id=self.doc.id,
+            chunkers=[{"name": "paragraph"}],
+        )
+
+        self.assertIsNotNone(parsed)
+        labelled = parsed["labelled_text"]
+        self.assertGreater(len(labelled), 0, "Paragraph chunker produced no chunks")
+        self.assertTrue(
+            all(ann["annotationLabel"] == PARAGRAPH_CHUNK_LABEL for ann in labelled),
+            "All override-produced annotations should carry the PARAGRAPH label",
+        )
+
+    def test_parser_supports_stacked_chunkers(self):
+        """Stacking two chunkers produces annotations under both labels."""
+        from opencontractserver.pipeline.parsers.oc_text_parser import TxtParser
+        from opencontractserver.pipeline.parsers.text_chunkers import (
+            PARAGRAPH_CHUNK_LABEL,
+            SLIDING_WINDOW_CHUNK_LABEL,
+        )
+
+        parser = TxtParser()
+        parsed = parser.parse_document(
+            user_id=self.user.id,
+            doc_id=self.doc.id,
+            chunkers=[
+                {"name": "paragraph"},
+                {"name": "sliding_window", "window_size": 800, "overlap": 100},
+            ],
+        )
+
+        self.assertIsNotNone(parsed)
+        labels = {ann["annotationLabel"] for ann in parsed["labelled_text"]}
+        self.assertIn(PARAGRAPH_CHUNK_LABEL, labels)
+        self.assertIn(SLIDING_WINDOW_CHUNK_LABEL, labels)
