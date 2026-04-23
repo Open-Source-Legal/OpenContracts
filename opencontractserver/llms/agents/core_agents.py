@@ -624,6 +624,9 @@ class CoreAgentBase(ABC):
         Returns:
             An instance of target_type if successful, otherwise None.
         """
+        # Deferred import to avoid circular dependency
+        # (opencontractserver.llms.exceptions imports nothing from agents,
+        # but the reverse is exercised via other modules in this package).
         from opencontractserver.llms.exceptions import StructuredResponseError
 
         try:

@@ -40,12 +40,12 @@ class _FakeAPIError(Exception):
         self,
         message: str,
         *,
-        status_code: int,
+        status_code: int | None,
         body=None,
         response=None,
     ):
         super().__init__(message)
-        self.status_code = status_code
+        self.status_code: int | None = status_code
         self.body = body
         self.response = response
 
@@ -152,7 +152,7 @@ class ClassifyModelExceptionTests(SimpleTestCase):
         ``response`` does, we still pick it up."""
         exc = _FakeAPIError(
             "server down",
-            status_code=None,  # type: ignore[arg-type]
+            status_code=None,
             response=_FakeResponse(502, "bad gateway"),
         )
         # Override the direct attribute so only response carries the code.

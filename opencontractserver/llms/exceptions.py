@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Optional
+from typing import Any
 
 
 class ToolConfirmationRequired(Exception):
@@ -65,14 +65,19 @@ class StructuredResponseError(Exception):
         self,
         message: str,
         *,
-        status_code: Optional[int] = None,
+        status_code: int | None = None,
         body: Any = None,
-        original: Optional[BaseException] = None,
+        original: BaseException | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.body = body
         self.original = original
+
+    # Provider error bodies can echo back partial request payloads or API key
+    # fragments; cap the stored representation so ``Datacell.stacktrace`` does
+    # not accumulate sensitive material indefinitely.
+    MAX_BODY_LENGTH: int = 2048
 
     def describe(self) -> str:
         """Return a human-readable summary suitable for ``Datacell.stacktrace``."""
@@ -92,8 +97,10 @@ class StructuredResponseError(Exception):
                     body_repr = json.dumps(body_repr, default=str)
                 except Exception:  # pragma: no cover – defensive
                     body_repr = repr(body_repr)
+            if len(body_repr) > self.MAX_BODY_LENGTH:
+                body_repr = body_repr[: self.MAX_BODY_LENGTH] + "…[truncated]"
             lines.append(f"body={body_repr}")
-        if self.original is not None and self.original is not self:
+        if self.original is not None:
             lines.append(f"original={type(self.original).__name__}: {self.original}")
         return "\n".join(lines)
 
@@ -165,7 +172,7 @@ _AUTH_MARKERS = (
 )
 
 
-def _extract_status_code(exc: BaseException) -> Optional[int]:
+def _extract_status_code(exc: BaseException) -> int | None:
     """Best-effort extraction of an HTTP status code from common SDK errors."""
 
     for attr in ("status_code", "status", "http_status", "code"):
@@ -177,9 +184,15 @@ def _extract_status_code(exc: BaseException) -> Optional[int]:
         value = getattr(response, "status_code", None)
         if isinstance(value, int):
             return value
-    # Some pydantic-ai wrappers stringify status codes in the message.
+    # Some pydantic-ai wrappers stringify status codes in the message. Require
+    # an adjacent "status"/"http"/"code" marker so arbitrary 3-digit numbers
+    # (e.g. token counts, model limits) are not mistaken for HTTP status codes.
     msg = str(exc) or ""
-    match = re.search(r"\b(4\d{2}|5\d{2})\b", msg)
+    match = re.search(
+        r"(?:status(?:\s*code)?|http(?:\s*status)?|response\s*code|code)\D{0,8}(4\d{2}|5\d{2})",
+        msg,
+        re.IGNORECASE,
+    )
     if match:
         return int(match.group(1))
     return None
