@@ -5,12 +5,18 @@ This module provides optimized query methods for CorpusActionExecution,
 supporting efficient filtering, aggregation, and permission-aware queries.
 """
 
+from __future__ import annotations
+
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import models
 from django.utils import timezone
 
 from opencontractserver.shared.Managers import BaseVisibilityManager
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
 
 
 class CorpusActionExecutionQuerySet(models.QuerySet):
@@ -54,7 +60,7 @@ class CorpusActionExecutionQuerySet(models.QuerySet):
             ),
         )
 
-    def summary_by_status(self) -> dict:
+    def summary_by_status(self) -> dict[str, int]:
         """
         Get execution count summary by status.
 
@@ -66,7 +72,7 @@ class CorpusActionExecutionQuerySet(models.QuerySet):
             .values_list("status", "count")
         )
 
-    def summary_by_action(self) -> models.QuerySet:
+    def summary_by_action(self) -> models.QuerySet[Any]:
         """
         Get execution stats grouped by action.
 
@@ -126,7 +132,9 @@ class CorpusActionExecutionManager(BaseVisibilityManager):
     def recent(self, hours: int = 24) -> CorpusActionExecutionQuerySet:
         return self.get_queryset().recent(hours)
 
-    def visible_to_user(self, user=None) -> CorpusActionExecutionQuerySet:
+    def visible_to_user(
+        self, user: Optional[AbstractBaseUser] = None
+    ) -> CorpusActionExecutionQuerySet:
         """
         Override to return our custom QuerySet type while preserving permission
         logic.

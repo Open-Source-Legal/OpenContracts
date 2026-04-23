@@ -18,6 +18,7 @@ import io
 import json
 import logging
 import zipfile
+from typing import TYPE_CHECKING
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
@@ -25,7 +26,14 @@ from django.contrib.auth import get_user_model
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import DocumentPath
 from opencontractserver.tasks.export_tasks import finalize_export
-from opencontractserver.types.dicts import OpenContractsExportDataJsonV2Type
+from opencontractserver.types.dicts import (
+    ChatMessageExport,
+    ConversationExport,
+    MessageVoteExport,
+    OpenContractDocExport,
+    OpenContractsExportDataJsonV2Type,
+    StructuralAnnotationSetExport,
+)
 from opencontractserver.types.enums import AnnotationFilterMode
 from opencontractserver.users.models import UserExport
 from opencontractserver.utils.etl import build_document_export, build_label_lookups
@@ -46,6 +54,9 @@ from opencontractserver.utils.packaging import (
 )
 from opencontractserver.utils.text import only_alphanumeric_chars
 
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser  # noqa: F401
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -61,7 +72,7 @@ def package_corpus_export_v2(
     action_trail_limit: int = 1000,
     analysis_pk_list: list[int] | None = None,
     annotation_filter_mode: AnnotationFilterMode = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
-):
+) -> None:
     """
     Package a complete V2 corpus export.
 
@@ -102,8 +113,8 @@ def package_corpus_export_v2(
         )
 
         # ===== PART 1: Export Documents (V1 compatible) =====
-        annotated_docs = {}
-        structural_sets_seen = set()
+        annotated_docs: dict[str, OpenContractDocExport] = {}
+        structural_sets_seen: set = set()
 
         for doc in documents:
             logger.info("Exporting document %s", doc.id)
@@ -145,7 +156,7 @@ def package_corpus_export_v2(
             annotated_docs[doc_filename] = doc_export_data
 
         # ===== PART 2: Export Structural Annotation Sets =====
-        structural_annotation_sets = {}
+        structural_annotation_sets: dict[str, StructuralAnnotationSetExport] = {}
 
         for struct_set in structural_sets_seen:
             logger.info("Exporting structural set %s", struct_set.content_hash)
@@ -174,9 +185,9 @@ def package_corpus_export_v2(
         md_description, md_revisions = package_md_description_revisions(corpus)
 
         # ===== PART 9: Export Conversations (Optional) =====
-        conversations_export = []
-        messages_export = []
-        votes_export = []
+        conversations_export: list[ConversationExport] = []
+        messages_export: list[ChatMessageExport] = []
+        votes_export: list[MessageVoteExport] = []
 
         if include_conversations:
             logger.info("Including conversations in export")

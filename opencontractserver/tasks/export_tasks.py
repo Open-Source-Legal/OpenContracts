@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import zipfile
+from typing import TYPE_CHECKING, Optional
 
 from celery import shared_task
 from django.conf import settings
@@ -33,6 +34,9 @@ from opencontractserver.utils.packaging import (
     package_label_set_for_export,
 )
 from opencontractserver.utils.text import only_alphanumeric_chars
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser  # noqa: F401
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -101,7 +105,7 @@ User = get_user_model()
 def on_demand_post_processors(
     export_id: int,
     corpus_pk: int,
-):
+) -> None:
     """
     If user has selected some optional post-processors to run on the final
     ZIP, we perform them here. The annotation_filter_mode and analysis_ids
@@ -161,7 +165,7 @@ def package_annotated_docs(
     corpus_pk: int,
     analysis_pk_list: list[int] | None = None,
     annotation_filter_mode: str = "CORPUS_LABELSET_ONLY",
-):
+) -> None:
     """
     Gathers the partial doc exports from burn_doc_annotations() and compiles
     the final zip (with pdf/image data + data.json). If annotation_filter_mode
@@ -173,9 +177,9 @@ def package_annotated_docs(
     """
     logger.info(f"Package corpus for export {export_id}...")
 
-    annotated_docs = {}
-    doc_labels: dict[str | int, AnnotationLabelPythonType] | None = None
-    text_labels: dict[str | int, AnnotationLabelPythonType] | None = None
+    annotated_docs: dict[str | None, OpenContractDocExport | None] = {}
+    doc_labels: Optional[dict[str | int, AnnotationLabelPythonType]] = None
+    text_labels: Optional[dict[str | int, AnnotationLabelPythonType]] = None
 
     corpus = Corpus.objects.get(id=corpus_pk)
 
@@ -257,7 +261,7 @@ def package_funsd_exports(
     export_id: int,
     corpus_pk: int,
     analysis_pk_list: list[int] | None = None,
-):
+) -> None:
     """
     Similar to package_annotated_docs, but for FUNSD exports. The key difference
     is we store per-page images and annotations in separate files. The

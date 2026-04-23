@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from celery import chain
 from django.apps import apps
@@ -16,6 +19,9 @@ from opencontractserver.tasks.doc_tasks import (
 )
 from opencontractserver.tasks.embeddings_task import calculate_embedding_for_doc_text
 
+if TYPE_CHECKING:
+    from opencontractserver.documents.models import Document, DocumentPath
+
 logger = logging.getLogger(__name__)
 
 # Custom signal fired when document processing (parsing, thumbnailing) completes.
@@ -29,7 +35,12 @@ DOC_CREATE_UID = "process_doc_on_create_atomic"
 
 # Kicks off document processing pipeline - including thumbnail extraction, ingestion,
 # and unlocking the document
-def process_doc_on_create_atomic(sender, instance, created, **kwargs):
+def process_doc_on_create_atomic(
+    sender: type[Document],
+    instance: Document,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler to process a document after it is created.
     Initiates a chain of tasks to extract a thumbnail, ingest the document,
@@ -103,7 +114,12 @@ def process_doc_on_create_atomic(sender, instance, created, **kwargs):
 DOC_PATH_CREATE_UID = "process_doc_on_document_path_create"
 
 
-def process_doc_on_document_path_create(sender, instance, created, **kwargs):
+def process_doc_on_document_path_create(
+    sender: type[DocumentPath],
+    instance: DocumentPath,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler to trigger document text embeddings when a DocumentPath is created.
 
@@ -150,7 +166,7 @@ def process_doc_on_document_path_create(sender, instance, created, **kwargs):
     )
 
 
-def connect_corpus_document_signals():
+def connect_corpus_document_signals() -> None:
     """
     Connect signals for corpus-document relationships.
 
