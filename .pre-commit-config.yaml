@@ -61,7 +61,7 @@ repos:
         # major breakages (e.g. pypdf 7, openai 3) for the same reason.
         additional_dependencies:
           # --- Type stubs -----------------------------------------------
-          - django-stubs==6.0.2
+          - django-stubs==6.0.3
           - djangorestframework-stubs==3.16.9
           - types-requests==2.33.0.20260408
           - types-PyYAML==6.0.12.20260408
