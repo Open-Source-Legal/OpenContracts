@@ -96,9 +96,12 @@ class TxtParser(BaseParser):
         Resolve the active list of chunker instances for a parse call.
 
         Resolution order: explicit ``override`` kwarg → parser settings →
-        :data:`DEFAULT_CHUNKERS`. An empty list from settings falls back to
-        the default so a misconfiguration never produces a document with
-        zero structural annotations.
+        :data:`DEFAULT_CHUNKERS`. An empty list from either source also
+        falls back to the default, so a misconfiguration never produces a
+        document with zero structural annotations. Note that ``override=[]``
+        means "caller explicitly asked for no chunkers" but we still emit
+        DEFAULT_CHUNKERS (with a warning) because a zero-chunker parse is
+        never useful downstream.
         """
         if override is not None:
             specs = override
@@ -144,6 +147,11 @@ class TxtParser(BaseParser):
             text_content = txt_file.read()
 
         chunker_override = all_kwargs.get("chunkers")
+        if chunker_override is not None and not isinstance(chunker_override, list):
+            raise TypeError(
+                "chunkers kwarg must be a list of ChunkerSpec (dict/string) "
+                f"entries, got {type(chunker_override).__name__}"
+            )
         chunkers = self._resolve_chunkers(chunker_override)
         logger.info(
             f"TxtParser - doc {doc_id}: applying {len(chunkers)} chunker(s): "

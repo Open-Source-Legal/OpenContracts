@@ -137,3 +137,9 @@ PATH_CONFLICT_MSG = "Path conflict"
 DEFAULT_SENTENCE_CHUNKER_MODEL = "en_core_web_lg"
 DEFAULT_SLIDING_WINDOW_SIZE = 1000
 DEFAULT_SLIDING_WINDOW_OVERLAP = 200
+
+# Hard cap on how far the word-boundary snapper in _split_long_span will
+# walk past window_size looking for whitespace. Protects against pathological
+# inputs (e.g. a 10MB log line with no spaces) that would otherwise make the
+# inner scan O(n²) relative to the span length.
+MAX_WORD_BOUNDARY_SCAN_CHARS = 512

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -39,6 +40,7 @@ from opencontractserver.constants.document_processing import (
     DEFAULT_SENTENCE_CHUNKER_MODEL,
     DEFAULT_SLIDING_WINDOW_OVERLAP,
     DEFAULT_SLIDING_WINDOW_SIZE,
+    MAX_WORD_BOUNDARY_SCAN_CHARS,
 )
 
 logger = logging.getLogger(__name__)
@@ -185,6 +187,10 @@ class SentenceChunker(BaseTextChunker):
     # en_core_web_lg takes multiple seconds, so reloading on every
     # ``get_chunker({"name": "sentence"})`` call is a real cost.
     _nlp_cache: ClassVar[dict[str, Any]] = {}
+    # Guards against two concurrent constructors triggering the multi-second
+    # spacy.load for the same model. Instance access after construction is
+    # read-only so no lock is needed on the hot path.
+    _nlp_cache_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(self, model: str = DEFAULT_SENTENCE_CHUNKER_MODEL) -> None:
         # Imported lazily so test suites that only exercise non-spaCy
@@ -194,8 +200,11 @@ class SentenceChunker(BaseTextChunker):
         self._model_name = model
         nlp = self._nlp_cache.get(model)
         if nlp is None:
-            nlp = spacy.load(model)
-            self._nlp_cache[model] = nlp
+            with self._nlp_cache_lock:
+                nlp = self._nlp_cache.get(model)
+                if nlp is None:
+                    nlp = spacy.load(model)
+                    self._nlp_cache[model] = nlp
         self._nlp = nlp
 
     def chunk(self, text: str) -> Iterator[TextChunk]:
@@ -204,12 +213,25 @@ class SentenceChunker(BaseTextChunker):
         doc = self._nlp(text)
         for sent in doc.sents:
             # Skip whitespace-only sentences from spaCy's segmentation.
-            if not sent.text.strip():
+            sentence_text = sent.text
+            if not sentence_text.strip():
+                continue
+            # Trim leading/trailing whitespace for span hygiene, matching
+            # ParagraphChunker behaviour so downstream annotation offsets
+            # align regardless of which chunker produced them.
+            start_char = sent.start_char + (
+                len(sentence_text) - len(sentence_text.lstrip())
+            )
+            end_char = sent.end_char - (
+                len(sentence_text) - len(sentence_text.rstrip())
+            )
+            trimmed = text[start_char:end_char]
+            if not trimmed:
                 continue
             yield TextChunk(
-                start=sent.start_char,
-                end=sent.end_char,
-                text=sent.text,
+                start=start_char,
+                end=end_char,
+                text=trimmed,
                 label=self.label,
             )
 
@@ -397,8 +419,11 @@ def _split_long_span(
 
         if respect_word_boundaries and window_end < end:
             # Walk forward to the next whitespace so we don't cut a word.
+            # Cap the scan so a pathological no-whitespace input can't turn
+            # this into O(n²) over the span.
             extended = window_end
-            while extended < end and not text[extended].isspace():
+            scan_limit = min(end, window_end + MAX_WORD_BOUNDARY_SCAN_CHARS)
+            while extended < scan_limit and not text[extended].isspace():
                 extended += 1
             window_end = extended
 

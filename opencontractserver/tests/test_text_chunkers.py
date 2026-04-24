@@ -154,8 +154,11 @@ class SlidingWindowChunkerTests(TextChunkOffsetsMixin, TestCase):
         self.assertGreater(len(chunks), 1)
         for prev, curr in zip(chunks, chunks[1:]):
             # Overlap measured from snapped boundary can shrink below
-            # the configured value but must never exceed it.
+            # the configured value but must never exceed it, and must
+            # never go negative (which would mean chunks are not
+            # contiguous -- a different class of bug).
             shared = prev.end - curr.start
+            self.assertGreaterEqual(shared, 0)
             self.assertLessEqual(shared, 10)
 
     def test_short_text_yields_single_chunk(self) -> None:
