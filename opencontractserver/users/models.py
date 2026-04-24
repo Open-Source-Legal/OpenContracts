@@ -70,6 +70,25 @@ class UserProfileManager(DjangoUserManager):
 class User(AbstractUser):
     """Default user for OpenContractServer."""
 
+    # Override username to use OpenContracts' permissive validator, which
+    # accepts characters such as ``\`` and ``|`` that the default Django
+    # UnicodeUsernameValidator rejects. Declaring it on the field avoids
+    # mutating the shared ``Field.validators`` list on every ``User(...)``
+    # instantiation (see issue #1358).
+    username = django.db.models.CharField(
+        _("username"),
+        max_length=150,
+        unique=True,
+        help_text=_(
+            "Required. 150 characters or fewer. Letters, digits and "
+            r"@/./+/-/_/|/*/\\ only."
+        ),
+        validators=[UserUnicodeUsernameValidator()],
+        error_messages={
+            "unique": _("A user with that username already exists."),
+        },
+    )
+
     #: First and last name do not cover name patterns around the globe
     name = django.db.models.CharField(_("Name of User"), blank=True, max_length=255)
     first_name = django.db.models.CharField("First Name", blank=True, max_length=255)
@@ -146,11 +165,6 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username}: {self.email}"
-
-    def __init__(self, *args, **kwargs):
-        self._meta.get_field("username").validators[0] = UserUnicodeUsernameValidator()
-
-        super().__init__(*args, **kwargs)
 
     def get_absolute_url(self):
         """Get url for user's detail view.
