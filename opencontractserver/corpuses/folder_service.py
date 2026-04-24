@@ -878,6 +878,17 @@ class DocumentFolderService:
                     # ``affected_paths`` live in the root directory, so no
                     # per-row exclusion is needed — the shared mutable set
                     # captures within-batch claims on the fly (issue #1199).
+                    #
+                    # ORDERING INVARIANT: this fetch MUST run before the batch
+                    # ``update(is_current=False)`` below.  We rely on the
+                    # superseded rows still being ``is_current=True`` at fetch
+                    # time so they appear in ``occupied_paths``; the shared
+                    # set is then treated as authoritative by
+                    # ``_disambiguate_path(occupied_override=...)``, which
+                    # silently ignores ``exclude_pk``.  Reordering these two
+                    # steps (fetch after deactivate) would cause the batch to
+                    # re-claim its own source paths and produce duplicate
+                    # DocumentPath rows.
                     occupied_paths = cls._fetch_occupied_paths_in_directory(corpus, "/")
 
                     planned_paths: list[tuple[DocumentPath, str]] = []
@@ -1184,6 +1195,14 @@ class DocumentFolderService:
                 # re-fetch them.  Because we filtered out paths whose folder
                 # already equals the target, none of ``paths_to_move`` lives
                 # in the target directory — so no per-row exclusion is needed.
+                #
+                # ORDERING INVARIANT: this fetch MUST run before the batch
+                # ``update(is_current=False)`` below.  Bulk callers pass the
+                # resulting set to ``_disambiguate_path(occupied_override=...)``,
+                # which silently ignores ``exclude_pk``.  Reordering these
+                # steps (fetch after deactivate) would cause the batch to
+                # re-claim its own source paths and produce duplicate
+                # DocumentPath rows.
                 target_dir = cls._target_directory_string_from_path(target_folder_path)
                 occupied_paths = cls._fetch_occupied_paths_in_directory(
                     corpus, target_dir
@@ -1468,6 +1487,10 @@ class DocumentFolderService:
         # corpuses with thousands of files at the same directory level may
         # benefit from a GIN/pg_trgm index or a rewrite using
         # ``path__startswith`` + a slash-count annotation.
+        # TODO(perf, #1199 follow-up): file a dedicated issue if this regex
+        # scan shows up in profiling on large directories before adding an
+        # index — the btree on ``path`` is still useful for exact-match
+        # lookups and we don't want to regress write throughput.
         if directory == "/":
             qs = qs.filter(path__regex=r"^/[^/]+$")
         elif directory:

@@ -2752,6 +2752,26 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
             self.assertIsNotNone(call_kwargs.get("using"))
             self.assertIsNone(call_kwargs.get("update_fields"))
 
+    def test_document_path_has_no_pre_save_receivers(self):
+        """
+        REGRESSION GUARD: ``_dispatch_document_path_created_signals`` only
+        replays ``post_save``.  If a ``pre_save`` receiver is ever connected
+        to ``DocumentPath``, bulk-create paths will silently skip it — which
+        would be a latent correctness bug.  Fail loudly here so the dispatch
+        helper can be extended intentionally if this invariant changes.
+        """
+        from django.db.models.signals import pre_save
+
+        self.assertFalse(
+            pre_save.has_listeners(sender=DocumentPath),
+            (
+                "DocumentPath has pre_save receivers registered — update "
+                "DocumentFolderService._dispatch_document_path_created_signals "
+                "to dispatch pre_save before bulk_create, or this bulk path "
+                "will silently drop the new behaviour."
+            ),
+        )
+
 
 class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestBase):
     """
