@@ -181,6 +181,9 @@ class ClassifyModelExceptionTests(SimpleTestCase):
         self.assertIn("billing_error", description)
         self.assertIn("status_code=429", description)
         self.assertIn("insufficient_quota", description)
+        # Billing classification must never masquerade as rate limiting even
+        # though both commonly share HTTP 429.
+        self.assertNotIn("rate_limit_error", description)
 
 
 class StructuredResponsePropagationTests(TransactionTestCase):

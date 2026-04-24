@@ -154,7 +154,6 @@ _BILLING_MARKERS = (
     "insufficient_quota",
     "credit_balance_too_low",
     "billing_hard_limit_reached",
-    "quota_exceeded",
 )
 
 _RATE_LIMIT_MARKERS = (
@@ -162,6 +161,7 @@ _RATE_LIMIT_MARKERS = (
     "rate-limit",
     "ratelimit",
     "too many requests",
+    "quota_exceeded",
 )
 
 _AUTH_MARKERS = (
@@ -244,7 +244,9 @@ def classify_model_exception(exc: BaseException) -> StructuredResponseError:
 
     status_code = _extract_status_code(exc)
     body = _extract_body(exc)
-    haystack = f"{type(exc).__name__} {exc} {_body_as_text(body)}".lower()
+    # Provider bodies are usually tiny JSON error envelopes, but defensive
+    # truncation bounds worst-case memory for malformed/giant payloads.
+    haystack = f"{type(exc).__name__} {exc} {_body_as_text(body)[:2048]}".lower()
 
     message = f"{type(exc).__name__}: {exc}"
 
