@@ -7,6 +7,8 @@ integration tests or benchmarks that need a control condition).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.reranker import BaseReranker, RerankResult
 
@@ -24,6 +26,16 @@ class NoopReranker(BaseReranker):
     # File-type support is informational for rerankers (they operate on text
     # extracted from any document type).
     supported_file_types = [FileTypeEnum.PDF, FileTypeEnum.TXT, FileTypeEnum.DOCX]
+
+    @dataclass
+    class Settings:
+        """Configuration schema for :class:`NoopReranker`.
+
+        Intentionally empty -- the identity reranker has no knobs. Keeping
+        the class defined (rather than omitting it) lets generic settings
+        introspection code (GraphQL pipeline_settings query, admin) treat
+        rerankers uniformly: every reranker exposes a ``Settings`` dataclass.
+        """
 
     def _rerank_impl(
         self, query: str, passages: list[str], **all_kwargs

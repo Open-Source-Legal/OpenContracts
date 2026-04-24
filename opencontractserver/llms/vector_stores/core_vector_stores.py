@@ -544,14 +544,14 @@ class CoreAnnotationVectorStore:
         oversampled = requested_top_k * self.rerank_oversample_factor
         return max(requested_top_k, min(oversampled, RERANK_MAX_CANDIDATES))
 
-    def _apply_rerank(
-        self,
+    @staticmethod
+    def _rerank_results(
         results: list["VectorSearchResult"],
         query_text: Optional[str],
         top_k: int,
         reranker: Optional[BaseReranker],
     ) -> list["VectorSearchResult"]:
-        """Apply the reranker (sync) if configured; otherwise trim to ``top_k``."""
+        """Shared sync rerank helper used by both instance and classmethod paths."""
         if reranker is None or not query_text or not query_text.strip():
             return results[:top_k]
         if not results:
@@ -569,6 +569,16 @@ class CoreAnnotationVectorStore:
                 VectorSearchResult(annotation=src.annotation, similarity_score=r.score)
             )
         return reordered
+
+    def _apply_rerank(
+        self,
+        results: list["VectorSearchResult"],
+        query_text: Optional[str],
+        top_k: int,
+        reranker: Optional[BaseReranker],
+    ) -> list["VectorSearchResult"]:
+        """Apply the reranker (sync) if configured; otherwise trim to ``top_k``."""
+        return self._rerank_results(results, query_text, top_k, reranker)
 
     async def _aapply_rerank(
         self,
@@ -1080,19 +1090,7 @@ class CoreAnnotationVectorStore:
             )
 
         # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
-        if reranker is not None and query_text and results:
-            passages = [getattr(r.annotation, "raw_text", "") or "" for r in results]
-            rerank_output = safe_rerank(reranker, query_text, passages, top_k=top_k)
-            if rerank_output is not None:
-                return [
-                    VectorSearchResult(
-                        annotation=results[r.index].annotation,
-                        similarity_score=r.score,
-                    )
-                    for r in rerank_output
-                ]
-
-        return results[:top_k]
+        return cls._rerank_results(results, query_text, top_k, reranker)
 
     @classmethod
     async def async_global_search(
@@ -1209,8 +1207,10 @@ class CoreAnnotationVectorStore:
                 )
             )
 
-        # Vector-only path has no query_text — reranking is skipped unless
-        # the caller separately supplies ``query.query_text`` (handled above).
+        # This branch only runs when query.query_text is empty/whitespace
+        # (the text path was intercepted above and routed to async_hybrid_search).
+        # _aapply_rerank is still called so it can trim to top_k; it short-
+        # circuits on empty query_text without invoking the reranker.
         return await self._aapply_rerank(
             results, query.query_text, query.similarity_top_k, reranker
         )

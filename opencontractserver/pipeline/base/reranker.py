@@ -35,6 +35,19 @@ from .base_component import PipelineComponentBase
 logger = logging.getLogger(__name__)
 
 
+class RerankerUnavailableError(RuntimeError):
+    """Raised when a reranker is required but cannot be provided.
+
+    Callers that want deterministic reranking behaviour (notably benchmark
+    runs) can use the strict-mode helpers (``get_default_reranker_instance(
+    require=True)``, ``strict_rerank``, ``strict_arerank``) or set the
+    ``STRICT_RERANKER`` Django setting so silent fallback to first-stage
+    retrieval becomes a loud error instead. Contaminating a benchmark
+    corpus with "sometimes reranked, sometimes not" results is worse than
+    an explicit failure.
+    """
+
+
 @dataclass(frozen=True)
 class RerankResult:
     """A single reranker output.
@@ -283,7 +296,8 @@ def safe_rerank(
 
     Returns ``None`` if the reranker is ``None``, the inputs are unusable,
     or the backend raises. Callers should treat ``None`` as "fall back to
-    the pre-rerank ordering".
+    the pre-rerank ordering". Use :func:`strict_rerank` when silent
+    fallback would contaminate results (e.g. benchmark runs).
     """
     if reranker is None or not passages:
         return None
@@ -317,3 +331,51 @@ async def safe_arerank(
             exc,
         )
         return None
+
+
+def strict_rerank(
+    reranker: BaseReranker | None,
+    query: str,
+    passages: list[str],
+    top_k: int | None = None,
+    **direct_kwargs,
+) -> list[RerankResult]:
+    """Run rerank and raise :class:`RerankerUnavailableError` on any failure.
+
+    For callers that must have deterministic reranking -- benchmarks, A/B
+    comparisons, anywhere silent fallback would poison the result set.
+    """
+    if not passages:
+        return []
+    if reranker is None:
+        raise RerankerUnavailableError(
+            "Strict rerank requested but no reranker instance was provided"
+        )
+    try:
+        return reranker.rerank(query, passages, top_k=top_k, **direct_kwargs)
+    except Exception as exc:
+        raise RerankerUnavailableError(
+            f"Reranker '{reranker.__class__.__name__}' failed: {exc}"
+        ) from exc
+
+
+async def strict_arerank(
+    reranker: BaseReranker | None,
+    query: str,
+    passages: list[str],
+    top_k: int | None = None,
+    **direct_kwargs,
+) -> list[RerankResult]:
+    """Async counterpart of :func:`strict_rerank`."""
+    if not passages:
+        return []
+    if reranker is None:
+        raise RerankerUnavailableError(
+            "Strict rerank requested but no reranker instance was provided"
+        )
+    try:
+        return await reranker.arerank(query, passages, top_k=top_k, **direct_kwargs)
+    except Exception as exc:
+        raise RerankerUnavailableError(
+            f"Reranker '{reranker.__class__.__name__}' failed: {exc}"
+        ) from exc

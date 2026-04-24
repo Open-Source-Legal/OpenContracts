@@ -26,9 +26,12 @@ from opencontractserver.llms.vector_stores.core_vector_stores import (
 )
 from opencontractserver.pipeline.base.reranker import (
     BaseReranker,
+    RerankerUnavailableError,
     RerankResult,
     safe_arerank,
     safe_rerank,
+    strict_arerank,
+    strict_rerank,
 )
 from opencontractserver.pipeline.rerankers.cohere_reranker import CohereReranker
 from opencontractserver.pipeline.rerankers.microservice_reranker import (
@@ -156,6 +159,23 @@ class SafeRerankTest(TestCase):
     def test_safe_arerank_swallows_exceptions(self) -> None:
         result = asyncio.run(safe_arerank(_ExplodingReranker(), "q", ["a", "b"]))
         self.assertIsNone(result)
+
+
+class StrictRerankTest(TestCase):
+    def test_strict_rerank_raises_when_reranker_is_none(self) -> None:
+        with self.assertRaises(RerankerUnavailableError):
+            strict_rerank(None, "q", ["a", "b"])
+
+    def test_strict_rerank_raises_on_backend_exception(self) -> None:
+        with self.assertRaises(RerankerUnavailableError):
+            strict_rerank(_ExplodingReranker(), "q", ["a", "b"])
+
+    def test_strict_rerank_empty_passages_returns_empty(self) -> None:
+        self.assertEqual(strict_rerank(_KeywordReranker(), "q", []), [])
+
+    def test_strict_arerank_raises_on_backend_exception(self) -> None:
+        with self.assertRaises(RerankerUnavailableError):
+            asyncio.run(strict_arerank(_ExplodingReranker(), "q", ["a", "b"]))
 
 
 # --------------------------------------------------------------------------- #
