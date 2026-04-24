@@ -298,11 +298,16 @@ class Command(BaseCommand):
         )
 
         if verbose:
-            for content_hash, count in duplicates.values_list(
+            # django-stubs 6.0.3 types an annotated ValuesQuerySet as the
+            # underlying model rather than a dict iterable, which breaks both
+            # iteration after slicing and attribute resolution on the unpacked
+            # names. Runtime behaviour is correct; suppress the spurious
+            # static errors narrowly on the affected lines.
+            for content_hash, count in duplicates.values_list(  # type: ignore[misc]
                 "content_hash", "count"
             )[:5]:
                 self.stdout.write(
-                    f"    - Hash {content_hash[:16]}...: {count} duplicates"
+                    f"    - Hash {content_hash[:16]}...: {count} duplicates"  # type: ignore[has-type]
                 )
 
         return {"passed": False, "duplicate_hashes": duplicate_count}
