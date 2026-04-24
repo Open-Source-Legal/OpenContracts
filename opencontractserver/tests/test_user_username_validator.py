@@ -1,4 +1,4 @@
-"""
+r"""
 Regression tests for issue #1358.
 
 Before the fix, ``User.__init__`` mutated the shared
