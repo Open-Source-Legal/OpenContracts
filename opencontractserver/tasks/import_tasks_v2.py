@@ -387,7 +387,9 @@ def _import_v2_relationships(
     relationships_data: list[OpenContractsRelationshipPythonType],
     corpus_obj: Corpus,
     annot_id_map: dict[str, int],
-    label_lookup: dict[tuple[str, str], AnnotationLabel],
+    label_lookup: dict[
+        tuple[str, str], AnnotationLabel
+    ],  # key: (label_text, label_type)
     user_obj: AbstractBaseUser,
 ) -> None:
     """

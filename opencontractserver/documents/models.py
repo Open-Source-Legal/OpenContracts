@@ -4,7 +4,7 @@ import difflib
 import functools
 import hashlib
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import django
 from django.contrib.auth import get_user_model
@@ -1054,7 +1054,7 @@ class PipelineSettings(django.db.models.Model):
         # transaction that might roll back and be retried.
         transaction.on_commit(lambda: self._invalidate_cache())
 
-    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+    def delete(self, *args: Any, **kwargs: Any) -> NoReturn:
         """Prevent deletion of the singleton instance."""
         raise ValidationError("PipelineSettings singleton cannot be deleted.")
 

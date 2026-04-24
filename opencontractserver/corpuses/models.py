@@ -1795,9 +1795,11 @@ class CorpusFolder(TreeNode):
         ancestors = self.ancestors(include_self=True)
         return "/".join(f.name for f in ancestors)
 
-    def get_descendant_folders(self) -> Any:
+    def get_descendant_folders(self) -> QuerySet[CorpusFolder]:
         """Get all descendant folders efficiently using CTE."""
-        return self.descendants(include_self=True)
+        # tree-queries descendants() returns a CTE-annotated queryset subclass
+        # that is not easily importable; the objects are CorpusFolder instances.
+        return self.descendants(include_self=True)  # type: ignore[return-value]
 
     def get_document_count(self) -> int:
         """
