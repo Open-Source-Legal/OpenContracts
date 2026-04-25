@@ -715,7 +715,7 @@ class Corpus(TreeNode):
         self,
         document: Document | None = None,
         path: str | None = None,
-        user: Any | None = None,
+        user: AbstractBaseUser | None = None,
         folder: CorpusFolder | None = None,
         **doc_kwargs: Any,
     ) -> tuple[Document, str, DocumentPath]:
@@ -918,7 +918,7 @@ class Corpus(TreeNode):
     def import_content(
         self,
         content: bytes,
-        user: Any,
+        user: AbstractBaseUser,
         path: str | None = None,
         folder: CorpusFolder | None = None,
         filename: str | None = None,
@@ -991,7 +991,7 @@ class Corpus(TreeNode):
         self,
         document: Document | None = None,
         path: str | None = None,
-        user: Any | None = None,
+        user: AbstractBaseUser | None = None,
     ) -> list[DocumentPath]:
         """
         Remove a document from this corpus (soft delete).

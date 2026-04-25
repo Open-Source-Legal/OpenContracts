@@ -308,7 +308,7 @@ class Command(BaseCommand):
             )
             for content_hash, count in top_duplicates:
                 self.stdout.write(
-                    f"    - Hash {content_hash[:16]}...: {count} duplicates"  # type: ignore[has-type]
+                    f"    - Hash {content_hash[:16]}...: {count} duplicates"
                 )
 
         return {"passed": False, "duplicate_hashes": duplicate_count}
