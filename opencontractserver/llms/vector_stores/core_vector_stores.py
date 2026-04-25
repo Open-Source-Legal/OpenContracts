@@ -9,7 +9,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
 from django.db.models import Q, QuerySet
 
-from opencontractserver.annotations.models import Annotation
+from opencontractserver.annotations.models import Annotation, StructuralAnnotationSet
 from opencontractserver.constants.search import (
     FTS_CONFIG,
     HYBRID_SEARCH_OVERSAMPLE_FACTOR,
@@ -208,7 +208,7 @@ class CoreAnnotationVectorStore:
         # enumeration attacks.
         # -------------------------------------------------------------------------
         from opencontractserver.corpuses.models import Corpus
-        from opencontractserver.documents.models import Document
+        from opencontractserver.documents.models import Document, DocumentPath
 
         user = None
         if self.user_id:
@@ -289,22 +289,47 @@ class CoreAnnotationVectorStore:
 
         # Check for deleted documents in corpus
         if self.check_corpus_deletion and self.corpus_id and not self.document_id:
-            # Note: sync_to_async already imported at module level
-            from opencontractserver.documents.models import DocumentPath
-
-            # Get documents with active (non-deleted) paths in corpus
-            active_doc_ids = await sync_to_async(
-                lambda: list(
-                    DocumentPath.objects.filter(
-                        corpus_id=self.corpus_id, is_current=True, is_deleted=False
-                    ).values_list("document_id", flat=True)
+            # Lazy subquery — never round-trips through Python, so the
+            # generated SQL stays a single statement with a real subquery
+            # rather than a giant ``IN (val, val, ...)`` literal even for
+            # corpora with tens of thousands of documents.
+            active_doc_ids_qs = (
+                DocumentPath.objects.filter(
+                    corpus_id=self.corpus_id, is_current=True, is_deleted=False
                 )
-            )()
+                .values("document_id")
+                .distinct()
+            )
+            # Trade-off: this ``EXISTS`` adds one extra round-trip on the
+            # happy path, but lets us short-circuit the entire vector search
+            # for empty/all-deleted corpora (returning ``Annotation.none()``
+            # spares a downstream HNSW probe and keeps the existing
+            # operational warning). For corpora with at least one active
+            # document the cost is a single boolean SELECT and is dwarfed
+            # by the main query. Removing the check would also remove the
+            # debug log of the active-doc count that the materialised list
+            # used to provide.
+            has_active_docs = await sync_to_async(active_doc_ids_qs.exists)()
 
-            if active_doc_ids:
-                # Ensure we only search documents with active paths
-                active_filters &= Q(document_id__in=active_doc_ids)
-                _logger.debug(f"Found {len(active_doc_ids)} active documents in corpus")
+            if has_active_docs:
+                # Two annotation shapes pass this filter:
+                #   1. Direct: Annotation.document_id is in the active set.
+                #   2. Structural: Annotation.document_id is NULL but the
+                #      structural_set links to one of those active documents.
+                #      ``document_id__in`` cannot match NULL on its own, so
+                #      structural annotations need an explicit OR clause —
+                #      otherwise every parser-produced structural row is
+                #      silently dropped on this corpus-wide path.
+                active_struct_set_ids = (
+                    StructuralAnnotationSet.objects.filter(
+                        documents__in=active_doc_ids_qs
+                    )
+                    .values("id")
+                    .distinct()
+                )
+                active_filters &= Q(document_id__in=active_doc_ids_qs) | Q(
+                    structural=True, structural_set_id__in=active_struct_set_ids
+                )
             else:
                 _logger.warning(f"No active documents found in corpus {self.corpus_id}")
                 return Annotation.objects.none()
@@ -361,11 +386,48 @@ class CoreAnnotationVectorStore:
             # --- Corpus-only context (no document_id specified) ---
             _logger.debug(f"Corpus-only context: corpus_id={self.corpus_id}")
             # Annotations must be either:
-            # a) Structural (their Annotation.corpus_id might be null, included by nature)
-            # b) Non-structural AND directly linked to this corpus via Annotation.corpus_id.
-            active_filters &= Q(structural=True) | Q(
-                structural=False, corpus_id=self.corpus_id
+            # a) Structural — restricted to ``structural_set``s reachable from
+            #    a document in this corpus that is *visible to the requesting
+            #    user*. This collapses two checks into one filter:
+            #
+            #      • Corpus boundary (was missing): a parser-produced
+            #        structural annotation has ``document_id = corpus_id =
+            #        NULL``; its corpus membership is only knowable via
+            #        ``structural_set → Document.structural_annotation_set
+            #        (reverse FK) → DocumentPath.corpus_id``.
+            #      • Per-document permission (was bypassed): structural rows
+            #        previously matched ``Q(structural=True)`` unconditionally,
+            #        so a user with permission on the *corpus* could be served
+            #        rows whose underlying documents they have no permission
+            #        on.
+            #
+            #    Without this, the corpus-wide path leaked structural rows from
+            #    every other corpus in the database (and from inaccessible
+            #    documents within the same corpus).
+            # b) Non-structural — directly linked to this corpus via
+            #    ``Annotation.corpus_id``. Per-document visibility for these
+            #    rows is enforced by the visibility filter further below
+            #    plus the upfront IDOR check on ``corpus_id``.
+            # Both subqueries below stay lazy so the SQL planner sees a
+            # nested ``IN (SELECT ...)`` rather than a Python-materialised
+            # ``IN (val, val, ...)`` literal — important for corpora with
+            # tens of thousands of documents.
+            visible_corpus_doc_ids_qs = (
+                Document.objects.visible_to_user(user)
+                .filter(path_records__corpus_id=self.corpus_id)
+                .values("id")
+                .distinct()
             )
+            visible_corpus_set_ids = (
+                StructuralAnnotationSet.objects.filter(
+                    documents__in=visible_corpus_doc_ids_qs
+                )
+                .values("id")
+                .distinct()
+            )
+            active_filters &= Q(
+                structural=True, structural_set_id__in=visible_corpus_set_ids
+            ) | Q(structural=False, corpus_id=self.corpus_id)
 
         # ------------------------------------------------------------------ #
         # Apply accumulated document/corpus scope filters if any were added

@@ -9,6 +9,7 @@ Usage:
 """
 
 import logging
+from typing import cast
 
 from django.core.management.base import BaseCommand
 from django.db.models import Count
@@ -298,9 +299,14 @@ class Command(BaseCommand):
         )
 
         if verbose:
-            for content_hash, count in duplicates.values_list(
-                "content_hash", "count"
-            )[:5]:
+            # django-stubs 6.0.3 mistypes `.values().annotate().values_list()`
+            # chains as the annotated model rather than a tuple iterable, so
+            # materialise with an explicit cast. Functionally identical.
+            top_duplicates = cast(
+                list[tuple[str, int]],
+                list(duplicates.values_list("content_hash", "count")[:5]),
+            )
+            for content_hash, count in top_duplicates:
                 self.stdout.write(
                     f"    - Hash {content_hash[:16]}...: {count} duplicates"
                 )

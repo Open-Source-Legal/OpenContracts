@@ -13,6 +13,7 @@ node_modules/
 # Generated files
 *.min.js
 *.min.css
+public/env-config.js
 
 # Playwright cache
 playwright/.cache/
