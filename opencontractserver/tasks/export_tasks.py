@@ -150,12 +150,13 @@ def on_demand_post_processors(
 def package_annotated_docs(
     burned_docs: tuple[
         tuple[
-            str | None,
-            str | None,
+            str,
+            str,
             OpenContractDocExport | None,
             dict[str | int, AnnotationLabelPythonType],
             dict[str | int, AnnotationLabelPythonType],
-        ]
+        ],
+        ...,
     ],
     export_id: int,
     corpus_pk: int,
@@ -173,7 +174,7 @@ def package_annotated_docs(
     """
     logger.info(f"Package corpus for export {export_id}...")
 
-    annotated_docs = {}
+    annotated_docs: dict[str, OpenContractDocExport] = {}
     doc_labels: dict[str | int, AnnotationLabelPythonType] | None = None
     text_labels: dict[str | int, AnnotationLabelPythonType] | None = None
 
@@ -184,23 +185,31 @@ def package_annotated_docs(
 
     for doc in burned_docs:
 
-        # logger.info(f"Handling burned doc: {doc[0]}")
+        doc_name, base64_file, doc_export, doc_text_labels, doc_doc_labels = doc
+
+        # build_document_export returns ("", "", None, {}, {}) when the per-doc
+        # export failed (e.g. the underlying file could not be loaded). Skip
+        # those placeholders so we don't emit an empty-keyed / None-valued
+        # entry into the final zip and data.json.
+        if not doc_name or doc_export is None:
+            logger.warning(
+                f"Skipping failed burned doc in export {export_id}: "
+                f"doc_name={doc_name!r}, has_export={doc_export is not None}"
+            )
+            continue
 
         if not doc_labels:
-            doc_labels: dict[str | int, AnnotationLabelPythonType] = doc[4]
+            doc_labels = doc_doc_labels
 
         if not text_labels:
-            text_labels: dict[str | int, AnnotationLabelPythonType] = doc[3]
+            text_labels = doc_text_labels
 
-        base64_img_bytes = doc[1].encode("utf-8")
+        base64_img_bytes = base64_file.encode("utf-8")
         decoded_file_data = base64.decodebytes(base64_img_bytes)
-        # logger.info("Data decoded successfully")
 
-        zip_file.writestr(doc[0], decoded_file_data)
-        # logger.info("Pdf written successfully")
+        zip_file.writestr(doc_name, decoded_file_data)
 
-        annotated_docs[doc[0]] = doc[2]
-        # logger.info("doc json added to json")
+        annotated_docs[doc_name] = doc_export
 
     export_file_data: OpenContractsExportDataJsonPythonType = {
         "annotated_docs": annotated_docs,
