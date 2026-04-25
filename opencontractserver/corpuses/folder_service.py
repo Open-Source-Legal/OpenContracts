@@ -911,8 +911,6 @@ class DocumentFolderService:
                     DocumentPath.objects.filter(pk__in=old_path_pks).update(
                         is_current=False
                     )
-                    for current, _ in planned_paths:
-                        current.is_current = False
 
                     new_path_rows = [
                         DocumentPath(
@@ -1242,11 +1240,6 @@ class DocumentFolderService:
                 DocumentPath.objects.filter(pk__in=old_path_pks).update(
                     is_current=False
                 )
-                # Keep in-memory instances in sync with the DB update so that
-                # callers relying on ``current.is_current`` after this method
-                # returns see the correct value without a refetch.
-                for current, _ in planned_paths:
-                    current.is_current = False
 
                 new_path_rows = [
                     DocumentPath(
@@ -1458,9 +1451,9 @@ class DocumentFolderService:
         Args:
             corpus: Corpus to query.
             directory: Directory string terminated by ``/`` (e.g. ``/Target/``
-                       for folder ``Target``, or ``/`` for corpus root).  An
-                       empty string is treated as "no leading slash" (matches
-                       all active paths — rare fallback).
+                       for folder ``Target``, or ``/`` for corpus root). An
+                       empty string raises ``ValueError`` to surface caller
+                       bugs that would otherwise trigger a full-table scan.
             exclude_pk: Optional DocumentPath PK to exclude from the result
                         (e.g. the record being superseded by a single move).
 
