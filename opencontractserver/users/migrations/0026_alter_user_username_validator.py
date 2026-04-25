@@ -4,16 +4,7 @@ import opencontractserver.users.validators
 
 
 class Migration(migrations.Migration):
-    """
-    Declare the OpenContracts-specific ``UserUnicodeUsernameValidator`` on the
-    ``User.username`` field at the model layer.
-
-    Previously the replacement was performed inside ``User.__init__`` by
-    mutating ``self._meta.get_field("username").validators[0]``. That mutated a
-    shared field-level list on every instantiation and was fragile against any
-    third-party code that added its own validator to the same list (see issue
-    #1358).
-    """
+    """Declare ``UserUnicodeUsernameValidator`` on ``User.username`` at the model layer."""
 
     dependencies = [
         ("users", "0025_alter_userexport_format_add_v2"),

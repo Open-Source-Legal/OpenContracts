@@ -1,19 +1,6 @@
-r"""
-Regression tests for issue #1358.
-
-Before the fix, ``User.__init__`` mutated the shared
-``User._meta.get_field("username").validators`` list on every instantiation.
-That was fragile: if any third-party code prepended its own validator, the
-``validators[0]`` assignment silently replaced the wrong slot and OpenContracts'
-permissive username rules (which allow ``\``, ``|``, ``*``) could flip back to
-Django's stricter default.
-
-The fix declares the ``UserUnicodeUsernameValidator`` on the ``User.username``
-field at class-body time, so there is no runtime mutation.
-"""
+"""Regression tests for shared-state mutation in ``User.username`` validators."""
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from opencontractserver.users.validators import UserUnicodeUsernameValidator
@@ -22,7 +9,7 @@ User = get_user_model()
 
 
 class UsernameValidatorRegressionTests(TestCase):
-    """Guardrails against regressing issue #1358."""
+    """Guardrails against shared-state mutation of ``User.username`` validators."""
 
     def test_username_field_has_opencontracts_validator(self):
         """The custom validator must be declared on the field, not patched in."""
@@ -36,15 +23,8 @@ class UsernameValidatorRegressionTests(TestCase):
         """Usernames containing ``\\``, ``|``, and ``*`` must pass validation."""
         permissive_username = r"name\with|pipes*and-slash"
         user = User(username=permissive_username, email="perm@example.com")
-        # full_clean() runs every validator on the field.
-        try:
-            user.full_clean(exclude=["password"])
-        except ValidationError as exc:
-            self.assertNotIn(
-                "username",
-                exc.message_dict,
-                f"Permissive username rejected: {exc.message_dict}",
-            )
+        # full_clean() runs every validator on the field; should not raise.
+        user.full_clean(exclude=["password"])
 
     def test_validators_list_stable_across_instantiations(self):
         """Creating many ``User`` instances must not grow/shrink the validators list."""
@@ -70,12 +50,7 @@ class UsernameValidatorRegressionTests(TestCase):
             )
 
     def test_third_party_prepend_does_not_corrupt_username_validator(self):
-        """
-        Simulate a third-party package prepending its own validator. Before the
-        fix, ``validators[0] = UserUnicodeUsernameValidator()`` in ``__init__``
-        would clobber the third-party validator and silently fall back to
-        Django's default validator for the OpenContracts slot.
-        """
+        """A third-party validator prepended to ``Field.validators`` must survive ``User`` instantiation."""
         from django.core.validators import RegexValidator
 
         field = User._meta.get_field("username")

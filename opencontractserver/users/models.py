@@ -74,14 +74,14 @@ class User(AbstractUser):
     # accepts characters such as ``\`` and ``|`` that the default Django
     # UnicodeUsernameValidator rejects. Declaring it on the field avoids
     # mutating the shared ``Field.validators`` list on every ``User(...)``
-    # instantiation (see issue #1358).
+    # instantiation.
     username = django.db.models.CharField(
         _("username"),
         max_length=150,
         unique=True,
         help_text=_(
             "Required. 150 characters or fewer. Letters, digits and "
-            r"@/./+/-/_/|/*/\\ only."
+            "@/./+/-/_/|/*/\\ only."
         ),
         validators=[UserUnicodeUsernameValidator()],
         error_messages={
