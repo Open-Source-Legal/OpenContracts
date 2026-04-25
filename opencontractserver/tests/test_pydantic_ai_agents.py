@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase, override_settings
+from django.utils import timezone
 from pydantic import BaseModel
 from pydantic_ai.agent import Agent
 from pydantic_ai.models.test import TestModel
@@ -150,11 +151,17 @@ class TestPydanticAIAgents(TransactionTestCase):
             is_public=True,
         )
 
+        # processing_started is set to short-circuit the
+        # process_doc_on_create_atomic post_save signal which would otherwise
+        # try to ingest a non-existent PDF file via the (eager) celery chain
+        # under TransactionTestCase. The signal exits early when this field
+        # is non-null on the create call.
         self.doc1 = Document.objects.create(
             title="Test Document 1",
             description="First test document",
             creator=self.user,
             is_public=True,
+            processing_started=timezone.now(),
         )
 
         self.doc2 = Document.objects.create(
@@ -162,6 +169,7 @@ class TestPydanticAIAgents(TransactionTestCase):
             description="Second test document",
             creator=self.user,
             is_public=True,
+            processing_started=timezone.now(),
         )
 
         # Add documents to corpus
@@ -740,11 +748,14 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             creator=self.user,
             is_public=True,
         )
+        # See comment on TestPydanticAIAgents.setUp for why processing_started
+        # is set explicitly.
         self.doc1 = Document.objects.create(
             title="Coverage Document",
             description="Test document for coverage",
             creator=self.user,
             is_public=True,
+            processing_started=timezone.now(),
         )
         self.corpus.add_document(document=self.doc1, user=self.user)
 
