@@ -288,10 +288,15 @@ test.describe("DocumentRelationshipModal — state transitions", () => {
 
     await page.waitForSelector('text="Target Document 1"', { timeout: 10000 });
 
-    // The target pill's Remove button is the second one on the page
-    // (source has one Remove, target has one Remove)
-    const removeButtons = page.locator('button[title="Remove"]');
-    await removeButtons.nth(1).click();
+    // Scope the Remove click to the target pill by walking up from the
+    // pill's visible title to the first ancestor that contains a Remove
+    // button. This avoids the earlier DOM-order `.nth(1)` approach which
+    // would silently click the wrong button if the source/target layout
+    // ever changes.
+    const targetPill = page
+      .getByText("Target Document 1")
+      .locator('xpath=ancestor::*[.//button[@title="Remove"]][1]');
+    await targetPill.locator('button[title="Remove"]').click();
 
     await expect(page.getByText("No target documents")).toBeVisible();
   });
@@ -718,15 +723,20 @@ test.describe("DocumentRelationshipModal — submit", () => {
     const submitBtn = page.getByRole("button", { name: /Create Relationship/ });
     await submitBtn.click();
 
-    // Modal should still be open after the failed mutation (the failure path
-    // does not close the modal). Use a visibility assertion instead of a fixed
-    // sleep so we only wait as long as needed for the mutation to settle.
+    // Wait for the mutation to settle. When the mutation fails the submit
+    // button re-enables (the component flips `isSubmitting` back off) and
+    // the modal stays open — both are positive signals the failure path
+    // has fully executed. Waiting for them before the negative assertion
+    // gives `onSuccessCalled` a real window in which it *could* have been
+    // invoked; without this stabilization the poll passes immediately on
+    // the initial `false` value and provides no timing protection.
     await expect(page.getByText("Link Documents")).toBeVisible({
       timeout: 5000,
     });
+    await expect(submitBtn).toBeEnabled({ timeout: 5000 });
 
     // onSuccess should NOT be invoked when all mutations fail.
-    await expect.poll(() => onSuccessCalled, { timeout: 3000 }).toBe(false);
+    await expect.poll(() => onSuccessCalled, { timeout: 2000 }).toBe(false);
   });
 });
 

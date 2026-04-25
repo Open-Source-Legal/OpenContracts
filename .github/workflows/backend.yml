@@ -27,7 +27,7 @@ jobs:
   changes:
     # Path filtering only gates pull_request events; pushes to protected
     # branches always run downstream regardless of which files changed.
-    # dorny/paths-filter@v3 additionally needs a checked-out repo on push
+    # dorny/paths-filter@v4 additionally needs a checked-out repo on push
     # events (it shells out to `git branch --show-current`), so scoping
     # this job to pull_request avoids the "fatal: not a git repository"
     # red X that would otherwise appear on every push to main.
@@ -42,9 +42,9 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
     steps:
-      # No checkout needed: dorny/paths-filter@v3 reads diffs from the
+      # No checkout needed: dorny/paths-filter@v4 reads diffs from the
       # pull_request event payload.
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -58,6 +58,7 @@ jobs:
               - 'Dockerfile*'
               - '.pre-commit-config.yaml'
               - 'setup.cfg'
+              - 'mypy.ini'
               - 'pyproject.toml'
               - '.github/workflows/backend.yml'
 
@@ -91,6 +92,15 @@ jobs:
 
       - name: Run pre-commit
         run: pre-commit run --all-files
+
+      - name: Run mypy
+        # Runs from requirements/local.txt (not via pre-commit) so CI is
+        # authoritative even when contributors skip the hook. Keep the
+        # mypy pin in requirements/local.txt in sync with the `rev:` of
+        # the mirrors-mypy hook in .pre-commit-config.yaml — a drift
+        # means the hook and CI can disagree silently. See
+        # docs/typing/README.md.
+        run: python -m mypy --config-file mypy.ini opencontractserver config
 
   pytest:
     needs: [changes, linter]

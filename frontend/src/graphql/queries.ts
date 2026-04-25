@@ -141,36 +141,6 @@ export const GET_DOCUMENTS = gql`
 `;
 
 // ---------------- Slug resolution ----------------
-export const USER_BY_SLUG = gql`
-  query ($slug: String!) {
-    userBySlug(slug: $slug) {
-      id
-      slug
-      username
-    }
-  }
-`;
-
-export const CORPUS_BY_SLUGS = gql`
-  query ($userSlug: String!, $corpusSlug: String!) {
-    corpusBySlugs(userSlug: $userSlug, corpusSlug: $corpusSlug) {
-      id
-      slug
-      title
-    }
-  }
-`;
-
-export const DOCUMENT_BY_SLUGS = gql`
-  query ($userSlug: String!, $documentSlug: String!) {
-    documentBySlugs(userSlug: $userSlug, documentSlug: $documentSlug) {
-      id
-      slug
-      title
-    }
-  }
-`;
-
 export const DOCUMENT_IN_CORPUS_BY_SLUGS = gql`
   query (
     $userSlug: String!
@@ -1293,35 +1263,6 @@ export const GET_LABELSET_WITH_ALL_LABELS = gql`
   }
 `;
 
-// Query for routing resolution - minimal fields needed for redirect
-export interface GetLabelsetByIdForRedirectInput {
-  id: string;
-}
-
-export interface GetLabelsetByIdForRedirectOutput {
-  labelset: {
-    id: string;
-    title: string;
-    creator: {
-      id: string;
-      slug: string;
-    };
-  } | null;
-}
-
-export const GET_LABELSET_BY_ID_FOR_REDIRECT = gql`
-  query GetLabelsetByIdForRedirect($id: ID!) {
-    labelset(id: $id) {
-      id
-      title
-      creator {
-        id
-        slug
-      }
-    }
-  }
-`;
-
 export interface GetAnalyzersInputs {
   description_contains?: string;
   analyzer_id_contains?: string;
@@ -1449,84 +1390,6 @@ export const GET_ANALYSES = gql`
   }
 `;
 
-export interface RequestPageAnnotationDataInputs {
-  selectedDocumentId: string;
-}
-
-export interface RequestPageAnnotationDataOutputs {
-  existingTextAnnotations: ServerAnnotationType[];
-  existingDocLabelAnnotations: ServerAnnotationType[];
-  existingRelationships: RelationshipType[];
-  selectedAnalyzersWithLabels: {
-    edges: {
-      node: AnalyzerType;
-    }[];
-  };
-  corpus: {
-    id: string;
-    labelSet: LabelSet;
-  };
-}
-
-export const REQUEST_PAGE_ANNOTATION_DATA = gql`
-  query ($selectedDocumentId: ID!) {
-    selectedAnalyzersSpanAnnotations: pageAnnotations(
-      documentId: $selectedDocumentId
-      labelType: TOKEN_LABEL
-    ) {
-      pdfPageInfo {
-        pageCount
-        currentPage
-        hasNextPage
-        corpusId
-        documentId
-        labelType
-        forAnalysisIds
-      }
-      pageAnnotations {
-        id
-        isPublic
-        myPermissions
-        annotationLabel {
-          id
-          text
-          color
-          icon
-          description
-          labelType
-        }
-        annotationType
-
-        page
-        rawText
-
-        json
-        contentModalities
-        sourceNodeInRelationships {
-          edges {
-            node {
-              id
-            }
-          }
-        }
-        targetNodeInRelationships {
-          edges {
-            node {
-              id
-            }
-          }
-        }
-        creator {
-          id
-          email
-        }
-        isPublic
-        myPermissions
-      }
-    }
-  }
-`;
-
 export interface GetExportsInputs {
   name_Contains?: string;
   orderByCreated?: string;
@@ -1576,40 +1439,6 @@ export const GET_EXPORTS = gql`
           errors
           backendLock
           file
-        }
-      }
-    }
-  }
-`;
-
-export interface GetExportInputType {
-  id: string;
-}
-
-export interface GetExportOutputType {
-  extract: ExtractType;
-}
-
-export const GET_EXPORT = gql`
-  query getExtract($id: ID!) {
-    extract(id: $id) {
-      id
-      name
-      fullDatacellList {
-        id
-        isPublic
-      }
-      fieldset {
-        inUse
-        fullColumnList {
-          id
-          instructions
-          extractIsList
-          limitToLabel
-          taskName
-          matchText
-          query
-          outputType
         }
       }
     }
@@ -1694,35 +1523,6 @@ export const REQUEST_GET_FIELDSET = gql`
         query
         matchText
         mustContainText
-        outputType
-        limitToLabel
-        instructions
-        extractIsList
-        taskName
-      }
-    }
-  }
-`;
-
-export interface GetFieldsetOutputs {
-  fieldset: FieldsetType;
-}
-
-export const GET_FIELDSET = gql`
-  query GetFieldset($id: ID!) {
-    fieldset(id: $id) {
-      id
-      creator {
-        id
-        username
-      }
-      name
-      description
-      inUse
-      columns {
-        id
-        query
-        matchText
         outputType
         limitToLabel
         instructions
@@ -2327,166 +2127,6 @@ export const GET_ANNOTATIONS_FOR_ANALYSIS = gql`
   }
 `;
 
-export interface GetDocumentAnnotationsAndRelationshipsInput {
-  documentId: string;
-  corpusId: string;
-  analysisId?: string;
-}
-
-export interface GetDocumentAnnotationsAndRelationshipsOutput {
-  document: DocumentType;
-  corpus: CorpusType;
-}
-
-/**
- * If analysisId is set to __none__ you will get annotations and relationships with NO linked analysis
- */
-export const GET_DOCUMENT_ANNOTATIONS_AND_RELATIONSHIPS = gql`
-  query GetDocumentAnnotationsAndRelationships(
-    $documentId: ID!
-    $corpusId: ID!
-    $analysisId: ID
-  ) {
-    document(id: $documentId) {
-      id
-      allStructuralAnnotations {
-        id
-        page
-        parent {
-          id
-        }
-        annotationLabel {
-          id
-          text
-          color
-          icon
-          description
-          labelType
-        }
-        annotationType
-        rawText
-        json
-        myPermissions
-        structural
-        contentModalities
-      }
-      allAnnotations(corpusId: $corpusId, analysisId: $analysisId) {
-        id
-        page
-        analysis {
-          id
-        }
-        annotationLabel {
-          id
-          text
-          color
-          icon
-          description
-          labelType
-        }
-        userFeedback {
-          edges {
-            node {
-              id
-              approved
-              rejected
-            }
-          }
-          totalCount
-        }
-        annotationType
-        rawText
-        json
-        myPermissions
-        structural
-        contentModalities
-      }
-      allRelationships(corpusId: $corpusId, analysisId: $analysisId) {
-        id
-        structural
-        relationshipLabel {
-          id
-          text
-          color
-          icon
-          description
-        }
-        sourceAnnotations {
-          edges {
-            node {
-              id
-            }
-          }
-        }
-        targetAnnotations {
-          edges {
-            node {
-              id
-            }
-          }
-        }
-      }
-    }
-    corpus(id: $corpusId) {
-      id
-      labelSet {
-        id
-        allAnnotationLabels {
-          id
-          text
-          color
-          icon
-          description
-          labelType
-        }
-      }
-    }
-  }
-`;
-
-export const getAnnotationsByDocumentId = /* GraphQL */ `
-  query GetAnnotationsByDocumentId($documentId: ID!) {
-    getAnnotationsByDocumentId(documentId: $documentId) {
-      items {
-        id
-        documentId
-        start
-        end
-        selectedText
-        comment
-        annotationType
-        createdAt
-        updatedAt
-        owner
-      }
-    }
-  }
-`;
-
-export const listAnnotations = /* GraphQL */ `
-  query ListAnnotations(
-    $filter: ModelAnnotationFilterInput
-    $limit: Int
-    $nextToken: String
-  ) {
-    listAnnotations(filter: $filter, limit: $limit, nextToken: $nextToken) {
-      items {
-        id
-        documentId
-        start
-        end
-        selectedText
-        comment
-        annotationType
-        createdAt
-        updatedAt
-        owner
-      }
-      nextToken
-    }
-  }
-`;
-
 export interface GetConversationsInputs {
   documentId?: string;
   corpusId?: string;
@@ -3025,33 +2665,6 @@ export const GET_EMBEDDERS = gql`
         vectorSize
         className
       }
-    }
-  }
-`;
-
-export interface GetDocumentDetailsInput {
-  documentId: string;
-}
-
-export interface GetDocumentDetailsOutput {
-  document: RawDocumentType;
-}
-
-export const GET_DOCUMENT_DETAILS = gql`
-  query GetDocumentDetails($documentId: ID!) {
-    document(id: $documentId) {
-      id
-      title
-      fileType
-      creator {
-        email
-      }
-      created
-      mdSummaryFile
-      pdfFile
-      txtExtractFile
-      pawlsParseFile
-      myPermissions
     }
   }
 `;
@@ -4239,12 +3852,6 @@ export const GET_NOTIFICATIONS = gql`
   }
 `;
 
-export const GET_UNREAD_NOTIFICATION_COUNT = gql`
-  query GetUnreadNotificationCount {
-    unreadNotificationCount
-  }
-`;
-
 export interface GetNotificationsInput {
   isRead?: boolean;
   notificationType?: string;
@@ -4288,10 +3895,6 @@ export interface GetNotificationsOutput {
     };
     totalCount: number;
   };
-}
-
-export interface GetUnreadNotificationCountOutput {
-  unreadNotificationCount: number;
 }
 
 // ============================================================================
@@ -5207,25 +4810,6 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
         startCursor
         endCursor
       }
-      totalCount
-    }
-  }
-`;
-
-export interface GetDocumentRelationshipCountInput {
-  documentId: string;
-  corpusId?: string;
-}
-
-export interface GetDocumentRelationshipCountOutput {
-  documentRelationships: {
-    totalCount: number;
-  };
-}
-
-export const GET_DOCUMENT_RELATIONSHIP_COUNT = gql`
-  query GetDocumentRelationshipCount($documentId: ID!, $corpusId: ID) {
-    documentRelationships(documentId: $documentId, corpusId: $corpusId) {
       totalCount
     }
   }

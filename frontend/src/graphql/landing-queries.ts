@@ -1,10 +1,5 @@
 import { gql } from "@apollo/client";
-import {
-  CorpusType,
-  ConversationType,
-  DocumentType,
-  UserType,
-} from "../types/graphql-api";
+import { CorpusType, ConversationType } from "../types/graphql-api";
 
 // ============================================================================
 // Landing Page Discovery Queries
@@ -89,44 +84,6 @@ export interface GetTrendingCorpusesOutput {
   };
 }
 
-export const GET_TRENDING_CORPUSES = gql`
-  query GetTrendingCorpuses($limit: Int) {
-    corpuses(first: $limit) {
-      edges {
-        node {
-          id
-          slug
-          title
-          description
-          icon
-          isPublic
-          created
-          creator {
-            id
-            username
-            slug
-          }
-          documentCount
-          annotationCount
-          categories {
-            id
-            name
-          }
-          engagementMetrics {
-            totalThreads
-            totalMessages
-            uniqueContributors
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-  }
-`;
-
 /**
  * Get recent public discussions/threads for landing page
  */
@@ -204,61 +161,6 @@ export const GET_RECENT_DISCUSSIONS = gql`
 `;
 
 /**
- * Get recent public documents for landing page
- */
-export interface GetRecentDocumentsOutput {
-  documents: {
-    edges: Array<{
-      node: Pick<
-        DocumentType,
-        | "id"
-        | "slug"
-        | "title"
-        | "description"
-        | "icon"
-        | "fileType"
-        | "created"
-      > & {
-        creator: {
-          slug: string;
-          username?: string;
-        };
-      };
-    }>;
-    pageInfo: {
-      hasNextPage: boolean;
-      endCursor: string | null;
-    };
-  };
-}
-
-export const GET_RECENT_DOCUMENTS = gql`
-  query GetRecentDocuments($limit: Int) {
-    documents(first: $limit) {
-      edges {
-        node {
-          id
-          slug
-          title
-          description
-          icon
-          fileType
-          created
-          creator {
-            slug
-            username
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-  }
-`;
-
-/**
  * Get platform-wide community statistics
  * Note: Backend CommunityStatsType doesn't have totalCorpuses/totalDocuments
  */
@@ -272,19 +174,6 @@ export interface GetCommunityStatsOutput {
     activeUsersThisMonth: number;
   };
 }
-
-export const GET_COMMUNITY_STATS = gql`
-  query GetCommunityStats {
-    communityStats {
-      totalUsers
-      totalThreads
-      totalMessages
-      totalAnnotations
-      activeUsersThisWeek
-      activeUsersThisMonth
-    }
-  }
-`;
 
 /**
  * Get global leaderboard for top contributors
@@ -308,33 +197,6 @@ export interface LeaderboardEntry {
     }>;
   };
 }
-
-export interface GetGlobalLeaderboardOutput {
-  globalLeaderboard: LeaderboardEntry[];
-}
-
-export const GET_GLOBAL_LEADERBOARD = gql`
-  query GetGlobalLeaderboard($limit: Int) {
-    globalLeaderboard(limit: $limit) {
-      id
-      username
-      slug
-      reputationGlobal
-      badges(first: 3) {
-        edges {
-          node {
-            badge {
-              id
-              name
-              icon
-              color
-            }
-          }
-        }
-      }
-    }
-  }
-`;
 
 /**
  * Unified discovery query - fetches everything needed for landing page in one request

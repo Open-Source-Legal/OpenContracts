@@ -208,7 +208,7 @@ export default defineConfig(async () => {
         ),
       },
       coverage: {
-        provider: "v8",
+        provider: "istanbul",
         reporter: ["text", "json", "html", "lcov"],
         reportsDirectory: "./coverage/unit",
         // Adjust coverage include/exclude if needed, based on the new test patterns
@@ -220,11 +220,11 @@ export default defineConfig(async () => {
           // Add any other files/patterns to exclude from coverage
         ],
         // Count every file matched by `include`, not just files imported by a
-        // test. Without this, v8 silently drops untested files from the lcov,
-        // which inflates the `frontend-unit` ratio (small denominator) and
-        // misaligns with the Istanbul-based component/e2e lcovs (which do
-        // enumerate all source files). Aligning the two universes is required
-        // for the merged `frontend` lcov to be meaningful.
+        // test. Without this, the provider silently drops untested files from
+        // the lcov, shrinking the `frontend-unit` denominator and misaligning
+        // with the Istanbul-instrumented component/e2e lcovs (which enumerate
+        // all source files). Aligning the per-file universe is required for
+        // the merged `frontend` lcov to be meaningful.
         all: true,
       },
     },

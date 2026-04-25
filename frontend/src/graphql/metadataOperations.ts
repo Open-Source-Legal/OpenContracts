@@ -38,18 +38,6 @@ export const GET_DOCUMENT_METADATA_DATACELLS = gql`
   }
 `;
 
-export const GET_METADATA_COMPLETION_STATUS = gql`
-  query GetMetadataCompletionStatus($documentId: ID!, $corpusId: ID!) {
-    metadataCompletionStatusV2(documentId: $documentId, corpusId: $corpusId) {
-      totalFields
-      filledFields
-      missingFields
-      percentage
-      missingRequired
-    }
-  }
-`;
-
 export const GET_DOCUMENTS_METADATA_BATCH = gql`
   query GetDocumentsMetadataBatch($documentIds: [ID]!, $corpusId: ID!) {
     documentsMetadataDatacellsBatch(
@@ -220,74 +208,32 @@ export interface GetCorpusMetadataColumnsOutput {
   }[];
 }
 
-export interface GetDocumentMetadataDatacellsInput {
-  documentId: string;
-  corpusId: string;
-}
-
-export interface GetDocumentMetadataDatacellsOutput {
-  documentMetadataDatacells: {
-    id: string;
-    data: any;
-    dataDefinition: string;
-    column: {
-      id: string;
-      name: string;
-      dataType: string;
-      validationConfig?: any;
-      helpText?: string;
-      isManualEntry: boolean;
-    };
-    creator: {
-      id: string;
-      email: string;
-    };
-  }[];
-}
-
-export interface GetMetadataCompletionStatusInput {
-  documentId: string;
-  corpusId: string;
-}
-
-export interface GetMetadataCompletionStatusOutput {
-  metadataCompletionStatusV2: {
-    totalFields: number;
-    filledFields: number;
-    missingFields: number;
-    percentage: number;
-    missingRequired: string[];
-  };
-}
-
 export interface GetDocumentsMetadataBatchInput {
   documentIds: string[];
   corpusId: string;
 }
 
-export interface DocumentMetadataResult {
-  documentId: string;
-  datacells: {
-    id: string;
-    data: any;
-    dataDefinition: string;
-    column: {
-      id: string;
-      name: string;
-      dataType: string;
-      validationConfig?: any;
-      helpText?: string;
-      isManualEntry: boolean;
-    };
-    creator: {
-      id: string;
-      email: string;
-    };
-  }[];
-}
-
 export interface GetDocumentsMetadataBatchOutput {
-  documentsMetadataDatacellsBatch: DocumentMetadataResult[];
+  documentsMetadataDatacellsBatch: {
+    documentId: string;
+    datacells: {
+      id: string;
+      data: any;
+      dataDefinition: string;
+      column: {
+        id: string;
+        name: string;
+        dataType: string;
+        validationConfig?: any;
+        helpText?: string;
+        isManualEntry: boolean;
+      };
+      creator: {
+        id: string;
+        email: string;
+      };
+    }[];
+  }[];
 }
 
 export interface CreateMetadataColumnInput {

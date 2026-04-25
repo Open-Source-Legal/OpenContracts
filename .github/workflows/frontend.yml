@@ -79,27 +79,22 @@ jobs:
           yarn run test:ct --reporter=list tests/*Metadata*.ct.tsx
         continue-on-error: true
 
+      # The `frontend` flag is intentionally listed alongside
+      # `frontend-component` so the same upload feeds both the per-suite
+      # drill-in and the merged Frontend coverage total. Codecov aggregates
+      # all uploads sharing a flag server-side, so the README `flag=frontend`
+      # badge reflects the union of unit + component + e2e without any
+      # cross-workflow lcov merging on our side.
       - name: Upload CT Coverage to Codecov
         if: success() || failure()
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: frontend/coverage/ct/lcov.info
-          flags: frontend-component
+          flags: frontend-component,frontend
           name: frontend-ct-coverage
           fail_ci_if_error: false
-
-      # Publish the raw lcov so the cross-workflow merge job in
-      # `codecov-notify.yml` can pull it via `actions/download-artifact` and
-      # combine it with the unit + e2e lcovs into a single `frontend` flag.
-      - name: Upload CT lcov artifact
-        if: success() || failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: frontend-ct-lcov
-          path: frontend/coverage/ct/lcov.info
-          if-no-files-found: warn
-          retention-days: 7
+          disable_search: true
 
   build:
     name: Build
@@ -144,27 +139,17 @@ jobs:
         run: yarn install --frozen-lockfile
       - name: Run Unit Tests with Coverage
         run: yarn run test:coverage:unit
+      # See the CT upload above for why the `frontend` flag is listed here too.
       - name: Upload Unit Coverage to Codecov
         if: success() || failure()
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: frontend/coverage/unit/lcov.info
-          flags: frontend-unit
+          flags: frontend-unit,frontend
           name: frontend-unit-coverage
           fail_ci_if_error: false
-
-      # Publish the raw lcov so the cross-workflow merge job in
-      # `codecov-notify.yml` can pull it via `actions/download-artifact` and
-      # combine it with the component + e2e lcovs into a single `frontend` flag.
-      - name: Upload Unit lcov artifact
-        if: success() || failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: frontend-unit-lcov
-          path: frontend/coverage/unit/lcov.info
-          if-no-files-found: warn
-          retention-days: 7
+          disable_search: true
 
   docker-build:
     name: Build Docker Image

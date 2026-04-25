@@ -19,6 +19,7 @@ import hashlib
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, TransactionTestCase
+from django.utils import timezone
 
 from opencontractserver.annotations.models import (
     Annotation,
@@ -331,12 +332,16 @@ class ImportContentStructuralSetTests(TransactionTestCase):
             content_hash=content_hash, creator=self.user
         )
 
-        # Create a global document with this content and structural set
+        # Create a global document with this content and structural set.
+        # processing_started bypasses the post_save signal which would
+        # otherwise trigger eager celery ingestion for the (file-less) doc
+        # under TransactionTestCase.
         _global_doc = Document.objects.create(  # noqa: F841
             title="Global Doc",
             creator=self.user,
             pdf_file_hash=content_hash,
             structural_annotation_set=structural_set,
+            processing_started=timezone.now(),
         )
 
         # Now import the same content into a corpus

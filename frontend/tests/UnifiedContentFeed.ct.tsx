@@ -764,3 +764,436 @@ test.describe("UnifiedContentFeed - Span Annotation Relationships", () => {
     }
   });
 });
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Multi-select toolbar & relationship modal integration
+ * ────────────────────────────────────────────────────────────────────────── */
+
+test.describe("UnifiedContentFeed - Multi-select toolbar", () => {
+  test("selection toolbar appears after toggling an annotation", async ({
+    mount,
+    page,
+  }) => {
+    const annotations = [
+      createMockAnnotation("ann-1", 1, "First item text", {
+        text: "Label A",
+        color: "#ff0000",
+      }),
+      createMockAnnotation("ann-2", 1, "Second item text", {
+        text: "Label B",
+        color: "#00ff00",
+      }),
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper notes={[]} mockAnnotations={annotations} />
+    );
+
+    // Toolbar is hidden initially
+    await expect(page.getByText(/annotation[s]? selected/)).not.toBeVisible();
+
+    // Toggle first annotation's multi-select checkbox (lucide Square icon)
+    const firstItem = page.locator('[data-annotation-id="ann-1"]');
+    await firstItem.locator(".lucide-square").click();
+
+    // Toolbar appears with correct count
+    await expect(page.getByText("1 annotation selected")).toBeVisible();
+
+    // Toggle second annotation
+    const secondItem = page.locator('[data-annotation-id="ann-2"]');
+    await secondItem.locator(".lucide-square").click();
+
+    await expect(page.getByText("2 annotations selected")).toBeVisible();
+
+    // Clear selection with the Clear button
+    await page.getByRole("button", { name: /Clear/ }).click();
+    await expect(page.getByText(/annotation[s]? selected/)).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("Select All selects every annotation in feed", async ({
+    mount,
+    page,
+  }) => {
+    const annotations = [
+      createMockAnnotation("ann-1", 1, "A", {
+        text: "L1",
+        color: "#ff0000",
+      }),
+      createMockAnnotation("ann-2", 1, "B", {
+        text: "L2",
+        color: "#00ff00",
+      }),
+      createMockAnnotation("ann-3", 2, "C", {
+        text: "L3",
+        color: "#0000ff",
+      }),
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper notes={[]} mockAnnotations={annotations} />
+    );
+
+    // Trigger toolbar by selecting one annotation first
+    await page
+      .locator('[data-annotation-id="ann-1"]')
+      .locator(".lucide-square")
+      .click();
+    await expect(page.getByText("1 annotation selected")).toBeVisible();
+
+    // Click "Select All" in the toolbar
+    await page.getByRole("button", { name: /Select All/ }).click();
+
+    // All three should now be selected
+    await expect(page.getByText("3 annotations selected")).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("'Add to Relationship' opens the relationship action modal", async ({
+    mount,
+    page,
+  }) => {
+    const annotations = [
+      createMockAnnotation("ann-1", 1, "A", {
+        text: "L1",
+        color: "#ff0000",
+      }),
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper notes={[]} mockAnnotations={annotations} />
+    );
+
+    await page
+      .locator('[data-annotation-id="ann-1"]')
+      .locator(".lucide-square")
+      .click();
+    await expect(page.getByText("1 annotation selected")).toBeVisible();
+
+    await page.getByRole("button", { name: /Add to Relationship/ }).click();
+
+    // Modal should appear
+    await expect(page.getByText("Add Annotations to Relationship")).toBeVisible(
+      { timeout: 5000 }
+    );
+
+    await component.unmount();
+  });
+
+  test("read-only mode: selection toolbar never appears", async ({
+    mount,
+    page,
+  }) => {
+    const annotations = [
+      createMockAnnotation("ann-1", 1, "A", {
+        text: "L1",
+        color: "#ff0000",
+      }),
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={[]}
+        mockAnnotations={annotations}
+        readOnly={true}
+      />
+    );
+
+    // Multi-select icon should NOT be present when readOnly is true
+    const firstItem = page.locator('[data-annotation-id="ann-1"]');
+    await expect(firstItem.locator(".lucide-square")).toHaveCount(0);
+    await expect(firstItem.locator(".lucide-check-square")).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("no corpus: selection toolbar never appears even on toggle", async ({
+    mount,
+    page,
+  }) => {
+    const annotations = [
+      createMockAnnotation("ann-1", 1, "A", {
+        text: "L1",
+        color: "#ff0000",
+      }),
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={[]}
+        mockAnnotations={annotations}
+        noCorpus={true}
+      />
+    );
+
+    // Without a corpus, the multi-select checkbox should not be rendered
+    const firstItem = page.locator('[data-annotation-id="ann-1"]');
+    await expect(firstItem.locator(".lucide-square")).toHaveCount(0);
+
+    // Toolbar should never be present
+    await expect(page.getByText(/annotation[s]? selected/)).not.toBeVisible();
+
+    await component.unmount();
+  });
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Sort / filter pipelines
+ * ────────────────────────────────────────────────────────────────────────── */
+
+test.describe("UnifiedContentFeed - Sort & filter", () => {
+  test("sort by type groups items by type rather than page", async ({
+    mount,
+    page,
+  }) => {
+    const notes: Note[] = [
+      {
+        id: "n1",
+        title: "Zeta Note",
+        content: "Content",
+        created: new Date().toISOString(),
+        creator: { email: "test@example.com" },
+      },
+    ];
+    const annotations = [
+      createMockAnnotation("ann-1", 1, "Alpha annotation", {
+        text: "LabelAlpha",
+        color: "#ff0000",
+      }),
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={notes}
+        mockAnnotations={annotations}
+        sortBy={"type" as SortOption}
+      />
+    );
+
+    // Both items render
+    await expect(page.getByText("Alpha annotation")).toBeVisible();
+    await expect(page.getByText("Zeta Note")).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("search query filters notes by content", async ({ mount, page }) => {
+    const notes: Note[] = [
+      {
+        id: "a",
+        title: "Apples",
+        content: "Red apples are tasty",
+        created: new Date().toISOString(),
+        creator: { email: "test@example.com" },
+      },
+      {
+        id: "b",
+        title: "Oranges",
+        content: "Orange slices are refreshing",
+        created: new Date().toISOString(),
+        creator: { email: "test@example.com" },
+      },
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={notes}
+        filters={{
+          contentTypes: ["note"],
+          annotationFilters: { showStructural: false },
+          relationshipFilters: { showStructural: false },
+          searchQuery: "apples",
+        }}
+      />
+    );
+
+    await expect(page.getByText("Apples").first()).toBeVisible();
+    await expect(page.getByText("Oranges")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("search query filters annotations by rawText", async ({
+    mount,
+    page,
+  }) => {
+    const annotations = [
+      createMockAnnotation("a1", 1, "Hello world", {
+        text: "Greeting",
+        color: "#ff0000",
+      }),
+      createMockAnnotation("a2", 1, "Goodbye now", {
+        text: "Farewell",
+        color: "#0000ff",
+      }),
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={[]}
+        mockAnnotations={annotations}
+        filters={{
+          contentTypes: ["annotation"],
+          annotationFilters: { showStructural: false },
+          relationshipFilters: { showStructural: false },
+          searchQuery: "hello",
+        }}
+      />
+    );
+
+    await expect(page.getByText("Hello world")).toBeVisible();
+    await expect(page.getByText("Goodbye now")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("structural annotations stay hidden when showStructural is off", async ({
+    mount,
+    page,
+  }) => {
+    // ServerTokenAnnotation with structural=true
+    const { ServerTokenAnnotation } = await import(
+      "../src/components/annotator/types/annotations"
+    );
+    const structuralAnn = new ServerTokenAnnotation(
+      0,
+      {
+        id: "label-s",
+        text: "RegularTextLabel",
+        color: "#333333",
+        description: "",
+        icon: undefined,
+        analyzer: null,
+        labelType: "TOKEN_LABEL" as any,
+        __typename: "AnnotationLabelType",
+      } as any,
+      "Structural text content",
+      true, // structural
+      {
+        1: {
+          bounds: { top: 0, bottom: 10, left: 0, right: 100 },
+          tokensJsons: [],
+          rawText: "Structural text content",
+        },
+      },
+      [],
+      false,
+      false,
+      false,
+      "ann-s"
+    );
+
+    const nonStructural = createMockAnnotation("a1", 1, "Visible text", {
+      text: "VisibleLabel",
+      color: "#00ff00",
+    });
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={[]}
+        mockAnnotations={[structuralAnn as any, nonStructural]}
+        showStructural={false}
+      />
+    );
+
+    await expect(page.getByText("Visible text")).toBeVisible();
+    await expect(page.getByText("Structural text content")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("OC_-prefixed labels are always hidden", async ({ mount, page }) => {
+    // Any label starting with the STRUCTURAL_LABEL_PREFIX is always filtered.
+    const hidden = createMockAnnotation("hidden-ann", 1, "Should be hidden", {
+      text: "OC_HiddenStructural",
+      color: "#aaaaaa",
+    });
+    const shown = createMockAnnotation("shown-ann", 1, "Should be visible", {
+      text: "RegularLabel",
+      color: "#00ff00",
+    });
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={[]}
+        mockAnnotations={[hidden, shown]}
+      />
+    );
+
+    await expect(page.getByText("Should be visible")).toBeVisible();
+    await expect(page.getByText("Should be hidden")).not.toBeVisible();
+
+    await component.unmount();
+  });
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Content-type pipeline (each renderer)
+ * ────────────────────────────────────────────────────────────────────────── */
+
+test.describe("UnifiedContentFeed - Content type routing", () => {
+  test("only relationships render when only 'relationship' is enabled", async ({
+    mount,
+    page,
+  }) => {
+    const annotations = [
+      createMockAnnotation("ann-1", 1, "Source text", {
+        text: "LabelA",
+        color: "#ff0000",
+      }),
+      createMockAnnotation("ann-2", 1, "Target text", {
+        text: "LabelB",
+        color: "#0000ff",
+      }),
+    ];
+
+    const relations = [
+      {
+        id: "r1",
+        sourceIds: ["ann-1"],
+        targetIds: ["ann-2"],
+        label: {
+          id: "rel-label-1",
+          text: "RelatesTo",
+          color: "#ff00ff",
+          description: "",
+          icon: undefined,
+          analyzer: null,
+          labelType: "RELATIONSHIP_LABEL" as any,
+          __typename: "AnnotationLabelType",
+        },
+        structural: false,
+        __typename: "RelationGroup",
+      } as any,
+    ];
+
+    const component = await mount(
+      <UnifiedContentFeedTestWrapper
+        notes={[
+          {
+            id: "some-note",
+            title: "Hidden Note",
+            content: "Should not show",
+            created: new Date().toISOString(),
+            creator: { email: "x@example.com" },
+          },
+        ]}
+        mockAnnotations={annotations}
+        mockRelations={relations}
+        filters={{
+          contentTypes: ["relationship"],
+          annotationFilters: { showStructural: false },
+          relationshipFilters: { showStructural: false },
+          searchQuery: "",
+        }}
+      />
+    );
+
+    await expect(page.getByText("RelatesTo").first()).toBeVisible();
+    await expect(page.getByText("Hidden Note")).not.toBeVisible();
+
+    await component.unmount();
+  });
+});

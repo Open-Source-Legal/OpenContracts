@@ -208,28 +208,19 @@ jobs:
           path: frontend/playwright-report-e2e/
           if-no-files-found: ignore
 
+      # The `frontend` flag rides along so the same upload feeds both the
+      # per-suite drill-in and the merged Frontend coverage total that the
+      # README badge reads. See `frontend.yml` for the companion uploads.
       - name: Upload frontend E2E coverage to Codecov
         if: success() || failure()
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: frontend/coverage/e2e/lcov.info
-          flags: frontend-e2e
+          flags: frontend-e2e,frontend
           name: frontend-e2e-coverage
           fail_ci_if_error: false
           disable_search: true
-
-      # Publish the raw lcov so the cross-workflow merge job in
-      # `codecov-notify.yml` can pull it via `actions/download-artifact` and
-      # combine it with the unit + component lcovs into a single `frontend` flag.
-      - name: Upload frontend E2E lcov artifact
-        if: success() || failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: frontend-e2e-lcov
-          path: frontend/coverage/e2e/lcov.info
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: Upload backend E2E coverage to Codecov
         if: success() || failure()

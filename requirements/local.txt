@@ -1,6 +1,6 @@
 -r base.txt
 
-psycopg2-binary==2.9.11  # https://github.com/psycopg/psycopg2
+psycopg2-binary==2.9.12  # https://github.com/psycopg/psycopg2
 watchfiles==1.1.1  # https://github.com/samuelcolvin/watchfiles
 Werkzeug[watchdog]==3.1.8 # https://github.com/pallets/werkzeug
 ipdb==0.13.13  # https://github.com/gotcha/ipdb
@@ -9,7 +9,7 @@ ipdb==0.13.13  # https://github.com/gotcha/ipdb
 # ------------------------------------------------------------------------------
 
 mypy==1.20.1  # https://github.com/python/mypy
-django-stubs==6.0.2  # https://github.com/typeddjango/django-stubs
+django-stubs==6.0.3  # https://github.com/typeddjango/django-stubs
 pytest==9.0.3  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-sugar==1.1.1  # https://github.com/Frozenball/pytest-sugar
