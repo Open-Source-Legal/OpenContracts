@@ -243,4 +243,20 @@ describe("resolveComponentMarker()", () => {
     );
     expect(result).not.toBeNull();
   });
+
+  it("attaches the supplied key to the created element", () => {
+    const marker = "[component:extract-grid extractId=abc]";
+    const result = resolveComponentMarker(marker, registry, marker);
+    expect(result).not.toBeNull();
+    expect(result?.key).toBe(marker);
+  });
+
+  it("creates elements with null key when no key argument is supplied", () => {
+    const result = resolveComponentMarker(
+      "[component:extract-grid extractId=abc]",
+      registry
+    );
+    expect(result).not.toBeNull();
+    expect(result?.key).toBeNull();
+  });
 });

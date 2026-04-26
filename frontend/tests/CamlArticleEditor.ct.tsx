@@ -6,6 +6,7 @@
  * 2. Editor pane with CAML source
  * 3. Preview pane with rendered output
  * 4. Unsaved changes indicator
+ * 5. Extract picker keyboard navigation (Arrow keys, Home/End, Escape, Enter)
  */
 import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
@@ -90,6 +91,288 @@ test.describe("CamlArticleEditor - Close Behavior", () => {
     // Close button should be present in action bar
     const closeButton = page.locator("button").filter({ hasText: "Close" });
     await expect(closeButton).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+});
+
+test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
+  test("should open picker and navigate with arrow keys", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    // Wait for editor to load
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Click the "Insert Extract Grid" button to open the picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await expect(triggerBtn).toBeVisible({ timeout: 5000 });
+    await triggerBtn.click();
+
+    // Dropdown should appear with extract options
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Contract Key Terms")).toBeVisible();
+    await expect(page.getByText("Compliance Tracker")).toBeVisible();
+    await expect(page.getByText("Risk Assessment")).toBeVisible();
+
+    // ArrowDown should highlight the first item. The active option is
+    // tracked on the combobox trigger via aria-activedescendant (the
+    // ARIA-correct mechanism for a pick-to-execute listbox), not via
+    // aria-selected on the options themselves — aria-selected is reserved
+    // for the actually-selected option in a stateful listbox, which this
+    // dropdown doesn't have.
+    await page.keyboard.press("ArrowDown");
+    const firstOption = page.locator('[role="option"]').first();
+    const firstOptionId = await firstOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
+
+    // ArrowDown again should move to second item
+    await page.keyboard.press("ArrowDown");
+    const secondOption = page.locator('[role="option"]').nth(1);
+    const secondOptionId = await secondOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      secondOptionId ?? ""
+    );
+
+    // ArrowUp should go back to first item
+    await page.keyboard.press("ArrowUp");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
+
+    await component.unmount();
+  });
+
+  test("should wrap around at list boundaries", async ({ mount, page }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // ArrowUp from initial state (-1) should wrap to the last item
+    await page.keyboard.press("ArrowUp");
+    const lastOption = page.locator('[role="option"]').last();
+    const lastOptionId = await lastOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      lastOptionId ?? ""
+    );
+
+    // ArrowDown from last item should wrap to first
+    await page.keyboard.press("ArrowDown");
+    const firstOption = page.locator('[role="option"]').first();
+    const firstOptionId = await firstOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
+
+    await component.unmount();
+  });
+
+  test("should close picker with Escape and return focus to trigger", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Press Escape
+    await page.keyboard.press("Escape");
+
+    // Dropdown should close
+    await expect(page.getByRole("listbox")).not.toBeVisible({ timeout: 3000 });
+
+    // Focus should return to the trigger button
+    await expect(triggerBtn).toBeFocused();
+
+    await component.unmount();
+  });
+
+  test("should use Home and End keys to jump to boundaries", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // End should jump to last option
+    await page.keyboard.press("End");
+    const lastOption = page.locator('[role="option"]').last();
+    const lastOptionId = await lastOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      lastOptionId ?? ""
+    );
+
+    // Home should jump to first option
+    await page.keyboard.press("Home");
+    const firstOption = page.locator('[role="option"]').first();
+    const firstOptionId = await firstOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      firstOptionId ?? ""
+    );
+
+    await component.unmount();
+  });
+
+  test("should not insert when Enter is pressed with no item focused", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Capture initial textarea content
+    const textarea = page.locator("textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+    const initialValue = await textarea.inputValue();
+
+    // Open picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Press Enter WITHOUT navigating to any item (activeExtractIndex is -1).
+    // This should NOT insert anything — the Enter guard checks that
+    // activeExtractIndex is a valid index before acting.
+    await page.keyboard.press("Enter");
+
+    // Give time for any potential state changes
+    await page.waitForTimeout(300);
+
+    // Textarea content should be unchanged
+    const afterValue = await textarea.inputValue();
+    expect(afterValue).toBe(initialValue);
+
+    await component.unmount();
+  });
+
+  test("ArrowDown then Enter inserts the extract-grid component marker", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    const textarea = page.locator("textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+    const initialValue = await textarea.inputValue();
+
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Navigate to the first option and select it via keyboard.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+
+    // The textarea should now contain a [component:extract-grid ...] token.
+    await expect(textarea).not.toHaveValue(initialValue, { timeout: 5000 });
+    const afterValue = await textarea.inputValue();
+    expect(afterValue).toContain("[component:extract-grid");
+
+    // Picker should close after Enter selection.
+    await expect(page.getByRole("listbox")).not.toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("should highlight item on mouse enter for seamless keyboard/mouse interaction", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Open picker
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Hover over the second option to trigger onMouseEnter
+    const secondOption = page.locator('[role="option"]').nth(1);
+    await secondOption.hover();
+
+    // The second option should become the activedescendant via onMouseEnter
+    // (the combobox's aria-activedescendant now points at the hovered
+    // option's id — this is the ARIA mechanism for a pick-to-execute
+    // listbox; aria-selected is reserved for actually-selected options).
+    const secondOptionId = await secondOption.getAttribute("id");
+    await expect(triggerBtn).toHaveAttribute(
+      "aria-activedescendant",
+      secondOptionId ?? "",
+      { timeout: 3000 }
+    );
 
     await component.unmount();
   });

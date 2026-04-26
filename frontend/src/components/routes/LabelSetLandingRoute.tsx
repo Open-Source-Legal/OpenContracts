@@ -31,9 +31,9 @@ export const LabelSetLandingRoute: React.FC = () => {
     hasError: !!error,
   });
 
-  // Handle close by navigating back to list
+  // Handle close by navigating back to list. CentralRouteManager Phase 1
+  // clears openedLabelset when the new path resolves to a browse route.
   const handleClose = () => {
-    openedLabelset(null);
     navigate("/label_sets");
   };
 

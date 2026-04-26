@@ -4,65 +4,48 @@
  * Issue: #611 - Create User Profile Page with badge display and stats
  * Epic: #572 - Social Features Epic
  *
- * Slug-based route component that resolves user profile and renders the UserProfile view.
- * Handles both /profile (current user) and /users/:slug (any user) routes.
+ * Renders the user profile resolved by CentralRouteManager from the
+ * /users/:slug route. URL parsing and entity fetching live in
+ * CentralRouteManager; this component reads reactive vars and renders.
+ *
+ * The /profile redirect (current user) is handled by ProfileRedirect.
  */
 
 import React from "react";
-import { useParams, Navigate } from "react-router-dom";
-import { useQuery, useReactiveVar } from "@apollo/client";
-import { GET_USER, GetUserInput, GetUserOutput } from "../../graphql/queries";
-import { backendUserObj } from "../../graphql/cache";
+import { useReactiveVar } from "@apollo/client";
+import {
+  backendUserObj,
+  openedUser,
+  routeLoading,
+  routeError,
+} from "../../graphql/cache";
 import { ModernLoadingDisplay } from "../widgets/ModernLoadingDisplay";
 import { ModernErrorDisplay } from "../widgets/ModernErrorDisplay";
 import { UserProfile } from "../../views/UserProfile";
 
 export const UserProfileRoute: React.FC = () => {
-  const { slug } = useParams<{ slug: string }>();
+  const user = useReactiveVar(openedUser);
+  const loading = useReactiveVar(routeLoading);
+  const error = useReactiveVar(routeError);
   const currentUser = useReactiveVar(backendUserObj);
 
-  // Must be unconditional — skip: !slug gates the network call; see #1295.
-  const { data, loading, error } = useQuery<GetUserOutput, GetUserInput>(
-    GET_USER,
-    {
-      variables: { slug: slug ?? "" },
-      skip: !slug,
-    }
-  );
-
-  // If no slug provided, redirect to current user's profile
-  if (!slug) {
-    if (!currentUser?.slug) {
-      return <Navigate to="/login" replace />;
-    }
-    return <Navigate to={`/users/${currentUser.slug}`} replace />;
-  }
-
-  if (loading) {
+  if (loading && !user) {
     return <ModernLoadingDisplay type="default" message="Loading profile..." />;
   }
 
-  if (error) {
+  if (error || !user) {
     return (
       <ModernErrorDisplay
         type="generic"
         title="User Not Found"
-        error={`Could not find user with slug "${slug}"`}
+        error={
+          error?.message || "User does not exist or their profile is private"
+        }
       />
     );
   }
 
-  if (!data?.userBySlug) {
-    return (
-      <ModernErrorDisplay
-        type="generic"
-        title="User Not Found"
-        error={`User "${slug}" does not exist or their profile is private`}
-      />
-    );
-  }
+  const isOwnProfile = currentUser?.id === user.id;
 
-  const isOwnProfile = currentUser?.id === data.userBySlug.id;
-
-  return <UserProfile user={data.userBySlug} isOwnProfile={isOwnProfile} />;
+  return <UserProfile user={user} isOwnProfile={isOwnProfile} />;
 };

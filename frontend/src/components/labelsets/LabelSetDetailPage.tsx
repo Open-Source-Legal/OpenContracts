@@ -259,7 +259,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
     if (onClose) {
       onClose();
     } else {
-      openedLabelset(null);
+      // CentralRouteManager Phase 1 clears openedLabelset on browse routes.
       navigate("/label_sets");
     }
   };
@@ -453,7 +453,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
       .then((result) => {
         if (result.data?.deleteLabelset?.ok) {
           toast.success("Label set deleted successfully");
-          openedLabelset(null);
+          // CentralRouteManager Phase 1 clears openedLabelset on browse routes.
           navigate("/label_sets");
         } else {
           toast.error(

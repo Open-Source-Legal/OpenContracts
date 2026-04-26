@@ -126,6 +126,20 @@ export function formatSettingLabel(
 }
 
 /**
+ * Truncate a string at a code-point boundary, appending an ellipsis if needed.
+ *
+ * Uses `Array.from` to iterate code points rather than UTF-16 code units so
+ * that surrogate pairs (emoji / non-BMP characters) are never split.  The fast
+ * path (`s.length <= maxLen`) skips the `Array.from` allocation entirely since
+ * UTF-16 length is always >= code-point count.
+ */
+export function truncateAtCodePoint(s: string, maxLen: number): string {
+  if (s.length <= maxLen) return s;
+  const cps = Array.from(s);
+  return cps.length > maxLen ? cps.slice(0, maxLen).join("") + "\u2026" : s;
+}
+
+/**
  * Formats a datacell value for display in extract grids, truncating long objects.
  * @param data - The datacell value (string, number, boolean, object, null, or undefined)
  * @returns Formatted string representation with em-dash for null/undefined,
@@ -137,11 +151,12 @@ export function formatCellValue(
   if (data === null || data === undefined) return "\u2014";
   if (typeof data === "boolean") return data ? "Yes" : "No";
   if (typeof data === "object") {
-    const json = JSON.stringify(data);
-    if (json.length > EXTRACT_GRID_CELL_TRUNCATE_LENGTH) {
-      return json.substring(0, EXTRACT_GRID_CELL_TRUNCATE_LENGTH) + "\u2026";
-    }
-    return json;
+    return truncateAtCodePoint(
+      JSON.stringify(data),
+      EXTRACT_GRID_CELL_TRUNCATE_LENGTH
+    );
   }
-  return String(data);
+  // Apply the same code-point-safe truncation to raw string/number values
+  // so that unexpectedly long cell contents don't blow out the table layout.
+  return truncateAtCodePoint(String(data), EXTRACT_GRID_CELL_TRUNCATE_LENGTH);
 }

@@ -1,5 +1,5 @@
 python-slugify==8.0.4  # https://github.com/un33k/python-slugify
-Pillow>=10.4.0  # https://github.com/python-pillow/Pillow
+Pillow>=12.2.0  # https://github.com/python-pillow/Pillow
 argon2-cffi==25.1.0  # https://github.com/hynek/argon2_cffi
 hiredis==3.3.1  # https://github.com/redis/hiredis-py
 redis==7.4.0  # https://github.com/redis/redis-py
@@ -48,10 +48,10 @@ pdf2image>=1.16.0
 tiktoken==0.12.0  # https://github.com/openai/tiktoken
 openai>=2.11.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
 pytesseract
-pydantic-ai>=1.56.0,<2
+pydantic-ai>=1.87.0,<2
 spacy
 pdfplumber>=0.10.0  # https://github.com/jsvine/pdfplumber - PDF token extraction
-shapely>=2.0.0  # https://github.com/shapely/shapely - spatial operations for bbox intersection
+shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection
 
 # Data Processing Tools
 # -------------------------------------------------------------------------------
@@ -77,12 +77,12 @@ jsonschema==4.26.0
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------
-mcp>=1.0.0  # https://github.com/anthropics/python-sdk
+mcp>=1.27.0  # https://github.com/anthropics/python-sdk
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
 twisted>=24.7.0rc1 # not directly required, pinned by Snyk to avoid a vulnerability
-ipython>=8.10.0 # not directly required, pinned by Snyk to avoid a vulnerability
+ipython>=9.13.0 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.32.2 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=70.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.5.0 # not directly required, pinned by Snyk to avoid a vulnerability

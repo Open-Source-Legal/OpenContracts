@@ -148,8 +148,10 @@ export const CamlDirectiveRenderer: React.FC<CamlDirectiveRendererProps> = ({
 
       // Check for embedded component markers (e.g. [component:extract-grid ...])
       // Component-marker blocks are assumed to contain no inline directives.
+      // Pass `md` as the React key so multiple markers in the same article
+      // reconcile stably (otherwise React warns about missing `key` props).
       if (componentRegistry) {
-        const resolved = resolveComponentMarker(md, componentRegistry);
+        const resolved = resolveComponentMarker(md, componentRegistry, md);
         if (resolved) {
           return (
             <ErrorBoundary

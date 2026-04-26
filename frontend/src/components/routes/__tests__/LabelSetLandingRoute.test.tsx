@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MockedProvider } from "@apollo/client/testing";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { LabelSetLandingRoute } from "../LabelSetLandingRoute";
 import {
   openedLabelset,
@@ -99,13 +99,32 @@ describe("LabelSetLandingRoute", () => {
     ).toBeInTheDocument();
   });
 
-  it("clears openedLabelset when LabelSetDetailPage invokes onClose", async () => {
+  it("navigates to /label_sets when LabelSetDetailPage invokes onClose", async () => {
+    const LocationReporter: React.FC = () => {
+      const location = useLocation();
+      return <div data-testid="location">{location.pathname}</div>;
+    };
+
     openedLabelset(mockLabelset);
-    renderRoute();
+
+    render(
+      <MockedProvider mocks={[]} addTypename={false}>
+        <MemoryRouter initialEntries={["/label_sets/ls-1"]}>
+          <Routes>
+            <Route path="/label_sets/:id" element={<LabelSetLandingRoute />} />
+            <Route path="/label_sets" element={<LocationReporter />} />
+          </Routes>
+        </MemoryRouter>
+      </MockedProvider>
+    );
 
     const closeBtn = screen.getByRole("button", { name: "close-labelset" });
     await userEvent.click(closeBtn);
 
-    expect(openedLabelset()).toBeNull();
+    // CentralRouteManager Phase 1 owns the openedLabelset(null) clear when
+    // the new path resolves to a browse route — the route component just
+    // navigates and lets the manager handle the var.
+    const loc = await screen.findByTestId("location");
+    expect(loc.textContent).toBe("/label_sets");
   });
 });
