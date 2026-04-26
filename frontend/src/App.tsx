@@ -84,6 +84,7 @@ import { NotFound } from "./components/routes/NotFound";
 import { CorpusLandingRoute } from "./components/routes/CorpusLandingRoute";
 import { CorpusThreadRoute } from "./components/routes/CorpusThreadRoute";
 import { UserProfileRoute } from "./components/routes/UserProfileRoute";
+import { ProfileRedirect } from "./components/routes/ProfileRedirect";
 import { LeaderboardRoute } from "./components/routes/LeaderboardRoute";
 import { GlobalDiscussionsRoute } from "./components/routes/GlobalDiscussionsRoute";
 import { ThreadSearchRoute } from "./views/ThreadSearchRoute";
@@ -490,7 +491,7 @@ export const App = () => {
                   <Route path="/threads" element={<ThreadSearchRoute />} />
 
                   {/* User Profile Routes (Issue #611) */}
-                  <Route path="/profile" element={<UserProfileRoute />} />
+                  <Route path="/profile" element={<ProfileRedirect />} />
                   <Route path="/users/:slug" element={<UserProfileRoute />} />
                   {/* Convenience redirect for badge notifications (Issue #637) */}
                   <Route

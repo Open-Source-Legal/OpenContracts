@@ -372,7 +372,6 @@ export const EXTRACT_GRID_EMBED_CELL_LIMIT = 500;
  * `EXTRACT_GRID_EMBED_CELL_LIMIT` on the server side.
  */
 export const EXTRACT_GRID_EMBED_MAX_ROWS = 200;
-
 // Datacell status indicator colors (used in ExtractGridEmbed status dots).
 // Values reference OS_LEGAL_COLORS design tokens for consistency.
 export const DATACELL_STATUS_COLORS = {
