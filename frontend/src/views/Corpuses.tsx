@@ -1802,11 +1802,19 @@ export const Corpuses = () => {
     const searchParams = new URLSearchParams(location.search);
     if (searchParams.get("create") === "true") {
       setShowNewCorpusModal(true);
-      // Remove the query param from URL to prevent reopening on refresh
-      const newUrl = location.pathname;
-      window.history.replaceState({}, "", newUrl);
+      // Strip the trigger param via React Router so the routing system stays
+      // in sync (avoids bypassing CentralRouteManager's URL observer).
+      searchParams.delete("create");
+      const remaining = searchParams.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: remaining ? `?${remaining}` : "",
+        },
+        { replace: true }
+      );
     }
-  }, [location.search]);
+  }, [location.search, location.pathname, navigate]);
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // Setup document resolvers and mutations

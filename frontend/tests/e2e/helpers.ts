@@ -116,9 +116,15 @@ export const VIEWS: ViewSpec[] = [
   },
   // /profile is NOT included because it always redirects to /users/<slug>
   // via React Router's <Navigate>. The pushState-based spaNavigate helper
-  // cannot follow <Navigate> redirects, so we skip it here. The
-  // UserProfile view is still covered by direct navigation in a dedicated
-  // spec if needed.
+  // cannot follow <Navigate> redirects, so we skip it here. The dedicated
+  // user-and-extract-routes spec covers /profile via spaNavigate(..., true).
+  {
+    // Resolved by CentralRouteManager Phase 1 → openedUser → UserProfileRoute.
+    path: "/users/admin",
+    name: "UserProfile",
+    matcher: { kind: "anyText", texts: [/admin/i, /Profile/i] },
+    requiresAuth: true,
+  },
 ];
 
 /**

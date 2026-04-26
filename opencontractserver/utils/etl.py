@@ -202,8 +202,8 @@ def build_document_export(
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: AnnotationFilterMode = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
 ) -> tuple[
-    str | None,
-    str | None,
+    str,
+    str,
     OpenContractDocExport | None,
     dict[str | int, AnnotationLabelPythonType],
     dict[str | int, AnnotationLabelPythonType],
@@ -217,6 +217,12 @@ def build_document_export(
         analysis_ids: Optional list of analysis PKs to include in annotation selection
         annotation_filter_mode: How to filter annotations - "CORPUS_LABELSET_ONLY" (default),
             "CORPUS_LABELSET_PLUS_ANALYSES", or "ANALYSES_ONLY"
+
+    Returns a 5-tuple ``(doc_name, base64_encoded_file, doc_annotation_json,
+    text_labels, doc_labels)``. On failure, ``doc_name`` and
+    ``base64_encoded_file`` are empty strings and ``doc_annotation_json`` is
+    ``None`` — consumers should treat an empty ``doc_name`` OR a ``None``
+    ``doc_annotation_json`` as a signal to skip that document.
     """
 
     logger.info(f"burn_doc_annotations - label_lookups: {label_lookups}")

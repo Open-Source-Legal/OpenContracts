@@ -588,8 +588,9 @@ export const ExtractDetail: React.FC = () => {
 
   // Handlers
   const handleBack = () => {
+    // Navigate to the browse list — CentralRouteManager Phase 1 will clear
+    // openedExtract when the new path is parsed as a browse route.
     navigate("/extracts");
-    openedExtract(null);
   };
 
   const handleAddDocIds = useCallback(

@@ -529,6 +529,61 @@ describe("parseRoute()", () => {
     });
   });
 
+  describe("extract routes", () => {
+    it("should parse the slug-style extract route", () => {
+      const result = parseRoute("/e/john/extract-123");
+      expect(result).toEqual({
+        type: "extract",
+        userIdent: "john",
+        extractIdent: "extract-123",
+      });
+    });
+
+    it("should parse the id-based extract detail route", () => {
+      const result = parseRoute("/extracts/extract-123");
+      expect(result).toEqual({
+        type: "extract",
+        extractIdent: "extract-123",
+      });
+    });
+
+    it("should keep /extracts (no id) as a browse route", () => {
+      const result = parseRoute("/extracts");
+      expect(result).toEqual({
+        type: "browse",
+        browsePath: "extracts",
+      });
+    });
+  });
+
+  describe("user routes", () => {
+    it("should parse a user profile route", () => {
+      const result = parseRoute("/users/jane");
+      expect(result).toEqual({
+        type: "user",
+        userSlug: "jane",
+      });
+    });
+
+    it("should parse user route with slugified identifier", () => {
+      const result = parseRoute("/users/jane-doe-42");
+      expect(result).toEqual({
+        type: "user",
+        userSlug: "jane-doe-42",
+      });
+    });
+
+    it("should return unknown for /users with no slug", () => {
+      const result = parseRoute("/users");
+      expect(result).toEqual({ type: "unknown" });
+    });
+
+    it("should return unknown for /users with extra segments", () => {
+      const result = parseRoute("/users/jane/badges");
+      expect(result).toEqual({ type: "unknown" });
+    });
+  });
+
   describe("invalid routes", () => {
     it("should return unknown for invalid pattern", () => {
       const result = parseRoute("/invalid/route");

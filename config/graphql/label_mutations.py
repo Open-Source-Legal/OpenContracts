@@ -293,12 +293,12 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
                 Q(pk=from_global_id(labelset_id)[1])
                 & (Q(creator=user) | Q(is_public=True))
             )
-            labelset_labels = labelset.documents.filter(pk__in=label_pks)
-            labelset.annotation_labels.remove(*labelset_labels)
+            labelset.annotation_labels.remove(*label_pks)
             ok = True
             message = "Success"
 
         except Exception as e:
+            logger.exception("RemoveLabelsFromLabelsetMutation failed")
             message = f"Error removing label(s) from labelset: {e}"
 
         return RemoveLabelsFromLabelsetMutation(message=message, ok=ok)

@@ -168,7 +168,6 @@ config/graphql/ingestion_source_mutations.py:206: error: Incompatible type for l
 config/graphql/label_mutations.py:112: error: Need type annotation for "pk_fields" (hint: "pk_fields: list[<type>] = ...")  [var-annotated]
 config/graphql/label_mutations.py:127: error: Need type annotation for "pk_fields" (hint: "pk_fields: list[<type>] = ...")  [var-annotated]
 config/graphql/label_mutations.py:249: error: Argument 2 to "set_permissions_for_obj_to_user" has incompatible type "AnnotationLabel"; expected "type[Model]"  [arg-type]
-config/graphql/label_mutations.py:296: error: "LabelSet" has no attribute "documents"  [attr-defined]
 config/graphql/label_mutations.py:71: error: Argument 2 to "set_permissions_for_obj_to_user" has incompatible type "LabelSet"; expected "type[Model]"  [arg-type]
 config/graphql/moderation_mutations.py:695: error: Incompatible types in assignment (expression has type "Conversation | None", variable has type "ChatMessage | None")  [assignment]
 config/graphql/moderation_mutations.py:696: error: Incompatible types in assignment (expression has type "ChatMessage | None", variable has type "Conversation | None")  [assignment]
