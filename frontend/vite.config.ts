@@ -217,7 +217,10 @@ export default defineConfig(async () => {
           "src/**/*.test.{ts,tsx}", // Exclude test files themselves
           "src/setupTests.ts", // Exclude setup file
           "src/main.tsx", // Exclude entry point if desired
-          // Add any other files/patterns to exclude from coverage
+          "**/*.d.ts", // Type declarations have no runtime code
+          // Keep this list aligned with package.json `nyc` config and
+          // scripts/seed-istanbul-coverage.cjs so all three coverage
+          // suites report against the same source-file denominator.
         ],
         // Count every file matched by `include`, not just files imported by a
         // test. Without this, the provider silently drops untested files from

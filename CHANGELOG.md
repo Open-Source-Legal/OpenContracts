@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Frontend coverage denominator regression — `nyc report --all` was a silent no-op all along** (`frontend/package.json` `test:coverage:ct` / `test:e2e:coverage`, new `frontend/scripts/seed-istanbul-coverage.cjs`, `frontend/vite.config.ts`): the `--all` flag added in commit `4d9694b9` ("Fix frontend coverage denominator by adding nyc --all") never actually applied the full source-file denominator. Two reasons, both verified locally against nyc 18.0.0:
+  1. `--all` is only a valid flag on the `nyc` test-wrapper command (`nyc <test-cmd>`); on `nyc report` it is silently accepted and ignored — yargs has no `nycCommand: 'report'` mapping for `all` (`@istanbuljs/schema/index.js:nycCommands.all` is `[null, 'check-coverage', 'instrument', 'merge', 'report']` for *recognition*, but only the `null` / `main` command actually invokes `nyc.addAllFiles()`).
+  2. Even when nyc IS used as a wrapper with `--all`, `addAllFiles()` reads source via `Module._extensions[ext]` — unregistered for `.ts` / `.tsx` without ts-node — so every TS/TSX file ends up as `{}` in the temp coverage file and is dropped by `nyc report`.
+  - **Visible symptom**: `frontend-component` Codecov flag at 61.7% (and the merged `frontend` flag at 67.3%), not the ~17% the original commit predicted. The CT lcov shipped to Codecov on `6d2cddbf` carried only ~414 of the 475 source files, inflating the percentage by silently shrinking the denominator. `frontend-unit` (Vitest with `all: true`) was unaffected — it ran 482 files honestly.
+  - **Fix**: replaced `nyc report --all` with a proper seed step. New `scripts/seed-istanbul-coverage.cjs` walks `src/**/*.{ts,tsx}` (mirroring the package.json `nyc` config) and uses `istanbul-lib-instrument`'s TS-aware parser to write a single `seed-all-<uuid>.json` file with empty file-coverage maps into the temp dir before `nyc report` runs. The per-test JSON files written by `tests/utils/coverage.ts` merge over the seed by file path, so files actually exercised by tests land at their real coverage and untouched files land at 0%. Verified locally: 475 SF entries in the resulting lcov, matching the source universe.
+  - Also added `**/*.d.ts` to the Vitest unit-coverage `exclude` list so the three suites (unit / component / e2e) report against the same 475-file denominator instead of 482 vs. 475 — declaration files have no runtime code and were previously inflating the unit denominator only.
+
 ### Security
 
 - **Cross-corpus structural-annotation leak in `CoreAnnotationVectorStore`** (`opencontractserver/llms/vector_stores/core_vector_stores.py:296-326,371-413`): The corpus-wide retrieval path (`corpus_id` set, `document_id=None`) returned every structural annotation in the database regardless of corpus. Two collaborating defects caused the leak:
