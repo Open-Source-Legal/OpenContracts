@@ -1510,7 +1510,7 @@ class CorpusActionTemplate(BaseOCModel):
         return f"CorpusActionTemplate: {self.name} ({self.get_trigger_display()})"
 
     def to_action_kwargs(
-        self, corpus: Corpus, creator: Any | None = None
+        self, corpus: Corpus, creator: AbstractBaseUser | None = None
     ) -> dict[str, Any]:
         """Return kwargs dict for constructing a CorpusAction from this template.
 
@@ -1548,7 +1548,7 @@ class CorpusActionTemplate(BaseOCModel):
         )
 
     def clone_to_corpus(
-        self, corpus: Corpus, creator: Any | None = None
+        self, corpus: Corpus, creator: AbstractBaseUser | None = None
     ) -> CorpusAction:
         """Create a CorpusAction from this template for the given corpus.
 
@@ -1797,8 +1797,6 @@ class CorpusFolder(TreeNode):
 
     def get_descendant_folders(self) -> QuerySet[CorpusFolder]:
         """Get all descendant folders efficiently using CTE."""
-        # tree-queries descendants() returns a CTE-annotated queryset subclass
-        # that is not easily importable; the objects are CorpusFolder instances.
         return self.descendants(include_self=True)  # type: ignore[return-value]
 
     def get_document_count(self) -> int:
