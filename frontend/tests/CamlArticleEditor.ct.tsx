@@ -303,6 +303,43 @@ test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
     await component.unmount();
   });
 
+  test("ArrowDown then Enter inserts the extract-grid component marker", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    const textarea = page.locator("textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+    const initialValue = await textarea.inputValue();
+
+    const triggerBtn = page.getByRole("combobox", {
+      name: "Insert extract grid table",
+    });
+    await triggerBtn.click();
+    await expect(page.getByRole("listbox")).toBeVisible({ timeout: 5000 });
+
+    // Navigate to the first option and select it via keyboard.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+
+    // The textarea should now contain a [component:extract-grid ...] token.
+    await expect(textarea).not.toHaveValue(initialValue, { timeout: 5000 });
+    const afterValue = await textarea.inputValue();
+    expect(afterValue).toContain("[component:extract-grid");
+
+    // Picker should close after Enter selection.
+    await expect(page.getByRole("listbox")).not.toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
   test("should highlight item on mouse enter for seamless keyboard/mouse interaction", async ({
     mount,
     page,
