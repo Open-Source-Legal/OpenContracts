@@ -70,11 +70,11 @@ class UserProfileManager(DjangoUserManager):
 class User(AbstractUser):
     """Default user for OpenContractServer."""
 
-    # Override username to use OpenContracts' permissive validator, which
-    # accepts characters such as ``\`` and ``|`` that the default Django
-    # UnicodeUsernameValidator rejects. Declaring it on the field avoids
-    # mutating the shared ``Field.validators`` list on every ``User(...)``
-    # instantiation.
+    # Class attribute — referenced by Django admin forms (UserChangeForm,
+    # UserCreationForm) directly, separate from the field validators list.
+    username_validator = UserUnicodeUsernameValidator()
+
+    # Declared at class body to avoid mutating the shared Field.validators list on every User() call.
     username = django.db.models.CharField(
         _("username"),
         max_length=150,
