@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/open-source-legal-opencontracts-badge.png)](https://mseep.ai/app/open-source-legal-opencontracts)
+
 ![OpenContracts](docs/assets/images/logos/OS_Legal_Logo.png)
 
 # OpenContracts ([Demo](https://contracts.opensource.legal))
