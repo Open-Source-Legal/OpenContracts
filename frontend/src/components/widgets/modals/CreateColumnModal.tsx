@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { useQuery } from "@apollo/client";
 import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { motion } from "framer-motion";
-import { X, Check, HelpCircle } from "lucide-react";
+import { X, Check, HelpCircle, AlertTriangle } from "lucide-react";
 import { Button, Dropdown } from "@os-legal/ui";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import { ColumnType } from "../../../types/graphql-api";
@@ -10,6 +11,10 @@ import { LooseObject } from "../../types";
 import { ExtractTaskDropdown } from "../selectors/ExtractTaskDropdown";
 import { FieldType, ModelFieldBuilder } from "../ModelFieldBuilder";
 import { parsePydanticModel } from "../../../utils/parseOutputType";
+import {
+  GET_AVAILABLE_LLM_MODELS,
+  LLMModel as AvailableLLMModel,
+} from "../../admin/llm_config/graphql";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -412,6 +417,18 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
   const [extractIsList, setExtractIsList] = useState<boolean>(false);
   const [initialFields, setInitialFields] = useState<FieldType[]>([]);
 
+  // LLM model picker state. The empty string ("") signals "use system default".
+  const [preferredLlmModelId, setPreferredLlmModelId] = useState<string>("");
+
+  // Pull the *available* models (enabled + provider-configured). Unavailable
+  // models still appear in the picker if the column already references one,
+  // so the user can see the warning state instead of silently losing it.
+  const { data: llmData } = useQuery<{
+    availableLlmModels: AvailableLLMModel[];
+  }>(GET_AVAILABLE_LLM_MODELS, { fetchPolicy: "cache-and-network" });
+
+  const availableModels = llmData?.availableLlmModels ?? [];
+
   // Delay mount slightly so parent modal can settle
   useEffect(() => {
     if (open) {
@@ -434,6 +451,7 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
         setPrimitiveType(existing_column.outputType);
         setExtractIsList(Boolean(existing_column.extractIsList));
         setInitialFields(parsePydanticModel(existing_column.outputType));
+        setPreferredLlmModelId(existing_column.preferredLlmModel?.id ?? "");
       } else {
         setFormData({
           name: "",
@@ -449,9 +467,48 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
         setPrimitiveType("str");
         setExtractIsList(false);
         setInitialFields([]);
+        setPreferredLlmModelId("");
       }
     }
   }, [open, existing_column]);
+
+  // Build dropdown options. If the column references a model that's no longer
+  // available, surface it as an explicit option (greyed out via label) so the
+  // user sees the warning state and can choose to keep or change it.
+  const llmOptions = useMemo(() => {
+    const opts: Array<{ value: string; label: string; disabled?: boolean }> = [
+      { value: "", label: "Use system default" },
+    ];
+    const seen = new Set<string>();
+    for (const model of availableModels) {
+      seen.add(model.id);
+      const providerLabel = model.provider?.title ?? model.providerKey;
+      opts.push({
+        value: model.id,
+        label: `${providerLabel} › ${model.displayName}`,
+      });
+    }
+    const stale = existing_column?.preferredLlmModel;
+    if (stale && !seen.has(stale.id)) {
+      opts.push({
+        value: stale.id,
+        label: `⚠ ${stale.displayName} (unavailable)`,
+        disabled: false,
+      });
+    }
+    return opts;
+  }, [availableModels, existing_column]);
+
+  const selectedLlmModel = useMemo(
+    () =>
+      availableModels.find((m) => m.id === preferredLlmModelId) ?? null,
+    [availableModels, preferredLlmModelId]
+  );
+
+  const isSelectedLlmStale =
+    Boolean(preferredLlmModelId) &&
+    !selectedLlmModel &&
+    existing_column?.preferredLlmModel?.id === preferredLlmModelId;
 
   // Sync outputType when primitiveType or option changes
   useEffect(() => {
@@ -515,6 +572,9 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
           outputTypeOption === "primitive"
             ? primitiveType
             : formData.outputType,
+        // The backend treats "" as "clear preference"; it accepts the existing
+        // ID when the user wants to keep an unavailable selection.
+        preferredLlmModelId: preferredLlmModelId,
       };
       await onSubmit(finalFormData);
       handleClose();
@@ -751,6 +811,67 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
                 }
                 disabled={isSubmitting}
               />
+            </FormGroup>
+          </FormRow>
+          <FormRow style={{ marginTop: "1rem" }}>
+            <FormGroup>
+              <Label>
+                Language Model{" "}
+                <Tooltip data-tooltip="LLM used when running this column. Leave on system default if unsure.">
+                  <HelpCircle size={14} />
+                </Tooltip>
+              </Label>
+              <Dropdown
+                mode="select"
+                fluid
+                options={llmOptions}
+                value={preferredLlmModelId}
+                placeholder="Use system default"
+                onChange={(value) =>
+                  setPreferredLlmModelId((value as string) ?? "")
+                }
+                clearable={false}
+                disabled={isSubmitting}
+                data-testid="column-llm-model-dropdown"
+              />
+              {isSelectedLlmStale ? (
+                <div
+                  data-testid="column-llm-model-stale-warning"
+                  style={{
+                    marginTop: "0.5rem",
+                    padding: "0.5rem 0.75rem",
+                    background: "#fef3c7",
+                    color: "#92400e",
+                    borderRadius: 6,
+                    fontSize: "0.8125rem",
+                    display: "flex",
+                    gap: "0.5rem",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  <AlertTriangle size={14} style={{ marginTop: 2 }} />
+                  <span>
+                    This model is no longer available. Extractions for this
+                    column will fail until you choose another or an admin
+                    restores the provider.
+                  </span>
+                </div>
+              ) : selectedLlmModel ? (
+                <div
+                  style={{
+                    marginTop: "0.5rem",
+                    fontSize: "0.75rem",
+                    color: OS_LEGAL_COLORS.textSecondary,
+                  }}
+                >
+                  Provider: {selectedLlmModel.provider?.title ?? selectedLlmModel.providerKey}
+                  {" · "}temperature {selectedLlmModel.defaultTemperature}
+                  {selectedLlmModel.supportsStructuredOutput
+                    ? " · structured output"
+                    : ""}
+                  {selectedLlmModel.supportsTools ? " · tools" : ""}
+                </div>
+              ) : null}
             </FormGroup>
           </FormRow>
         </ModalBody>

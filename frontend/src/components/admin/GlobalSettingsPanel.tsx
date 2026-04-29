@@ -1,7 +1,15 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
-import { Trophy, Bot, Settings, Users, Upload, LucideIcon } from "lucide-react";
+import {
+  Trophy,
+  Bot,
+  Settings,
+  Users,
+  Upload,
+  Cpu,
+  LucideIcon,
+} from "lucide-react";
 
 import {
   OS_LEGAL_COLORS,
@@ -247,6 +255,15 @@ const settingsItems: SettingItem[] = [
     icon: Settings,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.textSecondary} 0%, ${OS_LEGAL_COLORS.textTertiary} 100%)`,
     route: "/system_settings",
+  },
+  {
+    id: "llm-config",
+    title: "LLM Configuration",
+    description:
+      "Register provider credentials, curate available models, and choose a default — used by extracts and chat.",
+    icon: Cpu,
+    gradient: "linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)",
+    route: "/admin/llms",
   },
   {
     id: "user-management",

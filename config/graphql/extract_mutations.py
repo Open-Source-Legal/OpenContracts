@@ -518,6 +518,13 @@ class UpdateColumnMutation(DRFMutation):
         extract_is_list = graphene.Boolean(required=False)
         must_contain_text = graphene.String(required=False)
         task_name = graphene.String(required=False)
+        preferred_llm_model_id = graphene.ID(
+            required=False,
+            description=(
+                "ID of the LLMModel to use for this column. Pass an empty string "
+                "to clear and fall back to the system default."
+            ),
+        )
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -537,8 +544,8 @@ class UpdateColumnMutation(DRFMutation):
         instructions=None,
         task_name=None,
         extract_is_list=None,
-        language_model_id=None,
         must_contain_text=None,
+        preferred_llm_model_id=None,
     ) -> "UpdateColumnMutation":
 
         ok = False
@@ -552,8 +559,27 @@ class UpdateColumnMutation(DRFMutation):
             if task_name is not None:
                 obj.task_name = task_name
 
-            if language_model_id is not None:
-                obj.language_model_id = from_global_id(language_model_id)[1]
+            if preferred_llm_model_id is not None:
+                # Empty string -> clear the preference (fall back to default).
+                # LLMModelType does not use relay.Node, so the ID is the raw PK.
+                if preferred_llm_model_id == "":
+                    obj.preferred_llm_model = None
+                else:
+                    from opencontractserver.llms.models import LLMModel
+
+                    try:
+                        obj.preferred_llm_model = LLMModel.objects.get(
+                            pk=preferred_llm_model_id
+                        )
+                    except (LLMModel.DoesNotExist, ValueError):
+                        return UpdateColumnMutation(
+                            ok=False,
+                            message=(
+                                f"LLMModel id={preferred_llm_model_id} does not "
+                                "exist or has been removed."
+                            ),
+                            obj=None,
+                        )
 
             if name is not None:
                 obj.name = name
@@ -601,6 +627,12 @@ class CreateColumn(graphene.Mutation):
         must_contain_text = graphene.String(required=False)
         name = graphene.String(required=True)
         task_name = graphene.String(required=False)
+        preferred_llm_model_id = graphene.ID(
+            required=False,
+            description=(
+                "Optional LLMModel ID; leave blank to use the system default."
+            ),
+        )
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -621,9 +653,24 @@ class CreateColumn(graphene.Mutation):
         match_text=None,
         limit_to_label=None,
         instructions=None,
+        preferred_llm_model_id=None,
     ) -> "CreateColumn":
         if {query, match_text} == {None}:
             raise ValueError("One of `query` or `match_text` must be provided.")
+
+        preferred_llm_model = None
+        if preferred_llm_model_id:
+            # LLMModelType uses raw PKs (no relay.Node), so don't from_global_id.
+            from opencontractserver.llms.models import LLMModel
+
+            try:
+                preferred_llm_model = LLMModel.objects.get(pk=preferred_llm_model_id)
+            except (LLMModel.DoesNotExist, ValueError):
+                return CreateColumn(
+                    ok=False,
+                    message=f"LLMModel id={preferred_llm_model_id} does not exist.",
+                    obj=None,
+                )
 
         fieldset = Fieldset.objects.visible_to_user(info.context.user).get(
             pk=from_global_id(fieldset_id)[1]
@@ -639,6 +686,7 @@ class CreateColumn(graphene.Mutation):
             must_contain_text=must_contain_text,
             **({"task_name": task_name} if task_name is not None else {}),
             extract_is_list=extract_is_list if extract_is_list is not None else False,
+            preferred_llm_model=preferred_llm_model,
             creator=info.context.user,
         )
         column.save()

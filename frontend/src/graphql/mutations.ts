@@ -1421,6 +1421,7 @@ export interface RequestCreateColumnInputType {
   instructions?: string;
   taskName: string;
   name: string;
+  preferredLlmModelId?: string | null;
 }
 
 export interface RequestCreateColumnOutputType {
@@ -1441,6 +1442,7 @@ export const REQUEST_CREATE_COLUMN = gql`
     $limitToLabel: String
     $instructions: String
     $taskName: String
+    $preferredLlmModelId: ID
   ) {
     createColumn(
       fieldsetId: $fieldsetId
@@ -1451,6 +1453,7 @@ export const REQUEST_CREATE_COLUMN = gql`
       instructions: $instructions
       taskName: $taskName
       name: $name
+      preferredLlmModelId: $preferredLlmModelId
     ) {
       message
       ok
@@ -1463,6 +1466,12 @@ export const REQUEST_CREATE_COLUMN = gql`
         limitToLabel
         instructions
         taskName
+        preferredLlmModel {
+          id
+          displayName
+          providerKey
+          isAvailable
+        }
       }
     }
   }
@@ -1554,6 +1563,7 @@ export interface RequestUpdateColumnInputType {
   limitToLabel?: string;
   instructions?: string;
   taskName?: string;
+  preferredLlmModelId?: string | null;
 }
 
 export interface RequestUpdateColumnOutputType {
@@ -1574,6 +1584,7 @@ export const REQUEST_UPDATE_COLUMN = gql`
     $limitToLabel: String
     $instructions: String
     $taskName: String
+    $preferredLlmModelId: ID
   ) {
     updateColumn(
       id: $id
@@ -1584,6 +1595,7 @@ export const REQUEST_UPDATE_COLUMN = gql`
       limitToLabel: $limitToLabel
       instructions: $instructions
       taskName: $taskName
+      preferredLlmModelId: $preferredLlmModelId
     ) {
       message
       ok
@@ -1596,6 +1608,12 @@ export const REQUEST_UPDATE_COLUMN = gql`
         limitToLabel
         instructions
         taskName
+        preferredLlmModel {
+          id
+          displayName
+          providerKey
+          isAvailable
+        }
       }
     }
   }

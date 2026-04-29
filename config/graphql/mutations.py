@@ -191,6 +191,16 @@ from config.graphql.pipeline_settings_mutations import (
     UpdateToolSecretsMutation,
 )
 
+# Import LLM configuration mutations
+from config.graphql.llm_config_mutations import (
+    CreateLLMModelMutation,
+    DeleteLLMModelMutation,
+    DeleteLLMProviderCredentialsMutation,
+    SetDefaultLLMModelMutation,
+    UpdateLLMModelMutation,
+    UpdateLLMProviderCredentialsMutation,
+)
+
 # Import smart label mutations
 from config.graphql.smart_label_mutations import (
     SmartLabelListMutation,
@@ -418,6 +428,14 @@ class Mutation(graphene.ObjectType):
     delete_component_secrets = DeleteComponentSecretsMutation.Field()
     update_tool_secrets = UpdateToolSecretsMutation.Field()
     delete_tool_secrets = DeleteToolSecretsMutation.Field()
+
+    # LLM CONFIGURATION MUTATIONS (Superuser only) ###############################
+    update_llm_provider_credentials = UpdateLLMProviderCredentialsMutation.Field()
+    delete_llm_provider_credentials = DeleteLLMProviderCredentialsMutation.Field()
+    create_llm_model = CreateLLMModelMutation.Field()
+    update_llm_model = UpdateLLMModelMutation.Field()
+    delete_llm_model = DeleteLLMModelMutation.Field()
+    set_default_llm_model = SetDefaultLLMModelMutation.Field()
 
     # WORKER UPLOAD MUTATIONS ########################################################
     create_worker_account = CreateWorkerAccount.Field()

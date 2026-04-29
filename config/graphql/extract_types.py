@@ -22,11 +22,24 @@ from opencontractserver.extracts.models import Column, Datacell, Extract, Fields
 class ColumnType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     validation_config = GenericScalar()
     default_value = GenericScalar()
+    preferred_llm_model = graphene.Field(
+        "config.graphql.llm_config_types.LLMModelType",
+        description=(
+            "LLM model selected for this column, or null when the system "
+            "default should be used."
+        ),
+    )
 
     class Meta:
         model = Column
         interfaces = [relay.Node]
         connection_class = CountableConnection
+
+    @staticmethod
+    def resolve_preferred_llm_model(parent: Column, info: Any) -> Any:
+        # Returns the row even if it's currently unavailable so the column
+        # editor can render the "model unavailable" warning state.
+        return parent.preferred_llm_model
 
 
 class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):

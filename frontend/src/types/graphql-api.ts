@@ -1334,6 +1334,13 @@ export interface FieldsetType extends Node {
   inUse?: boolean;
 }
 
+export interface PreferredLLMModelRef {
+  id: string;
+  displayName: string;
+  providerKey: string;
+  isAvailable: boolean;
+}
+
 export interface ColumnType extends Node {
   name: string;
   fieldset?: FieldsetType;
@@ -1346,6 +1353,8 @@ export interface ColumnType extends Node {
   extractIsList?: boolean;
   fieldsetId?: string;
   taskName: string;
+  /** Per-column LLM override; falls back to system default when null. */
+  preferredLlmModel?: PreferredLLMModelRef | null;
 }
 
 export interface ColumnTypeEdge {

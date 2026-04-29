@@ -126,6 +126,22 @@ class Column(BaseOCModel):
         default=0, help_text="Order in which to display manual entry fields"
     )
 
+    # Per-column LLM override. Resolved at extraction time via
+    # opencontractserver.llms.config_service.resolve_model_for_column.
+    # SET_NULL ensures a deleted LLMModel falls back to the system default
+    # rather than cascading.
+    preferred_llm_model = django.db.models.ForeignKey(
+        "llms.LLMModel",
+        null=True,
+        blank=True,
+        on_delete=django.db.models.SET_NULL,
+        related_name="columns",
+        help_text=(
+            "LLM to use when running this column. Leave blank to use the "
+            "system default."
+        ),
+    )
+
     def clean(self) -> None:
         """Validate configuration based on entry mode."""
         super().clean()

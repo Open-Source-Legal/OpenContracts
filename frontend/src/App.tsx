@@ -70,6 +70,7 @@ import {
   GlobalSettingsPanel,
   GlobalAgentManagement,
   SystemSettings,
+  LLMConfigManagement,
   WorkerAccountManagement,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
@@ -536,6 +537,10 @@ export const App = () => {
                     element={<WorkerAccountManagement />}
                   />
                   <Route path="/system_settings" element={<SystemSettings />} />
+                  <Route
+                    path="/admin/llms"
+                    element={<LLMConfigManagement />}
+                  />
 
                   {/* Community Routes (Issue #613) */}
                   <Route path="/leaderboard" element={<LeaderboardRoute />} />

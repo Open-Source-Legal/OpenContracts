@@ -100,6 +100,11 @@ async def doc_extract_query_task(
     from pydantic_ai.messages import ModelMessagesTypeAdapter
 
     from opencontractserver.llms import agents
+    from opencontractserver.llms.config_service import (
+        LLMConfigError,
+        applied_environment,
+        resolve_model_for_column,
+    )
     from opencontractserver.llms.types import AgentFramework
     from opencontractserver.utils.etl import parse_model_or_primitive
 
@@ -259,24 +264,46 @@ async def doc_extract_query_task(
         logger.info(f"  - Is list: {column.extract_is_list}")
         logger.info(f"  - Corpus ID: {corpus_id}")
 
+        # Resolve which LLM to use for this column. Falls back to the system
+        # default; raises if neither is available so the cell fails fast with
+        # a clear message rather than silently using a hardcoded model.
+        try:
+            resolved = await sync_to_async(resolve_model_for_column)(column)
+        except LLMConfigError as exc:
+            logger.warning(
+                "Cell %s skipped — LLM unavailable: %s", cell_id, exc
+            )
+            await sync_mark_failed(datacell, exc, "")
+            return
+
+        logger.info(
+            "  - LLM model: %s (provider=%s, temperature=%.2f)",
+            resolved.pydantic_ai_model_string,
+            resolved.model.provider_key,
+            resolved.default_temperature,
+        )
+
         # Capture LLM messages for debugging
         llm_log = None
 
         try:
-            # Wrap the agent call in the context manager to capture messages
-            with capture_run_messages() as messages:
-                # Create a temporary agent and extract
-                result = await agents.get_structured_response_from_document(
-                    document=document.id,
-                    corpus=corpus_id,
-                    prompt=prompt,
-                    target_type=output_type,
-                    framework=AgentFramework.PYDANTIC_AI,
-                    temperature=0.3,  # Low temperature for consistent extraction
-                    similarity_top_k=similarity_top_k,
-                    model="openai:gpt-4o-mini",  # Fast and reliable
-                    user_id=datacell.creator.id,
-                )
+            # Inject the provider's API key into env vars for the duration of
+            # the agent run, then restore the previous env. Single-process safe;
+            # see opencontractserver.llms.config_service.applied_environment.
+            with applied_environment(resolved.environment_overrides):
+                # Wrap the agent call in the context manager to capture messages
+                with capture_run_messages() as messages:
+                    result = await agents.get_structured_response_from_document(
+                        document=document.id,
+                        corpus=corpus_id,
+                        prompt=prompt,
+                        target_type=output_type,
+                        framework=AgentFramework.PYDANTIC_AI,
+                        temperature=resolved.default_temperature,
+                        similarity_top_k=similarity_top_k,
+                        model=resolved.pydantic_ai_model_string,
+                        user_id=datacell.creator.id,
+                    )
 
             # Capture the message history regardless of success/failure
             llm_log = ModelMessagesTypeAdapter.dump_json(messages, indent=2).decode()
