@@ -212,15 +212,32 @@ class RegisteredLLM(BaseOCModel):
         """True iff no other row points at ``self`` via ``previous_version``."""
         return not type(self).objects.filter(previous_version_id=self.pk).exists()
 
-    def is_resolvable(self) -> bool:
-        """Cheap, DB-only resolvability check.
+    def is_resolvable(self, llm_settings: "LLMSettings | None" = None) -> bool:
+        """True iff this row can actually run an LLM call right now.
 
-        Phase 2 augments this with provider-registry membership and
-        encrypted-secret presence; for now this only reflects the
-        admin-controlled lifecycle flags so callers can already wire up
-        the picker UI's "greyed out" state correctly.
+        Combines lifecycle flags (``is_enabled``, ``is_archived``) with
+        provider-registry membership and encrypted-secret presence.
+        Implementation lives in :func:`opencontractserver.llms.resolution.is_resolvable`
+        so the resolution logic stays in one place.
         """
-        return self.is_enabled and not self.is_archived
+        # Local import — keeps llm_configs.models importable without
+        # pulling in the providers package eagerly.
+        from opencontractserver.llms.resolution import is_resolvable as _is_resolvable
+
+        return _is_resolvable(self, llm_settings=llm_settings)
+
+    def unavailable_reason(
+        self, llm_settings: "LLMSettings | None" = None
+    ) -> "str | None":
+        """Operator-facing explanation of why this row isn't resolvable
+        (or ``None`` if it is). Used by the GraphQL type and the column
+        picker tooltip.
+        """
+        from opencontractserver.llms.resolution import (
+            unavailable_reason as _unavailable_reason,
+        )
+
+        return _unavailable_reason(self, llm_settings=llm_settings)
 
 
 # ---------------------------------------------------------------------------

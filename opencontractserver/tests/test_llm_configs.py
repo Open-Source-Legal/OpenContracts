@@ -149,15 +149,25 @@ class RegisteredLLMVersionChainTests(TestCase):
         self.assertEqual(v1.is_head(), False)
 
     def test_selectable_excludes_disabled_and_archived(self):
+        # selectable() is the DB-only lifecycle filter that drives the
+        # picker query; full resolvability (provider + secrets) is
+        # checked at runtime by the resolver and covered separately in
+        # test_llm_resolution.py.
         head_ok = self._make(display_name="head-ok")
         head_disabled = self._make(display_name="head-disabled", is_enabled=False)
         head_archived = self._make(display_name="head-archived", is_archived=True)
 
         selectable_ids = {row.pk for row in RegisteredLLM.objects.selectable()}
         self.assertEqual(selectable_ids, {head_ok.pk})
+
+        # is_resolvable() now combines lifecycle + provider registry +
+        # secrets. Disabled / archived short-circuit before either of
+        # the latter checks; the placeholder provider_class_path used
+        # here is not registered, so head_ok is also not resolvable
+        # (lifecycle alone is no longer sufficient).
         self.assertFalse(head_disabled.is_resolvable())
         self.assertFalse(head_archived.is_resolvable())
-        self.assertTrue(head_ok.is_resolvable())
+        self.assertFalse(head_ok.is_resolvable())
 
     def test_previous_version_protect_blocks_deletion_of_referenced_row(self):
         v1 = self._make(display_name="v1")
