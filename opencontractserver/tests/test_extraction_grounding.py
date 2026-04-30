@@ -286,8 +286,13 @@ class TestGroundingPipelineIntegration(TestCase):
             self.assertEqual(annot.document, self.document)
             self.assertEqual(annot.corpus, self.corpus)
             self.assertFalse(annot.structural)
-            self.assertIsNotNone(annot.annotation_label)
-            assert annot.annotation_label is not None  # narrow for mypy
+            # Plain ``assert`` here (rather than ``self.assertIsNotNone``)
+            # because mypy/pyright only narrow on builtin asserts, and a
+            # type-narrowing failure would surface as the *next* line's
+            # attribute access raising AttributeError at runtime — which
+            # is itself a clearer test failure than a paired
+            # assertIsNotNone+assert pair would be.
+            assert annot.annotation_label is not None
             self.assertEqual(annot.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
 
             # Verify span data
@@ -511,8 +516,13 @@ class TestGroundingPipelinePDFIntegration(TestCase):
             self.assertEqual(annot.document, self.document)
             self.assertEqual(annot.corpus, self.corpus)
             self.assertFalse(annot.structural)
-            self.assertIsNotNone(annot.annotation_label)
-            assert annot.annotation_label is not None  # narrow for mypy
+            # Plain ``assert`` here (rather than ``self.assertIsNotNone``)
+            # because mypy/pyright only narrow on builtin asserts, and a
+            # type-narrowing failure would surface as the *next* line's
+            # attribute access raising AttributeError at runtime — which
+            # is itself a clearer test failure than a paired
+            # assertIsNotNone+assert pair would be.
+            assert annot.annotation_label is not None
             self.assertEqual(annot.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
             # PlasmaPDF returns 0-indexed pages; valid range is
             # [0, len(pages) - 1]. The bug we're guarding against is the

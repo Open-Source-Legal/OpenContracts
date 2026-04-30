@@ -251,12 +251,21 @@ def _create_grounding_annotations(
                 exc_info=True,
             )
 
-    # Deduplicate by primary key, preserving first-seen order: two
-    # alignment results for the same phrase on the same page produce a
-    # single ``get_or_create`` row, but each iteration appends it.
-    # Returning duplicates makes ``len(annotations)`` diverge from
-    # ``datacell.sources.count()`` and breaks idempotency invariants
-    # for downstream consumers.
+    # Deduplicate by primary key, preserving first-seen order.
+    #
+    # Why this is needed (not a bug masked): ``align_text_to_document``
+    # returns at most one ``AlignmentResult`` per query string, but
+    # multiple distinct extraction values can legitimately resolve to the
+    # same source span — e.g. a column extracted as both
+    # ``["Acme Holdings", "Acme Holdings Inc."]`` where each substring
+    # gets its own alignment but both anchor on the same token range, or
+    # an idempotent re-run where ``get_or_create`` returns the existing
+    # row twice for the same phrase.  In both cases the underlying
+    # source annotation is the same row, and returning duplicates would
+    # make ``len(annotations)`` diverge from ``datacell.sources.count()``
+    # (since ``M2M.add()`` is itself idempotent) and break the idempotency
+    # invariants that downstream consumers — including the idempotency
+    # tests in ``test_extraction_grounding.py`` — rely on.
     seen_pks: set[int] = set()
     deduped: list[Annotation] = []
     for annot in annotations:
@@ -325,6 +334,13 @@ def _create_pdf_annotation(
     # must point to an annotation whose ``corpus`` matches the extract's
     # corpus, otherwise ``MIN(document_permission, corpus_permission)``
     # falls back to the wrong corpus's permissions.
+    #
+    # ``creator`` is in the lookup AND in the backing partial UniqueConstraint
+    # ``annotation_unique_token_label_grounding_key`` (see Annotation.Meta).
+    # The constraint promotes idempotency from a best-effort
+    # ``get_or_create`` to a correctness invariant: if two Celery workers
+    # race on the same datacell, the loser's CREATE raises IntegrityError
+    # and ``get_or_create`` falls back to a SELECT.
     annot, _ = Annotation.objects.get_or_create(
         document=document,
         corpus=corpus,
@@ -332,9 +348,9 @@ def _create_pdf_annotation(
         page=page,
         annotation_type=TOKEN_LABEL,
         raw_text=oc_ann["rawText"],
+        creator_id=creator_id,
         defaults={
             "json": oc_ann["annotation_json"],
-            "creator_id": creator_id,
             "structural": False,
         },
     )
@@ -360,15 +376,27 @@ def _create_span_annotation(
     serves as a placeholder and the actual location is encoded by the
     character offsets in ``json``.
 
-    Identity key uses ``json={"start": ..., "end": ...}``. The ``json``
-    column is a Django ``JSONField``, which maps to PostgreSQL ``jsonb``
-    — equality compares structurally, so key order does not affect
-    ``get_or_create``'s lookup.  We still construct the dict in a stable
-    order to avoid surprises if the column type ever changes.
+    Identity key uses ``json={"start": ..., "end": ...}``.
+
+    .. important::
+       The ``json`` lookup is **PostgreSQL-specific**.  Django maps
+       ``JSONField`` to PostgreSQL ``jsonb`` (structural equality —
+       ``{"start": 1, "end": 2}`` matches ``{"end": 2, "start": 1}``)
+       but to plain ``TEXT`` on SQLite, where comparison is lexical.
+       A future contributor running this pipeline on SQLite would see
+       silent ``get_or_create`` misses on dict-key reordering.  The
+       project's runtime and test database are both PostgreSQL, so
+       this is documented rather than guarded.  We still construct
+       the dict in a stable insertion order to keep behaviour
+       predictable across backends.
 
     ``corpus`` IS in the lookup so a multi-corpus document doesn't share
     a single annotation between unrelated corpora — see the parallel
     docstring on ``_create_pdf_annotation`` for the permission rationale.
+
+    ``creator`` is in the lookup AND in the backing partial
+    UniqueConstraint ``annotation_unique_span_label_grounding_key`` so
+    racing Celery retries collapse to a single row.
     """
     from opencontractserver.annotations.models import SPAN_LABEL, Annotation
 
@@ -379,9 +407,9 @@ def _create_span_annotation(
         annotation_type=SPAN_LABEL,
         raw_text=result.matched_text,
         json={"start": result.char_start, "end": result.char_end},
+        creator_id=creator_id,
         defaults={
             "page": 1,
-            "creator_id": creator_id,
             "structural": False,
         },
     )
