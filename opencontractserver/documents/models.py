@@ -16,6 +16,7 @@ from pgvector.django import VectorField
 from tree_queries.models import TreeNode
 
 from opencontractserver.shared.defaults import jsonfield_default_value
+from opencontractserver.shared.encrypted_secrets import EncryptedSecretsMixin
 from opencontractserver.shared.fields import NullableJSONField
 from opencontractserver.shared.Managers import DocumentManager
 from opencontractserver.shared.mixins import HasEmbeddingMixin
@@ -863,7 +864,7 @@ class DocumentSummaryRevision(django.db.models.Model):
 # -------------------- PipelineSettings (Singleton) -------------------- #
 
 
-class PipelineSettings(django.db.models.Model):
+class PipelineSettings(EncryptedSecretsMixin):
     """
     Singleton model for configurable document processing pipeline settings.
 
@@ -985,8 +986,10 @@ class PipelineSettings(django.db.models.Model):
         ),
     )
 
-    # Encrypted secrets storage (API keys, tokens, credentials)
-    # Stored as Fernet-encrypted JSON blob
+    # Encrypted secrets storage (API keys, tokens, credentials).
+    # Field re-declared here to keep Django's migration history pinned to
+    # the original `documents.PipelineSettings.encrypted_secrets` column;
+    # the encrypt/decrypt API itself comes from EncryptedSecretsMixin.
     encrypted_secrets = django.db.models.BinaryField(
         blank=True,
         null=True,
@@ -1027,30 +1030,9 @@ class PipelineSettings(django.db.models.Model):
 
         return getattr(django_settings, "PIPELINE_SETTINGS_CACHE_TTL_SECONDS", 300)
 
-    @classmethod
-    def _get_encryption_salt_length(cls) -> int:
-        """Get encryption salt length from Django settings."""
-        from django.conf import settings as django_settings
-
-        return getattr(django_settings, "PIPELINE_SETTINGS_ENCRYPTION_SALT_LENGTH", 16)
-
-    @classmethod
-    def _get_encryption_iterations(cls) -> int:
-        """Get PBKDF2 iteration count from Django settings."""
-        from django.conf import settings as django_settings
-
-        return getattr(
-            django_settings, "PIPELINE_SETTINGS_ENCRYPTION_ITERATIONS", 480000
-        )
-
-    @classmethod
-    def _get_max_secret_size(cls) -> int:
-        """Get maximum secret payload size from Django settings."""
-        from django.conf import settings as django_settings
-
-        return getattr(
-            django_settings, "PIPELINE_SETTINGS_MAX_SECRET_SIZE_BYTES", 10240
-        )
+    # Encryption tunables (_get_encryption_salt_length, _get_encryption_iterations,
+    # _get_max_secret_size) and the encrypt/decrypt API live on
+    # EncryptedSecretsMixin and are inherited unchanged.
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Ensure singleton pattern and invalidate cache on save."""
@@ -1273,176 +1255,10 @@ class PipelineSettings(django.db.models.Model):
     # =====================================================================
     # Encrypted Secrets Management
     # =====================================================================
-
-    @classmethod
-    def _derive_key(cls, salt: bytes) -> bytes:
-        """
-        Derive encryption key from Django SECRET_KEY using PBKDF2.
-
-        Uses PBKDF2-HMAC-SHA256 with high iteration count as recommended
-        by OWASP for secure key derivation.
-
-        Args:
-            salt: Random salt bytes (16 bytes recommended)
-
-        Returns:
-            32-byte derived key suitable for Fernet
-        """
-        import base64
-        import hashlib
-
-        from django.conf import settings as django_settings
-
-        # Use PBKDF2 with SHA256 for secure key derivation
-        key = hashlib.pbkdf2_hmac(
-            "sha256",
-            django_settings.SECRET_KEY.encode(),
-            salt,
-            cls._get_encryption_iterations(),
-            dklen=32,
-        )
-        return base64.urlsafe_b64encode(key)
-
-    def get_secrets(self) -> dict:
-        """
-        Get the decrypted secrets dictionary.
-
-        Returns:
-            Dict mapping component class paths to their secrets:
-            {
-                "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser": {
-                    "api_key": "...",
-                },
-                ...
-            }
-        """
-        import json
-        import logging
-
-        from cryptography.fernet import Fernet, InvalidToken
-
-        logger = logging.getLogger(__name__)
-
-        if not self.encrypted_secrets:
-            return {}
-
-        try:
-            raw_data = bytes(self.encrypted_secrets)
-
-            # Extract salt and ciphertext
-            salt_length = self._get_encryption_salt_length()
-            if len(raw_data) < salt_length:
-                logger.error(
-                    "PipelineSettings: encrypted_secrets too short to contain salt"
-                )
-                return {}
-
-            salt = raw_data[:salt_length]
-            ciphertext = raw_data[salt_length:]
-
-            # Derive key from salt and decrypt
-            key = self._derive_key(salt)
-            fernet = Fernet(key)
-            decrypted = fernet.decrypt(ciphertext)
-            return json.loads(decrypted.decode("utf-8"))
-
-        except InvalidToken:
-            logger.critical(
-                "PipelineSettings: Failed to decrypt secrets - InvalidToken. "
-                "This may indicate SECRET_KEY has changed. Secrets are unrecoverable "
-                "without the original SECRET_KEY."
-            )
-            return {}
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"PipelineSettings: Decrypted secrets contain invalid JSON: {e}"
-            )
-            return {}
-        except Exception as e:
-            logger.critical(
-                f"PipelineSettings: Unexpected error decrypting secrets: {e}. "
-                "Secrets may be corrupted or SECRET_KEY may have changed."
-            )
-            return {}
-
-    def set_secrets(self, secrets: dict) -> None:
-        """
-        Encrypt and store secrets.
-
-        Args:
-            secrets: Dict mapping component class paths to their secrets:
-            {
-                "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser": {
-                    "api_key": "...",
-                },
-            }
-
-        Raises:
-            ValueError: If secrets payload exceeds size limit
-        """
-        import json
-        import os
-
-        from cryptography.fernet import Fernet
-
-        json_bytes = json.dumps(secrets).encode("utf-8")
-
-        # Validate size
-        max_size = self._get_max_secret_size()
-        if len(json_bytes) > max_size:
-            raise ValueError(
-                f"Secrets payload exceeds maximum size of {max_size} bytes"
-            )
-
-        # Generate random salt for this encryption
-        salt = os.urandom(self._get_encryption_salt_length())
-
-        # Derive key and encrypt
-        key = self._derive_key(salt)
-        fernet = Fernet(key)
-        ciphertext = fernet.encrypt(json_bytes)
-
-        # Store salt + ciphertext
-        self.encrypted_secrets = salt + ciphertext
-
-    def update_secrets(self, component_path: str, secret_values: dict) -> None:
-        """
-        Update secrets for a specific component (merge with existing).
-
-        Args:
-            component_path: Full class path of the component
-            secret_values: Dict of secret key-value pairs to set
-        """
-        secrets = self.get_secrets()
-        if component_path not in secrets:
-            secrets[component_path] = {}
-        secrets[component_path].update(secret_values)
-        self.set_secrets(secrets)
-
-    def get_component_secrets(self, component_path: str) -> dict:
-        """
-        Get secrets for a specific component.
-
-        Args:
-            component_path: Full class path of the component
-
-        Returns:
-            Dict of secret key-value pairs for the component.
-        """
-        secrets = self.get_secrets()
-        return secrets.get(component_path, {})
-
-    def delete_component_secrets(self, component_path: str) -> None:
-        """
-        Delete all secrets for a specific component.
-
-        Args:
-            component_path: Full class path of the component
-        """
-        secrets = self.get_secrets()
-        if component_path in secrets:
-            del secrets[component_path]
-            self.set_secrets(secrets)
+    # Encrypt/decrypt API (_derive_key, get_secrets, set_secrets,
+    # update_secrets, get_component_secrets, delete_component_secrets) is
+    # inherited from EncryptedSecretsMixin. Component class paths serve as
+    # the namespace key in the encrypted payload.
 
     def get_full_component_settings(self, component_class_path: str) -> dict:
         """

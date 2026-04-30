@@ -159,6 +159,7 @@ LOCAL_APPS = [
     "opencontractserver.worker_uploads",
     "opencontractserver.discovery",
     "opencontractserver.benchmarks",
+    "opencontractserver.llm_configs",
 ]
 
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
