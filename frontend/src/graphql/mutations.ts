@@ -928,7 +928,7 @@ export interface NewAnnotationOutputType {
             node: {
               id: string;
             };
-          }
+          },
         ];
       };
     };
@@ -1096,7 +1096,7 @@ export interface NewRelationshipOutputType {
             node: {
               id: string;
             };
-          }
+          },
         ];
       };
       targetAnnotations: {
@@ -1105,7 +1105,7 @@ export interface NewRelationshipOutputType {
             node: {
               id: string;
             };
-          }
+          },
         ];
       };
     };
@@ -1421,6 +1421,13 @@ export interface RequestCreateColumnInputType {
   instructions?: string;
   taskName: string;
   name: string;
+  /**
+   * Phase 4: optional per-column LLM override. Pass an int PK (NOT a
+   * relay global id — RegisteredLLMType is a custom ObjectType). Pass
+   * undefined / "0" to leave unset and fall back to
+   * LLMSettings.default_extract_llm.
+   */
+  preferredLlmId?: string;
 }
 
 export interface RequestCreateColumnOutputType {
@@ -1441,6 +1448,7 @@ export const REQUEST_CREATE_COLUMN = gql`
     $limitToLabel: String
     $instructions: String
     $taskName: String
+    $preferredLlmId: ID
   ) {
     createColumn(
       fieldsetId: $fieldsetId
@@ -1451,6 +1459,7 @@ export const REQUEST_CREATE_COLUMN = gql`
       instructions: $instructions
       taskName: $taskName
       name: $name
+      preferredLlmId: $preferredLlmId
     ) {
       message
       ok
@@ -1463,6 +1472,12 @@ export const REQUEST_CREATE_COLUMN = gql`
         limitToLabel
         instructions
         taskName
+        preferredLlm {
+          id
+          displayName
+          modelId
+          isResolvable
+        }
       }
     }
   }
@@ -1554,6 +1569,11 @@ export interface RequestUpdateColumnInputType {
   limitToLabel?: string;
   instructions?: string;
   taskName?: string;
+  /**
+   * Phase 4: per-column LLM override. Pass the int PK of a
+   * RegisteredLLM, "0" to clear, or undefined to leave unchanged.
+   */
+  preferredLlmId?: string;
 }
 
 export interface RequestUpdateColumnOutputType {
@@ -1574,6 +1594,7 @@ export const REQUEST_UPDATE_COLUMN = gql`
     $limitToLabel: String
     $instructions: String
     $taskName: String
+    $preferredLlmId: ID
   ) {
     updateColumn(
       id: $id
@@ -1584,6 +1605,7 @@ export const REQUEST_UPDATE_COLUMN = gql`
       limitToLabel: $limitToLabel
       instructions: $instructions
       taskName: $taskName
+      preferredLlmId: $preferredLlmId
     ) {
       message
       ok
@@ -1596,6 +1618,12 @@ export const REQUEST_UPDATE_COLUMN = gql`
         limitToLabel
         instructions
         taskName
+        preferredLlm {
+          id
+          displayName
+          modelId
+          isResolvable
+        }
       }
     }
   }

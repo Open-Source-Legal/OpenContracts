@@ -69,6 +69,7 @@ import { BadgeManagement } from "./components/badges/BadgeManagement";
 import {
   GlobalSettingsPanel,
   GlobalAgentManagement,
+  LLMConfigPanel,
   SystemSettings,
   WorkerAccountManagement,
 } from "./components/admin";
@@ -112,10 +113,10 @@ export const App = () => {
   const document_to_view = useReactiveVar(viewingDocument);
   const selected_folder_id = useReactiveVar(selectedFolderId);
   const show_corpus_analyzer_fieldset_modal = useReactiveVar(
-    showSelectCorpusAnalyzerOrFieldsetModal
+    showSelectCorpusAnalyzerOrFieldsetModal,
   );
   const show_upload_new_documents_modal = useReactiveVar(
-    showUploadNewDocumentsModal
+    showUploadNewDocumentsModal,
   );
   // Track when auth initialization (including cache clear) is complete
   const auth_init_complete = useReactiveVar(authInitCompleteVar);
@@ -148,7 +149,7 @@ export const App = () => {
         variables: document_obj as unknown as UpdateDocumentInputs,
       });
     },
-    [tryUpdateDocument]
+    [tryUpdateDocument],
   );
 
   const handleKnowledgeBaseModalClose = useCallback(() => {
@@ -217,7 +218,7 @@ export const App = () => {
     {
       showToast: true,
       showModal: true,
-    }
+    },
   );
 
   // Job notification system (real-time via WebSocket) - Issue #624
@@ -269,7 +270,7 @@ export const App = () => {
           title: file.name,
           description: `Content summary for ${file.name}`,
         },
-      })
+      }),
     );
     showUploadNewDocumentsModal(true);
     uploadModalPreloadedFiles(filePackages);
@@ -531,6 +532,7 @@ export const App = () => {
                     path="/admin/agents"
                     element={<GlobalAgentManagement />}
                   />
+                  <Route path="/admin/llms" element={<LLMConfigPanel />} />
                   <Route
                     path="/admin/worker-accounts"
                     element={<WorkerAccountManagement />}

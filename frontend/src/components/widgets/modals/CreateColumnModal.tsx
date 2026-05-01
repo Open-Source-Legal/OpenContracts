@@ -7,6 +7,7 @@ import { Button, Dropdown } from "@os-legal/ui";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import { ColumnType } from "../../../types/graphql-api";
 import { LooseObject } from "../../types";
+import { ColumnLLMPicker } from "../../extracts/ColumnLLMPicker";
 import { ExtractTaskDropdown } from "../selectors/ExtractTaskDropdown";
 import { FieldType, ModelFieldBuilder } from "../ModelFieldBuilder";
 import { parsePydanticModel } from "../../../utils/parseOutputType";
@@ -32,7 +33,7 @@ export const DEFAULT_EXTRACT_TASK_NAME =
 const generateOutputType = (
   option: string,
   primitive: string,
-  fields: FieldType[]
+  fields: FieldType[],
 ): string => {
   if (option === "primitive") return primitive;
   const fieldLines = fields
@@ -60,7 +61,8 @@ const ModalOverlay = styled.div`
 const ModalContainer = styled(motion.div)`
   background: white;
   border-radius: 16px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
     0 10px 10px -5px rgba(0, 0, 0, 0.04);
   width: 100%;
   max-width: 900px;
@@ -403,7 +405,7 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
 }) => {
   const [isMounted, setIsMounted] = useState(false);
   const [formData, setFormData] = useState<LooseObject>(
-    existing_column ? { ...existing_column } : {}
+    existing_column ? { ...existing_column } : {},
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -428,7 +430,7 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
       if (existing_column) {
         setFormData({ ...existing_column });
         const isPrimitiveType = ["str", "int", "float", "bool"].includes(
-          existing_column.outputType || ""
+          existing_column.outputType || "",
         );
         setOutputTypeOption(isPrimitiveType ? "primitive" : "custom");
         setPrimitiveType(existing_column.outputType);
@@ -475,7 +477,7 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
         outputType: value === "primitive" ? primitiveType : "",
       }));
     },
-    [primitiveType]
+    [primitiveType],
   );
 
   const handlePrimitiveTypeChange = useCallback((value: string) => {
@@ -496,7 +498,7 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
         outputType: generateOutputType(outputTypeOption, primitiveType, fields),
       }));
     },
-    [outputTypeOption, primitiveType]
+    [outputTypeOption, primitiveType],
   );
 
   const isFormValid = useCallback((): boolean => {
@@ -601,6 +603,27 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
                   }
                 }}
                 taskName={formData.taskName || ""}
+              />
+            </FormGroup>
+          </FormRow>
+
+          {/* Phase 4: per-column LLM picker. Empty value falls back to
+              LLMSettings.default_extract_llm. Existing columns whose
+              backend payload includes preferredLlm pre-populate from
+              that; new columns start empty. */}
+          <FormRow>
+            <FormGroup>
+              <Label>LLM (optional)</Label>
+              <ColumnLLMPicker
+                value={
+                  formData.preferredLlmId ||
+                  (formData as any).preferredLlm?.id ||
+                  undefined
+                }
+                onChange={(preferredLlmId) =>
+                  handleFieldChange("preferredLlmId", preferredLlmId || "0")
+                }
+                disabled={isSubmitting}
               />
             </FormGroup>
           </FormRow>
@@ -783,6 +806,6 @@ export const CreateColumnModal: React.FC<CreateColumnModalProps> = ({
         </ModalFooter>
       </ModalContainer>
     </ModalOverlay>,
-    document.body
+    document.body,
   );
 };
