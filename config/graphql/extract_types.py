@@ -23,10 +23,62 @@ class ColumnType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     validation_config = GenericScalar()
     default_value = GenericScalar()
 
+    # Per-column LLM picker fields (Phase 4 of the LLM config system).
+    preferred_llm = graphene.Field(
+        "config.graphql.llm_types.RegisteredLLMType",
+        description=(
+            "Per-column LLM override. NULL means use "
+            "LLMSettings.default_extract_llm at extract time."
+        ),
+    )
+    available_llms = graphene.List(
+        "config.graphql.llm_types.RegisteredLLMType",
+        description=(
+            "Selectable LLM rows for this column's picker (head AND "
+            "enabled AND not archived). Authenticated users get the "
+            "same list — picking happens at the column-edit-permission "
+            "boundary upstream, not at the resolver level here."
+        ),
+    )
+
     class Meta:
         model = Column
         interfaces = [relay.Node]
         connection_class = CountableConnection
+
+    def resolve_preferred_llm(self, info) -> Any:
+        # Inline import — config.graphql.llm_queries imports llm_types
+        # which imports user_types; pulling it at module load creates a
+        # graphene-side resolution race with the deferred string ref.
+        from config.graphql.llm_queries import _build_registered_llm_type
+        from opencontractserver.llm_configs.models import LLMSettings
+
+        if self.preferred_llm_id is None:
+            return None
+        return _build_registered_llm_type(
+            self.preferred_llm,
+            settings_instance=LLMSettings.get_instance(),
+            include_schema=info.context.user.is_superuser,
+        )
+
+    def resolve_available_llms(self, info) -> Any:
+        from config.graphql.llm_queries import _build_registered_llm_type
+        from opencontractserver.llm_configs.models import LLMSettings, RegisteredLLM
+
+        settings_instance = LLMSettings.get_instance()
+        rows = list(
+            RegisteredLLM.objects.selectable()
+            .select_related("creator", "previous_version")
+            .order_by("display_name")
+        )
+        return [
+            _build_registered_llm_type(
+                rl,
+                settings_instance=settings_instance,
+                include_schema=info.context.user.is_superuser,
+            )
+            for rl in rows
+        ]
 
 
 class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
@@ -55,8 +107,32 @@ class DatacellType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     corrected_data = GenericScalar()
     full_source_list = graphene.List(AnnotationType)
 
+    # Forensic trace: which exact RegisteredLLM lineage version produced
+    # this cell's data (Phase 4). NULL for legacy / unexecuted cells.
+    executed_llm = graphene.Field(
+        "config.graphql.llm_types.RegisteredLLMType",
+        description=(
+            "RegisteredLLM lineage version that produced this cell's data. "
+            "Immutable: even if the row is later edited (which creates a "
+            "new lineage version), this FK still points at the exact "
+            "version that ran."
+        ),
+    )
+
     def resolve_full_source_list(self, info) -> Any:
         return self.sources.all()
+
+    def resolve_executed_llm(self, info) -> Any:
+        from config.graphql.llm_queries import _build_registered_llm_type
+        from opencontractserver.llm_configs.models import LLMSettings
+
+        if self.executed_llm_id is None:
+            return None
+        return _build_registered_llm_type(
+            self.executed_llm,
+            settings_instance=LLMSettings.get_instance(),
+            include_schema=info.context.user.is_superuser,
+        )
 
     class Meta:
         model = Datacell

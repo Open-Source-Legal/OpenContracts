@@ -518,6 +518,11 @@ class UpdateColumnMutation(DRFMutation):
         extract_is_list = graphene.Boolean(required=False)
         must_contain_text = graphene.String(required=False)
         task_name = graphene.String(required=False)
+        # Phase 4: per-column LLM override. Pass an int PK (NOT a relay
+        # global id — RegisteredLLMType is a custom ObjectType, not a
+        # DjangoObjectType, so it has no global-id encoding). Pass null
+        # to clear the override and revert to LLMSettings.default_extract_llm.
+        preferred_llm_id = graphene.ID(required=False)
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -539,6 +544,7 @@ class UpdateColumnMutation(DRFMutation):
         extract_is_list=None,
         language_model_id=None,
         must_contain_text=None,
+        preferred_llm_id=None,
     ) -> "UpdateColumnMutation":
 
         ok = False
@@ -554,6 +560,28 @@ class UpdateColumnMutation(DRFMutation):
 
             if language_model_id is not None:
                 obj.language_model_id = from_global_id(language_model_id)[1]
+
+            if preferred_llm_id is not None:
+                # Phase 4: per-column LLM override.
+                # An empty / "0" / null-marker string clears the FK; a
+                # numeric id sets it. We validate that the target row is
+                # selectable (head AND enabled AND not archived) so the
+                # column never points at an archived/disabled row.
+                from opencontractserver.llm_configs.models import RegisteredLLM
+
+                if preferred_llm_id in ("", "0", "null", "None"):
+                    obj.preferred_llm = None
+                else:
+                    try:
+                        rl = RegisteredLLM.objects.get(pk=int(preferred_llm_id))
+                    except (RegisteredLLM.DoesNotExist, ValueError, TypeError):
+                        raise ValueError("Selected LLM not found.")
+                    if not rl.is_head() or rl.is_archived or not rl.is_enabled:
+                        raise ValueError(
+                            "Selected LLM is not available "
+                            "(archived, disabled, or superseded)."
+                        )
+                    obj.preferred_llm = rl
 
             if name is not None:
                 obj.name = name
@@ -601,6 +629,9 @@ class CreateColumn(graphene.Mutation):
         must_contain_text = graphene.String(required=False)
         name = graphene.String(required=True)
         task_name = graphene.String(required=False)
+        # Phase 4: optional per-column LLM at creation time. NULL falls
+        # back to LLMSettings.default_extract_llm at extract time.
+        preferred_llm_id = graphene.ID(required=False)
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -621,6 +652,7 @@ class CreateColumn(graphene.Mutation):
         match_text=None,
         limit_to_label=None,
         instructions=None,
+        preferred_llm_id=None,
     ) -> "CreateColumn":
         if {query, match_text} == {None}:
             raise ValueError("One of `query` or `match_text` must be provided.")
@@ -628,6 +660,25 @@ class CreateColumn(graphene.Mutation):
         fieldset = Fieldset.objects.visible_to_user(info.context.user).get(
             pk=from_global_id(fieldset_id)[1]
         )
+
+        preferred_llm = None
+        if preferred_llm_id and preferred_llm_id not in ("0", "null", "None"):
+            from opencontractserver.llm_configs.models import RegisteredLLM
+
+            try:
+                preferred_llm = RegisteredLLM.objects.get(pk=int(preferred_llm_id))
+            except (RegisteredLLM.DoesNotExist, ValueError, TypeError):
+                raise ValueError("Selected LLM not found.")
+            if (
+                not preferred_llm.is_head()
+                or preferred_llm.is_archived
+                or not preferred_llm.is_enabled
+            ):
+                raise ValueError(
+                    "Selected LLM is not available "
+                    "(archived, disabled, or superseded)."
+                )
+
         column = Column(
             name=name,
             fieldset=fieldset,
@@ -639,6 +690,7 @@ class CreateColumn(graphene.Mutation):
             must_contain_text=must_contain_text,
             **({"task_name": task_name} if task_name is not None else {}),
             extract_is_list=extract_is_list if extract_is_list is not None else False,
+            preferred_llm=preferred_llm,
             creator=info.context.user,
         )
         column.save()

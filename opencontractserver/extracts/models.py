@@ -126,6 +126,24 @@ class Column(BaseOCModel):
         default=0, help_text="Order in which to display manual entry fields"
     )
 
+    # Per-column LLM override (Phase 4 of the LLM config system).
+    # When set, the extract task resolves this LLM instead of
+    # ``LLMSettings.default_extract_llm``. ``on_delete=PROTECT`` against
+    # the immutable-history contract on RegisteredLLM (no delete mutation
+    # exists, but PROTECT is the right semantic signal that historical
+    # Columns must always trace to a real row).
+    preferred_llm = django.db.models.ForeignKey(
+        "llm_configs.RegisteredLLM",
+        on_delete=django.db.models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="columns",
+        help_text=(
+            "Optional per-column LLM override. NULL falls back to "
+            "LLMSettings.default_extract_llm via the resolver."
+        ),
+    )
+
     def clean(self) -> None:
         """Validate configuration based on entry mode."""
         super().clean()
@@ -266,6 +284,25 @@ class Datacell(BaseOCModel):
     completed = django.db.models.DateTimeField(null=True, blank=True)
     failed = django.db.models.DateTimeField(null=True, blank=True)
     stacktrace = django.db.models.TextField(null=True, blank=True)
+
+    # Forensic trace: the exact RegisteredLLM lineage version that ran
+    # this cell (Phase 4 of the LLM config system). NULL for cells that
+    # ran via the legacy DEFAULT_EXTRACT_MODEL fallback (no admin config)
+    # or that haven't been executed yet. ``on_delete=PROTECT`` against
+    # the immutable-history contract — the row referenced here can NEVER
+    # be deleted while this Datacell exists, guaranteeing audit
+    # traceability for any extracted value.
+    executed_llm = django.db.models.ForeignKey(
+        "llm_configs.RegisteredLLM",
+        on_delete=django.db.models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="executed_datacells",
+        help_text=(
+            "RegisteredLLM lineage version that produced this cell's data. "
+            "NULL for legacy / unexecuted cells."
+        ),
+    )
 
     approved_by = django.db.models.ForeignKey(
         get_user_model(),

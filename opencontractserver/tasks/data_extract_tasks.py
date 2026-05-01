@@ -284,16 +284,18 @@ async def doc_extract_query_task(
         dc.save()
 
     @sync_to_async
-    def sync_mark_completed(dc, data_dict, llm_log=None):
+    def sync_mark_completed(dc, data_dict, llm_log=None, executed_llm_id=None):
         """Mark datacell as completed with data and optional LLM log."""
         dc.data = data_dict
         dc.completed = timezone.now()
         if llm_log:
             dc.llm_call_log = llm_log
+        if executed_llm_id is not None:
+            dc.executed_llm_id = executed_llm_id
         dc.save()
 
     @sync_to_async
-    def sync_mark_failed(dc, exc, tb, llm_log=None):
+    def sync_mark_failed(dc, exc, tb, llm_log=None, executed_llm_id=None):
         """Mark datacell as failed with error and optional LLM log.
 
         Convention: ``Datacell.stacktrace`` is the only persisted text field
@@ -302,11 +304,17 @@ async def doc_extract_query_task(
         ``_classify_none_result`` produces for None outcomes. Operators
         ``grep failure_mode=`` to separate legitimate "data not present"
         outcomes from pipeline bugs.
+
+        ``executed_llm_id`` is set when the failure happened *after*
+        resolution succeeded — it lets operators trace which exact
+        RegisteredLLM lineage version produced the failure.
         """
         dc.stacktrace = f"Error: {exc}\n\nTraceback:\n{tb}"
         dc.failed = timezone.now()
         if llm_log:
             dc.llm_call_log = llm_log
+        if executed_llm_id is not None:
+            dc.executed_llm_id = executed_llm_id
         dc.save()
 
     @sync_to_async
@@ -425,20 +433,36 @@ async def doc_extract_query_task(
         extract_model_name: (
             str  # always a string identifier for logging / temperature resolution
         )
+        # Captured for Datacell.executed_llm so historical cells trace
+        # back to the exact (immutable) lineage version that ran them.
+        # NULL when we fell back to the legacy DEFAULT_EXTRACT_MODEL path.
+        executed_llm_id: Optional[int] = None
         if model_override is not None:
             extract_model = model_override
             extract_model_name = model_override
         else:
             try:
-                resolved = await sync_to_async(resolve_extract_llm)()
+                # Pass the column so the resolver can prefer
+                # ``column.preferred_llm`` over the singleton default
+                # (Phase 4 per-column override path). Pre-Phase-4
+                # columns have ``preferred_llm=None`` and behave
+                # exactly as before.
+                resolved = await sync_to_async(resolve_extract_llm)(column=column)
                 extract_model = resolved.to_pydantic_ai_model()
                 extract_model_name = resolved.pydantic_ai_model_string
+                executed_llm_id = resolved.registered_llm_id
                 logger.info(
-                    "Resolved extract LLM via LLMSettings: %s "
-                    "(RegisteredLLM #%d, %s)",
+                    "Resolved extract LLM for cell %d: %s "
+                    "(RegisteredLLM #%d, %s, source=%s)",
+                    cell_id,
                     extract_model_name,
                     resolved.registered_llm_id,
                     resolved.provider_title,
+                    (
+                        "column.preferred_llm"
+                        if column.preferred_llm_id
+                        else "LLMSettings.default_extract_llm"
+                    ),
                 )
             except LLMUnavailableError as e:
                 if e.failure_mode == FAILURE_MODE_NOT_CONFIGURED:
@@ -450,14 +474,18 @@ async def doc_extract_query_task(
                         DEFAULT_EXTRACT_MODEL,
                     )
                 else:
-                    # An admin DID set a default but it's not currently
-                    # resolvable. Fail loudly with the structured failure
-                    # mode so the operator notices the misconfiguration.
+                    # A row WAS picked (column override or singleton
+                    # default) but isn't resolvable. Fail loudly with the
+                    # structured failure mode. ``executed_llm_id`` is
+                    # set to the row that the resolver attempted (so the
+                    # operator can see exactly which row needs fixing in
+                    # the cell's audit trail) — but only if the column
+                    # override was the picker; the singleton default
+                    # path has no row id at this point.
                     failure_label = f"failure_mode={FAILURE_MODE_UNAVAILABLE}"
                     detail = str(e)
                     logger.error(
-                        "Admin-configured default extract LLM is not "
-                        "resolvable; failing cell %d. %s. %s",
+                        "Extract LLM is not resolvable for cell %d. %s. %s",
                         cell_id,
                         failure_label,
                         detail,
@@ -467,6 +495,7 @@ async def doc_extract_query_task(
                         e,
                         f"{failure_label}\n{detail}",
                         llm_log=None,
+                        executed_llm_id=column.preferred_llm_id,
                     )
                     return
         extract_temperature = _resolve_extract_temperature(extract_model_name)
@@ -536,7 +565,9 @@ async def doc_extract_query_task(
                 data = {"data": result}
                 logger.info(f"Using raw result as data: {data}")
 
-            await sync_mark_completed(datacell, data, llm_log)
+            await sync_mark_completed(
+                datacell, data, llm_log, executed_llm_id=executed_llm_id
+            )
             logger.info(f"✓ Successfully extracted and saved data for cell {cell_id}")
             logger.info(f"  Final saved data: {data}")
             logger.info(f"  LLM log saved: {len(llm_log) if llm_log else 0} characters")
@@ -629,8 +660,17 @@ async def doc_extract_query_task(
         tb = traceback.format_exc()
         # Only try to mark failed if we have a datacell
         if datacell:
-            # Pass llm_log if we have it
-            await sync_mark_failed(datacell, e, tb, llm_log)
+            # Pass llm_log if we have it. ``executed_llm_id`` may be
+            # None if the failure happened before resolution (e.g. a
+            # bug in setup) — that's fine, sync_mark_failed treats None
+            # as "no executed_llm to record".
+            await sync_mark_failed(
+                datacell,
+                e,
+                tb,
+                llm_log,
+                executed_llm_id=locals().get("executed_llm_id"),
+            )
         else:
             logger.error(f"Failed to get datacell for cell_id {cell_id}: {e}\n{tb}")
         raise

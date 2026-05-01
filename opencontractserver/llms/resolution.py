@@ -243,20 +243,35 @@ def resolve_default_llm() -> ResolvedLLM:
     return resolve_extract_llm()
 
 
-def resolve_extract_llm() -> ResolvedLLM:
+def resolve_extract_llm(column=None) -> ResolvedLLM:
     """Resolve the LLM the extract pipeline should use right now.
 
-    Phase 2a/b: walks ``LLMSettings.default_extract_llm`` only. Phase 4
-    will add a ``column`` parameter and prefer ``column.preferred_llm``
-    when set.
+    Two-stage lookup:
 
-    Raises :class:`LLMUnavailableError` with one of two failure modes:
+    1. If ``column`` is provided AND ``column.preferred_llm`` is set,
+       resolve that row. This is the per-column override (Phase 4).
+       If the configured row is not resolvable (provider de-registered,
+       admin cleared the api_key, row archived, etc.) we propagate the
+       :class:`LLMUnavailableError` rather than silently falling back —
+       hiding the breakage would be worse than failing the cell with a
+       structured ``failure_mode``.
+    2. Otherwise (no column, or column has no preferred_llm), fall
+       back to ``LLMSettings.default_extract_llm``.
 
-    * ``"llm_not_configured"`` if no default is set (pre-Phase-2 deploy).
-      Callers should fall back to ``DEFAULT_EXTRACT_MODEL`` + env-var keys.
-    * ``"llm_unavailable"`` if a default *is* set but isn't resolvable.
-      Callers should fail the operation and persist the failure_mode.
+    Failure modes carried on the raised exception:
+
+    * ``"llm_not_configured"`` — no admin default is set AND the column
+      didn't override. Pre-Phase-2 deploys are always in this state;
+      callers fall back to legacy ``DEFAULT_EXTRACT_MODEL`` + env vars.
+    * ``"llm_unavailable"`` — a row WAS picked (either via the column
+      override or the singleton default) but isn't resolvable. Callers
+      fail loudly so misconfiguration is visible.
     """
+    if column is not None and getattr(column, "preferred_llm_id", None):
+        # Per-column override path — explicit admin/user choice; never
+        # silently fall back if it's broken.
+        return resolve(column.preferred_llm)
+
     from opencontractserver.llm_configs.models import LLMSettings
 
     settings_instance = LLMSettings.get_instance()
