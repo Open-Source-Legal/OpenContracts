@@ -722,6 +722,7 @@ class TestGroundingPipelinePDFIntegration(TestCase):
         )
         self.assertGreater(len(seeded), 0)
         seed = seeded[0]
+        assert seed.annotation_label is not None  # narrows for mypy
         self.assertEqual(seed.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
         self.assertEqual(seed.annotation_type, TOKEN_LABEL)
         self.assertTrue(seed.is_grounding_source)
