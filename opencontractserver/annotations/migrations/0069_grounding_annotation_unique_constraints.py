@@ -96,17 +96,69 @@ def reverse_backfill(apps, schema_editor):
     )
 
 
+def _repoint_cross_references(apps, redundant_ids: list[int], keeper_id: int) -> None:
+    """Repoint every realistic cross-reference from ``redundant_ids`` to ``keeper_id``.
+
+    Survey of FK / M2M references to ``Annotation`` outside the grounding
+    pipeline (run ``grep -nE 'ForeignKey|ManyToManyField' ...`` to refresh):
+
+    * ``extracts.Datacell.sources`` (M2M)            — primary, always
+    * ``feedback.UserFeedback.commented_annotation`` (FK, SET_NULL)
+    * ``conversations.ChatMessage.source_annotations`` (M2M)
+    * ``conversations.ChatMessage.created_annotations`` (M2M)
+    * ``users.AssignmentTask.resulting_annotations`` (M2M)
+    * ``annotations.Relationship.source_annotations`` (M2M)
+    * ``annotations.Relationship.target_annotations`` (M2M)
+    * ``annotations.Embedding.annotation`` (FK, CASCADE)
+       — handled implicitly: deleting redundant annotations cascade-deletes
+       their embeddings, the keeper retains its own.
+    * ``annotations.Annotation.parent`` (FK, CASCADE)
+       — grounding annotations are leaf rows; in the unlikely event a child
+       FK exists, CASCADE preserves migration integrity at the cost of
+       data on a duplicate row that should not have had children.
+
+    Every reference except the cascading ones is repointed to the keeper so
+    no cross-domain data is silently dropped when the redundant row is
+    deleted.
+    """
+    Datacell = apps.get_model("extracts", "Datacell")
+    UserFeedback = apps.get_model("feedback", "UserFeedback")
+    ChatMessage = apps.get_model("conversations", "ChatMessage")
+    AssignmentTask = apps.get_model("users", "AssignmentTask")
+    Relationship = apps.get_model("annotations", "Relationship")
+
+    Datacell.sources.through.objects.filter(annotation_id__in=redundant_ids).update(
+        annotation_id=keeper_id
+    )
+    UserFeedback.objects.filter(commented_annotation_id__in=redundant_ids).update(
+        commented_annotation_id=keeper_id
+    )
+    ChatMessage.source_annotations.through.objects.filter(
+        annotation_id__in=redundant_ids
+    ).update(annotation_id=keeper_id)
+    ChatMessage.created_annotations.through.objects.filter(
+        annotation_id__in=redundant_ids
+    ).update(annotation_id=keeper_id)
+    AssignmentTask.resulting_annotations.through.objects.filter(
+        annotation_id__in=redundant_ids
+    ).update(annotation_id=keeper_id)
+    Relationship.source_annotations.through.objects.filter(
+        annotation_id__in=redundant_ids
+    ).update(annotation_id=keeper_id)
+    Relationship.target_annotations.through.objects.filter(
+        annotation_id__in=redundant_ids
+    ).update(annotation_id=keeper_id)
+
+
 def _dedupe_token_label(apps):
     """Collapse duplicate flagged TOKEN_LABEL grounding annotations.
 
     Groups by ``(document, corpus, annotation_label, page, raw_text,
     creator)`` and, for each group of >1, keeps the lowest-pk row and
-    repoints any ``datacell.sources`` references to it before deleting
-    the rest.
+    repoints all realistic cross-references (see
+    ``_repoint_cross_references``) to it before deleting the rest.
     """
     Annotation = apps.get_model("annotations", "Annotation")
-    Datacell = apps.get_model("extracts", "Datacell")
-    SourcesM2M = Datacell.sources.through
 
     duplicates = (
         Annotation.objects.filter(
@@ -148,9 +200,7 @@ def _dedupe_token_label(apps):
             continue
         keeper, *redundant = ids
         with transaction.atomic():
-            SourcesM2M.objects.filter(annotation_id__in=redundant).update(
-                annotation_id=keeper
-            )
+            _repoint_cross_references(apps, redundant, keeper)
             Annotation.objects.filter(id__in=redundant).delete()
         total_groups += 1
         total_collapsed += len(redundant)
@@ -173,8 +223,6 @@ def _dedupe_span_label(apps):
     ``get_or_create`` lookup behaviour.
     """
     Annotation = apps.get_model("annotations", "Annotation")
-    Datacell = apps.get_model("extracts", "Datacell")
-    SourcesM2M = Datacell.sources.through
 
     duplicates = (
         Annotation.objects.filter(
@@ -216,9 +264,7 @@ def _dedupe_span_label(apps):
             continue
         keeper, *redundant = ids
         with transaction.atomic():
-            SourcesM2M.objects.filter(annotation_id__in=redundant).update(
-                annotation_id=keeper
-            )
+            _repoint_cross_references(apps, redundant, keeper)
             Annotation.objects.filter(id__in=redundant).delete()
         total_groups += 1
         total_collapsed += len(redundant)
@@ -246,7 +292,12 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("annotations", "0068_enforce_embedder_path_not_null"),
+        # Dedup helper repoints cross-references on these apps' models. Pin
+        # to the latest migration of each so they exist when this runs.
+        ("conversations", "0018_conversation_memory_curated"),
         ("extracts", "0028_rename_placeholder_indexes"),
+        ("feedback", "0006_alter_userfeedback_backend_lock"),
+        ("users", "0026_alter_user_username_validator"),
     ]
 
     operations = [

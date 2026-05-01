@@ -286,13 +286,7 @@ class TestGroundingPipelineIntegration(TestCase):
             self.assertEqual(annot.document, self.document)
             self.assertEqual(annot.corpus, self.corpus)
             self.assertFalse(annot.structural)
-            # Plain ``assert`` here (rather than ``self.assertIsNotNone``)
-            # because mypy/pyright only narrow on builtin asserts, and a
-            # type-narrowing failure would surface as the *next* line's
-            # attribute access raising AttributeError at runtime — which
-            # is itself a clearer test failure than a paired
-            # assertIsNotNone+assert pair would be.
-            assert annot.annotation_label is not None
+            assert annot.annotation_label is not None  # narrows for mypy
             self.assertEqual(annot.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
 
             # Verify span data
@@ -516,13 +510,7 @@ class TestGroundingPipelinePDFIntegration(TestCase):
             self.assertEqual(annot.document, self.document)
             self.assertEqual(annot.corpus, self.corpus)
             self.assertFalse(annot.structural)
-            # Plain ``assert`` here (rather than ``self.assertIsNotNone``)
-            # because mypy/pyright only narrow on builtin asserts, and a
-            # type-narrowing failure would surface as the *next* line's
-            # attribute access raising AttributeError at runtime — which
-            # is itself a clearer test failure than a paired
-            # assertIsNotNone+assert pair would be.
-            assert annot.annotation_label is not None
+            assert annot.annotation_label is not None  # narrows for mypy
             self.assertEqual(annot.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
             # PlasmaPDF returns 0-indexed pages; valid range is
             # [0, len(pages) - 1]. The bug we're guarding against is the
@@ -700,3 +688,72 @@ class TestGroundingPipelinePDFIntegration(TestCase):
             self.assertEqual(annot.corpus_id, self.corpus.id)
         for annot in second_corpus_annotations:
             self.assertEqual(annot.corpus_id, other_corpus.id)
+
+    def test_db_constraint_blocks_concurrent_token_label_grounding_duplicates(self):
+        """The DB-level UniqueConstraint must reject a literal duplicate
+        of a grounding TOKEN_LABEL row, and ``get_or_create`` must
+        recover via SELECT — not propagate the IntegrityError.
+
+        Simulates the celery race the constraint exists to defeat: one
+        worker has already inserted the grounding row, a second worker's
+        SELECT misses, and its INSERT must fail-and-fallback rather than
+        creating a sibling row.
+        """
+        from django.db import IntegrityError, transaction
+
+        from opencontractserver.annotations.models import (
+            TOKEN_LABEL,
+            Annotation,
+        )
+        from opencontractserver.constants.annotations import OC_EXTRACT_SOURCE_LABEL
+        from opencontractserver.utils.extraction_grounding import (
+            ground_extraction_to_annotations,
+        )
+
+        # Run grounding once to seed an OC_EXTRACT_SOURCE row with the
+        # right (label, page, raw_text, creator, is_grounding_source=True)
+        # tuple — exactly what the constraint guards.
+        seeded = async_to_sync(ground_extraction_to_annotations)(
+            datacell=self.datacell,
+            document=self.document,
+            corpus=self.corpus,
+            user_id=self.user.id,
+            enable_fuzzy=False,
+        )
+        self.assertGreater(len(seeded), 0)
+        seed = seeded[0]
+        self.assertEqual(seed.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
+        self.assertEqual(seed.annotation_type, TOKEN_LABEL)
+        self.assertTrue(seed.is_grounding_source)
+
+        # A direct duplicate INSERT must fail at the database level.
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Annotation.objects.create(
+                    document=seed.document,
+                    corpus=seed.corpus,
+                    annotation_label=seed.annotation_label,
+                    annotation_type=TOKEN_LABEL,
+                    page=seed.page,
+                    raw_text=seed.raw_text,
+                    creator_id=self.user.id,
+                    is_grounding_source=True,
+                    structural=False,
+                    json={},
+                )
+
+        # And re-running the grounding pipeline must NOT create a
+        # duplicate — get_or_create's fallback SELECT (after IntegrityError
+        # on a racing INSERT in production, or after the up-front SELECT
+        # hit here) returns the seed row.
+        count_before = Annotation.objects.filter(document=self.document).count()
+        retry = async_to_sync(ground_extraction_to_annotations)(
+            datacell=self.datacell,
+            document=self.document,
+            corpus=self.corpus,
+            user_id=self.user.id,
+            enable_fuzzy=False,
+        )
+        count_after = Annotation.objects.filter(document=self.document).count()
+        self.assertEqual(count_after, count_before)
+        self.assertIn(seed.id, {a.id for a in retry})
