@@ -70,3 +70,29 @@ class BaseLLMProvider:
         ``provider_class_path`` foreign reference on ``RegisteredLLM``.
         """
         return f"{cls.__module__}.{cls.__name__}"
+
+    @classmethod
+    def build_pydantic_ai_model(
+        cls,
+        *,
+        model_id: str,
+        api_key: str,
+        base_url: Optional[str] = None,
+        organization_id: Optional[str] = None,
+    ) -> object:
+        """Construct an explicit pydantic-ai ``Model`` instance for ``model_id``.
+
+        Subclasses must override. The returned object is what
+        ``PydanticAIAgent(model=...)`` should receive when an admin has
+        configured an explicit api_key — pydantic-ai then uses that key
+        instead of whatever's in the environment variables. ``base_url``
+        and ``organization_id`` are honored when the provider's SDK
+        supports them.
+
+        Implementations import their pydantic-ai dependencies lazily
+        (inside the method body) so this base module stays importable
+        in environments where some provider SDKs aren't installed.
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} must implement build_pydantic_ai_model()"
+        )

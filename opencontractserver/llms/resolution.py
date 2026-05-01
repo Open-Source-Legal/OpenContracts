@@ -9,33 +9,58 @@ pydantic-ai and the OpenContracts agent factory need:
   for that provider?
 * What's the pydantic-ai model identifier and the API key to inject?
 
-Phase 2a (this commit) provides the pure functions and a single
-``resolve_extract_llm()`` entry point that picks the
-``LLMSettings.default_extract_llm``. Phase 2b will plumb the entry point
-into ``data_extract_tasks.doc_extract_query_task`` and ``AgentConfig``.
-Phase 4 adds ``Column.preferred_llm`` on top of the same resolver.
+Phase 2a provides the pure functions and a single ``resolve_extract_llm()``
+entry point. Phase 2b plumbs the entry point into
+``data_extract_tasks.doc_extract_query_task`` and the structured-response
+agent path. Phase 4 adds ``Column.preferred_llm`` on top of the same
+resolver.
+
+Failure-mode vocabulary (carried on ``LLMUnavailableError.failure_mode``)
+gives callers a way to distinguish between "no admin config exists yet —
+fall back to legacy DEFAULT_EXTRACT_MODEL" and "admin config exists but
+is broken — fail loudly so the misconfiguration is visible":
+
+* ``"llm_not_configured"`` — ``LLMSettings.default_extract_llm`` is
+  unset. Pre-Phase-2 deploys are always in this state; callers should
+  fall back to ``DEFAULT_EXTRACT_MODEL`` + env-var keys.
+* ``"llm_unavailable"`` — a default *was* set but isn't currently
+  resolvable (provider de-registered, API key cleared, row archived,
+  etc.). Callers should record this verbatim as the failure mode and
+  fail the operation rather than silently substituting another model.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# Failure-mode strings — kept in this module rather than constants/llm.py
+# because they're produced and consumed entirely within the resolver +
+# its callers. Do not rename without grepping for grep-able dashboards.
+FAILURE_MODE_NOT_CONFIGURED = "llm_not_configured"
+FAILURE_MODE_UNAVAILABLE = "llm_unavailable"
 
 
 class LLMUnavailableError(RuntimeError):
     """Raised when no resolvable LLM is available for the requested context.
 
-    Carries a structured ``failure_mode`` string matching the vocabulary
-    in :mod:`opencontractserver.constants.llm` so call sites that record
-    structured failure reasons (notably
-    ``data_extract_tasks._classify_none_result``) can persist a coherent
-    label without inventing new strings.
+    Carries a structured ``failure_mode`` string so call sites that record
+    structured failure reasons (notably ``data_extract_tasks``) can
+    persist a coherent label and so callers can branch on
+    ``"llm_not_configured"`` (legacy fallback) vs ``"llm_unavailable"``
+    (loud failure).
     """
 
-    def __init__(self, message: str, *, failure_mode: str = "llm_unavailable") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_mode: str = FAILURE_MODE_UNAVAILABLE,
+    ) -> None:
         super().__init__(message)
         self.failure_mode = failure_mode
 
@@ -58,6 +83,39 @@ class ResolvedLLM:
     supports_tools: bool
     max_output_tokens: Optional[int]
     temperature_default: Optional[float]
+
+    def to_pydantic_ai_model(self) -> Any:
+        """Materialise an explicit pydantic-ai ``Model`` instance.
+
+        Looks the provider class up in the registry and dispatches to its
+        ``build_pydantic_ai_model`` classmethod, which constructs the
+        right ``pydantic_ai.models.*`` object with the resolved api_key /
+        base_url / organization_id baked in. The returned object is what
+        ``PydanticAIAgent(model=...)`` should receive when an admin has
+        configured an explicit api_key — so pydantic-ai uses *that* key
+        and not whatever's in ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY``
+        in the worker's environment.
+
+        Raises :class:`LLMUnavailableError` (failure_mode=
+        ``llm_unavailable``) if the provider is no longer registered;
+        this should not happen on resolved rows in practice, but the
+        defensive branch keeps the contract clean.
+        """
+        from opencontractserver.llms.providers.registry import get_provider_registry
+
+        provider_cls = get_provider_registry().get(self.provider_class_path)
+        if provider_cls is None:
+            raise LLMUnavailableError(
+                f"Provider class {self.provider_class_path!r} is not registered "
+                "(was it removed between resolution and call time?)",
+                failure_mode=FAILURE_MODE_UNAVAILABLE,
+            )
+        return provider_cls.build_pydantic_ai_model(
+            model_id=self.pydantic_ai_model_string.split(":", 1)[1],
+            api_key=self.api_key,
+            base_url=self.base_url,
+            organization_id=self.organization_id,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -133,10 +191,10 @@ def unavailable_reason(rl, llm_settings=None) -> Optional[str]:
 def resolve(rl) -> ResolvedLLM:
     """Build a :class:`ResolvedLLM` from a :class:`RegisteredLLM` row.
 
-    Raises :class:`LLMUnavailableError` if the row isn't resolvable.
-    Centralising the model-string + api-key materialisation here means
-    callers (extract task, agent factory) never assemble ``"openai:"``
-    prefixes themselves.
+    Raises :class:`LLMUnavailableError` (failure_mode=``llm_unavailable``)
+    if the row isn't resolvable. Centralising the model-string + api-key
+    materialisation here means callers (extract task, agent factory)
+    never assemble ``"openai:"`` prefixes themselves.
     """
     from opencontractserver.llm_configs.models import LLMSettings
     from opencontractserver.llms.providers.registry import get_provider_registry
@@ -145,7 +203,8 @@ def resolve(rl) -> ResolvedLLM:
     reason = unavailable_reason(rl, llm_settings=settings_instance)
     if reason is not None:
         raise LLMUnavailableError(
-            f"RegisteredLLM {rl.pk} ({rl.display_name!r}) is not resolvable: {reason}"
+            f"RegisteredLLM {rl.pk} ({rl.display_name!r}) is not resolvable: {reason}",
+            failure_mode=FAILURE_MODE_UNAVAILABLE,
         )
 
     provider = get_provider_registry().get(rl.provider_class_path)
@@ -173,13 +232,16 @@ def resolve(rl) -> ResolvedLLM:
 def resolve_extract_llm() -> ResolvedLLM:
     """Resolve the LLM the extract pipeline should use right now.
 
-    Phase 2a: walks ``LLMSettings.default_extract_llm`` only. Phase 4 will
-    add a ``column`` parameter and prefer ``column.preferred_llm`` when
-    set.
+    Phase 2a/b: walks ``LLMSettings.default_extract_llm`` only. Phase 4
+    will add a ``column`` parameter and prefer ``column.preferred_llm``
+    when set.
 
-    Raises :class:`LLMUnavailableError` if no resolvable default exists,
-    so callers can fall back to ``DEFAULT_EXTRACT_MODEL`` (preserves
-    pre-Phase-2 behavior on fresh deploys with no admin config).
+    Raises :class:`LLMUnavailableError` with one of two failure modes:
+
+    * ``"llm_not_configured"`` if no default is set (pre-Phase-2 deploy).
+      Callers should fall back to ``DEFAULT_EXTRACT_MODEL`` + env-var keys.
+    * ``"llm_unavailable"`` if a default *is* set but isn't resolvable.
+      Callers should fail the operation and persist the failure_mode.
     """
     from opencontractserver.llm_configs.models import LLMSettings
 
@@ -188,6 +250,7 @@ def resolve_extract_llm() -> ResolvedLLM:
     if default is None:
         raise LLMUnavailableError(
             "No default extract LLM configured. An administrator must "
-            "register an LLM and set it as the extract default in /admin/llms."
+            "register an LLM and set it as the extract default in /admin/llms.",
+            failure_mode=FAILURE_MODE_NOT_CONFIGURED,
         )
     return resolve(default)

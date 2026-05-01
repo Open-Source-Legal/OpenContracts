@@ -31,6 +31,8 @@ from opencontractserver.llms.providers.registry import (
     reset_provider_registry_cache,
 )
 from opencontractserver.llms.resolution import (
+    FAILURE_MODE_NOT_CONFIGURED,
+    FAILURE_MODE_UNAVAILABLE,
     LLMUnavailableError,
     ResolvedLLM,
     is_resolvable,
@@ -197,15 +199,68 @@ class ResolveTests(_ResolverFixtureMixin, TestCase):
         rl = self._make_rl()  # no secrets
         with self.assertRaises(LLMUnavailableError) as ctx:
             resolve(rl)
-        self.assertEqual(ctx.exception.failure_mode, "llm_unavailable")
+        self.assertEqual(ctx.exception.failure_mode, FAILURE_MODE_UNAVAILABLE)
         self.assertIn(rl.display_name, str(ctx.exception))
+
+    def test_to_pydantic_ai_model_for_openai(self):
+        """OpenAIProvider builds a pydantic-ai OpenAIChatModel with the
+        admin-configured api_key baked in (so pydantic-ai uses *that*
+        key, not whatever is in OPENAI_API_KEY in the worker's env)."""
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        rl = self._make_rl(model_id="gpt-4o")
+        self._set_api_key(OPENAI_PATH, "sk-real")
+        resolved = resolve(rl)
+        m = resolved.to_pydantic_ai_model()
+        self.assertIsInstance(m, OpenAIChatModel)
+        # pydantic-ai exposes the model identifier as ``model_name``.
+        self.assertEqual(getattr(m, "model_name", None), "gpt-4o")
+
+    def test_to_pydantic_ai_model_for_anthropic(self):
+        from pydantic_ai.models.anthropic import AnthropicModel
+
+        rl = self._make_rl(
+            provider_class_path=ANTHROPIC_PATH,
+            model_id="claude-opus-4-7",
+        )
+        self._set_api_key(ANTHROPIC_PATH, "ant-real")
+        resolved = resolve(rl)
+        m = resolved.to_pydantic_ai_model()
+        self.assertIsInstance(m, AnthropicModel)
+        self.assertEqual(getattr(m, "model_name", None), "claude-opus-4-7")
+
+    def test_to_pydantic_ai_model_raises_when_provider_deregistered(self):
+        # Build a ResolvedLLM directly (bypassing resolve()) pointing at
+        # an unknown provider. This exercises the defensive branch in
+        # to_pydantic_ai_model() that handles "provider was registered
+        # at resolution time but de-registered before call time".
+        resolved = ResolvedLLM(
+            registered_llm_id=999,
+            provider_class_path="nope.NotAProvider",
+            provider_title="Nope",
+            pydantic_ai_model_string="nope:nope",
+            api_key="x",
+            base_url=None,
+            organization_id=None,
+            context_window=None,
+            supports_structured_output=True,
+            supports_tools=True,
+            max_output_tokens=None,
+            temperature_default=None,
+        )
+        with self.assertRaises(LLMUnavailableError) as ctx:
+            resolved.to_pydantic_ai_model()
+        self.assertEqual(ctx.exception.failure_mode, FAILURE_MODE_UNAVAILABLE)
 
 
 class ResolveExtractLLMTests(_ResolverFixtureMixin, TestCase):
     def test_raises_when_no_default_set(self):
-        # Fresh deploy: empty singleton, no default.
-        with self.assertRaises(LLMUnavailableError):
+        # Fresh deploy: empty singleton, no default. Failure mode must be
+        # ``llm_not_configured`` so callers (data_extract_tasks) know to
+        # fall back to legacy DEFAULT_EXTRACT_MODEL rather than failing.
+        with self.assertRaises(LLMUnavailableError) as ctx:
             resolve_extract_llm()
+        self.assertEqual(ctx.exception.failure_mode, FAILURE_MODE_NOT_CONFIGURED)
 
     def test_resolves_default_when_configured(self):
         rl = self._make_rl()
@@ -220,12 +275,17 @@ class ResolveExtractLLMTests(_ResolverFixtureMixin, TestCase):
         self.assertEqual(resolved.pydantic_ai_model_string, "openai:gpt-4o-mini")
 
     def test_raises_when_default_unresolvable(self):
+        # Admin set a default but it's currently broken (no api_key).
+        # Failure mode must be ``llm_unavailable`` (not
+        # ``llm_not_configured``) so callers fail loudly rather than
+        # silently substituting another model.
         rl = self._make_rl()  # no secrets configured
         self.settings.default_extract_llm = rl
         self.settings.save()
         cache.delete(LLMSettings.CACHE_KEY)
-        with self.assertRaises(LLMUnavailableError):
+        with self.assertRaises(LLMUnavailableError) as ctx:
             resolve_extract_llm()
+        self.assertEqual(ctx.exception.failure_mode, FAILURE_MODE_UNAVAILABLE)
 
 
 class RegisteredLLMResolverDelegationTests(_ResolverFixtureMixin, TestCase):

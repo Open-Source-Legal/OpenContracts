@@ -8,6 +8,7 @@ when this provider's ``pydantic_ai_prefix`` matches.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from opencontractserver.llms.providers.base import BaseLLMProvider
 from opencontractserver.pipeline.base.settings_schema import (
@@ -57,4 +58,34 @@ class AnthropicProvider(BaseLLMProvider):
                     ),
                 )
             },
+        )
+
+    @classmethod
+    def build_pydantic_ai_model(
+        cls,
+        *,
+        model_id: str,
+        api_key: str,
+        base_url: Optional[str] = None,
+        organization_id: Optional[str] = None,
+    ) -> object:
+        """Build a ``pydantic_ai.models.anthropic.AnthropicModel`` with an
+        explicit ``AnthropicProvider(api_key=...)`` so the
+        admin-configured key wins over the env.
+
+        ``organization_id`` is accepted for signature symmetry but
+        ignored — Anthropic's API has no equivalent header.
+        """
+        from pydantic_ai.models.anthropic import AnthropicModel
+        from pydantic_ai.providers.anthropic import (
+            AnthropicProvider as _PydAIAnthropicProvider,
+        )
+
+        provider_kwargs: dict = {"api_key": api_key}
+        if base_url:
+            provider_kwargs["base_url"] = base_url
+        # organization_id intentionally unused — Anthropic SDK has no analog.
+
+        return AnthropicModel(
+            model_id, provider=_PydAIAnthropicProvider(**provider_kwargs)
         )

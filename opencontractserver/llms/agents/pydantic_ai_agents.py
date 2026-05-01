@@ -1354,7 +1354,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         prompt: str,
         target_type: type[T],
         *,
-        model: Optional[str] = None,
+        model: Optional[Union[str, object]] = None,
         tools: Optional[list[Union["CoreTool", Callable, str]]] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -1386,21 +1386,36 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             if max_tokens is not None:
                 model_settings["max_tokens"] = max_tokens
 
+            # ``model`` may be either a string identifier (legacy) or a
+            # pre-built pydantic-ai Model object (new — when an admin has
+            # configured an explicit api_key via the LLMSettings system,
+            # data_extract_tasks materialises the Model via
+            # ResolvedLLM.to_pydantic_ai_model() so pydantic-ai uses
+            # *that* key, not whatever's in the worker's env). Both are
+            # accepted by ``PydanticAIAgent(model=...)``; we only need a
+            # string identifier for the Anthropic prefix check below.
+            effective_model: Any = (
+                model if model is not None else self.config.model_name
+            )
+            if isinstance(effective_model, str):
+                effective_model_name = effective_model
+            else:
+                effective_model_name = getattr(effective_model, "model_name", "") or ""
+
             # Anthropic models tend to keep narrating / calling tools instead
             # of committing to the structured output when given any wiggle
             # room (issue #1381). Force temperature down to 0 unless the
             # caller explicitly asked for something else (function-level
             # temperature pin OR an explicit config.temperature).
-            effective_model = model or self.config.model_name
             if (
-                is_anthropic_model(effective_model)
+                is_anthropic_model(effective_model_name)
                 and temperature is None
                 and self.config.temperature is None
             ):
                 logger.info(
                     "Forcing temperature=0 for structured extraction with "
                     "Anthropic model %s (issue #1381).",
-                    effective_model,
+                    effective_model_name,
                 )
                 model_settings["temperature"] = 0
 

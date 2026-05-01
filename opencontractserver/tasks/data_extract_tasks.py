@@ -397,15 +397,79 @@ async def doc_extract_query_task(
         # Capture LLM messages for debugging
         messages: Optional[list[Any]] = None
 
-        # Resolve the effective model first so the temperature stays in
-        # lock-step with whichever model family will actually run. The
-        # Anthropic ``temperature=0`` override in
-        # ``_structured_response_raw`` only fires when we pass
-        # ``temperature=None``; ``_resolve_extract_temperature`` returns
-        # ``None`` for Claude models and ``EXTRACT_DEFAULT_TEMPERATURE``
-        # otherwise. (issue #1381)
-        extract_model = model_override or DEFAULT_EXTRACT_MODEL
-        extract_temperature = _resolve_extract_temperature(extract_model)
+        # Resolve the effective model. Three sources, in priority order:
+        #
+        # 1. ``model_override`` — operator-driven (CLI / benchmark sweep).
+        #    Used as-is; api_key falls through to env-var lookup.
+        # 2. ``LLMSettings.default_extract_llm`` — admin-configured via
+        #    the LLM config system. The resolver builds an explicit
+        #    pydantic-ai Model with the configured api_key so it overrides
+        #    whatever's in the worker's env. ``failure_mode="llm_unavailable"``
+        #    fails the cell loudly rather than silently substituting another
+        #    model — admin misconfiguration should be visible.
+        # 3. ``DEFAULT_EXTRACT_MODEL`` — pre-Phase-2 fallback. Triggered
+        #    when no admin default is configured (failure_mode=
+        #    ``"llm_not_configured"``); preserves legacy env-var behavior.
+        #
+        # The temperature override stays in lock-step with whichever model
+        # family will actually run (issue #1381 — Anthropic models need
+        # temperature=0 for structured output).
+        from opencontractserver.llms.resolution import (
+            FAILURE_MODE_NOT_CONFIGURED,
+            FAILURE_MODE_UNAVAILABLE,
+            LLMUnavailableError,
+            resolve_extract_llm,
+        )
+
+        extract_model: Any  # str (legacy) or pydantic-ai Model (resolved)
+        extract_model_name: (
+            str  # always a string identifier for logging / temperature resolution
+        )
+        if model_override is not None:
+            extract_model = model_override
+            extract_model_name = model_override
+        else:
+            try:
+                resolved = await sync_to_async(resolve_extract_llm)()
+                extract_model = resolved.to_pydantic_ai_model()
+                extract_model_name = resolved.pydantic_ai_model_string
+                logger.info(
+                    "Resolved extract LLM via LLMSettings: %s "
+                    "(RegisteredLLM #%d, %s)",
+                    extract_model_name,
+                    resolved.registered_llm_id,
+                    resolved.provider_title,
+                )
+            except LLMUnavailableError as e:
+                if e.failure_mode == FAILURE_MODE_NOT_CONFIGURED:
+                    extract_model = DEFAULT_EXTRACT_MODEL
+                    extract_model_name = DEFAULT_EXTRACT_MODEL
+                    logger.info(
+                        "No admin-configured default extract LLM; falling "
+                        "back to DEFAULT_EXTRACT_MODEL=%s (legacy env-var path).",
+                        DEFAULT_EXTRACT_MODEL,
+                    )
+                else:
+                    # An admin DID set a default but it's not currently
+                    # resolvable. Fail loudly with the structured failure
+                    # mode so the operator notices the misconfiguration.
+                    failure_label = f"failure_mode={FAILURE_MODE_UNAVAILABLE}"
+                    detail = str(e)
+                    logger.error(
+                        "Admin-configured default extract LLM is not "
+                        "resolvable; failing cell %d. %s. %s",
+                        cell_id,
+                        failure_label,
+                        detail,
+                    )
+                    await sync_mark_failed(
+                        datacell,
+                        e,
+                        f"{failure_label}\n{detail}",
+                        llm_log=None,
+                    )
+                    return
+        extract_temperature = _resolve_extract_temperature(extract_model_name)
 
         try:
             # Wrap the agent call in the context manager to capture messages.

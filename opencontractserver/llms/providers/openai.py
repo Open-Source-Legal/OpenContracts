@@ -6,6 +6,7 @@ endpoints reachable via the same SDK shape (set ``base_url`` / use the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from opencontractserver.llms.providers.base import BaseLLMProvider
 from opencontractserver.pipeline.base.settings_schema import (
@@ -68,4 +69,34 @@ class OpenAIProvider(BaseLLMProvider):
                     ),
                 )
             },
+        )
+
+    @classmethod
+    def build_pydantic_ai_model(
+        cls,
+        *,
+        model_id: str,
+        api_key: str,
+        base_url: Optional[str] = None,
+        organization_id: Optional[str] = None,
+    ) -> object:
+        """Build a ``pydantic_ai.models.openai.OpenAIChatModel`` with an
+        explicit ``OpenAIProvider(api_key=...)`` so the admin-configured
+        key wins over whatever is in the env.
+        """
+        # Lazy imports — pydantic-ai 1.x exposes the right classes under
+        # these module paths. Importing inside the method keeps the
+        # base provider module loadable in environments that mock or
+        # stub pydantic-ai (some test setups do).
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider as _PydAIOpenAIProvider
+
+        provider_kwargs: dict = {"api_key": api_key}
+        if base_url:
+            provider_kwargs["base_url"] = base_url
+        if organization_id:
+            provider_kwargs["organization"] = organization_id
+
+        return OpenAIChatModel(
+            model_id, provider=_PydAIOpenAIProvider(**provider_kwargs)
         )

@@ -28,6 +28,11 @@ FrameworkType = Union[AgentFramework, Literal["pydantic_ai"]]
 DocumentType = Union[str, int, Document]
 CorpusType = Union[str, int, Corpus]
 ToolType = Union[str, CoreTool, callable]
+# ``model`` may be a string identifier ("openai:gpt-4o-mini") or a pre-built
+# pydantic-ai ``Model`` object. The latter form is produced by
+# ``ResolvedLLM.to_pydantic_ai_model()`` and lets admin-configured api_keys
+# bypass env-var lookup at the SDK level.
+ModelArg = Union[str, object]
 
 # Type variable for structured responses
 T = TypeVar("T")
@@ -43,7 +48,7 @@ class AgentAPI:
         *,
         framework: Optional[FrameworkType] = None,
         user_id: Optional[int] = None,
-        model: Optional[str] = None,
+        model: Optional[ModelArg] = None,
         system_prompt: Optional[str] = None,
         conversation: Optional[Conversation] = None,
         conversation_id: Optional[int] = None,
@@ -155,7 +160,7 @@ class AgentAPI:
         *,
         framework: Optional[FrameworkType] = None,
         user_id: Optional[int] = None,
-        model: Optional[str] = None,
+        model: Optional[ModelArg] = None,
         system_prompt: Optional[str] = None,
         conversation: Optional[Conversation] = None,
         conversation_id: Optional[int] = None,
@@ -269,7 +274,7 @@ class AgentAPI:
         *,
         framework: Optional[FrameworkType] = None,
         user_id: Optional[int] = None,
-        model: Optional[str] = None,
+        model: Optional[ModelArg] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         tools: Optional[list[ToolType]] = None,
@@ -373,7 +378,7 @@ class AgentAPI:
         *,
         framework: Optional[FrameworkType] = None,
         user_id: Optional[int] = None,
-        model: Optional[str] = None,
+        model: Optional[ModelArg] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         tools: Optional[list[ToolType]] = None,
@@ -446,7 +451,7 @@ class AgentAPI:
         *,
         framework: Optional[FrameworkType] = None,
         user_id: Optional[int] = None,
-        model: Optional[str] = None,
+        model: Optional[ModelArg] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         tools: Optional[list[ToolType]] = None,
