@@ -19,6 +19,7 @@ from config.graphql.extract_queries import (
     ExtractQueryMixin,
     MetadataCompletionStatusType,
 )
+from config.graphql.llm_queries import LLMQueryMixin
 from config.graphql.og_metadata_queries import OGMetadataQueryMixin
 from config.graphql.pipeline_queries import PipelineQueryMixin
 from config.graphql.search_queries import SearchQueryMixin
@@ -40,6 +41,7 @@ class Query(
     SocialQueryMixin,
     ActionQueryMixin,
     PipelineQueryMixin,
+    LLMQueryMixin,
     OGMetadataQueryMixin,
     WorkerQueryMixin,
     graphene.ObjectType,

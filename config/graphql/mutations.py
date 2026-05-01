@@ -159,6 +159,16 @@ from config.graphql.label_mutations import (
     UpdateLabelset,
 )
 
+# Import pipeline settings mutations
+from config.graphql.llm_mutations import (
+    ArchiveRegisteredLLMMutation,
+    DeleteLLMProviderSecretsMutation,
+    RegisterLLMMutation,
+    SetDefaultExtractLLMMutation,
+    UpdateLLMProviderSecretsMutation,
+    UpdateRegisteredLLMMutation,
+)
+
 # Import moderation mutations
 from config.graphql.moderation_mutations import (
     AddModeratorMutation,
@@ -180,8 +190,6 @@ from config.graphql.notification_mutations import (
     MarkNotificationReadMutation,
     MarkNotificationUnreadMutation,
 )
-
-# Import pipeline settings mutations
 from config.graphql.pipeline_settings_mutations import (
     DeleteComponentSecretsMutation,
     DeleteToolSecretsMutation,
@@ -418,6 +426,14 @@ class Mutation(graphene.ObjectType):
     delete_component_secrets = DeleteComponentSecretsMutation.Field()
     update_tool_secrets = UpdateToolSecretsMutation.Field()
     delete_tool_secrets = DeleteToolSecretsMutation.Field()
+
+    # LLM CONFIGURATION MUTATIONS (Superuser only) ###############################
+    register_llm = RegisterLLMMutation.Field()
+    update_registered_llm = UpdateRegisteredLLMMutation.Field()
+    archive_registered_llm = ArchiveRegisteredLLMMutation.Field()
+    update_llm_provider_secrets = UpdateLLMProviderSecretsMutation.Field()
+    delete_llm_provider_secrets = DeleteLLMProviderSecretsMutation.Field()
+    set_default_extract_llm = SetDefaultExtractLLMMutation.Field()
 
     # WORKER UPLOAD MUTATIONS ########################################################
     create_worker_account = CreateWorkerAccount.Field()
