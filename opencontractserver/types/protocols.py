@@ -106,27 +106,17 @@ class ToolProtocol(Protocol):
 
     See ``docs/architecture/llms/README.md`` for the
     ``CoreTool`` → framework-specific wrapper architecture.
+
+    Members are declared as plain attributes (not ``@property``
+    descriptors) because ``CoreTool`` is a ``@dataclass`` exposing them
+    as instance attributes. Attribute declarations match the concrete
+    surface and make the contract obvious to future implementors.
     """
 
-    @property
-    def name(self) -> str:
-        """Tool name as exposed to the LLM."""
-        ...
-
-    @property
-    def description(self) -> str:
-        """Human-readable description used in tool schemas."""
-        ...
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        """JSONSchema-style parameters dict for the tool."""
-        ...
-
-    @property
-    def requires_approval(self) -> bool:
-        """``True`` if invocation must be gated behind an approval step."""
-        ...
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    requires_approval: bool
 
 
 # ---------------------------------------------------------------------------
@@ -144,13 +134,17 @@ class PermissionedQueryManagerProtocol(Protocol):
     "permissioned manager" (e.g. for analytics or graphene resolvers)
     should depend on this protocol, not on a concrete manager class.
 
-    The argument default is ``None`` so managers that accept anonymous
-    callers still satisfy the protocol; ``Any`` is used because the
-    concrete user type varies across managers (``AbstractUser``,
-    ``AnonymousUser``, or a ``Q`` for compound filters).
+    The ``user`` argument is required: not all concrete managers accept
+    a missing user (e.g. :class:`PermissionManager.visible_to_user` has
+    no default), so the protocol pins the strictest contract. Callers
+    should pass an :class:`~django.contrib.auth.models.AnonymousUser`
+    when no authenticated principal is available. ``Any`` is used
+    because the concrete user type varies across managers
+    (``AbstractUser``, ``AnonymousUser``, or a ``Q`` for compound
+    filters).
     """
 
-    def visible_to_user(self, user: Any = None) -> QuerySet[Any]:
+    def visible_to_user(self, user: Any) -> QuerySet[Any]:
         """Return a queryset filtered to objects visible to ``user``."""
         ...
 
@@ -162,6 +156,18 @@ class PermissionedQueryManagerProtocol(Protocol):
 
 class StreamObserverProtocol(Protocol):
     """Callable invoked by framework adapters as streaming events emit.
+
+    .. important::
+       Must be kept in sync with
+       :class:`opencontractserver.llms.types.StreamObserver`. The two
+       definitions are duplicated (rather than re-exported) on purpose:
+       ``protocols.py`` is imported by
+       ``opencontractserver.shared.Managers`` during Django app loading,
+       and ``opencontractserver.llms.types`` lives in a package whose
+       ``__init__`` eagerly pulls in heavy LLM machinery
+       (``api`` → conversation models, agent factories). Re-exporting
+       would force every importer of this lightweight types module to
+       execute the LLM stack at startup and risks circular imports.
 
     Mirrors :class:`opencontractserver.llms.types.StreamObserver` so it
     can be referenced from non-LLM code (notifications, websockets)

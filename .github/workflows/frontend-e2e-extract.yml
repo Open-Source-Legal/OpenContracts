@@ -6,19 +6,10 @@ name: Frontend E2E Extract Pipeline (VCR)
 # cassette so no OpenAI traffic is generated. See:
 #   docs/development/e2e_vcr.md
 #
-# *** CURRENTLY MANUAL-TRIGGER ONLY ***
-#
-# This workflow is parked behind `workflow_dispatch` because LlamaParse —
-# the default PDF parser used during ingest — is NOT yet covered by VCR.
-# Until `_LLM_HOSTS` in `opencontractserver/utils/vcr_replay.py` is
-# extended to include `api.cloud.llamaindex.ai` AND the cassette is
-# re-recorded to capture the parse-and-poll calls, this workflow would
-# call LlamaParse for real on every CI run. Triggering it manually is
-# OK for spot-checks (LlamaParse calls cost cents per doc); enabling it
-# on every PR is not.
-#
-# To enable on PRs: replace the `on:` block with the standard
-# pull_request paths filter (see frontend-e2e.yml for the template).
+# Parsing runs against the in-stack Docling microservice
+# (`docling-parser` in `local.yml`), so PDF parsing is real but free.
+# The only mocked traffic is the LLM provider (api.openai.com /
+# api.anthropic.com), which is what the cassette covers.
 
 env:
   DOCKER_BUILDKIT: 1
@@ -30,6 +21,17 @@ defaults:
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "opencontractserver/llms/**"
+      - "opencontractserver/tasks/data_extract_tasks.py"
+      - "opencontractserver/tasks/extract_orchestrator_tasks.py"
+      - "opencontractserver/utils/vcr_replay.py"
+      - "opencontractserver/tests/fixtures/cassettes/e2e_extract_pdf_workflow/**"
+      - "frontend/tests/e2e/extract-pdf-workflow.spec.ts"
+      - "frontend/tests/e2e/helpers.ts"
+      - "frontend/tests/e2e/fixtures.ts"
+      - ".github/workflows/frontend-e2e-extract.yml"
 
 concurrency:
   group: frontend-e2e-extract-${{ github.head_ref || github.run_id }}
@@ -64,15 +66,56 @@ jobs:
         run: yarn playwright install --with-deps chromium
 
       # ────────────────────────────────────────────────────────────────
-      # Bring up the full local stack (postgres, redis, embedder,
-      # docling-parser, django, celeryworker). We use `local.yml` rather
-      # than `test.yml` because the extract pipeline needs a celery
-      # worker, and `local.yml` is the only compose file that ships one.
+      # Materialize `.envs/.local/*` from the committed `.envs/.test/*`
+      # templates. Real `.envs/.local/*` files are gitignored because
+      # they hold developer-machine credentials; CI must NOT use those.
+      # The `.test` templates ship fake API keys, STORAGE_BACKEND=LOCAL,
+      # USE_AUTH0=false, and matching Postgres credentials, so they're
+      # the safe baseline. We then overlay the bits `local.yml` needs
+      # that the test templates intentionally omit:
       #
-      # The cassette replays every OpenAI call so OPENAI_API_KEY can be
-      # anything. LLAMAPARSE_API_KEY is still required (real calls,
-      # see file-level note above).
+      #   * DATABASE_URL — local.yml's django service reads this; the
+      #     test templates leave it unset because test.yml derives it
+      #     from POSTGRES_*.
+      #   * DJANGO_SETTINGS_MODULE — flipped from `config.settings.test`
+      #     to `config.settings.local` so `local.yml`'s `/start`
+      #     entrypoint (which boots the dev server, not the test runner)
+      #     finds its expected settings module.
+      #   * PDF_PARSER=docling — keeps the workflow off LlamaParse.
       # ────────────────────────────────────────────────────────────────
+      - name: Seed local env files (from .envs/.test)
+        run: |
+          mkdir -p .envs/.local
+          cp .envs/.test/.django .envs/.local/.django
+          cp .envs/.test/.postgres .envs/.local/.postgres
+
+          # Source the postgres template into the shell so we can build
+          # the matching DATABASE_URL local.yml expects to consume.
+          set -a
+          # shellcheck disable=SC1091
+          . .envs/.local/.postgres
+          set +a
+          echo "DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}" >> .envs/.local/.django
+
+          # `local.yml` expects local settings; the test templates pin
+          # `config.settings.test`. Replace the module rather than
+          # appending so there's no duplicate setting (env_file uses
+          # last-wins, but explicit is better than implicit).
+          sed -i 's|^DJANGO_SETTINGS_MODULE=.*|DJANGO_SETTINGS_MODULE=config.settings.local|' .envs/.local/.django
+          # The .test template sets TESTING=true; the local stack must
+          # not pick that up (it would route to the test runner code
+          # paths). Strip it.
+          sed -i '/^TESTING=/d' .envs/.local/.django
+
+          # Pin the parser away from LlamaParse — see the file-level
+          # note about Docling.
+          echo "PDF_PARSER=docling" >> .envs/.local/.django
+
+          # Sanity dump (without secrets — there are none in the .test
+          # template, but be explicit).
+          echo "--- .envs/.local/.django (head) ---"
+          grep -E '^(DJANGO_SETTINGS_MODULE|DJANGO_SUPERUSER_USERNAME|STORAGE_BACKEND|USE_AUTH0|PDF_PARSER|DATABASE_URL=postgres://)' .envs/.local/.django || true
+
       - name: Build django image
         run: docker compose -f local.yml build django
 
@@ -84,9 +127,10 @@ jobs:
           # every request so this is never sent. We pin it to a clearly
           # bogus value to make accidental real calls fail loudly.
           OPENAI_API_KEY: sk-FAKE-VCR-CI-NOT-REAL
-          # LlamaParse is NOT yet under VCR; the workflow secret is
-          # required for real PDF parsing. See file-level note.
-          LLAMAPARSE_API_KEY: ${{ secrets.LLAMAPARSE_API_KEY }}
+          # Force the in-stack Docling microservice for PDF parsing so
+          # the workflow does not depend on LlamaParse credentials and
+          # produces no external traffic for parsing.
+          PDF_PARSER: docling
         run: |
           docker compose -f local.yml up -d
           echo "Waiting for django to become healthy…"
@@ -102,16 +146,34 @@ jobs:
             sleep 2
           done
 
+          # PipelineSettings is a DB-backed singleton; the PDF_PARSER
+          # env var only affects how the singleton is *seeded*. Force
+          # the preferred parser to Docling explicitly so a pre-existing
+          # singleton (test-DB volume reuse, etc.) does not silently
+          # route this workflow through LlamaParse.
+          docker compose -f local.yml exec -T django python manage.py shell -c "
+          from opencontractserver.documents.models import PipelineSettings
+          ps = PipelineSettings.get_instance(use_cache=False)
+          docling = 'opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser'
+          for mt in ('application/pdf',
+                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                     'application/vnd.openxmlformats-officedocument.presentationml.presentation'):
+              ps.preferred_parsers[mt] = docling
+          ps.save()
+          print('preferred PDF parser:', ps.get_preferred_parser('application/pdf'))
+          "
+
       - name: Run Playwright extract spec
         working-directory: ./frontend
         env:
           CI: "true"
           E2E_RUN_LLM_TESTS: "true"
           E2E_TEST_USERNAME: admin
-          # The local stack creates the superuser from
-          # DJANGO_SUPERUSER_PASSWORD in `.envs/.local/.django`. CI must
-          # supply the same value to the playwright fixture.
-          E2E_TEST_PASSWORD: ${{ secrets.E2E_LOCAL_SUPERUSER_PASSWORD }}
+          # Must match DJANGO_SUPERUSER_PASSWORD in
+          # `.envs/.test/.django` (which the seed step above copies
+          # into `.envs/.local/.django`). The .test template ships a
+          # fixed, public test password — no GitHub Secret involved.
+          E2E_TEST_PASSWORD: Openc0ntracts_def@ult
         run: yarn playwright test --grep "Extract PDF workflow" --reporter=list
 
       - name: Capture backend logs on failure

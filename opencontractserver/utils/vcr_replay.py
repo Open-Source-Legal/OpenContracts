@@ -62,6 +62,32 @@ _VOLATILE_PATTERNS = [
     re.compile(rb'"tool_call_id"\s*:\s*"call_[A-Za-z0-9]+"'),
     # UUIDs that occasionally appear in tool returns (annotation IDs etc.)
     re.compile(rb"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"),
+    # Tool-result payloads embed Django auto-increment PKs for
+    # annotations, corpuses, documents, and labels. These vary across
+    # runs (a fresh test DB hands out different IDs than the recording
+    # DB) but VCR matches on full request body, including the tool
+    # messages echoed back into the next assistant call. Strip them so
+    # the matcher sees a stable shape.
+    #
+    # Tool messages are JSON-encoded strings *inside* the chat-completion
+    # request JSON, so the inner quotes appear escaped (`\"annotation_id\":`).
+    # The leading `\\?` makes both the bare-JSON and the escaped-string
+    # forms match the same pattern.
+    re.compile(rb'\\?"annotation_id\\?"\s*:\s*(?:null|\d+)'),
+    re.compile(rb'\\?"corpus_id\\?"\s*:\s*(?:null|\d+)'),
+    re.compile(rb'\\?"document_id\\?"\s*:\s*(?:null|\d+)'),
+    re.compile(rb'\\?"label_id\\?"\s*:\s*(?:null|\d+)'),
+    # Generic numeric `"id":N` fields in tool returns (annotation rows,
+    # corpus references, etc.). Also handles the escaped-string variant.
+    re.compile(rb'\\?"id\\?"\s*:\s*\d+'),
+    # Float fields whose exact value drifts run-to-run because the
+    # embedder microservice and the pgvector hybrid-search fusion
+    # produce slightly different scores even for identical inputs (token
+    # IDs differ when the doc/corpus title contains a fresh RUN_ID, the
+    # vector index is a fresh build, etc.). The stable signal is the
+    # ranking — the actual numeric score should not gate cassette match.
+    re.compile(rb'\\?"similarity_score\\?"\s*:\s*[-\d.eE+]+'),
+    re.compile(rb'\\?"score\\?"\s*:\s*[-\d.eE+]+'),
 ]
 
 
@@ -189,10 +215,39 @@ def maybe_vcr_cassette() -> Iterator[object | None]:
     # an LLM provider is told to bypass VCR. This also has to work in
     # both record and replay modes, which ``before_record_request``
     # does not (it only affects recording).
+    # Matchers:
+    #
+    #   * In ``record`` mode we want strict body matching so a re-record
+    #     against the same fixtures still produces a deterministic
+    #     cassette (and so partial re-records don't accidentally collide
+    #     with stale entries in the same file).
+    #
+    #   * In ``replay`` mode we deliberately drop body matching. The
+    #     pydantic-ai agent loop echoes every prior tool result back into
+    #     the next request body, and tool results contain content that
+    #     varies run-to-run for reasons the matcher cannot strip cleanly:
+    #     the vector-embedder microservice (which is NOT cassette-wrapped
+    #     because it is not an LLM provider) returns slightly different
+    #     similarity orderings against a fresh corpus, and the order
+    #     leaks the actual chunk content into subsequent requests.
+    #     Strict body matching therefore breaks replay even when the
+    #     conversation transcript is otherwise correct.
+    #
+    #     Falling back to URL+method matching makes VCR replay the
+    #     interactions in cassette order. That is sufficient for our
+    #     extract pipeline because the celery worker processes datacells
+    #     sequentially, the model is effectively deterministic
+    #     (temperature pinned), and the cassette captures the full
+    #     successful conversation per document.
+    match_on: tuple[str, ...]
+    if record_mode == "none":
+        match_on = ("method", "scheme", "host", "port", "path")
+    else:
+        match_on = ("method", "scheme", "host", "port", "path", "llm_body")
     my_vcr = vcr.VCR(
         cassette_library_dir=cassette_dir or ".",
         record_mode=record_mode,
-        match_on=("method", "scheme", "host", "port", "path", "llm_body"),
+        match_on=match_on,
         filter_headers=[
             "authorization",
             "x-api-key",

@@ -1447,9 +1447,15 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
         prompt = agent._build_structured_system_prompt(DummyOutput, "user query")
 
         self.assertIn("EXTRACTION PROTOCOL", prompt)
-        self.assertIn("MUST commit", prompt)
+        self.assertIn("MUST", prompt)
         self.assertIn("result tool", prompt)
         self.assertIn(str(self.doc1.id), prompt)
+        # Issue #1414: prompt must encourage committing as soon as the
+        # answer is found (stop tool-loops) and prefer similarity_search
+        # over byte-range reads for fact-finding.
+        self.assertIn("COMMIT-EARLY", prompt)
+        self.assertIn("similarity_search", prompt)
+        self.assertIn("load_document_text", prompt)
 
     @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
     def test_corpus_agent_structured_prompt_commits_to_result(
@@ -1488,9 +1494,13 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
         prompt = agent._build_structured_system_prompt(DummyOutput, "user query")
 
         self.assertIn("EXTRACTION PROTOCOL", prompt)
-        self.assertIn("MUST commit", prompt)
+        self.assertIn("MUST", prompt)
         self.assertIn("result tool", prompt)
         self.assertIn(str(self.corpus.id), prompt)
+        # Issue #1414: corpus extraction also gets the commit-early /
+        # prefer-similarity_search guidance.
+        self.assertIn("COMMIT-EARLY", prompt)
+        self.assertIn("similarity_search", prompt)
 
     def test_core_agent_base_structured_prompt_commits_to_result(self) -> None:
         """Base ``_build_structured_system_prompt`` must also enforce commit."""
@@ -1527,6 +1537,22 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             "multiple search attempts",
             prompt,
             "Negative case must require multiple attempts before committing to None",
+        )
+        # Issue #1414: stop the tool-loop pattern. The prompt must tell
+        # the agent to commit as soon as it has a confident answer, and
+        # prefer similarity_search over walking the document via
+        # sequential byte-range reads.
+        self.assertIn("COMMIT-EARLY", prompt)
+        self.assertIn("similarity_search", prompt)
+        self.assertIn("load_document_text", prompt)
+        # The 2-3-search rule is bound to the negative case only. It must
+        # NOT appear as an unconditional precondition to committing —
+        # that's exactly the wording that produced the loop in #1414.
+        self.assertNotIn(
+            "Before concluding the requested information is absent, you "
+            "MUST issue at least 2-3 distinct search queries that approach "
+            "the question from different angles",
+            prompt,
         )
 
     @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")

@@ -14,6 +14,7 @@ from opencontractserver.types.protocols import (
     PermissionedQueryManagerProtocol,
     PipelineComponentProtocol,
     ToolProtocol,
+    VectorStoreProtocol,
 )
 
 
@@ -25,14 +26,13 @@ class ProtocolMembershipTests(SimpleTestCase):
             CoreAnnotationVectorStore,
         )
 
-        # Don't instantiate (would require a real corpus); class-level
-        # ``isinstance`` is enough since ``runtime_checkable`` just checks
-        # for attribute presence.  Verify the four required methods exist.
-        for attr in ("search", "async_search"):
-            self.assertTrue(
-                hasattr(CoreAnnotationVectorStore, attr),
-                f"CoreAnnotationVectorStore missing {attr}",
-            )
+        # ``issubclass`` works on ``@runtime_checkable`` protocols
+        # without instantiating the class (avoids needing a real corpus)
+        # and matches the style of the other protocol tests below.
+        # Catches regressions where a method is renamed rather than
+        # deleted, which a ``hasattr`` loop over hard-coded names would
+        # miss.
+        self.assertTrue(issubclass(CoreAnnotationVectorStore, VectorStoreProtocol))
 
     def test_pipeline_component_protocol_accepts_base(self) -> None:
         # Validate that a registered concrete component satisfies the
@@ -71,11 +71,9 @@ class ProtocolNonMembershipTests(SimpleTestCase):
         self.assertNotIsInstance(object(), ToolProtocol)
 
     def test_plain_object_is_not_a_vector_store(self) -> None:
-        # CoreAnnotationVectorStore has both ``search`` and ``async_search``;
-        # a bare object has neither.
-        self.assertFalse(
-            hasattr(object(), "search") and hasattr(object(), "async_search")
-        )
+        # ``object`` has neither ``search`` nor ``async_search``; the
+        # runtime-checkable protocol must reject it.
+        self.assertFalse(issubclass(object, VectorStoreProtocol))
 
     def test_plain_object_is_not_a_permissioned_manager(self) -> None:
         self.assertNotIsInstance(object(), PermissionedQueryManagerProtocol)

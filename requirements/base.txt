@@ -31,7 +31,7 @@ pgvector>=0.4.0  # Python binding for pgvector; PostgreSQL extension v0.8.2+ req
 channels==4.3.2  # https://github.com/django/channels
 daphne==4.2.1  # https://github.com/django/daphne
 channels-redis==4.3.0
-Twisted[tls,http2]>=25.5.0
+Twisted[tls,http2]>=26.4.0rc2
 
 # Django REST Framework
 # ------------------------------------------------------------------------------
@@ -84,8 +84,8 @@ mcp>=1.27.0  # https://github.com/anthropics/python-sdk
 twisted>=24.7.0rc1 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=9.13.0 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=82.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
-sqlparse>=0.5.0 # not directly required, pinned by Snyk to avoid a vulnerability
+sqlparse>=0.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.2.2 # not directly required, pinned by Snyk to avoid a vulnerability
-zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability
+zipp>=3.23.1 # not directly required, pinned by Snyk to avoid a vulnerability
 pillow>=10.3.0 # not directly required, pinned by Snyk to avoid a vulnerability

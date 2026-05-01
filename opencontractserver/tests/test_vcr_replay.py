@@ -135,6 +135,51 @@ class NormalizeBodyTests(TestCase):
         out = _normalize_body(body)
         self.assertEqual(out, b"annotation <volatile> end")
 
+    def test_django_pk_fields_in_tool_results_are_stripped(self):
+        # The agent echoes tool messages back into the next assistant
+        # call. Tool results embed Django auto-increment PKs (annotation,
+        # corpus, document, label) that vary across runs even when the
+        # underlying retrieved span is identical. Strip them so the
+        # cassette matches across record/replay DBs.
+        body = (
+            b'{"annotation_id":22868,"corpus_id":81,"document_id":null,'
+            b'"label_id":340,"id":42,"content":"TITLE"}'
+        )
+        out = _normalize_body(body)
+        for stale in (b"22868", b'"corpus_id":81', b'"label_id":340', b'"id":42'):
+            self.assertNotIn(stale, out)
+        # Stable values (the actual content) survive.
+        self.assertIn(b"TITLE", out)
+
+    def test_similarity_score_floats_are_stripped(self):
+        # Hybrid-search scores drift run-to-run by a few decimal places.
+        # The matcher must ignore the absolute number so a cassette
+        # recorded against one DB replays against a fresh one.
+        body = (
+            b'{"similarity_score":0.029236022193768675,'
+            b'"escaped":"\\"score\\":0.123e-2,\\"foo\\":1"}'
+        )
+        out = _normalize_body(body)
+        self.assertNotIn(b"0.029236022193768675", out)
+        self.assertNotIn(b"0.123e-2", out)
+
+    def test_pk_fields_in_escaped_tool_message_are_stripped(self):
+        # Tool result payloads are JSON-encoded *inside* the
+        # chat-completion request body, so inner quotes appear escaped.
+        # The matcher must strip PKs in both the raw and escaped forms.
+        body = (
+            b'{"role":"tool","content":"[{\\"annotation_id\\":22868,'
+            b'\\"corpus_id\\":81,\\"document_id\\":null,'
+            b'\\"label_id\\":340,\\"id\\":42,\\"content\\":\\"TITLE\\"}]"}'
+        )
+        out = _normalize_body(body)
+        for stale in (b"22868", b"81", b"340", b"42"):
+            # Belt-and-braces: the raw integers should not survive in
+            # any of their PK positions.
+            self.assertNotIn(b'":' + stale, out)
+            self.assertNotIn(b'\\":' + stale, out)
+        self.assertIn(b"TITLE", out)
+
     def test_compiled_volatile_patterns_are_bytes(self):
         # Defense-in-depth: make sure no string regex sneaked in. Bytes
         # patterns are required because the matcher always works on

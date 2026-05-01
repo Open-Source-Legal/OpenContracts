@@ -690,13 +690,26 @@ export async function addDocumentsToExtractViaUI(
     timeout: 10_000,
   });
 
-  // Wait for at least one document card to load. The query fetches up to
-  // RELAY_CONNECTION_MAX_LIMIT (100) in one page, so all cards are in the
-  // DOM immediately. Cards are tagged with `data-testid="document-card"`
-  // (ModernDocumentItem.tsx); we then filter by the visible title text.
-  await expect(
-    page.locator("[data-testid='document-card']").first()
-  ).toBeVisible({ timeout: 15_000 });
+  // Wait briefly for at least one document card to load. The query fetches
+  // up to RELAY_CONNECTION_MAX_LIMIT (100) in one page, so all cards are
+  // in the DOM immediately. Cards are tagged with
+  // `data-testid="document-card"` (ModernDocumentItem.tsx); we then filter
+  // by the visible title text.
+  //
+  // The modal can legitimately render zero cards when every requested
+  // document is already attached to the extract (the corpus
+  // auto-populates extract rows on creation). In that case the modal
+  // shows an empty state, not a card list. Probe with a short timeout so
+  // we don't hang on the all-already-attached path; the no-op bailout
+  // below handles it.
+  const firstCard = page.locator("[data-testid='document-card']").first();
+  const haveAnyCards = await firstCard
+    .isVisible({ timeout: 5_000 })
+    .catch(() => false);
+  if (!haveAnyCards) {
+    await page.getByRole("button", { name: /^Cancel$/i }).click();
+    return;
+  }
 
   // Collect which titles we actually need to click (some may already be in
   // the extract and filtered out of the modal by filterDocIds).
@@ -820,6 +833,25 @@ export async function runExtractAndWaitForFinish(
     // completed successfully. Verify the Data tab is visible again.
     await expect(page.getByRole("tab", { name: /^Data$/i })).toBeVisible();
   }).toPass({ timeout: timeoutMs, intervals: [5_000, 10_000] });
+
+  // The "Extraction in progress" overlay disappearing only means the
+  // backend marked the Extract row complete. AG-Grid still has to fetch
+  // the per-cell `data` payloads via Apollo — until that round-trip
+  // finishes the grid renders a "Loading..." placeholder where the cell
+  // values should be. Asserting on cell text before this completes is
+  // the source of intermittent "row has no non-empty extracted cell"
+  // false negatives, since the placeholder is whitespace-only.
+  //
+  // Wait for the placeholder to clear before returning. We give Apollo a
+  // generous ceiling (the cell-data query can be slow on cold caches);
+  // catch+swallow the timeout because some rows legitimately render with
+  // no placeholder when the grid happens to hydrate within the same tick
+  // as the overlay disappears.
+  await page
+    .getByText(/^\s*Loading\.\.\.\s*$/)
+    .first()
+    .waitFor({ state: "detached", timeout: 30_000 })
+    .catch(() => {});
 }
 
 /**
@@ -851,13 +883,17 @@ export async function waitForDocumentReady(
     // Re-navigate on every attempt to force a fresh GraphQL fetch and
     // bypass any in-flight polling gaps.
     await spaNavigate(page, "/documents");
-    await expectViewVisible(page, { kind: "text", text: /Your\s+documents/i });
 
+    // Don't gate on the "Your documents" heading. The route can render
+    // the document grid before its surrounding chrome (the heading is
+    // emitted by an outer layout component that occasionally hydrates
+    // last). Wait directly on the card for the document we care about;
+    // its presence is sufficient evidence the documents view loaded.
     const card = page
       .locator("[data-testid='document-card']")
       .filter({ hasText: documentTitle })
       .first();
-    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card).toBeVisible({ timeout: 30_000 });
 
     // `data-processing="true"` while backendLock === true.
     // "false" means parsing + embedding finished (or the document was
