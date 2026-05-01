@@ -267,6 +267,13 @@ class AgentConfig:
     user_id: Optional[int] = None
     model_name: str = "gpt-4o"
     api_key: Optional[str] = None
+    # Optional pre-built pydantic-ai Model instance carrying an explicit
+    # api_key / base_url / organization_id (resolver-driven path). When
+    # present, ``PydanticAIAgent(model=…)`` construction sites prefer
+    # this over the string ``model_name`` so admin-configured credentials
+    # bypass env-var lookup at the SDK level. Built by
+    # ``ResolvedLLM.to_pydantic_ai_model()``.
+    pydantic_ai_model: Optional[Any] = None
     embedder_path: Optional[str] = None
     similarity_top_k: int = 10
     streaming: bool = True
@@ -1629,7 +1636,20 @@ class CoreConversationManager:
 
 
 def get_default_config(**overrides) -> AgentConfig:
-    """Get default agent configuration with optional overrides."""
+    """Get default agent configuration with optional overrides.
+
+    Coerces a non-string ``model_name`` to its string identifier so
+    downstream helpers (``get_context_window_for_model``,
+    ``is_anthropic_model``) keep working when the resolver-driven path
+    passes a pre-built pydantic-ai ``Model`` object up the call chain.
+    The explicit Model object — when admin api_keys must be honored —
+    travels separately on ``AgentConfig.pydantic_ai_model``.
+    """
+    if "model_name" in overrides and overrides["model_name"] is not None:
+        m = overrides["model_name"]
+        if not isinstance(m, str):
+            overrides["model_name"] = getattr(m, "model_name", "") or str(m)
+
     defaults = {
         "model_name": getattr(settings, "OPENAI_MODEL", "gpt-4o"),
         "api_key": getattr(settings, "OPENAI_API_KEY", None),

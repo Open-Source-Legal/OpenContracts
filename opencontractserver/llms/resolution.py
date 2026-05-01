@@ -229,6 +229,20 @@ def resolve(rl) -> ResolvedLLM:
     )
 
 
+def resolve_default_llm() -> ResolvedLLM:
+    """Resolve the default LLM for non-extract agent paths (chat, corpus
+    actions, websocket sessions).
+
+    Phase 2b: shares the same ``LLMSettings.default_extract_llm`` row as
+    :func:`resolve_extract_llm`. The naming asymmetry is deliberate —
+    callers should use this function for non-extract agent contexts so
+    that a future migration introducing a separate
+    ``LLMSettings.default_chat_llm`` (or similar) only needs to update
+    this one function. The two-failure-mode contract is identical.
+    """
+    return resolve_extract_llm()
+
+
 def resolve_extract_llm() -> ResolvedLLM:
     """Resolve the LLM the extract pipeline should use right now.
 

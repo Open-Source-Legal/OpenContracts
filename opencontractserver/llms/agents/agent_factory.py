@@ -26,6 +26,65 @@ from opencontractserver.utils.permissioning import user_has_permission_for_obj
 logger = logging.getLogger(__name__)
 
 
+async def _maybe_resolve_default_llm(
+    model: object,
+) -> tuple[object, Optional[object], Optional[str], Optional[str]]:
+    """Resolver injection used by all chat agent factories.
+
+    When ``model`` is None (caller didn't override the model), consult
+    ``LLMSettings.default_extract_llm`` via the resolver. On success this
+    returns ``(model_string, pydantic_ai_model, api_key, base_url)`` so
+    the caller can build an ``AgentConfig`` whose ``model_name`` is the
+    string identifier (keeps token-window helpers working) AND whose
+    ``pydantic_ai_model`` is the pre-built pydantic-ai ``Model`` with the
+    admin's api_key baked in (so pydantic-ai uses *that* key, not
+    whatever's in the worker's env vars).
+
+    Failure semantics:
+
+    * ``failure_mode="llm_not_configured"`` (no admin default set) →
+      return inputs unchanged so legacy ``settings.OPENAI_*`` env-var
+      defaults take over via :func:`get_default_config`.
+    * ``failure_mode="llm_unavailable"`` (admin default set but broken)
+      → propagate the :class:`LLMUnavailableError` so the chat / agent
+      session fails loudly.
+    """
+    # Caller already pinned a model — never override (CLI / benchmark /
+    # explicit-by-frontend paths).
+    if model is not None:
+        return model, None, None, None
+
+    # Lazy imports — keep this module loadable in environments where
+    # the LLM config app or its migrations haven't been applied yet
+    # (early boot, tooling that imports the factory module without the
+    # full Django app registry being ready).
+    try:
+        from asgiref.sync import sync_to_async
+
+        from opencontractserver.llms.resolution import (
+            FAILURE_MODE_NOT_CONFIGURED,
+            LLMUnavailableError,
+            resolve_default_llm,
+        )
+    except Exception:
+        return model, None, None, None
+
+    try:
+        resolved = await sync_to_async(resolve_default_llm)()
+    except LLMUnavailableError as e:
+        if e.failure_mode == FAILURE_MODE_NOT_CONFIGURED:
+            return model, None, None, None
+        raise
+
+    pydantic_ai_model = resolved.to_pydantic_ai_model()
+    return (
+        resolved.pydantic_ai_model_string,
+        pydantic_ai_model,
+        resolved.api_key,
+        resolved.base_url,
+    )
+
+
 async def _user_has_write_permission(
     user_id: Optional[int],
     resource: Optional[Union[Document, Corpus]],
@@ -187,20 +246,46 @@ class UnifiedAgentFactory:
         # Back-compat: `restrict_tools=True` without names does nothing useful
         kwargs.pop("restrict_tools", None)
 
-        config = get_default_config(
-            user_id=user_id,
-            model_name=model or kwargs.get("model_name"),
-            system_prompt=system_prompt,
-            temperature=temperature or kwargs.get("temperature", 0.7),
-            max_tokens=max_tokens,
-            streaming=(
+        # Resolver injection: when the caller didn't pin a model, try to
+        # use the admin-configured LLMSettings default. The returned
+        # pydantic_ai_model carries an explicit api_key so the SDK uses
+        # admin-configured credentials instead of env vars. Failure modes
+        # are handled inside _maybe_resolve_default_llm: "llm_not_configured"
+        # falls back to legacy env-var defaults (return inputs unchanged);
+        # "llm_unavailable" propagates so the chat session aborts.
+        (
+            resolved_model,
+            resolved_pydantic_ai_model,
+            resolved_api_key,
+            resolved_base_url,
+        ) = await _maybe_resolve_default_llm(model)
+
+        config_overrides = {
+            "user_id": user_id,
+            "model_name": resolved_model or kwargs.get("model_name"),
+            "system_prompt": system_prompt,
+            "temperature": temperature or kwargs.get("temperature", 0.7),
+            "max_tokens": max_tokens,
+            "streaming": (
                 streaming if streaming is not None else kwargs.get("streaming", True)
             ),
-            conversation=conversation,
-            conversation_id=conversation_id,
-            loaded_messages=loaded_messages,
-            embedder_path=embedder_path,
-            tools=tools or [],
+            "conversation": conversation,
+            "conversation_id": conversation_id,
+            "loaded_messages": loaded_messages,
+            "embedder_path": embedder_path,
+            "tools": tools or [],
+        }
+        if resolved_pydantic_ai_model is not None:
+            config_overrides["pydantic_ai_model"] = resolved_pydantic_ai_model
+        if resolved_api_key is not None:
+            config_overrides["api_key"] = resolved_api_key
+        # base_url is currently consumed only via the explicit
+        # pydantic_ai_model; AgentConfig doesn't carry it as a separate
+        # field. Kept here as a return value of _maybe_resolve_default_llm
+        # for symmetry / future use.
+        _ = resolved_base_url
+        config = get_default_config(
+            **config_overrides,
             **persistence_flags,
             **kwargs,
         )
@@ -372,20 +457,36 @@ class UnifiedAgentFactory:
         if "skip_approval_gate" in kwargs:
             deps_kwargs["skip_approval_gate"] = kwargs.pop("skip_approval_gate")
 
-        config = get_default_config(
-            user_id=user_id,
-            model_name=model or kwargs.get("model_name"),
-            system_prompt=system_prompt,
-            temperature=temperature or kwargs.get("temperature", 0.7),
-            max_tokens=max_tokens,
-            streaming=(
+        # Resolver injection — see _maybe_resolve_default_llm for semantics.
+        (
+            resolved_model,
+            resolved_pydantic_ai_model,
+            resolved_api_key,
+            resolved_base_url,
+        ) = await _maybe_resolve_default_llm(model)
+
+        config_overrides = {
+            "user_id": user_id,
+            "model_name": resolved_model or kwargs.get("model_name"),
+            "system_prompt": system_prompt,
+            "temperature": temperature or kwargs.get("temperature", 0.7),
+            "max_tokens": max_tokens,
+            "streaming": (
                 streaming if streaming is not None else kwargs.get("streaming", True)
             ),
-            conversation=conversation,
-            conversation_id=conversation_id,
-            loaded_messages=loaded_messages,
-            embedder_path=embedder_path,
-            tools=tools or [],
+            "conversation": conversation,
+            "conversation_id": conversation_id,
+            "loaded_messages": loaded_messages,
+            "embedder_path": embedder_path,
+            "tools": tools or [],
+        }
+        if resolved_pydantic_ai_model is not None:
+            config_overrides["pydantic_ai_model"] = resolved_pydantic_ai_model
+        if resolved_api_key is not None:
+            config_overrides["api_key"] = resolved_api_key
+        _ = resolved_base_url
+        config = get_default_config(
+            **config_overrides,
             **persistence_flags,
             **kwargs,
         )

@@ -1387,16 +1387,24 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                 model_settings["max_tokens"] = max_tokens
 
             # ``model`` may be either a string identifier (legacy) or a
-            # pre-built pydantic-ai Model object (new — when an admin has
-            # configured an explicit api_key via the LLMSettings system,
-            # data_extract_tasks materialises the Model via
-            # ResolvedLLM.to_pydantic_ai_model() so pydantic-ai uses
-            # *that* key, not whatever's in the worker's env). Both are
-            # accepted by ``PydanticAIAgent(model=...)``; we only need a
-            # string identifier for the Anthropic prefix check below.
-            effective_model: Any = (
-                model if model is not None else self.config.model_name
-            )
+            # pre-built pydantic-ai Model object (resolver-driven —
+            # carries the admin-configured api_key). Both are accepted
+            # by ``PydanticAIAgent(model=...)``.
+            #
+            # When the caller didn't pass an explicit override, prefer
+            # ``config.pydantic_ai_model`` (set by the agent factory on
+            # the resolver path) over ``config.model_name`` (legacy
+            # string) so chat-path structured runs also pick up the
+            # admin-configured api_key.
+            #
+            # We always derive a string identifier for the Anthropic
+            # prefix check (Issue #1381 reliability fix).
+            if model is not None:
+                effective_model: Any = model
+            elif self.config.pydantic_ai_model is not None:
+                effective_model = self.config.pydantic_ai_model
+            else:
+                effective_model = self.config.model_name
             if isinstance(effective_model, str):
                 effective_model_name = effective_model
             else:
@@ -2513,8 +2521,13 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             tool_names,
         )
         logger.info(f"Created pydantic ai agent with context {config.system_prompt}")
+        # When the resolver populated config.pydantic_ai_model, use the
+        # explicit Model instance so pydantic-ai uses the admin-configured
+        # api_key. Falls back to the string identifier (legacy env-var
+        # path) when the resolver wasn't engaged.
+        model_arg = config.pydantic_ai_model or config.model_name
         pydantic_ai_agent_instance = PydanticAIAgent(
-            model=config.model_name,
+            model=model_arg,
             instructions=config.system_prompt,
             deps_type=PydanticAIDependencies,
             tools=effective_tools,
@@ -2906,8 +2919,12 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
                 effective_tools, tools, context="Caller"
             )
 
+        # See PydanticAIDocumentAgent.create — same resolver-aware
+        # fallback so admin-configured api_keys flow through corpus
+        # agents too.
+        model_arg = config.pydantic_ai_model or config.model_name
         pydantic_ai_agent_instance = PydanticAIAgent(
-            model=config.model_name,
+            model=model_arg,
             instructions=config.system_prompt,
             deps_type=PydanticAIDependencies,
             tools=effective_tools,

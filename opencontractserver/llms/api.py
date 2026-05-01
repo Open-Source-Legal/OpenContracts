@@ -34,6 +34,23 @@ ToolType = Union[str, CoreTool, callable]
 # bypass env-var lookup at the SDK level.
 ModelArg = Union[str, object]
 
+
+def _model_arg_to_string(model: Optional[ModelArg]) -> Optional[str]:
+    """Coerce a :data:`ModelArg` to a plain string identifier.
+
+    The base agent's ``AgentConfig.model_name`` (and helpers like
+    ``get_context_window_for_model`` / ``is_anthropic_model``) require a
+    string. When callers pass a pre-built pydantic-ai ``Model`` (the
+    resolver-driven path), we keep the original object for the
+    structured-response override but feed only its string identifier
+    into the base-agent factory so token-window / family-detection
+    helpers don't choke on it.
+    """
+    if model is None or isinstance(model, str):
+        return model
+    return getattr(model, "model_name", "") or None
+
+
 # Type variable for structured responses
 T = TypeVar("T")
 
@@ -142,7 +159,7 @@ class AgentAPI:
             conversation=conversation,
             conversation_id=conversation_id,
             loaded_messages=messages,
-            model=model,
+            model=_model_arg_to_string(model),  # base agent gets string identifier
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -253,7 +270,7 @@ class AgentAPI:
             conversation=conversation,
             conversation_id=conversation_id,
             loaded_messages=messages,
-            model=model,
+            model=_model_arg_to_string(model),  # base agent gets string identifier
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -349,7 +366,7 @@ class AgentAPI:
             corpus=corpus,
             framework=framework,
             user_id=user_id,
-            model=model,
+            model=_model_arg_to_string(model),  # base agent gets string identifier
             temperature=temperature,
             max_tokens=max_tokens,
             streaming=False,  # No streaming for structured responses
@@ -363,7 +380,7 @@ class AgentAPI:
         return await agent.structured_response(
             prompt=prompt,
             target_type=target_type,
-            model=model,
+            model=model,  # original ModelArg — structured-response override path
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs,
@@ -411,7 +428,7 @@ class AgentAPI:
             corpus=corpus,
             framework=framework,
             user_id=user_id,
-            model=model,
+            model=_model_arg_to_string(model),  # base agent gets string identifier
             temperature=temperature,
             max_tokens=max_tokens,
             streaming=False,
@@ -424,7 +441,7 @@ class AgentAPI:
         result = await agent.structured_response(
             prompt=prompt,
             target_type=target_type,
-            model=model,
+            model=model,  # original ModelArg — structured-response override path
             temperature=temperature,
             max_tokens=max_tokens,
             **run_kwargs,
@@ -514,7 +531,7 @@ class AgentAPI:
             corpus=corpus,
             framework=framework,
             user_id=user_id,
-            model=model,
+            model=_model_arg_to_string(model),  # base agent gets string identifier
             temperature=temperature,
             max_tokens=max_tokens,
             streaming=False,  # No streaming for structured responses
@@ -528,7 +545,7 @@ class AgentAPI:
         return await agent.structured_response(
             prompt=prompt,
             target_type=target_type,
-            model=model,
+            model=model,  # original ModelArg — structured-response override path
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs,  # Pass through any additional kwargs like extra_context
