@@ -349,6 +349,7 @@ def _create_pdf_annotation(
         annotation_type=TOKEN_LABEL,
         raw_text=oc_ann["rawText"],
         creator_id=creator_id,
+        is_grounding_source=True,
         defaults={
             "json": oc_ann["annotation_json"],
             "structural": False,
@@ -408,6 +409,7 @@ def _create_span_annotation(
         raw_text=result.matched_text,
         json={"start": result.char_start, "end": result.char_end},
         creator_id=creator_id,
+        is_grounding_source=True,
         defaults={
             "page": 1,
             "structural": False,
