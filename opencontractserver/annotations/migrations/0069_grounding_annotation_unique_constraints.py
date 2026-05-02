@@ -53,7 +53,11 @@ import logging
 from django.db import migrations, models, transaction
 from django.db.models import Count, Q
 
-from opencontractserver.constants.annotations import OC_EXTRACT_SOURCE_LABEL
+# Frozen at migration write time. Mirrors
+# ``opencontractserver.constants.annotations.OC_EXTRACT_SOURCE_LABEL`` —
+# importing the live constant would couple this historical migration to the
+# current module layout and break replay if the constant is ever renamed.
+OC_EXTRACT_SOURCE_LABEL = "OC_EXTRACT_SOURCE"
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +100,34 @@ def reverse_backfill(apps, schema_editor):
     )
 
 
+def _repoint_m2m_through(through_model, owner_field: str, redundant_ids, keeper_id):
+    """Repoint redundant ``annotation_id`` rows to ``keeper_id`` on an M2M through table.
+
+    The default Django M2M through table carries ``UNIQUE(<owner>_id,
+    annotation_id)``.  In the realistic race the migration targets — two
+    workers each grounding the same datacell — both ``keeper`` and the
+    redundant duplicates already sit in the same ``<owner>``'s
+    ``annotation`` set, so a blind ``UPDATE annotation_id = keeper_id``
+    collides with the existing keeper row and raises ``IntegrityError``.
+
+    The fix: for every owner that already references the keeper, first
+    delete the redundant rows that would collide, then update the rest.
+    """
+    existing_owners = list(
+        through_model.objects.filter(annotation_id=keeper_id).values_list(
+            f"{owner_field}_id", flat=True
+        )
+    )
+    if existing_owners:
+        through_model.objects.filter(
+            annotation_id__in=redundant_ids,
+            **{f"{owner_field}_id__in": existing_owners},
+        ).delete()
+    through_model.objects.filter(annotation_id__in=redundant_ids).update(
+        annotation_id=keeper_id
+    )
+
+
 def _repoint_cross_references(apps, redundant_ids: list[int], keeper_id: int) -> None:
     """Repoint every realistic cross-reference from ``redundant_ids`` to ``keeper_id``.
 
@@ -106,7 +138,7 @@ def _repoint_cross_references(apps, redundant_ids: list[int], keeper_id: int) ->
     * ``feedback.UserFeedback.commented_annotation`` (FK, SET_NULL)
     * ``conversations.ChatMessage.source_annotations`` (M2M)
     * ``conversations.ChatMessage.created_annotations`` (M2M)
-    * ``users.AssignmentTask.resulting_annotations`` (M2M)
+    * ``users.Assignment.resulting_annotations`` (M2M)
     * ``annotations.Relationship.source_annotations`` (M2M)
     * ``annotations.Relationship.target_annotations`` (M2M)
     * ``annotations.Embedding.annotation`` (FK, CASCADE)
@@ -119,35 +151,51 @@ def _repoint_cross_references(apps, redundant_ids: list[int], keeper_id: int) ->
 
     Every reference except the cascading ones is repointed to the keeper so
     no cross-domain data is silently dropped when the redundant row is
-    deleted.
+    deleted.  M2M through tables go through ``_repoint_m2m_through`` so the
+    UNIQUE(owner, annotation) constraint never blocks the update.
     """
     Datacell = apps.get_model("extracts", "Datacell")
     UserFeedback = apps.get_model("feedback", "UserFeedback")
     ChatMessage = apps.get_model("conversations", "ChatMessage")
-    AssignmentTask = apps.get_model("users", "AssignmentTask")
+    Assignment = apps.get_model("users", "Assignment")
     Relationship = apps.get_model("annotations", "Relationship")
 
-    Datacell.sources.through.objects.filter(annotation_id__in=redundant_ids).update(
-        annotation_id=keeper_id
+    _repoint_m2m_through(
+        Datacell.sources.through, "datacell", redundant_ids, keeper_id
     )
     UserFeedback.objects.filter(commented_annotation_id__in=redundant_ids).update(
         commented_annotation_id=keeper_id
     )
-    ChatMessage.source_annotations.through.objects.filter(
-        annotation_id__in=redundant_ids
-    ).update(annotation_id=keeper_id)
-    ChatMessage.created_annotations.through.objects.filter(
-        annotation_id__in=redundant_ids
-    ).update(annotation_id=keeper_id)
-    AssignmentTask.resulting_annotations.through.objects.filter(
-        annotation_id__in=redundant_ids
-    ).update(annotation_id=keeper_id)
-    Relationship.source_annotations.through.objects.filter(
-        annotation_id__in=redundant_ids
-    ).update(annotation_id=keeper_id)
-    Relationship.target_annotations.through.objects.filter(
-        annotation_id__in=redundant_ids
-    ).update(annotation_id=keeper_id)
+    _repoint_m2m_through(
+        ChatMessage.source_annotations.through,
+        "chatmessage",
+        redundant_ids,
+        keeper_id,
+    )
+    _repoint_m2m_through(
+        ChatMessage.created_annotations.through,
+        "chatmessage",
+        redundant_ids,
+        keeper_id,
+    )
+    _repoint_m2m_through(
+        Assignment.resulting_annotations.through,
+        "assignment",
+        redundant_ids,
+        keeper_id,
+    )
+    _repoint_m2m_through(
+        Relationship.source_annotations.through,
+        "relationship",
+        redundant_ids,
+        keeper_id,
+    )
+    _repoint_m2m_through(
+        Relationship.target_annotations.through,
+        "relationship",
+        redundant_ids,
+        keeper_id,
+    )
 
 
 def _dedupe_token_label(apps):

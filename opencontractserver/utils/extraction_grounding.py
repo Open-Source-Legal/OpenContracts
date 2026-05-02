@@ -341,6 +341,11 @@ def _create_pdf_annotation(
     # ``get_or_create`` to a correctness invariant: if two Celery workers
     # race on the same datacell, the loser's CREATE raises IntegrityError
     # and ``get_or_create`` falls back to a SELECT.
+    # ``structural=False`` is in the lookup (not just defaults) so the
+    # constraint condition (which includes structural=False) and the
+    # get_or_create lookup are symmetric — if a stray structural row ever
+    # shared the rest of the key tuple, get_or_create wouldn't silently
+    # return it and bypass the constraint.
     annot, _ = Annotation.objects.get_or_create(
         document=document,
         corpus=corpus,
@@ -350,9 +355,9 @@ def _create_pdf_annotation(
         raw_text=oc_ann["rawText"],
         creator_id=creator_id,
         is_grounding_source=True,
+        structural=False,
         defaults={
             "json": oc_ann["annotation_json"],
-            "structural": False,
         },
     )
     return annot
@@ -401,6 +406,9 @@ def _create_span_annotation(
     """
     from opencontractserver.annotations.models import SPAN_LABEL, Annotation
 
+    # See sibling note in ``_create_pdf_annotation``: ``structural=False`` is
+    # in the lookup so the constraint condition and get_or_create lookup
+    # cover the exact same row population.
     annot, _ = Annotation.objects.get_or_create(
         document=document,
         corpus=corpus,
@@ -410,9 +418,9 @@ def _create_span_annotation(
         json={"start": result.char_start, "end": result.char_end},
         creator_id=creator_id,
         is_grounding_source=True,
+        structural=False,
         defaults={
             "page": 1,
-            "structural": False,
         },
     )
     return annot
