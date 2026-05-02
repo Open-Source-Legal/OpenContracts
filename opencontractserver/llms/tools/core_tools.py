@@ -409,15 +409,13 @@ async def aget_notes_for_document_corpus(
 # --------------------------------------------------------------------------- #
 
 try:
-    from channels.db import (
-        database_sync_to_async as _database_sync_to_async,  # type: ignore
-    )
+    from channels.db import database_sync_to_async as _database_sync_to_async
 
-    _db_sync_to_async = partial(_database_sync_to_async, thread_sensitive=False)  # type: ignore
+    _db_sync_to_async = partial(_database_sync_to_async, thread_sensitive=False)
 except ModuleNotFoundError:  # Channels not installed – fall back gracefully
-    from asgiref.sync import sync_to_async as _sync_to_async  # type: ignore
+    from asgiref.sync import sync_to_async as _sync_to_async
 
-    _db_sync_to_async = partial(_sync_to_async, thread_sensitive=False)  # type: ignore
+    _db_sync_to_async = partial(_sync_to_async, thread_sensitive=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -488,7 +486,7 @@ def load_document_txt_extract(
 
     if not use_cache:
         # (Re)load from storage.
-        content_bytes = doc.txt_extract_file.read()  # type: ignore[arg-type]
+        content_bytes = doc.txt_extract_file.read()
         content_str = content_bytes.decode("utf-8")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
@@ -547,7 +545,7 @@ async def aload_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
-        content_str = doc.txt_extract_file.read().decode("utf-8")  # type: ignore[arg-type]
+        content_str = doc.txt_extract_file.read().decode("utf-8")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
         logger.debug(
@@ -627,7 +625,7 @@ async def aget_corpus_description(
     if not corpus.md_description:
         return ""
 
-    corpus.md_description.open("r")  # type: ignore[arg-type]
+    corpus.md_description.open("r")
     try:
         content: str = corpus.md_description.read()
     finally:
@@ -1353,7 +1351,7 @@ def search_document_notes(
     *,
     corpus_id: int | None = None,
     limit: int | None = None,
-) -> list[dict[str, str | int]]:
+) -> list[dict[str, str | int | None]]:
 
     import django
 
@@ -1420,7 +1418,7 @@ async def asearch_document_notes(
     if limit and limit > 0:
         notes_qs = notes_qs[:limit]
 
-    results: list[dict[str, str | int]] = []
+    results: list[dict[str, str | int | None]] = []
     async for note in notes_qs:
         results.append(
             {
@@ -2526,6 +2524,9 @@ def create_markdown_link(
     except Conversation.DoesNotExist:
         raise ValueError(f"Conversation with id={entity_id} does not exist.")
 
+    # `valid_types` is exhaustive over the elif branches above; this is unreachable.
+    raise AssertionError(f"Unhandled entity_type: {entity_type!r}")
+
 
 async def acreate_markdown_link(
     entity_type: str,
@@ -2688,6 +2689,9 @@ async def acreate_markdown_link(
         raise ValueError(f"Document with id={entity_id} does not exist.")
     except Conversation.DoesNotExist:
         raise ValueError(f"Conversation with id={entity_id} does not exist.")
+
+    # `valid_types` is exhaustive over the elif branches above; this is unreachable.
+    raise AssertionError(f"Unhandled entity_type: {entity_type!r}")
 
 
 # --------------------------------------------------------------------------- #

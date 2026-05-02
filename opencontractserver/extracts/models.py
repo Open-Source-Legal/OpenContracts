@@ -122,7 +122,7 @@ class Column(BaseOCModel):
         default=0, help_text="Order in which to display manual entry fields"
     )
 
-    def clean(self):
+    def clean(self) -> None:
         """Validate configuration based on entry mode."""
         super().clean()
 
@@ -286,7 +286,7 @@ class Datacell(BaseOCModel):
         help_text="Captured LLM message history for debugging extraction issues",
     )
 
-    def clean(self):
+    def clean(self) -> None:
         """Validate data against column configuration."""
         super().clean()
 
@@ -294,7 +294,7 @@ class Datacell(BaseOCModel):
             # Apply validation for manual entries based on data type and validation config
             self._validate_manual_entry()
 
-    def _validate_manual_entry(self):
+    def _validate_manual_entry(self) -> None:
         """Validate manual entry data."""
         if not self.data:
             self.data = {}
@@ -401,7 +401,7 @@ class Datacell(BaseOCModel):
                     f"{self.column.name} must be a JSON object or array"
                 )
 
-    def _validate_numeric_range(self, value, config, field_name):
+    def _validate_numeric_range(self, value, config, field_name) -> None:
         """Validate numeric constraints."""
         if "min_value" in config and value < config["min_value"]:
             raise django.core.exceptions.ValidationError(
@@ -412,7 +412,9 @@ class Datacell(BaseOCModel):
                 f"{field_name} must be at most {config['max_value']}"
             )
 
-    def _validate_string_constraints(self, value, config, data_type, field_name):
+    def _validate_string_constraints(
+        self, value, config, data_type, field_name
+    ) -> None:
         """Validate string constraints."""
         if "min_length" in config and len(value) < config["min_length"]:
             raise django.core.exceptions.ValidationError(
@@ -449,7 +451,7 @@ class Datacell(BaseOCModel):
                     f"{field_name} format is invalid"
                 )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         """Override save to validate manual entry data."""
         if self.column.is_manual_entry:
             self.full_clean()

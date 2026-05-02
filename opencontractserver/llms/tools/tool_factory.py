@@ -156,10 +156,11 @@ class CoreTool:
         properties = {}
         required = []
 
+        param_descriptions = self.metadata.parameter_descriptions or {}
         for param_name, param in sig.parameters.items():
             param_info = {
                 "type": "string",  # Default type
-                "description": self.metadata.parameter_descriptions.get(param_name, ""),
+                "description": param_descriptions.get(param_name, ""),
             }
 
             # Try to infer type from annotation
