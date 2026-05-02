@@ -17,7 +17,7 @@ class AcceptCookieConsent(graphene.Mutation):
     ok = graphene.Boolean()
 
     @login_required
-    def mutate(root, info):
+    def mutate(root, info) -> "AcceptCookieConsent":
         user = info.context.user
         user.has_accepted_cookies = True
         user.save()
@@ -31,7 +31,7 @@ class DismissGettingStarted(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    def mutate(root, info):
+    def mutate(root, info) -> "DismissGettingStarted":
         user = info.context.user
         user.has_dismissed_getting_started = True
         user.save()
@@ -54,7 +54,7 @@ class UpdateMe(graphene.Mutation):
     user = graphene.Field(UserType)
 
     @login_required
-    def mutate(self, info, **kwargs):
+    def mutate(self, info, **kwargs) -> "UpdateMe":
         from config.graphql.serializers import UserUpdateSerializer
 
         user = info.context.user
@@ -73,5 +73,5 @@ class ObtainJSONWebTokenWithUser(graphql_jwt.ObtainJSONWebToken):
     user = graphene.Field(UserType)
 
     @classmethod
-    def resolve(cls, root, info, **kwargs):
+    def resolve(cls, root, info, **kwargs) -> "ObtainJSONWebTokenWithUser":
         return cls(user=info.context.user)

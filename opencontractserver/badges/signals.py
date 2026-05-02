@@ -6,6 +6,7 @@ This file is imported in apps.py ready() method to ensure signals are connected.
 """
 
 import logging
+from typing import Any
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -14,7 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender="conversations.ChatMessage")
-def check_message_badges(sender, instance, created, **kwargs):
+def check_message_badges(
+    sender: Any, instance: Any, created: bool, **kwargs: Any
+) -> None:
     """
     Check message-related badges when a new message is created.
 
@@ -60,7 +63,9 @@ def check_message_badges(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender="annotations.Annotation")
-def check_annotation_badges(sender, instance, created, **kwargs):
+def check_annotation_badges(
+    sender: Any, instance: Any, created: bool, **kwargs: Any
+) -> None:
     """
     Check annotation-related badges when a new annotation is created.
 

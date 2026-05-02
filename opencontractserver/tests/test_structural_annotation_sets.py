@@ -416,23 +416,31 @@ class StructuralAnnotationSetProtectionTests(TestCase):
         # Verify it's gone
         self.assertFalse(StructuralAnnotationSet.objects.filter(id=sas_id).exists())
 
-    def test_deleting_document_does_not_delete_structural_set(self):
-        """Deleting a document should not delete its structural set."""
+    def test_deleting_document_preserves_set_when_other_documents_reference_it(self):
+        """Deleting a document leaves the SAS intact if another doc still
+        references it. The orphan-GC signal added in PR #1380 only deletes
+        sets with zero remaining references; see
+        ``test_orphan_structural_set_gc.py`` for the orphan path.
+        """
         sas = StructuralAnnotationSet.objects.create(
             content_hash=self.content_hash, creator=self.user
         )
         sas_id = sas.id
 
-        doc = Document.objects.create(
-            title="Test Doc",
+        doc1 = Document.objects.create(
+            title="Test Doc 1",
+            creator=self.user,
+            structural_annotation_set=sas,
+        )
+        Document.objects.create(
+            title="Test Doc 2",
             creator=self.user,
             structural_annotation_set=sas,
         )
 
-        # Delete the document
-        doc.delete()
+        # Delete one document; the other still references the set.
+        doc1.delete()
 
-        # Structural set should still exist
         self.assertTrue(StructuralAnnotationSet.objects.filter(id=sas_id).exists())
 
 

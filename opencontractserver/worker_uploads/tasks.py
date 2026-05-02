@@ -15,6 +15,8 @@ import json
 import logging
 import re
 from datetime import timedelta
+from typing import Any
+from uuid import UUID
 
 from celery import shared_task
 from django.conf import settings
@@ -73,7 +75,7 @@ assert all(
     max_retries=0,
     acks_late=True,
 )
-def process_pending_uploads(self) -> dict:
+def process_pending_uploads(self: Any) -> dict[str, int]:
     """
     Drain a batch of PENDING uploads from the staging table.
 
@@ -137,7 +139,7 @@ def process_pending_uploads(self) -> dict:
 
 
 @shared_task(queue="worker_uploads")
-def recover_stalled_uploads() -> dict:
+def recover_stalled_uploads() -> dict[str, int]:
     """
     Reset uploads stuck in PROCESSING beyond the configured timeout.
 
@@ -179,7 +181,7 @@ def recover_stalled_uploads() -> dict:
     return {"recovered": count}
 
 
-def _process_single_upload(upload_id) -> None:
+def _process_single_upload(upload_id: UUID) -> None:
     """
     Process one WorkerDocumentUpload: create Document, annotations,
     embeddings, and add to the target corpus.
@@ -359,9 +361,9 @@ def _process_single_upload(upload_id) -> None:
 
 
 def _prepare_labels(
-    metadata: dict,
+    metadata: dict[str, Any],
     user_id: int,
-    labelset,
+    labelset: Any,
 ) -> tuple[dict[str, AnnotationLabel], dict[str, AnnotationLabel]]:
     """
     Load or create text and document labels from the upload metadata.
@@ -393,10 +395,10 @@ def _prepare_labels(
 
 
 def _store_embeddings(
-    embeddings_data: dict,
-    corpus_doc,
+    embeddings_data: dict[str, Any],
+    corpus_doc: Any,
     annot_id_map: dict[str | int, int],
-    user,
+    user: Any,
 ) -> None:
     """
     Store pre-computed embeddings from the worker.
@@ -457,9 +459,9 @@ def _store_embeddings(
 def _store_single_embedding(
     vector: list[float],
     embedder_path: str,
-    document=None,
-    annotation=None,
-    creator=None,
+    document: Any = None,
+    annotation: Any = None,
+    creator: Any = None,
 ) -> Embedding | None:
     """Store a single embedding, determining the correct vector field by dimension."""
     field_name = _get_vector_field(len(vector))
@@ -486,7 +488,7 @@ def _get_vector_field(dimension: int) -> str | None:
     return _VECTOR_FIELD_MAP.get(dimension)
 
 
-def _fail_upload(upload_id, error_message: str) -> None:
+def _fail_upload(upload_id: UUID, error_message: str) -> None:
     """Mark an upload as FAILED and clean up its staging file."""
     upload = WorkerDocumentUpload.objects.filter(id=upload_id).first()
     if upload is None:
@@ -506,7 +508,9 @@ def _fail_upload(upload_id, error_message: str) -> None:
             )
 
 
-def _assign_to_folder(corpus, corpus_doc, folder_path: str, user) -> None:
+def _assign_to_folder(
+    corpus: Any, corpus_doc: Any, folder_path: str, user: Any
+) -> None:
     """
     Assign a document to a folder within the corpus, creating the folder
     hierarchy if needed.

@@ -336,7 +336,18 @@ class CorpusForkTestCase(TransactionTestCase):
             # Core data fields must match
             self.assertEqual(forked.page, orig.page)
             self.assertEqual(forked.raw_text, orig.raw_text)
-            self.assertEqual(forked.json, orig.json)
+            # Forked annotations are saved through Annotation.save(), which
+            # auto-compacts v1 PAWLs JSON to v2 (issue: lazy migration, see
+            # compact_annotation_json). Compare both sides in compact form so
+            # the test is format-agnostic.
+            from opencontractserver.annotations.compact_json import (
+                compact_annotation_json,
+            )
+
+            self.assertEqual(
+                compact_annotation_json(forked.json),
+                compact_annotation_json(orig.json),
+            )
             self.assertEqual(forked.annotation_type, orig.annotation_type)
 
             # Creator should propagate

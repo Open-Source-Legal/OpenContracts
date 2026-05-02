@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from channels.db import database_sync_to_async
 from django.core.files.base import ContentFile
@@ -74,7 +74,7 @@ def _build_empty_memory(corpus_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def get_or_create_memory_document(corpus: Corpus, user) -> Document:
+async def get_or_create_memory_document(corpus: Corpus, user: Any) -> Document:
     """Get the existing memory document or create a new empty one.
 
     If the corpus already has a valid ``memory_document``, return it.
@@ -95,7 +95,7 @@ async def get_or_create_memory_document(corpus: Corpus, user) -> Document:
 
     from opencontractserver.corpuses.models import Corpus as CorpusModel
 
-    def _get_or_create_sync():
+    def _get_or_create_sync() -> Document:
         # Phase 1: Check under lock whether a memory document already exists.
         with transaction.atomic():
             locked = CorpusModel.objects.select_for_update().get(pk=corpus.pk)
@@ -164,7 +164,7 @@ async def read_memory_content(corpus: Corpus) -> str:
     if not corpus.memory_document_id:
         return ""
 
-    def _read():
+    def _read() -> str:
         doc = corpus.memory_document
         if doc is None or not doc.txt_extract_file:
             return ""
@@ -187,7 +187,9 @@ async def read_memory_content(corpus: Corpus) -> str:
     return await database_sync_to_async(_read)()
 
 
-async def update_memory_content(corpus: Corpus, new_content: str, user) -> Document:
+async def update_memory_content(
+    corpus: Corpus, new_content: str, user: Any
+) -> Document:
     """Update the memory document with new content.
 
     Creates the memory document if it doesn't exist.  Overwrites the
@@ -215,7 +217,7 @@ async def update_memory_content(corpus: Corpus, new_content: str, user) -> Docum
 
     doc = await get_or_create_memory_document(corpus, user)
 
-    def _update():
+    def _update() -> Document:
         from django.db import transaction
 
         with transaction.atomic():
@@ -431,7 +433,7 @@ def merge_curation_into_memory(
     current_content: str,
     collection_patterns: list[str],
     query_patterns: list[str],
-    refinements: list[dict],
+    refinements: list[dict[str, Any]],
 ) -> str:
     """Merge curation results into the existing memory document.
 

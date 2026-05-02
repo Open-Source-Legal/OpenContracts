@@ -3,6 +3,7 @@ GraphQL query mixin for corpus, category, folder, and stats queries.
 """
 
 import logging
+from typing import Any
 
 import graphene
 from django.db.models import Count, Q, Subquery
@@ -28,7 +29,7 @@ from opencontractserver.feedback.models import UserFeedback
 logger = logging.getLogger(__name__)
 
 
-def _corpus_count_subqueries():
+def _corpus_count_subqueries() -> tuple[Any, Any]:
     """
     Build subqueries for efficient document and annotation counting on Corpus
     querysets. Used by resolve_corpuses and resolve_corpus_by_slugs to annotate
@@ -70,14 +71,14 @@ class CorpusQueryMixin:
     corpuses = DjangoFilterConnectionField(CorpusType, filterset_class=CorpusFilter)
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_corpuses(self, info, **kwargs):
+    def resolve_corpuses(self, info, **kwargs) -> Any:
         from opencontractserver.annotations.models import AnnotationLabel
 
         doc_sq, annot_sq = _corpus_count_subqueries()
 
         # Subqueries for label counts (via corpus.label_set_id)
         # Note: 'included_in_labelset' is the related_query_name for filtering
-        def label_count_subquery(label_type: str):
+        def label_count_subquery(label_type: str) -> Any:
             from django.db.models import OuterRef
 
             return (
@@ -119,7 +120,7 @@ class CorpusQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_corpus_categories(self, info, **kwargs):
+    def resolve_corpus_categories(self, info, **kwargs) -> Any:
         """
         Get all corpus categories, ordered by sort_order and name.
 
@@ -159,7 +160,7 @@ class CorpusQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_corpus_folders(self, info, corpus_id):
+    def resolve_corpus_folders(self, info, corpus_id) -> Any:
         """
         Get all folders in a corpus.
         Returns flat list - frontend reconstructs tree from parentId relationships.
@@ -181,7 +182,7 @@ class CorpusQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_corpus_folder(self, info, id):
+    def resolve_corpus_folder(self, info, id) -> Any:
         """
         Get a single folder by ID with permission check.
 
@@ -202,7 +203,7 @@ class CorpusQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_deleted_documents_in_corpus(self, info, corpus_id):
+    def resolve_deleted_documents_in_corpus(self, info, corpus_id) -> Any:
         """
         Get all soft-deleted documents in a corpus for trash folder view.
 
@@ -220,7 +221,7 @@ class CorpusQueryMixin:
     corpus_stats = graphene.Field(CorpusStatsType, corpus_id=graphene.ID(required=True))
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
-    def resolve_corpus_stats(self, info, corpus_id):
+    def resolve_corpus_stats(self, info, corpus_id) -> Any:
         """
         Resolve corpus statistics with proper permission filtering.
 
@@ -341,7 +342,7 @@ class CorpusQueryMixin:
         description="Get metadata columns for a corpus",
     )
 
-    def resolve_corpus_metadata_columns(self, info, corpus_id):
+    def resolve_corpus_metadata_columns(self, info, corpus_id) -> Any:
         """Get metadata columns for a corpus using MetadataQueryOptimizer."""
         from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
 

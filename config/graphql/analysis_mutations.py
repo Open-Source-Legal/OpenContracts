@@ -37,7 +37,7 @@ class MakeAnalysisPublic(graphene.Mutation):
 
     @user_passes_test(lambda user: user.is_superuser)
     @graphql_ratelimit(rate=RateLimits.ADMIN_OPERATION)
-    def mutate(root, info, analysis_id):
+    def mutate(root, info, analysis_id) -> "MakeAnalysisPublic":
 
         try:
             analysis_pk = from_global_id(analysis_id)[1]
@@ -87,7 +87,7 @@ class StartDocumentAnalysisMutation(graphene.Mutation):
         document_id=None,
         corpus_id=None,
         analysis_input_data=None,
-    ):
+    ) -> "StartDocumentAnalysisMutation":
         """
         Starts a document or corpus analysis using the specified analyzer.
         Accepts optional analysis_input_data for analyzers that need
@@ -176,7 +176,7 @@ class DeleteAnalysisMutation(graphene.Mutation):
         id = graphene.String(required=True)
 
     @login_required
-    def mutate(root, info, id):
+    def mutate(root, info, id) -> "DeleteAnalysisMutation":
 
         # ok = False
         # message = "Could not complete"
@@ -206,3 +206,5 @@ class DeleteAnalysisMutation(graphene.Mutation):
 
         # Kick off an async task to delete the analysis (as it can be very large)
         delete_analysis_and_annotations_task.si(analysis_pk=analysis_pk).apply_async()
+
+        return DeleteAnalysisMutation(ok=True, message="SUCCESS")

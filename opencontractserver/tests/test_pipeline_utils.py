@@ -392,7 +392,7 @@ class TestPostProcessor(BasePostProcessor):
         Test get_metadata_for_component function to ensure it returns correct metadata for a given component.
         """
         from opencontractserver.pipeline.parsers.test_parser import (
-            TestParser,  # type: ignore; type: ignore
+            TestParser,  # type: ignore[import-not-found]
         )
 
         metadata = get_metadata_for_component(TestParser)
@@ -420,7 +420,7 @@ class TestPostProcessor(BasePostProcessor):
         # Test parser component
         component = get_component_by_name("test_parser")
         from opencontractserver.pipeline.parsers.test_parser import (
-            TestParser,  # type: ignore; type: ignore
+            TestParser,  # type: ignore[import-not-found]
         )
 
         self.assertEqual(component, TestParser)
@@ -428,14 +428,14 @@ class TestPostProcessor(BasePostProcessor):
         # Test embedder component
         component = get_component_by_name("temp_embedder")
         from opencontractserver.pipeline.embedders.temp_embedder import (
-            TestEmbedder,  # type: ignore; type: ignore
+            TestEmbedder,  # type: ignore[import-not-found]
         )
 
         self.assertEqual(component, TestEmbedder)
 
         # Test thumbnailer component
         component = get_component_by_name("test_thumbnailer")
-        from opencontractserver.pipeline.thumbnailers.test_thumbnailer import (  # type: ignore
+        from opencontractserver.pipeline.thumbnailers.test_thumbnailer import (  # type: ignore[import-not-found]
             TestThumbnailer,
         )
 
@@ -443,7 +443,7 @@ class TestPostProcessor(BasePostProcessor):
 
         # Test post-processor component
         component = get_component_by_name("test_post_processor")
-        from opencontractserver.pipeline.post_processors.test_post_processor import (  # type: ignore
+        from opencontractserver.pipeline.post_processors.test_post_processor import (  # type: ignore[import-not-found]
             TestPostProcessor,
         )
 

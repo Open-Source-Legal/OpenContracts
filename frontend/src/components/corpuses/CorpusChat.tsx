@@ -466,6 +466,28 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
             setIsProcessing(false);
             break;
           case "SYNC_CONTENT": {
+            // SYNC_CONTENT is a standalone (non-streaming) assistant reply — unlike the
+            // ASYNC path, it must be appended to `chat` directly or it will never render.
+            // No setIsProcessing(false) is needed: ASYNC_START is the only setter for
+            // isProcessing(true), and SYNC_CONTENT arrives without a preceding ASYNC_START.
+            //
+            // Capture the message id ONCE so the visible chat entry and the
+            // ChatSourceAtom record agree even if the server omits message_id
+            // (otherwise each `crypto.randomUUID()` call produces a different
+            // value, leaving citations unable to find their parent message).
+            const messageId = data?.message_id ?? crypto.randomUUID();
+            setChat((prev) => [
+              ...prev,
+              {
+                messageId,
+                user: "Assistant",
+                content,
+                timestamp: new Date().toLocaleString(),
+                isAssistant: true,
+                isComplete: true,
+              },
+            ]);
+
             const sourcesToPass =
               data?.sources && Array.isArray(data.sources)
                 ? data.sources
@@ -477,7 +499,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
             handleCompleteMessage(
               content,
               sourcesToPass,
-              data?.message_id,
+              messageId,
               undefined,
               timelineToPass
             );
@@ -993,6 +1015,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         {isConversation && (
           <ChatNavigationHeader>
             <BackButton
+              aria-label="Back to conversation list"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();

@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
@@ -13,6 +13,14 @@ from opencontractserver.shared.QuerySets import (
     UserFeedbackQuerySet,
 )
 
+# Re-exported so callers receiving "a permissioned manager" can annotate
+# against ``PermissionedQueryManagerProtocol`` instead of any concrete
+# manager class.  Every visibility manager defined below satisfies the
+# ``visible_to_user(user) -> QuerySet`` contract.
+from opencontractserver.types.protocols import (  # noqa: F401
+    PermissionedQueryManagerProtocol,
+)
+
 if TYPE_CHECKING:
     from django.contrib.auth import get_user_model
 
@@ -23,7 +31,9 @@ else:
 logger = logging.getLogger(__name__)
 
 
-def _apply_document_prefetches(queryset, user, lightweight=False):
+def _apply_document_prefetches(
+    queryset: QuerySet, user: Optional[User], lightweight: bool = False
+) -> QuerySet:
     """
     Apply Document-specific select_related and prefetch_related optimizations.
 
@@ -212,13 +222,15 @@ class PermissionManager(BaseVisibilityManager):
     Inherits from BaseVisibilityManager but overrides to use PermissionQuerySet's version.
     """
 
-    def get_queryset(self):
+    def get_queryset(self) -> "PermissionQuerySet":
         return PermissionQuerySet(self.model, using=self._db)
 
-    def for_user(self, user, perm, extra_conditions=None):
+    def for_user(
+        self, user: User, perm: str, extra_conditions: Optional[Q] = None
+    ) -> "PermissionQuerySet":
         return self.get_queryset().for_user(user, perm, extra_conditions)
 
-    def visible_to_user(self, user) -> PermissionQuerySet:
+    def visible_to_user(self, user: Any) -> PermissionQuerySet:
         """
         Returns queryset filtered by user permission via PermissionQuerySet.
         This overrides BaseVisibilityManager's implementation to use
@@ -228,38 +240,38 @@ class PermissionManager(BaseVisibilityManager):
 
 
 class UserFeedbackManager(BaseVisibilityManager):
-    def get_queryset(self):
+    def get_queryset(self) -> "UserFeedbackQuerySet":
         return UserFeedbackQuerySet(self.model, using=self._db)
 
-    def visible_to_user(self, user):
+    def visible_to_user(self, user: User) -> QuerySet:
         """Delegate to the queryset's visible_to_user method"""
         return self.get_queryset().visible_to_user(user)
 
-    def get_or_none(self, *args, **kwargs):
+    def get_or_none(self, *args: Any, **kwargs: Any) -> Optional[Any]:
         try:
             return self.get(*args, **kwargs)
         except self.model.DoesNotExist:
             return None
 
-    def approved(self):
+    def approved(self) -> "UserFeedbackQuerySet":
         return self.get_queryset().approved()
 
-    def rejected(self):
+    def rejected(self) -> "UserFeedbackQuerySet":
         return self.get_queryset().rejected()
 
-    def pending(self):
+    def pending(self) -> "UserFeedbackQuerySet":
         return self.get_queryset().pending()
 
-    def recent(self, days=30):
+    def recent(self, days: int = 30) -> "UserFeedbackQuerySet":
         return self.get_queryset().recent(days)
 
-    def with_comments(self):
+    def with_comments(self) -> "UserFeedbackQuerySet":
         return self.get_queryset().with_comments()
 
-    def by_creator(self, creator):
+    def by_creator(self, creator: User) -> "UserFeedbackQuerySet":
         return self.get_queryset().by_creator(creator)
 
-    def search(self, query):
+    def search(self, query: str) -> "UserFeedbackQuerySet":
         return self.get_queryset().filter(
             Q(comment__icontains=query) | Q(markdown__icontains=query)
         )
@@ -271,10 +283,12 @@ class DocumentManager(BaseVisibilityManager):
     that supports vector searching via the mixin.
     """
 
-    def get_queryset(self):
+    def get_queryset(self) -> "DocumentQuerySet":
         return DocumentQuerySet(self.model, using=self._db)
 
-    def visible_to_user(self, user=None, lightweight=False) -> QuerySet:
+    def visible_to_user(
+        self, user: Optional[Any] = None, lightweight: bool = False
+    ) -> QuerySet:
         """
         Delegate permission filtering to DocumentQuerySet (which includes
         public-corpus logic) then apply the shared prefetch optimisations.
@@ -287,7 +301,9 @@ class DocumentManager(BaseVisibilityManager):
         queryset = self.get_queryset().visible_to_user(user)
         return _apply_document_prefetches(queryset, user, lightweight)
 
-    def search_by_embedding(self, query_vector, embedder_path, top_k=10):
+    def search_by_embedding(
+        self, query_vector: list[float], embedder_path: str, top_k: int = 10
+    ) -> list[Any]:
         """
         Convenience method so you can do:
             Document.objects.search_by_embedding([...])
@@ -316,7 +332,9 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):
         """
         return self.get_queryset().for_user(user, perm, extra_conditions)
 
-    def search_by_embedding(self, query_vector, embedder_path, top_k=10):
+    def search_by_embedding(
+        self, query_vector: list[float], embedder_path: str, top_k: int = 10
+    ) -> list[Any]:
         """
         If using VectorSearchViaEmbeddingMixin in your AnnotationQuerySet,
         you can call this convenience method just like:
@@ -345,7 +363,9 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):
         """
         return self.get_queryset().for_user(user, perm, extra_conditions)
 
-    def search_by_embedding(self, query_vector, embedder_path, top_k=10):
+    def search_by_embedding(
+        self, query_vector: list[float], embedder_path: str, top_k: int = 10
+    ) -> list[Any]:
         """
         If using VectorSearchViaEmbeddingMixin in your NoteQuerySet,
         you can call:
@@ -392,7 +412,7 @@ class EmbeddingManager(BaseVisibilityManager):
         note_id: Optional[int] = None,
         conversation_id: Optional[int] = None,
         message_id: Optional[int] = None,
-    ):
+    ) -> Any:
         """
         Create or update an Embedding, referencing exactly one of:
         Document, Annotation, Note, Conversation, or ChatMessage.

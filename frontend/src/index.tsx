@@ -34,13 +34,16 @@ console.log("OpenContracts is using Auth0: ", REACT_APP_USE_AUTH0);
 console.log("OpenContracts frontend target api root", api_root_url);
 
 const authLink = new ApolloLink((operation, forward) => {
-  // Get the token fresh on each request
+  // Get the token fresh on each request.
+  // Only set Authorization when we actually have a token — sending an empty
+  // ``Authorization: ""`` header used to fall through to Django's session/CSRF
+  // enforcement path on the backend and 403 every anonymous-or-pre-auth POST.
   operation.setContext(({ headers }: { headers: LooseObject }) => {
     const token = authToken();
     return {
       headers: {
-        Authorization: token ? `Bearer ${token}` : "",
         ...headers,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     };
   });

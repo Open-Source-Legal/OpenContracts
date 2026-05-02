@@ -1,9 +1,12 @@
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from opencontractserver.constants.document_processing import (
     EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS,
@@ -26,6 +29,77 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+# ---------------------------------------------------------------------------
+# Shared HTTP session
+# ---------------------------------------------------------------------------
+#
+# A module-level ``requests.Session`` (built lazily, behind a lock) gives us
+# two things:
+#
+#   1. **Connection pooling.** Every per-call ``requests.post`` opened a fresh
+#      TCP+TLS handshake. With a Session backed by an HTTPAdapter, urllib3
+#      reuses keep-alive connections — meaningful when ingest fires
+#      thousands of sub-batches against a localhost microservice or, more
+#      so, a Cloud Run deployment.
+#
+#   2. **urllib3-level retry with exponential backoff.** This is a tighter
+#      retry loop than celery's outer ``autoretry_for`` (which adds a 60s
+#      countdown per attempt). For a transient 502/503/504 / connection
+#      reset, urllib3 retries in milliseconds-to-seconds, often masking
+#      the blip entirely from the celery layer. ``status_forcelist`` is
+#      kept narrow (5xx + 429) so true client errors (4xx) still surface
+#      immediately as ``EmbeddingClientError``.
+#
+# The session is shared across the process because ``requests.Session`` is
+# thread-safe for the read-only operations we do (``post``); the lock just
+# guards lazy construction. Embedder instances do not hold their own
+# Session — that would create N pools per process, defeating the point.
+
+_SESSION_LOCK = threading.Lock()
+_SESSION: Optional[requests.Session] = None
+
+# urllib3 Retry config: 3 attempts on 502/503/504/429 + connection-level
+# errors, with exponential backoff (1s, 2s, 4s). ``allowed_methods``
+# explicitly includes POST since urllib3 defaults to GET-only retries.
+# ``raise_on_status=False`` lets the embedder code see the final response
+# and decide between EmbeddingClientError / EmbeddingServerError /
+# return-None semantics, rather than urllib3 raising opaquely.
+_RETRY_CONFIG = Retry(
+    total=3,
+    connect=3,
+    read=3,
+    status=3,
+    backoff_factor=1.0,
+    status_forcelist=(429, 502, 503, 504),
+    allowed_methods=frozenset(["POST"]),
+    raise_on_status=False,
+)
+
+
+def _get_session() -> requests.Session:
+    """Return the process-wide shared session, building it on first use."""
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
+    with _SESSION_LOCK:
+        if _SESSION is None:
+            session = requests.Session()
+            adapter = HTTPAdapter(
+                max_retries=_RETRY_CONFIG,
+                # Pool size sized for the highest concurrency any single
+                # embedder advertises (currently 4 for OpenAI; 2 for
+                # MicroserviceEmbedder gunicorn-worker count). Set to 16
+                # to leave headroom for legitimate concurrent ingestion
+                # tasks without hitting "Connection pool is full" warnings.
+                pool_connections=16,
+                pool_maxsize=16,
+            )
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            _SESSION = session
+    return _SESSION
+
+
 class MicroserviceEmbedder(BaseEmbedder):
     """
     Embedder that generates embeddings by calling an external microservice.
@@ -44,6 +118,19 @@ class MicroserviceEmbedder(BaseEmbedder):
         FileTypeEnum.TXT,
         FileTypeEnum.DOCX,
     ]
+
+    # The local microservice caps batch size at MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE
+    # (server-side env var ``MAX_TEXTS_PER_BATCH``, default 100). Raising
+    # past it causes the service to 400 with "exceeds maximum"; pin
+    # api_batch_size to the cap so we use the full per-call capacity.
+    api_batch_size = MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE
+
+    # The reference deployment runs gunicorn with --workers 2, so up to
+    # two HTTP requests can be processed truly in parallel (each worker
+    # has its own SentenceTransformer process). Setting concurrency to
+    # 2 fills both workers without queueing. Operators with a bigger
+    # gunicorn fleet can override at the class level.
+    embed_max_concurrent_sub_batches = 2
 
     @dataclass
     class Settings:
@@ -138,7 +225,7 @@ class MicroserviceEmbedder(BaseEmbedder):
         try:
             service_url, headers = self._get_service_config(all_kwargs)
 
-            response = requests.post(
+            response = _get_session().post(
                 f"{service_url}/embeddings",
                 json={"text": text},
                 headers=headers,
@@ -229,7 +316,7 @@ class MicroserviceEmbedder(BaseEmbedder):
                 logger.error("No service URL configured for batch text embedding")
                 return None
 
-            response = requests.post(
+            response = _get_session().post(
                 f"{service_url}/embeddings/batch",
                 json={"texts": texts},
                 headers=headers,

@@ -1,9 +1,11 @@
 import React from "react";
+import type { Page, Route } from "@playwright/test";
 import { test, expect } from "./utils/coverage";
 import { MockedResponse } from "@apollo/client/testing";
 import { CorpusDescriptionEditorTestWrapper } from "./CorpusDescriptionEditorTestWrapper";
 import { GET_CORPUS_WITH_HISTORY } from "../src/graphql/queries";
 import { UPDATE_CORPUS_DESCRIPTION } from "../src/graphql/mutations";
+import { docScreenshot } from "./utils/docScreenshot";
 
 const TEST_CORPUS_ID = "corpus-cde-1";
 const MD_URL = "http://localhost/test-md/initial.md";
@@ -86,8 +88,8 @@ const buildCorpusMockNoMd = (): MockedResponse => ({
   },
 });
 
-const setupMdRoute = async (page: any, body: string = INITIAL_MD) => {
-  await page.route("**/test-md/**", async (route: any) => {
+const setupMdRoute = async (page: Page, body: string = INITIAL_MD) => {
+  await page.route("**/test-md/**", async (route: Route) => {
     await route.fulfill({
       status: 200,
       contentType: "text/markdown",
@@ -142,6 +144,8 @@ test.describe("CorpusDescriptionEditor", () => {
       'textarea[placeholder="Write your corpus description in Markdown..."]'
     );
     await expect(textarea).toHaveValue(INITIAL_MD, { timeout: 10000 });
+
+    await docScreenshot(page, "corpus--description-editor--loaded");
 
     await component.unmount();
   });
@@ -234,7 +238,7 @@ test.describe("CorpusDescriptionEditor", () => {
     await expect(page.getByText("Version History")).toBeVisible({
       timeout: 5000,
     });
-    await expect(page.locator(".version-number")).toContainText("Version 1");
+    await expect(page.getByTestId("version-number")).toContainText("Version 1");
 
     // Hide again
     await page
@@ -268,7 +272,7 @@ test.describe("CorpusDescriptionEditor", () => {
       .getByRole("button", { name: /Show History/, exact: false })
       .click();
 
-    const versionNumber = page.locator(".version-number");
+    const versionNumber = page.getByTestId("version-number");
     await expect(versionNumber).toContainText("Version 1", { timeout: 5000 });
 
     // Click the version row to expand details
@@ -422,7 +426,7 @@ test.describe("CorpusDescriptionEditor", () => {
     await page
       .getByRole("button", { name: /Show History/, exact: false })
       .click();
-    const versionNumber = page.locator(".version-number");
+    const versionNumber = page.getByTestId("version-number");
     await expect(versionNumber).toContainText("Version 1", { timeout: 5000 });
     await versionNumber.first().click();
 
@@ -485,7 +489,7 @@ test.describe("CorpusDescriptionEditor", () => {
     await page
       .getByRole("button", { name: /Show History/, exact: false })
       .click();
-    const versionNumber = page.locator(".version-number");
+    const versionNumber = page.getByTestId("version-number");
     await expect(versionNumber).toContainText("Version 1", { timeout: 5000 });
     await versionNumber.first().click();
 
@@ -500,6 +504,300 @@ test.describe("CorpusDescriptionEditor", () => {
     await expect(
       page.getByRole("button", { name: /Cancel Version Edit/ })
     ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("save mutation failure (ok: false) shows toast error", async ({
+    mount,
+    page,
+  }) => {
+    await setupMdRoute(page);
+
+    const newContent = INITIAL_MD + "\n\nExtra.";
+    const failingSaveMock: MockedResponse = {
+      request: {
+        query: UPDATE_CORPUS_DESCRIPTION,
+        variables: {
+          corpusId: TEST_CORPUS_ID,
+          newContent,
+        },
+      },
+      result: {
+        data: {
+          updateCorpusDescription: {
+            ok: false,
+            message: "Validation failed on server",
+            version: null,
+            obj: null,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusDescriptionEditorTestWrapper
+        mocks={[buildCorpusMock(), failingSaveMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    const textarea = page.locator(
+      'textarea[placeholder="Write your corpus description in Markdown..."]'
+    );
+    await expect(textarea).toHaveValue(INITIAL_MD, { timeout: 20000 });
+
+    await textarea.fill(newContent);
+
+    await page.getByRole("button", { name: /Save Changes/ }).click();
+
+    await expect(page.getByText("Validation failed on server")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("save mutation network error surfaces generic error toast", async ({
+    mount,
+    page,
+  }) => {
+    await setupMdRoute(page);
+
+    const newContent = INITIAL_MD + "\n\nExtra.";
+    const networkErrorMock: MockedResponse = {
+      request: {
+        query: UPDATE_CORPUS_DESCRIPTION,
+        variables: {
+          corpusId: TEST_CORPUS_ID,
+          newContent,
+        },
+      },
+      error: new Error("Boom"),
+    };
+
+    const component = await mount(
+      <CorpusDescriptionEditorTestWrapper
+        mocks={[buildCorpusMock(), networkErrorMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    const textarea = page.locator(
+      'textarea[placeholder="Write your corpus description in Markdown..."]'
+    );
+    await expect(textarea).toHaveValue(INITIAL_MD, { timeout: 20000 });
+
+    await textarea.fill(newContent);
+    await page.getByRole("button", { name: /Save Changes/ }).click();
+
+    await expect(
+      page.getByText("Failed to update corpus description")
+    ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("reapplying a version without a snapshot surfaces an error toast", async ({
+    mount,
+    page,
+  }) => {
+    await setupMdRoute(page);
+
+    const component = await mount(
+      <CorpusDescriptionEditorTestWrapper
+        mocks={[
+          buildCorpusMock({
+            descriptionRevisions: [
+              baseRevision({
+                id: "rev-empty",
+                version: 1,
+                snapshot: null,
+              }),
+            ],
+          }),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Edit Corpus Description")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page
+      .getByRole("button", { name: /Show History/, exact: false })
+      .click();
+
+    const versionNumber = page.getByTestId("version-number");
+    await expect(versionNumber).toContainText("Version 1", { timeout: 5000 });
+    await versionNumber.first().click();
+
+    // No Reapply button is shown when snapshot is null — the error ErrorMessage
+    // renders instead.
+    await expect(
+      page.getByText("This version does not have a snapshot available")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("clicking the same version twice collapses the details", async ({
+    mount,
+    page,
+  }) => {
+    await setupMdRoute(page);
+
+    const component = await mount(
+      <CorpusDescriptionEditorTestWrapper
+        mocks={[buildCorpusMock()]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Edit Corpus Description")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page
+      .getByRole("button", { name: /Show History/, exact: false })
+      .click();
+
+    const versionNumber = page.getByTestId("version-number");
+    await expect(versionNumber).toContainText("Version 1", { timeout: 5000 });
+
+    // Expand
+    await versionNumber.first().click();
+    await expect(page.getByText("Version 1 snapshot")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Collapse by clicking again
+    await versionNumber.first().click();
+    await expect(page.getByText("Version 1 snapshot")).not.toBeVisible({
+      timeout: 5000,
+    });
+
+    await component.unmount();
+  });
+
+  test("Cancel Version Edit resets content and hides the badge", async ({
+    mount,
+    page,
+  }) => {
+    await setupMdRoute(page);
+
+    const component = await mount(
+      <CorpusDescriptionEditorTestWrapper
+        mocks={[
+          buildCorpusMock({
+            descriptionRevisions: [
+              baseRevision({
+                id: "rev-1",
+                version: 1,
+                snapshot: "# Much older content",
+              }),
+              baseRevision({
+                id: "rev-2",
+                version: 2,
+                snapshot: INITIAL_MD,
+              }),
+            ],
+          }),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    const textarea = page.locator(
+      'textarea[placeholder="Write your corpus description in Markdown..."]'
+    );
+    await expect(textarea).toHaveValue(INITIAL_MD, { timeout: 20000 });
+
+    await page
+      .getByRole("button", { name: /Show History/, exact: false })
+      .click();
+
+    // Expand the OLDER version (v1) — not the current one
+    const versionRows = page.getByTestId("version-number");
+    const olderRow = versionRows.filter({ hasText: "Version 1" }).first();
+    await olderRow.click();
+
+    await page.getByRole("button", { name: /Edit from This Version/ }).click();
+
+    await expect(page.getByText(/Editing from v1/)).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Click Cancel Version Edit — editor reverts to current content, badge gone
+    await page.getByRole("button", { name: /Cancel Version Edit/ }).click();
+
+    await expect(page.getByText(/Editing from v1/)).not.toBeVisible({
+      timeout: 5000,
+    });
+    await expect(textarea).toHaveValue(INITIAL_MD, { timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("fetching mdDescription URL failure falls back to empty editor", async ({
+    mount,
+    page,
+  }) => {
+    // Abort the network request so the fetch promise rejects and the
+    // component's .catch() branch (setCurrentContent("")) runs.
+    await page.route("**/test-md/**", async (route: Route) => {
+      await route.abort("failed");
+    });
+
+    const component = await mount(
+      <CorpusDescriptionEditorTestWrapper
+        mocks={[buildCorpusMock()]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Edit Corpus Description")).toBeVisible({
+      timeout: 20000,
+    });
+
+    const textarea = page.locator(
+      'textarea[placeholder="Write your corpus description in Markdown..."]'
+    );
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+    // The catch branch resets content to empty string; pin that contract.
+    await expect(textarea).toHaveValue("", { timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("version count label pluralizes correctly", async ({ mount, page }) => {
+    await setupMdRoute(page);
+
+    const component = await mount(
+      <CorpusDescriptionEditorTestWrapper
+        mocks={[
+          buildCorpusMock({
+            descriptionRevisions: [
+              baseRevision({ id: "rev-a", version: 1 }),
+              baseRevision({ id: "rev-b", version: 2 }),
+              baseRevision({ id: "rev-c", version: 3 }),
+            ],
+          }),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Edit Corpus Description")).toBeVisible({
+      timeout: 20000,
+    });
+    await page
+      .getByRole("button", { name: /Show History/, exact: false })
+      .click();
+
+    // Count line says "3 versions" (plural)
+    await expect(page.getByText(/3 versions/)).toBeVisible({ timeout: 5000 });
 
     await component.unmount();
   });

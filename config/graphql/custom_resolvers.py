@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from graphql_relay import from_global_id
 
@@ -46,7 +47,7 @@ def _apply_filter(sequence: Iterable, predicate) -> list:
     return [item for item in sequence if predicate(item)]
 
 
-def resolve_doc_annotations_optimized(self, info, **kwargs):
+def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
     """Resolve ``docAnnotations`` while favouring prefetched data and the optimizer."""
 
     if kwargs.get("after") or kwargs.get("before"):

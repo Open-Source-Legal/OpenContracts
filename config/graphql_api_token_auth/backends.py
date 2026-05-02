@@ -1,7 +1,20 @@
+"""
+API-token authentication backend.
+
+Works with any token model that exposes ``key`` (str) and ``user``
+(AbstractBaseUser) — not limited to DRF's built-in
+:class:`rest_framework.authtoken.models.Token`. The prefix expected in
+the ``Authorization`` header is read from ``settings.API_TOKEN_PREFIX``
+so the deployment can brand it (``Api-Token``, ``Bearer``, etc.).
+"""
+
 import logging
+from typing import Any, Optional
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AbstractBaseUser
+from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from rest_framework import exceptions
 
@@ -12,10 +25,23 @@ logger = logging.getLogger(__name__)
 
 
 class ApiKeyBackend:
+    """
+    Authenticate GraphQL/DRF requests against an API-token model.
 
-    model = None
+    A custom token model may be supplied by setting
+    :attr:`ApiKeyBackend.model`. It must expose:
 
-    def get_model(self):
+    * ``key``  — the opaque string identifying the token
+    * ``user`` — the :class:`AbstractBaseUser` the token belongs to
+    """
+
+    model: Optional[type[Any]] = None
+    # Used by DRF to populate the ``WWW-Authenticate`` response header on
+    # 401 responses (see :meth:`authenticate_header`). Declared as a
+    # class attribute so mypy knows the attribute always exists.
+    keyword: str = "Token"
+
+    def get_model(self) -> type[Any]:
         logger.debug("Getting token model")
         if self.model is not None:
             return self.model
@@ -25,13 +51,9 @@ class ApiKeyBackend:
         logger.debug("Using default Token model")
         return Token
 
-    """
-    A custom token model may be used, but must have the following properties.
-    * key -- The string identifying the token
-    * user -- The user to which the token belongs
-    """
-
-    def authenticate(self, request=None, **kwargs):
+    def authenticate(
+        self, request: Optional[HttpRequest] = None, **kwargs: Any
+    ) -> Optional[AbstractBaseUser]:
         logger.debug("Starting authentication process")
 
         if request is None:
@@ -66,7 +88,7 @@ class ApiKeyBackend:
 
         return self.authenticate_credentials(token)
 
-    def authenticate_credentials(self, key):
+    def authenticate_credentials(self, key: str) -> AbstractBaseUser:
         logger.debug("Authenticating credentials")
         model = self.get_model()
         try:
@@ -85,6 +107,6 @@ class ApiKeyBackend:
         logger.debug(f"Successfully authenticated user: {token.user.username}")
         return token.user
 
-    def authenticate_header(self, request):
+    def authenticate_header(self, request: HttpRequest) -> str:
         logger.debug("Getting authentication header")
         return self.keyword

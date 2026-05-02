@@ -1,6 +1,7 @@
 """GraphQL type definitions for corpus-related types."""
 
 import logging
+from typing import Any
 
 import graphene
 from django.contrib.auth import get_user_model
@@ -61,7 +62,7 @@ class CorpusCategoryType(DjangoObjectType):
             "modified",
         )
 
-    def resolve_corpus_count(self, info):
+    def resolve_corpus_count(self, info) -> Any:
         """
         Return count of corpuses visible to user in this category.
 
@@ -148,19 +149,19 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         lambda: CorpusFolderType, description="Immediate child folders"
     )
 
-    def resolve_path(self, info):
+    def resolve_path(self, info) -> Any:
         """Get full path from root to this folder."""
         return self.get_path()
 
-    def resolve_document_count(self, info):
+    def resolve_document_count(self, info) -> Any:
         """Get count of documents directly in this folder."""
         return self.get_document_count()
 
-    def resolve_descendant_document_count(self, info):
+    def resolve_descendant_document_count(self, info) -> Any:
         """Get count of documents in this folder and all subfolders."""
         return self.get_descendant_document_count()
 
-    def resolve_children(self, info):
+    def resolve_children(self, info) -> Any:
         """Get immediate child folders."""
         return self.children.all().visible_to_user(info.context.user)
 
@@ -170,7 +171,7 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         connection_class = CountableConnection
 
     @classmethod
-    def get_queryset(cls, queryset, info):
+    def get_queryset(cls, queryset, info) -> Any:
         """Filter folders to only those the user can see (via corpus permissions)."""
         if issubclass(type(queryset), QuerySet):
             return queryset.visible_to_user(info.context.user)
@@ -194,7 +195,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         DocumentTypeConnection, description="Documents in this corpus via DocumentPath"
     )
 
-    def resolve_documents(self, info, **kwargs):
+    def resolve_documents(self, info, **kwargs) -> Any:
         """
         Custom resolver for documents field that uses DocumentPath.
         Returns documents with active paths in this corpus, filtered by
@@ -214,9 +215,9 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         corpus_doc_ids = self.get_documents(include_caml=True).values_list(
             "id", flat=True
         )
-        return Document.objects.filter(id__in=corpus_doc_ids).visible_to_user(user)
+        return Document.objects.visible_to_user(user).filter(id__in=corpus_doc_ids)
 
-    def resolve_annotations(self, info):
+    def resolve_annotations(self, info) -> Any:
         """
         Custom resolver for annotations field that properly computes permissions.
         Uses AnnotationQueryOptimizer to ensure permission flags are set.
@@ -241,7 +242,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         return all_annotations.distinct()
 
-    def resolve_all_annotation_summaries(self, info, **kwargs):
+    def resolve_all_annotation_summaries(self, info, **kwargs) -> Any:
 
         analysis_id = kwargs.get("analysis_id", None)
         label_types = kwargs.get("label_types", None)
@@ -270,16 +271,16 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     applied_analyzer_ids = graphene.List(graphene.String)
 
-    def resolve_applied_analyzer_ids(self, info):
+    def resolve_applied_analyzer_ids(self, info) -> Any:
         return list(
             self.analyses.all().values_list("analyzer_id", flat=True).distinct()
         )
 
-    def resolve_icon(self, info):
+    def resolve_icon(self, info) -> Any:
         return "" if not self.icon else info.context.build_absolute_uri(self.icon.url)
 
     # File link resolver for markdown description
-    def resolve_md_description(self, info):
+    def resolve_md_description(self, info) -> Any:
         return (
             ""
             if not self.md_description
@@ -289,7 +290,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     # Optional list of description revisions
     description_revisions = graphene.List(lambda: CorpusDescriptionRevisionType)
 
-    def resolve_description_revisions(self, info):
+    def resolve_description_revisions(self, info) -> Any:
         # Returns all revisions, ordered by version asc by default from model ordering
         return (
             self.revisions.select_related("author").all()
@@ -302,14 +303,14 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         CorpusFolderType, description="All folders in this corpus (flat list)"
     )
 
-    def resolve_folders(self, info):
+    def resolve_folders(self, info) -> Any:
         """Get all folders in this corpus with permission filtering."""
         return self.folders.all().visible_to_user(info.context.user)
 
     # Engagement metrics (Epic #565)
     engagement_metrics = graphene.Field(CorpusEngagementMetricsType)
 
-    def resolve_engagement_metrics(self, info):
+    def resolve_engagement_metrics(self, info) -> Any:
         """
         Resolve engagement metrics for this corpus.
 
@@ -331,7 +332,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ),
     )
 
-    def resolve_memory_active_warning(self, info):
+    def resolve_memory_active_warning(self, info) -> Any:
         if not self.memory_enabled:
             return None
         return (
@@ -344,7 +345,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     # Categories
     categories = graphene.List(lambda: CorpusCategoryType)
 
-    def resolve_categories(self, info):
+    def resolve_categories(self, info) -> Any:
         """Get all categories assigned to this corpus."""
         return self.categories.all()
 
@@ -353,7 +354,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="Count of active documents in this corpus (optimized)"
     )
 
-    def resolve_document_count(self, info):
+    def resolve_document_count(self, info) -> Any:
         """
         Return document count from annotation or fallback to model method.
 
@@ -369,7 +370,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="Count of annotations in this corpus (optimized)"
     )
 
-    def resolve_annotation_count(self, info):
+    def resolve_annotation_count(self, info) -> Any:
         """
         Return annotation count from annotation or fallback to database query.
 
@@ -385,7 +386,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ).values_list("document_id", flat=True)
         return Annotation.objects.filter(document_id__in=doc_ids).count()
 
-    def resolve_label_set(self, info):
+    def resolve_label_set(self, info) -> Any:
         """
         Return label_set with count annotations copied from corpus.
 
@@ -412,7 +413,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         connection_class = CountableConnection
 
     @classmethod
-    def get_queryset(cls, queryset, info):
+    def get_queryset(cls, queryset, info) -> Any:
         if issubclass(type(queryset), QuerySet):
             return queryset.visible_to_user(info.context.user)
         elif "RelatedManager" in str(type(queryset)):

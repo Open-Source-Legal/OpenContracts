@@ -1,12 +1,16 @@
+from __future__ import annotations
+
 import base64
 import io
 import json
 import logging
 import pathlib
 import zipfile
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
+
     from opencontractserver.annotations.models import AnnotationLabel
     from opencontractserver.utils.metadata_file_parser import DocumentMetadata
 
@@ -29,7 +33,10 @@ from opencontractserver.constants.zip_import import ZIP_MAX_SIDECAR_SIZE_BYTES
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
-from opencontractserver.types.dicts import OpenContractsAnnotatedDocumentImportType
+from opencontractserver.types.dicts import (
+    OpenContractDocExport,
+    OpenContractsAnnotatedDocumentImportType,
+)
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.files import is_plaintext_content
@@ -51,8 +58,8 @@ User = get_user_model()
 
 @celery_app.task()
 def import_corpus(
-    temporary_file_handle_id: str | int, user_id: int, seed_corpus_id: Optional[int]
-) -> Optional[int]:
+    temporary_file_handle_id: str | int, user_id: int, seed_corpus_id: int | None
+) -> int | None:
     """
     Import a corpus from a V1-format export ZIP.
 
@@ -70,7 +77,7 @@ def import_document_to_corpus(
     target_corpus_id: int,
     user_id: int,
     document_import_data: OpenContractsAnnotatedDocumentImportType,
-) -> Optional[str]:
+) -> str | None:
     """
     Import a single annotated document into an existing corpus.
 
@@ -168,12 +175,12 @@ def process_documents_zip(
     temporary_file_handle_id: str | int,
     user_id: int,
     job_id: str,
-    title_prefix: Optional[str] = None,
-    description: Optional[str] = None,
-    custom_meta: Optional[dict] = None,
+    title_prefix: str | None = None,
+    description: str | None = None,
+    custom_meta: dict[str, Any] | None = None,
     make_public: bool = False,
-    corpus_id: Optional[int] = None,
-) -> dict:
+    corpus_id: int | None = None,
+) -> dict[str, Any]:
     """
     Process a zip file containing documents, extract each file, and create Document objects
     for files with allowed MIME types.
@@ -191,7 +198,7 @@ def process_documents_zip(
     Returns:
         Dictionary with summary of processing results
     """
-    results = {
+    results: dict[str, Any] = {
         "job_id": job_id,
         "success": False,
         "completed": False,  # Will be set to True on successful completion
@@ -427,12 +434,12 @@ def process_documents_zip(
 
 
 def create_relationships_from_parsed(
-    corpus,
-    user,
-    document_path_map: dict[str, "Document"],
-    parsed_relationships: list,
-    logger,
-) -> dict:
+    corpus: Corpus,
+    user: AbstractBaseUser,
+    document_path_map: dict[str, Document],
+    parsed_relationships: list[Any],
+    logger: logging.Logger,
+) -> dict[str, Any]:
     """
     Create DocumentRelationship objects from parsed relationship data.
 
@@ -457,7 +464,7 @@ def create_relationships_from_parsed(
     from opencontractserver.documents.models import DocumentRelationship
     from opencontractserver.types.enums import LabelType
 
-    results = {
+    results: dict[str, Any] = {
         "relationships_created": 0,
         "relationships_skipped": 0,
         "relationship_errors": [],
@@ -536,9 +543,9 @@ def create_relationships_from_parsed(
 
 
 def _read_sidecar(
-    import_zip: "zipfile.ZipFile",
+    import_zip: zipfile.ZipFile,
     sidecar_path: str,
-) -> dict:
+) -> dict[str, Any]:
     """
     Read and parse a sidecar JSON from the zip file.
 
@@ -591,7 +598,7 @@ _RELATIONSHIP_REQUIRED_KEYS = {
 
 
 def _validate_sidecar_schema(
-    doc_data: dict,
+    doc_data: dict[str, Any],
     sidecar_path: str,
 ) -> list[str]:
     """
@@ -678,14 +685,14 @@ def _validate_sidecar_schema(
 
 
 def _apply_sidecar_annotations(
-    doc_data: dict,
+    doc_data: OpenContractDocExport,
     sidecar_path: str,
-    corpus_doc: "Document",
-    corpus_obj: "Corpus",
-    user_obj: "User",
-    label_lookup: "dict[str, AnnotationLabel]",
-    doc_label_lookup: "dict[str, AnnotationLabel]",
-    results: dict,
+    corpus_doc: Document,
+    corpus_obj: Corpus,
+    user_obj: AbstractBaseUser,
+    label_lookup: dict[str, AnnotationLabel],
+    doc_label_lookup: dict[str, AnnotationLabel],
+    results: dict[str, Any],
 ) -> None:
     """
     Import annotations from pre-parsed sidecar data onto a corpus document.
@@ -790,12 +797,12 @@ def import_zip_with_folder_structure(
     user_id: int,
     job_id: str,
     corpus_id: int,
-    target_folder_id: Optional[int] = None,
-    title_prefix: Optional[str] = None,
-    description: Optional[str] = None,
-    custom_meta: Optional[dict] = None,
+    target_folder_id: int | None = None,
+    title_prefix: str | None = None,
+    description: str | None = None,
+    custom_meta: dict[str, Any] | None = None,
     make_public: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """
     Process a zip file and import documents preserving folder structure.
 
@@ -843,7 +850,7 @@ def import_zip_with_folder_structure(
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
     from opencontractserver.utils.zip_security import validate_zip_for_import
 
-    results = {
+    results: dict[str, Any] = {
         "job_id": job_id,
         "success": False,
         "completed": False,
@@ -1001,7 +1008,7 @@ def import_zip_with_folder_structure(
                 )
 
             # Parse metadata file if present (used in Phase 3)
-            metadata_lookup: dict[str, "DocumentMetadata"] = {}
+            metadata_lookup: dict[str, DocumentMetadata] = {}
             if manifest.metadata_file:
                 from opencontractserver.utils.metadata_file_parser import (
                     parse_metadata_file,
@@ -1035,8 +1042,8 @@ def import_zip_with_folder_structure(
 
             # Phase 3: Load annotation labels if labels.json is present
             # These are needed when importing annotation sidecars
-            label_lookup: dict[str, "AnnotationLabel"] = {}
-            doc_label_lookup: dict[str, "AnnotationLabel"] = {}
+            label_lookup: dict[str, AnnotationLabel] = {}
+            doc_label_lookup: dict[str, AnnotationLabel] = {}
             if manifest.labels_file:
                 results["labels_file_found"] = True
             if manifest.labels_file and manifest.annotation_sidecars:

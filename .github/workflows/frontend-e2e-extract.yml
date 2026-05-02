@@ -1,0 +1,275 @@
+name: Frontend E2E Extract Pipeline (VCR)
+
+# Drives the full extract pipeline end-to-end via Playwright:
+#   login → upload two PDFs → ingest+embed → create extract → run → CSV.
+# The LLM call inside `doc_extract_query_task` is wrapped in a VCR.py
+# cassette so no OpenAI traffic is generated. See:
+#   docs/development/e2e_vcr.md
+#
+# Parsing runs against the in-stack Docling microservice
+# (`docling-parser` in `local.yml`), so PDF parsing is real but free.
+# The only mocked traffic is the LLM provider (api.openai.com /
+# api.anthropic.com), which is what the cassette covers.
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+defaults:
+  run:
+    working-directory: ./
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "opencontractserver/llms/**"
+      - "opencontractserver/tasks/data_extract_tasks.py"
+      - "opencontractserver/tasks/extract_orchestrator_tasks.py"
+      - "opencontractserver/utils/vcr_replay.py"
+      - "opencontractserver/tests/fixtures/cassettes/e2e_extract_pdf_workflow/**"
+      - "frontend/tests/e2e/extract-pdf-workflow.spec.ts"
+      - "frontend/tests/e2e/helpers.ts"
+      - "frontend/tests/e2e/fixtures.ts"
+      - ".github/workflows/frontend-e2e-extract.yml"
+
+concurrency:
+  group: frontend-e2e-extract-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-extract:
+    name: Extract pipeline (PDF upload → run → CSV)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install Yarn
+        run: npm install -g yarn
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: yarn playwright install --with-deps chromium
+
+      # ────────────────────────────────────────────────────────────────
+      # Materialize `.envs/.local/*` from the committed `.envs/.test/*`
+      # templates. Real `.envs/.local/*` files are gitignored because
+      # they hold developer-machine credentials; CI must NOT use those.
+      # The `.test` templates ship fake API keys, STORAGE_BACKEND=LOCAL,
+      # USE_AUTH0=false, and matching Postgres credentials, so they're
+      # the safe baseline. We then overlay the bits `local.yml` needs
+      # that the test templates intentionally omit:
+      #
+      #   * DATABASE_URL — local.yml's django service reads this; the
+      #     test templates leave it unset because test.yml derives it
+      #     from POSTGRES_*.
+      #   * DJANGO_SETTINGS_MODULE — flipped from `config.settings.test`
+      #     to `config.settings.local` so `local.yml`'s `/start`
+      #     entrypoint (which boots the dev server, not the test runner)
+      #     finds its expected settings module.
+      #   * PDF_PARSER=docling — keeps the workflow off LlamaParse.
+      # ────────────────────────────────────────────────────────────────
+      - name: Seed local env files (from .envs/.test)
+        run: |
+          mkdir -p .envs/.local
+          cp .envs/.test/.django .envs/.local/.django
+          cp .envs/.test/.postgres .envs/.local/.postgres
+
+          # Source the postgres template into the shell so we can build
+          # the matching DATABASE_URL local.yml expects to consume.
+          set -a
+          # shellcheck disable=SC1091
+          . .envs/.local/.postgres
+          set +a
+          echo "DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}" >> .envs/.local/.django
+
+          # `local.yml` expects local settings; the test templates pin
+          # `config.settings.test`. Replace the module rather than
+          # appending so there's no duplicate setting (env_file uses
+          # last-wins, but explicit is better than implicit).
+          sed -i 's|^DJANGO_SETTINGS_MODULE=.*|DJANGO_SETTINGS_MODULE=config.settings.local|' .envs/.local/.django
+          # The .test template sets TESTING=true; the local stack must
+          # not pick that up (it would route to the test runner code
+          # paths). Strip it.
+          sed -i '/^TESTING=/d' .envs/.local/.django
+
+          # Pin the parser away from LlamaParse — see the file-level
+          # note about Docling.
+          echo "PDF_PARSER=docling" >> .envs/.local/.django
+
+          # Sanity dump (without secrets — there are none in the .test
+          # template, but be explicit).
+          echo "--- .envs/.local/.django (head) ---"
+          grep -E '^(DJANGO_SETTINGS_MODULE|DJANGO_SUPERUSER_USERNAME|STORAGE_BACKEND|USE_AUTH0|PDF_PARSER|DATABASE_URL=postgres://)' .envs/.local/.django || true
+
+      - name: Build django image
+        run: docker compose -f local.yml build django
+
+      - name: Start backend stack with VCR replay (and coverage.py wrapping Django)
+        env:
+          OC_LLM_VCR_MODE: replay
+          OC_LLM_VCR_CASSETTE: /app/opencontractserver/tests/fixtures/cassettes/e2e_extract_pdf_workflow/extract.yaml
+          # CI provisions a fake OpenAI key — the cassette intercepts
+          # every request so this is never sent. We pin it to a clearly
+          # bogus value to make accidental real calls fail loudly.
+          OPENAI_API_KEY: sk-FAKE-VCR-CI-NOT-REAL
+          # Force the in-stack Docling microservice for PDF parsing so
+          # the workflow does not depend on LlamaParse credentials and
+          # produces no external traffic for parsing.
+          PDF_PARSER: docling
+        run: |
+          # `local.e2e-coverage.yml` swaps the Django start command for
+          # `/start-with-coverage` (coverage.py wrapping `manage.py runserver
+          # --noreload`). All other services keep their default commands.
+          docker compose -f local.yml -f local.e2e-coverage.yml up -d
+          echo "Waiting for django to become healthy…"
+          for i in {1..60}; do
+            state=$(docker inspect -f '{{.State.Health.Status}}' \
+              opencontracts-django-1 2>/dev/null || echo "starting")
+            if [ "$state" = "healthy" ]; then echo "django healthy"; break; fi
+            if [ "$i" = "60" ]; then
+              echo "django did not become healthy in time"
+              docker compose -f local.yml logs django | tail -100
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # PipelineSettings is a DB-backed singleton; the PDF_PARSER
+          # env var only affects how the singleton is *seeded*. Force
+          # the preferred parser to Docling explicitly so a pre-existing
+          # singleton (test-DB volume reuse, etc.) does not silently
+          # route this workflow through LlamaParse.
+          docker compose -f local.yml exec -T django python manage.py shell -c "
+          from opencontractserver.documents.models import PipelineSettings
+          ps = PipelineSettings.get_instance(use_cache=False)
+          docling = 'opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser'
+          for mt in ('application/pdf',
+                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                     'application/vnd.openxmlformats-officedocument.presentationml.presentation'):
+              ps.preferred_parsers[mt] = docling
+          ps.save()
+          print('preferred PDF parser:', ps.get_preferred_parser('application/pdf'))
+          "
+
+      # ────────────────────────────────────────────────────────────────
+      # Run the extract spec under coverage.
+      #
+      # COVERAGE=true causes vite-plugin-istanbul to instrument the
+      # frontend source. The fixture in `tests/e2e/fixtures.ts` extracts
+      # `window.__coverage__` after each test and dumps it under
+      # `coverage/e2e/.nyc_output/`. We then run `nyc report` directly
+      # (rather than `yarn test:e2e:coverage`, which is a multi-command
+      # shell pipeline that doesn't accept --grep filters cleanly) to
+      # merge those JSON files into an lcov report for Codecov.
+      # ────────────────────────────────────────────────────────────────
+      - name: Run Playwright extract spec with coverage
+        working-directory: ./frontend
+        env:
+          CI: "true"
+          COVERAGE: "true"
+          E2E_RUN_LLM_TESTS: "true"
+          E2E_TEST_USERNAME: admin
+          # Must match DJANGO_SUPERUSER_PASSWORD in
+          # `.envs/.test/.django` (which the seed step above copies
+          # into `.envs/.local/.django`). The .test template ships a
+          # fixed, public test password — no GitHub Secret involved.
+          E2E_TEST_PASSWORD: Openc0ntracts_def@ult
+        run: |
+          set +e
+          yarn playwright test --grep "Extract PDF workflow" --reporter=list
+          E2E_EXIT=$?
+          mkdir -p coverage/e2e/.nyc_output
+          yarn nyc report --all \
+            --reporter=lcov --reporter=text \
+            --report-dir=coverage/e2e \
+            --temp-dir=coverage/e2e/.nyc_output \
+            || echo 'No coverage data to report (nyc report failed)'
+          exit $E2E_EXIT
+
+      # ────────────────────────────────────────────────────────────────
+      # Backend coverage: gracefully stopping Django triggers
+      # coverage.py's atexit handler which writes /app/.coverage (visible
+      # on the host via the volume mount). A throwaway exec converts to
+      # XML for codecov.
+      # ────────────────────────────────────────────────────────────────
+      - name: Stop Django gracefully (triggers coverage write)
+        if: success() || failure()
+        run: docker compose -f local.yml stop -t 15 django
+
+      - name: Export backend coverage to XML
+        if: success() || failure()
+        run: |
+          docker compose -f local.yml run --rm --no-deps django \
+            coverage xml -o /app/coverage-backend-e2e-extract.xml || true
+          ls -la coverage-backend-e2e-extract.xml || true
+
+      - name: Capture backend logs on failure
+        if: failure()
+        run: |
+          mkdir -p artifacts
+          docker compose -f local.yml ps > artifacts/docker-ps.txt || true
+          docker compose -f local.yml logs --no-color > artifacts/docker-compose-logs.txt || true
+
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-extract-backend-logs
+          path: artifacts/
+
+      - name: Upload Playwright HTML report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-extract-playwright-report
+          path: frontend/playwright-report-e2e/
+          if-no-files-found: ignore
+
+      # ────────────────────────────────────────────────────────────────
+      # Codecov uploads — same flag pattern frontend-e2e.yml uses so the
+      # patch-coverage check can attribute the extract spec's coverage
+      # to the right buckets. The extra `extract` flag drilling lets the
+      # codecov UI break this job out from the broader e2e suite.
+      # ────────────────────────────────────────────────────────────────
+      - name: Upload frontend E2E coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: frontend/coverage/e2e/lcov.info
+          # Same flag pattern as `frontend-e2e.yml`. The `frontend` rollup
+          # rides along so the README badge sees this upload's coverage.
+          flags: frontend-e2e,frontend
+          name: frontend-e2e-extract-coverage
+          fail_ci_if_error: false
+          disable_search: true
+
+      - name: Upload backend E2E coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-backend-e2e-extract.xml
+          flags: backend-e2e
+          name: backend-e2e-extract-coverage
+          fail_ci_if_error: false
+          disable_search: true
+
+      - name: Tear down backend stack
+        if: always()
+        run: docker compose -f local.yml down -v

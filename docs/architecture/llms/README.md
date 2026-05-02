@@ -2280,9 +2280,9 @@ The framework is designed for extensibility. Here's how to contribute:
 
 ### Adding Core Functionality
 
-1. **Core Logic**: Add to `core_*.py` modules (e.g., `agents/core_agents.py`, `tools/core_tools.py`).
+1. **Core Logic**: Add to `core_*.py` modules (e.g., `agents/core_agents.py`) or to the relevant submodule of the `tools/core_tools/` package.
 2. **Framework Adapters**: Create new adapter in `agents/` (see "Adding a New Framework" below).
-3. **Tools**: Add to `tools/core_tools.py` for general tools, or within framework adapters for framework-specific tool handling. Ensure async versions are provided where appropriate.
+3. **Tools**: Add to the relevant submodule of the `tools/core_tools/` package (e.g. `tools/core_tools/notes.py`, `tools/core_tools/annotations.py`) for general tools, or within framework adapters for framework-specific tool handling. Re-export new public symbols from `tools/core_tools/__init__.py`. Ensure async versions are provided where appropriate.
 4. **API**: Extend `api.py` for new high-level functionality if needed (e.g., new API classes like `AgentAPI`, `ToolAPI`).
 
 ### Adding a New Framework
@@ -2607,7 +2607,7 @@ The static [`create_document_tools()`](../../../opencontractserver/llms/tools/to
 
 | Tool Name | Short Description | Source |
 |-----------|------------------|--------|
-| `aget_page_image` | Get a visual image of a specific page from a PDF | `core_tools.py` |
+| `aget_page_image` | Get a visual image of a specific page from a PDF | `core_tools/page_images.py` |
 | `alist_document_images` | List all images in a document (metadata only) | `image_tools.py` |
 | `aget_document_image` | Get image data (base64) for a specific image | `image_tools.py` |
 | `aget_annotation_images` | Get all images referenced by an annotation | `image_tools.py` |
@@ -2630,7 +2630,7 @@ When passing tools by name to `agents.for_document()`, the [`_resolve_tools()`](
 | `"search_document_notes"` | `search_document_notes` (sync) |
 | `"get_page_image"` | `get_page_image` (sync) |
 
-> **Note**: String-resolved tools use the **sync** versions from `core_tools.py`. The standard agent factory uses **async** versions wrapped as inline closures. For production use, prefer passing `CoreTool` instances or letting the factory assemble defaults.
+> **Note**: String-resolved tools use the **sync** versions from the `core_tools/` package. The standard agent factory uses **async** versions wrapped as inline closures. For production use, prefer passing `CoreTool` instances or letting the factory assemble defaults.
 
 **Legend**
 - **Requires Approval**: Tool execution pauses until a human approves the call.

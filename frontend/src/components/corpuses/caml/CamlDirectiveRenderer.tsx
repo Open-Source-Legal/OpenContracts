@@ -26,6 +26,7 @@ import {
   DirectiveHandlerContext,
 } from "./directiveRegistry";
 import {
+  buildOcComponentCustomBlocks,
   resolveComponentMarker,
   type CamlComponentRegistry,
 } from "../../../utils/camlComponents";
@@ -148,8 +149,10 @@ export const CamlDirectiveRenderer: React.FC<CamlDirectiveRendererProps> = ({
 
       // Check for embedded component markers (e.g. [component:extract-grid ...])
       // Component-marker blocks are assumed to contain no inline directives.
+      // Pass `md` as the React key so multiple markers in the same article
+      // reconcile stably (otherwise React warns about missing `key` props).
       if (componentRegistry) {
-        const resolved = resolveComponentMarker(md, componentRegistry);
+        const resolved = resolveComponentMarker(md, componentRegistry, md);
         if (resolved) {
           return (
             <ErrorBoundary
@@ -185,6 +188,15 @@ export const CamlDirectiveRenderer: React.FC<CamlDirectiveRendererProps> = ({
     componentRegistry,
   ]);
 
+  // Custom block dispatch for the project's `::: oc-component` fence used by
+  // the editor to embed components (e.g. extract grids). The fence wraps a
+  // plain `[component:TYPE ...]` marker, so we delegate to the same
+  // renderMarkdown path that handles inline markers.
+  const customBlocks = useMemo(
+    () => buildOcComponentCustomBlocks(renderMarkdown),
+    [renderMarkdown]
+  );
+
   return (
     <CamlThemeProvider>
       <CamlArticle
@@ -192,6 +204,7 @@ export const CamlDirectiveRenderer: React.FC<CamlDirectiveRendererProps> = ({
         stats={stats}
         renderMarkdown={renderMarkdown}
         resolveImageSrc={resolveImageSrc}
+        customBlocks={customBlocks}
       />
     </CamlThemeProvider>
   );

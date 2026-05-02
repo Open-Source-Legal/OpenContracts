@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -20,14 +21,22 @@ from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
     Annotation,
     AnnotationLabel,
+    LabelSet,
     Relationship,
     StructuralAnnotationSet,
 )
-from opencontractserver.corpuses.models import TemporaryFileHandle
+from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import (
     Document,
     IngestionSource,
     IngestionSourceCategory,
+)
+from opencontractserver.types.dicts import (
+    DocumentPathExport,
+    IngestionSourceExport,
+    OpenContractsExportDataJsonPythonType,
+    OpenContractsExportDataJsonV2Type,
+    OpenContractsRelationshipPythonType,
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.import_v2 import (
@@ -47,6 +56,9 @@ from opencontractserver.utils.packaging import (
     unpack_label_set_from_export,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -111,10 +123,17 @@ def import_corpus_v2(
 
 
 def _setup_corpus_and_labels(
-    data_json: dict,
-    user_obj,
+    data_json: (
+        OpenContractsExportDataJsonPythonType | OpenContractsExportDataJsonV2Type
+    ),
+    user_obj: AbstractBaseUser,
     seed_corpus_id: int | None,
-) -> tuple:
+) -> tuple[
+    Corpus,
+    LabelSet,
+    dict[str, AnnotationLabel],
+    dict[str, AnnotationLabel],
+]:
     """
     Shared setup for both V1 and V2 imports: create labelset, corpus, and labels.
 
@@ -147,14 +166,14 @@ def _setup_corpus_and_labels(
 
 def _import_document_with_annotations(
     doc_filename: str,
-    doc_data: dict,
+    doc_data: dict[str, Any],
     import_zip: zipfile.ZipFile,
-    user_obj,
-    corpus_obj,
+    user_obj: AbstractBaseUser,
+    corpus_obj: Corpus,
     label_lookup: dict[str, AnnotationLabel],
     doc_label_lookup: dict[str, AnnotationLabel],
     structural_sets: dict[str, StructuralAnnotationSet] | None = None,
-) -> tuple[Document | None, dict]:
+) -> tuple[Document | None, dict[str, int]]:
     """
     Import a single document into a corpus, handling:
     - Document creation (standalone) via shared create_document_from_export_data
@@ -225,9 +244,11 @@ def _import_document_with_annotations(
 
 
 def _import_corpus(
-    data_json: dict,
+    data_json: (
+        OpenContractsExportDataJsonPythonType | OpenContractsExportDataJsonV2Type
+    ),
     import_zip: zipfile.ZipFile,
-    user_obj,
+    user_obj: AbstractBaseUser,
     seed_corpus_id: int | None,
     version: str = "1.0",
 ) -> int | None:
@@ -256,7 +277,7 @@ def _import_corpus(
         }
 
         # ===== V2 only: Import structural annotation sets =====
-        structural_sets = {}
+        structural_sets: dict[str, StructuralAnnotationSet] = {}
         if is_v2:
             struct_sets_data = data_json.get("structural_annotation_sets", {})
             for content_hash, struct_data in struct_sets_data.items():
@@ -268,7 +289,7 @@ def _import_corpus(
             logger.info("Imported %s structural annotation sets", len(structural_sets))
 
         # ===== Shared: Import documents =====
-        all_annot_id_maps = {}  # aggregated old_id -> new_id across all docs
+        all_annot_id_maps: dict[str, int] = {}  # aggregated old_id -> new_id
         # Track doc_hash -> corpus_doc for DocumentPath reconstruction
         doc_hash_to_corpus_doc: dict[str, Document] = {}
 
@@ -363,11 +384,13 @@ def _import_corpus(
 
 
 def _import_v2_relationships(
-    relationships_data: list[dict],
-    corpus_obj,
-    annot_id_map: dict,
-    label_lookup: dict,
-    user_obj,
+    relationships_data: list[OpenContractsRelationshipPythonType],
+    corpus_obj: Corpus,
+    annot_id_map: dict[str, int],
+    label_lookup: dict[
+        tuple[str, str], AnnotationLabel
+    ],  # key: (label_text, label_type)
+    user_obj: AbstractBaseUser,
 ) -> None:
     """
     Import V2 corpus-level relationships, skipping structural ones (handled
@@ -416,8 +439,8 @@ def _import_v2_relationships(
 
 
 def _import_ingestion_sources(
-    sources_data: list[dict],
-    user_obj,
+    sources_data: list[IngestionSourceExport],
+    user_obj: AbstractBaseUser,
 ) -> dict[str, IngestionSource]:
     """
     Import or get-or-create IngestionSource records from exported data.
@@ -489,8 +512,8 @@ def _import_ingestion_sources(
 
 
 def _reconstruct_document_paths(
-    document_paths_data: list[dict],
-    corpus_obj,
+    document_paths_data: list[DocumentPathExport],
+    corpus_obj: Corpus,
     doc_hash_to_corpus_doc: dict[str, Document],
     source_name_map: dict[str, IngestionSource] | None = None,
 ) -> None:
@@ -548,7 +571,7 @@ def _reconstruct_document_paths(
             continue
 
         # Update path and version_number to match export
-        updates = {}
+        updates: dict[str, Any] = {}
         exported_path = path_data.get("path")
         if exported_path and exported_path != existing_path.path:
             updates["path"] = exported_path

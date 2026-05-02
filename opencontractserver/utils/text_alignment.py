@@ -19,9 +19,15 @@ import dataclasses
 import difflib
 import logging
 import re
+import time
 from enum import Enum
 
-from opencontractserver.constants.extraction import MAX_DOC_LENGTH_FOR_FUZZY
+from opencontractserver.constants.extraction import (
+    FUZZY_ANCHOR_MIN_NGRAM_WORDS,
+    FUZZY_PER_QUERY_TIMEOUT_SECONDS,
+    MAX_DOC_LENGTH_FOR_FUZZY,
+    MAX_QUERY_LENGTH_FOR_FUZZY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +100,51 @@ def _build_normalized_index(doc_text: str) -> tuple[str, list[int]]:
     return "".join(normalized_chars), char_map
 
 
+_WORD_RE = re.compile(r"\w+")
+
+
+def _has_anchor_ngram(
+    query: str,
+    doc_text: str,
+    *,
+    n: int = FUZZY_ANCHOR_MIN_NGRAM_WORDS,
+    doc_lower: str | None = None,
+) -> bool:
+    """Cheap pre-filter: does ``query`` share any n consecutive words with
+    ``doc_text`` as an exact substring?
+
+    Most queries that ultimately fail fuzzy alignment also fail this anchor
+    test (no n-gram of the query appears verbatim in the doc), so we can
+    skip the expensive sliding-window scan. Trades a small amount of recall
+    on pathological paraphrases for predictable grounding latency.
+
+    ``n=0`` short-circuits to ``True`` (filter disabled).
+
+    ``doc_lower`` lets the caller hoist the lowercase conversion out of a
+    per-query loop — at ``MAX_DOC_LENGTH_FOR_FUZZY`` (200 KB) every call
+    otherwise allocates a fresh 200 KB string.  When ``None`` (default),
+    the function falls back to computing it locally so single-call sites
+    don't have to plumb it through.
+    """
+    if n <= 0:
+        return True
+    words = _WORD_RE.findall(query.lower())
+    if len(words) < n:
+        # Query is shorter than the anchor window — fall back to allowing
+        # fuzzy. With <n words the short-circuit above is a no-op anyway.
+        return True
+    # Case-insensitive substring match: paraphrases often shift case
+    # (titles, sentence-initial caps) without breaking the underlying
+    # anchor.
+    if doc_lower is None:
+        doc_lower = doc_text.lower()
+    for i in range(len(words) - n + 1):
+        ngram = " ".join(words[i : i + n])
+        if ngram and ngram in doc_lower:
+            return True
+    return False
+
+
 def _fuzzy_find(
     query: str,
     doc_text: str,
@@ -119,10 +170,24 @@ def _fuzzy_find(
     # Step size: skip by 1/4 of query length for speed, min 1
     step = max(1, query_len // 4)
 
+    # Wallclock budget so a single pathological query can't pin the
+    # grounder. The window-iteration math is bounded in theory, but
+    # ``SequenceMatcher.ratio`` with ``autojunk=False`` on highly repetitive
+    # legal text occasionally degenerates badly enough to be effectively
+    # unbounded in practice.
+    deadline = time.monotonic() + FUZZY_PER_QUERY_TIMEOUT_SECONDS
+    timed_out = False
+
     for window_size in range(
         min_window, max_window + 1, max(1, (max_window - min_window) // 3)
     ):
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
         for start in range(0, len(doc_text) - window_size + 1, step):
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
             end = start + window_size
             candidate = doc_text[start:end]
             ratio = difflib.SequenceMatcher(
@@ -133,11 +198,24 @@ def _fuzzy_find(
                 best_ratio = ratio
                 best_start = start
                 best_end = end
+        if timed_out:
+            break
+
+    if timed_out:
+        logger.warning(
+            "Fuzzy search timed out after %.1fs for query (%d chars); "
+            "best ratio so far=%.2f, threshold=%.2f",
+            FUZZY_PER_QUERY_TIMEOUT_SECONDS,
+            query_len,
+            best_ratio,
+            threshold,
+        )
 
     if best_ratio < threshold or best_start < 0:
         return None
 
-    # Refine: search char-by-char around best position
+    # Refine: search char-by-char around best position. Honour the same
+    # deadline so the refinement pass can't push us over budget either.
     refine_start = max(0, best_start - step)
     refine_end_limit = min(len(doc_text), best_end + step)
 
@@ -146,12 +224,16 @@ def _fuzzy_find(
         best_end - best_start,
         best_end - best_start + 1,
     ):
+        if time.monotonic() >= deadline:
+            break
         if window_size < 1:
             continue
         for start in range(
             refine_start,
             min(refine_end_limit - window_size + 1, refine_start + 2 * step),
         ):
+            if time.monotonic() >= deadline:
+                break
             end = start + window_size
             candidate = doc_text[start:end]
             ratio = difflib.SequenceMatcher(
@@ -213,6 +295,10 @@ def align_text_to_document(
 
     # Pre-build normalized index for tier 2 (amortized across queries)
     norm_doc, char_map = _build_normalized_index(document_text)
+    # Hoist the lowercase conversion used by ``_has_anchor_ngram`` out of
+    # the per-query loop — at the fuzzy cap (200 KB) the per-call
+    # allocation cost dominated the anchor check itself.
+    doc_lower_cached: str | None = None
 
     for query in query_texts:
         if not query or len(query) < min_query_length:
@@ -271,6 +357,27 @@ def align_text_to_document(
                     query[:50],
                     len(document_text),
                     MAX_DOC_LENGTH_FOR_FUZZY,
+                )
+                continue
+            if len(query) > MAX_QUERY_LENGTH_FOR_FUZZY:
+                logger.debug(
+                    "Skipping fuzzy match: query length %d exceeds "
+                    "MAX_QUERY_LENGTH_FOR_FUZZY (%d). Multi-paragraph "
+                    "answers rarely produce useful alignments and would "
+                    "blow up the sliding-window cost.",
+                    len(query),
+                    MAX_QUERY_LENGTH_FOR_FUZZY,
+                )
+                continue
+            if doc_lower_cached is None:
+                doc_lower_cached = document_text.lower()
+            if not _has_anchor_ngram(query, document_text, doc_lower=doc_lower_cached):
+                logger.debug(
+                    "Skipping fuzzy match: query %r has no exact %d-gram "
+                    "anchor in document. Most queries that fail this test "
+                    "also fail the sliding-window scan, so skip both.",
+                    query[:50],
+                    FUZZY_ANCHOR_MIN_NGRAM_WORDS,
                 )
                 continue
             fuzzy_result = _fuzzy_find(query, document_text, fuzzy_threshold)

@@ -1,13 +1,24 @@
 """GraphQL type definitions for shared utilities, enums, and simple types."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import graphene
 from graphene.types.generic import GenericScalar
 from graphql_relay import to_global_id
 
+if TYPE_CHECKING:
+    from config.graphql.annotation_types import AnnotationType
+    from config.graphql.corpus_types import CorpusFolderType
+    from config.graphql.user_types import UserType
+
 
 def build_flat_tree(
-    nodes: list, type_name: str = "AnnotationType", text_key: str = "raw_text"
-) -> list:
+    nodes: list[dict[str, Any]],
+    type_name: str = "AnnotationType",
+    text_key: str = "raw_text",
+) -> list[dict[str, Any]]:
     """
     Builds a flat list of node representations from a list of dictionaries where each
     has at least 'id' and 'parent_id', plus an additional text field (default "raw_text")
@@ -25,7 +36,7 @@ def build_flat_tree(
             - "children": list of child node global IDs.
     """
     # Map node IDs to their immediate children IDs
-    id_to_children = {}
+    id_to_children: dict[int | str, list[int | str]] = {}
     for node in nodes:
         node_id = node["id"]
         parent_id = node["parent_id"]
@@ -225,19 +236,19 @@ class PageAwareAnnotationType(graphene.ObjectType):
     page_annotations = graphene.List(lambda: _get_annotation_type())
 
 
-def _get_user_type():
+def _get_user_type() -> type[UserType]:
     from config.graphql.user_types import UserType
 
     return UserType
 
 
-def _get_corpus_folder_type():
+def _get_corpus_folder_type() -> type[CorpusFolderType]:
     from config.graphql.corpus_types import CorpusFolderType
 
     return CorpusFolderType
 
 
-def _get_annotation_type():
+def _get_annotation_type() -> type[AnnotationType]:
     from config.graphql.annotation_types import AnnotationType
 
     return AnnotationType

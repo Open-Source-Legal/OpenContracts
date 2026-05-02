@@ -8,7 +8,6 @@ import logging
 import graphene
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.db.models import Q
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id, to_global_id
 
@@ -20,7 +19,10 @@ from config.graphql.serializers import LabelsetSerializer
 from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.permissioning import (
+    set_permissions_for_obj_to_user,
+    user_has_permission_for_obj,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,9 @@ class CreateLabelset(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(root, info, title, description, filename=None, base64_icon_string=None):
+    def mutate(
+        root, info, title, description, filename=None, base64_icon_string=None
+    ) -> "CreateLabelset":
         if base64_icon_string is None:
             base64_icon_string = settings.DEFAULT_IMAGE
 
@@ -160,7 +164,9 @@ class DeleteMultipleLabelMutation(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    def mutate(root, info, annotation_label_ids_to_delete):
+    def mutate(
+        root, info, annotation_label_ids_to_delete
+    ) -> "DeleteMultipleLabelMutation":
         user = info.context.user
         try:
             label_pks = list(
@@ -216,31 +222,70 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
     obj_id = graphene.ID()
 
     @login_required
-    def mutate(root, info, labelset_id, text, description, color, icon, label_type):
+    def mutate(
+        root,
+        info,
+        labelset_id,
+        text=None,
+        description=None,
+        color=None,
+        icon=None,
+        label_type=None,
+    ) -> "CreateLabelForLabelsetMutation":
 
         ok = False
         obj = None
         obj_id = None
 
-        # Validate color format (defense in depth)
-        is_valid_color, color_error = validate_color(color)
-        if not is_valid_color:
-            return CreateLabelForLabelsetMutation(
-                obj=None, obj_id=None, message=color_error, ok=False
-            )
-
         try:
-            labelset = LabelSet.objects.get(
-                pk=from_global_id(labelset_id)[1], creator=info.context.user
-            )
+            # Permission check runs before validation so a non-owner cannot
+            # distinguish "reached validation" from "denied" via different
+            # error messages (IDOR mitigation — see
+            # docs/permissioning/consolidated_permissioning_guide.md).
+            labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
+            if not user_has_permission_for_obj(
+                info.context.user,
+                labelset,
+                PermissionTypes.UPDATE,
+                include_group_permissions=True,
+            ):
+                raise LabelSet.DoesNotExist()
+
+            # Reject blank text explicitly: Django's ``blank=False`` is
+            # form-only and ``objects.create()`` would silently apply the
+            # "Text Label" model default.
+            if not (text and text.strip()):
+                return CreateLabelForLabelsetMutation(
+                    obj=None,
+                    obj_id=None,
+                    message="Label text is required and cannot be blank.",
+                    ok=False,
+                )
+
+            if color == "":
+                color = None
+            is_valid_color, color_error = validate_color(color)
+            if not is_valid_color:
+                return CreateLabelForLabelsetMutation(
+                    obj=None, obj_id=None, message=color_error, ok=False
+                )
+
             logger.debug("CreateLabelForLabelsetMutation - mutate / Labelset", labelset)
+            # Drop None/"" so model field defaults apply rather than
+            # writing blank values at the DB level.
+            create_kwargs = {
+                k: v
+                for k, v in {
+                    "text": text,
+                    "description": description,
+                    "color": color,
+                    "icon": icon,
+                    "label_type": label_type,
+                }.items()
+                if v is not None and v != ""
+            }
             obj = AnnotationLabel.objects.create(
-                text=text,
-                description=description,
-                color=color,
-                icon=icon,
-                label_type=label_type,
-                creator=info.context.user,
+                creator=info.context.user, **create_kwargs
             )
             obj_id = to_global_id("AnnotationLabelType", obj.id)
             logger.debug("CreateLabelForLabelsetMutation - mutate / Created label", obj)
@@ -257,7 +302,19 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             message = "SUCCESS"
             logger.debug("Done")
 
+        except LabelSet.DoesNotExist:
+            # Auth rejection or genuine 404 — warn without stack trace.
+            logger.warning(
+                "CreateLabelForLabelsetMutation: labelset not found or "
+                "permission denied (labelset_id=%s)",
+                labelset_id,
+            )
+            message = (
+                "Failed to create label for labelset due to error: "
+                "LabelSet matching query does not exist."
+            )
         except Exception as e:
+            logger.exception("CreateLabelForLabelsetMutation failed")
             message = f"Failed to create label for labelset due to error: {e}"
 
         return CreateLabelForLabelsetMutation(
@@ -280,7 +337,9 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    def mutate(root, info, label_ids, labelset_id):
+    def mutate(
+        root, info, label_ids, labelset_id
+    ) -> "RemoveLabelsFromLabelsetMutation":
 
         ok = False
 
@@ -289,16 +348,31 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
             label_pks = list(
                 map(lambda graphene_id: from_global_id(graphene_id)[1], label_ids)
             )
-            labelset = LabelSet.objects.get(
-                Q(pk=from_global_id(labelset_id)[1])
-                & (Q(creator=user) | Q(is_public=True))
-            )
-            labelset_labels = labelset.documents.filter(pk__in=label_pks)
-            labelset.annotation_labels.remove(*labelset_labels)
+            labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
+            if not user_has_permission_for_obj(
+                user,
+                labelset,
+                PermissionTypes.UPDATE,
+                include_group_permissions=True,
+            ):
+                raise LabelSet.DoesNotExist()
+            labelset.annotation_labels.remove(*label_pks)
             ok = True
             message = "Success"
 
+        except LabelSet.DoesNotExist:
+            # Auth rejection or genuine 404 — warn without stack trace.
+            logger.warning(
+                "RemoveLabelsFromLabelsetMutation: labelset not found or "
+                "permission denied (labelset_id=%s)",
+                labelset_id,
+            )
+            message = (
+                "Error removing label(s) from labelset: "
+                "LabelSet matching query does not exist."
+            )
         except Exception as e:
+            logger.exception("RemoveLabelsFromLabelsetMutation failed")
             message = f"Error removing label(s) from labelset: {e}"
 
         return RemoveLabelsFromLabelsetMutation(message=message, ok=ok)

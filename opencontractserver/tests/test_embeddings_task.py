@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 
+from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.utils.embeddings import get_embedder
@@ -299,7 +300,7 @@ class TestAnnotationSignals(unittest.TestCase):
 
         # Call the signal handler
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Verify embedding calculation was scheduled with corpus_id=None
@@ -327,7 +328,7 @@ class TestAnnotationSignals(unittest.TestCase):
 
         # Call the signal handler
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Verify embedding calculation was scheduled with the corpus_id
@@ -354,7 +355,7 @@ class TestAnnotationSignals(unittest.TestCase):
 
         # Call the signal handler
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Verify embedding calculation was NOT scheduled
@@ -375,7 +376,7 @@ class TestAnnotationSignals(unittest.TestCase):
         mock_note.embedding = None
 
         # Call the signal handler
-        process_note_on_create_atomic(sender=None, instance=mock_note, created=True)
+        process_note_on_create_atomic(sender=Note, instance=mock_note, created=True)
 
         # Verify embedding calculation was scheduled with corpus_id
         mock_calc_embedding.si.assert_called_with(note_id=1, corpus_id=100)
@@ -401,7 +402,7 @@ class TestAnnotationSignals(unittest.TestCase):
         mock_annotation.embedding = None
 
         process_annot_on_create_atomic(
-            sender=None, instance=mock_annotation, created=True
+            sender=Annotation, instance=mock_annotation, created=True
         )
 
         # Should schedule embedding with corpus_id=None
@@ -1293,16 +1294,22 @@ class TestArrayFormatHandling(unittest.TestCase):
         embedder = MicroserviceEmbedder()
 
         # Simulate 1D response: [0.1, 0.2, 0.3]
-        with patch("requests.post") as mock_post:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"embeddings": [0.1, 0.2, 0.3]}
-            mock_post.return_value = mock_response
+        # PR #1380 routes embedder requests through a shared session, so
+        # patch the session getter instead of the global requests.post.
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"embeddings": [0.1, 0.2, 0.3]}
+        mock_session.post.return_value = mock_response
 
+        with patch(
+            "opencontractserver.pipeline.embedders.sent_transformer_microservice._get_session",
+            return_value=mock_session,
+        ):
             result = embedder.embed_text("test")
 
-            self.assertEqual(result, [0.1, 0.2, 0.3])
-            self.assertIsInstance(result, list)
+        self.assertEqual(result, [0.1, 0.2, 0.3])
+        self.assertIsInstance(result, list)
 
     def test_microservice_embedder_handles_2d_array(self):
         """Test that MicroserviceEmbedder correctly handles 2D array responses."""
@@ -1313,16 +1320,20 @@ class TestArrayFormatHandling(unittest.TestCase):
         embedder = MicroserviceEmbedder()
 
         # Simulate 2D response: [[0.1, 0.2, 0.3]]
-        with patch("requests.post") as mock_post:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"embeddings": [[0.1, 0.2, 0.3]]}
-            mock_post.return_value = mock_response
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"embeddings": [[0.1, 0.2, 0.3]]}
+        mock_session.post.return_value = mock_response
 
+        with patch(
+            "opencontractserver.pipeline.embedders.sent_transformer_microservice._get_session",
+            return_value=mock_session,
+        ):
             result = embedder.embed_text("test")
 
-            self.assertEqual(result, [0.1, 0.2, 0.3])
-            self.assertIsInstance(result, list)
+        self.assertEqual(result, [0.1, 0.2, 0.3])
+        self.assertIsInstance(result, list)
 
     def test_multimodal_embedder_handles_1d_array(self):
         """Test that CLIPMicroserviceEmbedder correctly handles 1D array responses."""
@@ -1376,15 +1387,19 @@ class TestArrayFormatHandling(unittest.TestCase):
         # Force settings to None to exercise the fallback path
         embedder._settings = None
 
-        with patch("requests.post") as mock_post:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"embeddings": [0.1, 0.2, 0.3]}
-            mock_post.return_value = mock_response
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"embeddings": [0.1, 0.2, 0.3]}
+        mock_session.post.return_value = mock_response
 
+        with patch(
+            "opencontractserver.pipeline.embedders.sent_transformer_microservice._get_session",
+            return_value=mock_session,
+        ):
             result = embedder.embed_text("test")
 
-            self.assertEqual(result, [0.1, 0.2, 0.3])
+        self.assertEqual(result, [0.1, 0.2, 0.3])
 
     def test_clip_embedder_settings_none_fallback(self):
         """CLIPMicroserviceEmbedder._get_service_config falls back to Settings()."""

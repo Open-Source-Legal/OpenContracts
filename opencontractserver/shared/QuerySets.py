@@ -1,3 +1,5 @@
+from typing import Any, Optional
+
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -7,26 +9,26 @@ from opencontractserver.shared.mixins import VectorSearchViaEmbeddingMixin
 
 
 class PermissionedTreeQuerySet(TreeQuerySet):
-    def approved(self):
+    def approved(self) -> "PermissionedTreeQuerySet":
         return self.filter(approved=True)
 
-    def rejected(self):
+    def rejected(self) -> "PermissionedTreeQuerySet":
         return self.filter(rejected=True)
 
-    def pending(self):
+    def pending(self) -> "PermissionedTreeQuerySet":
         return self.filter(approved=False, rejected=False)
 
-    def recent(self, days=30):
+    def recent(self, days: int = 30) -> "PermissionedTreeQuerySet":
         recent_date = timezone.now() - timezone.timedelta(days=days)
         return self.filter(created__gte=recent_date)
 
-    def with_comments(self):
+    def with_comments(self) -> "PermissionedTreeQuerySet":
         return self.exclude(comment="")
 
-    def by_creator(self, creator):
+    def by_creator(self, creator: Any) -> "PermissionedTreeQuerySet":
         return self.filter(creator=creator)
 
-    def visible_to_user(self, user):
+    def visible_to_user(self, user: Any) -> "PermissionedTreeQuerySet":
         """
         Gets queryset with_tree_fields that is visible to user. At moment, we're JUST filtering
         on creator and is_public, BUT this will filter on per-obj permissions later.
@@ -84,31 +86,31 @@ class PermissionedTreeQuerySet(TreeQuerySet):
 
         return queryset.with_tree_fields()
 
-    def with_tree_fields(self):
+    def with_tree_fields(self) -> "PermissionedTreeQuerySet":
         return super().with_tree_fields()
 
 
 class UserFeedbackQuerySet(models.QuerySet):
-    def approved(self):
+    def approved(self) -> "UserFeedbackQuerySet":
         return self.filter(approved=True)
 
-    def rejected(self):
+    def rejected(self) -> "UserFeedbackQuerySet":
         return self.filter(rejected=True)
 
-    def pending(self):
+    def pending(self) -> "UserFeedbackQuerySet":
         return self.filter(approved=False, rejected=False)
 
-    def recent(self, days=30):
+    def recent(self, days: int = 30) -> "UserFeedbackQuerySet":
         recent_date = timezone.now() - timezone.timedelta(days=days)
         return self.filter(created__gte=recent_date)
 
-    def with_comments(self):
+    def with_comments(self) -> "UserFeedbackQuerySet":
         return self.exclude(comment="")
 
-    def by_creator(self, creator):
+    def by_creator(self, creator: Any) -> "UserFeedbackQuerySet":
         return self.filter(creator=creator)
 
-    def visible_to_user(self, user):
+    def visible_to_user(self, user: Any) -> "UserFeedbackQuerySet":
         if user.is_superuser:
             return self.all()
 
@@ -133,7 +135,9 @@ class UserFeedbackQuerySet(models.QuerySet):
 
 
 class PermissionQuerySet(models.QuerySet):
-    def visible_to_user(self, user, perm=None):
+    def visible_to_user(
+        self, user: Any, perm: Optional[str] = None
+    ) -> "PermissionQuerySet":
 
         if user.is_superuser:
             return self.all()
@@ -193,7 +197,9 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
     with guardian checks and vector-based search.
     """
 
-    def visible_to_user(self, user, perm=None):
+    def visible_to_user(
+        self, user: Any, perm: Optional[str] = None
+    ) -> "DocumentQuerySet":
         """
         Override PermissionQuerySet.visible_to_user to include guardian
         permission checks. Without this override, chaining
@@ -247,7 +253,9 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
     that works on any queryset, so CTEQuerySet inheritance is no longer needed.
     """
 
-    def visible_to_user(self, user, perm=None):
+    def visible_to_user(
+        self, user: Any, perm: Optional[str] = None
+    ) -> "AnnotationQuerySet":
         """
         Override to properly handle annotation privacy model.
         This ensures that even when AnnotationQueryOptimizer isn't used,
@@ -397,7 +405,7 @@ class NoteQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
     that works on any queryset, so CTEQuerySet inheritance is no longer needed.
     """
 
-    def visible_to_user(self, user, perm=None):
+    def visible_to_user(self, user: Any, perm: Optional[str] = None) -> "NoteQuerySet":
         """
         Notes inherit visibility from document + corpus.
         A note is visible if:

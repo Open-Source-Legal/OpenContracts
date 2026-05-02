@@ -126,14 +126,44 @@ export function buildComponentMarker(
 }
 
 /**
- * Wrap a marker in a CAML prose block fence, ready for insertion into
- * the editor source.
+ * Name of the custom CAML fence used to embed an OpenContracts component.
+ *
+ * The library's parser does not have a dedicated case for `::: prose`, so a
+ * `::: prose` fence ends up as `{type: "prose", body, ...}` *without* a
+ * `content` field — and `ProseBlock` then crashes inside `splitPullquotes`.
+ * Using a project-specific block type sidesteps the missing case: unknown
+ * types fall through to the renderer's `customBlocks` lookup, where we own
+ * the rendering and can simply pass the marker text to our resolver.
+ */
+export const OC_COMPONENT_FENCE = "oc-component";
+
+/**
+ * Shape of a parsed `::: oc-component` block produced by @os-legal/caml.
+ * Used by `customBlocks` handlers when the renderer dispatches an
+ * `oc-component` fence. Only `body` is read by the OpenContracts dispatcher;
+ * the other fields are included for completeness.
+ */
+export interface OcComponentBlock {
+  type: string;
+  body?: string;
+  attrs?: Record<string, string>;
+}
+
+/**
+ * Wrap a marker in a CAML fence ready for insertion into the editor source.
+ *
+ * The marker text is preserved verbatim inside the fence body so existing
+ * marker parsers (`parseComponentMarker`, `resolveComponentMarker`) keep
+ * working against the same `[component:TYPE ...]` shape.
  */
 export function buildComponentProseFence(
   type: string,
   props: CamlComponentProps
 ): string {
-  return `\n::: prose\n${buildComponentMarker(type, props)}\n:::\n`;
+  return `\n::: ${OC_COMPONENT_FENCE}\n${buildComponentMarker(
+    type,
+    props
+  )}\n:::\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,4 +191,24 @@ export function resolveComponentMarker(
   const Component = registry[parsed.type];
   if (!Component) return null;
   return React.createElement(Component, { key, ...parsed.props });
+}
+
+/**
+ * Build the `customBlocks` object passed to `<CamlArticle>` for the
+ * project-specific `::: oc-component` fence.
+ *
+ * Both `useCamlComponentRenderer` and `CamlDirectiveRenderer` need to forward
+ * the fence body through their own `renderMarkdown` so the inline-marker path
+ * can resolve registered components. Centralising the lookup keeps the
+ * `OcComponentBlock` cast and the body-extraction logic in one place.
+ */
+export function buildOcComponentCustomBlocks(
+  renderMarkdown: (md: string) => React.ReactNode
+): Record<string, (block: unknown) => React.ReactNode> {
+  return {
+    [OC_COMPONENT_FENCE]: (block: unknown) => {
+      const body = ((block as OcComponentBlock | undefined)?.body ?? "").trim();
+      return renderMarkdown(body);
+    },
+  };
 }

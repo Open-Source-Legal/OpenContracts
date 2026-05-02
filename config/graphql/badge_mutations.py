@@ -68,7 +68,7 @@ class CreateBadgeMutation(graphene.Mutation):
         corpus_id=None,
         is_auto_awarded=False,
         criteria_config=None,
-    ):
+    ) -> "CreateBadgeMutation":
         user = info.context.user
 
         try:
@@ -196,7 +196,7 @@ class UpdateBadgeMutation(graphene.Mutation):
         color=None,
         is_auto_awarded=None,
         criteria_config=None,
-    ):
+    ) -> "UpdateBadgeMutation":
         user = info.context.user
 
         try:
@@ -323,7 +323,7 @@ class DeleteBadgeMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, badge_id):
+    def mutate(root, info, badge_id) -> "DeleteBadgeMutation":
         user = info.context.user
 
         try:
@@ -392,7 +392,7 @@ class AwardBadgeMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate="5/m")  # More restrictive rate limit for awarding
-    def mutate(root, info, badge_id, user_id, corpus_id=None):
+    def mutate(root, info, badge_id, user_id, corpus_id=None) -> "AwardBadgeMutation":
         awarder = info.context.user
 
         try:
@@ -498,7 +498,7 @@ class RevokeBadgeMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, user_badge_id):
+    def mutate(root, info, user_badge_id) -> "RevokeBadgeMutation":
         user = info.context.user
 
         try:

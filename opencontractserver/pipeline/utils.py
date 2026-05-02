@@ -2,12 +2,14 @@ import importlib
 import inspect
 import logging
 import pkgutil
+import threading
 from typing import Any, Optional, Union
 
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME, FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
+from opencontractserver.pipeline.base.reranker import BaseReranker
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.types.dicts import OpenContractsExportDataJsonPythonType
 
@@ -80,6 +82,16 @@ def get_all_post_processors() -> list[type[BasePostProcessor]]:
     return get_all_subclasses(
         "opencontractserver.pipeline.post_processors", BasePostProcessor
     )
+
+
+def get_all_rerankers() -> list[type[BaseReranker]]:
+    """
+    Get all reranker classes.
+
+    Returns:
+        List[Type[BaseReranker]]: List of reranker classes.
+    """
+    return get_all_subclasses("opencontractserver.pipeline.rerankers", BaseReranker)
 
 
 def get_components_by_mimetype(
@@ -265,6 +277,7 @@ def get_component_by_name(component_name: str) -> type:
                     or issubclass(obj, BaseEmbedder)
                     or issubclass(obj, BaseThumbnailGenerator)
                     or issubclass(obj, BasePostProcessor)
+                    or issubclass(obj, BaseReranker)
                 ):
                     return obj
         except (ModuleNotFoundError, AttributeError):
@@ -276,6 +289,7 @@ def get_component_by_name(component_name: str) -> type:
         "opencontractserver.pipeline.embedders",
         "opencontractserver.pipeline.thumbnailers",
         "opencontractserver.pipeline.post_processors",
+        "opencontractserver.pipeline.rerankers",
     ]
 
     for base_path in base_paths:
@@ -290,6 +304,7 @@ def get_component_by_name(component_name: str) -> type:
                         and obj != BaseThumbnailGenerator
                     )
                     or (issubclass(obj, BasePostProcessor) and obj != BasePostProcessor)
+                    or (issubclass(obj, BaseReranker) and obj != BaseReranker)
                 ):
                     return obj
         except ModuleNotFoundError:
@@ -488,3 +503,194 @@ def run_post_processors(
             raise
 
     return current_zip_bytes, current_export_data
+
+
+# --------------------------------------------------------------------------- #
+# Reranker helpers
+# --------------------------------------------------------------------------- #
+# Process-local cache of reranker *instances* keyed by (class path,
+# PipelineSettings.modified). Rerankers (especially cross-encoder backends)
+# can be expensive to instantiate because ``__init__`` loads component
+# settings from the database and cross-encoder model weights are large.
+#
+# Cross-worker coherence: the cache key includes PipelineSettings.modified.
+# Every config change bumps that timestamp, which propagates to all workers
+# via PipelineSettings' Django cache (shared Redis). The next lookup in each
+# worker misses on the new key and re-loads, so all workers converge to the
+# new reranker within Django's PipelineSettings cache TTL (5 minutes).
+#
+# Failure handling: we deliberately do NOT cache failures. A transient
+# instantiation error in one worker (e.g. network blip reaching a remote
+# reranker) must not pin that worker to "no reranking" while sibling workers
+# continue to rerank -- that would produce unpredictable per-query behaviour
+# depending on which worker served the request. Each call retries. The
+# cost is bounded: import errors are cheap, and genuine service outages are
+# rare relative to query volume. The caller treats ``None`` as "skip
+# reranking this call" so correctness is preserved either way.
+_RERANKER_INSTANCE_CACHE: dict[tuple[str, Any], BaseReranker] = {}
+# Guards against two concurrent retrievals paying the reranker-construction
+# cost twice. Instance lookups after warm-up are read-only so no lock is
+# needed on the hot path.
+_RERANKER_CACHE_LOCK = threading.Lock()
+
+
+def _get_reranker_cache_key(class_path: str) -> tuple[str, Any]:
+    """Cache key that changes whenever PipelineSettings is written.
+
+    Using ``modified`` (auto_now DateTime) means every edit — even one
+    that doesn't touch the reranker path — invalidates the local cache
+    across all workers on their next lookup. That's conservative but
+    cheap; reranker construction dominates over a cache miss.
+    """
+    from opencontractserver.documents.models import PipelineSettings
+
+    modified = PipelineSettings.get_instance().modified
+    return (class_path, modified)
+
+
+def get_default_reranker_path() -> str:
+    """
+    Get the default reranker class path from the database PipelineSettings
+    singleton. Returns empty string when no reranker is configured.
+    """
+    from opencontractserver.documents.models import PipelineSettings
+
+    return PipelineSettings.get_instance().get_default_reranker()
+
+
+def get_default_reranker_class() -> Optional[type[BaseReranker]]:
+    """
+    Resolve the configured default reranker class path to an actual class.
+
+    Returns ``None`` when no reranker is configured, or when the configured
+    class path cannot be imported (missing optional dependency, typo, etc.).
+    The caller is responsible for treating ``None`` as "reranking disabled".
+    """
+    class_path = get_default_reranker_path()
+    if not class_path:
+        return None
+    try:
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        reranker_class = getattr(module, class_name)
+    except (ModuleNotFoundError, AttributeError, ValueError) as e:
+        logger.warning(f"Error loading reranker '{class_path}': {e}")
+        return None
+
+    if not isinstance(reranker_class, type) or not issubclass(
+        reranker_class, BaseReranker
+    ):
+        logger.warning(
+            f"Configured default reranker '{class_path}' is not a BaseReranker subclass"
+        )
+        return None
+    return reranker_class
+
+
+def get_default_reranker_instance(
+    *, require: Optional[bool] = None
+) -> Optional[BaseReranker]:
+    """
+    Return a process-cached instance of the configured default reranker.
+
+    Args:
+        require: When True, raise :class:`RerankerUnavailableError` instead
+            of returning ``None`` if the reranker is unconfigured or fails
+            to instantiate. Defaults to the ``STRICT_RERANKER`` Django
+            setting (which itself defaults to False). Set this for
+            benchmark runs and anywhere silent fallback would poison
+            results.
+
+    Returns:
+        A reranker instance, or ``None`` when unconfigured / unavailable
+        and ``require`` is False.
+
+    Raises:
+        RerankerUnavailableError: When ``require`` is True and the
+        reranker cannot be provided.
+
+    Instantiation failures are intentionally NOT cached: a transient error
+    in one worker must not pin that worker to degraded behaviour while
+    siblings continue reranking successfully. See the module-level comment
+    for the rationale.
+
+    Cache invalidation: the cache key includes ``PipelineSettings.modified``,
+    so DB writes bust it process-wide. Tests that patch settings purely
+    in-memory will hit stale instances — set ``STRICT_RERANKER`` (which
+    bypasses the cache fast-path) or call :func:`invalidate_reranker_cache`
+    explicitly if you need a fresh instance from a fixture.
+
+    Caveat (issue #1410): ``modified`` is an ``auto_now`` field that only
+    ticks on ``save()`` / ``Model.save()``-equivalent code paths. Any code
+    that bypasses ``save()`` — e.g., ``QuerySet.update``, ``bulk_update``,
+    or a data migration that writes ``default_reranker`` directly — will
+    *not* bump ``modified``, so workers can stay pinned on the stale cached
+    instance until their process restarts. If you must mutate the singleton
+    from a migration or bulk-update path, also call
+    :func:`invalidate_reranker_cache` (or touch ``modified`` explicitly) so
+    every worker picks up the new config on its next lookup.
+    """
+    from django.conf import settings as django_settings
+
+    from opencontractserver.pipeline.base.reranker import RerankerUnavailableError
+
+    if require is None:
+        require = bool(getattr(django_settings, "STRICT_RERANKER", False))
+
+    class_path = get_default_reranker_path()
+    if not class_path:
+        if require:
+            raise RerankerUnavailableError(
+                "STRICT_RERANKER=True but no default reranker is configured"
+            )
+        return None
+
+    cache_key = _get_reranker_cache_key(class_path)
+    cached = _RERANKER_INSTANCE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    with _RERANKER_CACHE_LOCK:
+        # Double-check after acquiring the lock -- another thread may have
+        # populated the cache while we waited.
+        cached = _RERANKER_INSTANCE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        reranker_class = get_default_reranker_class()
+        if reranker_class is None:
+            if require:
+                raise RerankerUnavailableError(
+                    f"Reranker '{class_path}' could not be loaded "
+                    "(missing dependency, bad class path, or not a "
+                    "BaseReranker subclass)"
+                )
+            return None
+
+        try:
+            instance = reranker_class()
+        except Exception as e:
+            if require:
+                raise RerankerUnavailableError(
+                    f"Failed to instantiate reranker '{class_path}': {e}"
+                ) from e
+            logger.warning(
+                f"Failed to instantiate reranker '{class_path}': {e}. "
+                "Skipping reranking for this call; will retry on the next."
+            )
+            return None
+
+        _RERANKER_INSTANCE_CACHE[cache_key] = instance
+        return instance
+
+
+def invalidate_reranker_cache() -> None:
+    """Drop cached reranker instances.
+
+    In normal operation this is unnecessary — the cache key includes
+    ``PipelineSettings.modified`` so any settings write naturally
+    invalidates the cache on the next lookup across all workers. Kept
+    for test isolation and for callers that want an immediate purge.
+    """
+    with _RERANKER_CACHE_LOCK:
+        _RERANKER_INSTANCE_CACHE.clear()

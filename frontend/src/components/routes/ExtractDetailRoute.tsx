@@ -1,60 +1,28 @@
-import React, { useEffect } from "react";
-import { useParams } from "react-router-dom";
-import { useQuery, useReactiveVar } from "@apollo/client";
+import React from "react";
+import { useReactiveVar } from "@apollo/client";
 import { MetaTags } from "../seo/MetaTags";
 import { ModernLoadingDisplay } from "../widgets/ModernLoadingDisplay";
 import { ModernErrorDisplay } from "../widgets/ModernErrorDisplay";
 import { ErrorBoundary } from "../widgets/ErrorBoundary";
-import { openedExtract } from "../../graphql/cache";
+import { openedExtract, routeLoading, routeError } from "../../graphql/cache";
 import { ExtractDetail } from "../../views/ExtractDetail";
-import {
-  RESOLVE_EXTRACT_BY_ID,
-  ResolveExtractByIdOutput,
-  ResolveExtractByIdInput,
-} from "../../graphql/queries";
 
 /**
- * ExtractDetailRoute - Handles the /extracts/:extractId route
+ * ExtractDetailRoute - Renders the extract detail view for /extracts/:extractId
+ * and /e/:userIdent/:extractIdent.
  *
- * This is the new route-based pattern for viewing extract details,
- * replacing the modal-based EditExtractModal.
- *
- * Route pattern: /extracts/:extractId
+ * URL parsing, GraphQL resolution, and reactive-var population are owned by
+ * CentralRouteManager. This component reads the resolved state and renders.
  */
 export const ExtractDetailRoute: React.FC = () => {
-  const { extractId } = useParams<{ extractId: string }>();
+  const extract = useReactiveVar(openedExtract);
+  const loading = useReactiveVar(routeLoading);
+  const error = useReactiveVar(routeError);
 
-  // Check if we already have the extract from reactive var
-  const existingExtract = useReactiveVar(openedExtract);
-
-  // Query to resolve extract by ID if not already loaded
-  const { loading, error, data } = useQuery<
-    ResolveExtractByIdOutput,
-    ResolveExtractByIdInput
-  >(RESOLVE_EXTRACT_BY_ID, {
-    variables: { extractId: extractId ?? "" },
-    skip: !extractId || existingExtract?.id === extractId,
-    fetchPolicy: "network-only",
-  });
-
-  // Set the opened extract when query completes
-  useEffect(() => {
-    if (data?.extract) {
-      openedExtract(data.extract);
-    }
-  }, [data]);
-
-  // Handle missing extractId
-  if (!extractId) {
-    return <ModernErrorDisplay type="extract" error="No extract ID provided" />;
-  }
-
-  // Loading state
-  if (loading && !existingExtract) {
+  if (loading && !extract) {
     return <ModernLoadingDisplay type="extract" size="large" />;
   }
 
-  // Error state
   if (error) {
     return (
       <ModernErrorDisplay
@@ -64,20 +32,15 @@ export const ExtractDetailRoute: React.FC = () => {
     );
   }
 
-  // Get the extract to display
-  const extract =
-    existingExtract?.id === extractId ? existingExtract : data?.extract;
-
-  // Not found state
-  if (!extract && !loading) {
+  if (!extract) {
     return <ModernErrorDisplay type="extract" error="Extract not found" />;
   }
 
   return (
     <ErrorBoundary>
       <MetaTags
-        title={extract?.name || "Extract"}
-        description={`Extract: ${extract?.name}`}
+        title={extract.name || "Extract"}
+        description={`Extract: ${extract.name}`}
         entity={extract}
         entityType="extract"
       />

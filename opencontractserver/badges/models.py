@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -86,7 +88,7 @@ class Badge(BaseOCModel):
             ("remove_badge", "remove badge"),
         )
 
-    def clean(self):
+    def clean(self) -> None:
         """
         Validate that corpus-specific badges have a corpus and global badges don't.
         Also validate criteria_config structure for auto-awarded badges using the registry.
@@ -159,11 +161,11 @@ class Badge(BaseOCModel):
                 }
             )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         scope = f" ({self.corpus.title})" if self.corpus else " (Global)"
         return f"{self.name}{scope}"
 
@@ -232,7 +234,7 @@ class UserBadge(models.Model):
             models.Index(fields=["badge", "corpus"]),
         ]
 
-    def clean(self):
+    def clean(self) -> None:
         """
         Validate that corpus-specific badge awards have matching corpus references.
         """
@@ -254,9 +256,9 @@ class UserBadge(models.Model):
                     {"corpus": "Global badges cannot have a corpus context."}
                 )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.badge.name} → {self.user.username} ({self.awarded_at.date()})"

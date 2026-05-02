@@ -1,0 +1,18 @@
+# Compose override for the frontend-e2e-extract CI job.
+#
+# Mirrors `test.e2e-coverage.yml` but for the `local.yml` stack, which is
+# what the extract pipeline e2e uses (extract orchestration needs a real
+# celery worker, which `test.yml` doesn't ship). Swaps the Django start
+# command so the dev server runs under coverage.py, measuring all backend
+# code exercised by Playwright HTTP requests.
+#
+# We do NOT instrument celeryworker — its `pytest --cov` measurement path
+# is the unit-test job's concern; this override targets the request layer
+# coverage that the e2e walk would otherwise leave dark.
+#
+# Usage:
+#   docker compose -f local.yml -f local.e2e-coverage.yml up -d
+#
+services:
+  django:
+    command: /start-with-coverage

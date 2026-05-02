@@ -53,7 +53,7 @@ class VoteMessageMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, message_id, vote_type):
+    def mutate(root, info, message_id, vote_type) -> "VoteMessageMutation":
         ok = False
         obj = None
         message_text = ""
@@ -137,7 +137,7 @@ class RemoveVoteMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, message_id):
+    def mutate(root, info, message_id) -> "RemoveVoteMutation":
         ok = False
         obj = None
         message_text = ""
@@ -200,7 +200,7 @@ class VoteConversationMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, conversation_id, vote_type):
+    def mutate(root, info, conversation_id, vote_type) -> "VoteConversationMutation":
         ok = False
         obj = None
         message_text = ""
@@ -291,7 +291,7 @@ class RemoveConversationVoteMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, conversation_id):
+    def mutate(root, info, conversation_id) -> "RemoveConversationVoteMutation":
         ok = False
         obj = None
         message_text = ""

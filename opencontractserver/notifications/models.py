@@ -134,20 +134,20 @@ class Notification(models.Model):
             models.Index(fields=["message"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             f"{self.get_notification_type_display()} "
             f"for {self.recipient.username} "
             f"({'read' if self.is_read else 'unread'})"
         )
 
-    def mark_as_read(self):
+    def mark_as_read(self) -> None:
         """Mark this notification as read."""
         if not self.is_read:
             self.is_read = True
             self.save(update_fields=["is_read", "modified"])
 
-    def mark_as_unread(self):
+    def mark_as_unread(self) -> None:
         """Mark this notification as unread."""
         if self.is_read:
             self.is_read = False

@@ -5,6 +5,14 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 
+# Re-exported so callers can annotate against the duck-typing contract that
+# the pipeline registry checks for, without importing the concrete base
+# class.  The protocol is the canonical surface; this class is one
+# implementation of it.
+from opencontractserver.types.protocols import (  # noqa: F401
+    PipelineComponentProtocol,
+)
+
 logger = logging.getLogger(__name__)
 
 

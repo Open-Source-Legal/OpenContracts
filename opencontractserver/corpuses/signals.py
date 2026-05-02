@@ -29,10 +29,14 @@ See docs/corpus_actions/ for the full architecture.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+if TYPE_CHECKING:
+    from opencontractserver.conversations.models import ChatMessage, Conversation
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +58,12 @@ logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender="conversations.Conversation")
-def trigger_corpus_actions_on_thread_creation(sender, instance, created, **kwargs):
+def trigger_corpus_actions_on_thread_creation(
+    sender: type[Conversation],
+    instance: Conversation,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Trigger NEW_THREAD corpus actions when a discussion thread is created.
 
@@ -103,7 +112,7 @@ def trigger_corpus_actions_on_thread_creation(sender, instance, created, **kwarg
         logger.debug("[ThreadSignal] Skipping - _skip_signals set")
         return
 
-    def queue_thread_action():
+    def queue_thread_action() -> None:
         from opencontractserver.tasks.corpus_tasks import process_thread_corpus_action
 
         process_thread_corpus_action.delay(
@@ -121,7 +130,12 @@ def trigger_corpus_actions_on_thread_creation(sender, instance, created, **kwarg
 
 
 @receiver(post_save, sender="conversations.ChatMessage")
-def trigger_corpus_actions_on_message_creation(sender, instance, created, **kwargs):
+def trigger_corpus_actions_on_message_creation(
+    sender: type[ChatMessage],
+    instance: ChatMessage,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Trigger NEW_MESSAGE corpus actions when a message is posted.
 
@@ -185,7 +199,7 @@ def trigger_corpus_actions_on_message_creation(sender, instance, created, **kwar
         )
         return
 
-    def queue_message_action():
+    def queue_message_action() -> None:
         from opencontractserver.tasks.corpus_tasks import process_message_corpus_action
 
         process_message_corpus_action.delay(

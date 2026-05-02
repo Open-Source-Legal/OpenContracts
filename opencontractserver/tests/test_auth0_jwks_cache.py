@@ -188,3 +188,34 @@ class TestJWKSCache:
         # Should return stale cache
         result2 = _get_cached_jwks("test-domain.auth0.com")
         assert result2 == mock_jwks
+
+
+class TestAuth0JWTSettingsDunderProbe:
+    """Regression tests for Auth0JWTSettings.__getattr__ noisy logging.
+
+    Production logs were sprinkled with
+    ``ERROR settings  Auth0JWTSettings.__getattr__() - Invalid setting
+    requested: _user_settings`` whenever Python machinery (deepcopy,
+    pickle, hasattr) probed dunder/private attributes.  The class now
+    raises ``AttributeError`` quietly for any name beginning with ``_``.
+    """
+
+    def test_dunder_probe_is_silent(self, caplog):
+        from config.graphql_auth0_auth.settings import Auth0JWTSettings
+
+        s = Auth0JWTSettings({"AUTH0_FOO": "bar"}, ())
+        with caplog.at_level("ERROR"):
+            with pytest.raises(AttributeError):
+                _ = s._user_settings_probe  # noqa: B018 — intentional probe
+            with pytest.raises(AttributeError):
+                _ = s.__deepcopy__  # noqa: B018 — intentional probe
+        assert "Invalid setting requested" not in caplog.text
+
+    def test_unknown_public_setting_still_logs_error(self, caplog):
+        from config.graphql_auth0_auth.settings import Auth0JWTSettings
+
+        s = Auth0JWTSettings({"AUTH0_FOO": "bar"}, ())
+        with caplog.at_level("ERROR"):
+            with pytest.raises(AttributeError):
+                _ = s.NOT_A_SETTING  # noqa: B018 — intentional probe
+        assert "Invalid setting requested" in caplog.text

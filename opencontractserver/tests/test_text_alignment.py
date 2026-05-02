@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from opencontractserver.utils.text_alignment import (
     MatchType,
+    _has_anchor_ngram,
     align_text_to_document,
 )
 
@@ -149,6 +150,54 @@ class TestAlignTextToDocument(SimpleTestCase):
         )
         # Should return empty because fuzzy is skipped for large docs
         self.assertEqual(len(results), 0)
+
+
+class TestFuzzyHardening(SimpleTestCase):
+    """Guards added to keep ``align_text_to_document`` fast on adversarial
+    inputs (long paraphrases, no shared n-grams, repetitive boilerplate)."""
+
+    def test_anchor_ngram_present(self):
+        # 4-word ngram from query appears in doc → anchor ok.
+        doc = "The cat sat on the mat very quietly today."
+        query = "the cat sat on a different surface"
+        self.assertTrue(_has_anchor_ngram(query, doc))
+
+    def test_anchor_ngram_absent_blocks_fuzzy(self):
+        # No 4-word substring of the query appears in the doc.
+        doc = "Alpha beta gamma delta epsilon zeta eta theta."
+        query = "completely different unrelated paraphrased response here"
+        self.assertFalse(_has_anchor_ngram(query, doc))
+
+    def test_short_query_bypasses_anchor_filter(self):
+        # Query has fewer words than the n-gram → don't penalise it; the
+        # min_query_length / threshold guards catch garbage.
+        doc = "Some long document text here."
+        query = "two words"  # only 2 words, can't build a 4-gram
+        self.assertTrue(_has_anchor_ngram(query, doc))
+
+    def test_align_skips_fuzzy_when_query_exceeds_max_length(self):
+        from opencontractserver.constants.extraction import (
+            MAX_QUERY_LENGTH_FOR_FUZZY,
+        )
+
+        # Build a query whose words don't appear in the doc, longer than
+        # MAX_QUERY_LENGTH_FOR_FUZZY. Even with a small doc, fuzzy must
+        # be skipped (would otherwise be expensive).
+        doc = "Unrelated document text containing nothing matching the query."
+        long_query = ("foo bar baz qux quux corge grault " * 200)[
+            : MAX_QUERY_LENGTH_FOR_FUZZY + 10
+        ]
+        results = align_text_to_document([long_query], doc)
+        self.assertEqual(results, [])
+
+    def test_align_skips_fuzzy_with_no_anchor_ngram(self):
+        # Query has no shared 4-gram with the doc — fuzzy should not run.
+        # Test passes even without timing because the anchor pre-filter
+        # short-circuits before _fuzzy_find is invoked.
+        doc = "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z."
+        query = "completely fictitious paraphrased nonsense words here"
+        results = align_text_to_document([query], doc)
+        self.assertEqual(results, [])
 
 
 class TestAlignTextContract(SimpleTestCase):

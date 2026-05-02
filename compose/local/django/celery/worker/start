@@ -4,4 +4,4 @@ set -o errexit
 set -o nounset
 
 
-watchfiles --target-type command "celery -A config.celery_app worker -l INFO --concurrency=1 -Q celery,worker_uploads"
+watchfiles --ignore-paths frontend,node_modules,.git,__pycache__,.mypy_cache,.pytest_cache,media,staticfiles,docs,.claude,.playwright-mcp,playwright-report-e2e,test-results --target-type command "celery -A config.celery_app worker -l INFO --concurrency=1 -Q celery,worker_uploads"

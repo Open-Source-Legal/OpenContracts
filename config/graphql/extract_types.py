@@ -1,5 +1,7 @@
 """GraphQL type definitions for extract and analysis types."""
 
+from typing import Any
+
 import graphene
 from graphene import relay
 from graphene.types.generic import GenericScalar
@@ -44,7 +46,7 @@ class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         return self.extracts.filter(started__isnull=False).exists()
 
-    def resolve_full_column_list(self, info):
+    def resolve_full_column_list(self, info) -> Any:
         return self.columns.all()
 
 
@@ -53,7 +55,7 @@ class DatacellType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     corrected_data = GenericScalar()
     full_source_list = graphene.List(AnnotationType)
 
-    def resolve_full_source_list(self, info):
+    def resolve_full_source_list(self, info) -> Any:
         return self.sources.all()
 
     class Meta:
@@ -62,7 +64,7 @@ class DatacellType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         connection_class = CountableConnection
 
 
-def _get_datacell_qs(extract, user):
+def _get_datacell_qs(extract, user) -> Any:
     """Return the permission-filtered, deterministically ordered queryset.
 
     Note: this is a module-level function because Graphene-Django resolvers
@@ -112,9 +114,29 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "'showing N of M' indicators when the payload is bounded."
         )
     )
+    # ``model_config`` is a JSONField on the model — expose it as GenericScalar
+    # so the camelCased ``modelConfig`` field returns the captured run config.
+    model_config = GenericScalar(
+        description="Captured model/run configuration for this iteration."
+    )
+    iteration_axis = graphene.String(
+        description=(
+            "Best-effort axis label inferred from the iteration relationship: "
+            "'MODEL' if model_config differs from parent, 'FIELDSET' if fieldset "
+            "differs, 'DOCUMENT_VERSIONS' if doc set differs, else null. Useful "
+            "for badging the Iterations tab."
+        )
+    )
+    full_iteration_list = graphene.List(
+        lambda: ExtractType,
+        description=(
+            "Direct iterations forked from this extract (one level deep). "
+            "Walk recursively for the full subtree."
+        ),
+    )
 
     @classmethod
-    def get_node(cls, info, id):
+    def get_node(cls, info, id) -> Any:
         """
         Override the default node resolution to apply permission checks.
         """
@@ -130,7 +152,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         interfaces = [relay.Node]
         connection_class = CountableConnection
 
-    def resolve_full_datacell_list(self, info, limit=None, offset=None):
+    def resolve_full_datacell_list(self, info, limit=None, offset=None) -> Any:
         qs = _get_datacell_qs(self, info.context.user)
 
         # Guard against negative offset — Django does not support negative
@@ -152,7 +174,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # add a DataLoader before exposing this field on list queries.
         return _get_datacell_qs(self, info.context.user).count()
 
-    def resolve_full_document_list(self, info):
+    def resolve_full_document_list(self, info) -> Any:
         from opencontractserver.types.enums import PermissionTypes
         from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
@@ -171,11 +193,34 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 readable_docs.append(doc)
         return readable_docs
 
+    def resolve_full_iteration_list(self, info) -> Any:
+        # Permission filter is handled by ExtractQueryOptimizer for the
+        # individual iteration view; here we return all direct children
+        # (FK is set, parent is visible by definition).
+        return self.iterations.all().order_by("created", "id")
+
+    def resolve_iteration_axis(self, info) -> Any:
+        parent = self.parent_extract
+        if parent is None:
+            return None
+        # Compare cheap signals first. Sets compared by PK to avoid hitting
+        # the DB more than necessary; if iteration has fewer/more docs we
+        # treat that as DOCUMENT_VERSIONS too.
+        if self.fieldset_id != parent.fieldset_id:
+            return "FIELDSET"
+        own_doc_ids = set(self.documents.values_list("id", flat=True))
+        parent_doc_ids = set(parent.documents.values_list("id", flat=True))
+        if own_doc_ids != parent_doc_ids:
+            return "DOCUMENT_VERSIONS"
+        if (self.model_config or {}) != (parent.model_config or {}):
+            return "MODEL"
+        return None
+
 
 class AnalyzerType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     analyzer_id = graphene.String()
 
-    def resolve_analyzer_id(self, info):
+    def resolve_analyzer_id(self, info) -> Any:
         return self.id.__str__()
 
     input_schema = GenericScalar(
@@ -186,10 +231,10 @@ class AnalyzerType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     full_label_list = graphene.List(AnnotationLabelType)
 
-    def resolve_full_label_list(self, info):
+    def resolve_full_label_list(self, info) -> Any:
         return self.annotation_labels.all()
 
-    def resolve_icon(self, info):
+    def resolve_icon(self, info) -> Any:
         return "" if not self.icon else info.context.build_absolute_uri(self.icon.url)
 
     class Meta:
@@ -219,7 +264,7 @@ class AnalysisType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         document_id=graphene.ID(),
     )
 
-    def resolve_full_annotation_list(self, info, document_id=None):
+    def resolve_full_annotation_list(self, info, document_id=None) -> Any:
         from opencontractserver.annotations.query_optimizer import (
             AnalysisQueryOptimizer,
         )
@@ -234,7 +279,7 @@ class AnalysisType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
     @classmethod
-    def get_node(cls, info, id):
+    def get_node(cls, info, id) -> Any:
         """
         Override the default node resolution to apply permission checks.
         """

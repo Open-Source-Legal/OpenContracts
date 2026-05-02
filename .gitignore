@@ -190,3 +190,15 @@ scratch.py
 # Implementation plans (ephemeral)
 docs/plans/
 docs/superpowers/
+
+# Benchmark run outputs (per-experiment, ad-hoc — not committed)
+/benchmark_runs/
+/data/legalbenchrag/
+/data/legalbenchrag_data/
+/BENCHMARK_RESULTS.md
+/benchmark_results_aggregates.json
+
+# Headline benchmark runs ARE committed under docs/benchmarks/runs/ so
+# every number in docs/benchmarks/legalbench_rag_results.md has a
+# traceable artifact. Do not exclude that directory.
+!docs/benchmarks/runs/

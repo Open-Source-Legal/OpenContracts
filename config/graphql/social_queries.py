@@ -3,6 +3,7 @@ GraphQL query mixin for badge, leaderboard, community, notification, and agent q
 """
 
 import logging
+from typing import Any
 
 import graphene
 from django.core.cache import cache
@@ -53,13 +54,13 @@ class SocialQueryMixin:
     badges = DjangoFilterConnectionField(BadgeType, filterset_class=BadgeFilter)
     badge = relay.Node.Field(BadgeType)
 
-    def resolve_badges(self, info, **kwargs):
+    def resolve_badges(self, info, **kwargs) -> Any:
         """Resolve badges visible to the user."""
         return Badge.objects.visible_to_user(info.context.user).select_related(
             "creator", "corpus"
         )
 
-    def resolve_badge(self, info, **kwargs):
+    def resolve_badge(self, info, **kwargs) -> Any:
         """Resolve a single badge by ID."""
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return Badge.objects.visible_to_user(info.context.user).get(id=django_pk)
@@ -69,7 +70,7 @@ class SocialQueryMixin:
     )
     user_badge = relay.Node.Field(UserBadgeType)
 
-    def resolve_user_badges(self, info, **kwargs):
+    def resolve_user_badges(self, info, **kwargs) -> Any:
         """
         Resolve user badge awards with profile privacy filtering.
 
@@ -84,7 +85,7 @@ class SocialQueryMixin:
 
         return BadgeQueryOptimizer.get_visible_user_badges(info.context.user)
 
-    def resolve_user_badge(self, info, **kwargs):
+    def resolve_user_badge(self, info, **kwargs) -> Any:
         """
         Resolve a single user badge by ID with visibility check and IDOR protection.
 
@@ -114,7 +115,7 @@ class SocialQueryMixin:
         description="Get available badge criteria types from the registry",
     )
 
-    def resolve_badge_criteria_types(self, info, scope=None):
+    def resolve_badge_criteria_types(self, info, scope=None) -> Any:
         """
         Resolve available badge criteria types from the registry.
 
@@ -166,7 +167,7 @@ class SocialQueryMixin:
     )
     agent = relay.Node.Field(AgentConfigurationType)
 
-    def resolve_agents(self, info, **kwargs):
+    def resolve_agents(self, info, **kwargs) -> Any:
         """Resolve agent configurations visible to the user."""
         from opencontractserver.agents.models import AgentConfiguration
 
@@ -174,7 +175,7 @@ class SocialQueryMixin:
             info.context.user
         ).select_related("creator", "corpus")
 
-    def resolve_agent_configurations(self, info, **kwargs):
+    def resolve_agent_configurations(self, info, **kwargs) -> Any:
         """Alias for resolve_agents - frontend compatibility."""
         from opencontractserver.agents.models import AgentConfiguration
 
@@ -182,7 +183,7 @@ class SocialQueryMixin:
             info.context.user
         ).select_related("creator", "corpus")
 
-    def resolve_agent(self, info, **kwargs):
+    def resolve_agent(self, info, **kwargs) -> Any:
         """Resolve a single agent configuration by ID."""
         from opencontractserver.agents.models import AgentConfiguration
 
@@ -205,7 +206,7 @@ class SocialQueryMixin:
         description="Get all available tool categories",
     )
 
-    def resolve_available_tools(self, info, category=None, **kwargs):
+    def resolve_available_tools(self, info, category=None, **kwargs) -> Any:
         """
         Resolve available tools for agent configuration.
 
@@ -224,7 +225,7 @@ class SocialQueryMixin:
 
         return tools
 
-    def resolve_available_tool_categories(self, info, **kwargs):
+    def resolve_available_tool_categories(self, info, **kwargs) -> Any:
         """Resolve all available tool categories."""
         from opencontractserver.llms.tools.tool_registry import ToolCategory
 
@@ -241,7 +242,7 @@ class SocialQueryMixin:
         description="Get count of unread notifications for the current user"
     )
 
-    def resolve_notifications(self, info, **kwargs):
+    def resolve_notifications(self, info, **kwargs) -> Any:
         """
         Resolve notifications for the current user.
 
@@ -258,7 +259,7 @@ class SocialQueryMixin:
             .order_by("-created_at")
         )
 
-    def resolve_notification(self, info, **kwargs):
+    def resolve_notification(self, info, **kwargs) -> Any:
         """
         Resolve a single notification by ID.
 
@@ -281,7 +282,7 @@ class SocialQueryMixin:
 
         return notification
 
-    def resolve_unread_notification_count(self, info):
+    def resolve_unread_notification_count(self, info) -> Any:
         """Get count of unread notifications for the current user."""
         user = info.context.user
         if not user or not user.is_authenticated:
@@ -302,7 +303,7 @@ class SocialQueryMixin:
         description="Get top contributors globally by reputation",
     )
 
-    def resolve_corpus_leaderboard(self, info, corpus_id, limit=10):
+    def resolve_corpus_leaderboard(self, info, corpus_id, limit=10) -> Any:
         """
         Get top contributors for a corpus by reputation.
 
@@ -339,7 +340,7 @@ class SocialQueryMixin:
             logger.error(f"Error resolving corpus leaderboard: {e}")
             return []
 
-    def resolve_global_leaderboard(self, info, limit=10):
+    def resolve_global_leaderboard(self, info, limit=10) -> Any:
         """
         Get top contributors globally by reputation.
 
@@ -385,7 +386,7 @@ class SocialQueryMixin:
 
     def resolve_leaderboard(
         self, info, metric, scope="all_time", corpus_id=None, limit=25
-    ):
+    ) -> Any:
         """
         Get leaderboard for a specific metric and scope.
 
@@ -600,7 +601,7 @@ class SocialQueryMixin:
             current_user_rank=current_user_rank,
         )
 
-    def resolve_community_stats(self, info, corpus_id=None):
+    def resolve_community_stats(self, info, corpus_id=None) -> Any:
         """
         Get overall community engagement statistics.
 

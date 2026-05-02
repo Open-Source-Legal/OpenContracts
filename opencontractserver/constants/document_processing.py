@@ -10,6 +10,11 @@ AppRegistryNotReady errors during settings loading.
 # ingestion and in the parser pipeline for type detection.
 MARKDOWN_MIME_TYPE = "text/markdown"
 
+# MIME type for Microsoft Word (DOCX) documents.
+DOCX_MIME_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
+
 # File types that are stored as txt_extract_file (plain text, no parsing needed).
 # Shared between versioning.py and corpus models.py — single source of truth.
 TEXT_MIMETYPES = {"text/plain", MARKDOWN_MIME_TYPE, "application/txt"}
@@ -26,11 +31,15 @@ DEFAULT_DOCUMENT_PATH_PREFIX = "/documents"
 # Controls how many annotations are processed per Celery task to prevent queue flooding
 EMBEDDING_BATCH_SIZE = 100
 
-# Maximum number of texts to send in a single embedder API batch request.
-# This is the sub-batch size used *within* a Celery task when calling
-# embedder.embed_texts_batch(). Kept separate from EMBEDDING_BATCH_SIZE
-# (task-level grouping) because API limits may differ from task sizing.
-# Must be <= MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE (currently 100).
+# Default sub-batch size used *within* a Celery task when calling
+# ``embedder.embed_texts_batch()``. Kept separate from
+# ``EMBEDDING_BATCH_SIZE`` (task-level grouping) because API limits may
+# differ from task sizing. This is a global *fallback* — concrete
+# embedders should override ``BaseEmbedder.api_batch_size`` with a value
+# appropriate for their provider (OpenAI accepts up to 2048 inputs;
+# the local microservice caps at MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE).
+# Must be <= MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE for the microservice
+# embedder; the system check in documents/checks.py validates this.
 EMBEDDING_API_BATCH_SIZE = 50
 
 # Maximum number of texts accepted by MicroserviceEmbedder.embed_texts_batch().
@@ -48,6 +57,22 @@ EMBEDDER_SINGLE_REQUEST_TIMEOUT_SECONDS = 30
 # HTTP request timeout (seconds) for batch embedding calls.
 # Larger than the single timeout because batches process multiple texts.
 EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS = 60
+
+# Character-count guard for OpenAI embedding input. The hosted /embeddings
+# endpoint caps input at 8192 tokens per text; truncating on the char side
+# at ~4x the token budget (English averages ~4 chars/token) keeps us well
+# under the cap for any realistic input. Mirrors the silent-tokenizer
+# truncation that ``sentence-transformers`` applies locally so OpenAI users
+# get the same robustness instead of a fatal 400 "maximum context length"
+# from a long whole-document chunk. See ``OpenAIEmbedder._embed_text_impl``
+# and ``OpenAIEmbedder.embed_texts_batch``.
+OPENAI_EMBEDDER_MAX_INPUT_CHARS = 30_000
+
+# HTTP request timeout (seconds) for reranker microservice calls.
+# Reranking typically runs over tens of candidates (top_k * oversample), so
+# a modest timeout is sufficient. Retrieval degrades gracefully to the
+# first-stage ordering on reranker failure.
+RERANKER_REQUEST_TIMEOUT_SECONDS = 30
 
 # Maximum number of embedding batch tasks to queue in a single reembed_corpus run.
 # For very large corpuses (millions of annotations), this prevents flooding the
@@ -131,3 +156,15 @@ MAX_PATH_CREATE_RETRIES = 5
 # Used in both user-facing error strings and log messages when
 # _disambiguate_path() detects a naming conflict.
 PATH_CONFLICT_MSG = "Path conflict"
+
+# Text-chunker defaults used by SentenceChunker / SlidingWindowChunker
+# (see opencontractserver/pipeline/parsers/text_chunkers.py).
+DEFAULT_SENTENCE_CHUNKER_MODEL = "en_core_web_lg"
+DEFAULT_SLIDING_WINDOW_SIZE = 1000
+DEFAULT_SLIDING_WINDOW_OVERLAP = 200
+
+# Hard cap on how far the word-boundary snapper in _split_long_span will
+# walk past window_size looking for whitespace. Protects against pathological
+# inputs (e.g. a 10MB log line with no spaces) that would otherwise make the
+# inner scan O(n²) relative to the span length.
+MAX_WORD_BOUNDARY_SCAN_CHARS = 512

@@ -80,7 +80,7 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
         avatar_url=None,
         corpus_id=None,
         is_public=True,
-    ):
+    ) -> "CreateAgentConfigurationMutation":
         user = info.context.user
 
         try:
@@ -204,7 +204,7 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
         avatar_url=None,
         is_active=None,
         is_public=None,
-    ):
+    ) -> "UpdateAgentConfigurationMutation":
         user = info.context.user
 
         try:
@@ -282,7 +282,7 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, agent_id):
+    def mutate(root, info, agent_id) -> "DeleteAgentConfigurationMutation":
         user = info.context.user
 
         try:

@@ -2,6 +2,8 @@
 Serializers related to annotations to avoid circular imports.
 """
 
+from typing import Any
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -31,7 +33,7 @@ class AnnotationLabelSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "creator"]
 
-    def create(self, validated_data):
+    def create(self, validated_data) -> Any:
         creator_id = validated_data.pop("creator_id", None)
         if creator_id:
             try:

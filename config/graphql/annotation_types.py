@@ -1,5 +1,7 @@
 """GraphQL type definitions for annotation, relationship, label, and note types."""
 
+from typing import Any
+
 import graphene
 from django.db.models import QuerySet
 from graphene import relay
@@ -60,7 +62,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="Content modalities present in this annotation: TEXT, IMAGE, etc.",
     )
 
-    def resolve_document(self, info):
+    def resolve_document(self, info) -> Any:
         """Return the document, resolving via structural_set for structural annotations."""
         if self.document_id:
             return self.document
@@ -81,29 +83,29 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             ).first()
         return None
 
-    def resolve_annotation_type(self, info):
+    def resolve_annotation_type(self, info) -> Any:
         """Return annotation_type as a plain string to tolerate invalid DB values."""
         return self.annotation_type or ""
 
-    def resolve_content_modalities(self, info):
+    def resolve_content_modalities(self, info) -> Any:
         """Return content modalities list from model."""
         return self.content_modalities or []
 
     all_source_node_in_relationship = graphene.List(lambda: RelationshipType)
 
-    def resolve_feedback_count(self, info):
+    def resolve_feedback_count(self, info) -> int:
         # If feedback_count was annotated on the queryset, use it
         if hasattr(self, "feedback_count"):
             return self.feedback_count
         # Otherwise, count it (but this triggers N+1)
         return self.user_feedback.count()
 
-    def resolve_all_source_node_in_relationship(self, info):
+    def resolve_all_source_node_in_relationship(self, info) -> QuerySet[Relationship]:
         return self.source_node_in_relationships.all()
 
     all_target_node_in_relationship = graphene.List(lambda: RelationshipType)
 
-    def resolve_all_target_node_in_relationship(self, info):
+    def resolve_all_target_node_in_relationship(self, info) -> Any:
         return self.target_node_in_relationships.all()
 
     # Updated fields for tree representations
@@ -122,7 +124,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     # Resolver for descendants_tree
-    def resolve_descendants_tree(self, info):
+    def resolve_descendants_tree(self, info) -> Any:
         """
         Returns a flat list of descendant annotations,
         each including only the IDs of its immediate children.
@@ -147,7 +149,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
     # Resolver for full_tree
-    def resolve_full_tree(self, info):
+    def resolve_full_tree(self, info) -> Any:
         """
         Returns a flat list of annotations from the root ancestor,
         each including only the IDs of its immediate children.
@@ -177,7 +179,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return full_tree
 
     # Resolver for subtree
-    def resolve_subtree(self, info):
+    def resolve_subtree(self, info) -> Any:
         """
         Returns a combined tree that includes:
         - The path from the root ancestor to this annotation (ancestors).
@@ -233,7 +235,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         filterset_class = AnnotationFilter
 
     @classmethod
-    def get_queryset(cls, queryset, info):
+    def get_queryset(cls, queryset, info) -> Any:
         # Check if permissions were already handled by the query optimizer
         # The optimizer adds _can_read, _can_create, etc. annotations
         if hasattr(queryset, "query") and queryset.query.annotations:
@@ -269,20 +271,20 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     span_label_count = graphene.Int(description="Count of span-based labels")
     token_label_count = graphene.Int(description="Count of token-level labels")
 
-    def resolve_doc_label_count(self, info):
+    def resolve_doc_label_count(self, info) -> Any:
         """Return doc label count from annotation or query."""
         # Check if parent corpus has passed the annotated value
         if hasattr(self, "_doc_label_count") and self._doc_label_count is not None:
             return self._doc_label_count
         return self.annotation_labels.filter(label_type="DOC_TYPE_LABEL").count()
 
-    def resolve_span_label_count(self, info):
+    def resolve_span_label_count(self, info) -> Any:
         """Return span label count from annotation or query."""
         if hasattr(self, "_span_label_count") and self._span_label_count is not None:
             return self._span_label_count
         return self.annotation_labels.filter(label_type="SPAN_LABEL").count()
 
-    def resolve_token_label_count(self, info):
+    def resolve_token_label_count(self, info) -> Any:
         """Return token label count from annotation or query."""
         if hasattr(self, "_token_label_count") and self._token_label_count is not None:
             return self._token_label_count
@@ -291,7 +293,7 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     # Count of corpuses using this label set
     corpus_count = graphene.Int(description="Number of corpuses using this label set")
 
-    def resolve_corpus_count(self, info):
+    def resolve_corpus_count(self, info) -> Any:
         """Return count of corpuses using this label set that are visible to the user."""
         user = info.context.user
         return self.used_by_corpuses.visible_to_user(user).count()
@@ -299,11 +301,11 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     # To get ALL labels for a given labelset
     all_annotation_labels = graphene.Field(graphene.List(AnnotationLabelType))
 
-    def resolve_all_annotation_labels(self, info):
+    def resolve_all_annotation_labels(self, info) -> Any:
         return self.annotation_labels.all()
 
     # Custom resolver for icon field
-    def resolve_icon(self, info):
+    def resolve_icon(self, info) -> Any:
         return "" if not self.icon else info.context.build_absolute_uri(self.icon.url)
 
     class Meta:
@@ -338,17 +340,17 @@ class NoteType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
     current_version = graphene.Int(description="Current version number of the note")
 
-    def resolve_revisions(self, info):
+    def resolve_revisions(self, info) -> Any:
         """Returns all revisions for this note, ordered by version."""
         return self.revisions.all()
 
-    def resolve_current_version(self, info):
+    def resolve_current_version(self, info) -> Any:
         """Returns the current version number."""
         latest_revision = self.revisions.order_by("-version").first()
         return latest_revision.version if latest_revision else 0
 
     # Resolver for descendants_tree
-    def resolve_descendants_tree(self, info):
+    def resolve_descendants_tree(self, info) -> Any:
         """
         Returns a flat list of descendant notes,
         each including only the IDs of its immediate children.
@@ -373,7 +375,7 @@ class NoteType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return descendants_tree
 
     # Resolver for full_tree
-    def resolve_full_tree(self, info):
+    def resolve_full_tree(self, info) -> Any:
         """
         Returns a flat list of notes from the root ancestor,
         each including only the IDs of its immediate children.
@@ -401,7 +403,7 @@ class NoteType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return full_tree
 
     # Resolver for subtree
-    def resolve_subtree(self, info):
+    def resolve_subtree(self, info) -> Any:
         """
         Returns a combined tree that includes:
         - The path from the root ancestor to this note (ancestors).
@@ -453,7 +455,7 @@ class NoteType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         connection_class = CountableConnection
 
     @classmethod
-    def get_queryset(cls, queryset, info):
+    def get_queryset(cls, queryset, info) -> Any:
         if issubclass(type(queryset), QuerySet):
             return queryset.visible_to_user(info.context.user)
         elif "RelatedManager" in str(type(queryset)):

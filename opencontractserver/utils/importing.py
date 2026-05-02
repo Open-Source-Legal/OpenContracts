@@ -59,7 +59,9 @@ def load_or_create_labels(
             label_serializer = AnnotationLabelSerializer(data=label_data)
             label_serializer.is_valid(raise_exception=True)
             label_obj = label_serializer.save()
-            set_permissions_for_obj_to_user(user_id, label_obj, [PermissionTypes.ALL])
+            set_permissions_for_obj_to_user(
+                user_id, label_obj, [PermissionTypes.ALL], is_new=True
+            )
 
             if labelset_obj:
                 labelset_obj.annotation_labels.add(label_obj)
@@ -100,7 +102,27 @@ def import_annotations(
 
     old_id_to_new_pk: dict[str | int, int] = {}
 
-    # First pass: Create annotations without parents
+    # First pass: Build all Annotation instances in memory then bulk-create.
+    #
+    # Why bulk_create rather than per-row .create:
+    #   * Per-row .create fires the Annotation post_save signal, which
+    #     dispatches one ``calculate_embedding_for_annotation_text`` celery
+    #     task per annotation. Under ``force_celery_eager()`` (benchmark
+    #     harness, tests) and with a single-worker celery deployment, that
+    #     means one synchronous embedding HTTP round-trip per annotation —
+    #     ~400ms each times thousands of paragraph chunks per cuad-style
+    #     contract is the dominant bottleneck.
+    #   * bulk_create skips signals, so we explicitly dispatch one
+    #     ``calculate_embeddings_for_annotation_batch`` task at the end,
+    #     covering every newly-created annotation in a single call. The
+    #     batch task internally sub-batches via ``EMBEDDING_API_BATCH_SIZE``
+    #     and (for OpenAI) hits the embeddings endpoint with array input
+    #     so ⌈N/batch_size⌉ HTTP calls cover N annotations.
+    #   * The badges signal (also post_save) is also skipped here; an
+    #     ingest-time badge tick per annotation is not load-bearing
+    #     anywhere — corpus-level badge checks fire from other paths.
+    instances: list[Annotation] = []
+    parallel_old_ids: list[str | int | None] = []
     for annotation_data in annotations_data:
         label_name: str = annotation_data["annotationLabel"]
         label_obj = label_lookup.get(label_name)
@@ -114,25 +136,82 @@ def import_annotations(
         # if the field is missing or explicitly None
         final_annotation_type = annotation_data.get("annotation_type") or label_type
 
-        annot_obj = Annotation.objects.create(
-            raw_text=annotation_data["rawText"],
-            long_description=annotation_data.get("long_description"),
-            page=annotation_data.get("page", 1),
-            json=annotation_data["annotation_json"],
-            annotation_label=label_obj,
-            document=doc_obj,
-            corpus=corpus_obj,
-            creator_id=user_id,
-            annotation_type=final_annotation_type,
-            structural=annotation_data.get("structural", False),
-            content_modalities=annotation_data.get("content_modalities", []),
+        instances.append(
+            Annotation(
+                raw_text=annotation_data["rawText"],
+                long_description=annotation_data.get("long_description"),
+                page=annotation_data.get("page", 1),
+                json=annotation_data["annotation_json"],
+                annotation_label=label_obj,
+                document=doc_obj,
+                corpus=corpus_obj,
+                creator_id=user_id,
+                annotation_type=final_annotation_type,
+                structural=annotation_data.get("structural", False),
+                content_modalities=annotation_data.get("content_modalities", []),
+            )
+        )
+        parallel_old_ids.append(annotation_data.get("id"))
+
+    if instances:
+        Annotation.objects.bulk_create(instances)
+        # NB: We deliberately do NOT call set_permissions_for_obj_to_user on
+        # individual annotations. The annotation visibility/permission model
+        # is derived from doc + corpus (+ structural flag, creator,
+        # analysis/extract privacy) — see:
+        #   * AnnotationQuerySet.visible_to_user (shared/QuerySets.py)
+        #   * AnnotationQueryOptimizer._compute_effective_permissions
+        #   * user_has_permission_for_obj (special-cases annotations)
+        # None of those consult AnnotationUserObjectPermission rows, so
+        # writing ~14 DB ops per annotation here is dead work. Locked in
+        # by ``test_no_per_annotation_guardian_rows_are_required`` in
+        # ``test_import_utils.py`` — that test deletes any pre-existing
+        # rows and re-asserts visibility outcomes are unchanged.
+        for instance, old_id in zip(instances, parallel_old_ids):
+            if old_id is not None:
+                old_id_to_new_pk[old_id] = instance.pk
+
+        # Dispatch batch embedding task(s) covering every annotation we
+        # just created. ``calculate_embeddings_for_annotation_batch`` only
+        # takes the fast ``embed_texts_batch`` path when ``embedder_path``
+        # is supplied explicitly (otherwise it falls through to a
+        # per-annotation dual-embedding loop, which is exactly the
+        # bottleneck we're trying to avoid). Mirror the dual-embedding
+        # strategy here: dispatch one batch task with the default embedder
+        # for global search, plus a second batch task with the corpus's
+        # preferred embedder when it differs.
+        from opencontractserver.constants.document_processing import (
+            EMBEDDING_BATCH_SIZE,
+        )
+        from opencontractserver.pipeline.utils import get_default_embedder_path
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_annotation_batch,
         )
 
-        set_permissions_for_obj_to_user(user_id, annot_obj, [PermissionTypes.ALL])
+        annotation_ids = [a.pk for a in instances]
+        corpus_id_for_batch = corpus_obj.id if corpus_obj is not None else None
 
-        old_id = annotation_data.get("id")
-        if old_id is not None:
-            old_id_to_new_pk[old_id] = annot_obj.pk
+        embedder_paths_to_dispatch: list[str] = []
+        default_embedder_path = get_default_embedder_path()
+        if default_embedder_path:
+            embedder_paths_to_dispatch.append(default_embedder_path)
+        # If the corpus has a different preferred embedder, dual-embed too.
+        if corpus_obj is not None:
+            corpus_pref = getattr(corpus_obj, "preferred_embedder", None)
+            if corpus_pref and corpus_pref != default_embedder_path:
+                embedder_paths_to_dispatch.append(corpus_pref)
+
+        # Sub-batch by EMBEDDING_BATCH_SIZE to match corpus_tasks dispatch
+        # pattern; the embedder's own ``embed_texts_batch`` further
+        # sub-batches by EMBEDDING_API_BATCH_SIZE for the wire request.
+        for embedder_path in embedder_paths_to_dispatch:
+            for i in range(0, len(annotation_ids), EMBEDDING_BATCH_SIZE):
+                chunk = annotation_ids[i : i + EMBEDDING_BATCH_SIZE]
+                calculate_embeddings_for_annotation_batch.delay(
+                    annotation_ids=chunk,
+                    corpus_id=corpus_id_for_batch,
+                    embedder_path=embedder_path,
+                )
 
     # Second pass: Set parent relationships
     for annotation_data in annotations_data:
@@ -216,7 +295,7 @@ def import_relationships(
             structural=structural,
         )
         set_permissions_for_obj_to_user(
-            user_id, new_relationship, [PermissionTypes.ALL]
+            user_id, new_relationship, [PermissionTypes.ALL], is_new=True
         )
 
         # Map source annotations
@@ -428,7 +507,9 @@ def create_document_from_export_data(
         processing_started=timezone.now(),
     )
 
-    set_permissions_for_obj_to_user(user_obj, doc_obj, [PermissionTypes.ALL])
+    set_permissions_for_obj_to_user(
+        user_obj, doc_obj, [PermissionTypes.ALL], is_new=True
+    )
     return doc_obj
 
 
@@ -468,7 +549,9 @@ def import_doc_annotations(
                 corpus=corpus_obj,
                 creator_id=user_id,
             )
-            set_permissions_for_obj_to_user(user_id, annot_obj, [PermissionTypes.ALL])
+            set_permissions_for_obj_to_user(
+                user_id, annot_obj, [PermissionTypes.ALL], is_new=True
+            )
             doc_labels_created += 1
 
     # Import text annotations

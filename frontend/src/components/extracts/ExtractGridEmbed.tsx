@@ -256,6 +256,9 @@ export const ExtractGridEmbed: React.FC<ExtractGridEmbedProps> = ({
       limit: EXTRACT_GRID_EMBED_CELL_LIMIT,
     },
     skip: !extractId,
+    // NOTE: If another caller queries the same extract with a different `first`
+    // value (e.g. undefined), Apollo will serve this capped result from cache.
+    // Acceptable while there is a single call site; revisit with #1204 cleanup.
     fetchPolicy: "cache-first",
   });
 

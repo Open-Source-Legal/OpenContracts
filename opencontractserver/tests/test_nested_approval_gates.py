@@ -87,6 +87,18 @@ class _IterCtx:
         return False
 
 
+def _fake_function_toolset(entries: dict[str, Any]) -> Any:
+    """Return a MagicMock that satisfies isinstance(_, FunctionToolset) and
+    exposes a .tools dict, mimicking the public toolset surface that
+    pydantic-ai exposes via Agent.toolsets.
+    """
+    from pydantic_ai.toolsets import FunctionToolset
+
+    ts = MagicMock(spec=FunctionToolset)
+    ts.tools = entries
+    return ts
+
+
 # ---------------------------------------------------------------------------
 # Mock sub-agent that yields configurable stream events
 # ---------------------------------------------------------------------------
@@ -180,7 +192,7 @@ class TestNestedApprovalGates(TransactionTestCase):
         ) as mock_agent_cls:
             inst = MagicMock()
             inst.iter = MagicMock(return_value=_IterCtx())
-            inst._function_tools = {}
+            inst.toolsets = []
             inst.run = AsyncMock(
                 return_value=types.SimpleNamespace(
                     data="ok", sources=[], usage=lambda: None
@@ -413,11 +425,14 @@ class TestNestedApprovalGates(TransactionTestCase):
                 )
             )
             inst.iter = MagicMock(return_value=_IterCtx())
-            # resume_with_approval uses pydantic_ai_agent._function_tools
-            # as fallback to find the tool callable.
-            inst._function_tools = {
-                "ask_document": types.SimpleNamespace(function=_spy_tool),
-            }
+            # resume_with_approval falls back to pydantic-ai's public
+            # function-toolset registry (Agent.toolsets) to find the tool
+            # callable when config.tools doesn't carry it.
+            inst.toolsets = [
+                _fake_function_toolset(
+                    {"ask_document": types.SimpleNamespace(function=_spy_tool)}
+                )
+            ]
             mock_agent_cls.return_value = inst
 
             agent = await UnifiedAgentFactory.create_corpus_agent(
@@ -499,9 +514,11 @@ class TestNestedApprovalGates(TransactionTestCase):
                 )
                 return {"result": "done"}
 
-            inst._function_tools = {
-                "test_tool": types.SimpleNamespace(function=_capture_bypass_tool),
-            }
+            inst.toolsets = [
+                _fake_function_toolset(
+                    {"test_tool": types.SimpleNamespace(function=_capture_bypass_tool)}
+                )
+            ]
             mock_agent_cls.return_value = inst
 
             agent = await UnifiedAgentFactory.create_corpus_agent(
@@ -569,9 +586,11 @@ class TestNestedApprovalGates(TransactionTestCase):
             async def _failing_tool(ctx, **kwargs):
                 raise RuntimeError("Tool exploded")
 
-            inst._function_tools = {
-                "exploding_tool": types.SimpleNamespace(function=_failing_tool),
-            }
+            inst.toolsets = [
+                _fake_function_toolset(
+                    {"exploding_tool": types.SimpleNamespace(function=_failing_tool)}
+                )
+            ]
             mock_agent_cls.return_value = inst
 
             agent = await UnifiedAgentFactory.create_corpus_agent(
@@ -615,7 +634,7 @@ class TestNestedApprovalGates(TransactionTestCase):
     async def test_resume_executes_tool_from_config_tools(self):
         """resume_with_approval should find and execute a tool present in
         config.tools (the wrapper_fn path) rather than falling back to
-        pydantic_ai_agent._function_tools."""
+        pydantic-ai's function-toolset registry."""
         from opencontractserver.conversations.models import ChatMessage, Conversation
         from opencontractserver.llms.agents.agent_factory import (
             UnifiedAgentFactory,
@@ -640,9 +659,9 @@ class TestNestedApprovalGates(TransactionTestCase):
                 )
             )
             inst.iter = MagicMock(return_value=_IterCtx())
-            # Leave _function_tools empty so the only way to find the tool
-            # is via config.tools.
-            inst._function_tools = {}
+            # Leave the function toolset empty so the only way to find the
+            # tool is via config.tools.
+            inst.toolsets = []
             mock_agent_cls.return_value = inst
 
             agent = await UnifiedAgentFactory.create_corpus_agent(
@@ -683,7 +702,7 @@ class TestNestedApprovalGates(TransactionTestCase):
 
     async def test_resume_config_tools_typeerror_falls_through(self):
         """When a config.tools wrapper raises TypeError, resume_with_approval
-        should fall through to the _function_tools registry lookup."""
+        should fall through to the function-toolset registry lookup."""
         from opencontractserver.conversations.models import ChatMessage, Conversation
         from opencontractserver.llms.agents.agent_factory import (
             UnifiedAgentFactory,
@@ -712,9 +731,11 @@ class TestNestedApprovalGates(TransactionTestCase):
                 )
             )
             inst.iter = MagicMock(return_value=_IterCtx())
-            inst._function_tools = {
-                "dual_tool": types.SimpleNamespace(function=_fallback_tool),
-            }
+            inst.toolsets = [
+                _fake_function_toolset(
+                    {"dual_tool": types.SimpleNamespace(function=_fallback_tool)}
+                )
+            ]
             mock_agent_cls.return_value = inst
 
             agent = await UnifiedAgentFactory.create_corpus_agent(

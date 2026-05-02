@@ -4,12 +4,20 @@ User Query Optimizer for OpenContracts.
 Provides optimized user queries with profile privacy filtering and corpus membership visibility.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional, Union
 
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q, QuerySet
 
 if TYPE_CHECKING:
-    pass
+    from opencontractserver.users.models import User
+
+#: The set of user types accepted by the visibility helpers. Resolvers
+#: hand off whatever ``info.context.user`` happens to be — a concrete
+#: :class:`~opencontractserver.users.models.User`, a guardian
+#: :class:`AnonymousUser`, or ``None`` for unauthenticated WebSocket
+#: contexts. All three are normalised inside the helpers.
+RequestingUser = Optional[Union["User", AnonymousUser]]
 
 
 class UserQueryOptimizer:
@@ -31,12 +39,16 @@ class UserQueryOptimizer:
     """
 
     # Permission codenames that indicate > READ access
-    WRITE_PERMISSION_CODENAMES = ["create_corpus", "update_corpus", "remove_corpus"]
+    WRITE_PERMISSION_CODENAMES: ClassVar[list[str]] = [
+        "create_corpus",
+        "update_corpus",
+        "remove_corpus",
+    ]
 
     @classmethod
     def get_visible_users(
         cls,
-        requesting_user,
+        requesting_user: RequestingUser,
         corpus_id: Optional[int] = None,
         include_self: bool = True,
     ) -> QuerySet:
@@ -61,13 +73,13 @@ class UserQueryOptimizer:
 
         User = get_user_model()
 
-        # Superusers see all active users
-        if hasattr(requesting_user, "is_superuser") and requesting_user.is_superuser:
-            return User.objects.filter(is_active=True)
-
         # Anonymous users see only public profiles
         if requesting_user is None or isinstance(requesting_user, AnonymousUser):
             return User.objects.filter(is_active=True, is_profile_public=True)
+
+        # Superusers see all active users
+        if getattr(requesting_user, "is_superuser", False):
+            return User.objects.filter(is_active=True)
 
         # Build visibility query for authenticated users
         # Start with base query for active users
@@ -179,7 +191,9 @@ class UserQueryOptimizer:
         return qs
 
     @classmethod
-    def check_user_visibility(cls, requesting_user, target_user_id: int) -> bool:
+    def check_user_visibility(
+        cls, requesting_user: RequestingUser, target_user_id: int
+    ) -> bool:
         """
         Check if requesting_user can see target_user.
 
@@ -195,7 +209,7 @@ class UserQueryOptimizer:
     @classmethod
     def get_users_for_mention(
         cls,
-        requesting_user,
+        requesting_user: RequestingUser,
         text_search: Optional[str] = None,
         corpus_id: Optional[int] = None,
         limit: int = 20,

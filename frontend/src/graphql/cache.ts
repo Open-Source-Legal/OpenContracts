@@ -23,6 +23,7 @@ import {
 } from "../types/graphql-api";
 import { ViewState } from "../components/types";
 import { FileUploadPackageProps } from "../components/widgets/modals/DocumentUploadModal";
+import type { GetUserOutput } from "./queries";
 
 export const mergeArrayByIdFieldPolicy: FieldPolicy<Reference[]> = {
   // eslint-disable-next-line @typescript-eslint/default-param-last
@@ -434,31 +435,41 @@ export const linkDocumentsModalState = makeVar<LinkDocumentsModalState>({
  * Extract-related global variables
  *
  * ENTITY STATE:
- *   openedExtract - Extract resolved from /extracts/:extractId route
- *   Set by: CentralRouteManager OR route components (ExtractDetailRoute)
+ *   openedExtract - Extract resolved from /extracts/:extractId or /e/:user/:extractId route
+ *   Set by: CentralRouteManager (Phase 1) only
  *
  * URL-DRIVEN STATE:
  *   selectedExtractIds - Controlled by URL query parameter ?extract=
- *   Set by: CentralRouteManager Phase 2
- *
- * Write access is restricted to:
- *   - CentralRouteManager (for legacy /e/:user/:extractId routes)
- *   - Route components like ExtractDetailRoute (for new /extracts/:extractId routes)
+ *   Set by: CentralRouteManager (Phase 2) only
  *
  * All other components must:
  *   - ONLY READ via useReactiveVar()
  *   - UPDATE STATE via navigate() to change the URL (which triggers route resolution)
  *
  * Examples:
- *   /extracts/extract-123             → openedExtract(extractObj) via ExtractDetailRoute
+ *   /extracts/extract-123             → openedExtract(extractObj) via CentralRouteManager
  *   /e/user/extract-123               → openedExtract(extractObj) via CentralRouteManager
  *   /c/user/corpus?extract=456        → selectedExtractIds(["456"])
  *   /d/user/doc?extract=456,789       → selectedExtractIds(["456", "789"])
  */
-export const openedExtract = makeVar<ExtractType | null>(null); // ENTITY STATE - set by route components
-export const selectedExtractIds = makeVar<string[]>([]); // URL-DRIVEN - set by CentralRouteManager Phase 2
+export const openedExtract = makeVar<ExtractType | null>(null);
+export const selectedExtractIds = makeVar<string[]>([]);
 export const selectedExtract = makeVar<ExtractType | null>(null); // Legacy - kept for backward compatibility
 export const extractSearchTerm = makeVar<string>("");
+
+/**
+ * User profile entity resolved from /users/:slug route.
+ *
+ * ENTITY STATE:
+ *   openedUser - Profile snapshot resolved by CentralRouteManager Phase 1.
+ *   Set by: CentralRouteManager only.
+ *
+ * Derived from the GET_USER query output so the shape automatically tracks
+ * any schema changes — adding a manual interface here would silently drift
+ * the moment a new field appears on UserType.
+ */
+export type OpenedUserProfile = NonNullable<GetUserOutput["userBySlug"]>;
+export const openedUser = makeVar<OpenedUserProfile | null>(null);
 
 /**
  * Corpus-related global variables

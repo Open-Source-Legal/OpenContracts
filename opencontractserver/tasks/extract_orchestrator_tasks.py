@@ -1,4 +1,6 @@
+import inspect
 import logging
+from functools import lru_cache
 from typing import Optional
 
 from celery import chord, group, shared_task
@@ -23,6 +25,25 @@ from opencontractserver.utils.permissioning import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=64)
+def _task_accepts_kwarg(task_func, kwarg_name: str) -> bool:
+    """Return True if ``task_func.run`` declares ``kwarg_name`` (or **kwargs).
+
+    Cached so we only inspect once per (task, kwarg) pair across the worker.
+    """
+    target = getattr(task_func, "run", task_func)
+    try:
+        sig = inspect.signature(target)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if param.name == kwarg_name:
+            return True
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+    return False
 
 
 @shared_task
@@ -108,6 +129,12 @@ def run_extract(extract_id: Optional[str | int], user_id: str | int):
     document_ids = extract.documents.all().values_list("id", flat=True)
     logger.info(f"Found {len(document_ids)} documents to process: {list(document_ids)}")
 
+    # Pull the iteration's captured model from extract.model_config so it can
+    # be forwarded to each column task as ``model_override``. ``None`` means
+    # "use the column/system default", preserving prior behaviour.
+    model_config = extract.model_config or {}
+    extract_model_override = model_config.get("model") or None
+
     tasks = []
     logger.info(f"Beginning document processing loop for extract {extract.id}")
 
@@ -147,8 +174,20 @@ def run_extract(extract_id: Optional[str | int], user_id: str | int):
                     f"  Created datacell {cell.pk} for column '{column.name}' with task '{column.task_name}'"
                 )
 
-                # Add the task to the group
-                tasks.append(task_func.si(cell.pk))
+                # Add the task to the group. When the iteration captured a
+                # specific model in ``extract.model_config``, forward it via
+                # the ``model_override`` kwarg the column task already
+                # accepts (introduced for the benchmark runner). Only the
+                # canonical ``doc_extract_query_task`` accepts this kwarg
+                # today, so we gate on the actual task signature to avoid
+                # breaking custom column tasks.
+                task_kwargs: dict = {}
+                if extract_model_override and _task_accepts_kwarg(
+                    task_func, "model_override"
+                ):
+                    task_kwargs["model_override"] = extract_model_override
+
+                tasks.append(task_func.si(cell.pk, **task_kwargs))
 
     # Execute the tasks
     if tasks:

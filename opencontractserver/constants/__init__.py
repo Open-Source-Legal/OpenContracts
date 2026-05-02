@@ -7,6 +7,7 @@ and hardcoded values scattered throughout the codebase.
 
 from opencontractserver.constants.annotations import *  # noqa: F401, F403
 from opencontractserver.constants.auth import *  # noqa: F401, F403
+from opencontractserver.constants.benchmarks import *  # noqa: F401, F403
 from opencontractserver.constants.community_stats import *  # noqa: F401, F403
 from opencontractserver.constants.context_guardrails import *  # noqa: F401, F403
 from opencontractserver.constants.corpus_actions import *  # noqa: F401, F403

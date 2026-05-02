@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any, Optional
 
 from django.db.models import JSONField as DbJSONField
 from django.forms.fields import InvalidJSONInput, JSONField
@@ -16,7 +17,7 @@ class PDFBase64File(Base64FileField):
 
     ALLOWED_TYPES = ("pdf",)
 
-    def get_file_extension(self, filename, decoded_file):
+    def get_file_extension(self, filename: str, decoded_file: bytes) -> Optional[str]:
 
         # Check file type
         kind = filetype.guess(decoded_file)
@@ -51,7 +52,7 @@ class UTF8JSONFormField(JSONField):
 
     empty_values = [None, "", [], (), {}]
 
-    def prepare_value(self, value):
+    def prepare_value(self, value: Any) -> Any:
         if isinstance(value, InvalidJSONInput):
             return value
         return json.dumps(value, ensure_ascii=False)
@@ -69,5 +70,5 @@ class NullableJSONField(DbJSONField):
 
     empty_values = [None, "", [], (), {}]
 
-    def formfield(self, **kwargs):
+    def formfield(self, **kwargs: Any) -> Any:
         return super().formfield(**{"form_class": UTF8JSONFormField, **kwargs})

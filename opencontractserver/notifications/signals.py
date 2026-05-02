@@ -8,6 +8,7 @@ Issue #637: Added WebSocket broadcasting for real-time notifications
 """
 
 import logging
+from typing import Any
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -106,7 +107,12 @@ def broadcast_notification_via_websocket(notification: Notification) -> None:
 
 
 @receiver(post_save, sender=ChatMessage)
-def create_reply_notification(sender, instance, created, **kwargs):
+def create_reply_notification(
+    sender: type[ChatMessage],
+    instance: ChatMessage,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Create notification when a user replies to a message.
 
@@ -223,7 +229,12 @@ def create_reply_notification(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender=ChatMessage)
-def create_mention_notification(sender, instance, created, **kwargs):
+def create_mention_notification(
+    sender: type[ChatMessage],
+    instance: ChatMessage,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Create notification when a user is mentioned in a message.
 
@@ -288,7 +299,12 @@ def create_mention_notification(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender=UserBadge)
-def create_badge_notification(sender, instance, created, **kwargs):
+def create_badge_notification(
+    sender: type[UserBadge],
+    instance: UserBadge,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Create notification when a user is awarded a badge.
     """
@@ -329,7 +345,12 @@ def create_badge_notification(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender=ModerationAction)
-def create_moderation_notification(sender, instance, created, **kwargs):
+def create_moderation_notification(
+    sender: type[ModerationAction],
+    instance: ModerationAction,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Create notifications for moderation actions.
 
@@ -344,8 +365,12 @@ def create_moderation_notification(sender, instance, created, **kwargs):
     if hasattr(instance, "_skip_signals"):
         return
 
-    # Map action types to notification types
-    action_to_notification = {
+    # Map action types to notification types. ``ModerationActionType`` is
+    # a :class:`TextChoices` subclass, so each enum member is *also* a
+    # ``str`` — we annotate the dict with ``str`` keys so the lookup with
+    # ``action.action_type`` (a plain ``str`` coming back from the DB)
+    # type-checks without a cast.
+    action_to_notification: dict[str, NotificationTypeChoices] = {
         ModerationActionType.LOCK_THREAD: NotificationTypeChoices.THREAD_LOCKED,
         ModerationActionType.UNLOCK_THREAD: NotificationTypeChoices.THREAD_UNLOCKED,
         ModerationActionType.PIN_THREAD: NotificationTypeChoices.THREAD_PINNED,
@@ -359,6 +384,12 @@ def create_moderation_notification(sender, instance, created, **kwargs):
     notification_type = action_to_notification.get(action.action_type)
     if not notification_type:
         logger.debug(f"No notification type mapped for action: {action.action_type}")
+        return
+
+    # A ``ModerationAction`` without a moderator is a data inconsistency
+    # we have no way to notify about; skip it rather than raise.
+    if action.moderator is None:
+        logger.debug(f"Moderation action {action.id} has no moderator, skipping")
         return
 
     # Determine recipient based on action type

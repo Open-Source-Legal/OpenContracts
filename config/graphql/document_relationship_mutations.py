@@ -73,7 +73,7 @@ class CreateDocumentRelationship(graphene.Mutation):
         corpus_id,
         annotation_label_id=None,
         data=None,
-    ):
+    ) -> "CreateDocumentRelationship":
         try:
             # Decode global IDs
             source_doc_pk = from_global_id(source_document_id)[1]
@@ -267,7 +267,7 @@ class UpdateDocumentRelationship(graphene.Mutation):
         annotation_label_id=None,
         corpus_id=None,
         data=None,
-    ):
+    ) -> "UpdateDocumentRelationship":
         try:
             # Decode global ID
             doc_rel_pk = from_global_id(document_relationship_id)[1]
@@ -438,7 +438,7 @@ class DeleteDocumentRelationship(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    def mutate(root, info, document_relationship_id):
+    def mutate(root, info, document_relationship_id) -> "DeleteDocumentRelationship":
         try:
             # Decode global ID
             doc_rel_pk = from_global_id(document_relationship_id)[1]
@@ -501,7 +501,7 @@ class DeleteDocumentRelationships(graphene.Mutation):
     deleted_count = graphene.Int()
 
     @login_required
-    def mutate(root, info, document_relationship_ids):
+    def mutate(root, info, document_relationship_ids) -> "DeleteDocumentRelationships":
         user = info.context.user
 
         try:

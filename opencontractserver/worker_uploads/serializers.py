@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any
 
 from rest_framework import serializers
 
@@ -23,7 +24,7 @@ class WorkerDocumentUploadSerializer(serializers.Serializer):
     file = serializers.FileField(required=True)
     metadata = serializers.CharField(required=True)
 
-    def validate_metadata(self, value):
+    def validate_metadata(self, value: str) -> dict[str, Any]:
         try:
             data = json.loads(value)
         except (json.JSONDecodeError, TypeError):
@@ -72,7 +73,7 @@ class WorkerDocumentUploadSerializer(serializers.Serializer):
         return data
 
 
-def _validate_vector(vec, field_name: str) -> None:
+def _validate_vector(vec: Any, field_name: str) -> None:
     """Validate that a vector is a list of numbers with a supported dimension."""
     if not isinstance(vec, list):
         raise serializers.ValidationError(f"{field_name} must be a list of floats.")

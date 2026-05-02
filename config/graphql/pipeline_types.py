@@ -8,14 +8,8 @@ from opencontractserver.pipeline.base.file_types import (
     FileTypeEnum as BackendFileTypeEnum,
 )
 
-
-class FileTypeEnum(graphene.Enum):
-    """Graphene enum for FileTypeEnum."""
-
-    PDF = BackendFileTypeEnum.PDF.value
-    TXT = BackendFileTypeEnum.TXT.value
-    DOCX = BackendFileTypeEnum.DOCX.value
-    # HTML has been removed as we don't support it
+# Derived from BackendFileTypeEnum to prevent schema drift.
+FileTypeEnum = graphene.Enum.from_enum(BackendFileTypeEnum)
 
 
 class ComponentSettingSchemaType(graphene.ObjectType):
@@ -113,6 +107,10 @@ class PipelineComponentsType(graphene.ObjectType):
     post_processors = graphene.List(
         PipelineComponentType, description="List of available post-processors."
     )
+    rerankers = graphene.List(
+        PipelineComponentType,
+        description="List of available post-retrieval rerankers.",
+    )
 
 
 # ==============================================================================
@@ -201,6 +199,14 @@ class PipelineSettingsType(graphene.ObjectType):
     # Default embedder
     default_embedder = graphene.String(
         description="Default embedder class path when no MIME-specific embedder is found"
+    )
+
+    # Default reranker (post-retrieval). Empty string means reranking disabled.
+    default_reranker = graphene.String(
+        description="Default post-retrieval reranker class path. Empty string "
+        "means reranking is disabled and first-stage retrieval "
+        "results are returned as-is.",
+        required=False,
     )
 
     # Secrets indicator (actual secrets are never exposed via GraphQL)

@@ -1,5 +1,7 @@
 """GraphQL type definitions for agent and action types."""
 
+from typing import Any
+
 import graphene
 from graphene import relay
 from graphene_django import DjangoObjectType
@@ -37,7 +39,7 @@ class CorpusActionType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "source_template__id": ["exact"],
         }
 
-    def resolve_pre_authorized_tools(self, info):
+    def resolve_pre_authorized_tools(self, info) -> Any:
         """Resolve pre_authorized_tools as a list of strings."""
         return self.pre_authorized_tools or []
 
@@ -61,15 +63,15 @@ class AgentActionResultType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "creator__id": ["exact"],
         }
 
-    def resolve_tools_executed(self, info):
+    def resolve_tools_executed(self, info) -> Any:
         """Resolve tools_executed as a list of JSON objects."""
         return self.tools_executed or []
 
-    def resolve_execution_metadata(self, info):
+    def resolve_execution_metadata(self, info) -> Any:
         """Resolve execution_metadata as JSON dict."""
         return self.execution_metadata or {}
 
-    def resolve_duration_seconds(self, info):
+    def resolve_duration_seconds(self, info) -> Any:
         """Resolve duration from the model property."""
         return self.duration_seconds
 
@@ -100,19 +102,19 @@ class CorpusActionExecutionType(AnnotatePermissionsForReadMixin, DjangoObjectTyp
             "creator__id": ["exact"],
         }
 
-    def resolve_duration_seconds(self, info):
+    def resolve_duration_seconds(self, info) -> Any:
         """Resolve duration from the model property."""
         return self.duration_seconds
 
-    def resolve_wait_time_seconds(self, info):
+    def resolve_wait_time_seconds(self, info) -> Any:
         """Resolve wait time from the model property."""
         return self.wait_time_seconds
 
-    def resolve_affected_objects(self, info):
+    def resolve_affected_objects(self, info) -> Any:
         """Resolve affected_objects as a list of JSON objects."""
         return self.affected_objects or []
 
-    def resolve_execution_metadata(self, info):
+    def resolve_execution_metadata(self, info) -> Any:
         """Resolve execution_metadata as JSON dict."""
         return self.execution_metadata or {}
 
@@ -180,17 +182,17 @@ class AgentConfigurationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "corpus": ["exact"],
         }
 
-    def resolve_mention_format(self, info):
+    def resolve_mention_format(self, info) -> Any:
         """Return the @ mention format for this agent."""
         if self.slug:
             return f"@agent:{self.slug}"
         return None
 
-    def resolve_available_tools(self, info):
+    def resolve_available_tools(self, info) -> Any:
         """Resolve available_tools as a list of strings, ensuring proper array type."""
         return self.available_tools if self.available_tools else []
 
-    def resolve_permission_required_tools(self, info):
+    def resolve_permission_required_tools(self, info) -> Any:
         """Resolve permission_required_tools as a list of strings, ensuring proper array type."""
         return self.permission_required_tools if self.permission_required_tools else []
 
@@ -261,5 +263,5 @@ class CorpusActionTemplateType(DjangoObjectType):
             "created",
         )
 
-    def resolve_pre_authorized_tools(self, info):
+    def resolve_pre_authorized_tools(self, info) -> Any:
         return self.pre_authorized_tools or []

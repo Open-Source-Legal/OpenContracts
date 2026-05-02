@@ -168,7 +168,9 @@ def generate_embeddings_from_text(
             embedder_instance = embedder_class()
 
             logger.debug(f"Embedding text with {embedder_class.__name__}")
-            vector = embedder_instance.embed_text(text)  # type: ignore
+            # ``embedder_class`` is dynamically loaded; mypy cannot resolve
+            # ``embed_text`` on the abstract base before the runtime check.
+            vector = embedder_instance.embed_text(text)  # type: ignore[attr-defined]
             return embedder_path, vector
         except Exception as e:
             logger.error(

@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from graphene import Connection, Int
 
@@ -12,14 +13,14 @@ class PdfPageAwareConnection(Connection):
     current_page = Int()
     page_count = Int()
 
-    def resolve_current_page(root, info, **kwargs):
+    def resolve_current_page(root, info, **kwargs) -> Any:
         # print(
         #     f"PdfPageAwareConnection- resolve_total_count kwargs: {kwargs} / root {dir(root)} / iteracble "
         #     f"{root.iterable.count()}"
         # )
         return 1
 
-    def resolve_page_count(root, info, **kwargs):
+    def resolve_page_count(root, info, **kwargs) -> Any:
 
         largest_page_number = max(
             list(root.iterable.values_list("page", flat=True).distinct())

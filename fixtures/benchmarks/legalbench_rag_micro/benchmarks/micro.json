@@ -1,0 +1,44 @@
+{
+  "tests": [
+    {
+      "query": "How can this agreement be terminated?",
+      "snippets": [
+        {
+          "file_path": "micro/contract.txt",
+          "span": [92, 166]
+        }
+      ],
+      "tags": ["termination"]
+    },
+    {
+      "query": "What are the payment terms?",
+      "snippets": [
+        {
+          "file_path": "micro/contract.txt",
+          "span": [167, 216]
+        }
+      ],
+      "tags": ["payment"]
+    },
+    {
+      "query": "What personal information does Globex collect?",
+      "snippets": [
+        {
+          "file_path": "micro/privacy.txt",
+          "span": [23, 70]
+        }
+      ],
+      "tags": ["collection"]
+    },
+    {
+      "query": "Does Globex sell personal data?",
+      "snippets": [
+        {
+          "file_path": "micro/privacy.txt",
+          "span": [71, 122]
+        }
+      ],
+      "tags": ["sale"]
+    }
+  ]
+}

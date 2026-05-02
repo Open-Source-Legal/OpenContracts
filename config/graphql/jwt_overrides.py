@@ -1,8 +1,10 @@
+from typing import Any
+
 from graphql_jwt.compat import get_operation_name
 from graphql_jwt.settings import jwt_settings
 
 
-def allow_any(info, **kwargs):
+def allow_any(info, **kwargs) -> Any:
     try:
         operation_name = get_operation_name(info.operation.operation).title()
         operation_type = info.schema.get_type(operation_name)

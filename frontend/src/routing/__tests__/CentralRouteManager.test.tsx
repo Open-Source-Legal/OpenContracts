@@ -15,6 +15,8 @@ import { CentralRouteManager } from "../CentralRouteManager";
 import {
   openedCorpus,
   openedDocument,
+  openedExtract,
+  openedUser,
   selectedAnnotationIds,
   selectedAnalysesIds,
   selectedExtractIds,
@@ -27,6 +29,8 @@ import {
   RESOLVE_CORPUS_BY_SLUGS_FULL,
   RESOLVE_DOCUMENT_BY_SLUGS_FULL,
   RESOLVE_DOCUMENT_IN_CORPUS_BY_SLUGS_FULL,
+  RESOLVE_EXTRACT_BY_ID,
+  GET_USER,
 } from "../../graphql/queries";
 import { navigationCircuitBreaker } from "../../utils/navigationCircuitBreaker";
 
@@ -45,6 +49,8 @@ describe("CentralRouteManager", () => {
     // Clear all reactive vars
     openedCorpus(null);
     openedDocument(null);
+    openedExtract(null);
+    openedUser(null);
     selectedAnnotationIds([]);
     selectedAnalysesIds([]);
     selectedExtractIds([]);
@@ -661,6 +667,162 @@ describe("CentralRouteManager", () => {
       // Should clear corpus when on browse route
       expect(openedCorpus()).toBeNull();
       expect(openedDocument()).toBeNull();
+    });
+
+    it("should clear openedUser when navigating to a browse route", async () => {
+      openedUser({
+        id: "user-1",
+        username: "jane",
+        slug: "jane",
+        name: "Jane",
+        firstName: "Jane",
+        lastName: "Doe",
+        email: "jane@example.com",
+        isProfilePublic: true,
+        reputationGlobal: 0,
+        totalMessages: 0,
+        totalThreadsCreated: 0,
+        totalAnnotationsCreated: 0,
+        totalDocumentsUploaded: 0,
+      });
+
+      render(
+        <MockedProvider mocks={[]} addTypename={false}>
+          <MemoryRouter initialEntries={["/corpuses"]}>
+            <CentralRouteManager />
+          </MemoryRouter>
+        </MockedProvider>
+      );
+
+      expect(openedUser()).toBeNull();
+    });
+  });
+
+  describe("Phase 1: User Profile Routes (/users/:slug)", () => {
+    const mockUser = {
+      id: "user-42",
+      username: "jane",
+      slug: "jane",
+      name: "Jane Doe",
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      isProfilePublic: true,
+      reputationGlobal: 100,
+      totalMessages: 12,
+      totalThreadsCreated: 3,
+      totalAnnotationsCreated: 25,
+      totalDocumentsUploaded: 7,
+    };
+
+    it("resolves a user from /users/:slug into openedUser", async () => {
+      const mocks = [
+        {
+          request: {
+            query: GET_USER,
+            variables: { slug: "jane" },
+          },
+          result: { data: { userBySlug: mockUser } },
+        },
+      ];
+
+      render(
+        <MockedProvider mocks={mocks} addTypename={false}>
+          <MemoryRouter initialEntries={["/users/jane"]}>
+            <CentralRouteManager />
+          </MemoryRouter>
+        </MockedProvider>
+      );
+
+      await waitFor(() => {
+        expect(routeLoading()).toBe(false);
+      });
+
+      expect(openedUser()).toEqual(mockUser);
+      expect(openedCorpus()).toBeNull();
+      expect(openedDocument()).toBeNull();
+      expect(openedExtract()).toBeNull();
+      expect(routeError()).toBeNull();
+    });
+
+    it("sets routeError when the user slug does not exist", async () => {
+      const mocks = [
+        {
+          request: {
+            query: GET_USER,
+            variables: { slug: "ghost" },
+          },
+          result: { data: { userBySlug: null } },
+        },
+      ];
+
+      render(
+        <MockedProvider mocks={mocks} addTypename={false}>
+          <MemoryRouter initialEntries={["/users/ghost"]}>
+            <CentralRouteManager />
+          </MemoryRouter>
+        </MockedProvider>
+      );
+
+      await waitFor(() => {
+        expect(routeLoading()).toBe(false);
+      });
+
+      expect(openedUser()).toBeNull();
+      expect(routeError()).not.toBeNull();
+      expect(routeError()?.message).toMatch(/ghost/);
+      // The user-not-found path should NOT redirect to /404 — the in-place
+      // error display lets the visitor edit the slug without losing the URL.
+      expect(mockNavigate).not.toHaveBeenCalledWith("/404", expect.anything());
+    });
+  });
+
+  describe("Phase 1: Extract Routes (/extracts/:extractId)", () => {
+    const mockExtract = {
+      id: "extract-123",
+      name: "My Extract",
+      created: "2026-01-01T00:00:00Z",
+      started: null,
+      finished: null,
+      error: null,
+      myPermissions: ["read"],
+      creator: { id: "user-1", slug: "john", username: "john" },
+      corpus: {
+        id: "corpus-1",
+        slug: "my-corpus",
+        title: "My Corpus",
+        creator: { id: "user-1", slug: "john" },
+      },
+      fieldset: { id: "fs-1", name: "FS", description: "" },
+    };
+
+    it("resolves an extract from /extracts/:extractId into openedExtract", async () => {
+      const mocks = [
+        {
+          request: {
+            query: RESOLVE_EXTRACT_BY_ID,
+            variables: { extractId: "extract-123" },
+          },
+          result: { data: { extract: mockExtract } },
+        },
+      ];
+
+      render(
+        <MockedProvider mocks={mocks} addTypename={false}>
+          <MemoryRouter initialEntries={["/extracts/extract-123"]}>
+            <CentralRouteManager />
+          </MemoryRouter>
+        </MockedProvider>
+      );
+
+      await waitFor(() => {
+        expect(routeLoading()).toBe(false);
+      });
+
+      expect(openedExtract()).toEqual(mockExtract);
+      expect(openedCorpus()).toBeNull();
+      expect(openedDocument()).toBeNull();
+      expect(openedUser()).toBeNull();
     });
   });
 });

@@ -3,6 +3,7 @@ GraphQL query mixin for search and mention queries.
 """
 
 import logging
+from typing import Any
 
 import graphene
 from django.contrib.postgres.search import SearchQuery
@@ -75,7 +76,9 @@ class SearchQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_search_corpuses_for_mention(self, info, text_search=None, **kwargs):
+    def resolve_search_corpuses_for_mention(
+        self, info, text_search=None, **kwargs
+    ) -> Any:
         """
         Search corpuses for @ mention autocomplete.
 
@@ -129,7 +132,7 @@ class SearchQueryMixin:
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
     def resolve_search_documents_for_mention(
         self, info, text_search=None, corpus_id=None, **kwargs
-    ):
+    ) -> Any:
         """
         Search documents for @ mention autocomplete.
 
@@ -260,7 +263,7 @@ class SearchQueryMixin:
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
     def resolve_search_annotations_for_mention(
         self, info, text_search=None, corpus_id=None, **kwargs
-    ):
+    ) -> Any:
         """
         Search annotations for @ mention autocomplete.
 
@@ -331,7 +334,7 @@ class SearchQueryMixin:
         return qs
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_search_users_for_mention(self, info, text_search=None, **kwargs):
+    def resolve_search_users_for_mention(self, info, text_search=None, **kwargs) -> Any:
         """
         Search users for @ mention autocomplete.
 
@@ -377,7 +380,7 @@ class SearchQueryMixin:
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
     def resolve_search_agents_for_mention(
         self, info, text_search=None, corpus_id=None, **kwargs
-    ):
+    ) -> Any:
         """
         Search agents for @ mention autocomplete.
 
@@ -465,7 +468,7 @@ class SearchQueryMixin:
         raw_text_contains=None,
         limit=50,
         offset=0,
-    ):
+    ) -> Any:
         """
         Hybrid search combining vector similarity with text filters.
 

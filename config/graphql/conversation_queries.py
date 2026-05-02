@@ -3,7 +3,7 @@ GraphQL query mixin for conversation, message, and moderation queries.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import graphene
 from django.db.models import Count, Prefetch, Q
@@ -40,7 +40,7 @@ class ConversationQueryMixin:
         description="Retrieve conversations, optionally filtered by document_id or corpus_id",
     )
 
-    def resolve_conversations(self, info, **kwargs):
+    def resolve_conversations(self, info, **kwargs) -> Any:
         """
         Resolver to fetch Conversations along with their Messages.
 
@@ -93,7 +93,7 @@ class ConversationQueryMixin:
         conversation_type=None,
         top_k=100,
         **kwargs,
-    ):
+    ) -> Any:
         """
         Search conversations using vector similarity with cursor-based pagination.
 
@@ -181,7 +181,7 @@ class ConversationQueryMixin:
     @login_required
     def resolve_search_messages(
         self, info, query, corpus_id=None, conversation_id=None, msg_type=None, top_k=10
-    ):
+    ) -> Any:
         """
         Search messages using vector similarity.
 
@@ -255,7 +255,7 @@ class ConversationQueryMixin:
         conversation_id: Optional[str],
         order_by: Optional[str] = None,
         **kwargs,
-    ):
+    ) -> Any:
         """
         Resolver for fetching ChatMessage objects with optional filters.
 
@@ -312,7 +312,7 @@ class ConversationQueryMixin:
         msg_type: Optional[str] = None,
         order_by: Optional[str] = None,
         **kwargs,
-    ):
+    ) -> Any:
         """
         Resolver for fetching ChatMessage objects by creator for user profiles.
 
@@ -397,7 +397,7 @@ class ConversationQueryMixin:
         action_types=None,
         automated_only=None,
         **kwargs,
-    ):
+    ) -> Any:
         """
         Resolve moderation action audit logs with optional filters.
 
@@ -462,7 +462,7 @@ class ConversationQueryMixin:
     )
 
     @login_required
-    def resolve_moderation_action(self, info, id):
+    def resolve_moderation_action(self, info, id) -> Any:
         """
         Resolve a single moderation action by ID.
 
@@ -510,7 +510,7 @@ class ConversationQueryMixin:
     )
 
     @login_required
-    def resolve_moderation_metrics(self, info, corpus_id, time_range_hours=24):
+    def resolve_moderation_metrics(self, info, corpus_id, time_range_hours=24) -> Any:
         """
         Resolve aggregated moderation metrics for a corpus.
 

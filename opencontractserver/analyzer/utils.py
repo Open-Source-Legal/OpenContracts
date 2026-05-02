@@ -62,7 +62,7 @@ def auto_create_doc_analyzers(
     fallback_superuser: bool = True,
     max_docstring_length: int = 2000,
     update_existing: bool = True,
-):
+) -> None:
     """
     Syncs functions decorated with @doc_analyzer_task with Analyzer database entries.
     Creates new analyzers or updates existing ones to match task decorations.

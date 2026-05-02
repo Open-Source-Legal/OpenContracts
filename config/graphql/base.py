@@ -2,6 +2,8 @@ import inspect
 import logging
 import traceback
 from abc import ABC
+from collections.abc import Sequence
+from typing import Any, ClassVar, Optional
 
 import django.db.models
 import graphene
@@ -21,12 +23,30 @@ from opencontractserver.utils.permissioning import (
 logger = logging.getLogger(__name__)
 
 
+def _require_io_setting(mutation_cls: type, name: str) -> Any:
+    """Raise ``NotImplementedError`` if ``cls.IOSettings.<name>`` is missing or ``None``."""
+    io_settings = getattr(mutation_cls, "IOSettings", None)
+    if io_settings is None:
+        raise NotImplementedError(
+            f"{mutation_cls.__name__} must define an IOSettings class."
+        )
+    value = getattr(io_settings, name, None)
+    if value is None:
+        raise NotImplementedError(
+            f"{mutation_cls.__name__}.IOSettings.{name} must be set by the "
+            f"subclass."
+        )
+    return value
+
+
 class OpenContractsNode(Node):
     class Meta:
         name = "Node"
 
     @classmethod
-    def get_node_from_global_id(cls, info, global_id, only_type=None):
+    def get_node_from_global_id(
+        cls, info: Any, global_id: str, only_type: Any | None = None
+    ) -> Any:
 
         _type, _id = from_global_id(global_id)
 
@@ -63,7 +83,7 @@ class CountableConnection(graphene.relay.Connection):
 
     total_count = graphene.Int()
 
-    def resolve_total_count(root, info, **kwargs):
+    def resolve_total_count(root, info, **kwargs) -> Any:
         if isinstance(root.iterable, django.db.models.QuerySet):
             return root.iterable.count()
         else:
@@ -72,7 +92,8 @@ class CountableConnection(graphene.relay.Connection):
 
 class DRFDeletion(graphene.Mutation):
     class IOSettings(ABC):
-        lookup_field = "id"
+        lookup_field: ClassVar[str] = "id"
+        model: ClassVar[Optional[type[django.db.models.Model]]] = None
 
     class Arguments:
         id = graphene.String(required=False)
@@ -83,14 +104,26 @@ class DRFDeletion(graphene.Mutation):
     @classmethod
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(cls, root, info, *args, **kwargs):
+    def mutate(cls, root, info, *args, **kwargs) -> "DRFDeletion":
 
+        # Unlike ``DRFMutation.mutate`` below, this method intentionally does
+        # NOT wrap the body in ``except Exception``. Errors (including the
+        # ``NotImplementedError`` from ``_require_io_setting`` and the
+        # ``ValueError`` for missing lookup args) propagate to the GraphQL
+        # framework as raw execution errors.
         ok = False
 
-        id = from_global_id(kwargs.get(cls.IOSettings.lookup_field, None))[1]
+        model = _require_io_setting(cls, "model")
+        lookup_field = cls.IOSettings.lookup_field
+        lookup_value = kwargs.get(lookup_field)
+        if lookup_value is None:
+            raise ValueError(
+                f"'{lookup_field}' is required to identify the object to delete."
+            )
+        id = from_global_id(lookup_value)[1]
         # Filter through visible_to_user() to prevent IDOR -- returns same
         # DoesNotExist error whether object is missing or user lacks access.
-        obj = cls.IOSettings.model.objects.visible_to_user(info.context.user).get(pk=id)
+        obj = model.objects.visible_to_user(info.context.user).get(pk=id)
 
         # if there's a user lock, only the lock holder (or superuser) can proceed
         if hasattr(obj, "user_lock") and obj.user_lock is not None:
@@ -123,11 +156,13 @@ class DRFDeletion(graphene.Mutation):
 
 class DRFMutation(graphene.Mutation):
     class IOSettings(ABC):
-        pk_fields: list[str | int] = []
-        lookup_field = "id"
-        model: django.db.models.Model = None
-        graphene_model: DjangoObjectType = None
-        serializer = None
+        # Frozen default — subclasses override with their own list/tuple.
+        # Using a tuple here avoids the shared-mutable-default footgun.
+        pk_fields: ClassVar[Sequence[str]] = ()
+        lookup_field: ClassVar[str] = "id"
+        model: ClassVar[Optional[type[django.db.models.Model]]] = None
+        graphene_model: ClassVar[Optional[type[DjangoObjectType]]] = None
+        serializer: ClassVar[Optional[type[serializers.Serializer]]] = None
 
     class Arguments:
         pass
@@ -137,7 +172,7 @@ class DRFMutation(graphene.Mutation):
     obj_id = graphene.ID()
 
     @staticmethod
-    def format_validation_error(ve):
+    def format_validation_error(ve: serializers.ValidationError) -> str:
         """Surface validation errors with clean formatting.
 
         ``str(ValidationError)`` renders as
@@ -158,7 +193,7 @@ class DRFMutation(graphene.Mutation):
     @classmethod
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(cls, root, info, *args, **kwargs):
+    def mutate(cls, root, info, *args, **kwargs) -> "DRFMutation":
 
         ok = False
         obj_id = None
@@ -175,20 +210,25 @@ class DRFMutation(graphene.Mutation):
                 raise ValueError("No user in this request...")
 
             logger.info(f"DRFMutation - kwargs: {kwargs}")
-            serializer = cls.IOSettings.serializer
+            serializer = _require_io_setting(cls, "serializer")
+            model = _require_io_setting(cls, "model")
+            # ``graphene_model`` is the class itself; ``__name__`` is the GraphQL
+            # type name (e.g. ``"CorpusType"``). ``__class__.__name__`` would
+            # return the metaclass name (``"SubclassWithMeta_Meta"``) which is
+            # the bug this PR fixes — kept dereferenced as ``__name__`` below.
+            graphene_model = _require_io_setting(cls, "graphene_model")
 
             if hasattr(cls.IOSettings, "pk_fields"):
                 for pk_field in cls.IOSettings.pk_fields:
                     if pk_field in kwargs:
-                        if isinstance(kwargs[pk_field], list):
-                            pk_value = []
-                            for global_id in kwargs[pk_field]:
-                                # global_id is already the ID string, not a key
-                                pk_value.append(from_global_id(global_id)[1])
+                        raw_value = kwargs[pk_field]
+                        if isinstance(raw_value, list):
+                            kwargs[pk_field] = [
+                                from_global_id(global_id)[1] for global_id in raw_value
+                            ]
                         else:
-                            logger.info(f"pk field is: {kwargs.get(pk_field, None)}")
-                            pk_value = from_global_id(kwargs.get(pk_field, None))[1]
-                        kwargs[pk_field] = pk_value
+                            logger.info(f"pk field is: {raw_value}")
+                            kwargs[pk_field] = from_global_id(raw_value)[1]
 
             # Check if lookup_field exists in IOSettings and if it's in kwargs
             # This allows create mutations to work without requiring lookup_field
@@ -201,10 +241,8 @@ class DRFMutation(graphene.Mutation):
                 logger.info("Lookup_field specified - update")
                 # Filter through visible_to_user() to prevent IDOR --
                 # returns same DoesNotExist whether missing or no access.
-                obj = cls.IOSettings.model.objects.visible_to_user(
-                    info.context.user
-                ).get(
-                    pk=from_global_id(kwargs.get(cls.IOSettings.lookup_field, None))[1]
+                obj = model.objects.visible_to_user(info.context.user).get(
+                    pk=from_global_id(kwargs[cls.IOSettings.lookup_field])[1]
                 )
 
                 logger.info(f"Retrieved obj: {obj}")
@@ -240,9 +278,7 @@ class DRFMutation(graphene.Mutation):
                 obj_serializer.save()
                 ok = True
                 message = "Success"
-                obj_id = to_global_id(
-                    cls.IOSettings.graphene_model.__class__.__name__, obj.id
-                )
+                obj_id = to_global_id(graphene_model.__name__, obj.id)
                 logger.info("Succeeded updating obj")
 
             else:
@@ -262,9 +298,7 @@ class DRFMutation(graphene.Mutation):
 
                 ok = True
                 message = "Success"
-                obj_id = to_global_id(
-                    cls.IOSettings.graphene_model.__class__.__name__, obj.id
-                )
+                obj_id = to_global_id(graphene_model.__name__, obj.id)
 
         except serializers.ValidationError as ve:
             logger.warning(f"Validation error in mutation: {ve.detail}")

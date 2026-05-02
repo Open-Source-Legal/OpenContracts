@@ -20,7 +20,7 @@ import {
   Tag,
   GitBranch,
 } from "lucide-react";
-import { useMutation } from "@apollo/client";
+import { useMutation, useLazyQuery, useReactiveVar } from "@apollo/client";
 import { toast } from "react-toastify";
 import { navigateToDocument } from "../../utils/navigationUtils";
 import { LoadingOverlay } from "../common/LoadingOverlay";
@@ -43,6 +43,11 @@ import {
   RetryDocumentProcessingOutputType,
   RetryDocumentProcessingInputType,
 } from "../../graphql/mutations";
+import {
+  GET_DOC_RELATIONSHIPS_FOR_DOC,
+  GetDocRelationshipsForDocInputs,
+  GetDocRelationshipsForDocOutputs,
+} from "../../graphql/queries";
 import { downloadFile } from "../../utils/files";
 import fallback_doc_icon from "../../assets/images/defaults/default_doc_icon.jpg";
 import { getPermissions } from "../../utils/transform";
@@ -934,8 +939,56 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     canViewHistory,
     // Relationship data
     docRelationshipCount,
-    allDocRelationships,
   } = item;
+
+  // Relationships are fetched lazily the first time the user hovers the
+  // relationship badge. This keeps the document-list query cheap on corpora
+  // with many documents.
+  const [
+    fetchDocRelationships,
+    {
+      data: relationshipsData,
+      loading: relationshipsLoading,
+      error: relationshipsError,
+    },
+  ] = useLazyQuery<
+    GetDocRelationshipsForDocOutputs,
+    GetDocRelationshipsForDocInputs
+  >(GET_DOC_RELATIONSHIPS_FOR_DOC, { fetchPolicy: "cache-first" });
+
+  const allDocRelationships = relationshipsData?.bulkDocRelationships;
+
+  // Subscribe to the reactive var so this component re-renders when the
+  // corpus changes — calling ``openedCorpus()`` directly would only sample
+  // the value at render time and leave a stale ``corpusId`` baked into the
+  // useCallback below until something else triggered a re-render.
+  const currentOpenedCorpus = useReactiveVar(openedCorpus);
+  const corpusIdForRelationships = currentOpenedCorpus?.id ?? null;
+  const handleRelationshipHover = useCallback(() => {
+    // Bail when count is zero, when the data has already loaded, when a
+    // fetch is in-flight, OR when the previous attempt errored out — without
+    // the error guard the popup falls through to the "Loading..." fallback
+    // forever AND every subsequent hover retriggers the failing fetch.
+    if (
+      !docRelationshipCount ||
+      relationshipsData ||
+      relationshipsLoading ||
+      relationshipsError
+    ) {
+      return;
+    }
+    fetchDocRelationships({
+      variables: { documentId: id, corpusId: corpusIdForRelationships },
+    });
+  }, [
+    docRelationshipCount,
+    relationshipsData,
+    relationshipsLoading,
+    relationshipsError,
+    fetchDocRelationships,
+    id,
+    corpusIdForRelationships,
+  ]);
 
   const isFailed = processingStatus === DocumentProcessingStatus.FAILED;
   const isProcessing =
@@ -1286,6 +1339,7 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
       <>
         <CardContainer
           ref={setNodeRef}
+          data-testid="document-card"
           className={`${is_selected ? "is-selected" : ""} ${
             isProcessing ? "backend-locked" : ""
           } ${isFailed ? "failed" : ""} ${
@@ -1351,7 +1405,15 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
               </VersionBadgeWrapper>
             )}
             {!!docRelationshipCount && docRelationshipCount > 0 && (
-              <RelationshipBadgeContainer onClick={(e) => e.stopPropagation()}>
+              <RelationshipBadgeContainer
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Cover touch devices: onMouseEnter doesn't fire on tap.
+                  handleRelationshipHover();
+                }}
+                onMouseEnter={handleRelationshipHover}
+                onFocus={handleRelationshipHover}
+              >
                 <RelationshipBadge>
                   <Link2 />
                   {docRelationshipCount}
@@ -1402,6 +1464,15 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
                           </RelationshipItem>
                         );
                       })
+                    ) : relationshipsError ? (
+                      <div
+                        style={{
+                          color: OS_LEGAL_COLORS.textMuted,
+                          fontSize: "0.75rem",
+                        }}
+                      >
+                        Couldn't load relationships.
+                      </div>
                     ) : (
                       <div
                         style={{
@@ -1497,6 +1568,7 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     <>
       <ListContainer
         ref={setNodeRef}
+        data-testid="document-card"
         className={`${is_selected ? "is-selected" : ""} ${
           isProcessing ? "backend-locked" : ""
         } ${isFailed ? "failed" : ""} ${isLongPressing ? "long-pressing" : ""}`}
@@ -1591,7 +1663,15 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
               </div>
             )}
             {!!docRelationshipCount && docRelationshipCount > 0 && (
-              <ListRelationshipBadge onClick={(e) => e.stopPropagation()}>
+              <ListRelationshipBadge
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Cover touch devices: onMouseEnter doesn't fire on tap.
+                  handleRelationshipHover();
+                }}
+                onMouseEnter={handleRelationshipHover}
+                onFocus={handleRelationshipHover}
+              >
                 <Link2 />
                 {docRelationshipCount}
                 <ListRelationshipPopup>
@@ -1640,6 +1720,15 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
                           </RelationshipItem>
                         );
                       })
+                    ) : relationshipsError ? (
+                      <div
+                        style={{
+                          color: OS_LEGAL_COLORS.textMuted,
+                          fontSize: "0.75rem",
+                        }}
+                      >
+                        Couldn't load relationships.
+                      </div>
                     ) : (
                       <div
                         style={{

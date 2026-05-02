@@ -3,6 +3,7 @@ GraphQL query mixin for worker upload management queries.
 """
 
 import logging
+from typing import Any
 
 import graphene
 from django.db.models import Count, Q
@@ -56,7 +57,7 @@ class WorkerQueryMixin:
     )
 
     @login_required
-    def resolve_worker_accounts(self, info, name_contains=None, is_active=None):
+    def resolve_worker_accounts(self, info, name_contains=None, is_active=None) -> Any:
         """List worker accounts.
 
         Intentionally accessible to all authenticated users so that corpus
@@ -97,7 +98,7 @@ class WorkerQueryMixin:
         ]
 
     @login_required
-    def resolve_corpus_access_tokens(self, info, corpus_id, is_active=None):
+    def resolve_corpus_access_tokens(self, info, corpus_id, is_active=None) -> Any:
         user = info.context.user
         qs = Corpus.objects.filter(id=corpus_id)
         if not user.is_superuser:
@@ -141,7 +142,7 @@ class WorkerQueryMixin:
     @login_required
     def resolve_worker_document_uploads(
         self, info, corpus_id, status=None, limit=None, offset=None
-    ):
+    ) -> Any:
         user = info.context.user
         qs = Corpus.objects.filter(id=corpus_id)
         if not user.is_superuser:

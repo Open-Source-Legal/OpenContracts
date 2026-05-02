@@ -30,7 +30,10 @@ DELAY_INCREMENT = 300  # 5 minutes
 logger = logging.getLogger(__name__)
 
 
-def doc_analyzer_task(max_retries=None, input_schema: dict | None = None) -> callable:
+def doc_analyzer_task(
+    max_retries: Union[int, None] = None,
+    input_schema: dict[str, Any] | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator for Celery tasks that analyze documents.
 
@@ -49,10 +52,10 @@ def doc_analyzer_task(max_retries=None, input_schema: dict | None = None) -> cal
     :return: The decorator function.
     """
 
-    def decorator(func: callable) -> callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @shared_task(bind=True, max_retries=max_retries)
         @wraps(func)
-        def wrapper(self, *args, **kwargs):
+        def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
             doc_id = kwargs.get("doc_id")
             corpus_id = kwargs.get("corpus_id")
             analysis_id = kwargs.get("analysis_id")
@@ -343,7 +346,8 @@ def doc_analyzer_task(max_retries=None, input_schema: dict | None = None) -> cal
 
 
 def async_doc_analyzer_task(
-    max_retries: Union[int, None] = None, input_schema: dict | None = None
+    max_retries: Union[int, None] = None,
+    input_schema: dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator for Celery tasks that analyze documents in an async context,

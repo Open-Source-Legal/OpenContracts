@@ -979,3 +979,112 @@ class PermissioningTestCase(TestCase):
                 include_group_permissions=True,
             )
         )
+
+
+class SetPermissionsIsNewTests(TestCase):
+    """Tests for the ``is_new=True`` fast path on ``set_permissions_for_obj_to_user``.
+
+    Freshly-created objects have no prior guardian permissions to clear,
+    so the upfront ``remove_perm`` sweep (7 DB ops per call) is dead
+    work. ``is_new=True`` lets ingest-style call sites skip it. The
+    default behaviour (full replace) must remain unchanged for
+    non-creation paths like sharing flows or permission updates.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username="is_new_test_user", password="pw")
+
+    def test_is_new_skips_remove_perm_calls(self):
+        """When called with ``is_new=True`` on a fresh object, the function
+        must NOT issue any ``remove_perm`` calls.
+        """
+        from unittest.mock import patch
+
+        new_corpus = Corpus.objects.create(title="brand new", creator=self.user)
+
+        with patch("opencontractserver.utils.permissioning.remove_perm") as mock_remove:
+            set_permissions_for_obj_to_user(
+                self.user, new_corpus, [PermissionTypes.ALL], is_new=True
+            )
+
+        self.assertEqual(
+            mock_remove.call_count,
+            0,
+            "is_new=True must skip the remove_perm sweep entirely",
+        )
+
+    def test_is_new_still_grants_requested_perms(self):
+        """``is_new=True`` must grant the requested perms identically to
+        the default path — only the upfront removal is skipped.
+        """
+        new_corpus = Corpus.objects.create(title="brand new 2", creator=self.user)
+        set_permissions_for_obj_to_user(
+            self.user, new_corpus, [PermissionTypes.ALL], is_new=True
+        )
+
+        for perm in [
+            PermissionTypes.READ,
+            PermissionTypes.UPDATE,
+            PermissionTypes.DELETE,
+            PermissionTypes.PERMISSION,
+        ]:
+            self.assertTrue(
+                user_has_permission_for_obj(self.user, new_corpus, perm),
+                f"User must have {perm} after is_new grant",
+            )
+
+    def test_default_path_still_removes_existing_perms(self):
+        """Without ``is_new``, the function must continue to do the full
+        replace — clearing prior perms before assigning new ones.
+
+        Load-bearing semantic for sharing flows where a user is being
+        downgraded from CRUD to READ-only: old UPDATE/DELETE perms
+        must be removed.
+        """
+        existing_corpus = Corpus.objects.create(
+            title="will be downgraded", creator=self.user
+        )
+        # Grant ALL first.
+        set_permissions_for_obj_to_user(
+            self.user, existing_corpus, [PermissionTypes.ALL]
+        )
+        self.assertTrue(
+            user_has_permission_for_obj(
+                self.user, existing_corpus, PermissionTypes.UPDATE
+            )
+        )
+
+        # Downgrade to READ-only via the default (replace) path.
+        set_permissions_for_obj_to_user(
+            self.user, existing_corpus, [PermissionTypes.READ]
+        )
+
+        self.assertTrue(
+            user_has_permission_for_obj(
+                self.user, existing_corpus, PermissionTypes.READ
+            )
+        )
+        self.assertFalse(
+            user_has_permission_for_obj(
+                self.user, existing_corpus, PermissionTypes.UPDATE
+            ),
+            "Default path must clear UPDATE when downgrading to READ-only",
+        )
+        self.assertFalse(
+            user_has_permission_for_obj(
+                self.user, existing_corpus, PermissionTypes.DELETE
+            )
+        )
+
+    def test_is_new_resolves_int_user_id(self):
+        """``is_new`` must still accept an int user_id (for symmetry with
+        the default call signature used by ``import_annotations``).
+        """
+        new_corpus = Corpus.objects.create(title="int id test", creator=self.user)
+        set_permissions_for_obj_to_user(
+            self.user.id, new_corpus, [PermissionTypes.ALL], is_new=True
+        )
+        self.assertTrue(
+            user_has_permission_for_obj(self.user, new_corpus, PermissionTypes.READ)
+        )

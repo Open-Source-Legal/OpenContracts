@@ -31,8 +31,8 @@ except ModuleNotFoundError:  # pragma: no cover -- local dev without deps
             return f"BaseModelStub({attrs})"
 
     _pydantic_stub.BaseModel = _BaseModelStub  # type: ignore[attr-defined]
-    _pydantic_stub.Field = lambda *args, **kwargs: None  # type: ignore
-    _pydantic_stub.ConfigDict = lambda **kwargs: {}  # type: ignore
+    _pydantic_stub.Field = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+    _pydantic_stub.ConfigDict = lambda **kwargs: {}  # type: ignore[attr-defined]
     sys.modules["pydantic"] = _pydantic_stub
 
 
@@ -44,7 +44,7 @@ except ModuleNotFoundError:  # pragma: no cover
     class _RunContext:  # Minimal RunContext replacement
         pass
 
-    _pydantic_ai_stub.RunContext = _RunContext  # type: ignore
+    _pydantic_ai_stub.RunContext = _RunContext  # type: ignore[attr-defined]
     sys.modules["pydantic_ai"] = _pydantic_ai_stub
 
 

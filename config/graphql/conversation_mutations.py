@@ -88,7 +88,7 @@ class CreateThreadMutation(graphene.Mutation):
         corpus_id=None,
         document_id=None,
         description=None,
-    ):
+    ) -> "CreateThreadMutation":
         ok = False
         obj = None
         message = ""
@@ -202,7 +202,7 @@ class CreateThreadMessageMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate="30/m")
-    def mutate(root, info, conversation_id, content):
+    def mutate(root, info, conversation_id, content) -> "CreateThreadMessageMutation":
         ok = False
         obj = None
         message = ""
@@ -288,7 +288,7 @@ class ReplyToMessageMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate="30/m")
-    def mutate(root, info, parent_message_id, content):
+    def mutate(root, info, parent_message_id, content) -> "ReplyToMessageMutation":
         ok = False
         obj = None
         message = ""
@@ -388,7 +388,7 @@ class DeleteConversationMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, conversation_id):
+    def mutate(root, info, conversation_id) -> "DeleteConversationMutation":
         ok = False
         message = ""
 
@@ -466,7 +466,7 @@ class UpdateMessageMutation(graphene.Mutation):
     @login_required
     @graphql_ratelimit(rate="30/m")
     @transaction.atomic
-    def mutate(root, info, message_id, content):
+    def mutate(root, info, message_id, content) -> "UpdateMessageMutation":
         ok = False
         obj = None
         message = ""
@@ -637,7 +637,7 @@ class DeleteMessageMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, message_id):
+    def mutate(root, info, message_id) -> "DeleteMessageMutation":
         ok = False
         message = ""
 

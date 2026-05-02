@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import graphene
 from django.conf import settings
@@ -8,7 +9,6 @@ from graphene.types.generic import GenericScalar
 from config.graphql.permissioning.permission_annotator.middleware import (
     get_permissions_for_user_on_model_in_app,
 )
-from opencontractserver.types.enums import PermissionTypes
 
 User = get_user_model()
 
@@ -21,7 +21,7 @@ class AnnotatePermissionsForReadMixin:
     is_published = graphene.Boolean()
     object_shared_with = GenericScalar()
 
-    def resolve_object_shared_with(self, info):
+    def resolve_object_shared_with(self, info) -> list[dict[str, Any]]:
 
         logger.info(f"resolve_shared_with - self: {self} / type: {type(self)}")
         logger.info(f"resolve_shared_with - info: {info} / type: {type(info)}")
@@ -88,7 +88,7 @@ class AnnotatePermissionsForReadMixin:
 
         return values
 
-    def resolve_my_permissions(self, info) -> list[PermissionTypes]:
+    def resolve_my_permissions(self, info) -> list[str]:
 
         # logger.info(f"resolve_my_permissions() - Start")
         anon = User.get_anonymous()
@@ -341,7 +341,7 @@ class AnnotatePermissionsForReadMixin:
         # Return permissions in backend format (read_annotation, update_annotation, etc.)
         return list(permissions)
 
-    def resolve_is_published(self, obj):
+    def resolve_is_published(self, obj) -> bool:
 
         from guardian.shortcuts import get_groups_with_perms
 

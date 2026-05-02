@@ -17,6 +17,7 @@
 import React from "react";
 import { test, expect } from "./utils/coverage";
 import { ExtractDetailTestWrapper } from "./ExtractDetailTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 import {
   buildExtractDetailMocks,
   makeMockExtract,
@@ -171,6 +172,8 @@ test.describe("ExtractDetail — header and stats", () => {
     await expect(
       statLabels.filter({ hasText: /^Success Rate$/ })
     ).toBeVisible();
+
+    await docScreenshot(page, "extracts--detail-view--header-and-stats");
 
     await component.unmount();
   });

@@ -1,5 +1,7 @@
 """GraphQL type definitions for conversation, message, and moderation types."""
 
+from typing import Any
+
 import graphene
 from django.db.models import QuerySet
 from graphene import relay
@@ -79,7 +81,7 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="Current user's vote on this message: 'UPVOTE', 'DOWNVOTE', or null"
     )
 
-    def resolve_msg_type(self, info):
+    def resolve_msg_type(self, info) -> Any:
         """Convert msg_type to string for GraphQL enum compatibility."""
         if self.msg_type:
             # Handle both string values and enum members
@@ -88,17 +90,17 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return self.msg_type
         return None
 
-    def resolve_agent_type(self, info):
+    def resolve_agent_type(self, info) -> Any:
         """Convert string agent_type from model to enum."""
         if self.agent_type:
             return AgentTypeEnum.get(self.agent_type)
         return None
 
-    def resolve_agent_configuration(self, info):
+    def resolve_agent_configuration(self, info) -> Any:
         """Resolve agent_configuration field."""
         return self.agent_configuration
 
-    def resolve_user_vote(self, info):
+    def resolve_user_vote(self, info) -> Any:
         """
         Returns the current user's vote on this message.
 
@@ -118,7 +120,7 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return vote.vote_type.upper()  # Return 'UPVOTE' or 'DOWNVOTE'
         return None
 
-    def resolve_mentioned_resources(self, info):
+    def resolve_mentioned_resources(self, info) -> Any:
         """
         Parse message content for @mentions and return structured resource references.
 
@@ -132,6 +134,7 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         Mentions to inaccessible resources are silently ignored.
         """
         import base64
+        import binascii
         import re
         from urllib.parse import parse_qs, urlparse
 
@@ -139,7 +142,7 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document, DocumentPath
 
-        def _extract_annotation_id(url: str):
+        def _extract_annotation_id(url: str) -> Any:
             """
             Extract annotation ID from URL query params.
 
@@ -165,7 +168,7 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 parts = decoded.split(":")
                 if len(parts) == 2:
                     return int(parts[1])
-            except (ValueError, base64.binascii.Error, UnicodeDecodeError):
+            except (ValueError, binascii.Error, UnicodeDecodeError):
                 pass
 
             # Already a plain ID
@@ -323,16 +326,16 @@ class ConversationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="Current user's vote on this conversation: 'UPVOTE', 'DOWNVOTE', or null"
     )
 
-    def resolve_all_messages(self, info):
+    def resolve_all_messages(self, info) -> Any:
         return self.chat_messages.all()
 
-    def resolve_conversation_type(self, info):
+    def resolve_conversation_type(self, info) -> Any:
         """Convert string conversation_type from model to enum."""
         if self.conversation_type:
             return ConversationTypeEnum.get(self.conversation_type)
         return None
 
-    def resolve_user_vote(self, info):
+    def resolve_user_vote(self, info) -> Any:
         """
         Returns the current user's vote on this conversation/thread.
 
@@ -353,7 +356,7 @@ class ConversationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return None
 
     @classmethod
-    def get_node(cls, info, id):
+    def get_node(cls, info, id) -> Any:
         """
         Override the default node resolution to apply permission checks.
         Anonymous users can only see public conversations.
@@ -374,7 +377,7 @@ class ConversationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         connection_class = CountableConnection
 
     @classmethod
-    def get_queryset(cls, queryset, info):
+    def get_queryset(cls, queryset, info) -> Any:
         if issubclass(type(queryset), QuerySet):
             return queryset.visible_to_user(info.context.user)
         elif "RelatedManager" in str(type(queryset)):
@@ -421,17 +424,17 @@ class ModerationActionType(DjangoObjectType):
         description="Whether this action can be rolled back"
     )
 
-    def resolve_corpus_id(self, info):
+    def resolve_corpus_id(self, info) -> Any:
         """Get corpus ID from conversation if linked."""
         if self.conversation and self.conversation.chat_with_corpus:
             return to_global_id("CorpusType", self.conversation.chat_with_corpus.pk)
         return None
 
-    def resolve_is_automated(self, info):
+    def resolve_is_automated(self, info) -> Any:
         """Check if this was an automated (agent) action - no human moderator."""
         return self.moderator is None
 
-    def resolve_can_rollback(self, info):
+    def resolve_can_rollback(self, info) -> Any:
         """Check if this action can be rolled back."""
         rollback_types = {
             "delete_message",

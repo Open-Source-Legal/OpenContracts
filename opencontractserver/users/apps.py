@@ -7,10 +7,10 @@ logger = logging.getLogger(__name__)
 
 
 class UsersConfig(AppConfig):
-    name = "opencontractserver.users"
+    name: str = "opencontractserver.users"
     verbose_name = _("Users")
 
-    def ready(self):
+    def ready(self) -> None:
         import posthog
         from django.conf import settings
 
@@ -29,7 +29,7 @@ class UsersConfig(AppConfig):
         # This ensures the first GraphQL request is fast (~0ms instead of ~2s)
         self._warm_pipeline_registry()
 
-    def _warm_pipeline_registry(self):
+    def _warm_pipeline_registry(self) -> None:
         """
         Pre-initialize the pipeline component registry.
 

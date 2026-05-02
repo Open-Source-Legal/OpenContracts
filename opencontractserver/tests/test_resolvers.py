@@ -59,9 +59,14 @@ class VisibleToUserTests(TestCase):
         """Superusers should see all objects ordered by creation."""
         result = Corpus.objects.visible_to_user(self.superuser)
 
+        # Filter to corpuses created by this test's users to make the assertion
+        # resilient to fixture-level personal corpuses (e.g. the one auto-created
+        # for guardian's AnonymousUser during DB setup). See issue #1394.
+        scoped = result.filter(creator__in=[self.user, self.superuser])
+
         # Should see both test corpora + 2 personal corpuses (one per user)
         # Each user (user, superuser) gets a personal corpus auto-created
-        self.assertEqual(result.count(), 4)  # public + private + 2 personal
+        self.assertEqual(scoped.count(), 4)  # public + private + 2 personal
         # Should be ordered by created
         self.assertEqual(result.query.order_by, ("created",))
 

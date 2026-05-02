@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import URLPattern, path
 from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.analyzer.admin_views import AnalyzerSyncView
@@ -16,7 +16,7 @@ class AnalyzerAdmin(GuardedModelAdmin):
     list_display = ["id", "description", "task_name", "host_gremlin"]
     change_list_template = "admin/analyzer/analyzer_changelist.html"
 
-    def get_urls(self):
+    def get_urls(self) -> list[URLPattern]:
         urls = super().get_urls()
         custom_urls = [
             path(

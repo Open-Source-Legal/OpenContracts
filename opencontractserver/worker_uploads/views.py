@@ -9,13 +9,16 @@ GET  /api/worker-uploads/documents/<id> — check status of a specific upload
 import json
 import logging
 from datetime import timedelta
+from typing import Any
 
 from django.conf import settings
+from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -45,7 +48,7 @@ class IsValidWorkerToken(permissions.BasePermission):
     through a different backend).
     """
 
-    def has_permission(self, request, view):
+    def has_permission(self, request: Any, view: Any) -> bool:
         return isinstance(request.auth, CorpusAccessToken)
 
 
@@ -67,7 +70,7 @@ class WorkerDocumentUploadView(APIView):
     permission_classes = [IsValidWorkerToken]
     parser_classes = [MultiPartParser]
 
-    def post(self, request):
+    def post(self, request: Request) -> Response:
         token: CorpusAccessToken = request.auth
 
         # Enforce file size limit
@@ -162,7 +165,7 @@ class WorkerDocumentUploadStatusView(RetrieveAPIView):
     lookup_field = "id"
     lookup_url_kwarg = "upload_id"
 
-    def get_queryset(self):
+    def get_queryset(self) -> "QuerySet[WorkerDocumentUpload]":
         token: CorpusAccessToken = self.request.auth
         return WorkerDocumentUpload.objects.select_related(
             "result_document", "corpus_access_token"
@@ -183,7 +186,7 @@ class WorkerDocumentUploadListView(ListAPIView):
     serializer_class = WorkerDocumentUploadStatusSerializer
     pagination_class = WorkerUploadPagination
 
-    def get_queryset(self):
+    def get_queryset(self) -> "QuerySet[WorkerDocumentUpload]":
         token: CorpusAccessToken = self.request.auth
         qs = WorkerDocumentUpload.objects.select_related(
             "result_document", "corpus_access_token"

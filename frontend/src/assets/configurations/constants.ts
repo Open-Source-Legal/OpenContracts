@@ -372,7 +372,6 @@ export const EXTRACT_GRID_EMBED_CELL_LIMIT = 500;
  * `EXTRACT_GRID_EMBED_CELL_LIMIT` on the server side.
  */
 export const EXTRACT_GRID_EMBED_MAX_ROWS = 200;
-
 // Datacell status indicator colors (used in ExtractGridEmbed status dots).
 // Values reference OS_LEGAL_COLORS design tokens for consistency.
 export const DATACELL_STATUS_COLORS = {
@@ -530,3 +529,18 @@ export const TRIGGER_LABELS: Record<string, string> = {
   new_thread: "On Thread",
   new_message: "On Message",
 } as const;
+
+// Default agent task instructions used when creating a thread-moderation
+// CorpusAction (rendered as the placeholder/initial value in the modal).
+export const DEFAULT_MODERATOR_INSTRUCTIONS = `You are a thread moderator for this corpus. Your role is to:
+1. Monitor discussion threads and messages for policy compliance
+2. Take appropriate moderation actions when needed
+3. Respond helpfully to user questions when appropriate
+
+You have access to thread context, messages, and moderation tools. Use them judiciously.`;
+
+// Default agent task instructions used when creating a document-processing
+// CorpusAction (rendered as the initial value when an add/edit document
+// trigger is selected).
+export const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
+  "You are a document processing agent for this corpus.";

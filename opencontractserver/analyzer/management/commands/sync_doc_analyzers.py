@@ -1,5 +1,7 @@
+from typing import Any
+
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandParser
 
 from opencontractserver.analyzer.models import Analyzer
 from opencontractserver.analyzer.utils import auto_create_doc_analyzers
@@ -8,14 +10,14 @@ from opencontractserver.analyzer.utils import auto_create_doc_analyzers
 class Command(BaseCommand):
     help = "Synchronize doc_analyzer_task decorated functions with Analyzer database"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Show what would be created without making changes",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         UserModel = get_user_model()
 
         if options["dry_run"]:

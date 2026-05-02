@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from celery import chain
 from django.apps import apps
 from django.conf import settings
 from django.db import transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import Signal
 from django.utils import timezone
 
@@ -15,6 +18,9 @@ from opencontractserver.tasks.doc_tasks import (
     set_doc_lock_state,
 )
 from opencontractserver.tasks.embeddings_task import calculate_embedding_for_doc_text
+
+if TYPE_CHECKING:
+    from opencontractserver.documents.models import Document, DocumentPath
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,12 @@ DOC_CREATE_UID = "process_doc_on_create_atomic"
 
 # Kicks off document processing pipeline - including thumbnail extraction, ingestion,
 # and unlocking the document
-def process_doc_on_create_atomic(sender, instance, created, **kwargs):
+def process_doc_on_create_atomic(
+    sender: type[Document],
+    instance: Document,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler to process a document after it is created.
     Initiates a chain of tasks to extract a thumbnail, ingest the document,
@@ -103,7 +114,12 @@ def process_doc_on_create_atomic(sender, instance, created, **kwargs):
 DOC_PATH_CREATE_UID = "process_doc_on_document_path_create"
 
 
-def process_doc_on_document_path_create(sender, instance, created, **kwargs):
+def process_doc_on_document_path_create(
+    sender: type[DocumentPath],
+    instance: DocumentPath,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler to trigger document text embeddings when a DocumentPath is created.
 
@@ -150,7 +166,53 @@ def process_doc_on_document_path_create(sender, instance, created, **kwargs):
     )
 
 
-def connect_corpus_document_signals():
+DOC_DELETE_CAPTURE_SS_UID = "capture_structural_set_id_pre_delete"
+DOC_DELETE_GC_SS_UID = "gc_orphan_structural_set_post_delete"
+
+
+def _capture_structural_set_id(sender, instance, **kwargs):
+    """Stash the structural_annotation_set_id on the instance before delete.
+
+    Django sets ``instance.structural_annotation_set_id`` to ``None`` after
+    deletion, so we have to record it pre_delete to inspect it post_delete.
+    """
+    instance._structural_set_id_at_delete = instance.structural_annotation_set_id
+
+
+def _gc_orphan_structural_set(sender, instance, **kwargs):
+    """Delete the StructuralAnnotationSet (and its annotations + relationships)
+    when the last Document referencing it is deleted.
+
+    Multiple Documents can share one ``StructuralAnnotationSet`` (keyed by
+    content_hash) so that documents with identical content don't re-parse.
+    The reverse FK has ``on_delete=PROTECT`` to stop accidental set-deletion
+    while a Document still references it, but it doesn't trigger cleanup
+    when the LAST Document referencing the set goes away. Without this
+    handler, sets and their annotations leak indefinitely — see the
+    benchmark-harness contamination incident in PR #1380's audit thread.
+    """
+    set_id = getattr(instance, "_structural_set_id_at_delete", None)
+    if set_id is None:
+        return
+    StructuralAnnotationSet = apps.get_model("annotations", "StructuralAnnotationSet")
+    Document = apps.get_model("documents", "Document")
+    if Document.objects.filter(structural_annotation_set_id=set_id).exists():
+        return
+    try:
+        StructuralAnnotationSet.objects.filter(pk=set_id).delete()
+    except Exception:
+        # GC failures must not break the calling Document.delete(). Log
+        # loudly so an orphan that survives this path gets cleaned up by
+        # the management command instead.
+        logger.exception(
+            "Failed to GC orphan StructuralAnnotationSet %s after Document "
+            "%s deletion",
+            set_id,
+            instance.pk,
+        )
+
+
+def connect_corpus_document_signals() -> None:
     """
     Connect signals for corpus-document relationships.
 
@@ -166,4 +228,19 @@ def connect_corpus_document_signals():
         process_doc_on_document_path_create,
         sender=DocumentPath,
         dispatch_uid=DOC_PATH_CREATE_UID,
+    )
+
+    # Document deletion: GC the StructuralAnnotationSet if it becomes
+    # orphaned. Two-phase via pre_delete + post_delete because Django
+    # nulls out the FK before post_delete fires.
+    Document = apps.get_model("documents", "Document")
+    pre_delete.connect(
+        _capture_structural_set_id,
+        sender=Document,
+        dispatch_uid=DOC_DELETE_CAPTURE_SS_UID,
+    )
+    post_delete.connect(
+        _gc_orphan_structural_set,
+        sender=Document,
+        dispatch_uid=DOC_DELETE_GC_SS_UID,
     )

@@ -2,6 +2,8 @@
 GraphQL query mixin for slug-based entity lookups.
 """
 
+from __future__ import annotations
+
 import graphene
 from django.db.models.functions import Coalesce
 
@@ -41,7 +43,9 @@ class SlugQueryMixin:
         ),
     )
 
-    def resolve_corpus_by_slugs(self, info, user_slug, corpus_slug):
+    def resolve_corpus_by_slugs(
+        self, info: graphene.ResolveInfo, user_slug: str, corpus_slug: str
+    ) -> Corpus | None:
         from django.contrib.auth import get_user_model
         from django.db.models import Subquery
 
@@ -50,8 +54,9 @@ class SlugQueryMixin:
             owner = User.objects.get(slug=user_slug)
         except User.DoesNotExist:
             return None
-        qs = Corpus.objects.filter(creator=owner, slug=corpus_slug)
-        qs = qs.visible_to_user(info.context.user)
+        qs = Corpus.objects.visible_to_user(info.context.user).filter(
+            creator=owner, slug=corpus_slug
+        )
 
         # Add count annotations for efficient documentCount/annotationCount
         # resolution without N+1 queries. Coalesce ensures 0 instead of NULL.
@@ -63,7 +68,9 @@ class SlugQueryMixin:
 
         return qs.first()
 
-    def resolve_document_by_slugs(self, info, user_slug, document_slug):
+    def resolve_document_by_slugs(
+        self, info: graphene.ResolveInfo, user_slug: str, document_slug: str
+    ) -> Document | None:
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
@@ -71,13 +78,20 @@ class SlugQueryMixin:
             owner = User.objects.get(slug=user_slug)
         except User.DoesNotExist:
             return None
-        qs = Document.objects.filter(creator=owner, slug=document_slug)
-        qs = qs.visible_to_user(info.context.user)
-        return qs.first()
+        return (
+            Document.objects.visible_to_user(info.context.user)
+            .filter(creator=owner, slug=document_slug)
+            .first()
+        )
 
     def resolve_document_in_corpus_by_slugs(
-        self, info, user_slug, corpus_slug, document_slug, version_number=None
-    ):
+        self,
+        info: graphene.ResolveInfo,
+        user_slug: str,
+        corpus_slug: str,
+        document_slug: str,
+        version_number: int | None = None,
+    ) -> Document | None:
         from django.contrib.auth import get_user_model
 
         from opencontractserver.documents.models import DocumentPath
@@ -88,8 +102,8 @@ class SlugQueryMixin:
         except User.DoesNotExist:
             return None
         corpus = (
-            Corpus.objects.filter(creator=owner, slug=corpus_slug)
-            .visible_to_user(info.context.user)
+            Corpus.objects.visible_to_user(info.context.user)
+            .filter(creator=owner, slug=corpus_slug)
             .first()
         )
         if not corpus:
@@ -115,8 +129,8 @@ class SlugQueryMixin:
             path_filter["path_records__is_current"] = True
 
         doc = (
-            Document.objects.filter(**path_filter)
-            .visible_to_user(info.context.user)
+            Document.objects.visible_to_user(info.context.user)
+            .filter(**path_filter)
             .order_by("pk")
             .first()
         )
@@ -129,8 +143,8 @@ class SlugQueryMixin:
             # traverse by version_tree_id (which groups all versions of
             # the same logical document) rather than filtering by slug.
             visible_version_docs = (
-                Document.objects.filter(version_tree_id=doc.version_tree_id)
-                .visible_to_user(info.context.user)
+                Document.objects.visible_to_user(info.context.user)
+                .filter(version_tree_id=doc.version_tree_id)
                 .only("pk")
             )
             path_record = (

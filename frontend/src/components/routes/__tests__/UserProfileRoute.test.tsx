@@ -1,11 +1,14 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MockedProvider } from "@apollo/client/testing";
-import { GraphQLError } from "graphql";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { UserProfileRoute } from "../UserProfileRoute";
-import { backendUserObj } from "../../../graphql/cache";
-import { GET_USER } from "../../../graphql/queries";
+import {
+  backendUserObj,
+  openedUser,
+  routeLoading,
+  routeError,
+} from "../../../graphql/cache";
 
 vi.mock("../../../views/UserProfile", () => ({
   UserProfile: ({ user, isOwnProfile }: any) => (
@@ -30,29 +33,24 @@ vi.mock("../../widgets/ModernErrorDisplay", () => ({
 }));
 
 /**
- * Tests for UserProfileRoute.
+ * Tests for UserProfileRoute (dumb consumer).
  *
- * The route handles both /profile (current user) and /users/:slug paths:
- *   - no slug + no logged-in user → redirect to /login
- *   - no slug + logged-in user   → redirect to /users/<currentUser.slug>
- *   - slug                        → query GET_USER and render UserProfile
+ * URL parsing, the GET_USER query, and the /profile redirect now live in
+ * CentralRouteManager and ProfileRedirect respectively. UserProfileRoute
+ * only reads the routing reactive vars (openedUser / routeLoading /
+ * routeError) plus backendUserObj for ownership comparison and renders.
  */
 describe("UserProfileRoute", () => {
-  const LocationReporter: React.FC = () => {
-    const location = useLocation();
-    return <div data-testid="location">{location.pathname}</div>;
-  };
+  const renderRoute = () =>
+    render(
+      <MockedProvider mocks={[]} addTypename={false}>
+        <MemoryRouter initialEntries={["/users/alice"]}>
+          <UserProfileRoute />
+        </MemoryRouter>
+      </MockedProvider>
+    );
 
-  beforeEach(() => {
-    backendUserObj(null);
-  });
-
-  afterEach(() => {
-    vi.clearAllMocks();
-    backendUserObj(null);
-  });
-
-  const user = {
+  const profile = {
     id: "u-1",
     slug: "alice",
     username: "alice",
@@ -68,144 +66,63 @@ describe("UserProfileRoute", () => {
     totalDocumentsUploaded: 0,
   };
 
-  const renderAtPath = (path: string, mocks: any[] = []) =>
-    render(
-      <MockedProvider mocks={mocks} addTypename={false}>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/profile" element={<UserProfileRoute />} />
-            <Route path="/users/:slug" element={<UserProfileRoute />} />
-            <Route path="/login" element={<LocationReporter />} />
-          </Routes>
-        </MemoryRouter>
-      </MockedProvider>
-    );
-
-  it("redirects /profile to /login when no user is logged in", async () => {
-    renderAtPath("/profile");
-    const locationNode = await screen.findByTestId("location");
-    expect(locationNode.textContent).toBe("/login");
+  beforeEach(() => {
+    backendUserObj(null);
+    openedUser(null);
+    routeLoading(false);
+    routeError(null);
   });
 
-  it("redirects /profile to /users/<slug> when a user is logged in", async () => {
-    backendUserObj({ id: "u-1", slug: "alice" } as any);
-
-    render(
-      <MockedProvider mocks={[]} addTypename={false}>
-        <MemoryRouter initialEntries={["/profile"]}>
-          <Routes>
-            <Route path="/profile" element={<UserProfileRoute />} />
-            <Route path="/users/:slug" element={<LocationReporter />} />
-          </Routes>
-        </MemoryRouter>
-      </MockedProvider>
-    );
-
-    const loc = await screen.findByTestId("location");
-    expect(loc.textContent).toBe("/users/alice");
+  afterEach(() => {
+    vi.clearAllMocks();
+    backendUserObj(null);
+    openedUser(null);
+    routeLoading(false);
+    routeError(null);
   });
 
-  it("redirects /profile and then renders /users/:slug without a Rules-of-Hooks crash (issue #1295)", async () => {
-    // Regression guard: the pre-fix code called useQuery *after* the
-    // early-return for the no-slug case, so when /profile redirected to
-    // /users/:slug the same UserProfileRoute fiber transitioned from 0 to 1
-    // hook and React threw. With useQuery hoisted unconditionally, the two
-    // renders share the same hook ordering and the redirect survives.
-    backendUserObj({ id: "u-1", slug: "alice" } as any);
-
-    render(
-      <MockedProvider
-        mocks={[
-          {
-            request: { query: GET_USER, variables: { slug: "alice" } },
-            result: { data: { userBySlug: user } },
-          },
-        ]}
-        addTypename={false}
-      >
-        <MemoryRouter initialEntries={["/profile"]}>
-          <Routes>
-            <Route path="/profile" element={<UserProfileRoute />} />
-            <Route path="/users/:slug" element={<UserProfileRoute />} />
-          </Routes>
-        </MemoryRouter>
-      </MockedProvider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("UserProfile:alice")).toBeInTheDocument();
-    });
-  });
-
-  it("renders UserProfile with isOwnProfile=true when viewer is the profile owner", async () => {
-    backendUserObj({ id: "u-1", slug: "alice" } as any);
-
-    renderAtPath("/users/alice", [
-      {
-        request: { query: GET_USER, variables: { slug: "alice" } },
-        result: { data: { userBySlug: user } },
-      },
-    ]);
-
-    await waitFor(() => {
-      expect(screen.getByText("UserProfile:alice")).toBeInTheDocument();
-    });
-    expect(screen.getByText("isOwn:true")).toBeInTheDocument();
-  });
-
-  it("shows loading UI while GET_USER is pending", () => {
-    renderAtPath("/users/alice", [
-      {
-        request: { query: GET_USER, variables: { slug: "alice" } },
-        delay: 100,
-        result: { data: { userBySlug: user } },
-      },
-    ]);
+  it("shows loading UI when routeLoading is true and no user is resolved", () => {
+    routeLoading(true);
+    renderRoute();
     expect(screen.getByText("Loading...")).toBeInTheDocument();
   });
 
-  it("renders 'User Not Found' when GET_USER returns an error", async () => {
-    renderAtPath("/users/ghost", [
-      {
-        request: { query: GET_USER, variables: { slug: "ghost" } },
-        result: { errors: [new GraphQLError("nope")] },
-      },
-    ]);
-
-    await waitFor(() => {
-      expect(screen.getByText(/Title:.*User Not Found/)).toBeInTheDocument();
-    });
+  it("renders 'User Not Found' when routeError is set", () => {
+    routeError(new Error("nope"));
+    renderRoute();
+    expect(screen.getByText(/Title:.*User Not Found/)).toBeInTheDocument();
+    expect(screen.getByText(/Error:.*nope/)).toBeInTheDocument();
   });
 
-  it("renders 'User Not Found' when no user is returned", async () => {
-    renderAtPath("/users/missing", [
-      {
-        request: { query: GET_USER, variables: { slug: "missing" } },
-        result: { data: { userBySlug: null } },
-      },
-    ]);
-
-    await waitFor(() => {
-      expect(screen.getByText(/Title:.*User Not Found/)).toBeInTheDocument();
-    });
+  it("renders 'User Not Found' when no user is in the reactive var", () => {
+    renderRoute();
+    expect(screen.getByText(/Title:.*User Not Found/)).toBeInTheDocument();
     expect(
       screen.getByText(/Error:.*does not exist or their profile is private/)
     ).toBeInTheDocument();
   });
 
-  it("sets isOwnProfile=false when the viewer is a different user", async () => {
+  it("renders UserProfile with isOwnProfile=true when viewer matches openedUser", () => {
+    backendUserObj({ id: "u-1", slug: "alice" } as any);
+    openedUser(profile as any);
+    renderRoute();
+    expect(screen.getByText("UserProfile:alice")).toBeInTheDocument();
+    expect(screen.getByText("isOwn:true")).toBeInTheDocument();
+  });
+
+  it("sets isOwnProfile=false when the viewer is a different user", () => {
     backendUserObj({ id: "u-99", slug: "bob" } as any);
-
-    renderAtPath("/users/alice", [
-      {
-        request: { query: GET_USER, variables: { slug: "alice" } },
-        result: { data: { userBySlug: user } },
-      },
-    ]);
-
-    await waitFor(() => {
-      expect(screen.getByText("UserProfile:alice")).toBeInTheDocument();
-    });
+    openedUser(profile as any);
+    renderRoute();
+    expect(screen.getByText("UserProfile:alice")).toBeInTheDocument();
     expect(screen.getByText("isOwn:false")).toBeInTheDocument();
+  });
+
+  it("prefers the resolved user over the loading state when both are set", () => {
+    routeLoading(true);
+    openedUser(profile as any);
+    renderRoute();
+    expect(screen.getByText("UserProfile:alice")).toBeInTheDocument();
+    expect(screen.queryByText("Loading...")).toBeNull();
   });
 });

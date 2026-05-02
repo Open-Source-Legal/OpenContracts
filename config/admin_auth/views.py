@@ -7,12 +7,22 @@ authentication (always available as fallback).
 """
 
 import logging
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.auth import authenticate, login, logout
-from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBase,
+    HttpResponseNotAllowed,
+    JsonResponse,
+)
+
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -35,17 +45,17 @@ ADMIN_LOGIN_RATE = RateLimits.AUTH_LOGIN
 ADMIN_LOGIN_PAGE_RATE = RateLimits.ADMIN_LOGIN_PAGE
 
 
-def _get_login_url():
+def _get_login_url() -> str:
     """Get the admin login URL using reverse() for proper URL resolution."""
     return reverse("admin_auth0_login")
 
 
-def _get_admin_index_url():
+def _get_admin_index_url() -> str:
     """Get the admin index URL using reverse() for proper URL resolution."""
     return reverse("admin:index")
 
 
-def _get_next_url_from_request(request):
+def _get_next_url_from_request(request: HttpRequest) -> Optional[str]:
     """
     Extract the 'next' parameter from request, checking POST first then GET.
 
@@ -60,7 +70,11 @@ def _get_next_url_from_request(request):
     return request.POST.get("next") or request.GET.get("next")
 
 
-def _get_safe_redirect_url(request, url=None, default=None):
+def _get_safe_redirect_url(
+    request: HttpRequest,
+    url: Optional[str] = None,
+    default: Optional[str] = None,
+) -> str:
     """
     Validate and return a safe redirect URL.
 
@@ -103,7 +117,7 @@ def _get_safe_redirect_url(request, url=None, default=None):
     return default
 
 
-def _get_safe_logout_return_url(request):
+def _get_safe_logout_return_url(request: HttpRequest) -> str:
     """
     Get a safe return URL for Auth0 logout.
 
@@ -163,7 +177,7 @@ class Auth0AdminLoginView(View):
 
     @method_decorator(csrf_protect)
     @method_decorator(view_ratelimit(rate=ADMIN_LOGIN_PAGE_RATE, block=False))
-    def get(self, request):
+    def get(self, request: HttpRequest) -> HttpResponseBase:
         """Display the appropriate login form."""
         if getattr(request, "limited", False):
             logger.warning("Rate limit exceeded for admin login page GET")
@@ -203,7 +217,7 @@ class Auth0AdminLoginView(View):
 
     @method_decorator(csrf_protect)
     @method_decorator(view_ratelimit(rate=ADMIN_LOGIN_RATE, block=False))
-    def post(self, request):
+    def post(self, request: HttpRequest) -> HttpResponseBase:
         """Handle token-based login via POST or password authentication."""
         if getattr(request, "limited", False):
             logger.warning("Rate limit exceeded for admin login POST")
@@ -236,7 +250,7 @@ class Auth0AdminLoginView(View):
         return redirect(_get_login_url())
 
     @staticmethod
-    def _get_csp_nonce(request):
+    def _get_csp_nonce(request: HttpRequest) -> str:
         """Return the CSP nonce from the request, warning if it is missing.
 
         An empty nonce would produce an invalid CSP directive that silently
@@ -252,12 +266,14 @@ class Auth0AdminLoginView(View):
             return ""
         return nonce
 
-    def _authenticate_with_token(self, request, token):
+    def _authenticate_with_token(
+        self, request: HttpRequest, token: str
+    ) -> HttpResponseBase:
         """Authenticate user with Auth0 JWT token."""
         from config.jwt_utils import get_user_from_jwt_token
 
         try:
-            user = get_user_from_jwt_token(token)
+            user: Optional["User"] = get_user_from_jwt_token(token)
 
             if user and user.is_active:
                 # Sync admin claims from token (only during admin login, not API requests)
@@ -282,12 +298,12 @@ class Auth0AdminLoginView(View):
                 )
                 # Validate redirect URL to prevent open redirect attacks
                 next_url = _get_safe_redirect_url(request)
-                logger.info("Admin login successful for user ID %s", user.id)
+                logger.info("Admin login successful for user ID %s", user.pk)
                 return redirect(next_url)
             else:
                 logger.warning(
                     "User ID %s denied admin access",
-                    user.id if user else "unknown",
+                    user.pk if user else "unknown",
                 )
                 messages.error(
                     request, "You do not have permission to access the admin."
@@ -299,7 +315,7 @@ class Auth0AdminLoginView(View):
             messages.error(request, "Authentication failed. Please try again.")
             return redirect(_get_login_url())
 
-    def _sync_admin_claims(self, user, token):
+    def _sync_admin_claims(self, user: "User", token: str) -> bool:
         """
         Sync admin claims from Auth0 token to user model.
 
@@ -324,7 +340,7 @@ class Auth0AdminLoginView(View):
             return sync_admin_claims_from_payload(user, payload)
         except Exception as e:
             # Log but don't fail authentication - claim sync is secondary
-            logger.warning("Failed to sync admin claims for user ID %s: %s", user.id, e)
+            logger.warning("Failed to sync admin claims for user ID %s: %s", user.pk, e)
             return False
 
 
@@ -337,7 +353,7 @@ class Auth0AdminLogoutView(View):
     """
 
     @method_decorator(csrf_protect)
-    def post(self, request):
+    def post(self, request: HttpRequest) -> HttpResponseBase:
         """Log out the user and redirect appropriately."""
         logout(request)
 
@@ -355,7 +371,7 @@ class Auth0AdminLogoutView(View):
 
         return redirect(_get_admin_index_url())
 
-    def get(self, request):
+    def get(self, request: HttpRequest) -> HttpResponse:
         """
         Reject GET requests for logout.
 

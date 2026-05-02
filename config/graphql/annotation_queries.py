@@ -4,6 +4,7 @@ GraphQL query mixin for annotation, relationship, label, labelset, and note quer
 
 import logging
 import re
+from typing import Any
 
 import graphene
 from django.db.models import Prefetch, Q
@@ -76,7 +77,7 @@ class AnnotationQueryMixin:
         corpus_action_isnull=None,
         agent_created=None,
         **kwargs,
-    ):
+    ) -> Any:
         # Import the query optimizer
         from opencontractserver.annotations.query_optimizer import (
             AnnotationQueryOptimizer,
@@ -311,7 +312,9 @@ class AnnotationQueryMixin:
         document_id=graphene.ID(required=True),
     )
 
-    def resolve_bulk_doc_relationships_in_corpus(self, info, corpus_id, document_id):
+    def resolve_bulk_doc_relationships_in_corpus(
+        self, info, corpus_id, document_id
+    ) -> Any:
         # Get the base queryset using visible_to_user
         queryset = Relationship.objects.visible_to_user(info.context.user)
 
@@ -342,7 +345,7 @@ class AnnotationQueryMixin:
         label_type=graphene.Argument(label_type_enum),
     )
 
-    def resolve_bulk_doc_annotations_in_corpus(self, info, corpus_id, **kwargs):
+    def resolve_bulk_doc_annotations_in_corpus(self, info, corpus_id, **kwargs) -> Any:
 
         corpus_django_pk = from_global_id(corpus_id)[1]
 
@@ -410,7 +413,9 @@ class AnnotationQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
-    def resolve_page_annotations(self, info, document_id, corpus_id=None, **kwargs):
+    def resolve_page_annotations(
+        self, info, document_id, corpus_id=None, **kwargs
+    ) -> Any:
 
         doc_django_pk = from_global_id(document_id)[1]
 
@@ -579,7 +584,7 @@ class AnnotationQueryMixin:
 
     annotation = relay.Node.Field(AnnotationType)
 
-    def resolve_annotation(self, info, **kwargs):
+    def resolve_annotation(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         queryset = Annotation.objects.visible_to_user(info.context.user)
         queryset = queryset.select_related(
@@ -597,7 +602,7 @@ class AnnotationQueryMixin:
         RelationshipType, filterset_class=RelationshipFilter
     )
 
-    def resolve_relationships(self, info, **kwargs):
+    def resolve_relationships(self, info, **kwargs) -> Any:
         queryset = Relationship.objects.visible_to_user(info.context.user)
         queryset = queryset.select_related(
             "relationship_label",
@@ -611,7 +616,7 @@ class AnnotationQueryMixin:
 
     relationship = relay.Node.Field(RelationshipType)
 
-    def resolve_relationship(self, info, **kwargs):
+    def resolve_relationship(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         queryset = Relationship.objects.visible_to_user(info.context.user)
         queryset = queryset.select_related(
@@ -632,12 +637,12 @@ class AnnotationQueryMixin:
         AnnotationLabelType, filterset_class=LabelFilter
     )
 
-    def resolve_annotation_labels(self, info, **kwargs):
+    def resolve_annotation_labels(self, info, **kwargs) -> Any:
         return AnnotationLabel.objects.visible_to_user(info.context.user)
 
     annotation_label = relay.Node.Field(AnnotationLabelType)
 
-    def resolve_annotation_label(self, info, **kwargs):
+    def resolve_annotation_label(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return AnnotationLabel.objects.visible_to_user(info.context.user).get(
             id=django_pk
@@ -650,12 +655,12 @@ class AnnotationQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_labelsets(self, info, **kwargs):
+    def resolve_labelsets(self, info, **kwargs) -> Any:
         return LabelSet.objects.visible_to_user(info.context.user)
 
     labelset = relay.Node.Field(LabelSetType)
 
-    def resolve_labelset(self, info, **kwargs):
+    def resolve_labelset(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return LabelSet.objects.visible_to_user(info.context.user).get(id=django_pk)
 
@@ -670,7 +675,7 @@ class AnnotationQueryMixin:
     )
 
     @login_required
-    def resolve_notes(self, info, **kwargs):
+    def resolve_notes(self, info, **kwargs) -> Any:
         # Base filtering for user permissions
         queryset = Note.objects.visible_to_user(info.context.user)
 
@@ -715,6 +720,6 @@ class AnnotationQueryMixin:
     note = relay.Node.Field(NoteType)
 
     @login_required
-    def resolve_note(self, info, **kwargs):
+    def resolve_note(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return Note.objects.visible_to_user(info.context.user).get(id=django_pk)

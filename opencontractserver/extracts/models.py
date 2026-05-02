@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 import django
 from django.contrib.auth import get_user_model
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
@@ -212,6 +216,35 @@ class Extract(BaseOCModel):
         on_delete=django.db.models.SET_NULL,
     )
 
+    # Iteration / lineage support. ``parent_extract`` chains an extract to the
+    # iteration it was forked from so the UI can render an "Iterations" tab and
+    # diff successive runs (model drift, doc-version drift, fieldset tweaks).
+    # The full series is reachable by walking ``parent_extract`` upwards or
+    # ``iterations`` downwards.
+    parent_extract = django.db.models.ForeignKey(
+        "self",
+        related_name="iterations",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Extract this iteration was forked from. Null for the root of an "
+            "iteration series."
+        ),
+    )
+    # Run-time model configuration captured at iteration time. Forwarded as
+    # ``model_override`` to ``doc_extract_query_task`` and surfaced in the UI
+    # so that two iterations sharing a fieldset can be compared on model drift.
+    # Schema (all keys optional): {"model": str, "temperature": float,
+    # "similarity_top_k": int, "notes": str}.
+    model_config = NullableJSONField(
+        default=jsonfield_default_value,
+        null=True,
+        blank=True,
+        help_text="Model/run configuration captured for this iteration.",
+    )
+
     class Meta:
         permissions = (
             ("permission_extract", "permission extract"),
@@ -401,7 +434,12 @@ class Datacell(BaseOCModel):
                     f"{self.column.name} must be a JSON object or array"
                 )
 
-    def _validate_numeric_range(self, value, config, field_name) -> None:
+    def _validate_numeric_range(
+        self,
+        value: int | float,
+        config: dict[str, Any],
+        field_name: str,
+    ) -> None:
         """Validate numeric constraints."""
         if "min_value" in config and value < config["min_value"]:
             raise django.core.exceptions.ValidationError(
@@ -413,7 +451,11 @@ class Datacell(BaseOCModel):
             )
 
     def _validate_string_constraints(
-        self, value, config, data_type, field_name
+        self,
+        value: str,
+        config: dict[str, Any],
+        data_type: str,
+        field_name: str,
     ) -> None:
         """Validate string constraints."""
         if "min_length" in config and len(value) < config["min_length"]:
@@ -451,7 +493,7 @@ class Datacell(BaseOCModel):
                     f"{field_name} format is invalid"
                 )
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Override save to validate manual entry data."""
         if self.column.is_manual_entry:
             self.full_clean()

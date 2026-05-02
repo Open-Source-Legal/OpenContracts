@@ -287,6 +287,169 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
+            // Tool call thought (exercises ASYNC_THOUGHT → tool_call timeline)
+            if (query.includes("tool call please")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Invoking search tool",
+                data: {
+                  message_id: id,
+                  tool_name: "search_corpus",
+                  args: { query: "contracts" },
+                },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got search result",
+                data: {
+                  message_id: id,
+                  tool_name: "search_corpus",
+                  tool_result: "4 matches",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Here are the results.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 7200,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                },
+              });
+              return;
+            }
+
+            // ASYNC_SOURCES streamed mid-conversation
+            if (query.includes("sources please")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "Citing: ",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_SOURCES",
+                content: "",
+                data: {
+                  message_id: id,
+                  sources: [
+                    {
+                      page: 1,
+                      json: { start: 0, end: 42 },
+                      annotation_id: 901,
+                      label: "Section 1",
+                      label_id: 5,
+                      rawText: "Cited snippet",
+                    },
+                  ],
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Citing: done.",
+                data: {
+                  message_id: id,
+                  sources: [
+                    {
+                      page: 1,
+                      json: { start: 0, end: 42 },
+                      annotation_id: 901,
+                      label: "Section 1",
+                      label_id: 5,
+                      rawText: "Cited snippet",
+                    },
+                  ],
+                  context_status: {
+                    used_tokens: 2000,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                },
+              });
+              return;
+            }
+
+            // SYNC_CONTENT (a non-streaming one-shot response)
+            if (query.includes("sync mode")) {
+              emit({
+                type: "SYNC_CONTENT",
+                content: "Sync answer",
+                data: { message_id: id, sources: [], timeline: [] },
+              });
+              return;
+            }
+
+            // ASYNC_RESUME after approval
+            if (query.includes("resume please")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "Resumed ",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_RESUME",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Resumed and done.",
+                data: { message_id: id },
+              });
+              return;
+            }
+
+            // ask_document sub-tool approval (exercises sub-name remapping)
+            if (query.includes("ask document please")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_APPROVAL_NEEDED",
+                content: "",
+                data: {
+                  message_id: id,
+                  pending_tool_call: {
+                    name: "ask_document",
+                    arguments: {
+                      _sub_tool_name: "update_summary",
+                      _sub_tool_arguments: { new_text: "hi" },
+                    },
+                  },
+                },
+              });
+              return;
+            }
+
+            // Unknown message type (exercises default branch → warn)
+            if (query.includes("mystery type")) {
+              emit({
+                type: "TOTALLY_UNKNOWN",
+                content: "",
+                data: { message_id: id },
+              });
+              return;
+            }
+
             // Default: streaming with sources + finish
             emit({
               type: "ASYNC_START",
@@ -732,6 +895,438 @@ test.describe("CorpusChat", () => {
     await input.fill("hello");
     await expect(sendButton).toBeEnabled();
 
+    await component.unmount();
+  });
+
+  test("initialQuery is auto-sent once the WebSocket is ready", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+        initialQuery="auto sent question"
+      />
+    );
+
+    // Human message appears immediately after WS opens + timer fires (500ms)
+    await expect(
+      page.getByText("auto sent question", { exact: true })
+    ).toBeVisible({ timeout: 15000 });
+
+    // Server echoes it
+    await expect(
+      page.getByText("Echo: auto sent question", { exact: true })
+    ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("tool-call events render timeline entries on the assistant message", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("tool call please");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("Here are the results.")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // High-usage context (7200/8000 = 90%) paints the danger fill
+    const fill = page.getByTestId("context-meter-fill");
+    await expect(fill).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("ASYNC_SOURCES mid-stream populates source citations", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("sources please");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("Citing: done.")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("SYNC_CONTENT renders a complete message immediately", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("sync mode now");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("Sync answer", { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+
+    // SYNC_CONTENT arrives without a preceding ASYNC_START, so isProcessing
+    // must never flip to true and the input must remain interactive after the
+    // reply lands. Pinning this guards the contract documented in CorpusChat:
+    // ASYNC_START is the only setter for setIsProcessing(true).
+    await expect(input).toBeEnabled({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("ask_document sub-tool approval shows the inner tool name", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("ask document please");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("Tool Approval Required")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Inner tool name from _sub_tool_name is shown (NOT "ask_document")
+    await expect(page.getByText("Tool: update_summary")).toBeVisible();
+    await expect(page.getByText("Tool: ask_document")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("ASYNC_RESUME sequence completes with final message", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("resume please");
+    await page.keyboard.press("Enter");
+
+    // After ASYNC_FINISH the processing indicator is gone and finalized content is shown
+    await expect(
+      page.getByText("Resumed and done.", { exact: true })
+    ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("unknown WebSocket message type is ignored without crashing", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("mystery type");
+    await page.keyboard.press("Enter");
+
+    // User message is rendered — the component stays interactive after the
+    // unknown frame lands (no crash, no error banner).
+    await expect(page.getByText("mystery type", { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(
+      page.getByText("Error connecting to the corpus WebSocket.")
+    ).not.toBeVisible();
+    // Unknown frames must not stick the input in a processing state — pin it.
+    await expect(input).toBeEnabled({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("back button returns from conversation view to the list", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.getByText("First Conversation").click();
+
+    // Enter conversation view
+    await expect(page.getByText("Server question")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Back button in the navigation header (sits outside the scrollable
+    // conversation-view div) returns to the list.
+    await expect(page.locator('[title="Return to Dashboard"]')).toBeVisible();
+    await page.getByLabel("Back to conversation list").click();
+
+    // Conversation list is visible again
+    await expect(page.getByText("Second Conversation")).toBeVisible({
+      timeout: 10000,
+    });
+    // And conversation content is no longer shown
+    await expect(page.getByText("Server question")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("home button in header calls onNavigateHome from existing conversation", async ({
+    mount,
+    page,
+  }) => {
+    let navigated = 0;
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+        onNavigateHome={() => {
+          navigated += 1;
+        }}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.getByText("First Conversation").click();
+
+    await expect(page.getByText("Server question")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await page.locator('[title="Return to Dashboard"]').click();
+
+    await expect.poll(() => navigated, { timeout: 5000 }).toBeGreaterThan(0);
+
+    await component.unmount();
+  });
+
+  test("renders a server message with sources attached", async ({
+    mount,
+    page,
+  }) => {
+    // Server message carries a source with a document_id — exercises the
+    // handleCompleteMessage path for server-side messages.
+    const chatMessagesWithDocIdMock: MockedResponse = {
+      request: {
+        query: GET_CHAT_MESSAGES,
+        variables: {
+          conversationId: TEST_CONVERSATION_ID,
+          limit: 10,
+        },
+      },
+      result: {
+        data: {
+          chatMessages: [
+            {
+              __typename: "ChatMessageType",
+              id: "cross-1",
+              msgType: "ASSISTANT",
+              agentType: null,
+              agentConfiguration: null,
+              content: "See cross-doc source",
+              state: "complete",
+              data: {
+                sources: [
+                  {
+                    page: 1,
+                    json: { start: 0, end: 10 },
+                    annotation_id: 401,
+                    label: "X",
+                    label_id: 7,
+                    rawText: "Cross snippet",
+                    document_id: "doc-42",
+                  },
+                ],
+              },
+              creator: null,
+            },
+          ],
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesWithDocIdMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.getByText("First Conversation").click();
+
+    await expect(page.getByText("See cross-doc source")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("typing in the title filter updates after debounce", async ({
+    mount,
+    page,
+  }) => {
+    // Mock for the debounced refetch with `title_Contains: "First"`. Returns
+    // only the "First Conversation" edge so we can positively assert that the
+    // debounced value flowed into the Apollo variables and produced a
+    // filter-aware result.
+    const filteredConversationsMock: MockedResponse = {
+      request: {
+        query: GET_CORPUS_CONVERSATIONS,
+        variables: {
+          corpusId: TEST_CORPUS_ID,
+          conversationType: "CHAT",
+          title_Contains: "First",
+        },
+      },
+      result: {
+        data: {
+          conversations: {
+            __typename: "ConversationTypeConnection",
+            pageInfo: {
+              __typename: "PageInfo",
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [
+              {
+                __typename: "ConversationTypeEdge",
+                node: {
+                  __typename: "ConversationType",
+                  id: TEST_CONVERSATION_ID,
+                  title: "First Conversation",
+                  createdAt: new Date(Date.now() - 86400000).toISOString(),
+                  updatedAt: new Date(Date.now() - 86400000).toISOString(),
+                  chatMessages: {
+                    __typename: "ChatMessageTypeConnection",
+                    totalCount: 5,
+                  },
+                  creator: {
+                    __typename: "UserType",
+                    email: "user@example.com",
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          filteredConversationsMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    // "Second Conversation" is present in the unfiltered mock — we will later
+    // assert it disappears after the debounce fires with the filter.
+    await expect(page.getByText("Second Conversation")).toBeVisible();
+
+    // The conversation list has a collapsed search icon that expands to a
+    // text input. Click it to reveal the title filter input, then type to
+    // drive the 500ms debounce timer useEffect and refetch.
+    const searchButton = page.locator('button[title="Search"]');
+    await expect(searchButton).toBeVisible({ timeout: 5000 });
+    await searchButton.click();
+
+    const filterInput = page.locator('input[placeholder="Search chats..."]');
+    await expect(filterInput).toBeVisible({ timeout: 5000 });
+    await filterInput.fill("First");
+
+    // After the 500ms debounce fires, the filtered mock takes effect: "Second
+    // Conversation" is dropped from the result. Asserting its disappearance
+    // proves the debounced value reached Apollo's variables — previously the
+    // test silently skipped entirely when the filter input was absent.
+    await expect(page.getByText("Second Conversation")).not.toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText("First Conversation")).toBeVisible();
     await component.unmount();
   });
 });

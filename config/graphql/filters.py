@@ -1,9 +1,13 @@
 #  Copyright (C) 2022  John Scrudato
 #  License: AGPL-3.0
 
+from __future__ import annotations
+
+from typing import Any
+
 import django_filters
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django_filters import OrderingFilter
 from django_filters import rest_framework as filters
 from graphql_relay import from_global_id
@@ -40,7 +44,9 @@ class GremlinEngineFilter(django_filters.FilterSet):
 class AnalyzerFilter(django_filters.FilterSet):
     analyzer_id = filters.CharFilter(method="filter_by_analyzer_id")
 
-    def filter_by_analyzer_id(self, queryset, info, value):
+    def filter_by_analyzer_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         return queryset.filter(id=value)
 
     hosted_by_gremlin_engine_id = filters.CharFilter(
@@ -49,14 +55,18 @@ class AnalyzerFilter(django_filters.FilterSet):
 
     used_in_analysis_ids = filters.CharFilter(method="filter_by_used_in_analysis_ids")
 
-    def filter_by_used_in_analysis_ids(self, queryset, info, value):
+    def filter_by_used_in_analysis_ids(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         analysis_pks = [
             int(from_global_id(value)[1])
             for value in list(filter(lambda raw_id: len(raw_id) > 0, value.split(",")))
         ]
         return queryset.filter(analysis__in=analysis_pks)
 
-    def filter_by_host_gremlin_engine(self, queryset, name, value):
+    def filter_by_host_gremlin_engine(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         django_pk = from_global_id(value)[1]
         return queryset.filter(host_gremlin_id=django_pk)
 
@@ -76,14 +86,18 @@ class AnalysisFilter(django_filters.FilterSet):
         method="filter_by_received_callback_results"
     )
 
-    def filter_by_received_callback_results(self, queryset, info, value):
+    def filter_by_received_callback_results(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         return queryset.filter(received_callback_file__isnull=value)
 
     ######################################################################
     # Filter by the corpus the analysis was performed on
     analyzed_corpus_id = filters.CharFilter(method="filter_by_analyzed_corpus_id")
 
-    def filter_by_analyzed_corpus_id(self, queryset, info, value):
+    def filter_by_analyzed_corpus_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         corpus_pk = from_global_id(value)[1]
         return queryset.filter(analyzed_corpus_id=corpus_pk)
 
@@ -91,7 +105,9 @@ class AnalysisFilter(django_filters.FilterSet):
     # Filter to analyses that include a certain document
     analyzed_document_id = filters.CharFilter(method="filter_by_analyzed_document_id")
 
-    def filter_by_analyzed_document_id(self, queryset, info, value):
+    def filter_by_analyzed_document_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         doc_pk = from_global_id(value)[1]
         return queryset.filter(analyzed_documents__id=doc_pk)
 
@@ -99,7 +115,9 @@ class AnalysisFilter(django_filters.FilterSet):
     # Text Search
     search_text = django_filters.CharFilter(method="filter_by_search_text")
 
-    def filter_by_search_text(self, queryset, info, value):
+    def filter_by_search_text(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         return queryset.filter(
             Q(analyzer__description__icontains=value)
             | Q(analyzer__manifest__metadata__id__icontains=value)
@@ -118,14 +136,16 @@ class AnalysisFilter(django_filters.FilterSet):
 class CorpusFilter(django_filters.FilterSet):
     text_search = filters.CharFilter(method="text_search_method")
 
-    def text_search_method(self, queryset, name, value):
+    def text_search_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(
             Q(description__contains=value) | Q(title__contains=value)
         )
 
     uses_labelset_id = filters.CharFilter(method="uses_labelset_id_method")
 
-    def uses_labelset_id_method(self, queryset, name, value):
+    def uses_labelset_id_method(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         django_pk = from_global_id(value)[1]
         return queryset.filter(label_set_id=django_pk)
 
@@ -159,7 +179,9 @@ class AnnotationFilter(django_filters.FilterSet):
         method="filter_by_label_from_labelset_id"
     )
 
-    def filter_by_label_from_labelset_id(self, queryset, info, value):
+    def filter_by_label_from_labelset_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         django_pk = from_global_id(value)[1]
         return queryset.filter(annotation_label__included_in_labelset=django_pk)
 
@@ -167,7 +189,9 @@ class AnnotationFilter(django_filters.FilterSet):
         method="filter_by_created_by_analysis_ids"
     )
 
-    def filter_by_created_by_analysis_ids(self, queryset, info, value):
+    def filter_by_created_by_analysis_ids(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
 
         # print(f"filter_by_created_by_analysis_ids - value: {value}")
 
@@ -188,7 +212,9 @@ class AnnotationFilter(django_filters.FilterSet):
         method="filter_by_created_with_analyzer_id"
     )
 
-    def filter_by_created_with_analyzer_id(self, queryset, info, value):
+    def filter_by_created_with_analyzer_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         analyzer_ids = value.split(",")
         if MANUAL_ANNOTATION_SENTINEL in analyzer_ids:
             analyzer_ids = filter(
@@ -229,7 +255,9 @@ class LabelFilter(django_filters.FilterSet):
         method="filter_by_used_in_analysis_ids"
     )
 
-    def filter_by_used_in_analysis_ids(self, queryset, info, value):
+    def filter_by_used_in_analysis_ids(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         analysis_pks = [from_global_id(value)[1] for value in value.split(",")]
         analyzer_pks = list(
             Analysis.objects.filter(id__in=analysis_pks)
@@ -238,15 +266,21 @@ class LabelFilter(django_filters.FilterSet):
         )
         return queryset.filter(analyzer_id__in=analyzer_pks)
 
-    def filter_by_created_by_analysis_ids(self, queryset, info, value):
+    def filter_by_created_by_analysis_ids(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         analysis_pks = [from_global_id(value)[1] for value in value.split(",")]
         return queryset.filter(analysis_id__in=analysis_pks)
 
-    def filter_by_labelset_id(self, queryset, name, value):
+    def filter_by_labelset_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         django_pk = from_global_id(value)[1]
         return queryset.filter(included_in_labelset__pk=django_pk)
 
-    def filter_by_used_in_labelset_for_corpus_id(self, queryset, name, value):
+    def filter_by_used_in_labelset_for_corpus_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
 
         # print(f"Raw corpus id: {value}")
         django_pk = from_global_id(value)[1]
@@ -270,14 +304,14 @@ class LabelFilter(django_filters.FilterSet):
 class LabelsetFilter(django_filters.FilterSet):
     text_search = filters.CharFilter(method="text_search_method")
 
-    def text_search_method(self, queryset, name, value):
+    def text_search_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(
             Q(description__contains=value) | Q(title__contains=value)
         )
 
     labelset_id = filters.CharFilter(method="labelset_id_method")
 
-    def labelset_id_method(self, queryset, name, value):
+    def labelset_id_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         django_pk = from_global_id(value)[1]
         return queryset.filter(id=django_pk)
 
@@ -312,7 +346,7 @@ class RelationshipFilter(django_filters.FilterSet):
 class AssignmentFilter(django_filters.FilterSet):
     document_id = django_filters.CharFilter(method="filter_document_id")
 
-    def filter_document_id(self, queryset, name, value):
+    def filter_document_id(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         django_pk = from_global_id(value)[1]
         return queryset.filter(document_id=django_pk)
 
@@ -369,11 +403,13 @@ class DocumentFilter(django_filters.FilterSet):
     text_search = filters.CharFilter(method="naive_text_search")
     include_caml = filters.BooleanFilter(method="handle_include_caml")
 
-    def handle_has_annotations_with_ids(self, queryset, info, value):
+    def handle_has_annotations_with_ids(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         annotation_pks = [from_global_id(val)[1] for val in value.split(",")]
         return queryset.filter(doc_annotation__in=annotation_pks)
 
-    def filter_queryset(self, queryset):
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         qs = super().filter_queryset(queryset).distinct()
         # When filtering by corpus, exclude CAML/markdown files by default.
         # Corpus views pass includeCaml=true to show them; extractors and
@@ -386,7 +422,9 @@ class DocumentFilter(django_filters.FilterSet):
             qs = qs.exclude(file_type=MARKDOWN_MIME_TYPE)
         return qs
 
-    def handle_include_caml(self, queryset, name, value):
+    def handle_include_caml(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         # Intentional no-op: the actual CAML exclusion lives in
         # filter_queryset() which checks both in_corpus_with_id and
         # include_caml together.  Passing includeCaml=false without a
@@ -394,10 +432,10 @@ class DocumentFilter(django_filters.FilterSet):
         # applies to corpus-scoped queries.
         return queryset
 
-    def naive_text_search(self, queryset, name, value):
+    def naive_text_search(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(Q(description__contains=value)).distinct()
 
-    def has_pdf_search(self, queryset, name, value):
+    def has_pdf_search(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         # Filter to analyzed docs only (has meta_data value)
         if value:
             return queryset.exclude(Q(pdf_file="") | Q(pdf_file__exact=None))
@@ -405,7 +443,7 @@ class DocumentFilter(django_filters.FilterSet):
         else:
             return queryset.filter(Q(pdf_file="") | Q(pdf_file__exact=None))
 
-    def in_corpus(self, queryset, name, value):
+    def in_corpus(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         """
         Filter documents by corpus membership via DocumentPath.
         """
@@ -419,64 +457,45 @@ class DocumentFilter(django_filters.FilterSet):
 
         return queryset.filter(id__in=doc_ids).distinct()
 
-    def in_folder(self, queryset, name, value):
+    def in_folder(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         """
         Filter documents by folder assignment.
 
         Uses DocumentPath as the source of truth for folder assignments.
 
-        Special handling: value="__root__" returns documents in corpus root (no folder).
-        Otherwise filters to specific folder ID.
+        Special handling: value="__root__" returns documents in corpus root
+        (no folder). Otherwise filters to a specific folder ID.
 
-        Note: This filter works in conjunction with in_corpus filter. The queryset
-        is already filtered to documents in a specific corpus, so we need to find
-        documents that have folder=NULL in their DocumentPath for THAT corpus.
+        Note: This filter works in conjunction with ``in_corpus``. The queryset
+        is already filtered to documents in a specific corpus, so we just need
+        to intersect with the folder's DocumentPath rows.
         """
-        import logging
-
         from opencontractserver.documents.models import DocumentPath
 
-        logger = logging.getLogger(__name__)
-
-        logger.info(f"[QUERY] in_folder filter called with value: {value}")
-
         if value == "__root__":
-            # For root documents, find documents with folder=NULL in their DocumentPath
-            # We need to find docs where their path in the corpus has no folder
-            # The queryset is already filtered to docs in the corpus via in_corpus filter
-            #
-            # Get document IDs that have a path with folder=NULL (root level docs)
-            root_doc_ids = set(
-                DocumentPath.objects.filter(
-                    folder__isnull=True, is_current=True, is_deleted=False
-                ).values_list("document_id", flat=True)
-            )
+            # Root documents: those whose DocumentPath has folder=NULL.
+            # Use a lazy values queryset so Django emits a SQL subquery for
+            # ``__in`` instead of materialising IDs into Python.
+            root_doc_ids = DocumentPath.objects.filter(
+                folder__isnull=True, is_current=True, is_deleted=False
+            ).values("document_id")
+            # ``.distinct()`` mirrors the non-root branch and guards against
+            # any pathological case where the same ``document_id`` appears in
+            # multiple matching ``DocumentPath`` rows.
+            return queryset.filter(id__in=root_doc_ids).distinct()
 
-            # Filter queryset to only include these root-level documents
-            result = queryset.filter(id__in=root_doc_ids)
-            logger.info(f"[QUERY] Filtered to root folder, count: {result.count()}")
-            return result
-        else:
-            folder_pk = from_global_id(value)[1]
+        # ``from_global_id`` returns a ``str`` PK; coerce to int so the
+        # ``folder_id`` lookup matches the FK type.
+        folder_pk = int(from_global_id(value)[1])
+        doc_ids = DocumentPath.objects.filter(
+            folder_id=folder_pk, is_current=True, is_deleted=False
+        ).values("document_id")
+        return queryset.filter(id__in=doc_ids).distinct()
 
-            # Get document IDs from DocumentPath
-            doc_ids = set(
-                DocumentPath.objects.filter(
-                    folder_id=folder_pk, is_current=True, is_deleted=False
-                ).values_list("document_id", flat=True)
-            )
-
-            logger.info(
-                f"[QUERY] Filtering to folder {folder_pk}, found {len(doc_ids)} documents"
-            )
-            result = queryset.filter(id__in=doc_ids).distinct()
-            logger.info(f"[QUERY] After filter, result count: {result.count()}")
-            return result
-
-    def has_label_title(self, queryset, name, value):
+    def has_label_title(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(annotation__annotation_label__title__contains=value)
 
-    def has_label_id(self, queryset, name, value):
+    def has_label_id(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(
             doc_annotation__annotation_label_id=from_global_id(value)[1]
         )
@@ -528,10 +547,10 @@ class DatacellFilter(django_filters.FilterSet):
     in_corpus_with_id = filters.CharFilter(method="in_corpus")
     for_document_with_id = filters.CharFilter(method="for_document")
 
-    def in_corpus(self, queryset, name, value):
+    def in_corpus(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(corpus=from_global_id(value)[1]).distinct()
 
-    def for_document(self, queryset, name, value):
+    def for_document(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(documents_id=from_global_id(value)[1]).distinct()
 
     class Meta:
@@ -567,23 +586,29 @@ class ConversationFilter(django_filters.FilterSet):
     has_corpus = filters.BooleanFilter(method="filter_has_corpus")
     has_document = filters.BooleanFilter(method="filter_has_document")
 
-    def filter_by_document_id(self, queryset, name, value):
+    def filter_by_document_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         """Filter conversations by document ID."""
         django_pk = from_global_id(value)[1]
         return queryset.filter(chat_with_document_id=django_pk)
 
-    def filter_by_corpus_id(self, queryset, name, value):
+    def filter_by_corpus_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         """Filter conversations by corpus ID."""
         django_pk = from_global_id(value)[1]
         return queryset.filter(chat_with_corpus_id=django_pk)
 
-    def filter_has_corpus(self, queryset, name, value):
+    def filter_has_corpus(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         """Filter conversations that have/don't have a corpus."""
         if value:
             return queryset.filter(chat_with_corpus__isnull=False)
         return queryset.filter(chat_with_corpus__isnull=True)
 
-    def filter_has_document(self, queryset, name, value):
+    def filter_has_document(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         """Filter conversations that have/don't have a document."""
         if value:
             return queryset.filter(chat_with_document__isnull=False)
@@ -618,7 +643,9 @@ class BadgeFilter(django_filters.FilterSet):
 
     corpus_id = filters.CharFilter(method="filter_by_corpus_id")
 
-    def filter_by_corpus_id(self, queryset, name, value):
+    def filter_by_corpus_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         """Filter badges by corpus ID."""
         if value:
             django_pk = from_global_id(value)[1]
@@ -641,21 +668,23 @@ class UserBadgeFilter(django_filters.FilterSet):
     badge_id = filters.CharFilter(method="filter_by_badge_id")
     corpus_id = filters.CharFilter(method="filter_by_corpus_id")
 
-    def filter_by_user_id(self, queryset, name, value):
+    def filter_by_user_id(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         """Filter user badges by user ID."""
         if value:
             django_pk = from_global_id(value)[1]
             return queryset.filter(user_id=django_pk)
         return queryset
 
-    def filter_by_badge_id(self, queryset, name, value):
+    def filter_by_badge_id(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         """Filter user badges by badge ID."""
         if value:
             django_pk = from_global_id(value)[1]
             return queryset.filter(badge_id=django_pk)
         return queryset
 
-    def filter_by_corpus_id(self, queryset, name, value):
+    def filter_by_corpus_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         """Filter user badges by corpus ID."""
         if value:
             django_pk = from_global_id(value)[1]
@@ -674,7 +703,9 @@ class AgentConfigurationFilter(django_filters.FilterSet):
 
     corpus_id = filters.CharFilter(method="filter_by_corpus_id")
 
-    def filter_by_corpus_id(self, queryset, name, value):
+    def filter_by_corpus_id(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
         """Filter agent configurations by corpus ID."""
         if value:
             django_pk = from_global_id(value)[1]

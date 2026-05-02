@@ -105,7 +105,7 @@ class SmartLabelSearchOrCreateMutation(graphene.Mutation):
         create_if_not_found: bool = False,
         labelset_title: Optional[str] = None,
         labelset_description: str = "",
-    ):
+    ) -> "SmartLabelSearchOrCreateMutation":
         user = info.context.user
         labels = []
         labelset = None
@@ -257,7 +257,9 @@ class SmartLabelListMutation(graphene.Mutation):
     can_create_labels = graphene.Boolean()
 
     @login_required
-    def mutate(root, info, corpus_id: str, label_type: Optional[str] = None):
+    def mutate(
+        root, info, corpus_id: str, label_type: Optional[str] = None
+    ) -> "SmartLabelListMutation":
         user = info.context.user
         labels = []
         has_labelset = False

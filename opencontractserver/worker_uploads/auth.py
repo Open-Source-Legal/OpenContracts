@@ -10,6 +10,7 @@ shown once at creation and never persisted.
 """
 
 import logging
+from typing import Any, Optional
 
 from django.utils import timezone
 from rest_framework import authentication, exceptions
@@ -30,7 +31,7 @@ class WorkerTokenAuthentication(authentication.BaseAuthentication):
     - token: the CorpusAccessToken instance (available as request.auth)
     """
 
-    def authenticate(self, request):
+    def authenticate(self, request: Any) -> Optional[tuple[Any, CorpusAccessToken]]:
         auth_header = authentication.get_authorization_header(request).decode("utf-8")
         if not auth_header:
             return None
@@ -51,7 +52,7 @@ class WorkerTokenAuthentication(authentication.BaseAuthentication):
 
         return self._authenticate_token(parts[1])
 
-    def _authenticate_token(self, plaintext_key: str):
+    def _authenticate_token(self, plaintext_key: str) -> tuple[Any, CorpusAccessToken]:
         key_hash = hash_token(plaintext_key)
         key_prefix = plaintext_key[:8]
         try:
@@ -86,5 +87,5 @@ class WorkerTokenAuthentication(authentication.BaseAuthentication):
 
         return (token.worker_account.user, token)
 
-    def authenticate_header(self, request):
+    def authenticate_header(self, request: Any) -> str:
         return f'{WORKER_AUTH_PREFIX} realm="api"'

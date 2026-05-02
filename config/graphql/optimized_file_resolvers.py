@@ -7,15 +7,17 @@ Key optimizations:
 3. Minimal processing - quick returns for null/empty fields
 """
 
+from typing import Any, Callable
 
-def create_file_resolver(field_name):
+
+def create_file_resolver(field_name: str) -> Callable[[Any, Any], str]:
     """
     Factory function to create optimized file field resolvers.
 
     This avoids repetitive code while maintaining performance.
     """
 
-    def resolver(self, info):
+    def resolver(self: Any, info: Any) -> str:
         # Fast path for empty fields
         field_value = getattr(self, field_name, None)
         if not field_value:

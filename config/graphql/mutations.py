@@ -123,6 +123,7 @@ from config.graphql.extract_mutations import (
     ApproveDatacell,
     CreateColumn,
     CreateExtract,
+    CreateExtractIteration,
     CreateFieldset,
     CreateMetadataColumn,
     DeleteColumn,
@@ -343,6 +344,7 @@ class Mutation(graphene.ObjectType):
     delete_column = DeleteColumn.Field()
 
     create_extract = CreateExtract.Field()
+    create_extract_iteration = CreateExtractIteration.Field()
     start_extract = StartExtract.Field()
     delete_extract = DeleteExtract.Field()
     update_extract = UpdateExtractMutation.Field()

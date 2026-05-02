@@ -45,6 +45,32 @@ class BaseEmbedder(PipelineComponentBase, ABC):
     # Override in subclasses to add multimodal support
     supported_modalities: set[ContentModality] = {ContentModality.TEXT}
 
+    # ------------------------------------------------------------------ #
+    # Batch-embedding tunables (override per subclass)
+    # ------------------------------------------------------------------ #
+    #
+    # ``api_batch_size``: maximum number of inputs sent in one
+    # ``embed_texts_batch`` call to the underlying provider. The
+    # ``calculate_embeddings_for_annotation_batch`` task reads this when
+    # carving annotations into sub-batches. Defaults to the global
+    # ``EMBEDDING_API_BATCH_SIZE`` constant; subclasses pick a value
+    # appropriate for the provider's published batch limit and the
+    # subclass's typical input-token budget.
+    #
+    # ``embed_max_concurrent_sub_batches``: how many sub-batches the
+    # embedding task is allowed to fly in parallel against the provider.
+    # 1 means strictly sequential (the historical behaviour). Subclasses
+    # that talk to a high-throughput hosted API can raise this to push
+    # ingest wall-clock down. The task uses a thread pool, so concurrent
+    # sub-batches share the same Python process — keep this modest
+    # (4-8 is usually enough; higher just pressures provider RPM).
+    #
+    # Both are class attributes (not instance settings) so they don't
+    # need to round-trip through ``PipelineSettings`` for what's a static
+    # provider characteristic. Override at class definition time.
+    api_batch_size: int = 50
+    embed_max_concurrent_sub_batches: int = 1
+
     # Convenience properties derived from supported_modalities
     @property
     def is_multimodal(self) -> bool:

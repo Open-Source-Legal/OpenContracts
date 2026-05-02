@@ -22,6 +22,7 @@ import {
   openedExtract,
   openedThread,
   openedLabelset,
+  openedUser,
   selectedAnnotationIds,
   selectedAnalysesIds,
   selectedExtractIds,
@@ -55,6 +56,7 @@ import {
   GET_DOCUMENT_BY_ID_FOR_REDIRECT,
   GET_THREAD_DETAIL,
   GET_LABELSET_WITH_ALL_LABELS,
+  GET_USER,
   GetCorpusByIdForRedirectInput,
   GetCorpusByIdForRedirectOutput,
   GetDocumentByIdForRedirectInput,
@@ -63,6 +65,8 @@ import {
   ResolveExtractByIdOutput,
   GetThreadDetailInput,
   GetThreadDetailOutput,
+  GetUserInput,
+  GetUserOutput,
 } from "../graphql/queries";
 import {
   CorpusType,
@@ -209,6 +213,12 @@ export function CentralRouteManager() {
     nextFetchPolicy: "cache-and-network",
   });
 
+  // User profile query - slug-based
+  const [resolveUser] = useLazyQuery<GetUserOutput, GetUserInput>(GET_USER, {
+    fetchPolicy: "cache-first",
+    nextFetchPolicy: "cache-and-network",
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // PHASE 1: URL Path → Entity Resolution
   // ═══════════════════════════════════════════════════════════════
@@ -243,6 +253,7 @@ export function CentralRouteManager() {
       openedExtract(null);
       openedThread(null);
       openedLabelset(null);
+      openedUser(null);
       routeLoading(false);
       routeError(null);
       lastProcessedPath.current = pathKey;
@@ -312,16 +323,26 @@ export function CentralRouteManager() {
       }
       routeError(null);
 
-      // Type assertion: route.type is guaranteed to be "document" | "corpus" | "extract" | "thread" | "labelset" here
-      // because "browse" and "unknown" are handled by early return above
+      // route.type is guaranteed to be a resolvable entity here ("browse" and
+      // "unknown" returned above). userSlug must be passed explicitly so
+      // /users/:slug routes get a per-slug key — without it, every user
+      // resolution would dedupe to the same key and rapid profile switches
+      // would silently drop all but the first request.
       const requestKey = buildRequestKey(
-        route.type as "document" | "corpus" | "extract" | "thread" | "labelset",
+        route.type as
+          | "document"
+          | "corpus"
+          | "extract"
+          | "thread"
+          | "labelset"
+          | "user",
         route.userIdent,
         route.corpusIdent,
         route.documentIdent,
         route.extractIdent,
         route.threadIdent,
-        route.labelsetIdent
+        route.labelsetIdent,
+        route.userSlug
       );
 
       // Prevent duplicate simultaneous requests
@@ -645,6 +666,9 @@ export function CentralRouteManager() {
               openedExtract(extract);
               openedCorpus(null);
               openedDocument(null);
+              openedThread(null);
+              openedLabelset(null);
+              openedUser(null);
               routeLoading(false);
               return;
             }
@@ -715,6 +739,7 @@ export function CentralRouteManager() {
               openedCorpus(corpus);
               openedDocument(null);
               openedExtract(null);
+              openedUser(null);
               routeLoading(false);
               return;
             }
@@ -764,12 +789,73 @@ export function CentralRouteManager() {
               openedDocument(null);
               openedExtract(null);
               openedThread(null);
+              openedUser(null);
               routeLoading(false);
               return;
             }
 
             console.warn("[RouteManager] Labelset not found");
             navigate("/404", { replace: true });
+            return;
+          }
+
+          // ────────────────────────────────────────────────────────
+          // USER PROFILE (/users/:slug)
+          // ────────────────────────────────────────────────────────
+          if (route.type === "user" && route.userSlug) {
+            routingLogger.debug("[RouteManager] Resolving user profile");
+
+            const { data, error } = await resolveUser({
+              variables: { slug: route.userSlug },
+            });
+
+            if (error) {
+              console.error(
+                "[RouteManager] ❌ GraphQL error resolving user:",
+                error
+              );
+              console.error("[RouteManager] Variables:", {
+                slug: route.userSlug,
+              });
+            }
+
+            if (!data?.userBySlug) {
+              console.warn("[RouteManager] ⚠️  user is null");
+            }
+
+            if (!error && data?.userBySlug) {
+              const user = data.userBySlug;
+
+              routingLogger.debug(
+                "[RouteManager] ✅ Resolved user via slug:",
+                user.id
+              );
+
+              openedUser(user);
+              openedCorpus(null);
+              openedDocument(null);
+              openedExtract(null);
+              openedThread(null);
+              openedLabelset(null);
+              routeLoading(false);
+              return;
+            }
+
+            console.warn("[RouteManager] User not found");
+            // Unlike the corpus/document/extract not-found paths (which
+            // redirect to /404 and clear via the browse-route handler), the
+            // user error path stays on the URL so the visitor can fix the
+            // slug. That makes clearing residual entity state our
+            // responsibility — otherwise consumers of openedCorpus etc.
+            // could render stale entity UI alongside the error display.
+            openedUser(null);
+            openedCorpus(null);
+            openedDocument(null);
+            openedExtract(null);
+            openedThread(null);
+            openedLabelset(null);
+            routeError(new Error(`User "${route.userSlug}" not found`));
+            routeLoading(false);
             return;
           }
 

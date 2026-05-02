@@ -1,13 +1,15 @@
+from typing import Any
+
 from django.core.checks import Warning, register
 
 
 @register()
-def check_unsynced_analyzers(app_configs, **kwargs):
+def check_unsynced_analyzers(app_configs: Any, **kwargs: Any) -> list[Warning]:
     """
     Check if there are doc_analyzer_task decorated functions
     that haven't been synced to the database.
     """
-    warnings = []
+    warnings: list[Warning] = []
 
     try:
         from opencontractserver.analyzer.models import Analyzer

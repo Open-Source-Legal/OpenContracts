@@ -67,6 +67,7 @@ import {
   RequestStartExtractOutputType,
 } from "../../graphql/mutations";
 import { ExtractDataGrid, ExtractDataGridHandle } from "./datagrid/DataGrid";
+import { ExtractIterationsTab } from "./iterations/ExtractIterationsTab";
 import { CreateColumnModal } from "../widgets/modals/CreateColumnModal";
 import { ConfirmModal } from "../widgets/modals/ConfirmModal";
 import { getExtractStatus, formatExtractDate } from "../../utils/extractUtils";
@@ -703,6 +704,7 @@ export const ExtractDetailContent = forwardRef<
               <Tab value="data">Data</Tab>
               <Tab value="documents">Documents</Tab>
               <Tab value="schema">Schema</Tab>
+              <Tab value="iterations">Iterations</Tab>
             </TabList>
 
             <TabPanels>
@@ -848,6 +850,16 @@ export const ExtractDetailContent = forwardRef<
                       />
                     </EmptyWrapper>
                   )}
+                </div>
+              </TabPanel>
+
+              {/* Iterations Tab — model drift, doc-version drift, schema tweaks */}
+              <TabPanel value="iterations">
+                <div style={{ marginTop: 20 }}>
+                  <ExtractIterationsTab
+                    extract={extract}
+                    onIterationCreated={refetch}
+                  />
                 </div>
               </TabPanel>
             </TabPanels>

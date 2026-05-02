@@ -209,3 +209,239 @@ class TestImportUtils(TestCase):
 
         self.assertIn(annotation_id_map["old-a2"], ann_ids_rel2_source)
         self.assertIn(annotation_id_map["old-a3"], ann_ids_rel2_targets)
+
+
+class TestImportAnnotationsPermissionInvariants(TestCase):
+    """Lock in the invariants that allow ``import_annotations`` to skip
+    per-annotation guardian writes.
+
+    ``AnnotationUserObjectPermission`` rows are NOT consulted by:
+        * ``AnnotationQuerySet.visible_to_user`` (uses doc/corpus + structural + creator)
+        * ``AnnotationQueryOptimizer._compute_effective_permissions`` (doc/corpus only)
+        * ``user_has_permission_for_obj`` for annotations (delegates to optimizer)
+
+    These tests exist so any future regression that re-introduces a
+    consumer of those rows gets caught immediately — without these
+    tests, ``import_annotations`` could silently start producing wrong
+    visibility for non-creator readers.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
+
+        User = get_user_model()
+        cls.creator = User.objects.create_user(username="creator", password="pw")
+        cls.outsider = User.objects.create_user(username="outsider", password="pw")
+        cls.collaborator = User.objects.create_user(
+            username="collaborator", password="pw"
+        )
+        cls.anonymous = AnonymousUser()
+        cls.superuser = User.objects.create_superuser(
+            username="root", password="pw", email="r@example.com"
+        )
+
+        # Public-doc-in-public-corpus: anyone can see; creator owns.
+        cls.public_corpus = Corpus.objects.create(
+            title="Public", creator=cls.creator, is_public=True
+        )
+        cls.public_doc = Document.objects.create(
+            title="Public Doc", creator=cls.creator, is_public=True
+        )
+        cls.public_doc, _, _ = cls.public_corpus.add_document(
+            document=cls.public_doc, user=cls.creator
+        )
+
+        # Private-doc-in-private-corpus: only creator + collaborator (via guardian).
+        cls.private_corpus = Corpus.objects.create(
+            title="Private", creator=cls.creator, is_public=False
+        )
+        cls.private_doc = Document.objects.create(
+            title="Private Doc", creator=cls.creator, is_public=False
+        )
+        cls.private_doc, _, _ = cls.private_corpus.add_document(
+            document=cls.private_doc, user=cls.creator
+        )
+
+        # Grant creator full perms on the docs/corpuses they "own". Real
+        # production flows (corpus.import_content, folder_service) call
+        # set_permissions_for_obj_to_user after creation; bare
+        # ``Document.objects.create(creator=...)`` only sets the FK.
+        # The optimizer reads doc+corpus guardian rows, not the creator
+        # FK, so we replicate the production grant here.
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        for obj in (cls.public_doc, cls.private_doc):
+            set_permissions_for_obj_to_user(cls.creator, obj, [PermissionTypes.ALL])
+        for obj in (cls.public_corpus, cls.private_corpus):
+            set_permissions_for_obj_to_user(cls.creator, obj, [PermissionTypes.ALL])
+
+        # Grant collaborator doc+corpus read so they can see annotations
+        # via the doc/corpus path (this is the legitimate sharing flow,
+        # NOT per-annotation perms).
+        from guardian.shortcuts import assign_perm
+
+        assign_perm("documents.read_document", cls.collaborator, cls.private_doc)
+        assign_perm("corpuses.read_corpus", cls.collaborator, cls.private_corpus)
+
+        cls.label = AnnotationLabel.objects.create(
+            text="ParaLabel", creator=cls.creator, label_type="SPAN_LABEL"
+        )
+
+    def _ingest(self, doc, corpus, *, structural):
+        """Run import_annotations on a small fixture and return the resulting Annotations."""
+        annotation_data: list[OpenContractsAnnotationPythonType] = [
+            {
+                "id": f"a-{i}",
+                "annotationLabel": "ParaLabel",
+                "rawText": f"text {i}",
+                "page": 1,
+                "annotation_json": {"bounds": [i, 0, 10, 10]},
+                "parent_id": None,
+                "annotation_type": None,
+                "structural": structural,
+            }
+            for i in range(3)
+        ]
+        old_to_new = import_annotations(
+            user_id=self.creator.id,
+            doc_obj=doc,
+            corpus_obj=corpus,
+            annotations_data=annotation_data,
+            label_lookup={"ParaLabel": self.label},
+        )
+        return Annotation.objects.filter(pk__in=old_to_new.values())
+
+    def test_creator_sees_own_imported_annotations(self):
+        """The creator can always see annotations they imported."""
+        annots = self._ingest(self.public_doc, self.public_corpus, structural=False)
+        creator_visible = Annotation.objects.visible_to_user(self.creator)
+        for a in annots:
+            self.assertIn(a, creator_visible)
+
+    def test_collaborator_sees_via_doc_and_corpus_perms_not_annotation_perms(self):
+        """Non-creator visibility flows from doc+corpus permissions only.
+
+        The collaborator was granted ``read_document`` and ``read_corpus``
+        but explicitly NOT any annotation-level guardian rows. They must
+        still see the annotations (because the optimizer derives perms
+        from doc+corpus, not from ``AnnotationUserObjectPermission``).
+        """
+        annots = self._ingest(self.private_doc, self.private_corpus, structural=False)
+        visible = Annotation.objects.visible_to_user(self.collaborator)
+        for a in annots:
+            self.assertIn(
+                a,
+                visible,
+                "Collaborator should see annotations on a doc/corpus they "
+                "have read perm on, regardless of per-annotation guardian rows.",
+            )
+
+    def test_outsider_blocked_by_doc_and_corpus_perms(self):
+        """Outsider with no doc/corpus perms cannot see private annotations."""
+        annots = self._ingest(self.private_doc, self.private_corpus, structural=False)
+        visible = Annotation.objects.visible_to_user(self.outsider)
+        for a in annots:
+            self.assertNotIn(
+                a,
+                visible,
+                "Outsider with no doc/corpus perms must not see private annotations.",
+            )
+
+    def test_anonymous_sees_only_structural_on_public_doc(self):
+        """Anonymous users see structural annotations on public docs only."""
+        # Public doc, structural annotations: visible to anonymous.
+        struct_annots = self._ingest(
+            self.public_doc, self.public_corpus, structural=True
+        )
+        visible = Annotation.objects.visible_to_user(self.anonymous)
+        for a in struct_annots:
+            self.assertIn(a, visible)
+
+        # Private doc, structural: NOT visible to anonymous.
+        struct_private = self._ingest(
+            self.private_doc, self.private_corpus, structural=True
+        )
+        visible_private = Annotation.objects.visible_to_user(self.anonymous)
+        for a in struct_private:
+            self.assertNotIn(a, visible_private)
+
+    def test_user_has_permission_for_obj_uses_doc_corpus_for_annotations(self):
+        """``user_has_permission_for_obj`` for annotations consults the
+        optimizer (doc+corpus) — not ``AnnotationUserObjectPermission``.
+        """
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import user_has_permission_for_obj
+
+        annots = self._ingest(self.private_doc, self.private_corpus, structural=False)
+        for a in annots:
+            # Creator: doc creator → has all perms via doc.
+            self.assertTrue(
+                user_has_permission_for_obj(self.creator, a, PermissionTypes.READ)
+            )
+            # Collaborator: granted doc+corpus read → can read annotation.
+            self.assertTrue(
+                user_has_permission_for_obj(self.collaborator, a, PermissionTypes.READ)
+            )
+            # Outsider: no doc/corpus perms → cannot read.
+            self.assertFalse(
+                user_has_permission_for_obj(self.outsider, a, PermissionTypes.READ)
+            )
+            # Superuser: always.
+            self.assertTrue(
+                user_has_permission_for_obj(self.superuser, a, PermissionTypes.READ)
+            )
+
+    def test_no_per_annotation_guardian_rows_are_required(self):
+        """The annotation-level guardian table can be empty without
+        affecting visibility outcomes.
+
+        After this test passes, ``import_annotations`` is free to skip
+        the per-annotation ``set_permissions_for_obj_to_user`` call —
+        the annotations remain visible to readers who have doc+corpus
+        access. We assert this by clearing any guardian rows that the
+        ingest loop wrote and re-running visibility checks.
+        """
+        from opencontractserver.annotations.models import (
+            AnnotationUserObjectPermission,
+        )
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import user_has_permission_for_obj
+
+        annots = list(
+            self._ingest(self.private_doc, self.private_corpus, structural=False)
+        )
+        # Clear any per-annotation guardian rows that the import wrote.
+        AnnotationUserObjectPermission.objects.filter(
+            content_object__in=annots
+        ).delete()
+
+        # Visibility and perm checks must still resolve correctly via doc+corpus.
+        for a in annots:
+            self.assertIn(
+                a,
+                Annotation.objects.visible_to_user(self.creator),
+                "Creator must still see their annotation without per-row perms.",
+            )
+            self.assertIn(
+                a,
+                Annotation.objects.visible_to_user(self.collaborator),
+                "Collaborator must still see annotation via doc/corpus perms.",
+            )
+            self.assertNotIn(
+                a,
+                Annotation.objects.visible_to_user(self.outsider),
+                "Outsider must still be blocked via doc/corpus perms.",
+            )
+            self.assertTrue(
+                user_has_permission_for_obj(self.collaborator, a, PermissionTypes.READ)
+            )
+            self.assertFalse(
+                user_has_permission_for_obj(self.outsider, a, PermissionTypes.READ)
+            )

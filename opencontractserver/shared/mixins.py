@@ -1,4 +1,5 @@
 import logging
+from typing import Any, Optional
 
 from pgvector.django import CosineDistance
 
@@ -44,7 +45,7 @@ class VectorSearchViaEmbeddingMixin:
         query_vector: list[float],
         embedder_path: str,
         top_k: int = 10,
-    ) -> list:
+    ) -> list[Any]:
         """
         Vector search for records of this model by embeddings stored in
         a reverse relation to Embedding (embedding->document, for instance).
@@ -113,15 +114,15 @@ class HasEmbeddingMixin:
     that references Embedding via (document_id, annotation_id, or note_id).
 
     The only requirement is that the model must implement:
-        def get_embedding_reference_kwargs(self) -> dict
+        def get_embedding_reference_kwargs(self) -> dict[str, Any]
 
     Example usage for a subclass:
         class Document(BaseOCModel, HasEmbeddingMixin):
-            def get_embedding_reference_kwargs(self) -> dict:
+            def get_embedding_reference_kwargs(self) -> dict[str, Any]:
                 return {"document_id": self.pk}
     """
 
-    def get_embedding_reference_kwargs(self) -> dict:
+    def get_embedding_reference_kwargs(self) -> dict[str, Any]:
         """
         Must be overridden by the subclass.
         Return a dictionary like {"document_id": self.pk} or {"annotation_id": self.pk}, etc.
@@ -178,7 +179,9 @@ class HasEmbeddingMixin:
             embedder_path, dimension
         )
 
-    def add_embedding(self, embedder_path: str, vector: list[float] | None):
+    def add_embedding(
+        self, embedder_path: str, vector: list[float] | None
+    ) -> Optional[Any]:
         """
         Creates or updates an Embedding for this object (Document, Annotation, Note, etc.)
         with the given embedder and vector.
@@ -208,7 +211,9 @@ class HasEmbeddingMixin:
             **kwargs,
         )
 
-    def add_embeddings(self, embedder_path: str, vectors: list[list[float]]):
+    def add_embeddings(
+        self, embedder_path: str, vectors: list[list[float]]
+    ) -> list[Any]:
         """
         Creates or updates multiple Embedding records for this object, given a collection of
         vectors (all presumably from the same embedder).

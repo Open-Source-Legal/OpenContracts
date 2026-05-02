@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import difflib
 import functools
 import hashlib
 import uuid
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import django
 from django.contrib.auth import get_user_model
@@ -19,6 +22,11 @@ from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.slug_utils import generate_unique_slug, sanitize_slug
 from opencontractserver.shared.utils import calc_oc_file_path
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
+
+    from opencontractserver.corpuses.models import Corpus
 
 
 class DocumentProcessingStatus(models.TextChoices):
@@ -192,7 +200,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
     # ------ Revision mechanics ------ #
     REVISION_SNAPSHOT_INTERVAL = 10
 
-    def get_summary_for_corpus(self, corpus):
+    def get_summary_for_corpus(self, corpus: Corpus) -> str:
         """Get the latest summary content for this document in a specific corpus.
 
         Args:
@@ -220,7 +228,13 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
             # stores a full snapshot. Return empty string as a safe fallback.
             return ""
 
-    def update_summary(self, *, new_content: str, author, corpus):
+    def update_summary(
+        self,
+        *,
+        new_content: str,
+        author: AbstractBaseUser | int,
+        corpus: Corpus,
+    ) -> DocumentSummaryRevision | None:
         """Create a new revision and update md_summary_file for a specific corpus.
 
         Args:
@@ -289,10 +303,10 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
 
         return revision
 
-    def get_embedding_reference_kwargs(self) -> dict:
+    def get_embedding_reference_kwargs(self) -> dict[str, Any]:
         return {"document_id": self.pk}
 
-    def compute_pdf_hash(self):
+    def compute_pdf_hash(self) -> str | None:
         """
         Compute SHA-256 hash of the PDF file content.
         Returns None if no PDF file exists.
@@ -307,7 +321,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
 
         return sha256_hash.hexdigest()
 
-    def update_pdf_hash(self):
+    def update_pdf_hash(self) -> bool:
         """
         Update the pdf_file_hash field with the current PDF's hash.
         This method saves the model if the hash changes.
@@ -319,7 +333,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
             return True
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         String representation method
         :return:
@@ -328,7 +342,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
             "utf-8", "ignore"
         )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         # Ensure slug exists and is unique within creator scope
         if not self.slug or not isinstance(self.slug, str) or not self.slug.strip():
             base_value = self.title or self.description or f"document-{self.pk or ''}"
@@ -419,7 +433,7 @@ class DocumentAnalysisRow(BaseOCModel):
             ),
         ]
 
-    def clean(self):
+    def clean(self) -> None:
         super().clean()
         if (self.analysis is None and self.extract is None) or (
             self.analysis is not None and self.extract is not None
@@ -428,7 +442,7 @@ class DocumentAnalysisRow(BaseOCModel):
                 "Either 'analysis' or 'extract' must be set, but not both."
             )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
 
@@ -526,7 +540,7 @@ class DocumentRelationship(BaseOCModel):
             )
         ]
 
-    def clean(self):
+    def clean(self) -> None:
         """
         Validate DocumentRelationship constraints:
         1. annotation_label is required for RELATIONSHIP type
@@ -562,7 +576,7 @@ class DocumentRelationship(BaseOCModel):
                     "Both source and target documents must be in the specified corpus."
                 )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
 
@@ -637,7 +651,7 @@ class IngestionSource(BaseOCModel):
             ("remove_ingestionsource", "delete IngestionSource"),
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"IngestionSource({self.name}, type={self.source_type}, active={self.active})"
 
 
@@ -779,7 +793,7 @@ class DocumentPath(TreeNode, BaseOCModel):
             ("remove_documentpath", "delete DocumentPath"),
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         status = "deleted" if self.is_deleted else "active"
         current = "current" if self.is_current else "historical"
         return f"DocumentPath(doc={self.document_id}, path={self.path}, v{self.version_number}, {status}, {current})"
@@ -840,7 +854,7 @@ class DocumentSummaryRevision(django.db.models.Model):
             django.db.models.Index(fields=["created"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             f"DocumentSummaryRevision(document_id={self.document_id}, v={self.version})"
         )
@@ -957,6 +971,20 @@ class PipelineSettings(django.db.models.Model):
         help_text="Default embedder class path",
     )
 
+    # Default post-retrieval reranker. Empty = reranking disabled (callers
+    # return first-stage vector / hybrid search results as-is). When set, the
+    # vector store oversamples candidates and re-orders them through this
+    # reranker before returning the final top_k to callers.
+    default_reranker = django.db.models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "Default post-retrieval reranker class path. Empty string "
+            "disables reranking (first-stage vector / hybrid search only)."
+        ),
+    )
+
     # Encrypted secrets storage (API keys, tokens, credentials)
     # Stored as Fernet-encrypted JSON blob
     encrypted_secrets = django.db.models.BinaryField(
@@ -986,7 +1014,7 @@ class PipelineSettings(django.db.models.Model):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "PipelineSettings (Singleton)"
 
     # Cache settings
@@ -1024,7 +1052,7 @@ class PipelineSettings(django.db.models.Model):
             django_settings, "PIPELINE_SETTINGS_MAX_SECRET_SIZE_BYTES", 10240
         )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Ensure singleton pattern and invalidate cache on save."""
         from django.db import transaction
 
@@ -1040,7 +1068,7 @@ class PipelineSettings(django.db.models.Model):
         # transaction that might roll back and be retried.
         transaction.on_commit(lambda: self._invalidate_cache())
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args: Any, **kwargs: Any) -> NoReturn:
         """Prevent deletion of the singleton instance."""
         raise ValidationError("PipelineSettings singleton cannot be deleted.")
 
@@ -1052,7 +1080,7 @@ class PipelineSettings(django.db.models.Model):
         cache.delete(cls.CACHE_KEY)
 
     @classmethod
-    def get_instance(cls, use_cache: bool = True) -> "PipelineSettings":
+    def get_instance(cls, use_cache: bool = True) -> PipelineSettings:
         """
         Get the singleton PipelineSettings instance.
 
@@ -1098,6 +1126,9 @@ class PipelineSettings(django.db.models.Model):
                     ),
                     "default_embedder": getattr(
                         django_settings, "DEFAULT_EMBEDDER", ""
+                    ),
+                    "default_reranker": getattr(
+                        django_settings, "DEFAULT_RERANKER", ""
                     ),
                 },
             )
@@ -1207,6 +1238,19 @@ class PipelineSettings(django.db.models.Model):
             Default embedder class path.
         """
         return self.default_embedder or ""
+
+    def get_default_reranker(self) -> str:
+        """
+        Get the default reranker class path.
+
+        Database is the single source of truth at runtime. An empty string
+        means reranking is disabled — callers should return first-stage
+        retrieval results as-is.
+
+        Returns:
+            Default reranker class path, or empty string if unset.
+        """
+        return self.default_reranker or ""
 
     def is_component_enabled(self, class_path: str) -> bool:
         """Check if a component is enabled.

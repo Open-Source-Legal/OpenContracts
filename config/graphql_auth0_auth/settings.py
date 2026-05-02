@@ -71,6 +71,12 @@ class Auth0JWTSettings:
         )
 
     def __getattr__(self, attr):
+        # Dunder / private names are probed by Python internals (deepcopy,
+        # pickle, hasattr, IPython tab-completion, etc.).  Treat them as
+        # ordinary missing attributes so we don't spam the error log.
+        if attr.startswith("_"):
+            raise AttributeError(attr)
+
         logger.debug(f"Auth0JWTSettings.__getattr__() - Accessing setting: {attr}")
         if attr not in self.defaults:
             logger.error(

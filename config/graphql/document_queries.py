@@ -2,12 +2,17 @@
 GraphQL query mixin for document and document-relationship queries.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 import graphene
 from django.conf import settings
+from django.db.models import QuerySet
 from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
+from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
@@ -45,7 +50,9 @@ class DocumentQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_documents(self, info, **kwargs):
+    def resolve_documents(
+        self, info: graphene.ResolveInfo, **kwargs: Any
+    ) -> QuerySet[Document]:
         # Use lightweight mode to skip heavy prefetches (doc_annotations,
         # rows, relationships, notes) that are unnecessary for list/TOC
         # queries requesting only basic document fields.
@@ -53,7 +60,9 @@ class DocumentQueryMixin:
 
     document = graphene.Field(DocumentType, id=graphene.ID())
 
-    def resolve_document(self, info, **kwargs):
+    def resolve_document(
+        self, info: graphene.ResolveInfo, **kwargs: Any
+    ) -> Document | None:
         document_id = kwargs.get("id")
         if not document_id:
             return None
@@ -84,7 +93,9 @@ class DocumentQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_document_relationships(self, info, **kwargs):
+    def resolve_document_relationships(
+        self, info: graphene.ResolveInfo, **kwargs: Any
+    ) -> QuerySet[DocumentRelationship]:
         """
         Resolve document relationships with proper permission filtering.
         Uses DocumentRelationshipQueryOptimizer for consistent eager loading.
@@ -123,12 +134,17 @@ class DocumentQueryMixin:
     document_relationship = relay.Node.Field(DocumentRelationshipType)
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_document_relationship(self, info, **kwargs):
+    def resolve_document_relationship(
+        self, info: graphene.ResolveInfo, **kwargs: Any
+    ) -> DocumentRelationship:
         """
         Resolve a single document relationship by ID.
         Uses optimizer for IDOR-safe fetching with proper eager loading.
         """
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        relay_id = kwargs.get("id")
+        if relay_id is None:
+            raise GraphQLError("DocumentRelationship id is required")
+        django_pk = from_global_id(relay_id)[1]
         result = DocumentRelationshipQueryOptimizer.get_relationship_by_id(
             user=info.context.user,
             relationship_id=int(django_pk),
@@ -146,7 +162,9 @@ class DocumentQueryMixin:
     )
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_bulk_doc_relationships(self, info, document_id, **kwargs):
+    def resolve_bulk_doc_relationships(
+        self, info: graphene.ResolveInfo, document_id: str, **kwargs: Any
+    ) -> QuerySet[DocumentRelationship]:
         """
         Bulk resolver for document relationships involving a specific document.
         Uses DocumentRelationshipQueryOptimizer for proper eager loading.
@@ -182,7 +200,9 @@ class DocumentQueryMixin:
     )
 
     @login_required
-    def resolve_bulk_document_upload_status(self, info, job_id):
+    def resolve_bulk_document_upload_status(
+        self, info: graphene.ResolveInfo, job_id: str
+    ) -> BulkDocumentUploadStatusType:
         """
         Resolver for the bulk_document_upload_status query.
 
@@ -291,7 +311,12 @@ class DocumentQueryMixin:
 
     @login_required
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_ingestion_sources(self, info, active_only=False, **kwargs):
+    def resolve_ingestion_sources(
+        self,
+        info: graphene.ResolveInfo,
+        active_only: bool = False,
+        **kwargs: Any,
+    ) -> QuerySet[IngestionSource]:
         qs = IngestionSource.objects.visible_to_user(info.context.user)
         if active_only:
             qs = qs.filter(active=True)
@@ -305,7 +330,9 @@ class DocumentQueryMixin:
 
     @login_required
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-    def resolve_ingestion_source(self, info, id, **kwargs):
+    def resolve_ingestion_source(
+        self, info: graphene.ResolveInfo, id: str, **kwargs: Any
+    ) -> IngestionSource | None:
         try:
             type_name, pk = from_global_id(id)
             if not pk or type_name != INGESTION_SOURCE_GLOBAL_ID_TYPE:

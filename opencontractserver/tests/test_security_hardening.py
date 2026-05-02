@@ -1136,7 +1136,8 @@ class TestConditionalCsrfExempt(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_session_auth_without_csrf_rejected(self):
-        """Session-only requests without CSRF token should be rejected."""
+        """Session-cookie requests without CSRF token should be rejected."""
+        from django.conf import settings
         from django.test import RequestFactory
 
         from config.graphql.security import conditional_csrf_exempt
@@ -1149,15 +1150,114 @@ class TestConditionalCsrfExempt(TestCase):
 
             return HttpResponse("ok")
 
-        # Session request without CSRF token — should be rejected
+        # Request carries a session cookie (so CSRF is meaningful) but no
+        # CSRF token / Authorization header — should be rejected.
+        session_cookie = getattr(settings, "SESSION_COOKIE_NAME", "sessionid")
         request = factory.post(
             "/graphql/",
             data="{}",
             content_type="application/json",
         )
-        # Ensure Django treats this as having a session (no auth header)
+        request.COOKIES[session_cookie] = "fake-session-id"
         response = dummy_view(request)
         # CsrfViewMiddleware returns 403 for missing CSRF token
+        self.assertEqual(response.status_code, 403)
+
+    def test_anonymous_no_session_bypasses_csrf(self):
+        """A POST with neither Authorization nor session cookie should pass.
+
+        Bearer-only API clients (e.g. the React frontend) momentarily have
+        no token during startup / refresh and must not be 403'd by CSRF
+        when they carry no cookie an attacker could ride.
+        """
+        from django.test import RequestFactory
+
+        from config.graphql.security import conditional_csrf_exempt
+
+        factory = RequestFactory()
+
+        @conditional_csrf_exempt
+        def dummy_view(request):
+            from django.http import HttpResponse
+
+            return HttpResponse("ok")
+
+        request = factory.post(
+            "/graphql/",
+            data="{}",
+            content_type="application/json",
+        )
+        # No Authorization header, no session cookie.
+        response = dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_empty_authorization_header_treated_as_missing(self):
+        # Regression for the production 403 storm where the frontend sent
+        # ``Authorization: ""`` whenever the Auth0 token was momentarily
+        # empty.  A non-credential is not a credential: we must not let an
+        # empty header switch us to the token-auth bypass *or* leave a
+        # legitimate cookie-less request blocked.
+        from django.test import RequestFactory
+
+        from config.graphql.security import conditional_csrf_exempt
+
+        factory = RequestFactory()
+
+        @conditional_csrf_exempt
+        def dummy_view(request):
+            from django.http import HttpResponse
+
+            return HttpResponse("ok")
+
+        # Empty header, no session cookie → anonymous bypass.
+        request = factory.post(
+            "/graphql/",
+            data="{}",
+            content_type="application/json",
+            HTTP_AUTHORIZATION="",
+        )
+        response = dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+        # Whitespace-only header is also not a credential.
+        request = factory.post(
+            "/graphql/",
+            data="{}",
+            content_type="application/json",
+            HTTP_AUTHORIZATION="   ",
+        )
+        response = dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_empty_authorization_with_session_still_enforces_csrf(self):
+        """Empty Authorization + session cookie must NOT bypass CSRF.
+
+        Defense-in-depth: an empty ``Authorization`` header must not trick
+        the decorator into treating the request as token-authenticated.
+        With a session cookie present we still need CSRF.
+        """
+        from django.conf import settings
+        from django.test import RequestFactory
+
+        from config.graphql.security import conditional_csrf_exempt
+
+        factory = RequestFactory()
+
+        @conditional_csrf_exempt
+        def dummy_view(request):
+            from django.http import HttpResponse
+
+            return HttpResponse("ok")
+
+        session_cookie = getattr(settings, "SESSION_COOKIE_NAME", "sessionid")
+        request = factory.post(
+            "/graphql/",
+            data="{}",
+            content_type="application/json",
+            HTTP_AUTHORIZATION="",
+        )
+        request.COOKIES[session_cookie] = "fake-session-id"
+        response = dummy_view(request)
         self.assertEqual(response.status_code, 403)
 
     def test_csrf_exempt_attribute_set(self):
@@ -1169,6 +1269,228 @@ class TestConditionalCsrfExempt(TestCase):
             pass
 
         self.assertTrue(getattr(dummy_view, "csrf_exempt", False))
+
+    # -------------------------------------------------------------------
+    # Issue #1432 — strict scheme validation for Authorization headers
+    # -------------------------------------------------------------------
+
+    def _decorate_dummy(self):
+        """Build a wrapped view that returns 200 when CSRF check passes."""
+        from django.http import HttpResponse
+
+        from config.graphql.security import conditional_csrf_exempt
+
+        @conditional_csrf_exempt
+        def dummy_view(request):
+            return HttpResponse("ok")
+
+        return dummy_view
+
+    def _post(self, **headers):
+        from django.test import RequestFactory
+
+        return RequestFactory().post(
+            "/graphql/", data="{}", content_type="application/json", **headers
+        )
+
+    def _post_with_session(self, **headers):
+        from django.conf import settings
+
+        request = self._post(**headers)
+        request.COOKIES[getattr(settings, "SESSION_COOKIE_NAME", "sessionid")] = (
+            "fake-session"
+        )
+        return request
+
+    def test_unrecognized_scheme_with_session_enforces_csrf(self):
+        """
+        ``Authorization: Basic <creds>`` is *not* a token-auth scheme this app
+        recognises. With a session cookie present the request must still be
+        treated as session-authenticated, so CSRF protection has to fire.
+
+        The pre-#1432 implementation accepted *any* non-empty Authorization
+        header as evidence of token auth, which would have bypassed CSRF
+        here. This is the regression test for that hardening.
+        """
+        view = self._decorate_dummy()
+        request = self._post_with_session(HTTP_AUTHORIZATION="Basic dXNlcjpwYXNz")
+        response = view(request)
+        self.assertEqual(response.status_code, 403)
+
+    def test_unrecognized_scheme_without_session_bypasses_csrf(self):
+        """No session cookie means there is nothing for CSRF to defend.
+
+        A bogus ``Authorization`` value must not promote the request out of
+        the no-cookie bypass into a CSRF-enforced session path. The request
+        is fully anonymous and falls through to the resolver where it will
+        fail authentication on its own merits.
+        """
+        view = self._decorate_dummy()
+        request = self._post(HTTP_AUTHORIZATION="Basic dXNlcjpwYXNz")
+        response = view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_bearer_without_credential_with_session_enforces_csrf(self):
+        """``Authorization: Bearer `` with no credential is not a token.
+
+        A scheme keyword by itself is not a credential. Combined with a
+        session cookie, the request must still go through CSRF.
+        """
+        view = self._decorate_dummy()
+        for value in ("Bearer", "Bearer ", "Bearer    "):
+            with self.subTest(value=repr(value)):
+                request = self._post_with_session(HTTP_AUTHORIZATION=value)
+                response = view(request)
+                self.assertEqual(response.status_code, 403)
+
+    def test_bearer_with_credential_bypasses_csrf(self):
+        """A well-formed Bearer credential bypasses CSRF as before."""
+        view = self._decorate_dummy()
+        request = self._post_with_session(HTTP_AUTHORIZATION="Bearer abc.def.ghi")
+        response = view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_bearer_scheme_is_case_insensitive(self):
+        """RFC 7235: auth-scheme is case-insensitive.
+
+        We recognise ``Bearer``, ``BEARER`` and ``bearer`` identically so a
+        client that lower-cases the scheme isn't dropped into the session
+        path by accident.
+        """
+        view = self._decorate_dummy()
+        for value in ("BEARER abc.def.ghi", "bearer abc.def.ghi"):
+            with self.subTest(value=value):
+                request = self._post_with_session(HTTP_AUTHORIZATION=value)
+                response = view(request)
+                self.assertEqual(response.status_code, 200)
+
+    def test_api_key_scheme_bypasses_csrf(self):
+        """The configured API_TOKEN_PREFIX is recognised.
+
+        OpenContracts' optional API-key auth uses ``Authorization: <prefix>
+        <token>``; cross-origin browsers can't attach this header, so it's
+        safe to bypass CSRF when the prefix is well-formed. The prefix is
+        only registered when ``ALLOW_API_KEYS`` is on, so override the
+        setting to keep the test independent of the deployment toggle.
+        """
+        from django.test import override_settings
+
+        view = self._decorate_dummy()
+        with override_settings(API_TOKEN_PREFIX="KEY"):
+            request = self._post_with_session(HTTP_AUTHORIZATION="KEY abc123")
+            response = view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_session_with_csrf_token_passes(self):
+        """Positive session+CSRF path: request with a matching CSRF token passes.
+
+        Closes the gap in the test matrix called out in #1432: the existing
+        suite covered the *reject* leg of session+CSRF but never the
+        *accept* leg.
+        """
+        from django.middleware.csrf import get_token
+        from django.test import RequestFactory, override_settings
+
+        view = self._decorate_dummy()
+
+        with override_settings(CSRF_USE_SESSIONS=False):
+            factory = RequestFactory()
+            request = factory.post(
+                "/graphql/",
+                data="{}",
+                content_type="application/json",
+            )
+            # `get_token` is the public API: it stashes the unmasked secret in
+            # META["CSRF_COOKIE"] (where the middleware reads it under
+            # CSRF_USE_SESSIONS=False) and returns the masked token to send
+            # in the cookie / X-CSRFToken header.
+            token = get_token(request)
+            request.META["HTTP_X_CSRFTOKEN"] = token
+            request.COOKIES["csrftoken"] = token
+            request.COOKIES["sessionid"] = "fake-session"
+            response = view(request)
+
+        self.assertEqual(response.status_code, 200)
+
+
+class TestCsrfRejectLogVolume(TestCase):
+    """Issue #1432 item 2 — keep production logs quiet for the *expected*
+    'session-only POST without CSRF' rejection pattern.
+
+    The Django default logs every CSRF reject at WARNING via
+    ``django.security.csrf``. In production that one path drowns out real
+    anomalies because Bearer-only SPAs trip it on every cold start. The
+    hardening adds a ``logging.Filter`` that demotes the WARNING to INFO
+    *only* when the rejection reason is the benign 'CSRF token missing'
+    case — anything else (bad referer, origin mismatch, malformed token)
+    still surfaces at WARNING.
+    """
+
+    def test_filter_demotes_csrf_token_missing_warning_to_info(self):
+        import logging
+
+        from config.graphql.security import CsrfRejectLogFilter
+
+        filt = CsrfRejectLogFilter()
+        record = logging.LogRecord(
+            name="django.security.csrf",
+            level=logging.WARNING,
+            pathname=__file__,
+            lineno=0,
+            msg="Forbidden (%s): %s",
+            args=("CSRF token missing.", "/graphql/"),
+            exc_info=None,
+        )
+
+        # The filter must mutate the record in place and keep emitting it
+        # (return True), so the message is preserved at the lower level.
+        self.assertTrue(filt.filter(record))
+        self.assertEqual(record.levelno, logging.INFO)
+        self.assertEqual(record.levelname, "INFO")
+
+    def test_filter_does_not_demote_other_csrf_reasons(self):
+        """Genuine anomalies (origin mismatch, bad referer) stay at WARNING."""
+        import logging
+
+        from config.graphql.security import CsrfRejectLogFilter
+
+        filt = CsrfRejectLogFilter()
+        for reason in (
+            "Origin checking failed - https://evil.example does not match any trusted origins.",
+            "Referer checking failed - no Referer.",
+            "CSRF token incorrect.",
+        ):
+            with self.subTest(reason=reason):
+                record = logging.LogRecord(
+                    name="django.security.csrf",
+                    level=logging.WARNING,
+                    pathname=__file__,
+                    lineno=0,
+                    msg="Forbidden (%s): %s",
+                    args=(reason, "/graphql/"),
+                    exc_info=None,
+                )
+                self.assertTrue(filt.filter(record))
+                self.assertEqual(record.levelno, logging.WARNING)
+
+    def test_filter_passes_unrelated_records_unchanged(self):
+        """Records without the standard CSRF reject shape are untouched."""
+        import logging
+
+        from config.graphql.security import CsrfRejectLogFilter
+
+        filt = CsrfRejectLogFilter()
+        record = logging.LogRecord(
+            name="django.security.csrf",
+            level=logging.WARNING,
+            pathname=__file__,
+            lineno=0,
+            msg="Some other CSRF-related warning",
+            args=None,
+            exc_info=None,
+        )
+        self.assertTrue(filt.filter(record))
+        self.assertEqual(record.levelno, logging.WARNING)
 
 
 # ---------------------------------------------------------------------------
@@ -1205,3 +1527,121 @@ class TestDRFMutationValidationError(TestCase):
         message = DRFMutation.format_validation_error(exc)
         self.assertIn("Error one.", message)
         self.assertIn("Error two.", message)
+
+
+# ---------------------------------------------------------------------------
+# DRFMutation / DRFDeletion IOSettings misconfiguration guard
+# ---------------------------------------------------------------------------
+
+
+class TestIOSettingsRequiredFieldsGuard(TestCase):
+    """Misconfigured IOSettings must raise ``NotImplementedError`` at mutation time."""
+
+    def test_require_io_setting_raises_when_io_settings_missing(self):
+        from config.graphql.base import _require_io_setting
+
+        class MisconfiguredMutation:
+            pass
+
+        with self.assertRaises(NotImplementedError) as ctx:
+            _require_io_setting(MisconfiguredMutation, "model")
+        self.assertIn("MisconfiguredMutation", str(ctx.exception))
+        # Distinct message for the missing-class case (vs. missing-field).
+        self.assertIn("IOSettings", str(ctx.exception))
+
+    def test_require_io_setting_raises_when_attribute_none(self):
+        """Each of model/serializer/graphene_model must independently fail when ``None``."""
+        from config.graphql.base import _require_io_setting
+
+        class MisconfiguredMutation:
+            class IOSettings:
+                model = None
+                serializer = None
+                graphene_model = None
+
+        for field in ("model", "serializer", "graphene_model"):
+            with self.assertRaises(NotImplementedError) as ctx:
+                _require_io_setting(MisconfiguredMutation, field)
+            self.assertIn("MisconfiguredMutation", str(ctx.exception))
+            self.assertIn(field, str(ctx.exception))
+
+    def test_require_io_setting_returns_configured_value(self):
+        from config.graphql.base import _require_io_setting
+
+        class ConfiguredMutation:
+            class IOSettings:
+                model = Corpus
+
+        self.assertIs(_require_io_setting(ConfiguredMutation, "model"), Corpus)
+
+    def test_base_iosettings_defaults_are_none_on_mutation(self):
+        """Base ``IOSettings`` must default to ``None`` so the runtime guard can fire."""
+        from config.graphql.base import DRFDeletion, DRFMutation
+
+        self.assertIsNone(DRFMutation.IOSettings.model)
+        self.assertIsNone(DRFMutation.IOSettings.serializer)
+        self.assertIsNone(DRFMutation.IOSettings.graphene_model)
+        self.assertIsNone(DRFDeletion.IOSettings.model)
+
+    def test_drf_deletion_mutate_raises_when_lookup_value_missing(self):
+        """``DRFDeletion.mutate`` must raise ``ValueError`` when the lookup arg is omitted."""
+        from unittest.mock import MagicMock
+
+        from graphene import ResolveInfo
+
+        from config.graphql.base import DRFDeletion
+
+        class _DeleteCorpus(DRFDeletion):
+            class IOSettings(DRFDeletion.IOSettings):
+                model = Corpus
+                lookup_field = "id"
+
+        # ``@login_required`` from graphql_jwt looks for a ``ResolveInfo`` arg
+        # via ``isinstance``; spec the mock so the decorator passes through
+        # to the wrapped function where the real lookup-value check fires.
+        # This relies on ``@graphql_ratelimit`` being a no-op under test
+        # conditions (no real cache backend is consulted before the body).
+        info = MagicMock(spec=ResolveInfo)
+        info.context = MagicMock()
+        info.context.user = MagicMock(is_authenticated=True)
+
+        with self.assertRaises(ValueError) as ctx:
+            _DeleteCorpus.mutate(None, info)
+        self.assertIn("id", str(ctx.exception))
+
+    def test_drf_mutation_obj_id_uses_graphene_type_name_not_metaclass(self):
+        """Regression: ``to_global_id`` must use ``graphene_model.__name__``
+        (the GraphQL type, e.g. ``"CorpusType"``), not
+        ``graphene_model.__class__.__name__`` (the metaclass name like
+        ``"SubclassWithMeta_Meta"``).
+        """
+        from graphene.test import Client
+        from graphql_relay import from_global_id
+
+        from config.graphql.schema import schema
+        from opencontractserver.corpuses.models import Corpus
+
+        user = User.objects.create_user(username="objIdRegressionUser", password="x")
+
+        class _Ctx:
+            def __init__(self, user):
+                self.user = user
+
+        client = Client(schema, context_value=_Ctx(user))
+        result = client.execute("""
+            mutation {
+                createCorpus(title: "ObjIdRegression") {
+                    ok
+                    objId
+                }
+            }
+            """)
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["createCorpus"]["ok"])
+
+        obj_id = result["data"]["createCorpus"]["objId"]
+        type_name, pk = from_global_id(obj_id)
+        # The fix: ``__name__`` produces the graphene type name.
+        self.assertEqual(type_name, "CorpusType")
+        # Underlying row exists at that pk — proves the global id is decodable.
+        self.assertTrue(Corpus.objects.filter(pk=int(pk)).exists())

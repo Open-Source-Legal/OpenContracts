@@ -34,7 +34,7 @@ class MarkNotificationReadMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, notification_id):
+    def mutate(root, info, notification_id) -> "MarkNotificationReadMutation":
         user = info.context.user
 
         try:
@@ -83,7 +83,7 @@ class MarkNotificationUnreadMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, notification_id):
+    def mutate(root, info, notification_id) -> "MarkNotificationUnreadMutation":
         user = info.context.user
 
         try:
@@ -127,7 +127,7 @@ class MarkAllNotificationsReadMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info):
+    def mutate(root, info) -> "MarkAllNotificationsReadMutation":
         user = info.context.user
 
         try:
@@ -164,7 +164,7 @@ class DeleteNotificationMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, notification_id):
+    def mutate(root, info, notification_id) -> "DeleteNotificationMutation":
         user = info.context.user
 
         try:

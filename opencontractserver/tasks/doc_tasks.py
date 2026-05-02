@@ -467,8 +467,8 @@ def burn_doc_annotations(
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = "CORPUS_LABELSET_ONLY",
 ) -> tuple[
-    str | None,
-    str | None,
+    str,
+    str,
     OpenContractDocExport | None,
     dict[str | int, AnnotationLabelPythonType],
     dict[str | int, AnnotationLabelPythonType],
@@ -485,6 +485,10 @@ def burn_doc_annotations(
 
     Returns a tuple containing all data needed for packaging:
       (filename, base64-encoded file, doc_export_data, text_labels, doc_labels)
+
+    On failure, ``filename`` and ``base64-encoded file`` are empty strings and
+    ``doc_export_data`` is ``None``. Downstream consumers (e.g.
+    ``package_annotated_docs``) must skip such entries.
     """
     from opencontractserver.types.enums import AnnotationFilterMode
 

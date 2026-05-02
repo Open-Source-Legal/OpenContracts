@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import difflib
 import functools
 import hashlib
@@ -5,7 +7,7 @@ import logging
 import uuid
 
 # Typed representations for the `json` payload
-from typing import Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Union, cast
 
 import django
 from django.contrib.auth import get_user_model
@@ -49,6 +51,9 @@ from .compact_json import (
     is_span_format,
 )
 from .json_types import MultipageAnnotationJson, SpanAnnotationJson
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -157,7 +162,7 @@ class AnnotationLabel(BaseOCModel):
         ]
 
     # Override save to update modified on save
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """On save, update timestamps"""
         if not self.pk:
             self.created = timezone.now()
@@ -376,7 +381,7 @@ class Relationship(BaseOCModel):
             )
 
     # Override save to update modified on save
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """On save, update timestamps and validate constraints"""
         # Always validate on save (consistent with Annotation model)
         self.clean()
@@ -458,11 +463,9 @@ class Embedding(BaseOCModel):
         help_text="References the ChatMessage that this embedding belongs to (if any).",
     )
 
-    # The name/path of the model used to generate this embedding
+    # Required: NULL would silently bypass the partial unique constraints below.
     embedder_path: str = django.db.models.CharField(
         max_length=256,
-        null=True,
-        blank=True,
         help_text="Identifier for the embedding model or pipeline used (e.g. 'openai/text-embedding-ada-002').",
     )
 
@@ -479,7 +482,7 @@ class Embedding(BaseOCModel):
     created = django.db.models.DateTimeField(default=timezone.now, blank=True)
     modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """
         Overridden save method:
           - ensures modified timestamp is updated
@@ -583,8 +586,8 @@ class Embedding(BaseOCModel):
         verbose_name = "Embedding"
         verbose_name_plural = "Embeddings"
 
-    def __str__(self):
-        return f"Embedding (ID={self.pk}) [{self.embedder_path or 'Unknown Model'}]"
+    def __str__(self) -> str:
+        return f"Embedding (ID={self.pk}) [{self.embedder_path}]"
 
 
 class StructuralAnnotationSet(BaseOCModel):
@@ -660,20 +663,20 @@ class StructuralAnnotationSet(BaseOCModel):
             django.db.models.Index(fields=["created"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"StructuralAnnotationSet({self.content_hash[:12]}...)"
 
     @property
-    def annotation_count(self):
+    def annotation_count(self) -> int:
         """Get the count of structural annotations in this set."""
         return self.structural_annotations.count()
 
     @property
-    def relationship_count(self):
+    def relationship_count(self) -> int:
         """Get the count of structural relationships in this set."""
         return self.structural_relationships.count()
 
-    def duplicate(self, corpus_id: Optional[int] = None) -> "StructuralAnnotationSet":
+    def duplicate(self, corpus_id: int | None = None) -> StructuralAnnotationSet:
         """
         Create a copy of this set with all its annotations for corpus isolation.
 
@@ -992,7 +995,7 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     )
     modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
 
-    def get_embedding_reference_kwargs(self) -> dict:
+    def get_embedding_reference_kwargs(self) -> dict[str, Any]:
         return {"annotation_id": self.pk}
 
     # ---------------------------------------------------------------------
@@ -1000,7 +1003,7 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     # ---------------------------------------------------------------------
 
     @property
-    def typed_json(self) -> "Union[MultipageAnnotationJson, SpanAnnotationJson]":
+    def typed_json(self) -> MultipageAnnotationJson | SpanAnnotationJson:
         """Return `self.json` with a precise static type.
 
         This helper exists purely for IDE / static-analysis benefit. It performs
@@ -1128,7 +1131,7 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     # Persistence
     # ------------------------------------------------------------------
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Override save to optionally validate `json` integrity and
         auto-compact the annotation JSON to v2 format.
 
@@ -1258,7 +1261,7 @@ class AnnotationGroupObjectPermission(GroupObjectPermissionBase):
     # enabled = False
 
 
-def calculate_labelset_icon_path(instance, filename):
+def calculate_labelset_icon_path(instance: LabelSet, filename: str) -> str:
     return calc_oc_file_path(
         instance, filename, f"user_{instance.creator.id}/labelsets/icons/{uuid.uuid4()}"
     )
@@ -1410,7 +1413,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
         10  # store full snapshot every N revisions for fast reconstruction
     )
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Override save to automatically create a NoteRevision when `content` changes.
         Set `skip_revision=True` in kwargs to bypass automatic revision creation
         (used internally by `version_up`).
@@ -1438,7 +1441,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
         self.modified = timezone.now()
 
         with transaction.atomic():
-            super_result = super().save(*args, **kwargs)
+            super().save(*args, **kwargs)
 
             # Auto-create a NoteRevision unless explicitly skipped
             if not skip_revision and (
@@ -1480,9 +1483,12 @@ class Note(BaseOCModel, HasEmbeddingMixin):
                     ).hexdigest(),
                 )
 
-            return super_result
-
-    def version_up(self, *, new_content: str, author):
+    def version_up(
+        self,
+        *,
+        new_content: str,
+        author: AbstractBaseUser | int,
+    ) -> NoteRevision | None:
         """Utility to bump the note to a new version.
 
         Args:
@@ -1546,7 +1552,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
 
         return revision
 
-    def get_embedding_reference_kwargs(self) -> dict:
+    def get_embedding_reference_kwargs(self) -> dict[str, Any]:
         return {"note_id": self.pk}
 
     class Meta:
@@ -1630,5 +1636,5 @@ class NoteRevision(django.db.models.Model):
         unique_together = ("note", "version")
         ordering = ("note_id", "version")
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"NoteRevision(note_id={self.note_id}, v={self.version})"

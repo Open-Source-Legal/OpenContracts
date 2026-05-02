@@ -1,24 +1,32 @@
+"""Request helpers for extracting API tokens from incoming HTTP requests."""
+
 import logging
+from typing import Any
 
 from django.conf import settings
+from django.http import HttpRequest
 from rest_framework import HTTP_HEADER_ENCODING
 
 logger = logging.getLogger(__name__)
 
 
-def get_authorization_header(request):
+def get_authorization_header(request: HttpRequest) -> bytes:
     """
-    Return request's 'Authorization:' header, as a bytestring.
-    Hide some test client ickyness where the header can be unicode.
+    Return the request's ``Authorization:`` header as a bytestring.
+
+    The Django test client sometimes supplies the header as ``str``; we
+    coerce it to ``bytes`` here so downstream callers can treat the
+    header uniformly (``.split()`` on ``bytes`` returns ``list[bytes]``).
     """
-    auth = request.META.get("HTTP_AUTHORIZATION", b"")
+    auth: str | bytes = request.META.get("HTTP_AUTHORIZATION", b"")
     if isinstance(auth, str):
         # Work around django test client oddness
         auth = auth.encode(HTTP_HEADER_ENCODING)
     return auth
 
 
-def get_token_argument(request, **kwargs):
+def get_token_argument(request: HttpRequest, **kwargs: Any) -> str | None:
+    """Return the token value from the configured API-token header, or ``None``."""
     auth = request.headers.get(settings.API_TOKEN_HEADER_NAME)
     if auth:
         parts = auth.split()
@@ -27,10 +35,15 @@ def get_token_argument(request, **kwargs):
     return None
 
 
-def get_http_authorization(request):
+def get_http_authorization(request: HttpRequest) -> str | None:
     """
     Extract and validate the HTTP authorization token from the request.
-    Returns the token if valid, None otherwise.
+
+    Returns the raw token string if the header has the expected
+    ``<prefix> <token>`` shape, otherwise ``None``. Invalid shapes are
+    not an auth failure at this layer — the caller decides whether to
+    attempt token-based authentication or fall through to the next
+    backend.
     """
     logger.info("Attempting to get HTTP authorization")
 
@@ -46,6 +59,6 @@ def get_http_authorization(request):
         )
         return None
 
-    token = auth[1]
+    token: str = auth[1]
     logger.debug("Successfully extracted token")
     return token

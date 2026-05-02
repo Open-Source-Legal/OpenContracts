@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { Cable, Copy, Check, ExternalLink } from "lucide-react";
+import { Cable, Copy, Check, ExternalLink, Info, Lock } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button, Input } from "@os-legal/ui";
 
@@ -146,6 +146,12 @@ const SetupLink = styled.a`
 export interface MCPShareButtonProps {
   /** Corpus slug used to construct the MCP endpoint URL */
   corpusSlug: string;
+  /**
+   * Whether the corpus is publicly accessible. When false, the popover
+   * explains that the corpus must be made public to expose an MCP endpoint
+   * (the backend MCP server only serves public corpora).
+   */
+  isPublic?: boolean;
   /** Whether to show the button label (default: true) */
   showLabel?: boolean;
   /** Button size variant */
@@ -158,14 +164,16 @@ export interface MCPShareButtonProps {
  * MCPShareButton - Button with popover for sharing corpus MCP endpoint
  *
  * Displays a button that, when clicked, shows a popover with:
- * - The MCP endpoint URL for the corpus
- * - Copy-to-clipboard functionality
- * - Brief setup instructions with link to docs
+ * - For public corpora: the MCP endpoint URL with copy-to-clipboard and
+ *   brief setup instructions
+ * - For private corpora: an explanation that the corpus must be made public
+ *   before an MCP endpoint is exposed
  *
- * Only intended for use with public corpuses.
+ * Always rendered so users can discover MCP regardless of corpus visibility.
  */
 export const MCPShareButton: React.FC<MCPShareButtonProps> = ({
   corpusSlug,
+  isPublic = true,
   showLabel = true,
   size = "md",
   testId = "mcp-share-button",
@@ -253,9 +261,17 @@ export const MCPShareButton: React.FC<MCPShareButtonProps> = ({
       <Button
         variant="secondary"
         size={size}
-        leftIcon={<Cable size={size === "sm" ? 14 : 16} />}
+        leftIcon={
+          isPublic ? (
+            <Cable size={size === "sm" ? 14 : 16} />
+          ) : (
+            <Lock size={size === "sm" ? 14 : 16} />
+          )
+        }
         onClick={handleToggle}
-        aria-label="Share MCP endpoint"
+        aria-label={
+          isPublic ? "Share MCP endpoint" : "MCP endpoint (corpus is private)"
+        }
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         data-testid={`${testId}-trigger`}
@@ -271,52 +287,72 @@ export const MCPShareButton: React.FC<MCPShareButtonProps> = ({
       >
         <PopoverHeader>
           <PopoverTitle>
-            <Cable />
+            {isPublic ? <Cable /> : <Lock />}
             MCP Endpoint
           </PopoverTitle>
           <PopoverDescription>
-            Connect AI assistants to this corpus using the Model Context
-            Protocol.
+            {isPublic
+              ? "Connect AI assistants to this corpus using the Model Context Protocol."
+              : "MCP endpoints are only exposed for public corpora. Make this corpus public from its settings to share it via the Model Context Protocol."}
           </PopoverDescription>
         </PopoverHeader>
 
         <PopoverContent>
-          <UrlLabel htmlFor={`${testId}-url-input`}>Endpoint URL</UrlLabel>
-          <UrlContainer>
-            <Input
-              id={`${testId}-url-input`}
-              ref={inputRef}
-              type="text"
-              value={mcpUrl}
-              readOnly
-              onClick={(e) => (e.target as HTMLInputElement).select()}
-              data-testid={`${testId}-url-input`}
-            />
-            <CopyButtonWrapper>
-              <Button
-                variant={copied ? "primary" : "primary"}
-                onClick={handleCopy}
-                aria-label={copied ? "Copied" : "Copy URL"}
-                data-testid={`${testId}-copy-button`}
-              >
-                {copied ? <Check size={18} /> : <Copy size={18} />}
-              </Button>
-            </CopyButtonWrapper>
-          </UrlContainer>
+          {isPublic ? (
+            <>
+              <UrlLabel htmlFor={`${testId}-url-input`}>Endpoint URL</UrlLabel>
+              <UrlContainer>
+                <Input
+                  id={`${testId}-url-input`}
+                  ref={inputRef}
+                  type="text"
+                  value={mcpUrl}
+                  readOnly
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                  data-testid={`${testId}-url-input`}
+                />
+                <CopyButtonWrapper>
+                  <Button
+                    variant="primary"
+                    onClick={handleCopy}
+                    aria-label={copied ? "Copied" : "Copy URL"}
+                    data-testid={`${testId}-copy-button`}
+                  >
+                    {copied ? <Check size={18} /> : <Copy size={18} />}
+                  </Button>
+                </CopyButtonWrapper>
+              </UrlContainer>
 
-          <SetupHint>
-            <ExternalLink />
-            <span>
-              Add this URL to your MCP client configuration.{" "}
-              <SetupLink
-                href="https://modelcontextprotocol.io/docs"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Learn more about MCP
-              </SetupLink>
-            </span>
-          </SetupHint>
+              <SetupHint>
+                <ExternalLink />
+                <span>
+                  Add this URL to your MCP client configuration.{" "}
+                  <SetupLink
+                    href="https://modelcontextprotocol.io/docs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Learn more about MCP
+                  </SetupLink>
+                </span>
+              </SetupHint>
+            </>
+          ) : (
+            <SetupHint>
+              <Info size={16} />
+              <span>
+                Once public, the endpoint will appear here for AI assistants to
+                connect.{" "}
+                <SetupLink
+                  href="https://modelcontextprotocol.io/docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Learn more about MCP
+                </SetupLink>
+              </span>
+            </SetupHint>
+          )}
         </PopoverContent>
       </Popover>
     </Container>

@@ -6,7 +6,9 @@ import { GET_CORPUS_AGENTS, GET_AVAILABLE_TOOLS } from "../src/graphql/queries";
 import {
   CREATE_AGENT_CONFIGURATION,
   DELETE_AGENT_CONFIGURATION,
+  UPDATE_AGENT_CONFIGURATION,
 } from "../src/graphql/mutations";
+import { docScreenshot } from "./utils/docScreenshot";
 
 const TEST_CORPUS_ID = "corpus-aam-1";
 
@@ -151,6 +153,8 @@ test.describe("CorpusAgentManagement", () => {
     await expect(page.getByLabel("Edit agent")).toBeVisible();
     await expect(page.getByLabel("Delete agent")).toBeVisible();
 
+    await docScreenshot(page, "corpus--agent-management--agent-row");
+
     await component.unmount();
   });
 
@@ -227,15 +231,21 @@ test.describe("CorpusAgentManagement", () => {
     // Fill the form
     await page.locator('input[placeholder="Agent name"]').fill("New Agent");
 
-    // The description and system instructions are textareas (the first two)
-    const textareas = page.locator("textarea");
-    await textareas.nth(0).fill("Some description");
-    await textareas.nth(1).fill("Be helpful.");
+    // Description + system-instructions textareas (placeholder-based, stable
+    // even if more textareas are added above them in the layout).
+    await page
+      .locator(
+        'textarea[placeholder="Brief description of what this agent does"]'
+      )
+      .fill("Some description");
+    await page
+      .locator('textarea[placeholder="System prompt for the agent..."]')
+      .fill("Be helpful.");
 
     // Submit (Create Agent button inside the modal footer)
     await page
-      .locator(".oc-modal button:has-text('Create Agent')")
-      .last()
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create Agent", exact: true })
       .click();
 
     // Toast confirms creation
@@ -268,8 +278,8 @@ test.describe("CorpusAgentManagement", () => {
 
     // The Create Agent submit button (modal footer) should be disabled
     const submitBtn = page
-      .locator(".oc-modal button:has-text('Create Agent')")
-      .last();
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create Agent", exact: true });
     await expect(submitBtn).toBeDisabled();
 
     await component.unmount();
@@ -427,7 +437,7 @@ test.describe("CorpusAgentManagement", () => {
     ).toBeVisible();
 
     // Click the read_doc ToolItem (monospace ToolName inside the modal)
-    await page.locator(".oc-modal").getByText("read_doc").first().click();
+    await page.getByRole("dialog").getByText("read_doc").first().click();
 
     // The info message should be gone now that there's a selected tool
     await expect(
@@ -435,6 +445,323 @@ test.describe("CorpusAgentManagement", () => {
         "Select available tools first to configure permission requirements."
       )
     ).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("renders loading state while agents query is in flight", async ({
+    mount,
+    page,
+  }) => {
+    // Delayed mock keeps the query in flight so the loader renders
+    const slowAgentsMock: MockedResponse = {
+      ...buildAgentsMock([]),
+      delay: 2000,
+    };
+
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[slowAgentsMock, toolsMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Loading agents...")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("renders error state when agents query fails", async ({
+    mount,
+    page,
+  }) => {
+    const erroringMock: MockedResponse = {
+      request: {
+        query: GET_CORPUS_AGENTS,
+        variables: { corpusId: TEST_CORPUS_ID },
+      },
+      error: new Error("Cannot reach backend"),
+    };
+
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[erroringMock, toolsMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Error loading agents")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await component.unmount();
+  });
+
+  test("shows multi-tool badge row with overflow +N when >2 tools", async ({
+    mount,
+    page,
+  }) => {
+    const multiToolAgent = {
+      ...sampleAgent,
+      id: "agent-multi",
+      name: "Multi",
+      availableTools: ["read_doc", "write_doc", "search_corpus", "tool4"],
+    };
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[buildAgentsMock([multiToolAgent]), toolsMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Multi", { exact: true })).toBeVisible({
+      timeout: 20000,
+    });
+
+    // Only the first 2 tool badges are rendered + a "+2" pill
+    await expect(page.getByText("+2", { exact: true })).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("inactive agent shows Inactive status badge", async ({
+    mount,
+    page,
+  }) => {
+    const inactive = { ...sampleAgent, id: "agent-inactive", isActive: false };
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[buildAgentsMock([inactive]), toolsMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Inactive", { exact: true })).toBeVisible({
+      timeout: 20000,
+    });
+
+    await component.unmount();
+  });
+
+  test("update mutation persists agent edits", async ({ mount, page }) => {
+    const updateMock: MockedResponse = {
+      request: {
+        query: UPDATE_AGENT_CONFIGURATION,
+        variables: {
+          agentId: sampleAgent.id,
+          name: "Renamed Agent",
+          slug: sampleAgent.slug,
+          description: sampleAgent.description,
+          systemInstructions: sampleAgent.systemInstructions,
+          availableTools: sampleAgent.availableTools,
+          permissionRequiredTools: sampleAgent.permissionRequiredTools,
+          badgeConfig: sampleAgent.badgeConfig,
+          avatarUrl: null,
+          isActive: sampleAgent.isActive,
+          isPublic: sampleAgent.isPublic,
+        },
+      },
+      result: {
+        data: {
+          updateAgentConfiguration: {
+            ok: true,
+            message: "Updated",
+            agent: {
+              id: sampleAgent.id,
+              name: "Renamed Agent",
+              slug: sampleAgent.slug,
+              description: sampleAgent.description,
+              badgeConfig: sampleAgent.badgeConfig,
+              availableTools: sampleAgent.availableTools,
+              permissionRequiredTools: sampleAgent.permissionRequiredTools,
+              isActive: sampleAgent.isActive,
+              isPublic: sampleAgent.isPublic,
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[
+          buildAgentsMock([sampleAgent]),
+          toolsMock,
+          updateMock,
+          buildAgentsMock([{ ...sampleAgent, name: "Renamed Agent" }]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Summarizer", { exact: true })).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.getByLabel("Edit agent").click();
+
+    await expect(
+      page.getByText(`Edit Agent Configuration: ${sampleAgent.name}`, {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 5000 });
+
+    // Rename the agent
+    await page.locator('input[placeholder="Agent name"]').fill("Renamed Agent");
+
+    // Click Save Changes (modal footer button)
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+
+    await expect(page.getByText("Agent updated successfully")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("create mutation backend-error surfaces toast.error", async ({
+    mount,
+    page,
+  }) => {
+    const erroringCreateMock: MockedResponse = {
+      request: {
+        query: CREATE_AGENT_CONFIGURATION,
+        variables: {
+          name: "Buggy Agent",
+          slug: null,
+          description: "Desc",
+          systemInstructions: "Instr",
+          availableTools: null,
+          permissionRequiredTools: null,
+          badgeConfig: { icon: "bot", color: "#8b5cf6", label: "AI" },
+          avatarUrl: null,
+          scope: "CORPUS",
+          corpusId: TEST_CORPUS_ID,
+          isPublic: false,
+        },
+      },
+      result: {
+        data: {
+          createAgentConfiguration: {
+            ok: false,
+            message: "Slug collision detected",
+            agent: null,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[buildAgentsMock([]), toolsMock, erroringCreateMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("No Agent Configurations")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.locator("button:has-text('Create Agent')").first().click();
+    await expect(
+      page.getByText("Create Agent Configuration", { exact: true })
+    ).toBeVisible({ timeout: 5000 });
+
+    await page.locator('input[placeholder="Agent name"]').fill("Buggy Agent");
+    await page
+      .locator(
+        'textarea[placeholder="Brief description of what this agent does"]'
+      )
+      .fill("Desc");
+    await page
+      .locator('textarea[placeholder="System prompt for the agent..."]')
+      .fill("Instr");
+
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create Agent", exact: true })
+      .click();
+
+    await expect(page.getByText("Slug collision detected")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("toggling a selected tool removes it from the Available Tools list", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[buildAgentsMock([]), toolsMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("No Agent Configurations")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.locator("button:has-text('Create Agent')").first().click();
+    await expect(
+      page.getByText("Create Agent Configuration", { exact: true })
+    ).toBeVisible({ timeout: 5000 });
+
+    // Select read_doc
+    await page.getByRole("dialog").getByText("read_doc").first().click();
+
+    // Selected pill is visible at the bottom
+    await expect(
+      page.getByRole("dialog").getByText("read_doc").nth(1)
+    ).toBeVisible();
+
+    // Deselect by clicking again
+    await page.getByRole("dialog").getByText("read_doc").first().click();
+
+    await expect(
+      page.getByText(
+        "Select available tools first to configure permission requirements."
+      )
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("close without saving from edit modal resets state", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[buildAgentsMock([sampleAgent]), toolsMock]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Summarizer", { exact: true })).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.getByLabel("Edit agent").click();
+    await expect(
+      page.getByText(`Edit Agent Configuration: ${sampleAgent.name}`, {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 5000 });
+
+    // Click Cancel in the modal footer
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    await expect(
+      page.getByText(`Edit Agent Configuration: ${sampleAgent.name}`, {
+        exact: true,
+      })
+    ).not.toBeVisible({ timeout: 5000 });
 
     await component.unmount();
   });

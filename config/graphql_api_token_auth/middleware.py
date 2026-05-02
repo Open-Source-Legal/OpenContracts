@@ -1,4 +1,9 @@
+"""GraphQL middleware that authenticates requests via API-token headers."""
+
+from typing import Any, Callable
+
 from django.contrib.auth import authenticate, get_user_model
+from django.http import HttpRequest
 
 from config.graphql_api_token_auth.utils import (
     get_http_authorization,
@@ -8,15 +13,16 @@ from config.graphql_api_token_auth.utils import (
 User = get_user_model()
 
 
-def _context_has_user(request):
+def _context_has_user(request: HttpRequest) -> bool:
     return hasattr(request, "user") and request.user.is_authenticated
 
 
-def _authenticate(request):
+def _authenticate(request: HttpRequest) -> bool:
     """
-    Check if we should attempt API token authentication.
-    Returns False if the request has a Bearer token (which should be handled by JWT middleware)
-    or if the request is already authenticated.
+    Return True if we should attempt API-token authentication.
+
+    Returns False if the request carries a Bearer token (handled by JWT
+    middleware) or is already authenticated via another backend.
     """
     auth = request.META.get("HTTP_AUTHORIZATION", "")
     if auth.startswith("Bearer "):
@@ -27,17 +33,25 @@ def _authenticate(request):
 
 
 class ApiKeyTokenMiddleware:
-    def __init__(self):
-        self.cached_allow_any = set()
+    """Graphene middleware that authenticates via an API-token header."""
 
-    def authenticate_context(self, info, **kwargs):
+    def __init__(self) -> None:
+        self.cached_allow_any: set[str] = set()
+
+    def authenticate_context(self, info: Any, **kwargs: Any) -> bool:
         root_path = info.path[0]
 
         if root_path not in self.cached_allow_any:
             return True
         return False
 
-    def resolve(self, next, root, info, **kwargs):
+    def resolve(
+        self,
+        next: Callable[..., Any],
+        root: Any,
+        info: Any,
+        **kwargs: Any,
+    ) -> Any:
 
         # Check to see if user already on context
 

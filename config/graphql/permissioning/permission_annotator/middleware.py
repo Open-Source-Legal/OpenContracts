@@ -1,14 +1,18 @@
+from __future__ import annotations
+
 import logging
 from functools import reduce
+from typing import Any, Callable
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AbstractUser
 
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
 
-def combine(a, b):
+def combine(a: dict[Any, Any], b: tuple[Any, Any] | Any) -> dict[Any, Any]:
     c = {**a}
     if isinstance(b, tuple):
         c[b[0]] = b[1]
@@ -17,17 +21,17 @@ def combine(a, b):
 
 # Used to annotate nodes
 def get_permissions_for_user_on_model_in_app(
-    app_name: str, model_name: str, user: type[User]
-):
+    app_name: str, model_name: str, user: AbstractUser | None
+) -> dict[str, Any]:
     # logger.info(
     #     f"get_permissions_for_user_on_model_in_app() - start for app_name {app_name} and model_name {model_name}")
 
     from django.contrib.auth.models import Permission
     from django.contrib.contenttypes.models import ContentType
 
-    this_model_permission_id_map = {}
-    this_user_group_ids = []
-    permissions_annotated_for_models = []
+    this_model_permission_id_map: dict[int, str] = {}
+    this_user_group_ids: list[int] = []
+    permissions_annotated_for_models: list[str] = []
     can_publish = False
 
     try:
@@ -81,10 +85,12 @@ def get_permissions_for_user_on_model_in_app(
 
 
 class PermissionAnnotatingMiddleware:
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
-    def resolve(self, next, root, info, **kwargs):
+    def resolve(
+        self, next: Callable[..., Any], root: Any, info: Any, **kwargs: Any
+    ) -> Any:
 
         # logger.info(f"PermissionAnnotatingMiddleware - resolve(): {root}")
         # logger.info(f"PermissionAnnotatingMiddleware - return_type:

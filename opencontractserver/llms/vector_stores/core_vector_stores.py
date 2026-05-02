@@ -13,8 +13,16 @@ from opencontractserver.annotations.models import Annotation, StructuralAnnotati
 from opencontractserver.constants.search import (
     FTS_CONFIG,
     HYBRID_SEARCH_OVERSAMPLE_FACTOR,
+    RERANK_MAX_CANDIDATES,
+    RERANK_OVERSAMPLE_FACTOR,
     VALID_EMBEDDING_DIMS,
 )
+from opencontractserver.pipeline.base.reranker import (
+    BaseReranker,
+    safe_arerank,
+    safe_rerank,
+)
+from opencontractserver.types.protocols import VectorStoreProtocol
 from opencontractserver.utils.embeddings import (
     agenerate_embeddings_from_text,
     generate_embeddings_from_text,
@@ -147,6 +155,8 @@ class CoreAnnotationVectorStore:
         only_current_versions: bool = True,  # NEW: Default to current versions only
         check_corpus_deletion: bool = True,  # NEW: Check DocumentPath for deletion status
         modalities: Optional[list[str]] = None,
+        reranker: Optional[BaseReranker] = None,
+        rerank_oversample_factor: int = RERANK_OVERSAMPLE_FACTOR,
     ):
         # ------------------------------------------------------------------ #
         # Validation – we need a corpus context unless the caller overrides
@@ -165,6 +175,12 @@ class CoreAnnotationVectorStore:
         self.only_current_versions = only_current_versions
         self.check_corpus_deletion = check_corpus_deletion
         self.modalities = modalities
+        # Caller may inject a specific reranker (useful for tests) or leave
+        # it ``None`` to pick up the global ``PipelineSettings.default_reranker``
+        # on every search call. Lazy resolution keeps store construction
+        # cheap even on the hot path.
+        self._reranker_override: Optional[BaseReranker] = reranker
+        self.rerank_oversample_factor = max(1, int(rerank_oversample_factor))
 
         # Auto-detect embedder configuration
         embedder_class, detected_embedder_path = get_embedder(
@@ -556,6 +572,103 @@ class CoreAnnotationVectorStore:
 
         return vector
 
+    # ------------------------------------------------------------------ #
+    # Reranker plumbing
+    # ------------------------------------------------------------------ #
+    def _get_reranker(self) -> Optional[BaseReranker]:
+        """Return the active reranker for this store, or ``None``.
+
+        Resolution order:
+        1. Constructor-provided override (``reranker=`` kwarg).
+        2. ``PipelineSettings.default_reranker`` (process-cached).
+
+        Returns ``None`` when no reranker is configured — callers should
+        treat this as "reranking disabled" and use first-stage ordering.
+        """
+        if self._reranker_override is not None:
+            return self._reranker_override
+        # Lazy import to avoid pulling the Django model at module import time
+        # and to support hot-reloading after settings changes in tests.
+        from opencontractserver.pipeline.utils import get_default_reranker_instance
+
+        return get_default_reranker_instance()
+
+    def _effective_first_stage_top_k(
+        self, requested_top_k: int, reranker: Optional[BaseReranker]
+    ) -> int:
+        """Compute how many candidates first-stage retrieval should fetch.
+
+        When a reranker is active we oversample by ``rerank_oversample_factor``,
+        bounded above by :data:`RERANK_MAX_CANDIDATES` so cross-encoder cost
+        stays bounded even when a caller requests a very large ``top_k``.
+        """
+        if reranker is None:
+            return requested_top_k
+        oversampled = requested_top_k * self.rerank_oversample_factor
+        return max(requested_top_k, min(oversampled, RERANK_MAX_CANDIDATES))
+
+    @staticmethod
+    def _rerank_results(
+        results: list["VectorSearchResult"],
+        query_text: Optional[str],
+        top_k: int,
+        reranker: Optional[BaseReranker],
+    ) -> list["VectorSearchResult"]:
+        """Shared sync rerank helper used by both instance and classmethod paths."""
+        if reranker is None or not query_text or not query_text.strip():
+            return results[:top_k]
+        if not results:
+            return results
+
+        passages = [getattr(r.annotation, "raw_text", "") or "" for r in results]
+        rerank_output = safe_rerank(reranker, query_text, passages, top_k=top_k)
+        if rerank_output is None:
+            return results[:top_k]
+
+        reordered: list[VectorSearchResult] = []
+        for r in rerank_output:
+            src = results[r.index]
+            reordered.append(
+                VectorSearchResult(annotation=src.annotation, similarity_score=r.score)
+            )
+        return reordered
+
+    def _apply_rerank(
+        self,
+        results: list["VectorSearchResult"],
+        query_text: Optional[str],
+        top_k: int,
+        reranker: Optional[BaseReranker],
+    ) -> list["VectorSearchResult"]:
+        """Apply the reranker (sync) if configured; otherwise trim to ``top_k``."""
+        return self._rerank_results(results, query_text, top_k, reranker)
+
+    async def _aapply_rerank(
+        self,
+        results: list["VectorSearchResult"],
+        query_text: Optional[str],
+        top_k: int,
+        reranker: Optional[BaseReranker],
+    ) -> list["VectorSearchResult"]:
+        """Async variant of :meth:`_apply_rerank`."""
+        if reranker is None or not query_text or not query_text.strip():
+            return results[:top_k]
+        if not results:
+            return results
+
+        passages = [getattr(r.annotation, "raw_text", "") or "" for r in results]
+        rerank_output = await safe_arerank(reranker, query_text, passages, top_k=top_k)
+        if rerank_output is None:
+            return results[:top_k]
+
+        reordered: list[VectorSearchResult] = []
+        for r in rerank_output:
+            src = results[r.index]
+            reordered.append(
+                VectorSearchResult(annotation=src.annotation, similarity_score=r.score)
+            )
+        return reordered
+
     async def _agenerate_query_embedding(
         self, query_text: str
     ) -> Optional[list[float]]:
@@ -579,12 +692,23 @@ class CoreAnnotationVectorStore:
     def search(self, query: VectorSearchQuery) -> list[VectorSearchResult]:
         """Execute a vector search query and return results.
 
+        When a global reranker is configured (``PipelineSettings.default_reranker``)
+        the first-stage retrieval oversamples candidates
+        (``top_k * rerank_oversample_factor``) and the reranker re-orders
+        them before the final ``top_k`` slice is returned. Reranker failures
+        degrade gracefully to the first-stage ordering.
+
         Args:
             query: The search query containing text/embedding and filters
 
         Returns:
             List of search results with annotations and similarity scores
         """
+        reranker = self._get_reranker()
+        first_stage_top_k = self._effective_first_stage_top_k(
+            query.similarity_top_k, reranker
+        )
+
         # Build base queryset with filters
         queryset = async_to_sync(self._build_base_queryset)()
 
@@ -606,7 +730,7 @@ class CoreAnnotationVectorStore:
             queryset = queryset.search_by_embedding(
                 query_vector=vector,
                 embedder_path=self.embedder_path,
-                top_k=query.similarity_top_k,
+                top_k=first_stage_top_k,
             )
             _logger.debug(_safe_queryset_info_sync(queryset, "After vector search"))
         else:
@@ -620,7 +744,7 @@ class CoreAnnotationVectorStore:
                     f"Invalid vector dimension: {len(vector)}, using standard filtering"
                 )
 
-            queryset = queryset[: query.similarity_top_k]
+            queryset = queryset[:first_stage_top_k]
             _logger.debug(_safe_queryset_info_sync(queryset, "After limiting results"))
 
         # Execute query and convert to results
@@ -663,7 +787,10 @@ class CoreAnnotationVectorStore:
                 )
             )
 
-        return results
+        # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
+        return self._apply_rerank(
+            results, query.query_text, query.similarity_top_k, reranker
+        )
 
     @staticmethod
     def _fuse_results(
@@ -769,11 +896,27 @@ class CoreAnnotationVectorStore:
                 "Sync method called from async context - this may cause issues"
             )
 
+        reranker = self._get_reranker()
+        # When a reranker is active, fusion returns oversampled candidates so
+        # the reranker has more signal to work with; otherwise fuse straight
+        # to the final top_k.
+        fusion_top_k = self._effective_first_stage_top_k(
+            query.similarity_top_k, reranker
+        )
+
         # Build base queryset with filters
         queryset = async_to_sync(self._build_base_queryset)()
         queryset = self._apply_metadata_filters(queryset, query.filters)
 
-        oversample_k = query.similarity_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR
+        # RRF oversample applies to each arm *before* fusion. The oversample
+        # factors compound intentionally when a reranker is active:
+        # ``fusion_top_k`` is already ``top_k * RERANK_OVERSAMPLE_FACTOR`` so
+        # each arm fetches ``top_k * RERANK_OVERSAMPLE_FACTOR *
+        # HYBRID_SEARCH_OVERSAMPLE_FACTOR`` candidates. Compounding keeps the
+        # pool rich enough that RRF + rerank has meaningful choices even
+        # after fusion dedupes; bounded overall by ``RERANK_MAX_CANDIDATES``
+        # on the reranker side.
+        oversample_k = fusion_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR
 
         # --- Vector search arm ---
         vector = query.query_embedding
@@ -795,7 +938,10 @@ class CoreAnnotationVectorStore:
             text_results = self._run_fts_query(queryset, query.query_text, oversample_k)
             _logger.debug(f"Hybrid: full-text arm returned {len(text_results)} results")
 
-        return self._fuse_results(vector_results, text_results, query.similarity_top_k)
+        fused = self._fuse_results(vector_results, text_results, fusion_top_k)
+        return self._apply_rerank(
+            fused, query.query_text, query.similarity_top_k, reranker
+        )
 
     async def async_hybrid_search(
         self, query: VectorSearchQuery
@@ -819,11 +965,16 @@ class CoreAnnotationVectorStore:
         Returns:
             List of search results with annotations and RRF-fused scores
         """
+        reranker = self._get_reranker()
+        fusion_top_k = self._effective_first_stage_top_k(
+            query.similarity_top_k, reranker
+        )
+
         # Build base queryset (natively async)
         queryset = await self._build_base_queryset()
         queryset = self._apply_metadata_filters(queryset, query.filters)
 
-        oversample_k = query.similarity_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR
+        oversample_k = fusion_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR
 
         # --- Vector search arm ---
         vector = query.query_embedding
@@ -852,7 +1003,10 @@ class CoreAnnotationVectorStore:
             )
             _logger.debug(f"Hybrid: full-text arm returned {len(text_results)} results")
 
-        return self._fuse_results(vector_results, text_results, query.similarity_top_k)
+        fused = self._fuse_results(vector_results, text_results, fusion_top_k)
+        return await self._aapply_rerank(
+            fused, query.query_text, query.similarity_top_k, reranker
+        )
 
     @classmethod
     def global_search(
@@ -888,9 +1042,20 @@ class CoreAnnotationVectorStore:
         from opencontractserver.pipeline.utils import (
             get_default_embedder,
             get_default_embedder_path,
+            get_default_reranker_instance,
         )
 
         _logger.info(f"Global search for user {user_id}: '{query_text[:50]}...'")
+
+        # Resolve global reranker (if configured) so we know how much to
+        # oversample from the first-stage vector search.
+        reranker = get_default_reranker_instance()
+        if reranker is not None:
+            first_stage_top_k = max(
+                top_k, min(top_k * RERANK_OVERSAMPLE_FACTOR, RERANK_MAX_CANDIDATES)
+            )
+        else:
+            first_stage_top_k = top_k
 
         # Get default embedder configuration
         default_embedder_path = get_default_embedder_path()
@@ -969,7 +1134,7 @@ class CoreAnnotationVectorStore:
         queryset = queryset.search_by_embedding(
             query_vector=query_vector,
             embedder_path=default_embedder_path,
-            top_k=top_k,
+            top_k=first_stage_top_k,
         )
 
         # Execute and convert to results
@@ -987,7 +1152,8 @@ class CoreAnnotationVectorStore:
                 )
             )
 
-        return results
+        # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
+        return cls._rerank_results(results, query_text, top_k, reranker)
 
     @classmethod
     async def async_global_search(
@@ -1039,6 +1205,11 @@ class CoreAnnotationVectorStore:
             return await self.async_hybrid_search(query)
 
         # Vector-only / no-text path: embedding lookup without FTS overhead.
+        reranker = self._get_reranker()
+        first_stage_top_k = self._effective_first_stage_top_k(
+            query.similarity_top_k, reranker
+        )
+
         # Build base queryset with filters
         queryset = await self._build_base_queryset()
 
@@ -1063,7 +1234,7 @@ class CoreAnnotationVectorStore:
                 lambda: queryset.search_by_embedding(
                     query_vector=vector,
                     embedder_path=self.embedder_path,
-                    top_k=query.similarity_top_k,
+                    top_k=first_stage_top_k,
                 )
             )()
             _logger.debug(await _safe_queryset_info(queryset, "After vector search"))
@@ -1078,7 +1249,7 @@ class CoreAnnotationVectorStore:
                     f"Invalid vector dimension: {len(vector)}, using standard filtering"
                 )
 
-            queryset = queryset[: query.similarity_top_k]
+            queryset = queryset[:first_stage_top_k]
             _logger.debug(await _safe_queryset_info(queryset, "After limiting results"))
 
         # Execute query and convert to results
@@ -1099,4 +1270,19 @@ class CoreAnnotationVectorStore:
                 )
             )
 
-        return results
+        # This branch only runs when query.query_text is empty/whitespace
+        # (the text path was intercepted above and routed to async_hybrid_search).
+        # _aapply_rerank is still called so it can trim to top_k; it short-
+        # circuits on empty query_text without invoking the reranker.
+        return await self._aapply_rerank(
+            results, query.query_text, query.similarity_top_k, reranker
+        )
+
+
+# Re-exported so downstream callers can annotate against the protocol.
+__all__ = [
+    "CoreAnnotationVectorStore",
+    "VectorSearchQuery",
+    "VectorSearchResult",
+    "VectorStoreProtocol",
+]

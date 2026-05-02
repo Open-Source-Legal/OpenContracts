@@ -1394,6 +1394,20 @@ export interface ExtractType extends Node {
    * `fullDatacellList` to render "showing N of M" indicators (see #1204).
    */
   datacellCount?: number | null;
+  /**
+   * Captured run-time model configuration (e.g. `{model, temperature}`) used
+   * for this iteration. Null/empty for legacy extracts created before
+   * iteration support landed.
+   */
+  modelConfig?: Record<string, any> | null;
+  /**
+   * Best-effort axis label inferred from the parent relationship: tells the
+   * UI which dimension this iteration tests (model/doc-versions/fieldset).
+   */
+  iterationAxis?: "MODEL" | "DOCUMENT_VERSIONS" | "FIELDSET" | null;
+  parentExtract?: ExtractType | null;
+  /** Direct iterations forked from this extract (one level deep). */
+  fullIterationList?: ExtractType[];
   myPermissions?: PermissionTypes[];
 }
 

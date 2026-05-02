@@ -199,14 +199,22 @@ class TestApprovalFlow(TransactionTestCase):
         inst.run = AsyncMock(side_effect=_run_side_effect)
         inst.iter = MagicMock(return_value=_IterCtx())
 
-        # Provide registry entry so resume_with_approval can execute tool
+        # Provide registry entry so resume_with_approval can execute tool.
+        # ``_get_function_tools`` now reads from the public ``agent.toolsets``
+        # API and only consumes ``FunctionToolset`` instances, so the mock
+        # exposes a real FunctionToolset whose ``tools`` dict carries the
+        # stub functions keyed by name.
+        from pydantic_ai.toolsets import FunctionToolset
+
         async def _approved_tool(ctx, x: int):  # noqa: D401 – minimal stub
             return x * 2
 
-        inst._function_tools = {
+        toolset = FunctionToolset()
+        toolset.tools = {
             "approved_tool": types.SimpleNamespace(function=_approved_tool),
             "second_gate_tool": types.SimpleNamespace(function=_approved_tool),
         }
+        inst.toolsets = [toolset]
         mock_cls.return_value = inst
 
     # ------------------------------------------------------------------

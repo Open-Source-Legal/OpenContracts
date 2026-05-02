@@ -3,10 +3,10 @@ from django.db.models.signals import post_save
 
 
 class AnnotationsConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "opencontractserver.analyzer"
+    default_auto_field: str = "django.db.models.BigAutoField"
+    name: str = "opencontractserver.analyzer"
 
-    def ready(self):
+    def ready(self) -> None:
         try:
             import opencontractserver.analyzer.signals  # noqa F401
             from opencontractserver.analyzer.models import GremlinEngine

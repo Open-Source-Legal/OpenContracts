@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.utils.html import format_html
 from guardian.admin import GuardedModelAdmin
 
@@ -146,7 +148,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
         ),
     )
 
-    def status_badge(self, obj):
+    def status_badge(self, obj: AgentActionResult) -> str:
         """Display status as a colored badge."""
         colors = {
             "pending": "#6c757d",  # gray
@@ -165,7 +167,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
     status_badge.short_description = "Status"
     status_badge.admin_order_field = "status"
 
-    def corpus_action_link(self, obj):
+    def corpus_action_link(self, obj: AgentActionResult) -> str:
         """Link to the corpus action in admin."""
         if obj.corpus_action:
             name = (
@@ -182,7 +184,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
 
     corpus_action_link.short_description = "Corpus Action"
 
-    def document_link(self, obj):
+    def document_link(self, obj: AgentActionResult) -> str:
         """Link to the document in admin."""
         if obj.document:
             title = (
@@ -199,7 +201,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
 
     document_link.short_description = "Document"
 
-    def tools_count(self, obj):
+    def tools_count(self, obj: AgentActionResult) -> str:
         """Display count of tools executed."""
         if obj.tools_executed:
             count = len(obj.tools_executed)
@@ -212,7 +214,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
 
     tools_count.short_description = "Tools"
 
-    def duration_display(self, obj):
+    def duration_display(self, obj: AgentActionResult) -> str:
         """Display execution duration."""
         duration = obj.duration_seconds
         if duration is not None:
@@ -228,7 +230,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
 
     duration_display.short_description = "Duration"
 
-    def agent_response_display(self, obj):
+    def agent_response_display(self, obj: AgentActionResult) -> str:
         """Display agent response with formatting."""
         if obj.agent_response:
             # Truncate very long responses in admin
@@ -240,7 +242,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
 
     agent_response_display.short_description = "Agent Response"
 
-    def tools_executed_display(self, obj):
+    def tools_executed_display(self, obj: AgentActionResult) -> str:
         """Display tools executed as formatted JSON."""
         if obj.tools_executed:
             import json
@@ -254,7 +256,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
 
     tools_executed_display.short_description = "Tools Executed"
 
-    def execution_metadata_display(self, obj):
+    def execution_metadata_display(self, obj: AgentActionResult) -> str:
         """Display execution metadata as formatted JSON."""
         if obj.execution_metadata:
             import json
@@ -265,7 +267,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
 
     execution_metadata_display.short_description = "Execution Metadata"
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[AgentActionResult]:
         """Optimize queryset with select_related."""
         return (
             super()

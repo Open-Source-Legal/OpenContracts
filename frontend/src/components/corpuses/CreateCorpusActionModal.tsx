@@ -20,6 +20,10 @@ import { StyledTextArea } from "../widgets/modals/styled";
 import { toast } from "react-toastify";
 import _ from "lodash";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS,
+  DEFAULT_MODERATOR_INSTRUCTIONS,
+} from "../../assets/configurations/constants";
 import { InlineBadge } from "../agents/AgentBadges";
 import { FormField } from "../widgets/form/FormField";
 
@@ -70,16 +74,6 @@ const DEFAULT_MODERATION_TOOLS = [
   { name: "pin_thread", description: "Pin thread to top of list" },
   { name: "unpin_thread", description: "Unpin a pinned thread" },
 ] as const;
-
-const DEFAULT_MODERATOR_INSTRUCTIONS = `You are a thread moderator for this corpus. Your role is to:
-1. Monitor discussion threads and messages for policy compliance
-2. Take appropriate moderation actions when needed
-3. Respond helpfully to user questions when appropriate
-
-You have access to thread context, messages, and moderation tools. Use them judiciously.`;
-
-const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
-  "You are a document processing agent for this corpus.";
 
 /**
  * Shape of an existing corpus action for editing
@@ -139,8 +133,13 @@ export const CreateCorpusActionModal: React.FC<
   const [inlineAgentName, setInlineAgentName] = React.useState("");
   const [inlineAgentDescription, setInlineAgentDescription] =
     React.useState("");
+  // Initial trigger is "add_document" (a document trigger), so the default
+  // instructions must match — otherwise the textarea opens with the moderator
+  // copy that only applies to thread/message triggers. The dropdown's onChange
+  // swaps this value when the trigger changes; this initialiser keeps the
+  // pre-interaction state aligned with the default trigger.
   const [inlineAgentInstructions, setInlineAgentInstructions] = React.useState(
-    DEFAULT_MODERATOR_INSTRUCTIONS
+    DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS
   );
   const [selectedModerationTools, setSelectedModerationTools] = React.useState<
     string[]
@@ -168,7 +167,9 @@ export const CreateCorpusActionModal: React.FC<
     setUseInlineAgent(true);
     setInlineAgentName("");
     setInlineAgentDescription("");
-    setInlineAgentInstructions(DEFAULT_MODERATOR_INSTRUCTIONS);
+    // Reset to the default-trigger instructions; the trigger itself is reset to
+    // "add_document" above, so the document-agent default is the matching pair.
+    setInlineAgentInstructions(DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS);
     setSelectedModerationTools(DEFAULT_MODERATION_TOOLS.map((t) => t.name));
     setSelectedDocumentTools([]);
     setDisabled(false);
@@ -587,6 +588,7 @@ export const CreateCorpusActionModal: React.FC<
           <label>Trigger</label>
           <Dropdown
             mode="select"
+            aria-label="Trigger"
             options={triggerOptions}
             value={trigger}
             onChange={(value) => {
@@ -626,6 +628,7 @@ export const CreateCorpusActionModal: React.FC<
           <label>Action Type</label>
           <Dropdown
             mode="select"
+            aria-label="Action Type"
             disabled={isThreadTrigger}
             options={actionTypeOptions}
             value={actionType}
@@ -680,6 +683,7 @@ export const CreateCorpusActionModal: React.FC<
               <label>Fieldset</label>
               <Dropdown
                 mode="select"
+                aria-label="Fieldset"
                 clearable
                 searchable="local"
                 options={fieldsetOptions}
@@ -719,6 +723,7 @@ export const CreateCorpusActionModal: React.FC<
               <label>Analyzer</label>
               <Dropdown
                 mode="select"
+                aria-label="Analyzer"
                 clearable
                 searchable="local"
                 options={analyzerOptions}

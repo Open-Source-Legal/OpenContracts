@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.tasks.embeddings_task import (
     calculate_embedding_for_annotation_text,
     calculate_embedding_for_note_text,
 )
+
+if TYPE_CHECKING:
+    from opencontractserver.annotations.models import Annotation, Note, Relationship
 
 # Direct queries without caching
 
@@ -22,7 +28,12 @@ REL_M2M_SOURCES_UID = "process_relationship_m2m_sources_changed_uid_v1"
 REL_M2M_TARGETS_UID = "process_relationship_m2m_targets_changed_uid_v1"
 
 
-def process_annot_on_create_atomic(sender, instance, created, **kwargs):
+def process_annot_on_create_atomic(
+    sender: type[Annotation],
+    instance: Annotation,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler to process an annotation after it is created.
     Queues tasks to calculate embeddings for the annotation.
@@ -43,7 +54,7 @@ def process_annot_on_create_atomic(sender, instance, created, **kwargs):
     if created and instance.embedding is None:
         # Get corpus_id from annotation's corpus
         # Note: structural_set doesn't have a corpus field, so we only use direct corpus_id
-        corpus_id = instance.corpus_id if instance.corpus_id else None
+        corpus_id: int | None = instance.corpus_id if instance.corpus_id else None
 
         logger.debug(
             f"Calculating embeddings for newly created annotation {instance.id} "
@@ -59,7 +70,12 @@ def process_annot_on_create_atomic(sender, instance, created, **kwargs):
     # No cache invalidation needed - using direct queries
 
 
-def process_note_on_create_atomic(sender, instance, created, **kwargs):
+def process_note_on_create_atomic(
+    sender: type[Note],
+    instance: Note,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler to process a note after it is created.
     Queues tasks to calculate embeddings for the note.
@@ -76,7 +92,7 @@ def process_note_on_create_atomic(sender, instance, created, **kwargs):
         **kwargs: Additional keyword arguments.
     """
     if created and instance.embedding is None:
-        corpus_id = instance.corpus_id if instance.corpus else None
+        corpus_id: int | None = instance.corpus_id if instance.corpus else None
         logger.debug(
             f"Calculating embeddings for newly created note {instance.id} "
             f"(corpus_id={corpus_id})"
@@ -98,7 +114,12 @@ def process_note_on_create_atomic(sender, instance, created, **kwargs):
 # one corpus context, so there's no need to iterate over multiple corpuses.
 
 
-def process_relationship_on_change_atomic(sender, instance, created, **kwargs):
+def process_relationship_on_change_atomic(
+    sender: type[Relationship],
+    instance: Relationship,
+    created: bool,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler for Relationship create/update.
     Currently a no-op as we use direct queries without caching.
@@ -106,7 +127,11 @@ def process_relationship_on_change_atomic(sender, instance, created, **kwargs):
     pass
 
 
-def process_relationship_on_delete(sender, instance, **kwargs):
+def process_relationship_on_delete(
+    sender: type[Relationship],
+    instance: Relationship,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler for Relationship delete.
     Currently a no-op as we use direct queries without caching.
@@ -115,8 +140,14 @@ def process_relationship_on_delete(sender, instance, **kwargs):
 
 
 def process_relationship_m2m_changed(
-    sender, instance, action, reverse, model, pk_set, **kwargs
-):
+    sender: type[Any],
+    instance: Relationship,
+    action: str,
+    reverse: bool,
+    model: type[Any],
+    pk_set: set[int] | None,
+    **kwargs: Any,
+) -> None:
     """
     Signal handler for Relationship M2M (source/target annotations) changes.
     Currently a no-op as we use direct queries without caching.

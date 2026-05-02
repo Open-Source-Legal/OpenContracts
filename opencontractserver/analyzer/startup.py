@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def sync_analyzers_on_startup():
+def sync_analyzers_on_startup() -> None:
     """
     Automatically sync doc analyzer tasks on application startup.
     This ensures all decorated tasks are available without manual intervention.

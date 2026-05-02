@@ -36,6 +36,9 @@ The OpenContracts routing system follows a **centralized architecture** where **
 - `openedCorpus()`
 - `openedDocument()`
 - `openedExtract()`
+- `openedThread()`
+- `openedLabelset()`
+- `openedUser()`
 
 **URL-Driven State (set by Phase 2, watched by Phase 4):**
 - `selectedAnnotationIds()`
@@ -54,15 +57,11 @@ The OpenContracts routing system follows a **centralized architecture** where **
 **The Correct Pattern:**
 Components wanting to change URL-driven state must use utility functions that update the URL. CentralRouteManager Phase 2 will detect the URL change and set the reactive var. This maintains unidirectional data flow: Component → URL → CentralRouteManager → Reactive Var → Component.
 
-This is non-negotiable. Violations cause infinite loops, route jittering, competing state updates, and unpredictable behavior. During development, we systematically removed all violations from:
-- `CorpusDocumentCards.tsx` (caused infinite loop bug)
-- `DocumentKnowledgeBase.tsx` (4 violations)
-- `FloatingDocumentControls.tsx` (1 violation)
-- `NavMenu.tsx` / `MobileNavMenu.tsx` (clearing on menu clicks)
-- `CorpusBreadcrumbs.tsx` (manual clearing)
-- `Corpuses.tsx` (3 violations)
+This is non-negotiable. Violations cause infinite loops, route jittering, competing state updates, and unpredictable behavior. The static `centralRouteDiscipline.test.ts` regression guard enforces this rule today, and the historical violations it was built to prevent (URL bypasses in `CorpusDocumentCards.tsx`, `DocumentKnowledgeBase.tsx`, `FloatingDocumentControls.tsx`, `NavMenu.tsx`/`MobileNavMenu.tsx`, `CorpusBreadcrumbs.tsx`, and `Corpuses.tsx`) have all been removed.
 
-**If you find yourself writing `openedCorpus(someValue)`, `openedDocument(someValue)`, or `openedExtract(someValue)` anywhere except `CentralRouteManager.tsx`, STOP. You are introducing a bug.**
+**If you find yourself writing `openedCorpus(someValue)`, `openedDocument(someValue)`, `openedExtract(someValue)`, `openedThread(someValue)`, `openedLabelset(someValue)`, or `openedUser(someValue)` anywhere except `CentralRouteManager.tsx`, STOP. You are introducing a bug.**
+
+> A static regression test (`frontend/src/routing/__tests__/centralRouteDiscipline.test.ts`) grep-walks `frontend/src/` and fails CI if any production file outside `CentralRouteManager.tsx` and `cache.ts` SETs one of the routing-owned reactive vars. If you've come to this section because that test fired, either route your write through the URL via `navigationUtils` helpers or — if you genuinely have an auth-driven (not URL-driven) case like `ProfileRedirect` — discuss adding the file to the explicit allowlist.
 
 ### Design Decisions
 
@@ -176,7 +175,12 @@ graph TB
 | `/c/:userIdent/:corpusIdent`           | `/c/john/my-corpus`           | CorpusLandingRoute   | Phase 1: Fetch corpus      |
 | `/d/:userIdent/:docIdent`              | `/d/john/my-document`         | DocumentLandingRoute | Phase 1: Fetch document    |
 | `/d/:userIdent/:corpusIdent/:docIdent` | `/d/john/corpus/doc`          | DocumentLandingRoute | Phase 1: Fetch both        |
-| `/e/:userIdent/:extractIdent`          | `/e/john/extract-123`         | ExtractLandingRoute  | Phase 1: Fetch extract     |
+| `/e/:userIdent/:extractIdent`          | `/e/john/extract-123`         | ExtractDetailRoute   | Phase 1: Fetch extract     |
+| `/extracts/:extractId`                 | `/extracts/extract-123`       | ExtractDetailRoute   | Phase 1: Fetch extract     |
+| `/users/:slug`                         | `/users/jane`                 | UserProfileRoute     | Phase 1: Fetch user        |
+| `/label_sets/:labelsetId`              | `/label_sets/labelset-1`      | LabelSetLandingRoute | Phase 1: Fetch labelset    |
+
+> `/profile` is handled by `ProfileRedirect`, a small auth-driven `<Navigate>` component that redirects to `/users/<current-user-slug>`. It lives outside CentralRouteManager because it is driven by auth state (`backendUserObj`), not URL state — once it redirects, Phase 1 takes over for the canonical `/users/:slug` path.
 
 ### Browse Routes (Query Params Only)
 
@@ -1328,24 +1332,31 @@ window.DEBUG_ROUTING = true
 
 ### Critical Rules (MUST Follow)
 
-**🚨 RULE #1: NEVER Set `openedCorpus`, `openedDocument`, or `openedExtract` Outside CentralRouteManager**
+**🚨 RULE #1: NEVER Set Routing-Owned Reactive Vars Outside CentralRouteManager**
+
+The full set: `openedCorpus`, `openedDocument`, `openedExtract`, `openedThread`, `openedLabelset`, `openedUser`.
 
 ```typescript
 // ❌ NEVER DO THIS (anywhere except CentralRouteManager.tsx):
 openedCorpus(someCorpus);
 openedDocument(someDocument);
 openedExtract(someExtract);
+openedUser(someUser);
 openedCorpus(null);
 openedDocument(null);
 openedExtract(null);
+openedUser(null);
 
 // ✅ ALWAYS DO THIS:
 const corpus = useReactiveVar(openedCorpus);  // Read only
 const document = useReactiveVar(openedDocument);  // Read only
 const extract = useReactiveVar(openedExtract);  // Read only
+const user = useReactiveVar(openedUser);  // Read only
 ```
 
 **Why?** Setting these vars from multiple places creates competing state updates, infinite loops, and route jittering. We learned this the hard way when `CorpusDocumentCards.tsx` was fetching corpus data and setting `openedCorpus()`, creating an infinite loop with `CentralRouteManager`.
+
+**CI enforcement:** `frontend/src/routing/__tests__/centralRouteDiscipline.test.ts` runs in the standard Vitest suite and fails if any production file outside the manager and `cache.ts` SETs one of these vars. Adding to its allowlist requires the same scrutiny as adding to RULE #1.
 
 **🚨 RULE #2: NEVER Fetch Entities in Route Components**
 
@@ -1387,6 +1398,7 @@ const gotoHome = () => {
   openedCorpus(null);  // VIOLATION!
   openedDocument(null);  // VIOLATION!
   openedExtract(null);  // VIOLATION!
+  openedUser(null);  // VIOLATION!
   navigate("/corpuses");
 };
 
@@ -1397,7 +1409,7 @@ const gotoHome = () => {
 };
 ```
 
-**Why?** CentralRouteManager watches the URL and automatically clears `openedCorpus`/`openedDocument`/`openedExtract` when navigating to browse routes. Manual clearing creates race conditions.
+**Why?** CentralRouteManager watches the URL and automatically clears all entity vars when navigating to a browse route. Manual clearing creates race conditions.
 
 ### DO ✅
 

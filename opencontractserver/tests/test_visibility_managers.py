@@ -71,9 +71,14 @@ class VisibleToUserTests(TestCase):
         """Superusers should see all objects ordered by creation."""
         result = Corpus.objects.visible_to_user(self.superuser)
 
+        # Filter to corpuses created by this test's users to make the assertion
+        # resilient to fixture-level personal corpuses (e.g. the one auto-created
+        # for guardian's AnonymousUser during DB setup). See issue #1394.
+        scoped = result.filter(creator__in=[self.user, self.superuser])
+
         # Should see both test corpora + 2 personal corpuses (one per user)
         # Each user (user, superuser) gets a personal corpus auto-created
-        self.assertEqual(result.count(), 4)  # public + private + 2 personal
+        self.assertEqual(scoped.count(), 4)  # public + private + 2 personal
         # Should be ordered by created
         self.assertEqual(result.query.order_by, ("created",))
 
@@ -548,3 +553,124 @@ class NoteVisibilityTest(TestCase):
         """Chaining .filter().visible_to_user() must still check permissions."""
         qs = Note.objects.filter(id=self.private_note.id).visible_to_user(self.outsider)
         self.assertNotIn(self.private_note, qs)
+
+
+class StructuralAnnotationOptimizerTests(TestCase):
+    """``AnnotationQueryOptimizer._compute_effective_permissions`` must
+    handle structural annotations (``corpus_id=None``) by deriving
+    perms from the document alone — never reaching for
+    ``AnnotationUserObjectPermission`` rows.
+
+    Structural annotations live on a shared ``StructuralAnnotationSet``
+    and have ``corpus_id=NULL``; their visibility flows from the
+    document(s) the set is attached to. Without these tests the
+    code path is exercised only indirectly via end-to-end ingestion;
+    pinning it explicitly catches regressions in the optimizer's
+    ``corpus_id=None`` branch (`query_optimizer.py:97-99`).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth.models import AnonymousUser
+
+        cls.owner = User.objects.create_user(username="opt_owner", password="pw")
+        cls.outsider = User.objects.create_user(username="opt_out", password="pw")
+        cls.collaborator = User.objects.create_user(
+            username="opt_collab", password="pw"
+        )
+        cls.anonymous_user = AnonymousUser()
+        cls.superuser = User.objects.create_superuser(
+            username="opt_root", password="pw", email="opt@example.com"
+        )
+
+        cls.public_doc = Document.objects.create(
+            title="Pub Doc", creator=cls.owner, is_public=True
+        )
+        cls.private_doc = Document.objects.create(
+            title="Priv Doc", creator=cls.owner, is_public=False
+        )
+        # Grant the owner full perms on the private doc — mirrors what
+        # ``import_document`` / ``corpus.add_document`` do in production
+        # via ``set_permissions_for_obj_to_user``. Bare ``Document.objects.create``
+        # only sets the ``creator`` FK; guardian rows are written by the
+        # creating call site, so we replicate that here.
+        for perm in (
+            "documents.read_document",
+            "documents.create_document",
+            "documents.update_document",
+            "documents.remove_document",
+            "documents.permission_document",
+            "documents.publish_document",
+        ):
+            try:
+                assign_perm(perm, cls.owner, cls.private_doc)
+                assign_perm(perm, cls.owner, cls.public_doc)
+            except Permission.DoesNotExist:
+                logger.debug(
+                    "Skipping permission assignment in test setup; permission '%s' is not available.",
+                    perm,
+                    exc_info=True,
+                )
+
+        # Grant collaborator read on the private doc.
+        try:
+            assign_perm("documents.read_document", cls.collaborator, cls.private_doc)
+        except Permission.DoesNotExist:
+            logger.debug(
+                "Skipping collaborator read permission assignment in test setup; permission is not available.",
+                exc_info=True,
+            )
+
+    def _compute(self, user, doc):
+        from opencontractserver.annotations.query_optimizer import (
+            AnnotationQueryOptimizer,
+        )
+
+        return AnnotationQueryOptimizer._compute_effective_permissions(
+            user=user, document_id=doc.id, corpus_id=None
+        )
+
+    def test_creator_gets_full_perms_on_their_private_doc(self):
+        """Owner of a private doc has all perms on its structural annotations."""
+        can_read, can_create, can_update, can_delete, can_comment = self._compute(
+            self.owner, self.private_doc
+        )
+        self.assertTrue(can_read)
+        # Doc-level CRUD flows through to structural annotations.
+        self.assertTrue(can_update)
+
+    def test_collaborator_with_doc_read_can_read_structural(self):
+        """A non-owner with ``read_document`` perm can read structural annotations."""
+        can_read, *_ = self._compute(self.collaborator, self.private_doc)
+        self.assertTrue(can_read)
+
+    def test_outsider_blocked_on_private_doc_structural(self):
+        """No doc perms → no read on structural annotations of that doc."""
+        can_read, *_ = self._compute(self.outsider, self.private_doc)
+        self.assertFalse(can_read)
+
+    def test_anonymous_can_read_structural_on_public_doc(self):
+        """Anonymous + public doc → read-only access to structural annotations."""
+        can_read, can_create, can_update, can_delete, can_comment = self._compute(
+            self.anonymous_user, self.public_doc
+        )
+        self.assertTrue(can_read)
+        # Anonymous never gets write perms.
+        self.assertFalse(can_create)
+        self.assertFalse(can_update)
+        self.assertFalse(can_delete)
+
+    def test_anonymous_blocked_on_private_doc_structural(self):
+        """Anonymous + private doc → no read."""
+        can_read, *_ = self._compute(self.anonymous_user, self.private_doc)
+        self.assertFalse(can_read)
+
+    def test_superuser_always_passes(self):
+        """Superuser bypasses all checks."""
+        for doc in (self.public_doc, self.private_doc):
+            can_read, can_create, can_update, can_delete, can_comment = self._compute(
+                self.superuser, doc
+            )
+            self.assertTrue(
+                all([can_read, can_create, can_update, can_delete, can_comment])
+            )

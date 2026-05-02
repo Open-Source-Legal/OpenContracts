@@ -365,6 +365,80 @@ class AgentAPI:
         )
 
     @staticmethod
+    async def get_structured_response_and_sources_from_document(
+        document: DocumentType,
+        corpus: Optional[CorpusType],
+        prompt: str,
+        target_type: type[T],
+        *,
+        framework: Optional[FrameworkType] = None,
+        user_id: Optional[int] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        tools: Optional[list[ToolType]] = None,
+        embedder: Optional[str] = None,
+        **kwargs,
+    ) -> tuple[Optional[T], list[int]]:
+        """Like :meth:`get_structured_response_from_document`, plus citations.
+
+        Returns a tuple of ``(result, annotation_ids)`` where
+        ``annotation_ids`` is the deduplicated list of real Annotation PKs
+        that the agent's retrieval tools (similarity_search, …) returned
+        during this run.  Callers use the IDs to populate M2M source links
+        on the owning object (``Datacell.sources`` for extraction,
+        ``ChatMessage.source_annotations`` for chat).
+
+        Synthetic / negative IDs produced by ad-hoc match tools are filtered
+        out inside the retrieval tools themselves.
+        """
+        if framework is None:
+            framework = AgentFramework.PYDANTIC_AI
+
+        # Config-time kwargs (vector store / agent construction) belong on
+        # ``for_document``; ``structured_response`` only accepts run-time
+        # kwargs (filtered through its own allowlist), so don't double-pass.
+        config_only_keys = {"similarity_top_k"}
+        run_kwargs = {k: v for k, v in kwargs.items() if k not in config_only_keys}
+
+        agent = await AgentAPI.for_document(
+            document=document,
+            corpus=corpus,
+            framework=framework,
+            user_id=user_id,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            streaming=False,
+            tools=tools,
+            embedder=embedder,
+            persist=False,
+            **kwargs,
+        )
+
+        result = await agent.structured_response(
+            prompt=prompt,
+            target_type=target_type,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **run_kwargs,
+        )
+
+        # The tool implementations appended to this list during the run.
+        # Dedupe while preserving order of first occurrence so the most
+        # relevant (earliest retrieved) citations come first.
+        raw_ids = getattr(agent.agent_deps, "retrieved_annotation_ids", []) or []
+        seen: set[int] = set()
+        annotation_ids: list[int] = []
+        for aid in raw_ids:
+            if isinstance(aid, int) and aid > 0 and aid not in seen:
+                seen.add(aid)
+                annotation_ids.append(aid)
+
+        return result, annotation_ids
+
+    @staticmethod
     async def get_structured_response_from_corpus(
         corpus: CorpusType,
         prompt: str,

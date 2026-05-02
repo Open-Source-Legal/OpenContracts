@@ -1078,7 +1078,10 @@ export const CorpusDescriptionEditor: React.FC<
                               whileTap={{ scale: 0.98 }}
                             >
                               <div className="version-header">
-                                <div className="version-number">
+                                <div
+                                  className="version-number"
+                                  data-testid="version-number"
+                                >
                                   Version {revision.version}
                                   {revision.version === currentVersion && (
                                     <span className="version-badge">

@@ -69,7 +69,7 @@ class CreateCorpusFolderMutation(graphene.Mutation):
         color="#05313d",
         icon="folder",
         tags=None,
-    ):
+    ) -> "CreateCorpusFolderMutation":
         user = info.context.user
 
         try:
@@ -154,7 +154,7 @@ class UpdateCorpusFolderMutation(graphene.Mutation):
         color=None,
         icon=None,
         tags=None,
-    ):
+    ) -> "UpdateCorpusFolderMutation":
         user = info.context.user
 
         try:
@@ -232,7 +232,7 @@ class MoveCorpusFolderMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, folder_id, new_parent_id=None):
+    def mutate(root, info, folder_id, new_parent_id=None) -> "MoveCorpusFolderMutation":
         user = info.context.user
 
         try:
@@ -314,7 +314,9 @@ class DeleteCorpusFolderMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, folder_id, delete_contents=False):
+    def mutate(
+        root, info, folder_id, delete_contents=False
+    ) -> "DeleteCorpusFolderMutation":
         user = info.context.user
 
         try:
@@ -384,7 +386,9 @@ class MoveDocumentToFolderMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, document_id, corpus_id, folder_id=None):
+    def mutate(
+        root, info, document_id, corpus_id, folder_id=None
+    ) -> "MoveDocumentToFolderMutation":
         user = info.context.user
 
         try:
@@ -476,7 +480,9 @@ class MoveDocumentsToFolderMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_HEAVY)
-    def mutate(root, info, document_ids, corpus_id, folder_id=None):
+    def mutate(
+        root, info, document_ids, corpus_id, folder_id=None
+    ) -> "MoveDocumentsToFolderMutation":
         user = info.context.user
 
         try:

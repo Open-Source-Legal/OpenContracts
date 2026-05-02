@@ -1,9 +1,18 @@
+"""Celery tasks for synchronising user data with Auth0.
+
+These tasks are defined only when ``settings.USE_AUTH0`` is enabled — they
+fetch a Machine-to-Machine token, look up the remote profile via the Auth0
+Management API, and copy the result onto the local :class:`User` row.
+"""
+
 import datetime
 import json
 import logging
+from typing import Any, Optional
 
 import requests
 from celery import chain
+from celery.result import AsyncResult
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
@@ -21,34 +30,34 @@ logger = logging.getLogger(__name__)
 if settings.USE_AUTH0:
 
     @celery_app.task()
-    def get_new_auth0_token():
+    def get_new_auth0_token() -> Optional[str]:
 
         # print("get_new_auth0_token")
         url = f"https://{auth0_settings.AUTH0_DOMAIN}/oauth/token"
         # print(url)
 
-        headers = {"content-type": "application/json"}
+        headers: dict[str, str] = {"content-type": "application/json"}
         # print(headers)
 
-        data = {
+        request_data: dict[str, str] = {
             "grant_type": auth0_settings.AUTH0_M2M_MANAGEMENT_GRANT_TYPE,
             "client_id": auth0_settings.AUTH0_M2M_MANAGEMENT_API_ID,
             "client_secret": auth0_settings.AUTH0_M2M_MANAGEMENT_API_SECRET,
             "audience": f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/",
         }
-        # print(f"Machine-2-Machine Request data: {data}")
+        # print(f"Machine-2-Machine Request data: {request_data}")
 
-        response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=headers, json=request_data)
 
         # print("Auth0 Response:")
         # print(response.status_code)
         # print(response.text)
 
         if response.status_code == 200:
-            data = json.loads(response.text)
-            # print(data)
-            access_token = data["access_token"]
-            expires_in = data["expires_in"]
+            payload: dict[str, Any] = json.loads(response.text)
+            # print(payload)
+            access_token: str = payload["access_token"]
+            expires_in: int = payload["expires_in"]
 
             newToken = Auth0APIToken()
             newToken.token = access_token
@@ -60,11 +69,11 @@ if settings.USE_AUTH0:
 
             return newToken.token
 
-        else:
-            logger.error("Error retrieving access token to Auth0.")
+        logger.error("Error retrieving access token to Auth0.")
+        return None
 
     @celery_app.task()
-    def apply_data_to_user(data, userPk):
+    def apply_data_to_user(data: dict[str, Any], userPk: str) -> None:
 
         # print(f"apply_data_to_user() - userPk is: {userPk}\nData: {data}")
 
@@ -103,7 +112,7 @@ if settings.USE_AUTH0:
                 )
 
     @celery_app.task()
-    def sync_remote_user(user_pk):
+    def sync_remote_user(user_pk: str) -> AsyncResult:
 
         refresh = False
         tokens = Auth0APIToken.objects.all()
@@ -133,7 +142,7 @@ if settings.USE_AUTH0:
         return data.apply_async()
 
     @celery_app.task()
-    def ensure_valid_auth0_token():
+    def ensure_valid_auth0_token() -> Optional[str]:
 
         tokens = Auth0APIToken.objects.all()
 
@@ -147,6 +156,7 @@ if settings.USE_AUTH0:
             for tok in tokens:
                 tok.delete()
                 return get_new_auth0_token.delay().get()
+            return None
         else:
             if tokens[0].expiration_Date < datetime.datetime.now(datetime.timezone.utc):
                 # print("Token has expired. Refetching from Auth0")
@@ -157,8 +167,8 @@ if settings.USE_AUTH0:
                 return tokens[0].token
 
     @celery_app.task
-    def get_user_details_async(token, auth0_Id):
-        headers = {
+    def get_user_details_async(token: str, auth0_Id: str) -> dict[str, Any]:
+        headers: dict[str, str] = {
             "Authorization": f"Bearer {token}",
         }
         url = f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/users/{auth0_Id}"

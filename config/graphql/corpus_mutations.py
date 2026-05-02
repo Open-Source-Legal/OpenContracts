@@ -3,9 +3,11 @@ GraphQL mutations for corpus CRUD, visibility, fork, and action operations.
 """
 
 import logging
+from typing import Any
 
 import graphene
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, IntegrityError, transaction
 from django.utils import timezone
 from graphql import GraphQLError
@@ -69,7 +71,7 @@ class SetCorpusVisibility(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(root, info, corpus_id, is_public):
+    def mutate(root, info, corpus_id, is_public) -> "SetCorpusVisibility":
         user = info.context.user
 
         try:
@@ -149,7 +151,7 @@ class CreateCorpusMutation(DRFMutation):
         )
 
     @classmethod
-    def mutate(cls, root, info, *args, **kwargs):
+    def mutate(cls, root, info, *args, **kwargs) -> "CreateCorpusMutation":
         result = super().mutate(root, info, *args, **kwargs)
 
         if result.ok and result.obj_id:
@@ -207,7 +209,7 @@ class UpdateCorpusMutation(DRFMutation):
         )
 
     @classmethod
-    def mutate(cls, root, info, *args, **kwargs):
+    def mutate(cls, root, info, *args, **kwargs) -> "UpdateCorpusMutation":
         # Issue #437: Prevent changing preferred_embedder after documents exist.
         # This avoids creating inconsistent embeddings within a corpus.
         # Use the ReEmbedCorpus mutation instead for controlled embedder migration.
@@ -254,20 +256,31 @@ class UpdateCorpusDescription(graphene.Mutation):
     version = graphene.Int(description="The new version number after update")
 
     @login_required
-    def mutate(root, info, corpus_id, new_content):
+    def mutate(root, info, corpus_id, new_content) -> "UpdateCorpusDescription":
         from opencontractserver.corpuses.models import Corpus
 
         try:
             user = info.context.user
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # Get the corpus and check ownership
-            corpus = Corpus.objects.get(pk=corpus_pk)
+            # Unified message prevents IDOR enumeration of corpora the caller cannot edit
+            not_found_msg = (
+                "Corpus not found or you do not have permission to update it."
+            )
+
+            # Filter through visible_to_user so unauthorized IDs collapse to the
+            # same branch as truly-missing IDs
+            try:
+                corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+            except Corpus.DoesNotExist:
+                return UpdateCorpusDescription(
+                    ok=False, message=not_found_msg, obj=None, version=None
+                )
 
             if corpus.creator != user:
                 return UpdateCorpusDescription(
                     ok=False,
-                    message="You can only update descriptions for corpuses that you created.",
+                    message=not_found_msg,
                     obj=None,
                     version=None,
                 )
@@ -294,10 +307,6 @@ class UpdateCorpusDescription(graphene.Mutation):
                 version=revision.version,
             )
 
-        except Corpus.DoesNotExist:
-            return UpdateCorpusDescription(
-                ok=False, message="Corpus not found.", obj=None, version=None
-            )
         except Exception as e:
             logger.error(f"Error updating corpus description: {e}")
             return UpdateCorpusDescription(
@@ -319,7 +328,7 @@ class DeleteCorpusMutation(DRFDeletion):
     @classmethod
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(cls, root, info, *args, **kwargs):
+    def mutate(cls, root, info, *args, **kwargs) -> "DeleteCorpusMutation":
         id = from_global_id(kwargs.get(cls.IOSettings.lookup_field, None))[1]
         obj = cls.IOSettings.model.objects.get(pk=id)
 
@@ -355,13 +364,19 @@ class AddDocumentsToCorpus(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    def mutate(root, info, corpus_id, document_ids):
+    def mutate(root, info, corpus_id, document_ids) -> "AddDocumentsToCorpus":
         from opencontractserver.corpuses.folder_service import DocumentFolderService
 
+        # Unified message prevents enumeration of corpora the caller cannot see/edit
+        not_found_msg = (
+            "Corpus not found or you do not have permission to add documents to it"
+        )
         try:
             user = info.context.user
             doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
-            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            corpus = Corpus.objects.visible_to_user(user).get(
+                pk=from_global_id(corpus_id)[1]
+            )
 
             # Delegate to service - handles permission checks, validation, dual-system update
             added_count, added_ids, error = (
@@ -382,7 +397,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
             )
 
         except Corpus.DoesNotExist:
-            return AddDocumentsToCorpus(message="Corpus not found", ok=False)
+            return AddDocumentsToCorpus(message=not_found_msg, ok=False)
         except Exception as e:
             return AddDocumentsToCorpus(message=f"Error on upload: {e}", ok=False)
 
@@ -410,15 +425,23 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    def mutate(root, info, corpus_id, document_ids_to_remove):
+    def mutate(
+        root, info, corpus_id, document_ids_to_remove
+    ) -> "RemoveDocumentsFromCorpus":
         from opencontractserver.corpuses.folder_service import DocumentFolderService
 
+        # Unified message prevents enumeration of corpora the caller cannot see/edit
+        not_found_msg = (
+            "Corpus not found or you do not have permission to remove documents from it"
+        )
         try:
             user = info.context.user
             doc_pks = [
                 int(from_global_id(doc_id)[1]) for doc_id in document_ids_to_remove
             ]
-            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            corpus = Corpus.objects.visible_to_user(user).get(
+                pk=from_global_id(corpus_id)[1]
+            )
 
             # Delegate to service - handles permission checks, soft-delete, audit trail
             removed_count, error = DocumentFolderService.remove_documents_from_corpus(
@@ -436,7 +459,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
             )
 
         except Corpus.DoesNotExist:
-            return RemoveDocumentsFromCorpus(message="Corpus not found", ok=False)
+            return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
         except Exception as e:
             return RemoveDocumentsFromCorpus(message=f"Error on removal: {e}", ok=False)
 
@@ -462,7 +485,7 @@ class StartCorpusFork(graphene.Mutation):
     new_corpus = graphene.Field(CorpusType)
 
     @login_required
-    def mutate(root, info, corpus_id, preferred_embedder=None):
+    def mutate(root, info, corpus_id, preferred_embedder=None) -> "StartCorpusFork":
 
         ok = False
         message = ""
@@ -534,7 +557,7 @@ class StartCorpusFork(graphene.Mutation):
                 _corpus_id=corpus.id,
                 _collected=collected,
                 _user_id=info.context.user.id,
-            ):
+            ) -> Any:
                 fork_corpus.si(
                     _corpus_id,
                     _collected.document_ids,
@@ -600,7 +623,7 @@ class ReEmbedCorpus(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    def mutate(root, info, corpus_id, new_embedder):
+    def mutate(root, info, corpus_id, new_embedder) -> "ReEmbedCorpus":
         from opencontractserver.pipeline.base.embedder import BaseEmbedder
         from opencontractserver.pipeline.utils import get_component_by_name
         from opencontractserver.tasks.corpus_tasks import reembed_corpus
@@ -775,7 +798,7 @@ class CreateCorpusAction(graphene.Mutation):
         inline_agent_tools: list = None,
         disabled: bool = False,
         run_on_all_corpuses: bool = False,
-    ):
+    ) -> "CreateCorpusAction":
         from opencontractserver.agents.models import AgentConfiguration
 
         try:
@@ -1076,7 +1099,7 @@ class UpdateCorpusAction(graphene.Mutation):
         pre_authorized_tools: list = None,
         disabled: bool = None,
         run_on_all_corpuses: bool = None,
-    ):
+    ) -> "UpdateCorpusAction":
         from opencontractserver.agents.models import AgentConfiguration
 
         try:
@@ -1239,7 +1262,9 @@ class RunCorpusAction(graphene.Mutation):
 
     @user_passes_test(lambda user: user.is_superuser)
     @graphql_ratelimit(rate=RateLimits.ADMIN_OPERATION)
-    def mutate(root, info, corpus_action_id: str, document_id: str):
+    def mutate(
+        root, info, corpus_action_id: str, document_id: str
+    ) -> "RunCorpusAction":
         from graphql_relay import from_global_id
 
         from opencontractserver.corpuses.models import CorpusActionExecution
@@ -1251,6 +1276,14 @@ class RunCorpusAction(graphene.Mutation):
         # Decode Relay global IDs to database PKs
         _, action_pk = from_global_id(corpus_action_id)
         _, doc_pk = from_global_id(document_id)
+
+        # Superuser-only: the @user_passes_test decorator above guarantees only
+        # superusers reach this point, so raw .objects.get() is intentional and
+        # bypasses visible_to_user() filtering by design. Defence-in-depth check
+        # uses an explicit raise (not ``assert``) so it survives ``python -O``
+        # which strips assertions.
+        if not user.is_superuser:
+            raise PermissionDenied("RunCorpusAction requires superuser privileges.")
 
         # Validate action exists
         try:
@@ -1342,7 +1375,7 @@ class AddTemplateToCorpus(graphene.Mutation):
     obj = graphene.Field(CorpusActionType)
 
     @login_required
-    def mutate(root, info, template_id: str, corpus_id: str):
+    def mutate(root, info, template_id: str, corpus_id: str) -> "AddTemplateToCorpus":
         try:
             user = info.context.user
             corpus_pk = from_global_id(corpus_id)[1]
@@ -1449,7 +1482,7 @@ class ToggleCorpusMemory(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(self, info, corpus_id, enabled):
+    def mutate(self, info, corpus_id, enabled) -> "ToggleCorpusMemory":
         user = info.context.user
         try:
             corpus_pk = from_global_id(corpus_id)[1]

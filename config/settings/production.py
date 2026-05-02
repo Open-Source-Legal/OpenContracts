@@ -133,7 +133,16 @@ INSTALLED_APPS = ["collectfasta"] + INSTALLED_APPS  # noqa F405
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "filters": {"require_debug_false": {"()": "django.utils.log.RequireDebugFalse"}},
+    "filters": {
+        "require_debug_false": {"()": "django.utils.log.RequireDebugFalse"},
+        # Issue #1432: silence the routine 'CSRF token missing.' WARNING
+        # that fires every time a Bearer-only SPA cold-starts. Other CSRF
+        # rejection reasons keep their WARNING level so origin/referer
+        # anomalies still surface.
+        "csrf_reject_filter": {
+            "()": "config.graphql.security.CsrfRejectLogFilter",
+        },
+    },
     "formatters": {
         "verbose": {
             "format": "%(levelname)s %(asctime)s %(module)s "
@@ -163,6 +172,19 @@ LOGGING = {
             "level": "ERROR",
             "handlers": ["console", "mail_admins"],
             "propagate": True,
+        },
+        "django.security.csrf": {
+            # `mail_admins` is wired here (rather than relying on propagation
+            # to `django.security` parent) because we set propagate=False so
+            # the filtered records don't get re-logged at the root handler.
+            # `mail_admins` defaults to WARNING+, and the filter demotes the
+            # benign "CSRF token missing" / "CSRF cookie not set" reasons to
+            # INFO, so only genuine CSRF anomalies (origin mismatch, bad
+            # referer, mismatched token) trigger an admin email.
+            "handlers": ["console", "mail_admins"],
+            "filters": ["csrf_reject_filter"],
+            "level": "INFO",
+            "propagate": False,
         },
     },
 }

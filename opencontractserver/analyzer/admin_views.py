@@ -1,5 +1,8 @@
+from typing import Any
+
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -17,11 +20,11 @@ from opencontractserver.utils.celery_tasks import (
 class AnalyzerSyncView(View):
     """Custom admin view for syncing doc analyzer tasks"""
 
-    template_name = "admin/analyzer/analyzer_sync.html"
+    template_name: str = "admin/analyzer/analyzer_sync.html"
 
-    def get_available_analyzers(self):
+    def get_available_analyzers(self) -> list[dict[str, Any]]:
         """Get info about all available doc analyzer tasks"""
-        analyzers = []
+        analyzers: list[dict[str, Any]] = []
 
         for task_name in celery_app.tasks.keys():
             analyzer_task = get_doc_analyzer_task_by_name(task_name)
@@ -48,8 +51,8 @@ class AnalyzerSyncView(View):
 
         return sorted(analyzers, key=lambda x: (x["exists"], x["task_name"]))
 
-    def get(self, request):
-        context = {
+    def get(self, request: HttpRequest) -> HttpResponse:
+        context: dict[str, Any] = {
             "title": "Sync Doc Analyzer Tasks",
             "analyzers": self.get_available_analyzers(),
             "opts": Analyzer._meta,
@@ -59,7 +62,7 @@ class AnalyzerSyncView(View):
         }
         return render(request, self.template_name, context)
 
-    def post(self, request):
+    def post(self, request: HttpRequest) -> HttpResponse:
         if not request.user.has_perm("analyzer.add_analyzer"):
             messages.error(request, "You don't have permission to create analyzers.")
             return redirect(reverse("admin:analyzer_sync"))

@@ -66,6 +66,8 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
         )
 
         # Create document with content hash (for structural set keying)
+        # Set processing_started to prevent the document processing signal
+        # from firing (it would fail because test documents have no actual files).
         self.doc = Document.objects.create(
             title="Document With Structural Annotations",
             pdf_file_hash="graphql_compat_hash_001",
@@ -784,6 +786,8 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TransactionTestCa
             [PermissionTypes.READ, PermissionTypes.UPDATE, PermissionTypes.DELETE],
         )
 
+        # Set processing_started to prevent the document processing signal
+        # from firing (it would fail because test documents have no actual files).
         self.doc = Document.objects.create(
             title="Document With Structural Relationships",
             pdf_file_hash="rel_test_hash_001",

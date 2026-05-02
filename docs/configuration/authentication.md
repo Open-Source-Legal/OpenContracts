@@ -207,6 +207,33 @@ exports.onExecutePostLogin = async (event, api) => {
     Creating and deploying the Action is not enough. You must drag it into the
     Login Flow and click Apply, otherwise it will not execute.
 
+!!! danger "The `namespace` value MUST match `AUTH0_ADMIN_CLAIM_NAMESPACE` exactly"
+    The `namespace` constant in the Action above is the key under which claims
+    are written into the access token. The Django backend reads claims at
+    `AUTH0_ADMIN_CLAIM_NAMESPACE` (default `https://contracts.opensource.legal/`).
+    If the two strings differ by even one character — including a typo
+    (`opencontracts` vs `contracts`), a missing trailing slash, or `http` vs
+    `https` — the backend will not find the claims, will treat them as missing,
+    and will **set `is_staff` / `is_superuser` to `False` on the user on each
+    sync cycle** (fail-closed sync; cached for 5 minutes per user via
+    `_sync_admin_claims_cached`, so freshly logged-in users may have a brief
+    window of elevated privileges before the next cache miss).
+    See `sync_admin_claims_from_payload()` in
+    `config/graphql_auth0_auth/utils.py`.
+
+    Symptom: an Auth0 user with `app_metadata.is_superuser = true` logs in and
+    the frontend admin links (e.g. the admin link in the user dropdown) do not
+    appear, and `User.is_superuser` in the Django shell flips back to `False`
+    shortly after each login.
+
+    Fix: either change the Action's `namespace` to match the backend, or set
+    `AUTH0_ADMIN_CLAIM_NAMESPACE` in the backend env to match the Action.
+    To verify, decode your access token at jwt.io and confirm the claim keys
+    are byte-for-byte identical to `AUTH0_ADMIN_CLAIM_NAMESPACE` + `is_staff` /
+    `is_superuser`. After the fix, the 5-minute claim cache means it can take
+    up to that long for the change to propagate — clear the Django cache or
+    restart the worker to apply it immediately.
+
 #### Step 6: Grant Admin Access to Auth0 Users
 
 To give an Auth0 user admin access:
@@ -429,19 +456,53 @@ shows "Auth0 unavailable" or clicking it logs "Auth0 client not initialized".
 ### Admin claim missing, defaulting to False
 
 **Symptom**: Django logs show `Admin claim is_staff missing; defaulting to False`
-and the user is denied admin access even though they authenticated successfully.
+(emitted at `INFO` level — bump `config.graphql_auth0_auth.utils` to `INFO` or
+lower if you don't see it on production logging defaults) and the user is denied
+admin access even though they authenticated successfully. Equivalently, the
+frontend admin link in the user dropdown does not appear for a user that has
+`app_metadata.is_superuser = true` in Auth0, and `User.is_superuser` in the
+Django shell keeps flipping back to `False` after each sync cycle.
 
 **Likely causes**:
 
-1. **Post-Login Action not deployed or not in the flow**: Go to
+1. **Namespace mismatch between the Action and the backend**: The Post-Login
+   Action's `namespace` constant must match `AUTH0_ADMIN_CLAIM_NAMESPACE`
+   byte-for-byte. A common pitfall is using `https://opencontracts.opensource.legal/`
+   in the Action while the backend default is `https://contracts.opensource.legal/`
+   (note: `opencontracts` vs `contracts`). Other common typos: missing trailing
+   slash, `http` vs `https`. Decode your access token at jwt.io and confirm
+   the claim key matches exactly.
+2. **Post-Login Action not deployed or not in the flow**: Go to
    **Actions > Flows > Login** and verify the Action is dragged into the flow
    and **Apply** has been clicked.
-2. **Missing `app_metadata`**: The user needs `is_staff: true` (and optionally
+3. **Missing `app_metadata`**: The user needs `is_staff: true` (and optionally
    `is_superuser: true`) in their `app_metadata`. Go to
    **User Management > Users > (your user) > app_metadata** and set it.
-3. **Stale token**: The claims are set at login time. If you added `app_metadata`
+4. **Stale token**: The claims are set at login time. If you added `app_metadata`
    after the user logged in, they need to log out and log back in to get a new
    token with the updated claims.
+5. **Stale 5-minute claim cache after fixing the namespace**: Sync results are
+   cached for `ADMIN_CLAIMS_CACHE_TTL` (300 seconds) per user via
+   `_sync_admin_claims_cached()`. After correcting the namespace env var, the
+   fix won't propagate for users whose claims were synced in the last 5 minutes.
+   Clear the Django cache (`cache.clear()` in a management shell) or restart the
+   worker, then have the affected user log out and back in.
+
+!!! tip "Diagnostic: confirm the namespace at runtime"
+    Set the log level for `config.graphql_auth0_auth.utils` to `DEBUG`. The
+    `sync_admin_claims` debug lines print the exact namespace the backend is
+    using and the keys present in the decoded token, so a side-by-side comparison
+    rules namespace mismatch in or out without needing jwt.io.
+
+!!! info "Why missing claims revoke admin instead of being ignored"
+    The backend sync is fail-closed: a claim that is missing or invalid is
+    treated as `False` and the user's Django flag is set to `False` (only when
+    the current value differs, so cached writes are a no-op). This prevents
+    privilege retention if a user is removed from Auth0 admin, but it also
+    means a misconfigured namespace will silently strip admin on each sync
+    cycle (at most once every 5 minutes per user). See
+    `sync_admin_claims_from_payload()` in
+    `config/graphql_auth0_auth/utils.py`.
 
 ### User created but has no email
 

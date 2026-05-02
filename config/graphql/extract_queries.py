@@ -7,6 +7,7 @@ which are used by extract/metadata queries.
 
 import inspect
 import logging
+from typing import Any
 
 import graphene
 from django.conf import settings
@@ -16,6 +17,7 @@ from graphene_django.filter import DjangoFilterConnectionField
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
+from config.graphql.document_types import DocumentType
 from config.graphql.filters import (
     AnalysisFilter,
     AnalyzerFilter,
@@ -51,6 +53,67 @@ class MetadataCompletionStatusType(graphene.ObjectType):
     missing_required = graphene.List(graphene.String)
 
 
+# ---------------------------------------------------------------------------
+# Extract iteration diff types
+# ---------------------------------------------------------------------------
+
+
+class ExtractDiffStatus(graphene.Enum):
+    """Cell-level diff result between two iterations of the same extract."""
+
+    UNCHANGED = "UNCHANGED"
+    CHANGED = "CHANGED"
+    ONLY_IN_A = "ONLY_IN_A"
+    ONLY_IN_B = "ONLY_IN_B"
+
+
+class ExtractCellDiffType(graphene.ObjectType):
+    """One row of the compare grid: same (column, document) on both sides.
+
+    ``rowKey`` is a stable identifier for the document row across iterations
+    (the document's ``version_tree_id`` when available, else its PK). Using
+    the version-tree key lets the UI render a single row even when the two
+    iterations point at different content versions of the same logical doc.
+    ``columnKey`` is the column name, which is stable when fieldsets are
+    cloned because the clone preserves the name.
+    """
+
+    row_key = graphene.String(required=True)
+    column_key = graphene.String(required=True)
+    document = graphene.Field(
+        DocumentType,
+        description="Representative Document (B side preferred). For "
+        "DOCUMENT_VERSIONS-axis diffs use documentA / documentB to see "
+        "the actual version on each side.",
+    )
+    document_a = graphene.Field(DocumentType)
+    document_b = graphene.Field(DocumentType)
+    cell_a = graphene.Field(DatacellType)
+    cell_b = graphene.Field(DatacellType)
+    status = graphene.Field(ExtractDiffStatus, required=True)
+    column_config_changed = graphene.Boolean(
+        description="True when the column on B has a different prompt / "
+        "instructions / output_type from the column on A (FIELDSET axis)."
+    )
+
+
+class ExtractDiffSummaryType(graphene.ObjectType):
+    """Aggregate counts for the diff — used for the heatmap legend."""
+
+    unchanged = graphene.Int(required=True)
+    changed = graphene.Int(required=True)
+    only_in_a = graphene.Int(required=True)
+    only_in_b = graphene.Int(required=True)
+    total = graphene.Int(required=True)
+
+
+class ExtractDiffType(graphene.ObjectType):
+    extract_a = graphene.Field(ExtractType)
+    extract_b = graphene.Field(ExtractType)
+    cells = graphene.List(ExtractCellDiffType, required=True)
+    summary = graphene.Field(ExtractDiffSummaryType, required=True)
+
+
 class DocumentMetadataResultType(graphene.ObjectType):
     """Type for batch metadata query results - groups datacells by document."""
 
@@ -65,7 +128,7 @@ class ExtractQueryMixin:
 
     fieldset = relay.Node.Field(FieldsetType)
 
-    def resolve_fieldset(self, info, **kwargs):
+    def resolve_fieldset(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return Fieldset.objects.visible_to_user(info.context.user).get(id=django_pk)
 
@@ -73,23 +136,23 @@ class ExtractQueryMixin:
         FieldsetType, filterset_class=FieldsetFilter
     )
 
-    def resolve_fieldsets(self, info, **kwargs):
+    def resolve_fieldsets(self, info, **kwargs) -> Any:
         return Fieldset.objects.visible_to_user(info.context.user)
 
     column = relay.Node.Field(ColumnType)
 
-    def resolve_column(self, info, **kwargs):
+    def resolve_column(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return Column.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     columns = DjangoFilterConnectionField(ColumnType, filterset_class=ColumnFilter)
 
-    def resolve_columns(self, info, **kwargs):
+    def resolve_columns(self, info, **kwargs) -> Any:
         return Column.objects.visible_to_user(info.context.user)
 
     extract = relay.Node.Field(ExtractType)
 
-    def resolve_extract(self, info, **kwargs):
+    def resolve_extract(self, info, **kwargs) -> Any:
         from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
 
         django_pk = from_global_id(kwargs.get("id", None))[1]
@@ -102,7 +165,7 @@ class ExtractQueryMixin:
         ExtractType, filterset_class=ExtractFilter, max_limit=15
     )
 
-    def resolve_extracts(self, info, **kwargs):
+    def resolve_extracts(self, info, **kwargs) -> Any:
         from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
 
         corpus_id = kwargs.get("corpus_id")
@@ -115,9 +178,62 @@ class ExtractQueryMixin:
             info.context.user, corpus_id=corpus_django_pk
         )
 
+    compare_extracts = graphene.Field(
+        ExtractDiffType,
+        extract_a_id=graphene.ID(required=True),
+        extract_b_id=graphene.ID(required=True),
+        description="Cell-level diff between two iterations of the same extract series.",
+    )
+
+    @login_required
+    def resolve_compare_extracts(self, info, extract_a_id, extract_b_id) -> Any:
+        from opencontractserver.annotations.query_optimizer import (
+            ExtractQueryOptimizer,
+        )
+        from opencontractserver.extracts.diff import diff_extracts, summarise
+
+        user = info.context.user
+        a_pk = int(from_global_id(extract_a_id)[1])
+        b_pk = int(from_global_id(extract_b_id)[1])
+
+        # Permission check leverages the same optimizer the extract node
+        # resolver uses, so visibility rules stay consistent.
+        a_ok, extract_a = ExtractQueryOptimizer.check_extract_permission(user, a_pk)
+        b_ok, extract_b = ExtractQueryOptimizer.check_extract_permission(user, b_pk)
+        if not (a_ok and b_ok and extract_a and extract_b):
+            return None
+
+        cells_a = ExtractQueryOptimizer.get_extract_datacells(
+            extract_a, user, document_id=None
+        )
+        cells_b = ExtractQueryOptimizer.get_extract_datacells(
+            extract_b, user, document_id=None
+        )
+
+        diffs = diff_extracts(extract_a, extract_b, cells_a=cells_a, cells_b=cells_b)
+        return ExtractDiffType(
+            extract_a=extract_a,
+            extract_b=extract_b,
+            cells=[
+                ExtractCellDiffType(
+                    row_key=d.row_key,
+                    column_key=d.column_key,
+                    document=d.document,
+                    document_a=d.document_a,
+                    document_b=d.document_b,
+                    cell_a=d.cell_a,
+                    cell_b=d.cell_b,
+                    status=d.status,
+                    column_config_changed=d.column_config_changed,
+                )
+                for d in diffs
+            ],
+            summary=ExtractDiffSummaryType(**summarise(diffs)),
+        )
+
     datacell = relay.Node.Field(DatacellType)
 
-    def resolve_datacell(self, info, **kwargs):
+    def resolve_datacell(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return Datacell.objects.visible_to_user(info.context.user).get(id=django_pk)
 
@@ -125,13 +241,13 @@ class ExtractQueryMixin:
         DatacellType, filterset_class=DatacellFilter
     )
 
-    def resolve_datacells(self, info, **kwargs):
+    def resolve_datacells(self, info, **kwargs) -> Any:
         return Datacell.objects.visible_to_user(info.context.user)
 
     registered_extract_tasks = graphene.Field(GenericScalar)
 
     @login_required
-    def resolve_registered_extract_tasks(self, info, **kwargs):
+    def resolve_registered_extract_tasks(self, info, **kwargs) -> Any:
         from config import celery_app
 
         tasks = {}
@@ -176,7 +292,7 @@ class ExtractQueryMixin:
         description="Get metadata datacells for multiple documents in a single query (batch)",
     )
 
-    def resolve_document_metadata_datacells(self, info, document_id, corpus_id):
+    def resolve_document_metadata_datacells(self, info, document_id, corpus_id) -> Any:
         """Get metadata datacells for a document using MetadataQueryOptimizer."""
         from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
 
@@ -188,7 +304,9 @@ class ExtractQueryMixin:
             user, local_doc_id, local_corpus_id, manual_only=True
         )
 
-    def resolve_metadata_completion_status_v2(self, info, document_id, corpus_id):
+    def resolve_metadata_completion_status_v2(
+        self, info, document_id, corpus_id
+    ) -> Any:
         """Get metadata completion status using MetadataQueryOptimizer."""
         from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
 
@@ -200,7 +318,9 @@ class ExtractQueryMixin:
             user, local_doc_id, local_corpus_id
         )
 
-    def resolve_documents_metadata_datacells_batch(self, info, document_ids, corpus_id):
+    def resolve_documents_metadata_datacells_batch(
+        self, info, document_ids, corpus_id
+    ) -> Any:
         """
         Get metadata datacells for multiple documents using MetadataQueryOptimizer.
 
@@ -256,7 +376,7 @@ class ExtractQueryMixin:
         # GREMLIN ENGINE RESOLVERS #####################################
         gremlin_engine = relay.Node.Field(GremlinEngineType_READ)
 
-        def resolve_gremlin_engine(self, info, **kwargs):
+        def resolve_gremlin_engine(self, info, **kwargs) -> Any:
             django_pk = from_global_id(kwargs.get("id", None))[1]
             return GremlinEngine.objects.visible_to_user(info.context.user).get(
                 id=django_pk
@@ -266,13 +386,13 @@ class ExtractQueryMixin:
             GremlinEngineType_READ, filterset_class=GremlinEngineFilter
         )
 
-        def resolve_gremlin_engines(self, info, **kwargs):
+        def resolve_gremlin_engines(self, info, **kwargs) -> Any:
             return GremlinEngine.objects.visible_to_user(info.context.user)
 
         # ANALYZER RESOLVERS #####################################
         analyzer = relay.Node.Field(AnalyzerType)
 
-        def resolve_analyzer(self, info, **kwargs):
+        def resolve_analyzer(self, info, **kwargs) -> Any:
 
             if kwargs.get("id", None) is not None:
                 django_pk = from_global_id(kwargs.get("id", None))[1]
@@ -287,13 +407,13 @@ class ExtractQueryMixin:
             AnalyzerType, filterset_class=AnalyzerFilter
         )
 
-        def resolve_analyzers(self, info, **kwargs):
+        def resolve_analyzers(self, info, **kwargs) -> Any:
             return Analyzer.objects.visible_to_user(info.context.user)
 
         # ANALYSIS RESOLVERS #####################################
         analysis = relay.Node.Field(AnalysisType)
 
-        def resolve_analysis(self, info, **kwargs):
+        def resolve_analysis(self, info, **kwargs) -> Any:
             from opencontractserver.annotations.query_optimizer import (
                 AnalysisQueryOptimizer,
             )
@@ -309,7 +429,7 @@ class ExtractQueryMixin:
         )
 
         @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
-        def resolve_analyses(self, info, **kwargs):
+        def resolve_analyses(self, info, **kwargs) -> Any:
             from opencontractserver.annotations.query_optimizer import (
                 AnalysisQueryOptimizer,
             )

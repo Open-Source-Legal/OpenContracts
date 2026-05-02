@@ -40,7 +40,7 @@ class CreateWorkerAccount(graphene.Mutation):
     worker_account = graphene.Field(WorkerAccountType)
 
     @user_passes_test(lambda user: user.is_superuser)
-    def mutate(root, info, name, description=""):
+    def mutate(root, info, name, description="") -> "CreateWorkerAccount":
         user = info.context.user
 
         try:
@@ -75,7 +75,7 @@ class DeactivateWorkerAccount(graphene.Mutation):
     ok = graphene.Boolean()
 
     @user_passes_test(lambda user: user.is_superuser)
-    def mutate(root, info, worker_account_id):
+    def mutate(root, info, worker_account_id) -> "DeactivateWorkerAccount":
         try:
             account = WorkerAccount.objects.get(id=worker_account_id)
         except WorkerAccount.DoesNotExist:
@@ -101,7 +101,7 @@ class ReactivateWorkerAccount(graphene.Mutation):
     ok = graphene.Boolean()
 
     @user_passes_test(lambda user: user.is_superuser)
-    def mutate(root, info, worker_account_id):
+    def mutate(root, info, worker_account_id) -> "ReactivateWorkerAccount":
         try:
             account = WorkerAccount.objects.get(id=worker_account_id)
         except WorkerAccount.DoesNotExist:
@@ -143,7 +143,7 @@ class CreateCorpusAccessTokenMutation(graphene.Mutation):
         corpus_id,
         expires_at=None,
         rate_limit_per_minute=0,
-    ):
+    ) -> "CreateCorpusAccessTokenMutation":
         user = info.context.user
 
         try:
@@ -194,7 +194,7 @@ class RevokeCorpusAccessTokenMutation(graphene.Mutation):
     ok = graphene.Boolean()
 
     @login_required
-    def mutate(root, info, token_id):
+    def mutate(root, info, token_id) -> "RevokeCorpusAccessTokenMutation":
         user = info.context.user
 
         qs = CorpusAccessToken.objects.select_related("corpus").filter(id=token_id)

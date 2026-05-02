@@ -213,6 +213,13 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             required=False,
             description="Default embedder class path when no MIME-specific embedder is found.",
         )
+        default_reranker = graphene.String(
+            required=False,
+            description=(
+                "Default post-retrieval reranker class path. Empty string "
+                "disables reranking (first-stage vector / hybrid search only)."
+            ),
+        )
         enabled_components = graphene.List(
             graphene.String,
             required=False,
@@ -237,8 +244,9 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         parser_kwargs=None,
         component_settings=None,
         default_embedder=None,
+        default_reranker=None,
         enabled_components=None,
-    ):
+    ) -> "UpdatePipelineSettingsMutation":
         """
         Update the pipeline settings.
 
@@ -393,6 +401,32 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         )
                 settings_instance.default_embedder = default_embedder
 
+            # Validate default_reranker (empty string = disabled)
+            if default_reranker is not None:
+                if default_reranker:
+                    error = validate_component_path(default_reranker)
+                    if error:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False, message=error, pipeline_settings=None
+                        )
+                    if not registry.get_by_class_name(default_reranker):
+                        return UpdatePipelineSettingsMutation(
+                            ok=False,
+                            message=(
+                                f"Default reranker '{default_reranker}' "
+                                "not found in registry."
+                            ),
+                            pipeline_settings=None,
+                        )
+                settings_instance.default_reranker = default_reranker
+                # Drop cached reranker instance so the next retrieval picks
+                # up the new configuration without a worker restart.
+                from opencontractserver.pipeline.utils import (
+                    invalidate_reranker_cache,
+                )
+
+                invalidate_reranker_cache()
+
             # Validate enabled_components
             if enabled_components is not None:
                 if not isinstance(enabled_components, list):
@@ -487,6 +521,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     ("parser_kwargs", parser_kwargs),
                     ("component_settings", component_settings),
                     ("default_embedder", default_embedder),
+                    ("default_reranker", default_reranker),
                     ("enabled_components", enabled_components),
                 ]
                 if val is not None
@@ -508,6 +543,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     parser_kwargs=settings_instance.parser_kwargs or {},
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
+                    default_reranker=settings_instance.default_reranker or "",
                     enabled_components=settings_instance.enabled_components or [],
                     components_with_secrets=list(
                         settings_instance.get_secrets().keys()
@@ -548,7 +584,7 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info):
+    def mutate(root, info) -> "ResetPipelineSettingsMutation":
         """Reset pipeline settings to Django settings defaults."""
         from django.conf import settings as django_settings
 
@@ -674,7 +710,9 @@ class UpdateComponentSecretsMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, component_path, secrets, merge=True):
+    def mutate(
+        root, info, component_path, secrets, merge=True
+    ) -> "UpdateComponentSecretsMutation":
         """Update encrypted secrets for a component."""
         from opencontractserver.documents.models import PipelineSettings
 
@@ -797,7 +835,9 @@ class UpdateToolSecretsMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, tool_key, secrets=None, settings=None, merge=True):
+    def mutate(
+        root, info, tool_key, secrets=None, settings=None, merge=True
+    ) -> "UpdateToolSecretsMutation":
         """Update secrets and/or settings for an agent tool."""
         from opencontractserver.constants.tools import TOOL_SETTINGS_PREFIX
         from opencontractserver.documents.models import PipelineSettings
@@ -940,7 +980,7 @@ class DeleteToolSecretsMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, tool_key):
+    def mutate(root, info, tool_key) -> "DeleteToolSecretsMutation":
         """Delete all settings and secrets for a tool."""
         from opencontractserver.constants.tools import TOOL_SETTINGS_PREFIX
         from opencontractserver.documents.models import PipelineSettings
@@ -1013,7 +1053,7 @@ class DeleteComponentSecretsMutation(graphene.Mutation):
 
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, component_path):
+    def mutate(root, info, component_path) -> "DeleteComponentSecretsMutation":
         """Delete all secrets for a component."""
         from opencontractserver.documents.models import PipelineSettings
 

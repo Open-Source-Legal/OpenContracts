@@ -3,6 +3,7 @@ GraphQL query mixin for corpus action and execution queries.
 """
 
 import logging
+from typing import Any
 
 import graphene
 from graphene_django.fields import DjangoConnectionField
@@ -33,7 +34,7 @@ class ActionQueryMixin:
     )
 
     @login_required
-    def resolve_corpus_action_templates(self, info, **kwargs):
+    def resolve_corpus_action_templates(self, info, **kwargs) -> Any:
         """Return available corpus action templates.
 
         Templates are system-level and read-only — any authenticated user
@@ -58,7 +59,7 @@ class ActionQueryMixin:
     )
 
     @login_required
-    def resolve_corpus_actions(self, info, **kwargs):
+    def resolve_corpus_actions(self, info, **kwargs) -> Any:
         """
         Resolver for corpus_actions that returns actions visible to the current user.
         Can be filtered by corpus_id, trigger type, and disabled status.
@@ -93,7 +94,7 @@ class ActionQueryMixin:
     )
 
     @login_required
-    def resolve_agent_action_results(self, info, **kwargs):
+    def resolve_agent_action_results(self, info, **kwargs) -> Any:
         """
         Resolver for agent_action_results that returns results visible to the current user.
         Can be filtered by corpus_action_id, document_id, and status.
@@ -142,7 +143,7 @@ class ActionQueryMixin:
     )
 
     @login_required
-    def resolve_corpus_action_executions(self, info, **kwargs):
+    def resolve_corpus_action_executions(self, info, **kwargs) -> Any:
         """
         Resolver for corpus_action_executions that returns executions visible to
         the current user.
@@ -159,7 +160,7 @@ class ActionQueryMixin:
         # Filter by corpus if provided (with access check)
         corpus_id = kwargs.get("corpus_id")
         if corpus_id:
-            corpus_pk = from_global_id(corpus_id)[1]
+            corpus_pk = int(from_global_id(corpus_id)[1])
             # Defense-in-depth: verify user has access to this corpus
             if not Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).exists():
                 return queryset.none()
@@ -168,7 +169,7 @@ class ActionQueryMixin:
         # Filter by document if provided (with access check)
         document_id = kwargs.get("document_id")
         if document_id:
-            document_pk = from_global_id(document_id)[1]
+            document_pk = int(from_global_id(document_id)[1])
             # Defense-in-depth: verify user has access to this document
             if (
                 not Document.objects.visible_to_user(user)
@@ -220,7 +221,7 @@ class ActionQueryMixin:
     )
 
     @login_required
-    def resolve_corpus_action_trail_stats(self, info, corpus_id, since=None):
+    def resolve_corpus_action_trail_stats(self, info, corpus_id, since=None) -> Any:
         """
         Resolver for corpus_action_trail_stats that returns aggregated statistics
         for corpus action executions.
@@ -230,7 +231,7 @@ class ActionQueryMixin:
         from opencontractserver.corpuses.models import Corpus, CorpusActionExecution
 
         user = info.context.user
-        corpus_pk = from_global_id(corpus_id)[1]
+        corpus_pk = int(from_global_id(corpus_id)[1])
 
         # Defense-in-depth: verify user has access to this corpus
         if not Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).exists():
@@ -291,7 +292,7 @@ class ActionQueryMixin:
         corpus_id=graphene.ID(required=False),
     )
 
-    def resolve_document_corpus_actions(self, info, document_id, corpus_id=None):
+    def resolve_document_corpus_actions(self, info, document_id, corpus_id=None) -> Any:
         """
         Resolve document actions (corpus actions, extracts, analysis rows) with proper
         permission filtering.

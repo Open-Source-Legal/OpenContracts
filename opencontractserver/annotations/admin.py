@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from django.contrib import admin
-from django.db.models import Count
+from django.db.models import Count, QuerySet
 from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.annotations.models import (
@@ -11,6 +15,9 @@ from opencontractserver.annotations.models import (
     Relationship,
 )
 
+if TYPE_CHECKING:
+    from django.http import HttpRequest
+
 
 class ContentModalityFilter(admin.SimpleListFilter):
     """
@@ -21,7 +28,11 @@ class ContentModalityFilter(admin.SimpleListFilter):
     title = "content modality"
     parameter_name = "modality"
 
-    def lookups(self, request, model_admin):
+    def lookups(
+        self,
+        request: HttpRequest,
+        model_admin: admin.ModelAdmin[Any],
+    ) -> tuple[tuple[str, str], ...]:
         return (
             ("text", "TEXT only"),
             ("image", "IMAGE only"),
@@ -31,7 +42,11 @@ class ContentModalityFilter(admin.SimpleListFilter):
             ("empty", "No modalities"),
         )
 
-    def queryset(self, request, queryset):
+    def queryset(
+        self,
+        request: HttpRequest,
+        queryset: QuerySet[Annotation],
+    ) -> QuerySet[Annotation]:
         if self.value() == "text":
             return queryset.filter(content_modalities=["TEXT"])
         if self.value() == "image":
@@ -61,7 +76,7 @@ class AnnotationEmbeddingInline(admin.TabularInline):
     readonly_fields = ("id", "embedder_path", "dimension", "created", "modified")
     extra = 0
 
-    def dimension(self, obj):
+    def dimension(self, obj: Embedding) -> str:
         """Display which vector dimension is populated."""
         if obj.vector_384 is not None:
             return "384"
@@ -73,7 +88,7 @@ class AnnotationEmbeddingInline(admin.TabularInline):
             return "3072"
         return "Unknown"
 
-    dimension.short_description = "Dimension"
+    dimension.short_description = "Dimension"  # type: ignore[attr-defined]
 
 
 class NoteEmbeddingInline(admin.TabularInline):
@@ -87,7 +102,7 @@ class NoteEmbeddingInline(admin.TabularInline):
     readonly_fields = ("id", "embedder_path", "dimension", "created", "modified")
     extra = 0
 
-    def dimension(self, obj):
+    def dimension(self, obj: Embedding) -> str:
         """Display which vector dimension is populated."""
         if obj.vector_384 is not None:
             return "384"
@@ -99,7 +114,7 @@ class NoteEmbeddingInline(admin.TabularInline):
             return "3072"
         return "Unknown"
 
-    dimension.short_description = "Dimension"
+    dimension.short_description = "Dimension"  # type: ignore[attr-defined]
 
 
 @admin.register(Annotation)
@@ -125,23 +140,23 @@ class AnnotationAdmin(GuardedModelAdmin):
     raw_id_fields = ("annotation_label", "document", "corpus", "analysis", "creator")
     inlines = [AnnotationEmbeddingInline]
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Any]:
         """
         Override queryset to annotate with embedding count.
         """
         qs = super().get_queryset(request)
         return qs.annotate(total_embeddings=Count("embedding_set", distinct=True))
 
-    def total_embeddings(self, obj):
+    def total_embeddings(self, obj: Annotation) -> int:
         """
         Display the total number of embeddings for this annotation.
         """
-        return obj.total_embeddings
+        return obj.total_embeddings  # type: ignore[attr-defined]
 
-    total_embeddings.admin_order_field = "total_embeddings"
-    total_embeddings.short_description = "Embeddings"
+    total_embeddings.admin_order_field = "total_embeddings"  # type: ignore[attr-defined]
+    total_embeddings.short_description = "Embeddings"  # type: ignore[attr-defined]
 
-    def modality_display(self, obj):
+    def modality_display(self, obj: Annotation) -> str:
         """
         Display content modalities as a formatted string.
         """
@@ -149,7 +164,7 @@ class AnnotationAdmin(GuardedModelAdmin):
             return ", ".join(obj.content_modalities)
         return "-"
 
-    modality_display.short_description = "Modality"
+    modality_display.short_description = "Modality"  # type: ignore[attr-defined]
 
 
 @admin.register(Relationship)
@@ -194,21 +209,21 @@ class NoteAdmin(GuardedModelAdmin):
     raw_id_fields = ("parent", "document", "annotation", "creator")
     inlines = [NoteEmbeddingInline]
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Any]:
         """
         Override queryset to annotate with embedding count.
         """
         qs = super().get_queryset(request)
         return qs.annotate(total_embeddings=Count("embedding_set", distinct=True))
 
-    def total_embeddings(self, obj):
+    def total_embeddings(self, obj: Note) -> int:
         """
         Display the total number of embeddings for this note.
         """
-        return obj.total_embeddings
+        return obj.total_embeddings  # type: ignore[attr-defined]
 
-    total_embeddings.admin_order_field = "total_embeddings"
-    total_embeddings.short_description = "Embeddings"
+    total_embeddings.admin_order_field = "total_embeddings"  # type: ignore[attr-defined]
+    total_embeddings.short_description = "Embeddings"  # type: ignore[attr-defined]
 
 
 @admin.register(Embedding)
@@ -227,7 +242,7 @@ class EmbeddingAdmin(GuardedModelAdmin):
     search_fields = ["embedder_path", "id"]
     raw_id_fields = ("document", "annotation", "note", "creator")
 
-    def reference_type(self, obj):
+    def reference_type(self, obj: Embedding) -> str:
         """Display what type of object this embedding belongs to."""
         if obj.document_id:
             return f"Document #{obj.document_id}"
@@ -237,11 +252,11 @@ class EmbeddingAdmin(GuardedModelAdmin):
             return f"Note #{obj.note_id}"
         return "Unknown"
 
-    reference_type.short_description = "Referenced Object"
+    reference_type.short_description = "Referenced Object"  # type: ignore[attr-defined]
 
-    def dimension_info(self, obj):
+    def dimension_info(self, obj: Embedding) -> str:
         """Display which vector dimension is populated."""
-        dimensions = []
+        dimensions: list[str] = []
         if obj.vector_384 is not None:
             dimensions.append("384")
         if obj.vector_768 is not None:
@@ -252,4 +267,4 @@ class EmbeddingAdmin(GuardedModelAdmin):
             dimensions.append("3072")
         return ", ".join(dimensions) if dimensions else "None"
 
-    dimension_info.short_description = "Dimensions"
+    dimension_info.short_description = "Dimensions"  # type: ignore[attr-defined]

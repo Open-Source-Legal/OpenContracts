@@ -229,6 +229,22 @@ class PydanticAIDependencies(BaseModel):
         description="Maximum characters for tool output before truncation",
     )
 
+    # Per-run citation accumulator.  Retrieval tools (similarity_search,
+    # search_exact_text_as_sources, load_annotation_window, ...) append the
+    # real Annotation PKs they return here so callers can link them to the
+    # owning object after the agent run completes (e.g. ``Datacell.sources``
+    # for extraction, ``ChatMessage.source_annotations`` for chat).
+    # Synthetic / negative IDs produced by ad-hoc match tools MUST NOT be
+    # appended.  Duplicates are allowed; callers dedupe.
+    retrieved_annotation_ids: list[int] = Field(
+        default_factory=list,
+        description=(
+            "Annotation IDs returned by retrieval tools during this run. "
+            "Populated by tool implementations; consumed by the caller "
+            "to link citations to the owning object."
+        ),
+    )
+
 
 class PydanticAIToolWrapper:
     """Modern Pydantic AI tool wrapper following latest patterns."""

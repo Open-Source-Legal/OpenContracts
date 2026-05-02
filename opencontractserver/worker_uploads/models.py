@@ -1,6 +1,8 @@
 import hashlib
 import secrets
 import uuid
+from datetime import datetime
+from typing import Any, Optional
 
 from django.contrib.auth import get_user_model
 from django.db import models
@@ -29,7 +31,7 @@ def hash_token(plaintext: str) -> str:
     return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
 
 
-def _upload_staging_path(instance, filename):
+def _upload_staging_path(instance: Any, filename: str) -> str:
     return calc_oc_file_path(instance, filename, "worker_uploads/staging")
 
 
@@ -80,12 +82,18 @@ class WorkerAccount(models.Model):
             models.Index(fields=["is_active"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         status = "active" if self.is_active else "inactive"
         return f"WorkerAccount({self.name}, {status})"
 
     @classmethod
-    def create_with_user(cls, *, name: str, description: str = "", creator=None):
+    def create_with_user(
+        cls,
+        *,
+        name: str,
+        description: str = "",
+        creator: Optional[Any] = None,
+    ) -> "WorkerAccount":
         """
         Create a WorkerAccount with an auto-generated Django User.
 
@@ -189,7 +197,7 @@ class CorpusAccessToken(models.Model):
             models.Index(fields=["is_active", "expires_at"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         status = "active" if self.is_active else "revoked"
         prefix = f"{self.key_prefix}..." if self.key_prefix else "???"
         return (
@@ -202,12 +210,12 @@ class CorpusAccessToken(models.Model):
     def create_token(
         cls,
         *,
-        worker_account,
-        corpus,
-        expires_at=None,
-        rate_limit_per_minute=0,
-        is_active=True,
-    ):
+        worker_account: WorkerAccount,
+        corpus: Any,
+        expires_at: Optional[datetime] = None,
+        rate_limit_per_minute: int = 0,
+        is_active: bool = True,
+    ) -> tuple["CorpusAccessToken", str]:
         """
         Create a new token, storing only the SHA-256 hash.
 
@@ -322,5 +330,5 @@ class WorkerDocumentUpload(models.Model):
             models.Index(fields=["corpus_access_token"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"WorkerDocumentUpload({self.id}, {self.status})"

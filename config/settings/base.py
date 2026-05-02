@@ -158,6 +158,7 @@ LOCAL_APPS = [
     "opencontractserver.agents",
     "opencontractserver.worker_uploads",
     "opencontractserver.discovery",
+    "opencontractserver.benchmarks",
 ]
 
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -607,6 +608,15 @@ MANAGERS = ADMINS
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        # Demote the routine "CSRF token missing." WARNING to INFO so
+        # genuine CSRF anomalies (origin mismatch, bad referer) stand out.
+        # See config/graphql/security.py::CsrfRejectLogFilter for the
+        # full rationale (issue #1432).
+        "csrf_reject_filter": {
+            "()": "config.graphql.security.CsrfRejectLogFilter",
+        },
+    },
     "formatters": {
         "verbose": {
             "format": (
@@ -625,7 +635,14 @@ LOGGING = {
         "handlers": ["console"],
         "level": "INFO",
     },
-    "loggers": {},
+    "loggers": {
+        "django.security.csrf": {
+            "handlers": ["console"],
+            "filters": ["csrf_reject_filter"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
 }
 
 # Celery

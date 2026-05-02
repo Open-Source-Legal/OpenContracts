@@ -7,6 +7,8 @@ They only return data for public entities (is_public=True).
 See: docs/architecture/social-media-previews.md
 """
 
+from __future__ import annotations
+
 import logging
 
 import graphene
@@ -66,7 +68,9 @@ class OGMetadataQueryMixin:
     )
 
     @graphql_ratelimit(key="ip", rate="60/m", group="og_metadata")
-    def resolve_og_corpus_metadata(self, info, user_slug, corpus_slug):
+    def resolve_og_corpus_metadata(
+        self, info: graphene.ResolveInfo, user_slug: str, corpus_slug: str
+    ) -> OGCorpusMetadataType | None:
         """
         Public OG metadata for corpus - no auth required.
         Only returns data for public corpuses (is_public=True).
@@ -104,7 +108,9 @@ class OGMetadataQueryMixin:
             return None
 
     @graphql_ratelimit(key="ip", rate="60/m", group="og_metadata")
-    def resolve_og_document_metadata(self, info, user_slug, document_slug):
+    def resolve_og_document_metadata(
+        self, info: graphene.ResolveInfo, user_slug: str, document_slug: str
+    ) -> OGDocumentMetadataType | None:
         """
         Public OG metadata for standalone document - no auth required.
         Only returns data for public documents (is_public=True).
@@ -138,8 +144,12 @@ class OGMetadataQueryMixin:
 
     @graphql_ratelimit(key="ip", rate="60/m", group="og_metadata")
     def resolve_og_document_in_corpus_metadata(
-        self, info, user_slug, corpus_slug, document_slug
-    ):
+        self,
+        info: graphene.ResolveInfo,
+        user_slug: str,
+        corpus_slug: str,
+        document_slug: str,
+    ) -> OGDocumentMetadataType | None:
         """
         Public OG metadata for document in corpus context - no auth required.
         Only returns data if both corpus and document are public.
@@ -177,7 +187,13 @@ class OGMetadataQueryMixin:
             return None
 
     @graphql_ratelimit(key="ip", rate="60/m", group="og_metadata")
-    def resolve_og_thread_metadata(self, info, user_slug, corpus_slug, thread_id):
+    def resolve_og_thread_metadata(
+        self,
+        info: graphene.ResolveInfo,
+        user_slug: str,
+        corpus_slug: str,
+        thread_id: str,
+    ) -> OGThreadMetadataType | None:
         """
         Public OG metadata for discussion thread - no auth required.
         Only returns data if parent corpus is public.
@@ -218,7 +234,9 @@ class OGMetadataQueryMixin:
             return None
 
     @graphql_ratelimit(key="ip", rate="60/m", group="og_metadata")
-    def resolve_og_extract_metadata(self, info, extract_id):
+    def resolve_og_extract_metadata(
+        self, info: graphene.ResolveInfo, extract_id: str
+    ) -> OGExtractMetadataType | None:
         """
         Public OG metadata for data extract - no auth required.
         Only returns data if parent corpus is public.
@@ -240,13 +258,15 @@ class OGMetadataQueryMixin:
                 "corpus", "fieldset", "creator"
             ).get(pk=pk)
 
-            # Extracts inherit corpus visibility
-            if not extract.corpus.is_public:
+            # Extracts inherit corpus visibility. Corpus is nullable
+            # (SET_NULL on delete), so guard against a missing parent.
+            corpus = extract.corpus
+            if corpus is None or not corpus.is_public:
                 return None
 
             return OGExtractMetadataType(
                 name=extract.name,
-                corpus_title=extract.corpus.title,
+                corpus_title=corpus.title,
                 fieldset_name=extract.fieldset.name if extract.fieldset else "Custom",
                 creator_name=(
                     extract.creator.username if extract.creator else "System"

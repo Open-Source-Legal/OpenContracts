@@ -1,16 +1,16 @@
 import React, { useState } from "react";
 import { useQuery } from "@apollo/client";
-import { Dropdown, StatBlock, Table } from "@os-legal/ui";
+import { Dropdown, StatBlock, StatGrid, Table } from "@os-legal/ui";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
 import {
   Trophy,
   Medal,
   TrendingUp,
-  Users,
   MessageSquare,
   Target,
   Star,
+  Users,
   User,
 } from "lucide-react";
 import { ErrorMessage, InfoMessage, LoadingState } from "../widgets/feedback";
@@ -27,67 +27,213 @@ import {
 } from "../../types/leaderboard";
 import { Badge } from "../badges/Badge";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { GradientSegment as StyledSegment } from "../layout/SharedSegments";
 
-const Container = styled.div`
-  padding: 2em;
-  max-width: 1400px;
-  margin: 0 auto;
-  flex: 1;
+// File-local rank palette. Centralised here so the three RankBadge ternaries
+// stay readable and the values are easy to update in one place. These are
+// intentionally not in OS_LEGAL_COLORS because they are leaderboard-specific.
+const RANK_COLORS = {
+  gold: { bg: "#fef3c7", border: "#fde68a", text: "#b45309" },
+  silver: {
+    bg: OS_LEGAL_COLORS.surfaceLight,
+    border: OS_LEGAL_COLORS.border,
+    text: OS_LEGAL_COLORS.textTertiary,
+  },
+  bronze: { bg: "#fed7aa", border: "#fdba74", text: "#9a3412" },
+} as const;
+
+// File-local "rising star" tag palette (orange/amber tints).
+const RISING_STAR_COLORS = {
+  bg: "#fff7ed",
+  border: "#fed7aa",
+  text: "#c2410c",
+} as const;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STYLED COMPONENTS - Aligned with CorpusListView / OS Legal design system
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PageContainer = styled.div`
+  height: 100%;
+  background: ${OS_LEGAL_COLORS.background};
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
+`;
+
+const ContentContainer = styled.div`
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
 
   @media (max-width: 768px) {
-    padding: 1em;
+    padding: 32px 16px 60px;
   }
 `;
 
-const LeaderboardCard = styled.div`
-  border-radius: 12px;
-  background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  padding: 1.5em;
-  margin-bottom: 1em;
+const HeroSection = styled.section`
+  margin-bottom: 32px;
 `;
 
-const StatsCard = styled.div`
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
-  padding: 1.5em;
-  color: white;
-  text-align: center;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+const HeroTitle = styled.h1`
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 42px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  margin: 0 0 16px;
+
+  span {
+    color: ${OS_LEGAL_COLORS.accent};
+  }
+
+  @media (max-width: 768px) {
+    font-size: 32px;
+  }
+`;
+
+const HeroSubtitle = styled.p`
+  font-size: 17px;
+  line-height: 1.6;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  margin: 0 0 32px;
+  max-width: 600px;
+`;
+
+const StatsContainer = styled.div`
+  margin-bottom: 48px;
+  padding: 32px 0;
+
+  /*
+   * StatBlock's default value font-size is already 36px on the md breakpoint
+   * (see .oc-stat-block__value in @os-legal/ui), and drops to 28px only at
+   * <= 480px. We tighten the breakpoint so it shrinks at <= 768px instead,
+   * targeting the documented BEM class so we're not coupled to a test ID.
+   */
+  @media (max-width: 768px) {
+    padding: 24px 0;
+
+    .oc-stat-block__value {
+      font-size: 28px;
+    }
+  }
+`;
+
+const SectionContainer = styled.section`
+  margin-bottom: 48px;
+`;
+
+const SectionHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+`;
+
+const SectionTitle = styled.h2`
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 24px;
+  font-weight: 400;
+  color: ${OS_LEGAL_COLORS.accent};
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+const FilterBar = styled.div`
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+
+  @media (max-width: 768px) {
+    width: 100%;
+  }
+`;
+
+const ContentCard = styled.div`
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 16px;
+  overflow: hidden;
+`;
+
+const CardBody = styled.div`
+  padding: 24px;
+
+  @media (max-width: 768px) {
+    padding: 16px;
+  }
+`;
+
+const RankInfoBanner = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin: 0 24px 16px;
+  background: ${OS_LEGAL_COLORS.accentSurface};
+  border: 1px solid ${OS_LEGAL_COLORS.accentMedium};
+  border-radius: 10px;
+  color: ${OS_LEGAL_COLORS.accent};
+  font-size: 14px;
+
+  strong {
+    color: ${OS_LEGAL_COLORS.accent};
+    font-weight: 600;
+  }
+
+  @media (max-width: 768px) {
+    margin: 0 16px 16px;
+  }
 `;
 
 const RankBadge = styled.div<{ $rank: number }>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  font-weight: bold;
-  font-size: 18px;
+  font-weight: 600;
+  font-size: 14px;
   background: ${(props) => {
-    if (props.$rank === 1)
-      return "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)";
-    if (props.$rank === 2)
-      return "linear-gradient(135deg, #C0C0C0 0%, #A8A8A8 100%)";
-    if (props.$rank === 3)
-      return "linear-gradient(135deg, #CD7F32 0%, #B8860B 100%)";
-    return "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+    if (props.$rank === 1) return RANK_COLORS.gold.bg;
+    if (props.$rank === 2) return RANK_COLORS.silver.bg;
+    if (props.$rank === 3) return RANK_COLORS.bronze.bg;
+    return OS_LEGAL_COLORS.surfaceLight;
   }};
-  color: white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  color: ${(props) => {
+    if (props.$rank === 1) return RANK_COLORS.gold.text;
+    if (props.$rank === 2) return RANK_COLORS.silver.text;
+    if (props.$rank === 3) return RANK_COLORS.bronze.text;
+    return OS_LEGAL_COLORS.textSecondary;
+  }};
+  border: 1px solid
+    ${(props) => {
+      if (props.$rank === 1) return RANK_COLORS.gold.border;
+      if (props.$rank === 2) return RANK_COLORS.silver.border;
+      if (props.$rank === 3) return RANK_COLORS.bronze.border;
+      return OS_LEGAL_COLORS.border;
+    }};
 `;
 
 const UserRow = styled(Table.Row)<{ $isCurrentUser?: boolean }>`
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
   ${(props) =>
     props.$isCurrentUser &&
     `
-    background-color: rgba(102, 126, 234, 0.1) !important;
+    background-color: ${OS_LEGAL_COLORS.accentSurface} !important;
     font-weight: 600;
   `}
 
@@ -96,24 +242,93 @@ const UserRow = styled(Table.Row)<{ $isCurrentUser?: boolean }>`
   }
 `;
 
-const FilterBar = styled.div`
+const UsernameCell = styled.div`
   display: flex;
-  gap: 1em;
-  margin-bottom: 1.5em;
-  flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+`;
+
+const RisingStarTag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: ${RISING_STAR_COLORS.bg};
+  border: 1px solid ${RISING_STAR_COLORS.border};
+  border-radius: 999px;
+  color: ${RISING_STAR_COLORS.text};
+  letter-spacing: 0.02em;
+`;
+
+const ScoreCell = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+
+  svg {
+    color: ${OS_LEGAL_COLORS.accent};
+  }
+`;
+
+const DetailsCell = styled.div`
+  font-size: 13px;
+  color: ${OS_LEGAL_COLORS.textSecondary};
 `;
 
 const TableWrapper = styled.div`
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  margin: 0 -0.5em;
-  padding: 0 0.5em;
+`;
 
-  @media (max-width: 768px) {
-    margin: 0 -1em;
-    padding: 0 1em;
+const BadgeGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+`;
+
+const BadgeCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  min-width: 0;
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: ${OS_LEGAL_COLORS.borderHover};
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
   }
+`;
+
+const BadgeMeta = styled.div`
+  width: 100%;
+  min-width: 0;
+`;
+
+const BadgeName = styled.div`
+  font-weight: 600;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+`;
+
+const BadgeStats = styled.div`
+  font-size: 13px;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+`;
+
+const EmptyStateBox = styled.div`
+  padding: 48px 24px;
+  text-align: center;
+  color: ${OS_LEGAL_COLORS.textSecondary};
 `;
 
 interface LeaderboardProps {
@@ -144,7 +359,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
     pollInterval: 60000, // Refresh every minute
   });
 
-  const { loading: statsLoading, data: statsData } = useQuery<{
+  const { data: statsData } = useQuery<{
     communityStats: CommunityStatsType;
   }>(GET_COMMUNITY_STATS, {
     variables: { corpusId },
@@ -175,15 +390,15 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
   const getMetricIcon = (metric: LeaderboardMetric) => {
     switch (metric) {
       case LeaderboardMetric.BADGES:
-        return <Trophy size={20} />;
+        return <Trophy size={16} />;
       case LeaderboardMetric.MESSAGES:
-        return <MessageSquare size={20} />;
+        return <MessageSquare size={16} />;
       case LeaderboardMetric.THREADS:
-        return <Users size={20} />;
+        return <Users size={16} />;
       case LeaderboardMetric.ANNOTATIONS:
-        return <Target size={20} />;
+        return <Target size={16} />;
       case LeaderboardMetric.REPUTATION:
-        return <Star size={20} />;
+        return <Star size={16} />;
     }
   };
 
@@ -208,11 +423,13 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
 
   if (leaderboardError) {
     return (
-      <Container>
-        <ErrorMessage title="Error Loading Leaderboard">
-          {leaderboardError.message}
-        </ErrorMessage>
-      </Container>
+      <PageContainer>
+        <ContentContainer>
+          <ErrorMessage title="Error Loading Leaderboard">
+            {leaderboardError.message}
+          </ErrorMessage>
+        </ContentContainer>
+      </PageContainer>
     );
   }
 
@@ -220,262 +437,208 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
   const stats = statsData?.communityStats;
 
   return (
-    <Container>
-      <h1 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        <TrendingUp size={28} />
-        Community Leaderboard
-      </h1>
+    <PageContainer>
+      <ContentContainer>
+        {/* Hero */}
+        <HeroSection>
+          <HeroTitle>
+            Community <span>Leaderboard</span>
+          </HeroTitle>
+          <HeroSubtitle>
+            Celebrate top contributors and track community engagement across
+            badges, messages, and annotations.
+          </HeroSubtitle>
+        </HeroSection>
 
-      {/* Community Stats Overview */}
-      {stats && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-            gap: "1rem",
-            marginBottom: "2em",
-          }}
-        >
-          <StatsCard>
-            <StatBlock
-              value={stats.totalUsers.toLocaleString()}
-              label="Active Users"
-            />
-          </StatsCard>
-          <StatsCard>
-            <StatBlock
-              value={stats.totalMessages.toLocaleString()}
-              label="Messages"
-            />
-          </StatsCard>
-          <StatsCard>
-            <StatBlock
-              value={stats.totalBadgesAwarded.toLocaleString()}
-              label="Badges Awarded"
-            />
-          </StatsCard>
-          <StatsCard>
-            <StatBlock
-              value={stats.activeUsersThisWeek.toLocaleString()}
-              label="Active This Week"
-            />
-          </StatsCard>
-        </div>
-      )}
-
-      {/* Leaderboard Controls */}
-      <LeaderboardCard>
-        <FilterBar>
-          <Dropdown
-            mode="select"
-            options={metricOptions}
-            value={metric}
-            onChange={(value) => setMetric(value as LeaderboardMetric)}
-            placeholder="Select Metric"
-            clearable={false}
-            style={{ minWidth: "250px" }}
-          />
-          <Dropdown
-            mode="select"
-            options={scopeOptions}
-            value={scope}
-            onChange={(value) => setScope(value as LeaderboardScope)}
-            placeholder="Select Time Period"
-            clearable={false}
-          />
-          <Dropdown<number>
-            mode="select"
-            options={limitOptions}
-            value={limit}
-            onChange={(value) => setLimit(value as number)}
-            placeholder="Number of Users"
-            clearable={false}
-          />
-        </FilterBar>
-
-        {leaderboardLoading ? (
-          <LoadingState message="Loading leaderboard..." />
-        ) : leaderboard && leaderboard.entries.length > 0 ? (
-          <>
-            {leaderboard.currentUserRank && (
-              <InfoMessage
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  marginBottom: "1rem",
-                }}
-              >
-                <User size={16} />
-                Your rank: <strong>#{leaderboard.currentUserRank}</strong> out
-                of {leaderboard.totalUsers} users
-              </InfoMessage>
-            )}
-
-            <TableWrapper>
-              <Table variant="minimal">
-                <Table.Head>
-                  <Table.Row>
-                    <Table.HeadCell style={{ width: "6.25%" }}>
-                      Rank
-                    </Table.HeadCell>
-                    <Table.HeadCell style={{ width: "18.75%" }}>
-                      User
-                    </Table.HeadCell>
-                    <Table.HeadCell style={{ width: "12.5%" }}>
-                      Score
-                    </Table.HeadCell>
-                    <Table.HeadCell>Details</Table.HeadCell>
-                  </Table.Row>
-                </Table.Head>
-
-                <Table.Body>
-                  {leaderboard.entries.map((entry: LeaderboardEntry) => (
-                    <UserRow
-                      key={entry.user.id}
-                      $isCurrentUser={
-                        leaderboard.currentUserRank !== null &&
-                        entry.rank === leaderboard.currentUserRank
-                      }
-                      onClick={() => handleUserClick(entry.user.slug)}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <Table.Cell>
-                        <RankBadge $rank={entry.rank}>
-                          {entry.rank <= 3 ? (
-                            <Medal size={20} />
-                          ) : (
-                            <span>{entry.rank}</span>
-                          )}
-                        </RankBadge>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5em",
-                          }}
-                        >
-                          <strong>{entry.user.username}</strong>
-                          {entry.isRisingStar && (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                padding: "0.15em 0.5em",
-                                fontSize: "0.75rem",
-                                fontWeight: 600,
-                                background: "#fff7ed",
-                                border: "1px solid #fed7aa",
-                                borderRadius: "4px",
-                                color: "#c2410c",
-                              }}
-                            >
-                              <TrendingUp size={12} />
-                              Rising Star
-                            </span>
-                          )}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5em",
-                          }}
-                        >
-                          {getMetricIcon(metric)}
-                          <strong>{getScoreLabel(metric, entry.score)}</strong>
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div
-                          style={{
-                            fontSize: "0.9em",
-                            color: OS_LEGAL_COLORS.textSecondary,
-                          }}
-                        >
-                          {entry.badgeCount !== undefined &&
-                            `${entry.badgeCount} badges `}
-                          {entry.messageCount !== undefined &&
-                            `${entry.messageCount} messages `}
-                          {entry.reputation !== undefined &&
-                            `${entry.reputation} rep`}
-                        </div>
-                      </Table.Cell>
-                    </UserRow>
-                  ))}
-                </Table.Body>
-              </Table>
-            </TableWrapper>
-          </>
-        ) : (
-          <InfoMessage title="No Data Available">
-            There are no users in this leaderboard yet. Be the first to
-            contribute!
-          </InfoMessage>
+        {/* Stats */}
+        {stats && (
+          <StatsContainer>
+            <StatGrid columns={2}>
+              <StatBlock
+                value={stats.totalUsers.toLocaleString()}
+                label="Active Users"
+                sublabel="in the community"
+              />
+              <StatBlock
+                value={stats.totalMessages.toLocaleString()}
+                label="Messages"
+                sublabel="shared so far"
+              />
+              <StatBlock
+                value={stats.totalBadgesAwarded.toLocaleString()}
+                label="Badges Awarded"
+                sublabel="for contributions"
+              />
+              <StatBlock
+                value={stats.activeUsersThisWeek.toLocaleString()}
+                label="Active This Week"
+                sublabel="recent contributors"
+              />
+            </StatGrid>
+          </StatsContainer>
         )}
-      </LeaderboardCard>
 
-      {/* Badge Distribution */}
-      {stats &&
-        stats.badgeDistribution &&
-        stats.badgeDistribution.length > 0 && (
-          <StyledSegment>
-            <h3
-              style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
-            >
-              <Trophy size={20} />
-              Badge Distribution
-            </h3>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-                gap: "1rem",
-              }}
-            >
-              {stats.badgeDistribution.map((dist) => (
-                <div
-                  key={dist.badge.id}
-                  style={{
-                    padding: "1rem",
-                    border: `1px solid ${OS_LEGAL_COLORS.border}`,
-                    borderRadius: "8px",
-                    background: "white",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "1em",
-                    }}
-                  >
+        {/* Top Contributors */}
+        <SectionContainer>
+          <SectionHeader>
+            <SectionTitle>
+              <TrendingUp size={20} />
+              Top Contributors
+            </SectionTitle>
+            <FilterBar>
+              <Dropdown
+                mode="select"
+                options={metricOptions}
+                value={metric}
+                onChange={(value) => setMetric(value as LeaderboardMetric)}
+                placeholder="Select Metric"
+                clearable={false}
+                style={{ minWidth: "220px" }}
+              />
+              <Dropdown
+                mode="select"
+                options={scopeOptions}
+                value={scope}
+                onChange={(value) => setScope(value as LeaderboardScope)}
+                placeholder="Select Time Period"
+                clearable={false}
+              />
+              <Dropdown<number>
+                mode="select"
+                options={limitOptions}
+                value={limit}
+                onChange={(value) => setLimit(value as number)}
+                placeholder="Number of Users"
+                clearable={false}
+              />
+            </FilterBar>
+          </SectionHeader>
+
+          <ContentCard>
+            {leaderboardLoading ? (
+              <CardBody>
+                <LoadingState message="Loading leaderboard..." />
+              </CardBody>
+            ) : leaderboard && leaderboard.entries.length > 0 ? (
+              <>
+                {leaderboard.currentUserRank && (
+                  <RankInfoBanner>
+                    <User size={16} />
+                    <span>
+                      Your rank: <strong>#{leaderboard.currentUserRank}</strong>{" "}
+                      out of {leaderboard.totalUsers} users
+                    </span>
+                  </RankInfoBanner>
+                )}
+
+                <TableWrapper>
+                  <Table variant="minimal">
+                    <Table.Head>
+                      <Table.Row>
+                        <Table.HeadCell style={{ width: "80px" }}>
+                          Rank
+                        </Table.HeadCell>
+                        <Table.HeadCell>User</Table.HeadCell>
+                        <Table.HeadCell style={{ width: "180px" }}>
+                          Score
+                        </Table.HeadCell>
+                        <Table.HeadCell>Details</Table.HeadCell>
+                      </Table.Row>
+                    </Table.Head>
+
+                    <Table.Body>
+                      {leaderboard.entries.map((entry: LeaderboardEntry) => (
+                        <UserRow
+                          key={entry.user.id}
+                          $isCurrentUser={
+                            leaderboard.currentUserRank !== null &&
+                            entry.rank === leaderboard.currentUserRank
+                          }
+                          onClick={() => handleUserClick(entry.user.slug)}
+                        >
+                          <Table.Cell>
+                            <RankBadge $rank={entry.rank}>
+                              {entry.rank <= 3 ? (
+                                <Medal size={18} />
+                              ) : (
+                                <span>{entry.rank}</span>
+                              )}
+                            </RankBadge>
+                          </Table.Cell>
+                          <Table.Cell>
+                            <UsernameCell>
+                              <strong>{entry.user.username}</strong>
+                              {entry.isRisingStar && (
+                                <RisingStarTag>
+                                  <TrendingUp size={12} />
+                                  Rising Star
+                                </RisingStarTag>
+                              )}
+                            </UsernameCell>
+                          </Table.Cell>
+                          <Table.Cell>
+                            <ScoreCell>
+                              {getMetricIcon(metric)}
+                              <strong>
+                                {getScoreLabel(metric, entry.score)}
+                              </strong>
+                            </ScoreCell>
+                          </Table.Cell>
+                          <Table.Cell>
+                            <DetailsCell>
+                              {entry.badgeCount !== undefined &&
+                                `${entry.badgeCount} badges `}
+                              {entry.messageCount !== undefined &&
+                                `${entry.messageCount} messages `}
+                              {entry.reputation !== undefined &&
+                                `${entry.reputation} rep`}
+                            </DetailsCell>
+                          </Table.Cell>
+                        </UserRow>
+                      ))}
+                    </Table.Body>
+                  </Table>
+                </TableWrapper>
+              </>
+            ) : (
+              <EmptyStateBox>
+                <InfoMessage title="No Data Available">
+                  There are no users in this leaderboard yet. Be the first to
+                  contribute!
+                </InfoMessage>
+              </EmptyStateBox>
+            )}
+          </ContentCard>
+        </SectionContainer>
+
+        {/* Badge Distribution */}
+        {stats &&
+          stats.badgeDistribution &&
+          stats.badgeDistribution.length > 0 && (
+            <SectionContainer>
+              <SectionHeader>
+                <SectionTitle>
+                  <Trophy size={20} />
+                  Badge Distribution
+                </SectionTitle>
+              </SectionHeader>
+              <BadgeGrid>
+                {stats.badgeDistribution.map((dist) => (
+                  <BadgeCard key={dist.badge.id}>
                     <Badge badge={dist.badge} size="medium" />
-                    <div style={{ flex: 1 }}>
-                      <div>
-                        <strong>{dist.badge.name}</strong>
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "0.9em",
-                          color: OS_LEGAL_COLORS.textSecondary,
-                        }}
-                      >
+                    <BadgeMeta>
+                      <BadgeName>{dist.badge.name}</BadgeName>
+                      <BadgeStats>
                         Awarded {dist.awardCount} times to{" "}
                         {dist.uniqueRecipients} users
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </StyledSegment>
-        )}
-    </Container>
+                      </BadgeStats>
+                    </BadgeMeta>
+                  </BadgeCard>
+                ))}
+              </BadgeGrid>
+            </SectionContainer>
+          )}
+      </ContentContainer>
+    </PageContainer>
   );
 };
