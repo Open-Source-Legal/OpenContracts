@@ -8,6 +8,7 @@ import {
   createHttpLink,
   ApolloLink,
 } from "@apollo/client";
+import { loadDevMessages, loadErrorMessages } from "@apollo/client/dev";
 import { cache, authToken } from "./graphql/cache";
 import { errorLink } from "./graphql/errorLink";
 import { LooseObject } from "./components/types";
@@ -29,6 +30,17 @@ const {
 } = getRuntimeEnv();
 
 const api_root_url = REACT_APP_API_ROOT_URL || "http://localhost:8000";
+
+// Apollo Client 3.8+ strips error-message text from the core bundle to keep it
+// small. Without these calls every internal Apollo error renders as
+// "Unable to fetch error code", which is unactionable. Loading the dev
+// dictionary in non-production builds restores readable error text — including
+// the underlying JSON.parse / network message — at the cost of a bundle
+// increase that does not ship to production.
+if (import.meta.env.MODE !== "production") {
+  loadDevMessages();
+  loadErrorMessages();
+}
 
 console.log("OpenContracts is using Auth0: ", REACT_APP_USE_AUTH0);
 console.log("OpenContracts frontend target api root", api_root_url);

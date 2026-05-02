@@ -271,5 +271,58 @@ describe("errorLink", () => {
         expect.objectContaining({ toastId: "network-error" })
       );
     });
+
+    it("surfaces ServerParseError with operation name and body preview", async () => {
+      // Mimic Apollo's ``parseJsonBody`` failure shape: an Error whose
+      // ``name`` is "ServerParseError" with ``bodyText`` and ``response``
+      // attached. This is what fires when the HTTP body can't be JSON-parsed
+      // (e.g. truncated mid-stream during a slow bulk upload).
+      const truncatedBody =
+        '{"data":{"uploadDocumentsZip":{"ok":true,"jobId":"abc123-';
+      const parseErr = Object.assign(
+        new Error(
+          "JSON.parse: unterminated string at line 1 column 72 of the JSON data"
+        ),
+        {
+          name: "ServerParseError",
+          bodyText: truncatedBody,
+          response: { status: 200, url: "http://example/graphql/" } as Response,
+          statusCode: 200,
+        }
+      );
+
+      await runOperation(networkErrorLink(parseErr));
+
+      // Auth state untouched — this isn't an auth error
+      expect(authToken()).toBe("test-token");
+      expect(authStatusVar()).toBe("AUTHENTICATED");
+
+      // Distinct toast (not the generic "check your connection" copy)
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringContaining("unreadable response"),
+        expect.objectContaining({ toastId: "server-parse-error" })
+      );
+      // Generic network-error toast must not fire alongside it
+      const genericFired = (toast.error as any).mock.calls.some(
+        (call: any[]) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).startsWith("Network error.")
+      );
+      expect(genericFired).toBe(false);
+
+      // Diagnostics logged with structured payload for triage
+      const diagnosticLog = consoleErrorSpy.mock.calls.find(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("malformed JSON response")
+      );
+      expect(diagnosticLog).toBeDefined();
+      expect(diagnosticLog?.[1]).toMatchObject({
+        status: 200,
+        url: "http://example/graphql/",
+        bodyLength: truncatedBody.length,
+        bodyPreview: truncatedBody,
+      });
+    });
   });
 });

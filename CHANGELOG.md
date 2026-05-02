@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bulk upload showed an unactionable "Unable to fetch error code / JSON.parse: unterminated string at line 1 column 72 of the JSON data" error** (`frontend/src/index.tsx:7-15,33-43`, `frontend/src/graphql/errorLink.ts:1-29,107-138`): Apollo Client 3.8+ strips the human-readable text of internal errors from the production bundle, so any error not loaded from `@apollo/client/dev` rendered as the placeholder "Unable to fetch error code" page. The underlying `JSON.parse: unterminated string …` was a `ServerParseError` thrown by Apollo's `parseJsonBody` when the GraphQL response body was truncated mid-stream (the bulk upload mutation can take long enough for an upstream proxy or worker to cut the response). Two-part fix: (1) load `loadDevMessages()` + `loadErrorMessages()` outside production builds so Apollo's internal errors render readable text instead of the placeholder; (2) `errorLink` now duck-types `ServerParseError` (name + `bodyText` field) and, when matched, logs the operation name, response status/url, body length, and a 500-character body excerpt for triage, then surfaces a distinct "server returned an unreadable response … please retry" toast (`toastId: server-parse-error`) instead of the misleading generic "Network error. Please check your connection." copy. Regression test in `frontend/src/graphql/errorLink.test.ts`.
+
 ### Added
 
 - **E2E spec for threads/discussions** (`frontend/tests/e2e/threads-discussions.spec.ts`):

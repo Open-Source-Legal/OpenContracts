@@ -3,12 +3,39 @@ import { toast } from "react-toastify";
 import { authToken, authStatusVar, userObj } from "./cache";
 
 /**
+ * Length of the response-body excerpt logged when JSON parsing fails. Long
+ * enough to expose where the truncation occurred without flooding the console
+ * with megabytes of body text on a wedged transport.
+ */
+const PARSE_ERROR_BODY_PREVIEW_CHARS = 500;
+
+/**
+ * Detect Apollo's ``ServerParseError`` — thrown by ``parseJsonBody`` in
+ * ``@apollo/client/link/http`` when the HTTP response cannot be parsed as
+ * JSON (truncated body, unexpected content type, etc.).  Apollo sets
+ * ``name === "ServerParseError"`` and attaches ``bodyText``/``response``,
+ * so duck-type on those rather than ``instanceof``.
+ */
+const isServerParseError = (
+  err: unknown
+): err is Error & { bodyText?: string; response?: Response } => {
+  return (
+    err instanceof Error && err.name === "ServerParseError" && "bodyText" in err
+  );
+};
+
+/**
  * Apollo error link that handles authentication errors and network errors.
  *
  * For 401/403 errors:
  * - Switches to ANONYMOUS mode (allows browsing public content)
  * - Shows a toast notification with option to log back in
  * - Clears auth token and user object
+ *
+ * For ServerParseError (malformed JSON response body):
+ * - Logs the response status, URL, and a body excerpt for diagnosis
+ * - Shows an actionable toast that distinguishes this from a connectivity
+ *   failure
  *
  * For other GraphQL errors:
  * - Logs to console for debugging
@@ -113,6 +140,40 @@ export const errorLink = onError(
           "Your session has expired. Please log in again to access protected content.",
           {
             toastId: "auth-error",
+            autoClose: 8000,
+          }
+        );
+
+        return;
+      }
+
+      // ServerParseError: the HTTP request returned a body that wasn't valid
+      // JSON (e.g. truncated mid-stream by a worker timeout, an HTML error
+      // page from an upstream proxy, or a partial chunked response). Apollo
+      // wraps these as networkError so they otherwise hit the generic
+      // "check your connection" toast — which misleads users since the
+      // connection is fine. Log enough detail to diagnose, and surface a
+      // distinct message.
+      if (isServerParseError(networkError)) {
+        const bodyText = networkError.bodyText ?? "";
+        const preview = bodyText.slice(0, PARSE_ERROR_BODY_PREVIEW_CHARS);
+        console.error(
+          "[Apollo Error Link] Server returned a malformed JSON response.",
+          {
+            operationName: operation.operationName,
+            status: networkError.response?.status,
+            url: networkError.response?.url,
+            bodyLength: bodyText.length,
+            bodyPreview: preview,
+            originalMessage: networkError.message,
+          }
+        );
+
+        toast.error(
+          `The server returned an unreadable response for "${operation.operationName}". ` +
+            `This usually means the request timed out or was interrupted. Please retry.`,
+          {
+            toastId: "server-parse-error",
             autoClose: 8000,
           }
         );
