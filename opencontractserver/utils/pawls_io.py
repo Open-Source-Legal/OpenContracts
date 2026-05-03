@@ -27,11 +27,11 @@ import json
 import logging
 import os
 from collections.abc import Iterable, Iterator
-from typing import Any
+from typing import Any, cast
 
 from opencontractserver.constants.pawls import COMPACT_PAWLS_VERSION
 from opencontractserver.utils.compact_pawls import (
-    _IMAGE_KEY_REVERSE,
+    IMAGE_META_V2_TO_V1,
     compact_pawls_pages,
 )
 from opencontractserver.utils.compact_pawls import (
@@ -93,15 +93,16 @@ def to_canonical_v2(raw: Any) -> dict[str, Any]:
         # `compact_pawls_pages` may fall back to v1 if a page exceeds
         # MAX_TOKENS_PER_PAGE. In that case it returns the list unchanged,
         # which is NOT canonical v2. Flag explicitly so callers don't get a
-        # silent v1 leak past this boundary.
+        # silent v1 leak past this boundary. The is_compact_pawls_format
+        # guard above already proves the result is a dict.
         result = compact_pawls_pages(raw)
         if not is_compact_pawls_format(result):
             raise ValueError(
                 "Unable to compact v1 PAWLS to v2 (likely exceeds "
                 "MAX_TOKENS_PER_PAGE); refusing to leak v1 past load boundary"
             )
-        assert isinstance(result, dict)
-        return result
+        # Type narrowing: ``is_compact_pawls_format`` already proves dict.
+        return cast(dict[str, Any], result)
 
     raise ValueError(
         f"Unrecognized PAWLS format: expected list (v1) or dict (v2), "
@@ -264,7 +265,7 @@ class TokenView:
         meta = self.image_meta
         if meta is None:
             return None
-        return {_IMAGE_KEY_REVERSE.get(k, k): v for k, v in meta.items()}
+        return {IMAGE_META_V2_TO_V1.get(k, k): v for k, v in meta.items()}
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         kind = "image" if self.is_image else "text"
@@ -365,14 +366,44 @@ def to_v1_pages(canonical_v2: Any) -> list[dict[str, Any]]:
     Accepts pre-decoded v2 dicts. If you have raw input that may be v1
     or v2, run it through :func:`to_canonical_v2` first.
 
+    Pass-through: a v1 list input is returned as-is for caller convenience
+    (``expand_pawls_pages`` short-circuits when it already sees a list).
+    All other (non-dict, non-list) inputs yield ``[]``.
+
     Args:
-        canonical_v2: A canonical v2 PAWLs dict (or already a v1 list,
-            which is returned as-is for caller convenience).
+        canonical_v2: A canonical v2 PAWLs dict (or a v1 list, returned
+            as-is).
 
     Returns:
         v1 ``list[PawlsPagePythonType]`` shape.
     """
     return _expand_pawls_pages(canonical_v2)
+
+
+def token_view_to_v1_image_dict(token: TokenView) -> dict[str, Any]:
+    """Build a v1-shape token dict from a :class:`TokenView`.
+
+    **Phase-2 bridge** for the last two internal modules that still feed v1
+    shapes to legacy image helpers (``get_image_as_base64`` /
+    ``get_image_data_url``) and embedder pipelines that pre-date the
+    migration. Tracked in #1490 — this function and its callers go away
+    once those consumers are migrated to read v2 short keys directly.
+
+    Returns the standard v1 token fields plus, for image tokens,
+    ``is_image=True`` and the image-meta long keys
+    (``image_path``, ``content_hash``, …).
+    """
+    out: dict[str, Any] = {
+        "x": token.x,
+        "y": token.y,
+        "width": token.width,
+        "height": token.height,
+        "text": token.text,
+    }
+    if token.is_image:
+        out["is_image"] = True
+        out.update(token.image_meta_v1 or {})
+    return out
 
 
 __all__ = [
@@ -382,4 +413,5 @@ __all__ = [
     "load_canonical_v2",
     "to_canonical_v2",
     "to_v1_pages",
+    "token_view_to_v1_image_dict",
 ]

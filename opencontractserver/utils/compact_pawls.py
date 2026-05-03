@@ -89,6 +89,12 @@ _IMAGE_KEY_MAP: dict[str, str] = {
 
 _IMAGE_KEY_REVERSE: dict[str, str] = {v: k for k, v in _IMAGE_KEY_MAP.items()}
 
+# Public alias for the reverse map (v2 short key → v1 long key). Consumed
+# by ``pawls_io`` for ``TokenView.image_meta_v1`` and any other code that
+# needs to surface v2 image metadata in v1 long-key form. The leading
+# underscore name above is retained for in-module use.
+IMAGE_META_V2_TO_V1: dict[str, str] = _IMAGE_KEY_REVERSE
+
 
 # ── Format detection ─────────────────────────────────────────────
 

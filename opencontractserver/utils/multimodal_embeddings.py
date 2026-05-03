@@ -26,6 +26,7 @@ from opencontractserver.utils.pawls_io import (
     TokenView,
     load_canonical_v2,
     to_canonical_v2,
+    token_view_to_v1_image_dict,
 )
 from opencontractserver.utils.pdf_token_extraction import (
     get_image_as_base64,
@@ -102,33 +103,6 @@ def weighted_average_embeddings(
 
     combined = np.average(arr, axis=0, weights=weights_arr)
     return normalize_vector(combined.tolist())
-
-
-def _v2_image_token_to_v1_dict(token: TokenView) -> dict[str, Any]:
-    """Reconstruct a v1-shape image-token dict from a v2 :class:`TokenView`.
-
-    Embedders / image-helper consumers (``get_image_as_base64``, the embedder
-    pipeline) were written against v1 long-key fields (``image_path``,
-    ``content_hash``, ``base64_data``, ``format``, …). This adaptor lets the
-    Phase 2 v2-everywhere internal layer keep feeding them the shape they
-    expect.
-
-    Tracked in #1490: retire this adaptor when embedders / image helpers
-    are migrated to consume :class:`TokenView` (or v2 short-key dicts)
-    directly. It is the last v1-shape leakage inside an internal runtime
-    module.
-    """
-    out: dict[str, Any] = {
-        "x": token.x,
-        "y": token.y,
-        "width": token.width,
-        "height": token.height,
-        "text": token.text,
-    }
-    if token.is_image:
-        out["is_image"] = True
-        out.update(token.image_meta_v1 or {})
-    return out
 
 
 def _resolve_v2_pawls(
@@ -238,7 +212,7 @@ def get_annotation_image_tokens(
                     continue
                 view = TokenView(row)
                 if view.is_image:
-                    image_tokens.append(_v2_image_token_to_v1_dict(view))
+                    image_tokens.append(token_view_to_v1_image_dict(view))
 
         return image_tokens
     except Exception as e:
@@ -440,7 +414,7 @@ def extract_and_store_annotation_images(
                 view = TokenView(row)
                 if not view.is_image:
                     continue
-                v1_token = _v2_image_token_to_v1_dict(view)
+                v1_token = token_view_to_v1_image_dict(view)
                 base64_data = get_image_as_base64(v1_token)
                 if base64_data:
                     extracted_images.append(

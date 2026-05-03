@@ -22,6 +22,7 @@ from opencontractserver.utils.pawls_io import (
     iter_pages,
     load_canonical_v2,
     to_canonical_v2,
+    token_view_to_v1_image_dict,
 )
 from opencontractserver.utils.pdf_token_extraction import (
     get_image_as_base64,
@@ -136,27 +137,6 @@ def list_document_images(
         return []
 
 
-def _v2_token_to_v1_image_dict(token: TokenView) -> dict[str, Any]:
-    """Build a v1-key image-token dict for the legacy image helpers.
-
-    ``get_image_as_base64`` / ``get_image_data_url`` were written against the
-    v1 ``PawlsTokenPythonType`` shape (``base64_data``/``image_path``/``format``
-    long keys). After Phase 2 we keep their contracts intact and feed them a
-    small dict reconstructed from a v2 :class:`TokenView`.
-    """
-    out: dict[str, Any] = {
-        "x": token.x,
-        "y": token.y,
-        "width": token.width,
-        "height": token.height,
-        "text": token.text,
-    }
-    if token.is_image:
-        out["is_image"] = True
-        out.update(token.image_meta_v1 or {})
-    return out
-
-
 def _get_v2_token(
     pawls_data: dict[str, Any],
     page_index: int,
@@ -237,7 +217,7 @@ def get_document_image(
             )
             return None
 
-        v1_token = cast(PawlsTokenPythonType, _v2_token_to_v1_image_dict(token))
+        v1_token = cast(PawlsTokenPythonType, token_view_to_v1_image_dict(token))
         base64_data = get_image_as_base64(v1_token)
         if not base64_data:
             logger.warning(
@@ -296,7 +276,7 @@ def _extract_image_from_pawls(
         if not token.is_image:
             return None
 
-        v1_token = cast(PawlsTokenPythonType, _v2_token_to_v1_image_dict(token))
+        v1_token = cast(PawlsTokenPythonType, token_view_to_v1_image_dict(token))
         base64_data = get_image_as_base64(v1_token)
         if not base64_data:
             return None
