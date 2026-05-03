@@ -674,7 +674,7 @@ def has_references_in_other_corpuses(
 
 
 def permanently_delete_document(
-    corpus: Corpus, document: Document, user: User
+    corpus: Corpus, document: Document, user: "User"
 ) -> tuple[bool, str]:
     """
     Permanently delete a soft-deleted document from a corpus.
@@ -779,7 +779,7 @@ def permanently_delete_document(
 
 
 def permanently_delete_all_in_trash(
-    corpus: Corpus, user: User
+    corpus: Corpus, user: "User"
 ) -> tuple[int, list[str]]:
     """
     Permanently delete ALL soft-deleted documents in a corpus (empty trash).
