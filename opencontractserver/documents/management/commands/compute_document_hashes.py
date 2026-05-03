@@ -72,7 +72,15 @@ class Command(BaseCommand):
                     )
                     continue
 
-                assert document.pdf_file.name is not None  # narrowing for mypy
+                if document.pdf_file.name is None:
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f"Document {document.id} has a file field with no name"
+                        )
+                    )
+                    errors += 1
+                    continue
+
                 if not document.pdf_file.storage.exists(document.pdf_file.name):
                     self.stdout.write(
                         self.style.ERROR(
