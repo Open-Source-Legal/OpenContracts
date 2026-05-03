@@ -15,16 +15,96 @@ from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from channels.db import database_sync_to_async
 from channels.testing import WebsocketCommunicator
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
+from graphql_jwt.shortcuts import get_token
 
-from config.websocket.middleware import WS_CLOSE_TOKEN_INVALID
+from config.websocket.middleware import (
+    WS_AUTH_SUBPROTOCOL,
+    WS_CLOSE_TOKEN_INVALID,
+    JWTAuthMiddleware,
+)
 from opencontractserver.llms.agents.core_agents import ContentEvent, FinalEvent
 from opencontractserver.tests.base import WebsocketFixtureBaseTestCase
 
 User = get_user_model()
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.mark.serial
+class JWTAuthMiddlewareSubprotocolTests(WebsocketFixtureBaseTestCase):
+    """Unit tests for JWTAuthMiddleware - subprotocol-only transport."""
+
+    async def _run_middleware(self, headers: list[tuple[bytes, bytes]]) -> dict:
+        """Run middleware against a synthetic scope; return the modified scope."""
+        scope: dict = {
+            "type": "websocket",
+            "path": "/ws/test/",
+            "headers": headers,
+            "query_string": b"",
+        }
+        inner = AsyncMock()
+        middleware = JWTAuthMiddleware(inner)
+        await middleware(scope, AsyncMock(), AsyncMock())
+        return scope
+
+    async def test_no_subprotocol_header_yields_anonymous(self):
+        scope = await self._run_middleware(headers=[])
+        self.assertIsInstance(scope["user"], AnonymousUser)
+        self.assertIsNone(scope["auth_error"])
+        self.assertIsNone(scope.get("accepted_subprotocol"))
+
+    async def test_subprotocol_marker_only_yields_anonymous(self):
+        headers = [(b"sec-websocket-protocol", WS_AUTH_SUBPROTOCOL.encode())]
+        scope = await self._run_middleware(headers=headers)
+        self.assertIsInstance(scope["user"], AnonymousUser)
+        self.assertIsNone(scope["auth_error"])
+        self.assertEqual(scope["accepted_subprotocol"], WS_AUTH_SUBPROTOCOL)
+
+    async def test_subprotocol_with_valid_token_authenticates(self):
+        token = await database_sync_to_async(get_token)(self.user)
+        proto_value = f"{WS_AUTH_SUBPROTOCOL}, {token}".encode()
+        headers = [(b"sec-websocket-protocol", proto_value)]
+        scope = await self._run_middleware(headers=headers)
+        self.assertEqual(scope["user"].username, self.user.username)
+        self.assertIsNone(scope["auth_error"])
+        self.assertEqual(scope["accepted_subprotocol"], WS_AUTH_SUBPROTOCOL)
+
+    async def test_subprotocol_with_invalid_token_sets_auth_error_4002(self):
+        proto_value = f"{WS_AUTH_SUBPROTOCOL}, garbage_token".encode()
+        headers = [(b"sec-websocket-protocol", proto_value)]
+        scope = await self._run_middleware(headers=headers)
+        self.assertIsInstance(scope["user"], AnonymousUser)
+        self.assertIsNotNone(scope["auth_error"])
+        self.assertEqual(scope["auth_error"]["code"], WS_CLOSE_TOKEN_INVALID)
+        # Subprotocol should still be echoed (so the browser handshake succeeds
+        # at the transport layer) — the consumer is responsible for closing.
+        self.assertEqual(scope["accepted_subprotocol"], WS_AUTH_SUBPROTOCOL)
+
+    async def test_query_string_token_is_ignored(self):
+        """Hard-cutover regression: ?token= must not authenticate."""
+        token = await database_sync_to_async(get_token)(self.user)
+        scope: dict = {
+            "type": "websocket",
+            "path": "/ws/test/",
+            "headers": [],
+            "query_string": f"token={token}".encode(),
+        }
+        inner = AsyncMock()
+        await JWTAuthMiddleware(inner)(scope, AsyncMock(), AsyncMock())
+        self.assertIsInstance(scope["user"], AnonymousUser)
+        self.assertIsNone(scope["auth_error"])
+
+    async def test_authorization_header_is_ignored(self):
+        """Hard-cutover regression: Authorization header must not authenticate."""
+        token = await database_sync_to_async(get_token)(self.user)
+        headers = [(b"authorization", f"Bearer {token}".encode())]
+        scope = await self._run_middleware(headers=headers)
+        self.assertIsInstance(scope["user"], AnonymousUser)
+        self.assertIsNone(scope["auth_error"])
 
 
 def _create_mock_agent() -> MagicMock:
