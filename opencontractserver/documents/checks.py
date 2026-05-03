@@ -21,7 +21,7 @@ def check_pipeline_settings_populated(app_configs, **kwargs):
     This catches the case where a user upgraded but forgot to run:
         python manage.py migrate_pipeline_settings --sync-preferences
     """
-    errors: list[Warning] = []
+    errors: list[Error | Warning] = []
 
     try:
         from django.conf import settings as django_settings
@@ -91,7 +91,7 @@ def check_modernbert_references(app_configs, **kwargs):
     ModernBERT embedders were removed in this release. Users with existing
     references need to update their configuration to use an alternative.
     """
-    errors: list[Warning] = []
+    errors: list[Error | Warning] = []
 
     try:
         from opencontractserver.documents.models import PipelineSettings
@@ -143,7 +143,7 @@ def check_configured_components_secrets(app_configs, **kwargs):
     preferred_thumbnailers, and default_embedder against its settings schema.
     Reports any required secret fields that have no value stored.
     """
-    errors: list[Warning] = []
+    errors: list[Error | Warning] = []
 
     try:
         from opencontractserver.documents.models import PipelineSettings

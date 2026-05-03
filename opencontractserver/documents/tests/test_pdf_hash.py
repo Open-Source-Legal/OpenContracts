@@ -50,8 +50,8 @@ class DocumentPDFHashTestCase(TestCase):
         )
 
         computed_hash = document.compute_pdf_hash()
-        self.assertEqual(computed_hash, self.pdf_hash)
         assert computed_hash is not None
+        self.assertEqual(computed_hash, self.pdf_hash)
         self.assertEqual(len(computed_hash), 64)  # SHA-256 produces 64 hex chars
 
     def test_update_pdf_hash_updates_field(self):

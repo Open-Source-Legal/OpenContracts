@@ -30,7 +30,7 @@ import hashlib
 import logging
 import mimetypes
 import uuid
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -411,7 +411,7 @@ def move_document(
     old_path: str,
     new_path: str,
     user: "User",
-    new_folder: "Optional[CorpusFolder] | str" = "UNSET",
+    new_folder: "Optional[CorpusFolder] | Literal['UNSET']" = "UNSET",
 ) -> DocumentPath:
     """
     Move document - creates new DocumentPath, Document unchanged.
@@ -430,16 +430,18 @@ def move_document(
         current.is_current = False
         current.save(update_fields=["is_current"])
 
-        # Determine folder for new path. ``new_folder`` accepts the
-        # ``"UNSET"`` sentinel string in addition to None / CorpusFolder; once
-        # narrowed away the variable is the FK type DocumentPath expects.
         folder_to_use: Optional[CorpusFolder]
         if new_folder == "UNSET":
             # Not specified, keep current folder
             folder_to_use = current.folder
+        elif isinstance(new_folder, str):
+            # Defensive: assert is stripped under python -O so use a real raise
+            raise TypeError(
+                f"new_folder must be a CorpusFolder, None, or 'UNSET'; "
+                f"got {new_folder!r}"
+            )
         else:
             # Explicitly set (could be None or a folder)
-            assert not isinstance(new_folder, str)
             folder_to_use = new_folder
 
         # Apply Rules P1, P2

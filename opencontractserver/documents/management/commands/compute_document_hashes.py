@@ -72,10 +72,7 @@ class Command(BaseCommand):
                     )
                     continue
 
-                # Check if file exists. ``pdf_file.name`` is typed as
-                # ``str | None`` but the truthy check above has already
-                # excluded the None case.
-                assert document.pdf_file.name is not None
+                assert document.pdf_file.name is not None  # narrowing for mypy
                 if not document.pdf_file.storage.exists(document.pdf_file.name):
                     self.stdout.write(
                         self.style.ERROR(

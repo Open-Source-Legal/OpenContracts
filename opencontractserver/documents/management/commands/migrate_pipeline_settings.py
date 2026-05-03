@@ -604,9 +604,7 @@ class Command(BaseCommand):
         components_with_settings = 0
 
         for group_name, group_components in component_groups:
-            # Filter if specific component requested. ``list(...)`` widens the
-            # source tuple to a mutable list so we can narrow / re-assign
-            # without conflicting with the iteration variable's tuple type.
+            # Filter if specific component requested
             components: list[Any] = list(group_components)
             if specific_component:
                 components = [
