@@ -76,7 +76,6 @@ export function useExtractCompletionNotification(
   const { connectionState } = useNotificationWebSocket({
     onNotificationCreated: handleNotificationCreated,
     enabled: enabled && numericId !== null,
-    autoReconnect: true,
   });
 
   return {
