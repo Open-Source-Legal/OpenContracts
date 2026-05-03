@@ -8,6 +8,7 @@ import {
   createHttpLink,
   ApolloLink,
 } from "@apollo/client";
+import { loadDevMessages, loadErrorMessages } from "@apollo/client/dev";
 import { cache, authToken } from "./graphql/cache";
 import { errorLink } from "./graphql/errorLink";
 import { LooseObject } from "./components/types";
@@ -18,6 +19,15 @@ import { allStyles } from "@os-legal/ui";
 
 import "./index.css";
 import reportWebVitals from "./reportWebVitals";
+
+// Apollo Client v3.8+ omits error messages from its core bundle. Load the
+// developer-friendly messages outside of production builds so failures show
+// the actual cause (e.g. "JSON.parse: unterminated string ...") instead of a
+// cryptic "Unable to fetch error code" pointing at apollo.dev.
+if (import.meta.env.DEV) {
+  loadDevMessages();
+  loadErrorMessages();
+}
 
 // Can't use useEnv hook here; use the pure utility instead
 const {

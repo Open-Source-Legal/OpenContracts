@@ -278,11 +278,33 @@ export function useUploadMutations({
           // Check for Apollo GraphQL error structure
           const apolloError = error as Error & {
             graphQLErrors?: Array<{ message: string }>;
+            networkError?: Error & { bodyText?: string; statusCode?: number };
           };
-          errorMessage =
-            apolloError.graphQLErrors?.[0]?.message ||
-            error.message ||
-            errorMessage;
+          // A truncated/non-JSON HTTP response surfaces as a JSON.parse
+          // failure on the network error. The base64-encoded zip can exceed
+          // proxy/server body limits, causing the upstream response to be
+          // returned as HTML or chopped mid-stream. Translate that into an
+          // actionable message so users aren't stuck on Apollo's dev-link
+          // "Unable to fetch error code" page.
+          const networkMessage = apolloError.networkError?.message ?? "";
+          const isJsonParseFailure =
+            /JSON\.parse|Unexpected token|Unexpected end of JSON/i.test(
+              networkMessage
+            ) ||
+            /JSON\.parse|Unexpected token|Unexpected end of JSON/i.test(
+              error.message
+            );
+          if (isJsonParseFailure) {
+            errorMessage =
+              "Server returned an invalid response. The ZIP may be too " +
+              "large or the server is unavailable. Try a smaller archive " +
+              "or retry shortly.";
+          } else {
+            errorMessage =
+              apolloError.graphQLErrors?.[0]?.message ||
+              error.message ||
+              errorMessage;
+          }
         }
         toast.error(`Upload failed: ${errorMessage}`);
         return false;

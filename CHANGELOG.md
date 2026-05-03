@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bulk upload surfaced cryptic Apollo "Unable to fetch error code" page** (`frontend/src/index.tsx:21-30`, `frontend/src/components/widgets/modals/UploadModal/hooks/useUploadMutations.ts:273-310`): When the bulk-upload `uploadDocumentsZip` mutation failed (commonly because the base64-encoded ZIP exceeded a proxy/server body limit and the upstream response came back as HTML or was truncated mid-stream), Apollo Client v3.14 surfaced the underlying `JSON.parse: unterminated string at line 1 column 72 of the JSON data` failure as a stripped error code that redirected users to apollo.dev. Apollo v3.8+ omits error message strings from the production bundle by default; without `loadDevMessages()` / `loadErrorMessages()` registered there is no developer-friendly text to render, hence the cryptic page. Two changes:
+  1. `index.tsx`: register Apollo's dev/error message dictionaries under `import.meta.env.DEV` so local development always renders the actual underlying error instead of a code lookup link.
+  2. `useUploadMutations.ts` (`uploadZipFile`): detect JSON parse failures on the network error chain and translate them into an actionable toast — production users get a meaningful "Server returned an invalid response. The ZIP may be too large or the server is unavailable." message instead of the bare Apollo invariant. GraphQL-error and generic-error paths are unchanged.
+
 ### Security
 
 - **Cross-corpus structural-annotation leak in `CoreAnnotationVectorStore`** (`opencontractserver/llms/vector_stores/core_vector_stores.py:296-326,371-413`): The corpus-wide retrieval path (`corpus_id` set, `document_id=None`) returned every structural annotation in the database regardless of corpus. Two collaborating defects caused the leak:
