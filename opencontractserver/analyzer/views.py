@@ -47,7 +47,7 @@ def _create_analysis_notification(analysis: Analysis, success: bool) -> None:
                 data={
                     "analysis_id": analysis.id,
                     "analyzer_name": (
-                        analysis.analyzer.analyzer_id if analysis.analyzer else None
+                        analysis.analyzer.id if analysis.analyzer else None
                     ),
                     "corpus_name": (
                         analysis.analyzed_corpus.title

@@ -47,6 +47,43 @@ def _text(content: str) -> Any:
     return TextPart(content=content)
 
 
+class PydanticAiSchemaCanaryTests(SimpleTestCase):
+    """Pin the pydantic-ai message-schema assumptions that the classifier relies on.
+
+    ``_classify_none_result`` uses ``isinstance(msg, ModelResponse)`` and
+    ``isinstance(part, ToolCallPart)`` rather than string-matching the
+    private ``.kind`` / ``.part_kind`` discriminators (issue #1410). These
+    canary tests fail fast if a pydantic-ai version bump renames either
+    the class import path or the discriminator values, so the silent
+    ``empty_history`` mis-classification mode is impossible to slip past.
+    """
+
+    def test_model_response_is_importable_and_constructible(self) -> None:
+        from pydantic_ai.messages import ModelResponse, TextPart
+
+        # Constructible with at least one part — the shape we depend on.
+        msg = ModelResponse(parts=[TextPart(content="ok")])
+        self.assertIsInstance(msg, ModelResponse)
+        # The discriminator we used to depend on (string-match) still
+        # exists; if upstream renames it the assertion forces a deliberate
+        # update of the classifier rather than a silent regression.
+        self.assertEqual(getattr(msg, "kind", None), "response")
+
+    def test_tool_call_part_discriminator_unchanged(self) -> None:
+        from pydantic_ai.messages import ToolCallPart
+
+        part = ToolCallPart(
+            tool_name="final_result", args={"value": None}, tool_call_id="canary"
+        )
+        self.assertEqual(getattr(part, "part_kind", None), "tool-call")
+
+    def test_text_part_discriminator_unchanged(self) -> None:
+        from pydantic_ai.messages import TextPart
+
+        part = TextPart(content="hello")
+        self.assertEqual(getattr(part, "part_kind", None), "text")
+
+
 class ClassifyNoneResultTests(SimpleTestCase):
     """Unit tests for :func:`_classify_none_result`."""
 

@@ -18,6 +18,8 @@ const StyledBadge = styled.span<{ $badgeColor: string }>`
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transition: all 0.2s ease;
   cursor: default;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 
   /* Touch-friendly tap target */
   @media (max-width: 768px) {
@@ -208,7 +210,7 @@ export const Badge: React.FC<BadgeProps> = ({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleClick}
-      style={{ display: "inline-block" }}
+      style={{ display: "inline-block", maxWidth: "100%" }}
     >
       <StyledBadge $badgeColor={badge.color || "#05313d"}>
         <IconComponent size={size === "mini" ? 12 : 14} />

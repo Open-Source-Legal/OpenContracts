@@ -332,6 +332,8 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
         DocumentParsingError: Re-raised for transient errors to trigger Celery retry.
     """
     from opencontractserver.documents.models import DocumentPath
+    from opencontractserver.types.enums import PermissionTypes
+    from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
     logger.info(
         f"[ingest_doc] Ingesting doc {doc_id} for user {user_id} "
@@ -344,6 +346,38 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
     except Document.DoesNotExist:
         logger.error(f"Document with id {doc_id} does not exist.")
         return {"status": "failed", "doc_id": doc_id, "error": "Document not found"}
+
+    # Defense-in-depth: even though the enqueueing mutation should have
+    # checked permissions, refuse to process a document the supplied
+    # user_id has no READ permission on. This blocks the (T-7) class of
+    # bug where a future caller forgets to check, and surfaces the misuse
+    # via a SECURITY-tagged log line for auditability.
+    User = get_user_model()
+    try:
+        user_obj = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        logger.error(
+            f"[SECURITY] [ingest_doc] user_id={user_id} does not exist; "
+            f"refusing to process doc_id={doc_id}."
+        )
+        return {
+            "status": "failed",
+            "doc_id": doc_id,
+            "error": "Invalid user for ingest",
+        }
+    if not user_has_permission_for_obj(
+        user_obj, document, PermissionTypes.READ, include_group_permissions=True
+    ):
+        logger.error(
+            f"[SECURITY] [ingest_doc] user_id={user_id} lacks READ "
+            f"permission on doc_id={doc_id}; refusing to process. "
+            "This indicates an enqueueing mutation skipped its permission check."
+        )
+        return {
+            "status": "failed",
+            "doc_id": doc_id,
+            "error": "User lacks permission for this document",
+        }
 
     # CAML/markdown files are rendered client-side and never parsed.
     # Mark as complete immediately so the pipeline doesn't touch them.
@@ -790,10 +824,42 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     """
     from celery import chain
 
+    from opencontractserver.types.enums import PermissionTypes
+    from opencontractserver.utils.permissioning import user_has_permission_for_obj
+
     logger.info(
         f"[retry_document_processing] Manual retry requested for doc {doc_id} "
         f"by user {user_id}"
     )
+
+    # Defense-in-depth permission check (companion to T-7 fix in ingest_doc).
+    # The retry GraphQL mutation should have already authorized this, but a
+    # task that mutates state must not trust upstream callers blindly.
+    User = get_user_model()
+    try:
+        user_obj = User.objects.get(pk=user_id)
+        document_obj = Document.objects.get(pk=doc_id)
+    except (User.DoesNotExist, Document.DoesNotExist):
+        return {
+            "status": "error",
+            "doc_id": doc_id,
+            "message": "Document not found",
+        }
+    if not user_has_permission_for_obj(
+        user_obj,
+        document_obj,
+        PermissionTypes.UPDATE,
+        include_group_permissions=True,
+    ):
+        logger.error(
+            f"[SECURITY] [retry_document_processing] user_id={user_id} "
+            f"lacks UPDATE permission on doc_id={doc_id}; refusing to retry."
+        )
+        return {
+            "status": "error",
+            "doc_id": doc_id,
+            "message": "User lacks permission to retry this document",
+        }
 
     # Atomic update: only reset if document is in FAILED state
     # This prevents race conditions if user clicks retry multiple times

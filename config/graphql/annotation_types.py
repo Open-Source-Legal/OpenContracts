@@ -340,6 +340,20 @@ class NoteType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
     current_version = graphene.Int(description="Current version number of the note")
 
+    content_preview = graphene.String(
+        description=(
+            "First 400 characters of the note body for list/search previews. "
+            "Resolvers may annotate the queryset with `content_preview` to "
+            "avoid shipping the full body over the wire."
+        )
+    )
+
+    def resolve_content_preview(self, info) -> str:
+        annotated = getattr(self, "content_preview", None)
+        if annotated is not None:
+            return annotated
+        return (self.content or "")[:400]
+
     def resolve_revisions(self, info) -> Any:
         """Returns all revisions for this note, ordered by version."""
         return self.revisions.all()

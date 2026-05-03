@@ -241,7 +241,7 @@ async def example_batch_extraction():
 
     # Aggregate data
     total_value = sum(s.value for s in valid_summaries if s.value)
-    all_parties = set()
+    all_parties: set[str] = set()
     for summary in valid_summaries:
         all_parties.update(party.name for party in summary.parties)
 

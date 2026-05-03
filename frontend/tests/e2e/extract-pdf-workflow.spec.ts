@@ -1,5 +1,6 @@
 /**
- * E2E integration test: PDF upload → ingest → extract → CSV export.
+ * E2E integration test: PDF upload → ingest → extract → CSV export →
+ * fork iteration → compare diff.
  *
  * Drives the full Vite + Django + Postgres + Celery + OpenAI stack:
  *
@@ -12,6 +13,10 @@
  *   6. Runs the extract, polls until cells finish.
  *   7. Exports to CSV and asserts each row produced *some* non-empty
  *      title-related content (body-text or metadata fallback).
+ *   8. Forks a MODEL-axis iteration via the Iterations tab (autoStart
+ *      OFF — see the helper for why), then selects parent + iteration
+ *      to load the cell-level diff and asserts the heatmap renders with
+ *      ONLY_IN_A counts equal to the parent's cell count.
  *
  * Gated on `E2E_RUN_LLM_TESTS=true` because step 6 makes a real OpenAI
  * call. CI does not set the gate, so this spec is skipped there until
@@ -40,6 +45,8 @@ import {
   addColumnViaUI,
   addDocumentsToExtractViaUI,
   runExtractAndWaitForFinish,
+  forkExtractIterationViaUI,
+  selectIterationsForCompare,
 } from "./helpers";
 import fs from "fs";
 import path from "path";
@@ -56,6 +63,7 @@ const CORPUS_DESCRIPTION = "Corpus created by extract-pdf-workflow E2E spec.";
 const DOC_USC_TITLE = `USC Title 1 ${RUN_ID}`;
 const DOC_ETON_TITLE = `Eton Agreement ${RUN_ID}`;
 const EXTRACT_NAME = `Extract Titles ${RUN_ID}`;
+const ITERATION_NAME = `Extract Titles iter ${RUN_ID}`;
 const COLUMN_NAME = "Document Title";
 // Permissive query. A strict "read first page verbatim" wording reliably
 // triggers the `failure_mode=no_final_response` issue — the agent reads
@@ -197,6 +205,72 @@ test.describe("Extract PDF workflow (LLM-gated)", () => {
       expect(csv).toMatch(/general provisions|usc\s*title|title\s*1/i);
       // Eton: body says "EXCLUSIVE LICENSE AND PRODUCT DEVELOPMENT AGREEMENT"; fallback "Eton agreement fixture"
       expect(csv).toMatch(/exclusive license|development agreement|eton/i);
+    });
+
+    // ────────────────────────────────────────────────────────────────
+    // Iteration coverage (PR #1425): fork an iteration along the MODEL
+    // axis and verify the cell-level diff renders. We deliberately
+    // create the iteration with autoStart=false so we don't burn a
+    // second LLM round-trip — the cassette only covers the parent
+    // extract's calls. With B empty, every parent cell becomes
+    // ONLY_IN_A, which exercises the full diff path
+    // (createExtractIteration → fullIterationList resolver →
+    // compareExtracts → ExtractCompareView render).
+    // ────────────────────────────────────────────────────────────────
+    await test.step("fork a MODEL-axis iteration", async () => {
+      await forkExtractIterationViaUI(page, ITERATION_NAME, "MODEL", false);
+    });
+
+    await test.step("iteration appears in the series list", async () => {
+      // The new iteration row is rendered by ExtractIterationsTab as a
+      // styled <Row> containing the iteration name and a "Model" axis chip.
+      await expect(page.getByText(ITERATION_NAME).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      // Axis badge confirms iterationAxis was inferred. The chip's text is
+      // " Model" (the Lucide icon contributes a leading whitespace token),
+      // so the regex must be loose; we anchor on the model identifier chip
+      // to disambiguate from any unrelated "Model" text on the page.
+      await expect(page.getByText(/Model/i).first()).toBeVisible({
+        timeout: 5_000,
+      });
+      await expect(
+        page.getByText(/anthropic:claude-opus-4-7/i).first()
+      ).toBeVisible({ timeout: 5_000 });
+    });
+
+    await test.step("compare view renders cell-level diff", async () => {
+      await selectIterationsForCompare(page, EXTRACT_NAME, ITERATION_NAME);
+
+      // Summary chips render with explicit counts. Iteration B has no
+      // cells, so every parent cell maps to ONLY_IN_A. The parent has
+      // 2 docs × 1 column = 2 cells, hence "Only in A: 2". We assert
+      // the chip text rather than parsing the grid because the chip
+      // is a stable, semantically meaningful summary even if the grid
+      // virtualizes rows in future revisions.
+      // Each chip's text appears both inside the chip itself AND inside
+      // the SummaryRow wrapper (whose textContent concatenates all chips),
+      // so getByText resolves to two elements per regex; .first() pins
+      // the assertion to the chip element which is what we care about.
+      await expect(page.getByText(/Only in A:\s*2/i).first()).toBeVisible({
+        timeout: 30_000,
+      });
+      // No CHANGED rows expected — iteration B is empty so the diff
+      // can never classify a cell as CHANGED.
+      await expect(page.getByText(/Changed:\s*0/i).first()).toBeVisible({
+        timeout: 5_000,
+      });
+      // Total reflects the alignment count: same 2 cells.
+      await expect(page.getByText(/2 cells compared/i).first()).toBeVisible({
+        timeout: 5_000,
+      });
+
+      // Header row of the heatmap renders the column name we created.
+      await expect(
+        page
+          .locator("th", { hasText: new RegExp(`^${COLUMN_NAME}$`, "i") })
+          .first()
+      ).toBeVisible({ timeout: 10_000 });
     });
   });
 });

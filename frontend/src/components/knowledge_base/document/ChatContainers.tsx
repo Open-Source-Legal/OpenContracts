@@ -387,10 +387,13 @@ export const ConnectionStatus = styled(motion.div)<ConnectionStatusProps>`
 `;
 
 export const ConversationGrid = styled.div`
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
+  grid-auto-rows: max-content;
   gap: 0.75rem;
-  padding: 0.75rem;
+  padding: 0.75rem 0.75rem 5rem;
   width: 100%;
   overflow-y: auto;
   position: relative;
@@ -584,21 +587,21 @@ export const ErrorContainer = styled(motion.div)`
 `;
 
 export const NewChatFloatingButton = styled(motion.button)`
-  position: fixed;
-  bottom: 2rem;
-  right: 2rem;
+  position: absolute;
+  bottom: 1.5rem;
+  right: 1.5rem;
   width: 56px;
   height: 56px;
   border-radius: 28px;
   background: ${OS_LEGAL_COLORS.primaryBlue};
   color: white;
   border: none;
-  box-shadow: 0 4px 6px rgba(66, 153, 225, 0.2);
+  box-shadow: 0 4px 12px rgba(66, 153, 225, 0.35);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 5;
 
   svg {
     width: 24px;

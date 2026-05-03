@@ -30,6 +30,7 @@ import {
   selectedFolderId,
   selectedTab,
   selectedMessageId,
+  selectedNoteId,
   selectedDocVersion,
   corpusHomeView,
   tocExpandAll,
@@ -894,6 +895,7 @@ export function CentralRouteManager() {
     const folderId = searchParams.get("folder");
     const tab = searchParams.get("tab");
     const messageId = searchParams.get("message");
+    const noteId = searchParams.get("note");
     const homeViewParam = searchParams.get("homeView");
     const tocExpandedParam = searchParams.get("tocExpanded") === "true";
     const detailViewParam = searchParams.get("view");
@@ -943,6 +945,7 @@ export function CentralRouteManager() {
     const currentFolderId = selectedFolderId();
     const currentTab = selectedTab();
     const currentMessageId = selectedMessageId();
+    const currentNoteId = selectedNoteId();
     const currentHomeView = corpusHomeView();
     const currentTocExpandAll = tocExpandAll();
     const currentDetailView = corpusDetailView();
@@ -1002,6 +1005,9 @@ export function CentralRouteManager() {
     }
     if (currentMessageId !== messageId) {
       updates.push(() => selectedMessageId(messageId));
+    }
+    if (currentNoteId !== noteId) {
+      updates.push(() => selectedNoteId(noteId));
     }
     if (currentHomeView !== newHomeView) {
       updates.push(() => corpusHomeView(newHomeView));
@@ -1186,6 +1192,7 @@ export function CentralRouteManager() {
   const folderId = useReactiveVar(selectedFolderId);
   const tab = useReactiveVar(selectedTab);
   const messageId = useReactiveVar(selectedMessageId);
+  const noteId = useReactiveVar(selectedNoteId);
   const docVersion = useReactiveVar(selectedDocVersion);
   const homeView = useReactiveVar(corpusHomeView);
   const tocExpanded = useReactiveVar(tocExpandAll);
@@ -1273,6 +1280,7 @@ export function CentralRouteManager() {
       folderId,
       tab,
       messageId,
+      noteId,
       version: docVersion,
       homeView,
       tocExpanded,
@@ -1310,6 +1318,7 @@ export function CentralRouteManager() {
     folderId,
     tab,
     messageId,
+    noteId,
     docVersion,
     homeView,
     tocExpanded,

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.db import models
@@ -19,7 +20,7 @@ class PermissionedTreeQuerySet(TreeQuerySet):
         return self.filter(approved=False, rejected=False)
 
     def recent(self, days: int = 30) -> "PermissionedTreeQuerySet":
-        recent_date = timezone.now() - timezone.timedelta(days=days)
+        recent_date = timezone.now() - timedelta(days=days)
         return self.filter(created__gte=recent_date)
 
     def with_comments(self) -> "PermissionedTreeQuerySet":
@@ -101,7 +102,7 @@ class UserFeedbackQuerySet(models.QuerySet):
         return self.filter(approved=False, rejected=False)
 
     def recent(self, days: int = 30) -> "UserFeedbackQuerySet":
-        recent_date = timezone.now() - timezone.timedelta(days=days)
+        recent_date = timezone.now() - timedelta(days=days)
         return self.filter(created__gte=recent_date)
 
     def with_comments(self) -> "UserFeedbackQuerySet":

@@ -188,7 +188,7 @@ class TestNestedApprovalGates(TransactionTestCase):
         mock_sub_agent = _MockSubAgent(sub_agent_events)
 
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as mock_agent_cls:
             inst = MagicMock()
             inst.iter = MagicMock(return_value=_IterCtx())
@@ -416,7 +416,7 @@ class TestNestedApprovalGates(TransactionTestCase):
             return {"result": "success"}
 
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as mock_agent_cls:
             inst = MagicMock()
             inst.run = AsyncMock(
@@ -494,7 +494,7 @@ class TestNestedApprovalGates(TransactionTestCase):
         bypass_values_during_execution = []
 
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as mock_agent_cls:
             inst = MagicMock()
             inst.run = AsyncMock(
@@ -573,7 +573,7 @@ class TestNestedApprovalGates(TransactionTestCase):
         from opencontractserver.llms.types import AgentFramework
 
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as mock_agent_cls:
             inst = MagicMock()
             inst.run = AsyncMock(
@@ -650,7 +650,7 @@ class TestNestedApprovalGates(TransactionTestCase):
         _config_spy.__name__ = "config_tool"
 
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as mock_agent_cls:
             inst = MagicMock()
             inst.run = AsyncMock(
@@ -722,7 +722,7 @@ class TestNestedApprovalGates(TransactionTestCase):
             return {"result": "from_fallback"}
 
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as mock_agent_cls:
             inst = MagicMock()
             inst.run = AsyncMock(

@@ -8,10 +8,12 @@ Verifies:
 4. Search query permission filtering
 """
 
+import datetime
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from graphene.test import Client as GrapheneClient
 from graphql_relay import to_global_id
 
@@ -526,3 +528,731 @@ class MentionSearchTestCase(TestCase):
         self.assertEqual(len(edges), 2)
         slugs = [edge["node"]["slug"] for edge in edges]
         self.assertIn("legal-contracts", slugs)
+
+    def test_search_notes_for_mention(self):
+        """Notes search filters by visibility, title, and content."""
+        from opencontractserver.annotations.models import Note
+
+        # user1 owns a note on their own document.
+        note_visible = Note.objects.create(
+            title="Indemnity drafting tips",
+            content="Always cap indemnification obligations.",
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        # user2 owns a private note that user1 must not see.
+        note_hidden = Note.objects.create(
+            title="Private indemnity musings",
+            content="user1 should never see this.",
+            document=self.doc2,
+            corpus=self.corpus2,
+            creator=self.user2,
+        )
+
+        query = """
+            query SearchNotes($textSearch: String!) {
+                searchNotesForMention(textSearch: $textSearch) {
+                    edges {
+                        node {
+                            id
+                            title
+                        }
+                    }
+                }
+            }
+        """
+
+        result = self.client.execute(
+            query,
+            variables={"textSearch": "indemnity"},
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        edges = result["data"]["searchNotesForMention"]["edges"]
+        titles = [edge["node"]["title"] for edge in edges]
+        self.assertIn(note_visible.title, titles)
+        self.assertNotIn(note_hidden.title, titles)
+
+        # Content match also works.
+        result = self.client.execute(
+            query,
+            variables={"textSearch": "cap indemnification"},
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        edges = result["data"]["searchNotesForMention"]["edges"]
+        self.assertEqual(len(edges), 1)
+        self.assertEqual(edges[0]["node"]["title"], note_visible.title)
+
+        # Corpus scoping returns empty when scoped to a corpus the note isn't in.
+        scoped_query = """
+            query SearchNotes($textSearch: String!, $corpusId: ID!) {
+                searchNotesForMention(textSearch: $textSearch, corpusId: $corpusId) {
+                    edges {
+                        node {
+                            id
+                            title
+                        }
+                    }
+                }
+            }
+        """
+        result = self.client.execute(
+            scoped_query,
+            variables={
+                "textSearch": "indemnity",
+                "corpusId": to_global_id("CorpusType", self.corpus2.id),
+            },
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        edges = result["data"]["searchNotesForMention"]["edges"]
+        self.assertEqual(len(edges), 0)
+
+    def test_search_notes_for_mention_document_scoping(self):
+        """`document_id` filter restricts results to a single document."""
+        from opencontractserver.annotations.models import Note
+
+        Note.objects.create(
+            title="Doc1 indemnity note",
+            content="On doc1.",
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        # Add a second note on a *different* document so we can prove the
+        # document filter excludes it.
+        from django.core.files.base import ContentFile
+
+        from opencontractserver.documents.models import Document
+
+        other_doc = Document.objects.create(
+            title="Other Doc",
+            description="another doc owned by user1",
+            file_type="text/plain",
+            creator=self.user1,
+            slug="other-doc",
+        )
+        other_doc.txt_extract_file.save("other.txt", ContentFile(b"x"))
+        Note.objects.create(
+            title="OtherDoc indemnity note",
+            content="On other doc.",
+            document=other_doc,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        query = """
+            query SearchNotes($textSearch: String!, $documentId: ID!) {
+                searchNotesForMention(
+                    textSearch: $textSearch
+                    documentId: $documentId
+                ) {
+                    edges { node { id title } }
+                }
+            }
+        """
+        result = self.client.execute(
+            query,
+            variables={
+                "textSearch": "indemnity",
+                "documentId": to_global_id("DocumentType", self.doc1.id),
+            },
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        titles = [
+            e["node"]["title"] for e in result["data"]["searchNotesForMention"]["edges"]
+        ]
+        self.assertIn("Doc1 indemnity note", titles)
+        self.assertNotIn("OtherDoc indemnity note", titles)
+
+    def test_search_notes_for_mention_anonymous_visibility(self):
+        """Anonymous users only see notes whose document/corpus/note are public."""
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.annotations.models import Note
+
+        # A private note (default) — should NOT surface for anonymous users.
+        Note.objects.create(
+            title="Anonymous-blocked indemnity note",
+            content="private content",
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        query = """
+            query SearchNotes($textSearch: String!) {
+                searchNotesForMention(textSearch: $textSearch) {
+                    edges { node { id title } }
+                }
+            }
+        """
+        result = self.client.execute(
+            query,
+            variables={"textSearch": "indemnity"},
+            context_value=type("Request", (), {"user": AnonymousUser()})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        titles = [
+            e["node"]["title"] for e in result["data"]["searchNotesForMention"]["edges"]
+        ]
+        self.assertNotIn("Anonymous-blocked indemnity note", titles)
+
+    def test_search_notes_for_mention_rejects_wrong_type_global_id(self):
+        """Passing a Document global ID as `corpusId` returns an empty queryset
+        rather than silently filtering on a non-existent FK."""
+        from opencontractserver.annotations.models import Note
+
+        Note.objects.create(
+            title="Visible indemnity note",
+            content="should not surface when corpusId is wrong type",
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        query = """
+            query SearchNotes($textSearch: String!, $corpusId: ID!) {
+                searchNotesForMention(textSearch: $textSearch, corpusId: $corpusId) {
+                    edges { node { id title } }
+                }
+            }
+        """
+        # Pass a DocumentType ID where a CorpusType ID is expected.
+        result = self.client.execute(
+            query,
+            variables={
+                "textSearch": "indemnity",
+                "corpusId": to_global_id("DocumentType", self.doc1.id),
+            },
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        edges = result["data"]["searchNotesForMention"]["edges"]
+        self.assertEqual(len(edges), 0)
+
+    def test_search_notes_for_mention_orders_by_modified_desc(self):
+        """Results are returned newest-modified first.
+
+        Guards against an accidental drop of the resolver's
+        ``order_by("-modified")`` clause; the page relies on this
+        ordering so the most recent activity surfaces at the top.
+        """
+        from opencontractserver.annotations.models import Note
+
+        older = Note.objects.create(
+            title="Older indemnity note",
+            content="older",
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+        newer = Note.objects.create(
+            title="Newer indemnity note",
+            content="newer",
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        # Force a deterministic gap between the two `modified` timestamps so
+        # the assertion does not depend on per-row creation timing.
+        Note.objects.filter(pk=older.pk).update(
+            modified=timezone.now() - datetime.timedelta(hours=1)
+        )
+
+        query = """
+            query SearchNotes($textSearch: String!) {
+                searchNotesForMention(textSearch: $textSearch) {
+                    edges { node { id title } }
+                }
+            }
+        """
+        result = self.client.execute(
+            query,
+            variables={"textSearch": "indemnity"},
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        titles = [
+            e["node"]["title"] for e in result["data"]["searchNotesForMention"]["edges"]
+        ]
+        self.assertEqual(
+            titles.index(newer.title),
+            0,
+            "newest-modified note should be first",
+        )
+        self.assertLess(
+            titles.index(newer.title),
+            titles.index(older.title),
+            "newer note should sort before older note",
+        )
+
+    def test_search_notes_content_preview_truncates_at_400_chars(self):
+        """`contentPreview` ships at most 400 characters of the note body.
+
+        Exercises the DB-annotated `Left('content', 400)` path used by the
+        resolver. A note with content longer than 400 chars must surface a
+        preview clipped to that bound (catches accidental drops of the
+        ``annotate(content_preview=...)`` clause).
+        """
+        from opencontractserver.annotations.models import Note
+
+        body = "x" * 500
+        Note.objects.create(
+            title="Long indemnity note",
+            content=body,
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        query = """
+            query SearchNotes($textSearch: String!) {
+                searchNotesForMention(textSearch: $textSearch) {
+                    edges { node { id title contentPreview } }
+                }
+            }
+        """
+        result = self.client.execute(
+            query,
+            variables={"textSearch": "indemnity"},
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        edges = result["data"]["searchNotesForMention"]["edges"]
+        long_edges = [e for e in edges if e["node"]["title"] == "Long indemnity note"]
+        self.assertEqual(len(long_edges), 1)
+        preview = long_edges[0]["node"]["contentPreview"]
+        self.assertEqual(len(preview), 400)
+        self.assertTrue(preview.startswith("xxxx"))
+
+    def test_note_content_preview_python_fallback(self):
+        """Python fallback path on ``NoteType.resolve_content_preview``.
+
+        When a note is fetched without the ``content_preview`` annotation
+        (e.g. via the per-id ``note`` query) the resolver must still slice
+        the in-memory ``content`` to 400 chars rather than shipping the
+        full body or raising.
+        """
+        from opencontractserver.annotations.models import Note
+
+        body = "y" * 600
+        note = Note.objects.create(
+            title="Plain fallback note",
+            content=body,
+            document=self.doc1,
+            corpus=self.corpus1,
+            creator=self.user1,
+        )
+
+        query = """
+            query GetNote($id: ID!) {
+                note(id: $id) { id title contentPreview }
+            }
+        """
+        result = self.client.execute(
+            query,
+            variables={"id": to_global_id("NoteType", note.id)},
+            context_value=type("Request", (), {"user": self.user1})(),
+        )
+        self.assertIsNone(result.get("errors"))
+        preview = result["data"]["note"]["contentPreview"]
+        self.assertEqual(len(preview), 400)
+        self.assertTrue(preview.startswith("yyyy"))
+
+
+class SearchPermissionLeakageTestCase(TestCase):
+    """Cross-user leakage guards on every search resolver used by Discover.
+
+    Models the production concern: two regular users with disjoint, private
+    content must never see each other's data through any search resolver,
+    while a superuser sees everything. Each resolver
+    (corpuses/documents/annotations/notes) gets its own assertion so a
+    regression in any one of them fails loudly and points at the right code
+    path.
+    """
+
+    @mock.patch("opencontractserver.documents.signals.calculate_embedding_for_doc_text")
+    def setUp(self, mock_embedding_task):
+        from opencontractserver.annotations.models import Annotation, Note
+
+        # Two regular users (alice/bob) with disjoint private content, plus a
+        # superuser who must transparently see everything.
+        self.alice = User.objects.create_user(
+            username="alice", password="test", slug="alice"
+        )
+        self.bob = User.objects.create_user(username="bob", password="test", slug="bob")
+        self.admin = User.objects.create_user(
+            username="superuser1",
+            password="test",
+            slug="superuser1",
+            is_superuser=True,
+        )
+
+        # Each user owns one private corpus + one private document + one
+        # private annotation + one private note. Titles share the substring
+        # "secret" so a single text query can flush out leaks across users.
+        self.alice_corpus = Corpus.objects.create(
+            title="Alice secret corpus",
+            description="alice-only",
+            creator=self.alice,
+            slug="alice-secret-corpus",
+        )
+        self.bob_corpus = Corpus.objects.create(
+            title="Bob secret corpus",
+            description="bob-only",
+            creator=self.bob,
+            slug="bob-secret-corpus",
+        )
+
+        self.alice_doc = Document.objects.create(
+            title="Alice secret document",
+            description="alice-only doc",
+            creator=self.alice,
+            slug="alice-secret-doc",
+            backend_lock=True,
+        )
+        self.bob_doc = Document.objects.create(
+            title="Bob secret document",
+            description="bob-only doc",
+            creator=self.bob,
+            slug="bob-secret-doc",
+            backend_lock=True,
+        )
+
+        # Owners get full permissions on their own resources; the other
+        # regular user gets nothing — visible_to_user must filter them out.
+        for user, corpus, doc in [
+            (self.alice, self.alice_corpus, self.alice_doc),
+            (self.bob, self.bob_corpus, self.bob_doc),
+        ]:
+            set_permissions_for_obj_to_user(
+                user,
+                corpus,
+                [
+                    PermissionTypes.READ,
+                    PermissionTypes.UPDATE,
+                    PermissionTypes.CREATE,
+                ],
+            )
+            set_permissions_for_obj_to_user(
+                user,
+                doc,
+                [
+                    PermissionTypes.READ,
+                    PermissionTypes.UPDATE,
+                    PermissionTypes.CREATE,
+                ],
+            )
+
+        self.alice_annotation = Annotation.objects.create(
+            annotation_label=None,
+            document=self.alice_doc,
+            corpus=self.alice_corpus,
+            creator=self.alice,
+            raw_text="alice secret annotation",
+            page=1,
+        )
+        self.bob_annotation = Annotation.objects.create(
+            annotation_label=None,
+            document=self.bob_doc,
+            corpus=self.bob_corpus,
+            creator=self.bob,
+            raw_text="bob secret annotation",
+            page=1,
+        )
+
+        self.alice_note = Note.objects.create(
+            title="Alice secret note",
+            content="alice-only note body",
+            document=self.alice_doc,
+            corpus=self.alice_corpus,
+            creator=self.alice,
+        )
+        self.bob_note = Note.objects.create(
+            title="Bob secret note",
+            content="bob-only note body",
+            document=self.bob_doc,
+            corpus=self.bob_corpus,
+            creator=self.bob,
+        )
+
+        self.client = GrapheneClient(schema)
+
+    def _execute(self, query: str, user, variables=None):
+        return self.client.execute(
+            query,
+            variables=variables or {},
+            context_value=type("Request", (), {"user": user})(),
+        )
+
+    def test_corpus_search_no_cross_user_leakage(self):
+        """`searchCorpusesForMention` filters by writable/creator/public."""
+        query = """
+            query SearchCorpuses($textSearch: String!) {
+                searchCorpusesForMention(textSearch: $textSearch) {
+                    edges { node { id slug title } }
+                }
+            }
+        """
+        variables = {"textSearch": "secret"}
+
+        alice_result = self._execute(query, self.alice, variables)
+        self.assertIsNone(alice_result.get("errors"))
+        alice_slugs = {
+            e["node"]["slug"]
+            for e in alice_result["data"]["searchCorpusesForMention"]["edges"]
+        }
+        self.assertIn("alice-secret-corpus", alice_slugs)
+        self.assertNotIn("bob-secret-corpus", alice_slugs)
+
+        bob_result = self._execute(query, self.bob, variables)
+        bob_slugs = {
+            e["node"]["slug"]
+            for e in bob_result["data"]["searchCorpusesForMention"]["edges"]
+        }
+        self.assertIn("bob-secret-corpus", bob_slugs)
+        self.assertNotIn("alice-secret-corpus", bob_slugs)
+
+        admin_result = self._execute(query, self.admin, variables)
+        admin_slugs = {
+            e["node"]["slug"]
+            for e in admin_result["data"]["searchCorpusesForMention"]["edges"]
+        }
+        self.assertIn("alice-secret-corpus", admin_slugs)
+        self.assertIn("bob-secret-corpus", admin_slugs)
+
+    def test_document_search_no_cross_user_leakage(self):
+        """`searchDocumentsForMention` filters via creator + write perms."""
+        query = """
+            query SearchDocs($textSearch: String!) {
+                searchDocumentsForMention(textSearch: $textSearch) {
+                    edges { node { id slug title } }
+                }
+            }
+        """
+        variables = {"textSearch": "secret"}
+
+        alice_result = self._execute(query, self.alice, variables)
+        self.assertIsNone(alice_result.get("errors"))
+        alice_slugs = {
+            e["node"]["slug"]
+            for e in alice_result["data"]["searchDocumentsForMention"]["edges"]
+        }
+        self.assertIn("alice-secret-doc", alice_slugs)
+        self.assertNotIn("bob-secret-doc", alice_slugs)
+
+        bob_result = self._execute(query, self.bob, variables)
+        bob_slugs = {
+            e["node"]["slug"]
+            for e in bob_result["data"]["searchDocumentsForMention"]["edges"]
+        }
+        self.assertIn("bob-secret-doc", bob_slugs)
+        self.assertNotIn("alice-secret-doc", bob_slugs)
+
+        admin_result = self._execute(query, self.admin, variables)
+        admin_slugs = {
+            e["node"]["slug"]
+            for e in admin_result["data"]["searchDocumentsForMention"]["edges"]
+        }
+        self.assertIn("alice-secret-doc", admin_slugs)
+        self.assertIn("bob-secret-doc", admin_slugs)
+
+    def test_annotation_search_no_cross_user_leakage(self):
+        """`searchAnnotationsForMention` inherits doc+corpus visibility."""
+        query = """
+            query SearchAnnotations($textSearch: String!) {
+                searchAnnotationsForMention(textSearch: $textSearch) {
+                    edges { node { id rawText } }
+                }
+            }
+        """
+        variables = {"textSearch": "secret"}
+
+        alice_result = self._execute(query, self.alice, variables)
+        self.assertIsNone(alice_result.get("errors"))
+        alice_texts = {
+            e["node"]["rawText"]
+            for e in alice_result["data"]["searchAnnotationsForMention"]["edges"]
+        }
+        self.assertIn("alice secret annotation", alice_texts)
+        self.assertNotIn("bob secret annotation", alice_texts)
+
+        bob_result = self._execute(query, self.bob, variables)
+        bob_texts = {
+            e["node"]["rawText"]
+            for e in bob_result["data"]["searchAnnotationsForMention"]["edges"]
+        }
+        self.assertIn("bob secret annotation", bob_texts)
+        self.assertNotIn("alice secret annotation", bob_texts)
+
+        admin_result = self._execute(query, self.admin, variables)
+        admin_texts = {
+            e["node"]["rawText"]
+            for e in admin_result["data"]["searchAnnotationsForMention"]["edges"]
+        }
+        self.assertIn("alice secret annotation", admin_texts)
+        self.assertIn("bob secret annotation", admin_texts)
+
+    def test_note_search_no_cross_user_leakage(self):
+        """`searchNotesForMention` inherits doc+corpus visibility."""
+        query = """
+            query SearchNotes($textSearch: String!) {
+                searchNotesForMention(textSearch: $textSearch) {
+                    edges { node { id title } }
+                }
+            }
+        """
+        variables = {"textSearch": "secret"}
+
+        alice_result = self._execute(query, self.alice, variables)
+        self.assertIsNone(alice_result.get("errors"))
+        alice_titles = {
+            e["node"]["title"]
+            for e in alice_result["data"]["searchNotesForMention"]["edges"]
+        }
+        self.assertIn("Alice secret note", alice_titles)
+        self.assertNotIn("Bob secret note", alice_titles)
+
+        bob_result = self._execute(query, self.bob, variables)
+        bob_titles = {
+            e["node"]["title"]
+            for e in bob_result["data"]["searchNotesForMention"]["edges"]
+        }
+        self.assertIn("Bob secret note", bob_titles)
+        self.assertNotIn("Alice secret note", bob_titles)
+
+        admin_result = self._execute(query, self.admin, variables)
+        admin_titles = {
+            e["node"]["title"]
+            for e in admin_result["data"]["searchNotesForMention"]["edges"]
+        }
+        self.assertIn("Alice secret note", admin_titles)
+        self.assertIn("Bob secret note", admin_titles)
+
+    def test_note_search_corpus_scoping_blocks_other_users_corpus(self):
+        """Scoping a search to another user's corpus must return nothing.
+
+        Even if a regular user supplies a `corpusId` belonging to another
+        user, `Note.objects.visible_to_user()` must run first; the scope
+        filter cannot widen visibility.
+        """
+        query = """
+            query SearchNotes($textSearch: String!, $corpusId: ID!) {
+                searchNotesForMention(textSearch: $textSearch, corpusId: $corpusId) {
+                    edges { node { id title } }
+                }
+            }
+        """
+        # Alice tries to look inside Bob's corpus by global ID.
+        result = self._execute(
+            query,
+            self.alice,
+            variables={
+                "textSearch": "secret",
+                "corpusId": to_global_id("CorpusType", self.bob_corpus.id),
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        edges = result["data"]["searchNotesForMention"]["edges"]
+        self.assertEqual(
+            edges,
+            [],
+            "Alice must not see Bob's notes even when scoping to Bob's corpus",
+        )
+
+        # Same scope for the superuser — admin sees Bob's notes.
+        admin_result = self._execute(
+            query,
+            self.admin,
+            variables={
+                "textSearch": "secret",
+                "corpusId": to_global_id("CorpusType", self.bob_corpus.id),
+            },
+        )
+        admin_titles = {
+            e["node"]["title"]
+            for e in admin_result["data"]["searchNotesForMention"]["edges"]
+        }
+        self.assertIn("Bob secret note", admin_titles)
+
+    def test_note_search_document_scoping_blocks_other_users_document(self):
+        """Document-scoped note search cannot reveal another user's notes."""
+        query = """
+            query SearchNotes($textSearch: String!, $documentId: ID!) {
+                searchNotesForMention(textSearch: $textSearch, documentId: $documentId) {
+                    edges { node { id title } }
+                }
+            }
+        """
+        result = self._execute(
+            query,
+            self.alice,
+            variables={
+                "textSearch": "secret",
+                "documentId": to_global_id("DocumentType", self.bob_doc.id),
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(
+            result["data"]["searchNotesForMention"]["edges"],
+            [],
+            "Alice must not see Bob's notes even when scoping to Bob's document",
+        )
+
+    def test_anonymous_user_sees_only_public_search_results(self):
+        """Unauthenticated users get nothing back from any search resolver
+        when all underlying content is private."""
+        from django.contrib.auth.models import AnonymousUser
+
+        anon = AnonymousUser()
+
+        for query, root in [
+            (
+                """query Q($t: String!) {
+                    searchCorpusesForMention(textSearch: $t) {
+                        edges { node { id } }
+                    }
+                }""",
+                "searchCorpusesForMention",
+            ),
+            (
+                """query Q($t: String!) {
+                    searchDocumentsForMention(textSearch: $t) {
+                        edges { node { id } }
+                    }
+                }""",
+                "searchDocumentsForMention",
+            ),
+            (
+                """query Q($t: String!) {
+                    searchAnnotationsForMention(textSearch: $t) {
+                        edges { node { id } }
+                    }
+                }""",
+                "searchAnnotationsForMention",
+            ),
+            (
+                """query Q($t: String!) {
+                    searchNotesForMention(textSearch: $t) {
+                        edges { node { id } }
+                    }
+                }""",
+                "searchNotesForMention",
+            ),
+        ]:
+            with self.subTest(resolver=root):
+                result = self._execute(query, anon, {"t": "secret"})
+                self.assertIsNone(result.get("errors"))
+                edges = result["data"][root]["edges"]
+                self.assertEqual(
+                    edges,
+                    [],
+                    f"Anonymous user must see no private content via {root}",
+                )

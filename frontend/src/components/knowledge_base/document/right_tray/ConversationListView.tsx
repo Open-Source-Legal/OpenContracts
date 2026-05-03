@@ -9,7 +9,7 @@
 import React from "react";
 import { formatDistanceToNow } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
-import { Calendar, Plus, Search, X } from "lucide-react";
+import { Calendar, MessageSquare, Plus, Search, X } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import {
   CardContent,
@@ -89,14 +89,15 @@ export const DocumentConversationListView: React.FC<
     <motion.div
       id="conversation-menu"
       style={{
+        flex: 1,
+        minHeight: 0,
         width: "100%",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "1rem",
-        padding: "2rem",
-        overflowY: "hidden",
+        alignItems: "stretch",
+        gap: "0.5rem",
+        position: "relative",
+        overflow: "hidden",
       }}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -182,6 +183,52 @@ export const DocumentConversationListView: React.FC<
       </FilterContainer>
 
       <ConversationGrid id="conversation-grid">
+        {conversations.length === 0 && (
+          <motion.div
+            data-testid="conversations-empty-state"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.05 }}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              textAlign: "center",
+              padding: "3rem 1.5rem 6rem",
+              gap: "0.75rem",
+              color: OS_LEGAL_COLORS.textSecondary,
+            }}
+          >
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: "50%",
+                background: `${OS_LEGAL_COLORS.blueSurface}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: OS_LEGAL_COLORS.primaryBlue,
+              }}
+            >
+              <MessageSquare size={26} />
+            </div>
+            <div
+              style={{
+                fontSize: "1rem",
+                fontWeight: 600,
+                color: OS_LEGAL_COLORS.textPrimary,
+              }}
+            >
+              No conversations yet
+            </div>
+            <div style={{ fontSize: "0.875rem", maxWidth: 320 }}>
+              Start a new chat to ask questions about this document. Past
+              conversations will appear here.
+            </div>
+          </motion.div>
+        )}
         {conversations.map((conv, index) => {
           if (!conv) return null;
           return (

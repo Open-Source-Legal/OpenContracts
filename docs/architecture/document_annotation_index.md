@@ -70,7 +70,7 @@ expandable rich-text descriptions, and click-to-navigate behavior.
 
 ### Agent Tool: `create_document_index`
 
-- **File**: `opencontractserver/llms/tools/core_tools.py`
+- **File**: `opencontractserver/llms/tools/core_tools/document_indexing.py`
 - **Parameters**: `document_id`, `corpus_id`, `creator_id`,
   `index_entries` (list of `{title, long_description, page, exact_string,
   parent_index?}`), optional `corpus_action_id`

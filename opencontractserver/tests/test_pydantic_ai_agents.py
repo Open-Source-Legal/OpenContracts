@@ -249,7 +249,7 @@ class TestPydanticAIAgents(TransactionTestCase):
             corpus_id=self.corpus.id,
         )
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     def test_pydantic_ai_document_agent_creation(
         self,
         mock_pyd_ai_cls: MagicMock,
@@ -289,7 +289,7 @@ class TestPydanticAIAgents(TransactionTestCase):
         self.assertIs(agent.conversation_manager, mock_conv_mgr)
         self.assertIs(agent.pydantic_ai_agent, mock_pyd_ai_instance)
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_pydantic_ai_agent_with_test_model(
         self, mock_agent_class: MagicMock
     ) -> None:
@@ -511,7 +511,7 @@ class TestPydanticAIAgents(TransactionTestCase):
         self.assertIsInstance(result.output.name, str)
         self.assertIsInstance(result.output.interests, list)
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_pydantic_ai_error_handling(
         self,
         mock_pyd_ai_cls: MagicMock,
@@ -583,7 +583,7 @@ class TestPydanticAIAgents(TransactionTestCase):
         streamed = [chunk async for chunk in agent.stream("test")]
         self.assertTrue(any(c.is_complete for c in streamed))
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_pydantic_ai_chat_error_wrapping(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:
@@ -636,7 +636,7 @@ class TestPydanticAIAgents(TransactionTestCase):
         self.assertEqual(resp.metadata.get("error"), "LLM failure")
         self.assertTrue(resp.content.startswith("Error:"))
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_pydantic_ai_agent_factory_integration(
         self,
         mock_pyd_ai_cls: MagicMock,
@@ -832,7 +832,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
     # Group 2: _check_tool_requires_approval tests
     # ========================================================================
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     def test_check_tool_requires_approval_via_config_tools(
         self, mock_agent_cls: MagicMock
     ) -> None:
@@ -872,7 +872,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
         result = agent._check_tool_requires_approval("test_tool")
         self.assertTrue(result)
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     def test_check_tool_requires_approval_default_false(
         self, mock_agent_cls: MagicMock
     ) -> None:
@@ -902,7 +902,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
     # Group 3: Message initialization tests
     # ========================================================================
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_initialise_llm_message_with_existing_human(
         self, mock_agent_cls: MagicMock
     ) -> None:
@@ -952,7 +952,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
         self.assertEqual(user_id, human_msg.id)
         self.assertIsInstance(llm_id, int)
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_initialise_llm_message_fallback_creates_new(
         self, mock_agent_cls: MagicMock
     ) -> None:
@@ -1002,7 +1002,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
     # Group 4: resume_with_approval tests
     # ========================================================================
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_resume_with_approval_approved_success(
         self, mock_agent_cls: MagicMock
     ) -> None:
@@ -1089,7 +1089,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             any(e.type == "approval_result" for e in events if hasattr(e, "type"))
         )
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_resume_with_approval_rejected(
         self, mock_agent_cls: MagicMock
     ) -> None:
@@ -1154,7 +1154,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
         self.assertTrue(len(approval_events) > 0)
         self.assertEqual(approval_events[0].decision, "rejected")
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_resume_with_approval_parses_json_string_args(
         self, mock_agent_cls: MagicMock
     ) -> None:
@@ -1311,7 +1311,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
                 return call
         return None
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_structured_response_anthropic_forces_temperature_zero(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:
@@ -1353,7 +1353,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             "anthropic:claude-sonnet-4-6",
         )
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_structured_response_explicit_temperature_not_overridden(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:
@@ -1382,7 +1382,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             "Function-level temperature pin must NOT be overridden by Anthropic guard",
         )
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_structured_response_config_temperature_not_overridden(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:
@@ -1413,7 +1413,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             "config.temperature must be preserved when caller did not override",
         )
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     def test_document_agent_structured_prompt_commits_to_result(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:
@@ -1457,7 +1457,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
         self.assertIn("similarity_search", prompt)
         self.assertIn("load_document_text", prompt)
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     def test_corpus_agent_structured_prompt_commits_to_result(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:
@@ -1555,7 +1555,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             prompt,
         )
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_structured_response_openai_skips_anthropic_override(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:
@@ -1586,7 +1586,7 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             "OpenAI structured runs without pins must pass model_settings=None",
         )
 
-    @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent")
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
     async def test_document_agent_inherits_anthropic_temperature_guard(
         self, mock_pyd_ai_cls: MagicMock
     ) -> None:

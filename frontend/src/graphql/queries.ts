@@ -93,23 +93,6 @@ export const GET_DOCUMENTS = gql`
           isLatestVersion
           canViewHistory
           docRelationshipCount(corpusId: $inCorpusWithId)
-          allDocRelationships(corpusId: $inCorpusWithId) {
-            id
-            relationshipType
-            sourceDocument {
-              id
-              title
-            }
-            targetDocument {
-              id
-              title
-            }
-            annotationLabel {
-              id
-              text
-              color
-            }
-          }
           doc_label_annotations: docAnnotations(
             annotationLabel_LabelType: DOC_TYPE_LABEL
           ) @include(if: $annotateDocLabels) {
@@ -135,6 +118,46 @@ export const GET_DOCUMENTS = gql`
         hasPreviousPage
         startCursor
         endCursor
+      }
+    }
+  }
+`;
+
+// Lazy fetch of a single document's relationships (used by hover popups in the
+// document list). Kept separate from GET_DOCUMENTS so the list view can
+// resolve hundreds of documents without paying the per-doc relationship cost.
+export interface GetDocRelationshipsForDocInputs {
+  documentId: string;
+  corpusId?: string | null;
+}
+
+export interface GetDocRelationshipsForDocOutputs {
+  bulkDocRelationships: Array<{
+    id: string;
+    relationshipType: string;
+    sourceDocument?: { id: string; title?: string };
+    targetDocument?: { id: string; title?: string };
+    annotationLabel?: { id: string; text?: string; color?: string };
+  }>;
+}
+
+export const GET_DOC_RELATIONSHIPS_FOR_DOC = gql`
+  query GetDocRelationshipsForDoc($documentId: ID!, $corpusId: ID) {
+    bulkDocRelationships(documentId: $documentId, corpusId: $corpusId) {
+      id
+      relationshipType
+      sourceDocument {
+        id
+        title
+      }
+      targetDocument {
+        id
+        title
+      }
+      annotationLabel {
+        id
+        text
+        color
       }
     }
   }
@@ -570,6 +593,9 @@ export const GET_CORPUS_LABELSET_AND_LABELS = gql`
 
 export interface GetCorpusesInputs {
   textSearch?: string;
+  usesLabelsetId?: string;
+  cursor?: string;
+  limit?: number;
 }
 
 export interface GetCorpusesOutputs {
@@ -1574,6 +1600,25 @@ export const REQUEST_GET_EXTRACT = gql`
       started
       finished
       error
+      modelConfig
+      iterationAxis
+      parentExtract {
+        id
+        name
+      }
+      fullIterationList {
+        id
+        name
+        started
+        finished
+        error
+        modelConfig
+        iterationAxis
+        creator {
+          id
+          username
+        }
+      }
       fullDocumentList {
         id
         title
@@ -2031,6 +2076,116 @@ export const GET_EXTRACT_GRID_EMBED = gql`
           id
           page
         }
+      }
+    }
+  }
+`;
+
+// ----- Extract iteration comparison ---------------------------------------
+
+export type ExtractDiffStatus =
+  | "UNCHANGED"
+  | "CHANGED"
+  | "ONLY_IN_A"
+  | "ONLY_IN_B";
+
+export interface ExtractCellDiff {
+  rowKey: string;
+  columnKey: string;
+  document: { id: string; title: string } | null;
+  documentA: { id: string; title: string } | null;
+  documentB: { id: string; title: string } | null;
+  cellA: {
+    id: string;
+    data: any;
+    correctedData: any;
+    completed: string | null;
+    failed: string | null;
+  } | null;
+  cellB: {
+    id: string;
+    data: any;
+    correctedData: any;
+    completed: string | null;
+    failed: string | null;
+  } | null;
+  status: ExtractDiffStatus;
+  columnConfigChanged: boolean;
+}
+
+export interface ExtractDiffSummary {
+  unchanged: number;
+  changed: number;
+  onlyInA: number;
+  onlyInB: number;
+  total: number;
+}
+
+export interface CompareExtractsInput {
+  extractAId: string;
+  extractBId: string;
+}
+
+export interface CompareExtractsOutput {
+  compareExtracts: {
+    extractA: { id: string; name: string; modelConfig: any };
+    extractB: { id: string; name: string; modelConfig: any };
+    cells: ExtractCellDiff[];
+    summary: ExtractDiffSummary;
+  } | null;
+}
+
+export const COMPARE_EXTRACTS = gql`
+  query CompareExtracts($extractAId: ID!, $extractBId: ID!) {
+    compareExtracts(extractAId: $extractAId, extractBId: $extractBId) {
+      extractA {
+        id
+        name
+        modelConfig
+      }
+      extractB {
+        id
+        name
+        modelConfig
+      }
+      cells {
+        rowKey
+        columnKey
+        document {
+          id
+          title
+        }
+        documentA {
+          id
+          title
+        }
+        documentB {
+          id
+          title
+        }
+        cellA {
+          id
+          data
+          correctedData
+          completed
+          failed
+        }
+        cellB {
+          id
+          data
+          correctedData
+          completed
+          failed
+        }
+        status
+        columnConfigChanged
+      }
+      summary {
+        unchanged
+        changed
+        onlyInA
+        onlyInB
+        total
       }
     }
   }
@@ -2531,6 +2686,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
 export interface SearchAnnotationsForMentionInput {
   textSearch: string;
   corpusId?: string;
+  first?: number;
 }
 
 export interface SearchAnnotationsForMentionOutput {
@@ -2568,12 +2724,111 @@ export interface SearchAnnotationsForMentionOutput {
   };
 }
 
+/**
+ * Search notes for cross-content discovery.
+ * Backend filters results to notes the user can read (Note.objects.visible_to_user).
+ */
+export interface SearchNotesForMentionInput {
+  textSearch: string;
+  corpusId?: string;
+  documentId?: string;
+  first?: number;
+}
+
+export interface SearchNotesForMentionOutput {
+  searchNotesForMention: {
+    edges: Array<{
+      node: {
+        id: string;
+        title: string;
+        contentPreview: string | null;
+        modified: string;
+        creator: {
+          id: string;
+          username: string;
+          slug: string;
+        };
+        document: {
+          id: string;
+          title: string;
+          slug: string;
+          creator: {
+            id: string;
+            slug: string;
+          };
+        };
+        corpus: {
+          id: string;
+          title: string;
+          slug: string;
+          creator: {
+            id: string;
+            slug: string;
+          };
+        } | null;
+      };
+    }>;
+  };
+}
+
+export const SEARCH_NOTES_FOR_MENTION = gql`
+  query SearchNotesForMention(
+    $textSearch: String!
+    $corpusId: ID
+    $documentId: ID
+    $first: Int
+  ) {
+    searchNotesForMention(
+      textSearch: $textSearch
+      corpusId: $corpusId
+      documentId: $documentId
+      first: $first
+    ) {
+      edges {
+        node {
+          id
+          title
+          contentPreview
+          modified
+          creator {
+            id
+            username
+            slug
+          }
+          document {
+            id
+            title
+            slug
+            creator {
+              id
+              slug
+            }
+          }
+          corpus {
+            id
+            title
+            slug
+            creator {
+              id
+              slug
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const SEARCH_ANNOTATIONS_FOR_MENTION = gql`
-  query SearchAnnotationsForMention($textSearch: String!, $corpusId: ID) {
+  query SearchAnnotationsForMention(
+    $textSearch: String!
+    $corpusId: ID
+    $first: Int = 10
+  ) {
     searchAnnotationsForMention(
       textSearch: $textSearch
       corpusId: $corpusId
-      first: 10
+      first: $first
     ) {
       edges {
         node {
@@ -2664,6 +2919,7 @@ export const GET_EMBEDDERS = gql`
         inputSchema
         vectorSize
         className
+        enabled
       }
     }
   }

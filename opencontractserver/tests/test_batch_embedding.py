@@ -412,6 +412,101 @@ class TestBatchEmbedTextAnnotations(unittest.TestCase):
                 annots, ServerErrorEmbedder(), "test.ServerErrorEmbedder", 50, result
             )
 
+    def test_transient_error_does_not_block_on_in_flight_peers(self):
+        """Transient HTTP errors short-circuit the executor (issue #1410).
+
+        With ``max_workers > 1`` and a slow peer sub-batch, the previous
+        implementation would let the executor's default
+        ``shutdown(wait=True, cancel_futures=False)`` block until every
+        in-flight peer round-trip finished. The fix re-raises *outside*
+        the ``with`` block after explicitly calling
+        ``shutdown(wait=False, cancel_futures=True)``.
+
+        The test fans out 4 sub-batches: index 0 raises ``Timeout``
+        immediately; the remaining 3 each block on a ``threading.Event``
+        that the test never sets. A correct implementation propagates
+        the ``Timeout`` quickly (well under the per-call hang); a
+        regression would hang until the wait timeout below kicks in.
+        """
+        import threading
+        import time
+
+        never_release = threading.Event()
+        call_started = threading.Event()
+        # Track whether peer sub-batches were ever cancelled (i.e. never called).
+        peer_call_count = [0]
+
+        class FastFailThenBlockEmbedder(DummyEmbedder384):
+            embed_max_concurrent_sub_batches = 4
+            _calls = [0]
+            _calls_lock = threading.Lock()
+
+            def embed_texts_batch(self, texts, **kw):
+                with self._calls_lock:
+                    self._calls[0] += 1
+                    nth = self._calls[0]
+                if nth == 1:
+                    # First in -> trigger the fast-fail path.
+                    call_started.set()
+                    raise requests.exceptions.Timeout("simulated timeout")
+                # Peer sub-batches: count the call so we can assert that
+                # at least one peer started before being abandoned, then
+                # block until the test releases (or we time out trying).
+                with self._calls_lock:
+                    peer_call_count[0] += 1
+                # Cap the block at a generous bound so a regression times
+                # out the test rather than hanging the whole suite.
+                released = never_release.wait(timeout=10.0)
+                if not released:
+                    return [[0.1] * 384] * len(texts)
+                return [[0.1] * 384] * len(texts)
+
+        # 4 sub-batches with api_batch_size=1.
+        annots = [_make_mock_annotation(i, f"Text {i}") for i in range(4)]
+        result = self._make_result()
+
+        embedder = FastFailThenBlockEmbedder()
+
+        deadline_seconds = 5.0
+        start = time.monotonic()
+        with self.assertRaises(requests.exceptions.Timeout):
+            _batch_embed_text_annotations(
+                annots, embedder, "test.FastFailThenBlockEmbedder", 1, result
+            )
+        elapsed = time.monotonic() - start
+
+        # Always release peers so daemon threads exit cleanly.
+        never_release.set()
+
+        # Confirm the first sub-batch actually fired before checking the
+        # timing — otherwise a regression that never schedules sub-batch 0
+        # would silently pass the elapsed-time check.
+        self.assertTrue(
+            call_started.is_set(),
+            msg="first sub-batch never started; timing assertion would be vacuous",
+        )
+
+        # The fast-fail path must complete well inside the 10s peer
+        # block. A regression that waits on in-flight peers would take
+        # ~10s; we give a generous 5s headroom over scheduling jitter.
+        self.assertLess(
+            elapsed,
+            deadline_seconds,
+            msg=(
+                f"Fast-fail path took {elapsed:.2f}s; expected < "
+                f"{deadline_seconds}s. Executor likely waited on in-flight peers."
+            ),
+        )
+
+        # At least one peer sub-batch entered ``embed_texts_batch`` before
+        # being abandoned — otherwise the executor cancelled every queued
+        # sub-batch and the test no longer exercises the in-flight path.
+        self.assertGreater(
+            peer_call_count[0],
+            0,
+            msg="no peer sub-batches started; in-flight fast-fail path not exercised",
+        )
+
     def test_client_error_recorded_as_permanent_failure(self):
         """EmbeddingClientError from embed_texts_batch is caught and recorded.
 

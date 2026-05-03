@@ -27,7 +27,8 @@ from opencontractserver.tests.fixtures import (
     SAMPLE_PAWLS_FILE_ONE_PATH,
     SAMPLE_PDF_FILE_ONE_PATH,
 )
-from opencontractserver.types.enums import LabelType
+from opencontractserver.types.enums import LabelType, PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -534,6 +535,11 @@ class RetryDocumentProcessingTestCase(TestCase):
             processing_error="Previous error",
             backend_lock=True,
         )
+        # The T-7 permission check (#1463) requires the caller to have
+        # explicit guardian UPDATE permission on the document; creator
+        # status alone is not enough. Production upload mutations grant
+        # these permissions on creation, so we mirror that here.
+        set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
 
     def test_retry_nonexistent_document(self):
         """Test retry_document_processing handles nonexistent document."""

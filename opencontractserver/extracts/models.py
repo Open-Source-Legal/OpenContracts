@@ -216,6 +216,35 @@ class Extract(BaseOCModel):
         on_delete=django.db.models.SET_NULL,
     )
 
+    # Iteration / lineage support. ``parent_extract`` chains an extract to the
+    # iteration it was forked from so the UI can render an "Iterations" tab and
+    # diff successive runs (model drift, doc-version drift, fieldset tweaks).
+    # The full series is reachable by walking ``parent_extract`` upwards or
+    # ``iterations`` downwards.
+    parent_extract = django.db.models.ForeignKey(
+        "self",
+        related_name="iterations",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Extract this iteration was forked from. Null for the root of an "
+            "iteration series."
+        ),
+    )
+    # Run-time model configuration captured at iteration time. Forwarded as
+    # ``model_override`` to ``doc_extract_query_task`` and surfaced in the UI
+    # so that two iterations sharing a fieldset can be compared on model drift.
+    # Schema (all keys optional): {"model": str, "temperature": float,
+    # "similarity_top_k": int, "notes": str}.
+    model_config = NullableJSONField(
+        default=jsonfield_default_value,
+        null=True,
+        blank=True,
+        help_text="Model/run configuration captured for this iteration.",
+    )
+
     class Meta:
         permissions = (
             ("permission_extract", "permission extract"),

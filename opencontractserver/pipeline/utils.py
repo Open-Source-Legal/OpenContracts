@@ -619,6 +619,16 @@ def get_default_reranker_instance(
     in-memory will hit stale instances — set ``STRICT_RERANKER`` (which
     bypasses the cache fast-path) or call :func:`invalidate_reranker_cache`
     explicitly if you need a fresh instance from a fixture.
+
+    Caveat (issue #1410): ``modified`` is an ``auto_now`` field that only
+    ticks on ``save()`` / ``Model.save()``-equivalent code paths. Any code
+    that bypasses ``save()`` — e.g., ``QuerySet.update``, ``bulk_update``,
+    or a data migration that writes ``default_reranker`` directly — will
+    *not* bump ``modified``, so workers can stay pinned on the stale cached
+    instance until their process restarts. If you must mutate the singleton
+    from a migration or bulk-update path, also call
+    :func:`invalidate_reranker_cache` (or touch ``modified`` explicitly) so
+    every worker picks up the new config on its next lookup.
     """
     from django.conf import settings as django_settings
 

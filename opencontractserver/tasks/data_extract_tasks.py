@@ -347,6 +347,18 @@ async def doc_extract_query_task(
                     f"model_override {model_override!r} is not in "
                     f"BENCHMARK_ALLOWED_MODEL_OVERRIDES"
                 )
+            elif allowed is None:
+                # Unrestricted (operator-only) path — emit a WARNING so the
+                # line stands out in production alerting. An operator who
+                # forgets to set ``BENCHMARK_ALLOWED_MODEL_OVERRIDES`` is
+                # arguably mis-configured; an unexpected web/GraphQL caller
+                # firing this path is a potential abuse signal. (issue #1410)
+                logger.warning(
+                    "BENCHMARK_ALLOWED_MODEL_OVERRIDES unset; accepting "
+                    "model_override=%r (operator-only path) for cell_id=%s",
+                    model_override,
+                    cell_id,
+                )
 
         document = datacell.document
         column = datacell.column

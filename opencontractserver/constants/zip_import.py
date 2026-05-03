@@ -7,8 +7,10 @@ These limits protect against:
 - Resource exhaustion
 - Denial of service
 
-All limits can be overridden via Django settings with the same name.
-Example: settings.ZIP_MAX_FILE_COUNT = 2000
+All limits can be overridden via Django settings with the same name and via
+the matching environment variable consumed in `config/settings/base.py`.
+Example: settings.ZIP_MAX_FILE_COUNT = 2000  (or `ZIP_MAX_FILE_COUNT=2000`
+in the environment).
 """
 
 from django.conf import settings
@@ -43,12 +45,23 @@ ZIP_MAX_PATH_COMPONENT_LENGTH = getattr(settings, "ZIP_MAX_PATH_COMPONENT_LENGTH
 # Maximum total path length in characters
 ZIP_MAX_PATH_LENGTH = getattr(settings, "ZIP_MAX_PATH_LENGTH", 1024)
 
-# Maximum size of a single annotation sidecar JSON in bytes (10MB default)
+# Maximum size of a single annotation sidecar JSON in bytes (50MB default).
 # Sidecars are fully loaded into memory for JSON parsing; this limit
 # prevents a single oversized sidecar from causing excessive memory usage.
+# Override via Django settings (ZIP_MAX_SIDECAR_SIZE_BYTES) or the
+# matching environment variable consumed in config/settings/base.py.
 ZIP_MAX_SIDECAR_SIZE_BYTES = getattr(
-    settings, "ZIP_MAX_SIDECAR_SIZE_BYTES", 10 * 1024 * 1024
+    settings, "ZIP_MAX_SIDECAR_SIZE_BYTES", 50 * 1024 * 1024
 )
 
 # Batch size for document processing (commit after N documents)
 ZIP_DOCUMENT_BATCH_SIZE = getattr(settings, "ZIP_DOCUMENT_BATCH_SIZE", 50)
+
+# IDOR protection: bulk-upload job-id ↔ owner mapping in cache.
+# At enqueue time we cache the (job_id → user_id) pair; the status
+# resolver refuses to return progress for jobs the requester didn't
+# enqueue. TTL is generous so long-running imports remain queryable.
+BULK_UPLOAD_OWNER_CACHE_PREFIX = "bulk_upload_owner:"
+BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS = getattr(
+    settings, "BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS", 24 * 60 * 60
+)

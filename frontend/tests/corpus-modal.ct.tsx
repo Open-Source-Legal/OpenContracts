@@ -23,6 +23,7 @@ const mockEmbedder = {
   description: "Default text embedder",
   author: "OpenContracts",
   vectorSize: 768,
+  enabled: true,
 };
 
 const mockCorpus: CorpusType = {

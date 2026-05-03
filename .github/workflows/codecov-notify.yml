@@ -16,7 +16,11 @@ name: Codecov Notify
 
 on:
   workflow_run:
-    workflows: ["Backend CI", "Frontend CI", "Frontend E2E Integration"]
+    workflows:
+      - "Backend CI"
+      - "Frontend CI"
+      - "Frontend E2E Integration"
+      - "Frontend E2E Extract Pipeline (VCR)"
     types: [completed]
 
 concurrency:
@@ -40,6 +44,7 @@ jobs:
               "Backend CI",
               "Frontend CI",
               "Frontend E2E Integration",
+              "Frontend E2E Extract Pipeline (VCR)",
             ];
 
             // Fetch every workflow run attached to this SHA. Sort explicitly

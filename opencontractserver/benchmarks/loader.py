@@ -85,13 +85,61 @@ def force_celery_eager():
     database, we temporarily force celery into eager mode.  This is safe
     because the management command is a one-off CLI, not a web worker.
 
+    Safety guards (issue #1410):
+        * Refuses to run unless ``settings.MODE`` is ``TEST`` *or* the
+          ``OC_BENCHMARK_CLI`` environment variable is set. Calling this
+          context manager from a live web worker or a non-benchmark Celery
+          worker silently routes every task dispatched during the benchmark
+          window through the in-process executor, which would corrupt
+          production behaviour.
+        * Refuses to run when celery is already in eager mode *and* the
+          process is not the test suite — that almost always means another
+          invocation of this context manager is active on a sibling thread
+          (e.g. a concurrent benchmark CLI), and our naive save/restore
+          would leave the flag flipped to ``False`` when the inner block
+          exits.  In ``settings.MODE == "TEST"`` the eager flag is the
+          ambient state imposed by ``CELERY_TASK_ALWAYS_EAGER``; the helper
+          is then a no-op (yields without mutating the config) so callers
+          like the benchmark integration tests work transparently.
+
     Warning: This mutates the global Celery config for the current process.
     Do not call from a shared worker process or web request handler — only
     from one-off CLIs, notebooks, and test suites.
     """
+    import os
+
+    from django.conf import settings as django_settings
+
+    is_test_mode = getattr(django_settings, "MODE", "").upper() == "TEST"
+    is_benchmark_cli = bool(os.environ.get("OC_BENCHMARK_CLI"))
+    if not (is_test_mode or is_benchmark_cli):
+        raise RuntimeError(
+            "force_celery_eager() refuses to mutate the global Celery config "
+            "outside test mode or a benchmark CLI invocation. Set "
+            "OC_BENCHMARK_CLI=1 in the environment if this really is the "
+            "benchmark management command."
+        )
+
     conf = current_app.conf
     prev_always_eager = conf.task_always_eager
     prev_eager_propagates = conf.task_eager_propagates
+    if prev_always_eager:
+        if is_test_mode:
+            # Test settings set ``CELERY_TASK_ALWAYS_EAGER = True`` globally,
+            # so eager is the ambient state — not a concurrent benchmark.
+            # Yield without mutating the config; the caller already has the
+            # in-process executor it asked for.
+            yield
+            return
+        # Outside test mode, an already-eager flag almost certainly means a
+        # sibling benchmark is mutating the global config; our naive
+        # save/restore would clobber its expected ``True`` on exit.  Loud
+        # failure beats silent corruption.
+        raise RuntimeError(
+            "force_celery_eager() called while task_always_eager is already "
+            "True. Concurrent benchmark runs in the same process are not "
+            "supported because they would race on the global Celery config."
+        )
     conf.task_always_eager = True
     conf.task_eager_propagates = True
     try:

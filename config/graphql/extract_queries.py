@@ -17,6 +17,7 @@ from graphene_django.filter import DjangoFilterConnectionField
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
+from config.graphql.document_types import DocumentType
 from config.graphql.filters import (
     AnalysisFilter,
     AnalyzerFilter,
@@ -50,6 +51,67 @@ class MetadataCompletionStatusType(graphene.ObjectType):
     missing_fields = graphene.Int()
     percentage = graphene.Float()
     missing_required = graphene.List(graphene.String)
+
+
+# ---------------------------------------------------------------------------
+# Extract iteration diff types
+# ---------------------------------------------------------------------------
+
+
+class ExtractDiffStatus(graphene.Enum):
+    """Cell-level diff result between two iterations of the same extract."""
+
+    UNCHANGED = "UNCHANGED"
+    CHANGED = "CHANGED"
+    ONLY_IN_A = "ONLY_IN_A"
+    ONLY_IN_B = "ONLY_IN_B"
+
+
+class ExtractCellDiffType(graphene.ObjectType):
+    """One row of the compare grid: same (column, document) on both sides.
+
+    ``rowKey`` is a stable identifier for the document row across iterations
+    (the document's ``version_tree_id`` when available, else its PK). Using
+    the version-tree key lets the UI render a single row even when the two
+    iterations point at different content versions of the same logical doc.
+    ``columnKey`` is the column name, which is stable when fieldsets are
+    cloned because the clone preserves the name.
+    """
+
+    row_key = graphene.String(required=True)
+    column_key = graphene.String(required=True)
+    document = graphene.Field(
+        DocumentType,
+        description="Representative Document (B side preferred). For "
+        "DOCUMENT_VERSIONS-axis diffs use documentA / documentB to see "
+        "the actual version on each side.",
+    )
+    document_a = graphene.Field(DocumentType)
+    document_b = graphene.Field(DocumentType)
+    cell_a = graphene.Field(DatacellType)
+    cell_b = graphene.Field(DatacellType)
+    status = graphene.Field(ExtractDiffStatus, required=True)
+    column_config_changed = graphene.Boolean(
+        description="True when the column on B has a different prompt / "
+        "instructions / output_type from the column on A (FIELDSET axis)."
+    )
+
+
+class ExtractDiffSummaryType(graphene.ObjectType):
+    """Aggregate counts for the diff — used for the heatmap legend."""
+
+    unchanged = graphene.Int(required=True)
+    changed = graphene.Int(required=True)
+    only_in_a = graphene.Int(required=True)
+    only_in_b = graphene.Int(required=True)
+    total = graphene.Int(required=True)
+
+
+class ExtractDiffType(graphene.ObjectType):
+    extract_a = graphene.Field(ExtractType)
+    extract_b = graphene.Field(ExtractType)
+    cells = graphene.List(ExtractCellDiffType, required=True)
+    summary = graphene.Field(ExtractDiffSummaryType, required=True)
 
 
 class DocumentMetadataResultType(graphene.ObjectType):
@@ -114,6 +176,59 @@ class ExtractQueryMixin:
 
         return ExtractQueryOptimizer.get_visible_extracts(
             info.context.user, corpus_id=corpus_django_pk
+        )
+
+    compare_extracts = graphene.Field(
+        ExtractDiffType,
+        extract_a_id=graphene.ID(required=True),
+        extract_b_id=graphene.ID(required=True),
+        description="Cell-level diff between two iterations of the same extract series.",
+    )
+
+    @login_required
+    def resolve_compare_extracts(self, info, extract_a_id, extract_b_id) -> Any:
+        from opencontractserver.annotations.query_optimizer import (
+            ExtractQueryOptimizer,
+        )
+        from opencontractserver.extracts.diff import diff_extracts, summarise
+
+        user = info.context.user
+        a_pk = int(from_global_id(extract_a_id)[1])
+        b_pk = int(from_global_id(extract_b_id)[1])
+
+        # Permission check leverages the same optimizer the extract node
+        # resolver uses, so visibility rules stay consistent.
+        a_ok, extract_a = ExtractQueryOptimizer.check_extract_permission(user, a_pk)
+        b_ok, extract_b = ExtractQueryOptimizer.check_extract_permission(user, b_pk)
+        if not (a_ok and b_ok and extract_a and extract_b):
+            return None
+
+        cells_a = ExtractQueryOptimizer.get_extract_datacells(
+            extract_a, user, document_id=None
+        )
+        cells_b = ExtractQueryOptimizer.get_extract_datacells(
+            extract_b, user, document_id=None
+        )
+
+        diffs = diff_extracts(extract_a, extract_b, cells_a=cells_a, cells_b=cells_b)
+        return ExtractDiffType(
+            extract_a=extract_a,
+            extract_b=extract_b,
+            cells=[
+                ExtractCellDiffType(
+                    row_key=d.row_key,
+                    column_key=d.column_key,
+                    document=d.document,
+                    document_a=d.document_a,
+                    document_b=d.document_b,
+                    cell_a=d.cell_a,
+                    cell_b=d.cell_b,
+                    status=d.status,
+                    column_config_changed=d.column_config_changed,
+                )
+                for d in diffs
+            ],
+            summary=ExtractDiffSummaryType(**summarise(diffs)),
         )
 
     datacell = relay.Node.Field(DatacellType)

@@ -503,11 +503,17 @@ def _batch_embed_text_annotations(
     # call, then return ``(chunk, vectors_or_exc)`` for the main
     # thread to drain.
     #
-    # On a transient exception in any future, we re-raise immediately
-    # so celery's autoretry can fire; in-flight peers are abandoned
-    # (the main thread exits the executor's ``with`` block which
-    # cancels still-queued futures and waits for in-flight ones to
-    # exit naturally).
+    # On a transient exception in any future we want celery's autoretry
+    # to fire as soon as possible. Letting the exception propagate out of
+    # the ``with`` block triggers ``ThreadPoolExecutor.__exit__`` which
+    # calls ``shutdown(wait=True, cancel_futures=False)`` by default —
+    # that blocks until every in-flight peer round-trip finishes,
+    # delaying the retry by up to ~max_workers× the sub-batch latency.
+    # Instead we capture the first transient exception, break out of the
+    # ``as_completed`` loop, drop queued futures with
+    # ``shutdown(wait=False, cancel_futures=True)``, then re-raise. Already
+    # in-flight HTTP calls cannot be torn down from Python, but at least
+    # we no longer wait for them. (issue #1410)
     max_workers = max(1, getattr(embedder, "embed_max_concurrent_sub_batches", 1))
     log_prefix = (
         f"embed_texts_batch (sub-batches={len(chunks)}, parallel={max_workers}, "
@@ -520,7 +526,17 @@ def _batch_embed_text_annotations(
         return chunk, embedder.embed_texts_batch(texts_only)
 
     # Map future -> chunk index for logging/sub-batch numbering.
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    #
+    # Transient-error handling: instead of raising directly inside the
+    # ``with`` block (which would call ``shutdown(wait=True)`` and block
+    # until in-flight peers complete), we capture the first transient
+    # exception, break out of the loop, and explicitly call
+    # ``shutdown(wait=False, cancel_futures=True)`` before re-raising
+    # outside the block. This unblocks Celery autoretry as fast as
+    # possible. (issue #1410)
+    transient_exc: Optional[BaseException] = None
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         future_to_idx = {
             executor.submit(_embed_one, chunk): idx for idx, chunk in enumerate(chunks)
         }
@@ -532,15 +548,20 @@ def _batch_embed_text_annotations(
                 # ValueError indicates a caller contract violation (e.g., batch size
                 # exceeds embedder maximum). Re-raise rather than silently recording
                 # as an annotation failure so the programming error surfaces loudly.
+                # The `finally` block below shuts down the executor with
+                # cancel_futures=True; no need to repeat it here.
                 raise
             except (
                 requests.exceptions.Timeout,
                 requests.exceptions.ConnectionError,
                 EmbeddingServerError,
-            ):
+            ) as e:
                 # Transient HTTP errors: re-raise so the task-level Celery
                 # autoretry_for=(Exception,) decorator can fire a retry.
-                raise
+                # Defer the raise so we can drop queued futures first
+                # without blocking on in-flight peers.
+                transient_exc = e
+                break
             except EmbeddingClientError as e:
                 # Client errors (4xx): non-retriable, record as permanent
                 # per-annotation failures. We explicitly swallow the exception
@@ -615,6 +636,18 @@ def _batch_embed_text_annotations(
                     )
                     result["failed"] += 1
                     result["errors"].append(f"Annotation {annot.id}: store failed: {e}")
+    finally:
+        # On the transient-error fast path we want queued futures dropped
+        # and the executor shut down without waiting on in-flight peers.
+        # On the happy path ``shutdown(wait=False)`` is still safe — every
+        # future has already been drained by ``as_completed``.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    if transient_exc is not None:
+        # Re-raise the captured transient exception now that queued
+        # futures have been cancelled. Celery's task-level
+        # ``autoretry_for=(Exception,)`` decorator will fire.
+        raise transient_exc
 
 
 @shared_task(

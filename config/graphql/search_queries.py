@@ -8,6 +8,7 @@ from typing import Any
 import graphene
 from django.contrib.postgres.search import SearchQuery
 from django.db.models import Q
+from django.db.models.functions import Left
 from graphene_django.fields import DjangoConnectionField
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
@@ -17,11 +18,12 @@ from config.graphql.graphene_types import (
     AnnotationType,
     CorpusType,
     DocumentType,
+    NoteType,
     SemanticSearchResultType,
     UserType,
 )
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
-from opencontractserver.annotations.models import Annotation
+from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.constants.annotations import SEMANTIC_SEARCH_MAX_RESULTS
 from opencontractserver.constants.search import FTS_CONFIG
 from opencontractserver.corpuses.models import Corpus
@@ -72,6 +74,19 @@ class SearchQueryMixin:
         ),
         corpus_id=graphene.ID(
             description="Corpus ID to scope agent search (includes global + corpus agents)"
+        ),
+    )
+
+    search_notes_for_mention = DjangoConnectionField(
+        NoteType,
+        text_search=graphene.String(
+            description="Search query to find notes by title or content"
+        ),
+        corpus_id=graphene.ID(
+            description="Optional corpus ID to scope search to notes in specific corpus"
+        ),
+        document_id=graphene.ID(
+            description="Optional document ID to scope search to notes on a specific document"
         ),
     )
 
@@ -417,6 +432,68 @@ class SearchQueryMixin:
 
         # Order: Global first, then corpus-specific, then alphabetically by name
         return qs.select_related("creator", "corpus").order_by("scope", "name")
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_search_notes_for_mention(
+        self, info, text_search=None, corpus_id=None, document_id=None, **kwargs
+    ) -> Any:
+        """
+        Search notes by title or content.
+
+        SECURITY: Notes inherit visibility from document + corpus via
+        `Note.objects.visible_to_user()`. Anonymous users only see notes whose
+        document, corpus (if any), and the note itself are public.
+        """
+        user = info.context.user
+
+        qs = Note.objects.visible_to_user(user)
+
+        # Reject malformed or wrong-type global IDs by returning an empty
+        # queryset rather than silently filtering on a non-existent FK.
+        if corpus_id:
+            try:
+                type_name, corpus_pk = from_global_id(corpus_id)
+            except (ValueError, UnicodeDecodeError):
+                return Note.objects.none()
+            if type_name != "CorpusType":
+                return Note.objects.none()
+            qs = qs.filter(corpus_id=int(corpus_pk))
+
+        if document_id:
+            try:
+                type_name, document_pk = from_global_id(document_id)
+            except (ValueError, UnicodeDecodeError):
+                return Note.objects.none()
+            if type_name != "DocumentType":
+                return Note.objects.none()
+            qs = qs.filter(document_id=int(document_pk))
+
+        if text_search:
+            # TODO(perf): Note has no `search_vector` column today (unlike
+            # Annotation), so `icontains` is the only available substring
+            # matcher. This is `LIKE '%…%'` and cannot use a B-tree or GIN
+            # index — it degrades to a sequential scan as note volume grows
+            # and returns lower-quality matches than FTS (no stemming/rank).
+            # The fix is to add a `SearchVectorField` + GIN index to `Note`,
+            # backfill it, and switch this filter to `SearchQuery` /
+            # `SearchVector` with `FTS_CONFIG` (mirroring
+            # `resolve_search_annotations_for_mention`). Acceptable for the
+            # small note corpora this was tested against.
+            qs = qs.filter(
+                Q(title__icontains=text_search) | Q(content__icontains=text_search)
+            )
+
+        # Eager-load the relations the result row needs for deep-linking, and
+        # annotate a DB-truncated preview so the wire payload doesn't ship the
+        # full markdown body for every result.
+        qs = qs.select_related(
+            "document", "document__creator", "corpus", "creator"
+        ).annotate(content_preview=Left("content", 400))
+
+        # NoteType.get_queryset re-applies `visible_to_user` as a defensive
+        # second pass, so callers cannot widen visibility by bypassing this
+        # resolver.
+        return qs.order_by("-modified")
 
     # SEMANTIC SEARCH QUERIES #############################################
     semantic_search = graphene.List(

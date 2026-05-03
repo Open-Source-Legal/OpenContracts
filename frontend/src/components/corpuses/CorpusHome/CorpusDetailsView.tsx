@@ -211,11 +211,12 @@ export const CorpusDetailsView: React.FC<CorpusDetailsViewProps> = ({
                   )}
                 </AccessBadge>
 
-                {fullCorpus.isPublic && fullCorpus.slug && (
+                {fullCorpus.slug && (
                   <>
                     <MetadataSeparator />
                     <MCPShareButton
                       corpusSlug={fullCorpus.slug}
+                      isPublic={Boolean(fullCorpus.isPublic)}
                       size="sm"
                       testId={`${testId}-mcp-share`}
                     />

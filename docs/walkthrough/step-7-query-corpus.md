@@ -25,4 +25,4 @@ For complex queries, the agent may chain multiple tools together. The popover li
 ![Multi-Tool Popover](../assets/images/screenshots/auto/chat--tool-popover--multi-tool.png)
 
 The full set of tools available to agents is defined in
-[`opencontractserver/llms/tools/core_tools.py`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/opencontractserver/llms/tools/core_tools.py).
+[`opencontractserver/llms/tools/core_tools/`](https://github.com/Open-Source-Legal/OpenContracts/tree/main/opencontractserver/llms/tools/core_tools).

@@ -83,7 +83,7 @@ export const SidebarTabsContainer = styled.div<{ $panelOpen: boolean }>`
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: ${(props) => (props.$panelOpen ? "0" : "4px")};
+  gap: 6px;
   z-index: ${(props) => (props.$panelOpen ? "100002" : "1999")};
 
   @media (max-width: 768px) {

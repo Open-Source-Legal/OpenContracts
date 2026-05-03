@@ -8,14 +8,8 @@ from opencontractserver.pipeline.base.file_types import (
     FileTypeEnum as BackendFileTypeEnum,
 )
 
-
-class FileTypeEnum(graphene.Enum):
-    """Graphene enum for FileTypeEnum."""
-
-    PDF = BackendFileTypeEnum.PDF.value
-    TXT = BackendFileTypeEnum.TXT.value
-    DOCX = BackendFileTypeEnum.DOCX.value
-    # HTML has been removed as we don't support it
+# Derived from BackendFileTypeEnum to prevent schema drift.
+FileTypeEnum = graphene.Enum.from_enum(BackendFileTypeEnum)
 
 
 class ComponentSettingSchemaType(graphene.ObjectType):

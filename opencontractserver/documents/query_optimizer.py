@@ -5,9 +5,19 @@ Provides optimized queries for document-related actions (extracts, analysis rows
 Follows the least-privilege permission model.
 """
 
+from collections import defaultdict
 from typing import TYPE_CHECKING, Optional
 
-from django.db.models import BooleanField, Case, QuerySet, Value, When
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    F,
+    Q,
+    QuerySet,
+    Value,
+    When,
+)
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import DocumentRelationship
@@ -336,6 +346,83 @@ class DocumentRelationshipQueryOptimizer:
     # Cache key prefixes for request-level caching
     _VISIBLE_DOC_IDS_CACHE_KEY = "_doc_rel_visible_doc_ids"
     _VISIBLE_CORPUS_IDS_CACHE_KEY = "_doc_rel_visible_corpus_ids"
+    _RELATIONSHIP_COUNTS_CACHE_KEY = "_doc_rel_counts"
+
+    @classmethod
+    def get_relationship_counts_by_document(
+        cls,
+        user,
+        corpus_id: Optional[int] = None,
+        context=None,
+    ) -> dict[int, int]:
+        """
+        Return a mapping ``{document_id: count}`` of visible relationships per
+        document, computed in a single pair of aggregated SQL queries.
+
+        This replaces the per-document ``.count()`` pattern in
+        ``resolve_doc_relationship_count``, which produced N+1 query storms
+        when resolving the count field for every document in a list view.
+
+        Each ``DocumentRelationship`` contributes 1 to BOTH its source and
+        target document's count.
+
+        Args:
+            user: The requesting user.
+            corpus_id: Optional corpus filter (matches the resolver argument).
+            context: Optional GraphQL context for request-level caching. When
+                provided, the result is cached on the context keyed by
+                (user, corpus_id) so repeated resolvers share the work.
+        """
+        # DocumentRelationship is imported lazily to avoid circular imports
+        # between this module and ``opencontractserver.documents.models``.
+        from opencontractserver.documents.models import DocumentRelationship
+
+        cache_obj_key = (
+            f"{cls._RELATIONSHIP_COUNTS_CACHE_KEY}_"
+            f"{getattr(user, 'id', None)}_{corpus_id if corpus_id else 'all'}"
+        )
+        if context is not None and hasattr(context, cache_obj_key):
+            return getattr(context, cache_obj_key)
+
+        is_superuser = bool(getattr(user, "is_superuser", False))
+        if is_superuser:
+            qs = DocumentRelationship.objects.all()
+        else:
+            visible_doc_ids = cls._get_visible_document_ids(user, context=context)
+            visible_corpus_ids = cls._get_visible_corpus_ids(user, context=context)
+            # Visibility requires BOTH endpoints to be readable (matches
+            # ``get_visible_relationships``). This intentionally hides a
+            # relationship from the count when the *other* document is
+            # invisible to the user — surfacing the count would otherwise leak
+            # the existence of a hidden document via the badge number.
+            qs = DocumentRelationship.objects.filter(
+                source_document_id__in=visible_doc_ids,
+                target_document_id__in=visible_doc_ids,
+            ).filter(Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids))
+
+        if corpus_id:
+            qs = qs.filter(corpus_id=corpus_id)
+
+        counts: defaultdict[int, int] = defaultdict(int)
+        for row in qs.values("source_document_id").annotate(c=Count("id")):
+            counts[row["source_document_id"]] += row["c"]
+        # Exclude self-referential rows from the target-side aggregation so a
+        # relationship where source == target only contributes once. Without
+        # this guard, such a row would be counted both as a source and as a
+        # target for the same document.
+        for row in (
+            qs.exclude(source_document_id=F("target_document_id"))
+            .values("target_document_id")
+            .annotate(c=Count("id"))
+        ):
+            counts[row["target_document_id"]] += row["c"]
+
+        # Materialise to a plain dict so callers can ``.get(key, 0)`` without
+        # accidentally mutating the defaultdict.
+        result = dict(counts)
+        if context is not None:
+            setattr(context, cache_obj_key, result)
+        return result
 
     @classmethod
     def _get_visible_document_ids(cls, user, context=None) -> QuerySet:

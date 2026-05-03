@@ -4,6 +4,7 @@ GraphQL mutations for extract, fieldset, column, datacell, and metadata operatio
 
 import logging
 import uuid
+from typing import Optional
 
 import graphene
 from django.conf import settings
@@ -1084,3 +1085,228 @@ class StartDocumentExtract(graphene.Mutation):
         )
 
         return StartDocumentExtract(ok=True, message="STARTED!", obj=extract)
+
+
+# ---------------------------------------------------------------------------
+# Iteration support — CreateExtractIteration
+# ---------------------------------------------------------------------------
+
+# Iteration axes. Kept as a small Enum so the frontend can render dedicated
+# affordances per axis without leaking field-level details into UI logic.
+EXTRACT_ITERATION_AXES = ("MODEL", "DOCUMENT_VERSIONS", "FIELDSET")
+
+
+def _clone_fieldset_for_iteration(
+    source_fieldset: Fieldset,
+    user,
+    column_overrides: Optional[dict] = None,
+) -> Fieldset:
+    """Deep-clone a fieldset and its columns for a FIELDSET-axis iteration.
+
+    ``column_overrides`` maps source-column global ids to a dict of fields
+    to override on the cloned column (e.g. updated query/instructions/output_type).
+    """
+    new_fieldset = Fieldset.objects.create(
+        name=f"{source_fieldset.name} (iteration)",
+        description=source_fieldset.description,
+        creator=user,
+    )
+    set_permissions_for_obj_to_user(user, new_fieldset, [PermissionTypes.CRUD])
+
+    overrides_by_pk: dict = {}
+    if column_overrides:
+        for gid, payload in column_overrides.items():
+            try:
+                overrides_by_pk[int(from_global_id(gid)[1])] = payload or {}
+            except Exception:
+                # Silently skip bad ids; the iteration should still proceed
+                # with un-overridden clones rather than 500.
+                continue
+
+    for column in source_fieldset.columns.all():
+        overrides = overrides_by_pk.get(column.pk, {})
+        clone = Column.objects.create(
+            fieldset=new_fieldset,
+            name=overrides.get("name", column.name),
+            query=overrides.get("query", column.query),
+            match_text=overrides.get("match_text", column.match_text),
+            must_contain_text=overrides.get(
+                "must_contain_text", column.must_contain_text
+            ),
+            output_type=overrides.get("output_type", column.output_type),
+            limit_to_label=overrides.get("limit_to_label", column.limit_to_label),
+            instructions=overrides.get("instructions", column.instructions),
+            extract_is_list=overrides.get("extract_is_list", column.extract_is_list),
+            task_name=overrides.get("task_name", column.task_name),
+            data_type=column.data_type,
+            validation_config=column.validation_config,
+            is_manual_entry=column.is_manual_entry,
+            default_value=column.default_value,
+            help_text=column.help_text,
+            display_order=column.display_order,
+            creator=user,
+        )
+        set_permissions_for_obj_to_user(user, clone, [PermissionTypes.CRUD])
+    return new_fieldset
+
+
+def _resolve_iteration_documents(source_extract: Extract, axis: str):
+    """Pick the document set for a new iteration.
+
+    - DOCUMENT_VERSIONS: re-resolve every doc in the parent to the *current*
+      Document in its ``version_tree_id`` so the iteration runs against the
+      latest content.
+    - All other axes: keep the parent's exact pinned Document PKs so the
+      diff is apples-to-apples.
+    """
+    parent_docs = list(source_extract.documents.all())
+    if axis != "DOCUMENT_VERSIONS":
+        return parent_docs
+
+    tree_ids = [d.version_tree_id for d in parent_docs if d.version_tree_id]
+    if not tree_ids:
+        return parent_docs
+    current_by_tree = {
+        d.version_tree_id: d
+        for d in Document.objects.filter(version_tree_id__in=tree_ids, is_current=True)
+    }
+    # Fall back to the original Document if no current row exists for a tree
+    # (e.g. soft-deleted) so the iteration set always matches the parent shape.
+    return [current_by_tree.get(d.version_tree_id, d) for d in parent_docs]
+
+
+class CreateExtractIteration(graphene.Mutation):
+    """Fork an existing Extract into a new iteration along a single axis.
+
+    Three axes are supported, mirroring the three eval workflows:
+      * ``MODEL`` — same fieldset + same documents, new model_config.
+      * ``DOCUMENT_VERSIONS`` — same fieldset + same model_config, but each
+        document is replaced by the current row in its version tree.
+      * ``FIELDSET`` — clone the fieldset (with optional per-column
+        overrides), keep documents + model_config.
+
+    The new extract has ``parent_extract`` set to the source so the UI can
+    walk the iteration series. If ``auto_start`` is true the standard
+    ``run_extract`` task is queued exactly as ``StartExtract`` would.
+    """
+
+    class Arguments:
+        source_extract_id = graphene.ID(required=True)
+        axis = graphene.String(
+            required=True, description="One of MODEL | DOCUMENT_VERSIONS | FIELDSET"
+        )
+        name = graphene.String(
+            required=False,
+            description="Optional name for the new iteration; defaults to "
+            "'<source name> (iteration N)'.",
+        )
+        model_config = GenericScalar(
+            required=False,
+            description="Run-time model config to capture on the new "
+            "iteration. If omitted, parent's config is reused.",
+        )
+        column_overrides = GenericScalar(
+            required=False,
+            description="FIELDSET-axis only: { '<column global id>': { "
+            "'query': '...', 'instructions': '...', ... } }.",
+        )
+        auto_start = graphene.Boolean(
+            required=False,
+            description="If true, queue run_extract for the new iteration.",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    obj = graphene.Field(ExtractType)
+
+    @staticmethod
+    @login_required
+    def mutate(
+        root,
+        info,
+        source_extract_id,
+        axis,
+        name=None,
+        model_config=None,
+        column_overrides=None,
+        auto_start=False,
+    ) -> "CreateExtractIteration":
+        user = info.context.user
+
+        if axis not in EXTRACT_ITERATION_AXES:
+            return CreateExtractIteration(
+                ok=False,
+                message=(f"axis must be one of {', '.join(EXTRACT_ITERATION_AXES)}"),
+            )
+
+        try:
+            source_pk = int(from_global_id(source_extract_id)[1])
+            source = Extract.objects.get(pk=source_pk)
+        except (Extract.DoesNotExist, ValueError):
+            return CreateExtractIteration(ok=False, message="Source extract not found.")
+
+        if not user_has_permission_for_obj(
+            user, source, PermissionTypes.READ, include_group_permissions=True
+        ):
+            return CreateExtractIteration(
+                ok=False,
+                message="You don't have permission to read this extract.",
+            )
+
+        # Pick a fieldset based on axis: clone for FIELDSET, share otherwise.
+        # Shared fieldsets are the right call for MODEL/DOC drift testing
+        # because we want the column definitions to stay byte-identical.
+        if axis == "FIELDSET":
+            new_fieldset = _clone_fieldset_for_iteration(
+                source.fieldset, user, column_overrides=column_overrides
+            )
+        else:
+            new_fieldset = source.fieldset
+
+        # Compute a default name as "<source> (iteration N)" where N counts
+        # existing siblings + the source itself, so users can't easily
+        # collide names by repeated forking.
+        if not name:
+            sibling_count = Extract.objects.filter(parent_extract=source).count()
+            name = f"{source.name} (iteration {sibling_count + 1})"
+
+        # Inherit parent model_config when caller didn't supply one. We deep-
+        # copy via dict() so subsequent edits to the parent don't leak in.
+        effective_model_config = (
+            dict(model_config)
+            if model_config is not None
+            else dict(source.model_config or {})
+        )
+
+        with transaction.atomic():
+            new_extract = Extract.objects.create(
+                corpus=source.corpus,
+                name=name,
+                fieldset=new_fieldset,
+                creator=user,
+                parent_extract=source,
+                model_config=effective_model_config,
+            )
+            new_extract.documents.set(_resolve_iteration_documents(source, axis))
+            set_permissions_for_obj_to_user(user, new_extract, [PermissionTypes.CRUD])
+
+        if auto_start:
+            new_extract.started = timezone.now()
+            new_extract.save(update_fields=["started"])
+            transaction.on_commit(
+                lambda: run_extract.s(new_extract.id, user.id).apply_async()
+            )
+
+        record_event(
+            "extract_iteration_created",
+            {
+                "env": settings.MODE,
+                "user_id": user.id,
+                "axis": axis,
+                "auto_start": bool(auto_start),
+            },
+        )
+
+        return CreateExtractIteration(
+            ok=True, message="Iteration created.", obj=new_extract
+        )

@@ -16,15 +16,17 @@ Raises:
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
+
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
-User = get_user_model()
 
 
-def get_user_from_jwt_token(token: str) -> User:
+def get_user_from_jwt_token(token: str) -> "User":
     """
     Validate a JWT token and return the associated user.
 
@@ -48,7 +50,7 @@ def get_user_from_jwt_token(token: str) -> User:
     return _validate_graphql_jwt_token(token)
 
 
-def _validate_graphql_jwt_token(token: str) -> User:
+def _validate_graphql_jwt_token(token: str) -> "User":
     """
     Validate a standard graphql_jwt token (HS256, local secret).
 
@@ -83,7 +85,7 @@ def _validate_graphql_jwt_token(token: str) -> User:
     return user
 
 
-def _validate_auth0_token(token: str) -> User:
+def _validate_auth0_token(token: str) -> "User":
     """
     Validate an Auth0 JWT token (RS256, JWKS verification).
 

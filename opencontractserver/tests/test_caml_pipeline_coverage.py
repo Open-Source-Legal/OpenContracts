@@ -14,6 +14,8 @@ from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentProcessingStatus
 from opencontractserver.documents.signals import process_doc_on_create_atomic
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -122,6 +124,10 @@ class CamlIngestDocSkipTest(TestCase):
             creator=self.user,
             file_type=MARKDOWN_MIME_TYPE,
         )
+        # T-7 (#1463) defense-in-depth: ingest_doc rejects callers without
+        # explicit guardian READ permission. Production upload mutations
+        # grant CRUD on creation; mirror that in the test.
+        set_permissions_for_obj_to_user(self.user, doc, [PermissionTypes.CRUD])
 
         # Call the task function directly (not via Celery).
         # ingest_doc uses bind=True so .run() passes the task instance as self.

@@ -373,7 +373,7 @@ def get_annotation_images(annotation_id: int) -> list[ImageData]:
         if not pawls_data:
             return []
 
-        images: list[ImageData] = []
+        images = []
         for page in iter_page_annotations(
             annotation.json or {}, raw_text=annotation.raw_text or ""
         ):
@@ -543,7 +543,7 @@ def get_annotation_images_with_permission(
                     Document.objects.filter(
                         structural_annotation_set=annotation.structural_set
                     )
-                    .visible_to_user(user)
+                    .visible_to_user(user)  # type: ignore[attr-defined]
                     .first()
                 )
                 if not accessible_doc:

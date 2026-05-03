@@ -608,6 +608,15 @@ MANAGERS = ADMINS
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        # Demote the routine "CSRF token missing." WARNING to INFO so
+        # genuine CSRF anomalies (origin mismatch, bad referer) stand out.
+        # See config/graphql/security.py::CsrfRejectLogFilter for the
+        # full rationale (issue #1432).
+        "csrf_reject_filter": {
+            "()": "config.graphql.security.CsrfRejectLogFilter",
+        },
+    },
     "formatters": {
         "verbose": {
             "format": (
@@ -626,7 +635,14 @@ LOGGING = {
         "handlers": ["console"],
         "level": "INFO",
     },
-    "loggers": {},
+    "loggers": {
+        "django.security.csrf": {
+            "handlers": ["console"],
+            "filters": ["csrf_reject_filter"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
 }
 
 # Celery
@@ -709,6 +725,55 @@ WORKER_UPLOAD_STALE_MINUTES = int(env("WORKER_UPLOAD_STALE_MINUTES", default="15
 # Default: 500 MB. Set to 0 to disable the limit.
 MAX_WORKER_METADATA_SIZE_BYTES = int(
     env("MAX_WORKER_METADATA_SIZE_BYTES", default=str(500 * 1024 * 1024))
+)
+
+# Zip Import Limits
+# ------------------------------------------------------------------------------
+# These limits are consumed by opencontractserver/constants/zip_import.py via
+# `getattr(settings, ...)` and shield the importer from zip bombs, path
+# traversal, and resource exhaustion.  Each value is overridable via the
+# matching environment variable so operators can tune them per deployment.
+
+# Maximum number of files allowed in a single import zip.
+ZIP_MAX_FILE_COUNT = int(env("ZIP_MAX_FILE_COUNT", default="1000"))
+
+# Maximum total uncompressed size (in bytes) of a single import zip.
+# Default: 500 MB.
+ZIP_MAX_TOTAL_SIZE_BYTES = int(
+    env("ZIP_MAX_TOTAL_SIZE_BYTES", default=str(500 * 1024 * 1024))
+)
+
+# Maximum size (in bytes) of any single file inside an import zip.  Files
+# exceeding this limit are skipped with an error message.  Default: 100 MB.
+ZIP_MAX_SINGLE_FILE_SIZE_BYTES = int(
+    env("ZIP_MAX_SINGLE_FILE_SIZE_BYTES", default=str(100 * 1024 * 1024))
+)
+
+# Maximum compression ratio (uncompressed/compressed) before flagging a zip
+# entry as suspicious.  Files above this ratio trigger extra validation.
+ZIP_MAX_COMPRESSION_RATIO = int(env("ZIP_MAX_COMPRESSION_RATIO", default="100"))
+
+# Maximum folder depth (number of nested folders) inside an import zip.
+ZIP_MAX_FOLDER_DEPTH = int(env("ZIP_MAX_FOLDER_DEPTH", default="20"))
+
+# Maximum number of folders that can be created from a single import zip.
+ZIP_MAX_FOLDER_COUNT = int(env("ZIP_MAX_FOLDER_COUNT", default="500"))
+
+# Maximum length (characters) of a single path component (folder or file
+# name) inside an import zip.
+ZIP_MAX_PATH_COMPONENT_LENGTH = int(env("ZIP_MAX_PATH_COMPONENT_LENGTH", default="255"))
+
+# Maximum total path length (characters) for any entry in an import zip.
+ZIP_MAX_PATH_LENGTH = int(env("ZIP_MAX_PATH_LENGTH", default="1024"))
+
+# Number of documents to process per batch when draining a zip import.
+ZIP_DOCUMENT_BATCH_SIZE = int(env("ZIP_DOCUMENT_BATCH_SIZE", default="50"))
+
+# Maximum size (in bytes) of a single annotation sidecar JSON inside an import
+# zip. Sidecars are fully loaded into memory for JSON parsing, so this caps
+# per-sidecar memory use. Default: 50 MB.
+ZIP_MAX_SIDECAR_SIZE_BYTES = int(
+    env("ZIP_MAX_SIDECAR_SIZE_BYTES", default=str(50 * 1024 * 1024))
 )
 
 # django-rest-framework

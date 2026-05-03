@@ -1679,6 +1679,69 @@ export const REQUEST_START_EXTRACT = gql`
   }
 `;
 
+// ----- CreateExtractIteration --------------------------------------------
+
+export type ExtractIterationAxis = "MODEL" | "DOCUMENT_VERSIONS" | "FIELDSET";
+
+export interface RequestCreateExtractIterationInputType {
+  sourceExtractId: string;
+  axis: ExtractIterationAxis;
+  name?: string;
+  modelConfig?: Record<string, unknown>;
+  columnOverrides?: Record<string, Record<string, unknown>>;
+  autoStart?: boolean;
+}
+
+export interface RequestCreateExtractIterationOutputType {
+  createExtractIteration: {
+    ok: boolean;
+    message: string;
+    obj: {
+      id: string;
+      name: string;
+      started: string | null;
+      finished: string | null;
+      modelConfig: any;
+      iterationAxis: ExtractIterationAxis | null;
+      parentExtract: { id: string } | null;
+    } | null;
+  };
+}
+
+export const REQUEST_CREATE_EXTRACT_ITERATION = gql`
+  mutation CreateExtractIteration(
+    $sourceExtractId: ID!
+    $axis: String!
+    $name: String
+    $modelConfig: GenericScalar
+    $columnOverrides: GenericScalar
+    $autoStart: Boolean
+  ) {
+    createExtractIteration(
+      sourceExtractId: $sourceExtractId
+      axis: $axis
+      name: $name
+      modelConfig: $modelConfig
+      columnOverrides: $columnOverrides
+      autoStart: $autoStart
+    ) {
+      ok
+      message
+      obj {
+        id
+        name
+        started
+        finished
+        modelConfig
+        iterationAxis
+        parentExtract {
+          id
+        }
+      }
+    }
+  }
+`;
+
 export interface RequestApproveDatacellInputType {
   datacellId: string;
 }

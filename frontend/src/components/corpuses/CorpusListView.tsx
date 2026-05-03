@@ -20,7 +20,6 @@ import {
   Eye,
   Download,
   GitFork,
-  Link,
   Trash2,
 } from "lucide-react";
 import {
@@ -208,23 +207,14 @@ const CardWrapper = styled.div`
   position: relative;
 `;
 
-// MCP button overlay for public corpus cards
+// MCP button overlay for corpus cards. Always visible so MCP discovery is
+// consistent across every tile — public corpora get a copy-able endpoint,
+// private corpora get an explanation in the popover.
 const MCPButtonOverlay = styled.div`
   position: absolute;
   top: 12px;
   right: 48px; /* Position left of the kebab menu */
   z-index: 10;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-
-  ${CardWrapper}:hover & {
-    opacity: 1;
-  }
-
-  /* Always visible on touch devices */
-  @media (hover: none) {
-    opacity: 1;
-  }
 `;
 
 // Floating context menu (similar to old CorpusItem)
@@ -614,11 +604,14 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                       key={corpus.id}
                       onContextMenu={(e) => handleOpenContextMenu(e, corpus.id)}
                     >
-                      {/* MCP Share button overlay for public corpuses */}
-                      {corpus.isPublic && corpus.slug && (
+                      {/* MCP Share button overlay — always shown for
+                          consistent discovery; popover content adapts based
+                          on whether the corpus is public. */}
+                      {corpus.slug && (
                         <MCPButtonOverlay>
                           <MCPShareButton
                             corpusSlug={corpus.slug}
+                            isPublic={Boolean(corpus.isPublic)}
                             size="sm"
                             showLabel={false}
                             testId={`mcp-share-${corpus.id}`}
@@ -711,21 +704,6 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                           label: "Fork",
                           onClick: () => {
                             handleFork(corpus.id);
-                            handleCloseMenu();
-                          },
-                        },
-                        {
-                          key: "mcp",
-                          icon: <Link size={16} />,
-                          label: "MCP Endpoint",
-                          visible: Boolean(corpus.isPublic && corpus.slug),
-                          onClick: () => {
-                            const mcpUrl = `${window.location.origin}/mcp/corpus/${corpus.slug}`;
-                            navigator.clipboard.writeText(mcpUrl).then(() => {
-                              toast.success(
-                                "MCP endpoint URL copied to clipboard"
-                              );
-                            });
                             handleCloseMenu();
                           },
                         },

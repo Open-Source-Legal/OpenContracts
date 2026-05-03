@@ -114,6 +114,26 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "'showing N of M' indicators when the payload is bounded."
         )
     )
+    # ``model_config`` is a JSONField on the model — expose it as GenericScalar
+    # so the camelCased ``modelConfig`` field returns the captured run config.
+    model_config = GenericScalar(
+        description="Captured model/run configuration for this iteration."
+    )
+    iteration_axis = graphene.String(
+        description=(
+            "Best-effort axis label inferred from the iteration relationship: "
+            "'MODEL' if model_config differs from parent, 'FIELDSET' if fieldset "
+            "differs, 'DOCUMENT_VERSIONS' if doc set differs, else null. Useful "
+            "for badging the Iterations tab."
+        )
+    )
+    full_iteration_list = graphene.List(
+        lambda: ExtractType,
+        description=(
+            "Direct iterations forked from this extract (one level deep). "
+            "Walk recursively for the full subtree."
+        ),
+    )
 
     @classmethod
     def get_node(cls, info, id) -> Any:
@@ -172,6 +192,29 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             ):
                 readable_docs.append(doc)
         return readable_docs
+
+    def resolve_full_iteration_list(self, info) -> Any:
+        # Permission filter is handled by ExtractQueryOptimizer for the
+        # individual iteration view; here we return all direct children
+        # (FK is set, parent is visible by definition).
+        return self.iterations.all().order_by("created", "id")
+
+    def resolve_iteration_axis(self, info) -> Any:
+        parent = self.parent_extract
+        if parent is None:
+            return None
+        # Compare cheap signals first. Sets compared by PK to avoid hitting
+        # the DB more than necessary; if iteration has fewer/more docs we
+        # treat that as DOCUMENT_VERSIONS too.
+        if self.fieldset_id != parent.fieldset_id:
+            return "FIELDSET"
+        own_doc_ids = set(self.documents.values_list("id", flat=True))
+        parent_doc_ids = set(parent.documents.values_list("id", flat=True))
+        if own_doc_ids != parent_doc_ids:
+            return "DOCUMENT_VERSIONS"
+        if (self.model_config or {}) != (parent.model_config or {}):
+            return "MODEL"
+        return None
 
 
 class AnalyzerType(AnnotatePermissionsForReadMixin, DjangoObjectType):

@@ -41,6 +41,13 @@ jobs:
       - name: Lint Prettier
         run: yarn run lint
 
+      # Gate explicit `any` usage against frontend/.any-baseline.json so the
+      # count cannot regress. `--check-strict` also fails when the count drops
+      # without the baseline being lowered, keeping the file in lockstep with
+      # reality. See issue #1448 and docs/frontend/any-baseline.md.
+      - name: Check any-baseline
+        run: yarn run any:check:strict
+
   component-test:
     name: Component Tests
     runs-on: ubuntu-latest

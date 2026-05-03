@@ -315,6 +315,7 @@ async def check_ws_rate_limit(
 
     if is_limited:
         if send_message:
+            count: int | str
             try:
                 count, period_seconds = parse_rate(rate)
                 period_key = rate.split("/")[1]

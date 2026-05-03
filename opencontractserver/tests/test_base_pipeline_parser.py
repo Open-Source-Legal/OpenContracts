@@ -19,6 +19,8 @@ from opencontractserver.types.dicts import (
     OpenContractsAnnotationPythonType,
     OpenContractsRelationshipPythonType,
 )
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,9 @@ class MockParser(BaseParser):
             title="Test Document with ephemeral parser",
             creator=self.user,
         )
+        # T-7 (#1463) defense-in-depth: ingest_doc rejects callers without
+        # explicit guardian READ permission.
+        set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
         self.corpus = Corpus.objects.create(
             title="Test Corpus",
             creator=self.user,

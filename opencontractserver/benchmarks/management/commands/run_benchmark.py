@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -178,6 +179,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options) -> None:
+        # Mark the process as a benchmark CLI invocation so
+        # ``force_celery_eager`` will accept the global Celery-config
+        # mutation. Without this opt-in env var the helper refuses to
+        # run in non-test mode (issue #1410).
+        os.environ.setdefault("OC_BENCHMARK_CLI", "1")
+
         username = options["user"]
         User = get_user_model()
         try:

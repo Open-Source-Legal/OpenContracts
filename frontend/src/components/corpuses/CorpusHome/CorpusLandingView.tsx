@@ -265,12 +265,14 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
               )}
             </AccessBadge>
 
-            {/* MCP Share button - only shown for public corpuses */}
-            {fullCorpus.isPublic && fullCorpus.slug && (
+            {/* MCP Share button — always shown for consistent discovery;
+                popover content adapts based on whether the corpus is public. */}
+            {fullCorpus.slug && (
               <>
                 <MetadataSeparator />
                 <MCPShareButton
                   corpusSlug={fullCorpus.slug}
+                  isPublic={Boolean(fullCorpus.isPublic)}
                   size="sm"
                   testId={`${testId}-mcp-share`}
                 />

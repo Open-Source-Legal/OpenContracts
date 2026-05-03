@@ -45,6 +45,9 @@ class NotificationTypeChoices(models.TextChoices):
     ANALYSIS_FAILED = "ANALYSIS_FAILED", "Analysis Failed"
     EXPORT_COMPLETE = "EXPORT_COMPLETE", "Export Complete"
 
+    # Visibility changes (I-1: corpus public-flip cascade audit trail)
+    DOCUMENT_PUBLICIZED = "DOCUMENT_PUBLICIZED", "Document Made Public via Corpus"
+
 
 class Notification(models.Model):
     """

@@ -611,6 +611,96 @@ class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
         shutil.rmtree(path, ignore_errors=True)
 
 
+class ForceCeleryEagerSafetyGuardsTestCase(PyUnitTestCase):
+    """Tests for the safety guards on :func:`force_celery_eager` (issue #1410).
+
+    The context manager mutates the global Celery config; calling it from
+    a live worker or a non-benchmark process would silently route every
+    task dispatched during the benchmark window through the in-process
+    executor.  These tests pin the explicit refusals.
+    """
+
+    def test_refuses_outside_test_mode_without_cli_env(self):
+        """Non-test, non-CLI processes must raise rather than mutate config."""
+        import os
+
+        from opencontractserver.benchmarks.loader import force_celery_eager
+
+        prev_cli = os.environ.pop("OC_BENCHMARK_CLI", None)
+        try:
+            with override_settings(MODE="PROD"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    with force_celery_eager():
+                        pass
+                self.assertIn("benchmark", str(ctx.exception).lower())
+        finally:
+            if prev_cli is not None:
+                os.environ["OC_BENCHMARK_CLI"] = prev_cli
+
+    def test_allows_when_oc_benchmark_cli_env_is_set(self):
+        """An explicit ``OC_BENCHMARK_CLI`` env var unlocks the helper.
+
+        The helper otherwise refuses outside test mode; the env var lets
+        the benchmark CLI invoke it from a non-test process.  Note: the
+        Celery conf in this project is bound to Django settings via
+        ``config_from_object``, which makes ``conf.task_always_eager``
+        effectively read-only — so we verify the unlock by asserting the
+        helper *does not raise*, not by inspecting the flag.
+        """
+        import os
+
+        from opencontractserver.benchmarks.loader import force_celery_eager
+
+        prev_cli = os.environ.get("OC_BENCHMARK_CLI")
+        os.environ["OC_BENCHMARK_CLI"] = "1"
+        try:
+            with override_settings(MODE="PROD", CELERY_TASK_ALWAYS_EAGER=False):
+                # Helper enters the non-eager CLI path and yields without
+                # raising. No assertion on the conf — see docstring.
+                with force_celery_eager():
+                    pass
+        finally:
+            if prev_cli is None:
+                os.environ.pop("OC_BENCHMARK_CLI", None)
+            else:
+                os.environ["OC_BENCHMARK_CLI"] = prev_cli
+
+    def test_refuses_when_already_eager_outside_test_mode(self):
+        """Concurrent (or stacked) CLI invocations are rejected loudly."""
+        import os
+
+        from opencontractserver.benchmarks.loader import force_celery_eager
+
+        prev_cli = os.environ.get("OC_BENCHMARK_CLI")
+        os.environ["OC_BENCHMARK_CLI"] = "1"
+        try:
+            with override_settings(MODE="PROD", CELERY_TASK_ALWAYS_EAGER=True):
+                with self.assertRaises(RuntimeError) as ctx:
+                    with force_celery_eager():
+                        pass
+            self.assertIn("already", str(ctx.exception).lower())
+        finally:
+            if prev_cli is None:
+                os.environ.pop("OC_BENCHMARK_CLI", None)
+            else:
+                os.environ["OC_BENCHMARK_CLI"] = prev_cli
+
+    def test_test_mode_no_op_when_already_eager(self):
+        """Test mode treats an already-eager flag as the ambient state."""
+        from celery import current_app
+
+        from opencontractserver.benchmarks.loader import force_celery_eager
+
+        # Default settings.MODE == "TEST" and CELERY_TASK_ALWAYS_EAGER == True;
+        # the helper should yield without mutating the global config and never
+        # raise — this is exactly the path
+        # ``BenchmarkRunnerIntegrationTestCase`` relies on.
+        self.assertTrue(current_app.conf.task_always_eager)
+        with force_celery_eager():
+            self.assertTrue(current_app.conf.task_always_eager)
+        self.assertTrue(current_app.conf.task_always_eager)
+
+
 class BenchmarkTaskDataclassTestCase(PyUnitTestCase):
     """Guard against accidental changes to the public BenchmarkTask shape."""
 

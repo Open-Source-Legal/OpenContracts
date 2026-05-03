@@ -855,6 +855,147 @@ export async function runExtractAndWaitForFinish(
 }
 
 /**
+ * Open the Iterations tab on the currently-open extract detail page,
+ * click "New iteration", choose an axis, optionally rename, leave
+ * "Run immediately" UNCHECKED, and submit.
+ *
+ * Caller must already be on the extract detail page (any tab).
+ *
+ * INTENTIONAL CHOICE: we default to autoStart=false because a second
+ * extract run would require a second LLM round-trip — and the VCR
+ * cassette for the e2e workflow only covers the parent extract's calls.
+ * Iteration B with no cells still produces a meaningful diff (every
+ * parent cell becomes ONLY_IN_A), which is enough to prove the
+ * iteration creation + diff query end-to-end.
+ *
+ * Returns the name the iteration was created with so callers can locate
+ * the row in the iterations list afterwards.
+ */
+export async function forkExtractIterationViaUI(
+  page: Page,
+  iterationName: string,
+  axis: "MODEL" | "DOCUMENT_VERSIONS" | "FIELDSET" = "MODEL",
+  autoStart: boolean = false,
+  /**
+   * Only used when axis === "MODEL". The dialog renders a "Model identifier"
+   * input that NewIterationDialog packs into modelConfig = { model }. Without
+   * a non-empty value the mutation inherits the parent's empty model_config,
+   * which makes the backend's iterationAxis resolver return null (no diff
+   * across model_config). Default to a stub so the axis chip renders.
+   */
+  modelIdentifier: string = "anthropic:claude-opus-4-7"
+): Promise<string> {
+  // Switch to Iterations tab. ExtractDetailContent's Tabs renders this
+  // tab as the fourth child, label "Iterations".
+  await page.getByRole("tab", { name: /^Iterations$/i }).click();
+  await page.waitForTimeout(300);
+
+  // The toolbar's primary CTA reads "New iteration" (NewIterationDialog
+  // trigger in ExtractIterationsTab.tsx).
+  await page
+    .getByRole("button", { name: /^New iteration$/i })
+    .first()
+    .click();
+
+  // Modal has aria-label="New iteration".
+  const dialog = page.getByRole("dialog", { name: /^New iteration$/i });
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+
+  // Axis cards are <button> elements inside the dialog. The default
+  // selection is MODEL; only re-click when the caller wants a different
+  // axis. Each card's label includes a Lucide icon plus the axis name.
+  if (axis !== "MODEL") {
+    const label =
+      axis === "DOCUMENT_VERSIONS" ? /Document versions/i : /^Schema$/i;
+    await dialog.getByRole("button", { name: label }).first().click();
+  }
+
+  // Name field is the only text input that takes the placeholder
+  // "Defaults to <source name> (iteration N)".
+  await dialog
+    .getByPlaceholder(/Defaults to .*iteration N/i)
+    .fill(iterationName);
+
+  // For MODEL-axis runs, fill the "Model identifier" input. The backend
+  // iterationAxis resolver compares (self.model_config or {}) to
+  // (parent.model_config or {}) — without a value here the iteration
+  // inherits parent's empty config and the resolver returns null, so
+  // the axis chip never renders.
+  if (axis === "MODEL" && modelIdentifier) {
+    const modelInput = dialog.getByPlaceholder(/anthropic:claude/i).first();
+    if (await modelInput.isVisible().catch(() => false)) {
+      await modelInput.fill(modelIdentifier);
+    }
+  }
+
+  // "Run immediately" toggle. The dialog ships with checked=true; flip
+  // it off when autoStart=false so the new iteration is created without
+  // queueing run_extract (no extra LLM traffic needed for this assertion
+  // — see the comment on this helper).
+  const runNow = dialog.locator('input[type="checkbox"]').first();
+  const checked = await runNow.isChecked();
+  if (checked !== autoStart) {
+    await runNow.click();
+  }
+
+  // Submit — the dialog footer's primary button reads "Create iteration".
+  await dialog
+    .getByRole("button", { name: /^Create iteration$/i })
+    .first()
+    .click();
+
+  // Toast confirms creation. ExtractIterationsTab fires
+  // `toast.success("Iteration queued.")` on the mutation onCompleted hook.
+  await expect(page.getByText(/Iteration queued\./i)).toBeVisible({
+    timeout: 15_000,
+  });
+
+  // Dialog closes after the mutation completes.
+  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+
+  return iterationName;
+}
+
+/**
+ * Click the parent (current) extract row and the named iteration row
+ * in the Iterations tab so the compare view loads. Returns once the
+ * "Comparing 2 iterations" chip is visible (proving both selections
+ * were registered and the panel is about to render the diff).
+ *
+ * Caller must already be on the Iterations tab with the iteration row
+ * visible.
+ */
+export async function selectIterationsForCompare(
+  page: Page,
+  parentExtractName: string,
+  iterationName: string
+): Promise<void> {
+  // The current extract row carries an inline "(current)" label so we
+  // can disambiguate it from any iteration that happens to share its
+  // base name.
+  const currentRow = page
+    .locator("[data-testid='iteration-row']")
+    .filter({ hasText: parentExtractName })
+    .filter({ hasText: /\(current\)/i })
+    .first();
+  await expect(currentRow).toBeVisible({ timeout: 10_000 });
+  await currentRow.click();
+
+  const iterationRow = page
+    .locator("[data-testid='iteration-row']")
+    .filter({ hasText: iterationName })
+    .first();
+  await expect(iterationRow).toBeVisible({ timeout: 10_000 });
+  await iterationRow.click();
+
+  // The "Comparing 2 iterations" chip appears in the toolbar only when
+  // the cap-of-2 selection set has reached size 2.
+  await expect(page.getByText(/Comparing 2 iterations/i)).toBeVisible({
+    timeout: 10_000,
+  });
+}
+
+/**
  * Wait until a document with the given title finishes parsing +
  * embedding.
  *
@@ -905,4 +1046,152 @@ export async function waitForDocumentReady(
       );
     }
   }).toPass({ timeout: timeoutMs, intervals: [5_000, 10_000, 15_000] });
+}
+
+/**
+ * Open a corpus's inline Discussions view by:
+ *   1. SPA-navigating to /corpuses
+ *   2. Clicking the corpus card so CentralRouteManager loads it into
+ *      `openedCorpus` and updates the URL to /c/<user>/<corpus>
+ *   3. Re-using the resulting URL with `?view=discussions` appended so
+ *      CorpusHome renders <CorpusDiscussionsInlineView>.
+ *
+ * Waits for the Discussions toolbar (the "All" filter pill) to be visible
+ * before returning so callers can immediately click "New Discussion".
+ *
+ * Caller must already be authenticated.
+ */
+export async function openCorpusDiscussionsViaUI(
+  page: Page,
+  corpusTitle: string
+): Promise<void> {
+  await spaNavigate(page, "/corpuses");
+  await expectViewVisible(page, { kind: "text", text: /Your\s+corpuses/i });
+
+  await expect(page.getByText(corpusTitle).first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.getByText(corpusTitle).first().click();
+
+  // The corpus URL is slug-based: /c/<user>/<corpus>. Wait for it to settle
+  // before reading + appending the view param. We anchor on the URL pattern
+  // rather than visible text because CorpusHome's landing copy varies based
+  // on whether a Readme.CAML article exists.
+  await expect(page).toHaveURL(/\/c\/[^/]+\/[^/?#]+/, { timeout: 15_000 });
+  const url = new URL(page.url());
+  url.searchParams.set("view", "discussions");
+  // Strip the origin so spaNavigate sees a path+query string.
+  await spaNavigate(page, url.pathname + url.search);
+
+  // The CorpusDiscussionsView toolbar always renders the "All" filter pill
+  // even when there are zero threads. Use it as the "view is ready" signal.
+  // Match by visible label only — the count span is an SVG-icon-free child
+  // whose textual interpolation varies (`All0` vs `All 0`) across browsers.
+  await expect(
+    page.getByRole("button", { name: /^All\b/i }).first()
+  ).toBeVisible({ timeout: 20_000 });
+}
+
+/**
+ * Click the "+New Discussion" CTA, fill the create-thread modal, and
+ * submit. The visible label flips between "New Discussion" (full header)
+ * and "New" (embedded mode), but both share the stable
+ * `aria-label="Create new discussion"` accessibility name — that is the
+ * selector we anchor on.
+ *
+ * On success, CorpusDiscussionsView's onSuccess handler closes the modal
+ * AND navigates to the new thread (sets ?thread=<id>), so this helper
+ * waits for the thread detail header to render before returning.
+ *
+ * Caller must already be on the corpus discussions view.
+ */
+export async function createThreadViaUI(
+  page: Page,
+  title: string,
+  description: string | undefined,
+  initialMessage: string
+): Promise<void> {
+  // The CreateButton renders aria-label="Create new discussion" in both
+  // header and embedded modes (CorpusDiscussionsView.tsx:525, :540), so
+  // accessible-name matching is stable across viewports.
+  await page
+    .getByRole("button", { name: /Create new discussion/i })
+    .first()
+    .click();
+
+  // CreateThreadForm modal title.
+  await expect(page.getByText(/Start New Discussion/i)).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Scope all subsequent modal interactions to the form container that
+  // owns #thread-title. This keeps the locators robust if a future preview
+  // pane adds another ProseMirror to the page tree.
+  const modal = page
+    .locator("div")
+    .filter({ has: page.locator("#thread-title") })
+    .first();
+
+  await modal.locator("#thread-title").fill(title);
+  if (description) {
+    await modal.locator("#thread-description").fill(description);
+  }
+
+  // The MessageComposer is built on TipTap (ProseMirror). Fill the
+  // contenteditable .ProseMirror via keyboard.type — `.fill()` does not
+  // reliably trigger TipTap's onUpdate hook in all browsers.
+  const editor = modal.locator(".ProseMirror").first();
+  await expect(editor).toBeVisible({ timeout: 10_000 });
+  await editor.click();
+  await page.keyboard.type(initialMessage);
+
+  // Submit — the modal hosts exactly one composer SendButton.
+  await modal
+    .getByRole("button", { name: /^Send$/i })
+    .first()
+    .click();
+
+  // The mutation onSuccess closes the modal and routes to ?thread=<id>.
+  // The thread title appears in the ThreadDetail header.
+  await expect(page.getByText(/Start New Discussion/i)).not.toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByRole("heading", { name: title }).first()).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
+/**
+ * Post a top-level reply to the currently-open thread via the bottom
+ * ReplyForm composer. Returns once the new message text is visible in
+ * the thread (proving the GraphQL mutation refetched the thread).
+ *
+ * Caller must already be on the thread detail view (with a visible
+ * ReplyForm — i.e. the thread is not locked).
+ */
+export async function postThreadReplyViaUI(
+  page: Page,
+  replyContent: string
+): Promise<void> {
+  // ThreadDetail renders the ReplyForm composer at the bottom of the
+  // page. There is no second ProseMirror at this stage — the create
+  // modal is gone — so `.last()` deterministically picks the reply
+  // composer regardless of any deep-link reply context that might
+  // render an additional ReplyContext header above it.
+  const replyEditor = page.locator(".ProseMirror").last();
+  await expect(replyEditor).toBeVisible({ timeout: 10_000 });
+  await replyEditor.click();
+  await page.keyboard.type(replyContent);
+
+  // The reply composer's Send button is the only one on the page in
+  // thread-detail mode. After click, the message list refetches.
+  await page
+    .getByRole("button", { name: /^Send$/i })
+    .last()
+    .click();
+
+  // Wait for the new message text to appear in the discussion list.
+  await expect(page.getByText(replyContent).first()).toBeVisible({
+    timeout: 15_000,
+  });
 }

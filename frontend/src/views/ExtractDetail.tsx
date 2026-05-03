@@ -70,6 +70,7 @@ import {
   ExtractDataGrid,
   ExtractDataGridHandle,
 } from "../components/extracts/datagrid/DataGrid";
+import { ExtractIterationsTab } from "../components/extracts/iterations/ExtractIterationsTab";
 import { CreateColumnModal } from "../components/widgets/modals/CreateColumnModal";
 import { ConfirmModal } from "../components/widgets/modals/ConfirmModal";
 import { getExtractStatus, formatExtractDate } from "../utils/extractUtils";
@@ -877,6 +878,7 @@ export const ExtractDetail: React.FC = () => {
                 <Tab value="data">Data</Tab>
                 <Tab value="documents">Documents</Tab>
                 <Tab value="schema">Schema</Tab>
+                <Tab value="iterations">Iterations</Tab>
               </TabList>
 
               <TabPanels>
@@ -1021,6 +1023,16 @@ export const ExtractDetail: React.FC = () => {
                         />
                       </EmptyWrapper>
                     )}
+                  </div>
+                </TabPanel>
+
+                {/* Iterations Tab — model drift, doc-version drift, schema tweaks */}
+                <TabPanel value="iterations">
+                  <div style={{ marginTop: 24 }}>
+                    <ExtractIterationsTab
+                      extract={extract}
+                      onIterationCreated={refetch}
+                    />
                   </div>
                 </TabPanel>
               </TabPanels>

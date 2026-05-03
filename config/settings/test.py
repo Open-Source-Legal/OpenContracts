@@ -133,12 +133,21 @@ TELEMETRY_ENABLED = False
 #
 # Intentionally env-overridable: benchmark runs via the test.yml compose
 # stack (see opencontractserver/benchmarks/) need to swap in a real embedder
-# at runtime without editing settings. Standard CI never sets DEFAULT_EMBEDDER,
-# so the default TestEmbedder keeps regular test runs hermetic.
-DEFAULT_EMBEDDER = env(
-    "DEFAULT_EMBEDDER",
-    default="opencontractserver.pipeline.embedders.test_embedder.TestEmbedder",
+# at runtime without editing settings.
+#
+# Footgun guard (issue #1410): the override only takes effect when the
+# explicit ``BENCHMARK_MODE`` env var is also set. Without this guard, any
+# stray ``DEFAULT_EMBEDDER`` value in CI's environment would silently push
+# the regular test suite onto a real embedder and start making live
+# network calls. Forcing operators to set ``BENCHMARK_MODE=1`` makes the
+# escape hatch deliberate.
+_OC_TEST_EMBEDDER_DEFAULT = (
+    "opencontractserver.pipeline.embedders.test_embedder.TestEmbedder"
 )
+if env.bool("BENCHMARK_MODE", default=False):
+    DEFAULT_EMBEDDER = env("DEFAULT_EMBEDDER", default=_OC_TEST_EMBEDDER_DEFAULT)
+else:
+    DEFAULT_EMBEDDER = _OC_TEST_EMBEDDER_DEFAULT
 
 # Auth0 settings for tests
 # ------------------------------------------------------------------------------

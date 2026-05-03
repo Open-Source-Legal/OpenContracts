@@ -1,15 +1,15 @@
 import React from "react";
 import { test, expect } from "./utils/coverage";
-import { MockedProvider } from "@apollo/client/testing";
+import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { DndContext } from "@dnd-kit/core";
 import { ModernDocumentItem } from "../src/components/documents/ModernDocumentItem";
 import {
   DocumentType,
   DocumentProcessingStatus,
-  DocumentRelationshipType,
 } from "../src/types/graphql-api";
 import { openedCorpus } from "../src/graphql/cache";
+import { GET_DOC_RELATIONSHIPS_FOR_DOC } from "../src/graphql/queries";
 import { ReactiveVarObserver } from "./utils/ReactiveVarObserver";
 
 /** Minimal document fixture with overridable fields. */
@@ -38,10 +38,11 @@ function makeDocument(overrides: Partial<DocumentType> = {}): DocumentType {
 // `mount` fixture destructured from each test's context.
 function renderWithProviders(
   ui: React.ReactElement,
-  mount: (el: React.ReactElement) => Promise<unknown>
+  mount: (el: React.ReactElement) => Promise<unknown>,
+  mocks: MockedResponse[] = []
 ) {
   return mount(
-    <MockedProvider mocks={[]} addTypename={false}>
+    <MockedProvider mocks={mocks} addTypename={false}>
       <MemoryRouter>
         <DndContext>{ui}</DndContext>
       </MemoryRouter>
@@ -178,57 +179,88 @@ test.describe("ModernDocumentItem — card view rendering", () => {
     mount,
     page,
   }) => {
-    const rels: DocumentRelationshipType[] = [
+    const rels = [
       {
         id: "rel-1",
         relationshipType: "RELATIONSHIP",
         sourceDocument: {
           id: "RG9jdW1lbnRUeXBlOjE=",
           title: "Test Document.pdf",
-        } as any,
+        },
         targetDocument: {
           id: "other-doc",
           title: "Other Document",
-        } as any,
+        },
         annotationLabel: {
           id: "label-1",
           text: "references",
           color: "#14b8a6",
-        } as any,
-      } as any,
+        },
+      },
       {
         id: "rel-2",
         relationshipType: "NOTES",
         sourceDocument: {
           id: "other-doc-2",
           title: "Inbound Linker",
-        } as any,
+        },
         targetDocument: {
           id: "RG9jdW1lbnRUeXBlOjE=",
           title: "Test Document.pdf",
-        } as any,
+        },
         annotationLabel: null,
-      } as any,
+      },
     ];
 
     const doc = makeDocument({
       docRelationshipCount: 2,
-      allDocRelationships: rels,
     });
+
+    // Relationships are now fetched lazily on hover — provide a mock for the
+    // GET_DOC_RELATIONSHIPS_FOR_DOC query that the badge triggers.
+    const mocks: MockedResponse[] = [
+      {
+        request: {
+          query: GET_DOC_RELATIONSHIPS_FOR_DOC,
+          variables: { documentId: doc.id, corpusId: null },
+        },
+        result: { data: { bulkDocRelationships: rels } },
+      },
+    ];
 
     await renderWithProviders(
       <ModernDocumentItem item={doc} viewMode="card" />,
-      mount
+      mount,
+      mocks
     );
 
-    // Number is rendered in the badge
+    // Number is rendered in the badge immediately (from docRelationshipCount).
     await expect(page.getByText("2").first()).toBeVisible();
-    // NOTE: toBeAttached() verifies DOM presence only — the relationship
-    // popup uses `visibility: hidden` by default and reveals on hover, so
-    // the nodes are always in the tree. If the popup ever switches to
-    // conditional rendering (mount-on-hover), these assertions would still
-    // pass while the feature breaks; revisit and use toBeVisible() after a
-    // hover step in that case.
+
+    // Trigger the hover handler directly via React props: the popup is
+    // hidden by CSS so a hover() call would time out waiting for visibility.
+    // Walk up from the popup header span to the badge wrapper that owns
+    // the onMouseEnter handler. See `clickViaReact` above for precedent.
+    await page.evaluate(() => {
+      const span = Array.from(document.querySelectorAll("span")).find(
+        (s) => s.textContent === "2 Linked Documents"
+      );
+      let node: HTMLElement | null = span?.closest("div") ?? null;
+      while (node) {
+        const propsKey = Object.keys(node).find((k) =>
+          k.startsWith("__reactProps$")
+        );
+        const props = propsKey ? (node as any)[propsKey] : null;
+        if (typeof props?.onMouseEnter === "function") {
+          props.onMouseEnter({});
+          return;
+        }
+        node = node.parentElement;
+      }
+      throw new Error("Could not find onMouseEnter handler on badge ancestor");
+    });
+
+    // After the lazy query resolves, the popup contents should be in the DOM.
     await expect(
       page.locator('text="2 Linked Documents"').first()
     ).toBeAttached();
@@ -307,42 +339,69 @@ test.describe("ModernDocumentItem — list view rendering", () => {
     mount,
     page,
   }) => {
-    const rels: DocumentRelationshipType[] = [
+    const rels = [
       {
         id: "rel-1",
         relationshipType: "RELATIONSHIP",
         sourceDocument: {
           id: "RG9jdW1lbnRUeXBlOjE=",
           title: "Test Document.pdf",
-        } as any,
+        },
         targetDocument: {
           id: "o1",
           title: "Linked Doc One",
-        } as any,
+        },
         annotationLabel: {
           id: "lbl",
           text: "cites",
           color: "#3b82f6",
-        } as any,
-      } as any,
+        },
+      },
     ];
     const doc = makeDocument({
       docRelationshipCount: 1,
-      allDocRelationships: rels,
     });
+
+    const mocks: MockedResponse[] = [
+      {
+        request: {
+          query: GET_DOC_RELATIONSHIPS_FOR_DOC,
+          variables: { documentId: doc.id, corpusId: null },
+        },
+        result: { data: { bulkDocRelationships: rels } },
+      },
+    ];
 
     await renderWithProviders(
       <ModernDocumentItem item={doc} viewMode="list" />,
-      mount
+      mount,
+      mocks
     );
 
-    // "1 Linked Document" (singular) should be in the popup DOM.
-    // NOTE: toBeAttached() verifies DOM presence only — see the card-view
-    // relationship popup test above for the rationale behind not using
-    // toBeVisible() here.
-    await expect(
-      page.locator('text="1 Linked Document"').first()
-    ).toBeAttached();
+    // The hover popup is hidden via CSS visibility, but React's onMouseEnter
+    // is on the badge wrapper (an ancestor). Walk up from the popup header
+    // span to find the element with the React onMouseEnter handler attached
+    // and invoke it directly. See `clickViaReact` above for the precedent.
+    await page.evaluate(() => {
+      const span = Array.from(document.querySelectorAll("span")).find(
+        (s) => s.textContent === "1 Linked Document"
+      );
+      let node: HTMLElement | null = span?.closest("div") ?? null;
+      while (node) {
+        const propsKey = Object.keys(node).find((k) =>
+          k.startsWith("__reactProps$")
+        );
+        const props = propsKey ? (node as any)[propsKey] : null;
+        if (typeof props?.onMouseEnter === "function") {
+          props.onMouseEnter({});
+          return;
+        }
+        node = node.parentElement;
+      }
+      throw new Error("Could not find onMouseEnter handler on badge ancestor");
+    });
+
+    // After the fetch resolves, the linked-doc title should be in the popup DOM.
     await expect(page.getByText("Linked Doc One").first()).toBeAttached();
   });
 });
@@ -847,5 +906,315 @@ test.describe("ModernDocumentItem — context menu", () => {
     await expect(page.getByText("Edit Document")).toBeVisible({
       timeout: 3000,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lazy relationship fetching
+//
+// The relationship badge fetches its detail data lazily on hover/click/focus
+// via useLazyQuery. These tests pin every branch of `handleRelationshipHover`
+// (count==0 / data already loaded / loading already in-flight / errored /
+// fetch fires) and exercise the onMouseEnter, onClick, and onFocus triggers
+// so coverage captures keyboard navigation and the touch-device fallback.
+// ---------------------------------------------------------------------------
+
+/** Walk up from a known descendant to find the React `onMouseEnter` ancestor. */
+async function fireRelationshipHover(page: import("@playwright/test").Page) {
+  await page.evaluate(() => {
+    // Match the popup header span ("N Linked Document(s)") and walk up.
+    const span = Array.from(document.querySelectorAll("span")).find((s) =>
+      /^\d+ Linked Document/.test(s.textContent ?? "")
+    );
+    let node: HTMLElement | null = span?.closest("div") ?? null;
+    while (node) {
+      const propsKey = Object.keys(node).find((k) =>
+        k.startsWith("__reactProps$")
+      );
+      const props = propsKey ? (node as any)[propsKey] : null;
+      if (typeof props?.onMouseEnter === "function") {
+        props.onMouseEnter({});
+        return;
+      }
+      node = node.parentElement;
+    }
+    throw new Error("Could not find onMouseEnter handler on badge ancestor");
+  });
+}
+
+/** Same walk-up, but invoke the React `onFocus` (keyboard navigation). */
+async function fireRelationshipFocus(page: import("@playwright/test").Page) {
+  await page.evaluate(() => {
+    const span = Array.from(document.querySelectorAll("span")).find((s) =>
+      /^\d+ Linked Document/.test(s.textContent ?? "")
+    );
+    let node: HTMLElement | null = span?.closest("div") ?? null;
+    while (node) {
+      const propsKey = Object.keys(node).find((k) =>
+        k.startsWith("__reactProps$")
+      );
+      const props = propsKey ? (node as any)[propsKey] : null;
+      if (typeof props?.onFocus === "function" && props.onMouseEnter) {
+        // Match the wrapper that has BOTH onFocus and onMouseEnter — that's
+        // RelationshipBadgeContainer, not the outer card focus handler.
+        props.onFocus({});
+        return;
+      }
+      node = node.parentElement;
+    }
+    throw new Error("Could not find onFocus handler on badge wrapper");
+  });
+}
+
+/** Same walk-up, but invoke the React `onClick` (touch-device fallback). */
+async function fireRelationshipClick(page: import("@playwright/test").Page) {
+  await page.evaluate(() => {
+    const span = Array.from(document.querySelectorAll("span")).find((s) =>
+      /^\d+ Linked Document/.test(s.textContent ?? "")
+    );
+    let node: HTMLElement | null = span?.closest("div") ?? null;
+    while (node) {
+      const propsKey = Object.keys(node).find((k) =>
+        k.startsWith("__reactProps$")
+      );
+      const props = propsKey ? (node as any)[propsKey] : null;
+      if (typeof props?.onClick === "function" && props.onMouseEnter) {
+        // Match the wrapper that has BOTH onClick and onMouseEnter — that's
+        // RelationshipBadgeContainer, not the outer card click handler.
+        props.onClick({
+          stopPropagation: () => {},
+          preventDefault: () => {},
+        });
+        return;
+      }
+      node = node.parentElement;
+    }
+    throw new Error("Could not find onClick handler on badge wrapper");
+  });
+}
+
+test.describe("ModernDocumentItem — lazy relationship fetching", () => {
+  test.beforeEach(() => {
+    // Some earlier tests set the openedCorpus reactive var; reset to null so
+    // the lazy query's variables match the mocks below.
+    openedCorpus(null);
+  });
+
+  test("hover triggers fetchDocRelationships when count > 0", async ({
+    mount,
+    page,
+  }) => {
+    const rels = [
+      {
+        id: "rel-x",
+        relationshipType: "RELATIONSHIP",
+        sourceDocument: { id: "RG9jdW1lbnRUeXBlOjE=", title: "Test" },
+        targetDocument: { id: "linked-1", title: "Hover Linked Doc" },
+        annotationLabel: { id: "lbl", text: "ref", color: "#000" },
+      },
+    ];
+    const doc = makeDocument({ docRelationshipCount: 1 });
+
+    const mocks: MockedResponse[] = [
+      {
+        request: {
+          query: GET_DOC_RELATIONSHIPS_FOR_DOC,
+          variables: { documentId: doc.id, corpusId: null },
+        },
+        result: { data: { bulkDocRelationships: rels } },
+      },
+    ];
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount,
+      mocks
+    );
+
+    await expect(page.getByText("1").first()).toBeVisible();
+
+    // Linked-doc title is rendered only after the lazy fetch resolves.
+    await expect(page.getByText("Hover Linked Doc")).toHaveCount(0);
+
+    await fireRelationshipHover(page);
+
+    // After the hover, the popup should populate from the fetch result.
+    await expect(page.getByText("Hover Linked Doc").first()).toBeAttached();
+  });
+
+  test("does not fetch when docRelationshipCount is 0", async ({
+    mount,
+    page,
+  }) => {
+    const doc = makeDocument({ docRelationshipCount: 0 });
+
+    // The badge is gated at render time by `!!docRelationshipCount &&
+    // docRelationshipCount > 0`, so the hover handler is never reachable from
+    // the DOM. Mount with no mocks — if any fetch fires, MockedProvider
+    // surfaces an unhandled-mock warning and fails the test.
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount,
+      []
+    );
+
+    // Badge is NOT in DOM when count is 0.
+    await expect(page.getByText("Linked Document")).toHaveCount(0);
+  });
+
+  test("click trigger fires fetch (touch-device fallback)", async ({
+    mount,
+    page,
+  }) => {
+    const rels = [
+      {
+        id: "rel-tap",
+        relationshipType: "RELATIONSHIP",
+        sourceDocument: { id: "RG9jdW1lbnRUeXBlOjE=", title: "Test" },
+        targetDocument: { id: "linked-tap", title: "Tap Linked Doc" },
+        annotationLabel: null,
+      },
+    ];
+    const doc = makeDocument({ docRelationshipCount: 1 });
+
+    const mocks: MockedResponse[] = [
+      {
+        request: {
+          query: GET_DOC_RELATIONSHIPS_FOR_DOC,
+          variables: { documentId: doc.id, corpusId: null },
+        },
+        result: { data: { bulkDocRelationships: rels } },
+      },
+    ];
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount,
+      mocks
+    );
+
+    await expect(page.getByText("1").first()).toBeVisible();
+
+    await fireRelationshipClick(page);
+
+    await expect(page.getByText("Tap Linked Doc").first()).toBeAttached();
+  });
+
+  test("focus trigger fires fetch (keyboard navigation)", async ({
+    mount,
+    page,
+  }) => {
+    const rels = [
+      {
+        id: "rel-focus",
+        relationshipType: "RELATIONSHIP",
+        sourceDocument: { id: "RG9jdW1lbnRUeXBlOjE=", title: "Test" },
+        targetDocument: { id: "linked-focus", title: "Focus Linked Doc" },
+        annotationLabel: null,
+      },
+    ];
+    const doc = makeDocument({ docRelationshipCount: 1 });
+
+    const mocks: MockedResponse[] = [
+      {
+        request: {
+          query: GET_DOC_RELATIONSHIPS_FOR_DOC,
+          variables: { documentId: doc.id, corpusId: null },
+        },
+        result: { data: { bulkDocRelationships: rels } },
+      },
+    ];
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount,
+      mocks
+    );
+
+    await expect(page.getByText("1").first()).toBeVisible();
+
+    await fireRelationshipFocus(page);
+
+    await expect(page.getByText("Focus Linked Doc").first()).toBeAttached();
+  });
+
+  test("network error short-circuits subsequent hovers", async ({
+    mount,
+    page,
+  }) => {
+    const doc = makeDocument({ docRelationshipCount: 1 });
+
+    // Single mock that returns a network error; without the `error` guard the
+    // second hover would consume a second mock (which we deliberately don't
+    // provide), and MockedProvider would surface "No more mocked responses".
+    const mocks: MockedResponse[] = [
+      {
+        request: {
+          query: GET_DOC_RELATIONSHIPS_FOR_DOC,
+          variables: { documentId: doc.id, corpusId: null },
+        },
+        error: new Error("network down"),
+      },
+    ];
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount,
+      mocks
+    );
+
+    await fireRelationshipHover(page);
+
+    // Error fallback replaces the misleading "Loading..." text.
+    await expect(page.getByText("Couldn't load relationships.")).toBeAttached();
+
+    // Second hover must NOT retrigger the failing fetch.
+    await fireRelationshipHover(page);
+    await expect(page.getByText("Couldn't load relationships.")).toBeAttached();
+  });
+
+  test("repeat hovers do not refetch once data is loaded", async ({
+    mount,
+    page,
+  }) => {
+    const rels = [
+      {
+        id: "rel-once",
+        relationshipType: "RELATIONSHIP",
+        sourceDocument: { id: "RG9jdW1lbnRUeXBlOjE=", title: "Test" },
+        targetDocument: { id: "linked-once", title: "Cached Linked Doc" },
+        annotationLabel: null,
+      },
+    ];
+    const doc = makeDocument({ docRelationshipCount: 1 });
+
+    // Provide ONLY ONE matching mock. If the component refetches, Apollo's
+    // MockedProvider would log a "no more mocked responses" warning — but
+    // more importantly, the second/third hovers should be short-circuited by
+    // the relationshipsData guard before they hit the network.
+    const mocks: MockedResponse[] = [
+      {
+        request: {
+          query: GET_DOC_RELATIONSHIPS_FOR_DOC,
+          variables: { documentId: doc.id, corpusId: null },
+        },
+        result: { data: { bulkDocRelationships: rels } },
+      },
+    ];
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount,
+      mocks
+    );
+
+    await fireRelationshipHover(page);
+    await expect(page.getByText("Cached Linked Doc").first()).toBeAttached();
+
+    // Subsequent hovers exercise the early-return guard (relationshipsData
+    // is now populated). The popup contents stay attached without errors.
+    await fireRelationshipHover(page);
+    await fireRelationshipHover(page);
+    await expect(page.getByText("Cached Linked Doc").first()).toBeAttached();
   });
 });

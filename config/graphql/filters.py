@@ -463,56 +463,34 @@ class DocumentFilter(django_filters.FilterSet):
 
         Uses DocumentPath as the source of truth for folder assignments.
 
-        Special handling: value="__root__" returns documents in corpus root (no folder).
-        Otherwise filters to specific folder ID.
+        Special handling: value="__root__" returns documents in corpus root
+        (no folder). Otherwise filters to a specific folder ID.
 
-        Note: This filter works in conjunction with in_corpus filter. The queryset
-        is already filtered to documents in a specific corpus, so we need to find
-        documents that have folder=NULL in their DocumentPath for THAT corpus.
+        Note: This filter works in conjunction with ``in_corpus``. The queryset
+        is already filtered to documents in a specific corpus, so we just need
+        to intersect with the folder's DocumentPath rows.
         """
-        import logging
-
         from opencontractserver.documents.models import DocumentPath
 
-        logger = logging.getLogger(__name__)
-
-        logger.info(f"[QUERY] in_folder filter called with value: {value}")
-
         if value == "__root__":
-            # For root documents, find documents with folder=NULL in their DocumentPath
-            # We need to find docs where their path in the corpus has no folder
-            # The queryset is already filtered to docs in the corpus via in_corpus filter
-            #
-            # Get document IDs that have a path with folder=NULL (root level docs)
-            root_doc_ids = set(
-                DocumentPath.objects.filter(
-                    folder__isnull=True, is_current=True, is_deleted=False
-                ).values_list("document_id", flat=True)
-            )
+            # Root documents: those whose DocumentPath has folder=NULL.
+            # Use a lazy values queryset so Django emits a SQL subquery for
+            # ``__in`` instead of materialising IDs into Python.
+            root_doc_ids = DocumentPath.objects.filter(
+                folder__isnull=True, is_current=True, is_deleted=False
+            ).values("document_id")
+            # ``.distinct()`` mirrors the non-root branch and guards against
+            # any pathological case where the same ``document_id`` appears in
+            # multiple matching ``DocumentPath`` rows.
+            return queryset.filter(id__in=root_doc_ids).distinct()
 
-            # Filter queryset to only include these root-level documents
-            result = queryset.filter(id__in=root_doc_ids)
-            logger.info(f"[QUERY] Filtered to root folder, count: {result.count()}")
-            return result
-        else:
-            # ``from_global_id`` returns a ``str`` PK; coerce to int so the
-            # ``folder_id`` lookup matches the FK type (avoids ORM auto-casts
-            # and keeps django-stubs happy).
-            folder_pk = int(from_global_id(value)[1])
-
-            # Get document IDs from DocumentPath
-            doc_ids = set(
-                DocumentPath.objects.filter(
-                    folder_id=folder_pk, is_current=True, is_deleted=False
-                ).values_list("document_id", flat=True)
-            )
-
-            logger.info(
-                f"[QUERY] Filtering to folder {folder_pk}, found {len(doc_ids)} documents"
-            )
-            result = queryset.filter(id__in=doc_ids).distinct()
-            logger.info(f"[QUERY] After filter, result count: {result.count()}")
-            return result
+        # ``from_global_id`` returns a ``str`` PK; coerce to int so the
+        # ``folder_id`` lookup matches the FK type.
+        folder_pk = int(from_global_id(value)[1])
+        doc_ids = DocumentPath.objects.filter(
+            folder_id=folder_pk, is_current=True, is_deleted=False
+        ).values("document_id")
+        return queryset.filter(id__in=doc_ids).distinct()
 
     def has_label_title(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(annotation__annotation_label__title__contains=value)

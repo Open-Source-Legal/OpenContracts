@@ -30,16 +30,15 @@ const fadeIn = keyframes`
 
 const OverlayContainer = styled.div<{ $active: boolean; $inverted?: boolean }>`
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   display: ${(props) => (props.$active ? "flex" : "none")};
   align-items: center;
   justify-content: center;
   background: ${(props) =>
     props.$inverted ? "rgba(0, 0, 0, 0.85)" : "rgba(255, 255, 255, 0.85)"};
   backdrop-filter: blur(4px);
+  border-radius: inherit;
+  overflow: hidden;
   z-index: ${Z_INDEX.OVERLAY};
   animation: ${fadeIn} 0.2s ease-in-out;
 `;
