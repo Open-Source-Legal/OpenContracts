@@ -1,0 +1,200 @@
+/**
+ * useWebSocketAuth — shared hook that owns a single WebSocket and the auth
+ * handshake/refresh lifecycle on top of it.
+ *
+ * Other hooks (useAgentChat, useNotificationWebSocket, etc.) compose this
+ * to get:
+ *   - Sec-WebSocket-Protocol auth on initial connect (no token in URL)
+ *   - In-band AUTH frame refresh when the authToken reactive var rotates
+ *   - Server-nudged refresh via AUTH_REFRESH_REQUIRED
+ *   - Close-code-aware reconnect policy
+ *
+ * Caller passes an `onMessage` callback for non-auth frames; this hook
+ * intercepts AUTH_OK / AUTH_FAILED / AUTH_REFRESH_REQUIRED itself.
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useReactiveVar } from "@apollo/client";
+import { authToken } from "../graphql/cache";
+import {
+  WS_CLOSE_NORMAL,
+  WS_CLOSE_TOKEN_INVALID,
+  WS_CLOSE_PERMISSION_DENIED,
+  WS_CLOSE_RATE_LIMITED,
+  buildAuthProtocols,
+  buildAuthMessage,
+  parseAuthMessage,
+} from "../utils/websocketAuth";
+
+export interface UseWebSocketAuthOptions {
+  /** Full WS URL with all query params EXCEPT token. Token never goes here. */
+  url: string;
+  /** Called for every non-auth text frame. */
+  onMessage?: (event: MessageEvent) => void;
+  /** Called on socket open. */
+  onOpen?: () => void;
+  /** Called on socket close, with the close code. */
+  onClose?: (code: number) => void;
+  /** Called when token validation fails on the server (close 4002). */
+  onAuthInvalid?: () => void;
+  /** Skip everything (e.g. while context not ready). */
+  enabled?: boolean;
+  /** Initial reconnect delay (ms). Doubled per failure up to 8x. */
+  reconnectDelayMs?: number;
+}
+
+export interface UseWebSocketAuthReturn {
+  ws: WebSocket | null;
+  isConnected: boolean;
+  isAuthenticated: boolean;
+  lastError: string | null;
+  send: (data: string) => boolean;
+  /** Force a reconnect (e.g. on page resume). */
+  reconnect: () => void;
+}
+
+export function useWebSocketAuth(
+  options: UseWebSocketAuthOptions
+): UseWebSocketAuthReturn {
+  const {
+    url,
+    onMessage,
+    onOpen,
+    onClose,
+    onAuthInvalid,
+    enabled = true,
+    reconnectDelayMs = 3000,
+  } = options;
+
+  const token = useReactiveVar(authToken);
+  const tokenRef = useRef<string>(token || "");
+  useEffect(() => {
+    tokenRef.current = token || "";
+  }, [token]);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failureCountRef = useRef(0);
+  const [reconnectTrigger, setReconnectTrigger] = useState(0);
+
+  const [isConnected, setIsConnected] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const reconnect = useCallback(() => {
+    setReconnectTrigger((n) => n + 1);
+  }, []);
+
+  // Open / replace the socket whenever url, enabled, or reconnectTrigger changes.
+  // Token changes do NOT trigger reconnect — they fire an in-band AUTH frame.
+  useEffect(() => {
+    if (!enabled) {
+      setIsConnected(false);
+      setIsAuthenticated(false);
+      return;
+    }
+
+    clearReconnectTimer();
+    const protocols = buildAuthProtocols(tokenRef.current);
+    const ws = new WebSocket(url, protocols);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setIsConnected(true);
+      setLastError(null);
+      failureCountRef.current = 0;
+      onOpen?.();
+    };
+
+    ws.onmessage = (event) => {
+      const auth = parseAuthMessage(event.data);
+      if (auth) {
+        if (auth.type === "AUTH_OK") {
+          setIsAuthenticated(!auth.anonymous);
+        } else if (auth.type === "AUTH_FAILED") {
+          setIsAuthenticated(false);
+          setLastError(`AUTH_FAILED: ${auth.reason}`);
+        } else if (auth.type === "AUTH_REFRESH_REQUIRED") {
+          if (tokenRef.current && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(buildAuthMessage(tokenRef.current)));
+          }
+        }
+        return;
+      }
+      onMessage?.(event);
+    };
+
+    ws.onerror = () => {
+      setLastError("WebSocket transport error");
+    };
+
+    ws.onclose = (event) => {
+      setIsConnected(false);
+      setIsAuthenticated(false);
+      onClose?.(event.code);
+
+      const code = event.code;
+      if (code === WS_CLOSE_NORMAL || code === WS_CLOSE_PERMISSION_DENIED) {
+        return;
+      }
+      if (code === WS_CLOSE_TOKEN_INVALID) {
+        onAuthInvalid?.();
+        return;
+      }
+
+      const baseDelay =
+        code === WS_CLOSE_RATE_LIMITED
+          ? reconnectDelayMs * 4
+          : reconnectDelayMs;
+      const delay = baseDelay * Math.min(2 ** failureCountRef.current, 8);
+      failureCountRef.current += 1;
+      reconnectTimerRef.current = setTimeout(() => {
+        setReconnectTrigger((n) => n + 1);
+      }, delay);
+    };
+
+    return () => {
+      clearReconnectTimer();
+      try {
+        ws.close(WS_CLOSE_NORMAL, "hook unmount");
+      } catch {
+        // socket already closed
+      }
+      wsRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, enabled, reconnectTrigger]);
+
+  // Token rotation → in-band AUTH refresh (no reconnect).
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!token) return;
+    ws.send(JSON.stringify(buildAuthMessage(token)));
+  }, [token]);
+
+  const send = useCallback((data: string): boolean => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    ws.send(data);
+    return true;
+  }, []);
+
+  return {
+    ws: wsRef.current,
+    isConnected,
+    isAuthenticated,
+    lastError,
+    send,
+    reconnect,
+  };
+}
+
+export default useWebSocketAuth;
