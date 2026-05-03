@@ -38,7 +38,7 @@ class CorpusAdmin(GuardedModelAdmin):
             return mark_safe(f'<img src="{obj.icon.url}" width="50" height="50" />')
         return "No icon"
 
-    display_icon.short_description = "Icon"
+    display_icon.short_description = "Icon"  # type: ignore[attr-defined]
 
     def make_public(self, request, queryset):
         for corpus in queryset:
@@ -47,7 +47,7 @@ class CorpusAdmin(GuardedModelAdmin):
             request, f"Started making {queryset.count()} corpus(es) public."
         )
 
-    make_public.short_description = "Make selected corpuses public"
+    make_public.short_description = "Make selected corpuses public"  # type: ignore[attr-defined]
 
 
 @admin.register(CorpusCategory)
@@ -207,8 +207,8 @@ class CorpusActionExecutionAdmin(GuardedModelAdmin):
             obj.get_status_display(),
         )
 
-    status_badge.short_description = "Status"
-    status_badge.admin_order_field = "status"
+    status_badge.short_description = "Status"  # type: ignore[attr-defined]
+    status_badge.admin_order_field = "status"  # type: ignore[attr-defined]
 
     def document_link(self, obj):
         """Link to the document in admin."""
@@ -225,7 +225,7 @@ class CorpusActionExecutionAdmin(GuardedModelAdmin):
             )
         return "-"
 
-    document_link.short_description = "Document"
+    document_link.short_description = "Document"  # type: ignore[attr-defined]
 
     def corpus_link(self, obj):
         """Link to the corpus in admin."""
@@ -242,7 +242,7 @@ class CorpusActionExecutionAdmin(GuardedModelAdmin):
             )
         return "-"
 
-    corpus_link.short_description = "Corpus"
+    corpus_link.short_description = "Corpus"  # type: ignore[attr-defined]
 
     def duration_display(self, obj):
         """Display execution duration."""
@@ -258,7 +258,7 @@ class CorpusActionExecutionAdmin(GuardedModelAdmin):
                 return f"{minutes}m {seconds:.0f}s"
         return "-"
 
-    duration_display.short_description = "Duration"
+    duration_display.short_description = "Duration"  # type: ignore[attr-defined]
 
     def wait_time_display(self, obj):
         """Display queue wait time."""
@@ -274,7 +274,7 @@ class CorpusActionExecutionAdmin(GuardedModelAdmin):
                 return f"{minutes}m {seconds:.0f}s"
         return "-"
 
-    wait_time_display.short_description = "Wait Time"
+    wait_time_display.short_description = "Wait Time"  # type: ignore[attr-defined]
 
     def affected_objects_display(self, obj):
         """Display affected objects as formatted JSON."""
@@ -285,7 +285,7 @@ class CorpusActionExecutionAdmin(GuardedModelAdmin):
             return format_html("<pre>{}</pre>", formatted)
         return "None"
 
-    affected_objects_display.short_description = "Affected Objects"
+    affected_objects_display.short_description = "Affected Objects"  # type: ignore[attr-defined]
 
     def execution_metadata_display(self, obj):
         """Display execution metadata as formatted JSON."""
@@ -296,7 +296,7 @@ class CorpusActionExecutionAdmin(GuardedModelAdmin):
             return format_html("<pre>{}</pre>", formatted)
         return "None"
 
-    execution_metadata_display.short_description = "Execution Metadata"
+    execution_metadata_display.short_description = "Execution Metadata"  # type: ignore[attr-defined]
 
     def get_queryset(self, request):
         """Optimize queryset with select_related."""
