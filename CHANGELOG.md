@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **WebSocket authentication tokens no longer travel in URL query strings**
+  (issue: JWT leakage via nginx logs, browser history, `Referer` headers,
+  Sentry breadcrumbs, and CDN/WAF logs). All WS connections now authenticate
+  via the standard `Sec-WebSocket-Protocol` handshake header
+  (`opencontracts.jwt.v1, <jwt>`). Token rotation is in-band via
+  `{"type":"AUTH","token":"..."}` frames — no socket churn on refresh. Hard
+  cutover: `?token=` URL parameters are stripped by the new middleware
+  (`config/websocket/middleware.py`) and ignored. `Authorization: Bearer`
+  headers are also no longer consulted for WS auth (browsers cannot set them
+  on the WebSocket constructor anyway). Stale browser tabs from before the
+  deploy must reload to recover.
+
+  - **`AuthHandshakeMixin`** (`config/websocket/auth_handshake.py`) — added
+    to all three consumers. Refuses user-pk swap mid-connection
+    (`USER_MISMATCH` → close 4002), re-runs resource permission checks on
+    refresh (`PERMISSION_REVOKED` → close 4003), supports server-nudged
+    refresh via `AUTH_REFRESH_REQUIRED` with a grace timer that closes 4001
+    on timeout.
+
+  - **Frontend `useWebSocketAuth` hook**
+    (`frontend/src/hooks/useWebSocketAuth.ts`) — single shared lifecycle
+    owner used by `useAgentChat`, `useNotificationWebSocket`, and
+    `CorpusChat`. Token rotation no longer reconnects the socket.
+
+  - **Removed**: deprecated `getDocumentQueryWebSocket` and
+    `getCorpusQueryWebSocket` URL helpers (forwarded to the unified
+    endpoint and now gone per the no-dead-code rule). Removed the
+    `autoReconnect` / `reconnectDelay` options on `useNotificationWebSocket`
+    — reconnect is owned by the shared hook.
+
+  - **Tests**: `opencontractserver/tests/test_websocket_auth.py` gains four
+    new test classes (`JWTAuthMiddlewareSubprotocolTests`,
+    `AuthHandshakeMixinTests`, `UnifiedAgentHandshakeTests`,
+    `ThreadUpdatesHandshakeTests`, `NotificationUpdatesHandshakeTests`) —
+    ~30 cases covering middleware, mixin, per-consumer integration,
+    user-mismatch refusal, and `?token=` regression. Frontend adds
+    `useWebSocketAuth.test.ts` and `websocketAuth.test.ts`; the existing
+    `useNotificationWebSocket.auth.test.ts` is rewritten as a no-token-in-URL
+    regression suite.
+
+  - **Manual test script**:
+    `docs/test_scripts/websocket-auth-handshake.md` — verifies subprotocol
+    transport, in-band refresh, user-pk-swap refusal, and DevTools sanity
+    check that the JWT never appears in the request URL.
+
 ### Added
 
 - **Loud guardrail against the `system_prompt=` foot-gun in pydantic-ai** (Issue #1451): `pydantic_ai.Agent` accepts both `system_prompt=` and `instructions=`, but the `system_prompt` value is *only* materialised into the model request when `message_history` is `None`. OpenContracts' `chat()` flow always persists the user's HUMAN message before calling `Agent.run()`, so `message_history` is never empty in practice and any `system_prompt=` argument is silently dropped — the LLM runs without any system instruction. CLAUDE.md pitfall #14 documented the workaround (use `instructions=`), but a future pydantic-ai bump that renames or re-precedences these parameters could re-introduce the regression silently.
