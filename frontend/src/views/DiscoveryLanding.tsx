@@ -342,7 +342,6 @@ export const DiscoveryLanding: React.FC<DiscoveryLandingProps> = ({
       <ContentContainer>
         {/* Hero Section - Minimal design with search and category tabs */}
         <NewHeroSection
-          isAuthenticated={isAuthenticated}
           selectedCategory={selectedCategory}
           onCategoryChange={setSelectedCategory}
         />

@@ -594,6 +594,18 @@ export const selectedTab = makeVar<string | null>(null);
 export const selectedMessageId = makeVar<string | null>(null);
 
 /**
+ * Note selection for cross-content deep-linking (URL-driven state - set by CentralRouteManager Phase 2).
+ *
+ * Mirrors `selectedThreadId` / `selectedMessageId`: the document view is the
+ * canonical home for notes, so deep links land on the document URL with
+ * `?note=<id>` so the notes panel can scroll/highlight that note.
+ *
+ * URL Example:
+ *   /d/user/corpus/doc?note=note-123  → selectedNoteId("note-123")
+ */
+export const selectedNoteId = makeVar<string | null>(null);
+
+/**
  * Corpus home view selection (URL-driven state - set by CentralRouteManager Phase 2)
  *
  * Controls which view is shown on the corpus home tab: "about" (summary) or "toc" (table of contents).

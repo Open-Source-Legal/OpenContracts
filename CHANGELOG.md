@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Cross-content Discover search** at `/discover/search`. The Discover hero
+  search box now lands on a unified results page that fans out across
+  discussions, annotations, collections (corpuses), and notes in parallel,
+  rather than redirecting to discussion-only search.
+  - Backend: new `searchNotesForMention` resolver in
+    `config/graphql/search_queries.py` (visibility via
+    `Note.objects.visible_to_user`, optional `corpusId` / `documentId`
+    scoping, eager-loads `document`, `corpus`, and creators).
+    `NoteType` is exported through the same `DjangoConnectionField` shape
+    used by the other mention searches and goes through `NoteType.get_queryset`
+    for a second visibility pass.
+  - Frontend view: `frontend/src/views/DiscoverSearchResults.tsx` reuses
+    `ThreadListItem` for discussions and a single shared `ResultRow` for
+    annotations / collections / notes. Tabbed UI: All (preview of 5 each),
+    Discussions, Annotations, Collections, Notes.
+  - Routing: `?q=` and `?type=` are URL-driven (replace, no history spam).
+    Result rows deep-link via `getCorpusUrl` / `getDocumentUrl`; annotation
+    rows preserve `?ann=`, note rows pass `?note=` to the document URL.
+  - New `?note=<id>` deep-link param wired through `selectedNoteId`
+    (`frontend/src/graphql/cache.ts`), `QueryParams.noteId`
+    (`frontend/src/utils/navigationUtils.ts`), and the central manager
+    Phase 2/4 sync (`frontend/src/routing/CentralRouteManager.tsx`).
+    `DocumentKnowledgeBase` now consumes the var: when the loaded
+    document contains a note matching the URL id, the existing note
+    detail modal opens once and the param is consumed (one-shot
+    deep-link, mirrored back to the URL via Phase 4).
+  - Hero wiring: `NewHeroSection.handleSearchSubmit` now navigates to
+    `/discover/search?q=...`. The legacy `/discussions?search=...` route is
+    preserved for callers that want a discussion-only listing.
+  - Tests: `MentionSearchTestCase` in
+    `opencontractserver/tests/test_mentions.py` covers visibility
+    filtering, content-substring matching, corpus / document scoping,
+    anonymous-user filtering, wrong-type global-id rejection, the
+    `-modified` ordering contract, and both
+    `content_preview` paths (DB-annotated `Left('content', 400)` for
+    search results, Python fallback for per-id note fetch).
+  - Component test: `frontend/tests/DiscoverSearchResults.ct.tsx`
+    covers the empty-prompt state, the four-section header render
+    after typing, and a populated-results render exercising every
+    section's row primitives. Captures both
+    `discover--search-results--empty-prompt.png` and
+    `discover--search-results--with-results.png` for docs.
+
 - **Loud guardrail against the `system_prompt=` foot-gun in pydantic-ai** (Issue #1451): `pydantic_ai.Agent` accepts both `system_prompt=` and `instructions=`, but the `system_prompt` value is *only* materialised into the model request when `message_history` is `None`. OpenContracts' `chat()` flow always persists the user's HUMAN message before calling `Agent.run()`, so `message_history` is never empty in practice and any `system_prompt=` argument is silently dropped — the LLM runs without any system instruction. CLAUDE.md pitfall #14 documented the workaround (use `instructions=`), but a future pydantic-ai bump that renames or re-precedences these parameters could re-introduce the regression silently.
   - **Single construction path** (`opencontractserver/llms/agents/pydantic_ai_factory.py`): new `make_pydantic_ai_agent(...)` factory is now the only place in the codebase that instantiates `pydantic_ai.Agent`. The factory uses a sentinel-based check (not `is not None`) to refuse `system_prompt=` outright — even `system_prompt=None` raises `TypeError` so the lesson cannot be re-learned by accident. The error message references issue #1451 and CLAUDE.md pitfall #14.
   - **All call sites refactored** (in `opencontractserver/llms/agents/pydantic_ai_agents.py`: `_run_structured_extraction`, the document-agent factory, and the corpus-agent factory; in `opencontractserver/tasks/memory_tasks.py`: `summarise_agent` and `curation_agent`). Five direct `PydanticAIAgent(...)` constructions in production code now route through the factory.
@@ -30,6 +73,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stray planning artifacts at repo root** (Issue #1453): deleted `plan.md` (CorpusHome query-performance optimization plan) and `plans/routing-audit-report.md` (frontend routing audit). Both described work that has already shipped — `CountableConnection.resolve_total_count()` already calls `.count()` directly (`config/graphql/base.py:88`) and `browseRoutes` already includes `"discussions"` (`frontend/src/utils/navigationUtils.ts:177`). The `plans/` directory is now gone; future planning docs belong under `docs/plans/` or `docs/architecture/` per existing conventions.
 
 ### Fixed
+
+- **Discover search section header miscounted threads when soft-deleted ones were present** (`frontend/src/views/DiscoverSearchResults.tsx`): the discussions section displayed `data.conversations.totalCount` as the count, but rendered rows are filtered client-side via `!n?.deletedAt`. With even one tombstoned thread in the results, the header read e.g. "5 threads" while only 4 rows appeared. Switched the count to `threads.length` (post-filter) so the badge always matches what the user sees.
+
+- **`?note=<id>` deep-link could pin in the URL forever for documents with no notes** (`frontend/src/components/knowledge_base/document/DocumentKnowledgeBase.tsx`): the auto-open effect early-returned on `notes.length === 0`, which is *also* true while the document query is loading. The intent comment said "Clear regardless of match" but the early return skipped the clear call entirely. If the underlying document genuinely had no notes (or the loaded notes simply did not contain the deep-linked id) the reactive var stayed set, so `CentralRouteManager` Phase 4 kept writing `?note=<id>` back into the URL on every render — the deep-link became sticky with no user-visible escape hatch. Effect now gates only on `combinedData?.document` being loaded; once the query has resolved, the effect runs `find` (possibly empty) and always clears the var.
+
+- **`NewHeroSection` had a dead `isAuthenticated` prop** (`frontend/src/components/landing/NewHeroSection.tsx`, `frontend/src/views/DiscoveryLanding.tsx`): the prop was declared on the interface and threaded through `DiscoveryLanding` but never read inside the component. Removed from the interface and the call site.
+
+- **Discover search rows silently no-op'd on `"#"` URLs from missing slugs** (`frontend/src/views/DiscoverSearchResults.tsx`): `getDocumentUrl` / `getCorpusUrl` return `"#"` when slugs are missing on the underlying entities. Each section's `onClick` did `if (url !== "#") navigate(url)`, so the row remained visually clickable, hover styles fired, and the click was swallowed with no feedback. `ResultRow` now accepts `disabled` / `disabledReason`; sections compute `unrouteable = url === "#"` once and forward both. Disabled rows render with `opacity 0.55`, `cursor: not-allowed`, native `disabled` (and `aria-disabled`), and a tooltip explaining the missing data — replacing the silent failure with a discoverable one. `disabled:not(:disabled)` scoping on the hover style stops the disabled rows from animating on hover.
 
 - **Annotation deep-links from the corpus-home Table of Contents silently no-op'd** (`frontend/src/components/corpuses/DocumentAnnotationIndex.tsx`, `frontend/src/components/knowledge_base/document/document_kb/RightPanelContent.tsx`): clicking a structural section in the corpus-home document index (e.g. "Subchapter I. Formation, p. 2") was supposed to open the document with the annotation pre-selected and scrolled into view. Instead it appeared to do nothing. Root cause: `DocumentAnnotationIndex` overloaded a single `embedded` prop with two semantics — visual layout ("render without an outer container") *and* click routing ("we are already on the document page, just rewrite `?ann=`"). The corpus-home call site (`DocumentTableOfContents.tsx:919`) needed the visual flavor but absolutely was *not* on a document page, so `handleSectionClick` took the wrong branch and wrote `?ann=<id>` onto the corpus URL — no navigation, no scroll. Fix splits the prop: `embedded` is now purely visual, and a new explicit `onDocumentPage` prop controls click routing. The single call site that's actually on a document page (`RightPanelContent.tsx`) opts in. Regression test in `frontend/src/components/corpuses/__tests__/DocumentAnnotationIndex.test.tsx` pins the new contract: a click from a corpus URL must produce a string-form `navigate("/d/.../doc?ann=<id>")` (full deep link), while a click from a document URL with `onDocumentPage` produces `navigate({ search: "...ann=<id>..." }, { replace: true })`.
 
