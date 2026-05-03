@@ -10,7 +10,9 @@ from opencontractserver.shared.Models import BaseOCModel
 
 
 class UserFeedback(BaseOCModel):
-    objects = UserFeedbackManager()
+    # django-stubs flags re-declaring ``objects`` as overriding a class
+    # variable with an instance variable; intentional manager override.
+    objects = UserFeedbackManager()  # type: ignore[misc]
 
     approved = models.BooleanField(default=False)
     rejected = models.BooleanField(default=False)

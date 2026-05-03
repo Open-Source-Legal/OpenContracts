@@ -24,18 +24,13 @@ from functools import partial
 # --------------------------------------------------------------------------- #
 
 try:
-    # ``channels`` ships no type stubs and ``thread_sensitive`` is a kwarg
-    # mypy cannot introspect on the resulting partial.
-    from channels.db import (
-        database_sync_to_async as _database_sync_to_async,  # type: ignore[import-not-found]
-    )
+    from channels.db import database_sync_to_async as _database_sync_to_async
 
-    _db_sync_to_async = partial(_database_sync_to_async, thread_sensitive=False)  # type: ignore[call-arg]
+    _db_sync_to_async = partial(_database_sync_to_async, thread_sensitive=False)
 except ModuleNotFoundError:  # Channels not installed – fall back gracefully
-    # asgiref is typed but the kwarg-aware partial below confuses mypy.
     from asgiref.sync import sync_to_async as _sync_to_async
 
-    _db_sync_to_async = partial(_sync_to_async, thread_sensitive=False)  # type: ignore[call-arg]
+    _db_sync_to_async = partial(_sync_to_async, thread_sensitive=False)
 
 
 def _token_count(text: str) -> int:

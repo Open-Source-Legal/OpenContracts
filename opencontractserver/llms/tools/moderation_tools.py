@@ -457,7 +457,7 @@ def add_thread_message(
         creator_id=creator_id,
         agent_configuration=agent_config,
     )
-    message._skip_signals = True
+    message._skip_signals = True  # type: ignore[attr-defined]
     message.save()
 
     logger.info(

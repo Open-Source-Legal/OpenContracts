@@ -69,7 +69,7 @@ async def aget_corpus_description(
     if not corpus.md_description:
         return ""
 
-    corpus.md_description.open("r")  # type: ignore[arg-type]
+    corpus.md_description.open("r")
     try:
         content: str = corpus.md_description.read()
     finally:
