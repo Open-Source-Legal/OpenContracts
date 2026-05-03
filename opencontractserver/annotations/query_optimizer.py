@@ -399,7 +399,9 @@ class AnnotationQueryOptimizer:
             # Path doesn't exist or is deleted
             return Annotation.objects.none()
         except DocumentPath.MultipleObjectsReturned:
-            # Shouldn't happen with constraints, but handle safely
+            # Shouldn't happen with constraints, but handle safely.
+            # first() returns None only on an empty QS; unreachable here, but
+            # needed to narrow DocumentPath | None → DocumentPath for mypy.
             first_path = path_query.first()
             if first_path is None:
                 return Annotation.objects.none()
