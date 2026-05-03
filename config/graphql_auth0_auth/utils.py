@@ -160,9 +160,7 @@ def get_auth0_user_from_token(remote_username):
         return None
 
     if not (user.is_active and user_can_authenticate(user)):
-        logger.info(
-            "get_auth0_user_from_token() user %s is not active", user.username
-        )
+        logger.info("get_auth0_user_from_token() user %s is not active", user.username)
         return None
 
     return user
