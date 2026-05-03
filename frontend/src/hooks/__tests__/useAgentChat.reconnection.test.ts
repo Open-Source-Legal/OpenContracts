@@ -21,11 +21,9 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
    *
    * The actual reconnection in useAgentChat happens when:
    * 1. hasContext is true (corpusId, documentId, or agentId exists)
-   * 2. isReconnectingRef.current is false (not already reconnecting)
-   * 3. WebSocket is not OPEN and not CONNECTING
+   * 2. isConnected is false
    *
-   * When these conditions are met, setReconnectTrigger is called to
-   * increment the counter, which triggers the WebSocket effect to re-run.
+   * When these conditions are met, reconnect() from useWebSocketAuth is called.
    */
 
   describe("reconnection conditions", () => {
@@ -51,71 +49,23 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
       });
     });
 
-    it("should check WebSocket readyState before reconnecting", () => {
+    it("should check isConnected before reconnecting", () => {
       // The reconnection logic checks:
-      // socketRef.current?.readyState !== WebSocket.OPEN &&
-      // socketRef.current?.readyState !== WebSocket.CONNECTING
+      // if (hasContext && !isConnected) reconnect();
 
-      const readyStates = {
-        CONNECTING: 0,
-        OPEN: 1,
-        CLOSING: 2,
-        CLOSED: 3,
-      };
+      const shouldReconnect = (
+        hasContext: boolean,
+        isConnected: boolean
+      ): boolean => hasContext && !isConnected;
 
-      // Should NOT reconnect when OPEN or CONNECTING
-      expect(readyStates.OPEN !== 1 && readyStates.OPEN !== 0).toBe(false);
-      expect(readyStates.CONNECTING !== 1 && readyStates.CONNECTING !== 0).toBe(
-        false
-      );
+      // Should reconnect when context exists and not connected
+      expect(shouldReconnect(true, false)).toBe(true);
 
-      // SHOULD reconnect when CLOSING or CLOSED
-      expect(readyStates.CLOSING !== 1 && readyStates.CLOSING !== 0).toBe(true);
-      expect(readyStates.CLOSED !== 1 && readyStates.CLOSED !== 0).toBe(true);
-    });
+      // Should NOT reconnect when already connected
+      expect(shouldReconnect(true, true)).toBe(false);
 
-    it("should check isReconnectingRef guard before reconnecting", () => {
-      // The guard prevents duplicate reconnection attempts:
-      // if (!isReconnectingRef.current && ...)
-
-      let isReconnecting = false;
-
-      // First attempt should proceed
-      const shouldReconnect1 = !isReconnecting;
-      expect(shouldReconnect1).toBe(true);
-
-      // Mark as reconnecting
-      isReconnecting = true;
-
-      // Second attempt should be blocked
-      const shouldReconnect2 = !isReconnecting;
-      expect(shouldReconnect2).toBe(false);
-    });
-  });
-
-  describe("reconnectTrigger state behavior", () => {
-    it("should increment trigger to cause effect re-run", () => {
-      // The reconnection mechanism uses a state counter:
-      // setReconnectTrigger(prev => prev + 1)
-      //
-      // This is included in the WebSocket effect's dependency array,
-      // so incrementing it causes the effect to re-run and create a new connection.
-
-      let trigger = 0;
-      const setTrigger = (fn: (prev: number) => number) => {
-        trigger = fn(trigger);
-      };
-
-      // Initial state
-      expect(trigger).toBe(0);
-
-      // Simulate reconnection trigger
-      setTrigger((prev) => prev + 1);
-      expect(trigger).toBe(1);
-
-      // Multiple triggers increment the counter
-      setTrigger((prev) => prev + 1);
-      expect(trigger).toBe(2);
+      // Should NOT reconnect without context
+      expect(shouldReconnect(false, false)).toBe(false);
     });
   });
 
@@ -130,18 +80,17 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
      * rather than the protocol prefix, which is environment-dependent.
      */
 
-    it("should build WebSocket URL with all context parameters", async () => {
-      const { getUnifiedAgentWebSocketUrl } = await import("../useAgentChat");
-
-      const url = getUnifiedAgentWebSocketUrl(
-        {
-          corpusId: "corpus-123",
-          documentId: "doc-456",
-          agentId: "agent-789",
-          conversationId: "conv-abc",
-        },
-        "test-token"
+    it("should build WebSocket URL with all context parameters and no token", async () => {
+      const { getUnifiedAgentWebSocket } = await import(
+        "../../components/chat/get_websockets"
       );
+
+      const url = getUnifiedAgentWebSocket({
+        corpusId: "corpus-123",
+        documentId: "doc-456",
+        agentId: "agent-789",
+        conversationId: "conv-abc",
+      });
 
       // Verify URL structure (protocol depends on env/location)
       expect(url).toMatch(/^wss?:\/\//);
@@ -150,16 +99,15 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
       expect(url).toContain("document_id=doc-456");
       expect(url).toContain("agent_id=agent-789");
       expect(url).toContain("conversation_id=conv-abc");
-      expect(url).toContain("token=test-token");
+      expect(url).not.toContain("token");
     });
 
     it("should handle missing optional parameters", async () => {
-      const { getUnifiedAgentWebSocketUrl } = await import("../useAgentChat");
-
-      const url = getUnifiedAgentWebSocketUrl(
-        { corpusId: "corpus-only" },
-        undefined
+      const { getUnifiedAgentWebSocket } = await import(
+        "../../components/chat/get_websockets"
       );
+
+      const url = getUnifiedAgentWebSocket({ corpusId: "corpus-only" });
 
       // Verify URL structure (protocol depends on env/location)
       expect(url).toMatch(/^wss?:\/\//);
@@ -167,7 +115,7 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
       expect(url).toContain("corpus_id=corpus-only");
       expect(url).not.toContain("document_id");
       expect(url).not.toContain("agent_id");
-      expect(url).not.toContain("token=");
+      expect(url).not.toContain("token");
     });
 
     it("should use wss:// for https protocol when no env override", async () => {
@@ -188,15 +136,14 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
     });
 
     it("should properly encode URL parameters", async () => {
-      const { getUnifiedAgentWebSocketUrl } = await import("../useAgentChat");
-
-      const url = getUnifiedAgentWebSocketUrl(
-        {
-          corpusId: "corpus with spaces",
-          documentId: "doc/with/slashes",
-        },
-        undefined
+      const { getUnifiedAgentWebSocket } = await import(
+        "../../components/chat/get_websockets"
       );
+
+      const url = getUnifiedAgentWebSocket({
+        corpusId: "corpus with spaces",
+        documentId: "doc/with/slashes",
+      });
 
       // Verify parameters are URL-encoded
       expect(url).toContain("corpus_id=corpus%20with%20spaces");
@@ -205,154 +152,75 @@ describe("useAgentChat WebSocket Reconnection Logic", () => {
   });
 
   describe("onResume callback behavior", () => {
-    it("should only trigger reconnection when WebSocket is disconnected", () => {
+    it("should only trigger reconnection when not connected", () => {
       // Simulates the logic in the onResume callback:
-      // if (hasContext && !isReconnectingRef.current &&
-      //     socketRef.current?.readyState !== WebSocket.OPEN &&
-      //     socketRef.current?.readyState !== WebSocket.CONNECTING) {
-      //   setReconnectTrigger(prev => prev + 1);
-      // }
+      // if (hasContext && !isConnected) reconnect();
 
       interface TestCase {
         hasContext: boolean;
-        isReconnecting: boolean;
-        readyState: number | undefined;
+        isConnected: boolean;
         shouldTrigger: boolean;
       }
-
-      const OPEN = 1;
-      const CONNECTING = 0;
-      const CLOSED = 3;
 
       const testCases: TestCase[] = [
         // No context - should not trigger
         {
           hasContext: false,
-          isReconnecting: false,
-          readyState: CLOSED,
+          isConnected: false,
           shouldTrigger: false,
         },
 
-        // Already reconnecting - should not trigger
+        // Already connected - should not trigger
         {
           hasContext: true,
-          isReconnecting: true,
-          readyState: CLOSED,
+          isConnected: true,
           shouldTrigger: false,
         },
 
-        // WebSocket still open - should not trigger
+        // Disconnected with context - should trigger reconnection
         {
           hasContext: true,
-          isReconnecting: false,
-          readyState: OPEN,
-          shouldTrigger: false,
-        },
-
-        // WebSocket connecting - should not trigger
-        {
-          hasContext: true,
-          isReconnecting: false,
-          readyState: CONNECTING,
-          shouldTrigger: false,
-        },
-
-        // WebSocket closed, should trigger reconnection
-        {
-          hasContext: true,
-          isReconnecting: false,
-          readyState: CLOSED,
-          shouldTrigger: true,
-        },
-
-        // No socket yet (undefined readyState), should trigger reconnection
-        {
-          hasContext: true,
-          isReconnecting: false,
-          readyState: undefined,
+          isConnected: false,
           shouldTrigger: true,
         },
       ];
 
-      testCases.forEach(
-        ({ hasContext, isReconnecting, readyState, shouldTrigger }, index) => {
-          const shouldReconnect =
-            hasContext &&
-            !isReconnecting &&
-            readyState !== OPEN &&
-            readyState !== CONNECTING;
+      testCases.forEach(({ hasContext, isConnected, shouldTrigger }, index) => {
+        const shouldReconnect = hasContext && !isConnected;
 
-          expect(
-            shouldReconnect,
-            `Test case ${index} failed: expected ${shouldTrigger}, got ${shouldReconnect}`
-          ).toBe(shouldTrigger);
-        }
-      );
+        expect(
+          shouldReconnect,
+          `Test case ${index} failed: expected ${shouldTrigger}, got ${shouldReconnect}`
+        ).toBe(shouldTrigger);
+      });
     });
   });
 
   describe("onOnline callback behavior", () => {
-    it("should trigger reconnection on network recovery if WebSocket is disconnected", () => {
+    it("should trigger reconnection on network recovery if disconnected", () => {
       // Same logic as onResume - network recovery should reconnect
       // if WebSocket is not connected
 
-      const WS_OPEN = 1;
-      const WS_CONNECTING = 0;
-      const WS_CLOSED = 3;
-
-      // Helper function that mirrors the reconnection logic
       const shouldReconnect = (
         hasContext: boolean,
-        isReconnecting: boolean,
-        readyState: number
-      ): boolean => {
-        return (
-          hasContext &&
-          !isReconnecting &&
-          readyState !== WS_OPEN &&
-          readyState !== WS_CONNECTING
-        );
-      };
+        isConnected: boolean
+      ): boolean => hasContext && !isConnected;
 
-      // Should trigger when WebSocket is closed
-      expect(shouldReconnect(true, false, WS_CLOSED)).toBe(true);
+      // Should trigger when disconnected with context
+      expect(shouldReconnect(true, false)).toBe(true);
 
-      // Should NOT trigger when WebSocket is open
-      expect(shouldReconnect(true, false, WS_OPEN)).toBe(false);
-
-      // Should NOT trigger when WebSocket is connecting
-      expect(shouldReconnect(true, false, WS_CONNECTING)).toBe(false);
+      // Should NOT trigger when already connected
+      expect(shouldReconnect(true, true)).toBe(false);
 
       // Should NOT trigger when no context
-      expect(shouldReconnect(false, false, WS_CLOSED)).toBe(false);
-
-      // Should NOT trigger when already reconnecting
-      expect(shouldReconnect(true, true, WS_CLOSED)).toBe(false);
+      expect(shouldReconnect(false, false)).toBe(false);
     });
   });
 
   describe("cleanup on unmount", () => {
-    it("should reset isReconnectingRef on cleanup", () => {
-      // The cleanup function in useAgentChat sets:
-      // isReconnectingRef.current = false;
-      //
-      // This ensures that if the component unmounts during connection,
-      // subsequent mounts won't be blocked from connecting.
-
-      let isReconnectingRef = { current: true };
-
-      // Simulate cleanup
-      isReconnectingRef.current = false;
-
-      expect(isReconnectingRef.current).toBe(false);
-    });
-
-    it("should close WebSocket on cleanup", () => {
-      // The cleanup function also closes the socket:
-      // if (socketRef.current) {
-      //   socketRef.current.close();
-      //   socketRef.current = null;
-      // }
+    it("should close WebSocket on cleanup (via useWebSocketAuth)", () => {
+      // useWebSocketAuth handles cleanup in its effect return:
+      // ws.close(WS_CLOSE_NORMAL, "hook unmount");
 
       const mockSocket = {
         close: vi.fn(),
