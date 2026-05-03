@@ -194,6 +194,8 @@ def create_markdown_link(
     except Conversation.DoesNotExist:
         raise ValueError(f"Conversation with id={entity_id} does not exist.")
 
+    raise ValueError(f"Unhandled entity_type: {entity_type!r}")
+
 
 async def acreate_markdown_link(
     entity_type: str,
@@ -356,3 +358,5 @@ async def acreate_markdown_link(
         raise ValueError(f"Document with id={entity_id} does not exist.")
     except Conversation.DoesNotExist:
         raise ValueError(f"Conversation with id={entity_id} does not exist.")
+
+    raise ValueError(f"Unhandled entity_type: {entity_type!r}")

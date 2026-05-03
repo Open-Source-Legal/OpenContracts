@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from channels.db import database_sync_to_async
 from django.core.files.base import ContentFile
@@ -130,7 +130,10 @@ async def get_or_create_memory_document(corpus: Corpus, user: Any) -> Document:
             # Another transaction created it concurrently; re-read
             corpus.refresh_from_db()
             if corpus.memory_document_id:
-                return corpus.memory_document
+                # FK descriptor raises Document.DoesNotExist if the row is
+                # missing — it never returns None when memory_document_id is
+                # set. The cast just narrows for mypy.
+                return cast(Document, corpus.memory_document)
             raise
 
         # Phase 3: Re-acquire the lock to write back the FK.
@@ -231,10 +234,11 @@ async def update_memory_content(
                 raise DocumentModel.DoesNotExist(
                     f"Memory document {doc.pk} was deleted concurrently."
                 )
-            # Delete the old storage file to avoid orphans (Django's
-            # FieldFile.save creates a new file rather than overwriting).
-            if locked_doc.txt_extract_file:
-                locked_doc.txt_extract_file.delete(save=False)
+            # Free the old storage file when it's safe to do so. The
+            # primitive returns False (without deleting) when the blob is
+            # shared with a sibling Document (e.g. a corpus-isolated copy
+            # created via Corpus.add_document) — see issue #1464.
+            locked_doc.safe_delete_field_blob("txt_extract_file")
             locked_doc.txt_extract_file.save(
                 MEMORY_DOCUMENT_FILENAME,
                 ContentFile(new_content.encode("utf-8")),
@@ -327,7 +331,7 @@ async def get_memory_for_injection(corpus: Corpus, query: str = "") -> str:
 
     if not query:
         # No query signal — return first N sections up to token budget
-        result_parts = []
+        result_parts: list[str] = []
         budget = MEMORY_FULL_INJECTION_MAX_TOKENS
         for section in sections:
             cost = estimate_token_count(section)

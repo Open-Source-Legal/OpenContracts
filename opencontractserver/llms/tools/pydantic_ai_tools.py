@@ -200,7 +200,7 @@ class PydanticAIDependencies(BaseModel):
     user_id: Optional[int] = Field(default=None, description="Current user ID")
     document_id: Optional[int] = Field(default=None, description="Current document ID")
     corpus_id: Optional[int] = Field(default=None, description="Current corpus ID")
-    vector_store: CoreAnnotationVectorStore = Field(
+    vector_store: Optional[CoreAnnotationVectorStore] = Field(
         default=None, description="Vector store instance"
     )
 
@@ -429,7 +429,7 @@ class PydanticAIToolWrapper:
         # Set proper metadata
         async_wrapper.__name__ = func_name
         async_wrapper.__doc__ = original_func.__doc__ or self._metadata.description
-        async_wrapper.__signature__ = new_sig
+        async_wrapper.__signature__ = new_sig  # type: ignore[attr-defined]
         # Ensure the injected ``ctx`` parameter has a proper annotation so
         # that Pydantic-AI's `_takes_ctx` helper can detect it.
         _anns = {
@@ -440,10 +440,10 @@ class PydanticAIToolWrapper:
         _anns.setdefault("ctx", RunContext[PydanticAIDependencies])
         async_wrapper.__annotations__ = _anns
         # Attach reference to the wrapper for approval checking
-        async_wrapper._pydantic_ai_wrapper = self
-        async_wrapper.core_tool = self.core_tool
+        async_wrapper._pydantic_ai_wrapper = self  # type: ignore[attr-defined]
+        async_wrapper.core_tool = self.core_tool  # type: ignore[attr-defined]
         # Attach requires_approval directly for easy access by _check_tool_requires_approval
-        async_wrapper.requires_approval = self.core_tool.requires_approval
+        async_wrapper.requires_approval = self.core_tool.requires_approval  # type: ignore[attr-defined]
         return async_wrapper
 
     @property

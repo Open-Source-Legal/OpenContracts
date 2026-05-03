@@ -57,12 +57,9 @@ from opencontractserver.utils.permissioning import (
 )
 
 if TYPE_CHECKING:
-    from django.contrib.auth import get_user_model
-
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
     from opencontractserver.documents.models import Document, DocumentPath
-
-    User = get_user_model()
+    from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
 

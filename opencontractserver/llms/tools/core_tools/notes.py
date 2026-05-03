@@ -327,7 +327,7 @@ def search_document_notes(
     *,
     corpus_id: int | None = None,
     limit: int | None = None,
-) -> list[dict[str, str | int]]:
+) -> list[dict[str, str | int | None]]:
 
     import django
 
@@ -368,7 +368,7 @@ async def asearch_document_notes(
     *,
     corpus_id: int | None = None,
     limit: int | None = None,
-):
+) -> list[dict[str, str | int | None]]:
     """Async search for notes matching *search_term* within a document."""
 
     import django
@@ -394,7 +394,7 @@ async def asearch_document_notes(
     if limit and limit > 0:
         notes_qs = notes_qs[:limit]
 
-    results: list[dict[str, str | int]] = []
+    results: list[dict[str, str | int | None]] = []
     async for note in notes_qs:
         results.append(
             {

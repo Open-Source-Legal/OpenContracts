@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 from opencontractserver.tests.factories import UserFactory
@@ -11,4 +13,4 @@ def media_storage(settings, tmpdir):
 
 @pytest.fixture
 def user() -> User:
-    return UserFactory()
+    return cast(User, UserFactory())

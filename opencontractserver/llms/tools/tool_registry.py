@@ -16,7 +16,11 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from opencontractserver.llms.tools.base_tool import BaseTool
+    from opencontractserver.llms.tools.tool_factory import CoreTool
 
 logger = logging.getLogger(__name__)
 
@@ -764,7 +768,7 @@ class ToolRegistryEntry:
     definition: ToolDefinition
     async_func: Callable
     aliases: tuple[str, ...] = field(default_factory=tuple)
-    tool_class: type | None = None  # BaseTool subclass for enablement gating
+    tool_class: type[BaseTool] | None = None  # BaseTool subclass for enablement gating
 
     def __post_init__(self) -> None:
         if not inspect.iscoroutinefunction(self.async_func):
@@ -808,7 +812,7 @@ class ToolFunctionRegistry:
         canonical = self._aliases.get(name, name)
         return self._entries.get(canonical)
 
-    def to_core_tool(self, name: str) -> CoreTool | None:  # noqa: F821
+    def to_core_tool(self, name: str) -> CoreTool | None:
         """Resolve *name* -> ``CoreTool`` using its async implementation.
 
         If the entry has a ``tool_class`` (:class:`BaseTool` subclass), the

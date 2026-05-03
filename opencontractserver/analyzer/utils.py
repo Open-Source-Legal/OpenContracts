@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import requests
 from django.db.utils import IntegrityError
@@ -19,7 +19,7 @@ try:
     )
 except ImportError:
     # If Celery or tasks aren't available in this context, set placeholders
-    get_doc_analyzer_task_by_name = None
+    get_doc_analyzer_task_by_name = None  # type: ignore[assignment]
     celery_app = None
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,11 @@ def get_gremlin_manifests(gremlin_id: int) -> list[AnalyzerManifest] | None:
         manifest_list: list[AnalyzerManifest] = manifest_json.get("items", None)
 
         for analyzer_metadata in manifest_list:
-            if not is_dict_instance_of_typed_dict(analyzer_metadata, AnalyzerManifest):
+            # AnalyzerManifest is a TypedDict (plain dict at runtime); cast for the
+            # checker without the cost of materialising a copy via dict(...).
+            if not is_dict_instance_of_typed_dict(
+                cast(dict, analyzer_metadata), AnalyzerManifest
+            ):
                 raise ValueError(
                     "Received Gremlin manifest is not of expected format AnalyzerMetaDataType"
                 )
@@ -74,7 +78,7 @@ def auto_create_doc_analyzers(
     :param update_existing: If True, update existing analyzers with missing/outdated fields.
     """
 
-    if not celery_app or not get_doc_analyzer_task_by_name:
+    if celery_app is None or get_doc_analyzer_task_by_name is None:
         logger.warning(
             "auto_create_doc_analyzers: Celery or doc_analyzer_task accessor not available."
         )

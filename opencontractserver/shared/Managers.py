@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
-from django.db.models import Manager, Prefetch, Q, QuerySet
+from django.db.models import FileField, Manager, Prefetch, Q, QuerySet
 
 from opencontractserver.shared.QuerySets import (
     AnnotationQuerySet,
@@ -312,6 +312,47 @@ class DocumentManager(BaseVisibilityManager):
         return self.get_queryset().search_by_embedding(
             query_vector, embedder_path, top_k
         )
+
+    def unique_blob_paths(self, doc: Any) -> set[str]:
+        """Return the subset of file-field blob paths on ``doc`` that
+        are NOT referenced by any other Document row.
+
+        Corpus-isolated copies created via ``Corpus.add_document`` share
+        blob field values with their source by design (Rule I3). Any
+        code that wants to delete a blob from storage MUST consult this
+        method first and skip paths that are still in use elsewhere —
+        otherwise it silently destroys files that other Documents
+        depend on (issue #1464).
+
+        The blob-field list is derived from ``Document._meta`` so adding
+        a new ``FileField`` on the model extends coverage automatically.
+
+        Args:
+            doc: The Document whose blob paths we're auditing.
+
+        Returns:
+            Set of blob names (storage keys) that are referenced
+            *only* by ``doc``. Safe to delete from storage. Empty/
+            unset fields are omitted.
+        """
+        blob_fields: list[str] = [
+            field.name
+            for field in doc._meta.get_fields()
+            if isinstance(field, FileField)
+        ]
+
+        unique: set[str] = set()
+        for field_name in blob_fields:
+            file_field = getattr(doc, field_name)
+            if not file_field:
+                continue
+            blob_name = file_field.name
+            if not blob_name:
+                continue
+            shared = self.filter(**{field_name: blob_name}).exclude(pk=doc.pk).exists()
+            if not shared:
+                unique.add(blob_name)
+        return unique
 
 
 class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):

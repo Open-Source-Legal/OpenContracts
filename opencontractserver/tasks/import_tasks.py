@@ -418,7 +418,13 @@ def process_documents_zip(
         # Clean up the temporary file
         temporary_file_handle.delete()
 
-        results["success"] = not user_cap_reached_mid_processing
+        # success=True must reflect both the user-cap state and any per-file
+        # processing errors recorded above.  Previously success only tracked
+        # the user cap, so callers got success=True even when individual files
+        # failed and were appended to results["errors"].
+        results["success"] = (
+            not user_cap_reached_mid_processing and results["error_files"] == 0
+        )
         results["completed"] = True  # Task completed, success depends on errors/cap
         logger.info(
             f"process_documents_zip() - Completed job: {job_id}, processed: {results['processed_files']}"
@@ -1404,11 +1410,24 @@ def import_zip_with_folder_structure(
         # Cleanup temporary file
         temporary_file_handle.delete()
 
-        # Determine success
+        # Determine success.  success=True must reflect that the documents
+        # AND their annotations were imported as the caller asked.  Sidecar
+        # failures (e.g. ZIP_MAX_SIDECAR_SIZE_BYTES exceeded, malformed JSON,
+        # missing labels for sidecar-declared annotations) were previously
+        # ignored here, so callers got success=True even when annotations
+        # were silently dropped.  Per-file failures and the user-cap check
+        # are unchanged.  Relationship_errors are *not* folded in: the
+        # documents themselves are imported and individual relationship rows
+        # already surface via relationships_skipped + relationship_errors,
+        # which is the contract existing callers depend on.
         user_cap_reached = any(
             "User document limit reached" in error for error in results["errors"]
         )
-        results["success"] = not user_cap_reached and results["files_errored"] == 0
+        results["success"] = (
+            not user_cap_reached
+            and results["files_errored"] == 0
+            and results["annotation_sidecars_errored"] == 0
+        )
         results["completed"] = True
 
         logger.info(
