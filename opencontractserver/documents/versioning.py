@@ -30,9 +30,8 @@ import hashlib
 import logging
 import mimetypes
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 
@@ -40,8 +39,10 @@ from opencontractserver.constants.document_processing import TEXT_MIMETYPES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.documents.models import Document, DocumentPath
 
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User
+
 logger = logging.getLogger(__name__)
-User = get_user_model()
 
 
 # Map MIME types to file extensions for creating filenames
@@ -132,7 +133,7 @@ def import_document(
     corpus: Corpus,
     path: str,
     content: bytes,
-    user: User,
+    user: "User",
     folder: Optional[CorpusFolder] = None,
     pdf_file=None,
     txt_file=None,
@@ -409,8 +410,8 @@ def move_document(
     corpus: Corpus,
     old_path: str,
     new_path: str,
-    user: User,
-    new_folder: Optional[CorpusFolder] = "UNSET",
+    user: "User",
+    new_folder: "Optional[CorpusFolder] | str" = "UNSET",
 ) -> DocumentPath:
     """
     Move document - creates new DocumentPath, Document unchanged.
@@ -429,12 +430,16 @@ def move_document(
         current.is_current = False
         current.save(update_fields=["is_current"])
 
-        # Determine folder for new path
+        # Determine folder for new path. ``new_folder`` accepts the
+        # ``"UNSET"`` sentinel string in addition to None / CorpusFolder; once
+        # narrowed away the variable is the FK type DocumentPath expects.
+        folder_to_use: Optional[CorpusFolder]
         if new_folder == "UNSET":
             # Not specified, keep current folder
             folder_to_use = current.folder
         else:
             # Explicitly set (could be None or a folder)
+            assert not isinstance(new_folder, str)
             folder_to_use = new_folder
 
         # Apply Rules P1, P2
@@ -461,7 +466,7 @@ def move_document(
         return new_path_record
 
 
-def delete_document(corpus: Corpus, path: str, user: User) -> DocumentPath:
+def delete_document(corpus: Corpus, path: str, user: "User") -> DocumentPath:
     """
     Soft delete - creates deleted DocumentPath.
 
@@ -498,7 +503,7 @@ def delete_document(corpus: Corpus, path: str, user: User) -> DocumentPath:
         return deleted_path
 
 
-def restore_document(corpus: Corpus, path: str, user: User) -> DocumentPath:
+def restore_document(corpus: Corpus, path: str, user: "User") -> DocumentPath:
     """
     Restore deleted document.
 

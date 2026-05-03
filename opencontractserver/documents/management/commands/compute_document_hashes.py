@@ -72,7 +72,10 @@ class Command(BaseCommand):
                     )
                     continue
 
-                # Check if file exists
+                # Check if file exists. ``pdf_file.name`` is typed as
+                # ``str | None`` but the truthy check above has already
+                # excluded the None case.
+                assert document.pdf_file.name is not None
                 if not document.pdf_file.storage.exists(document.pdf_file.name):
                     self.stdout.write(
                         self.style.ERROR(
@@ -106,7 +109,7 @@ class Command(BaseCommand):
                     updated += 1
                 else:
                     self.stdout.write(
-                        f"Document {document.id} already has correct hash: {old_hash[:8]}..."
+                        f"Document {document.id} already has correct hash: {(old_hash or '')[:8]}..."
                     )
 
                 processed += 1
