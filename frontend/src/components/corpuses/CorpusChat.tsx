@@ -47,7 +47,7 @@ import {
   ConnectionStatus,
 } from "../knowledge_base/document/ChatContainers";
 
-import { authToken, userObj } from "../../graphql/cache";
+import { userObj } from "../../graphql/cache";
 import { IconButton } from "../knowledge_base/document/FilterContainers";
 import {
   useChatSourceState,
@@ -59,7 +59,7 @@ import {
   ChatMessageProps,
   TimelineEntry,
 } from "../widgets/chat/ChatMessage";
-import { getCorpusQueryWebSocket } from "../chat/get_websockets";
+import { getUnifiedAgentWebSocket } from "../chat/get_websockets";
 import type {
   WebSocketSources,
   MessageData,
@@ -175,7 +175,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
 
   // GraphQL & user state
   const user_obj = useReactiveVar(userObj);
-  const auth_token = useReactiveVar(authToken);
 
   // WebSocket reference
   const socketRef = useRef<WebSocket | null>(null);
@@ -336,11 +335,10 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       return;
     }
 
-    const wsUrl = getCorpusQueryWebSocket(
+    const wsUrl = getUnifiedAgentWebSocket({
       corpusId,
-      auth_token,
-      isNewChat ? undefined : selectedConversationId
-    );
+      conversationId: isNewChat ? undefined : selectedConversationId,
+    });
     const newSocket = new WebSocket(wsUrl);
 
     newSocket.onopen = () => {
@@ -527,7 +525,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         socketRef.current = null;
       }
     };
-  }, [auth_token, corpusId, selectedConversationId, isNewChat, wsReconnectKey]);
+  }, [corpusId, selectedConversationId, isNewChat, wsReconnectKey]);
 
   // Track if this is the initial mount - skip forceNewChat effect on mount
   // since isNewChat is already initialized from forceNewChat prop

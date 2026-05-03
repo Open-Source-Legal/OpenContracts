@@ -33,7 +33,7 @@ import {
   GetChatMessagesOutputs,
   GetChatMessagesInputs,
 } from "../../../../graphql/queries";
-import { authToken, userObj } from "../../../../graphql/cache";
+import { userObj } from "../../../../graphql/cache";
 import { getWebSocketUrl } from "../utils";
 import {
   ChatInputContainer,
@@ -112,9 +112,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
   // User / Auth state – must be declared before any state that depends on it
   const user_obj = useReactiveVar(userObj);
-  // Note: auth_token is kept for WebSocket URL construction which requires the token
-  // for authentication. GraphQL queries use userObj for skip conditions.
-  const auth_token = useReactiveVar(authToken);
 
   // Chat state
   // Start with new chat if readOnly OR if user is anonymous
@@ -149,8 +146,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
   // For messages from server (via the new GET_CHAT_MESSAGES query)
   const [serverMessages, setServerMessages] = useState<ChatMessageProps[]>([]);
-
-  // (user_obj, auth_token declared above)
 
   // WebSocket reference
   const socketRef = useRef<WebSocket | null>(null);
@@ -782,12 +777,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     }
 
     // Build WebSocket URL, including conversation ID
-    const wsUrl = getWebSocketUrl(
-      documentId,
-      auth_token || undefined,
-      selectedConversationId,
-      corpusId
-    );
+    const wsUrl = getWebSocketUrl(documentId, selectedConversationId, corpusId);
     const newSocket = new WebSocket(wsUrl);
 
     newSocket.onopen = () => {
@@ -1005,7 +995,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         socketRef.current = null;
       }
     };
-  }, [auth_token, documentId, selectedConversationId, isNewChat, corpusId]);
+  }, [documentId, selectedConversationId, isNewChat, corpusId]);
 
   /**
    * Load existing conversation by ID, clearing local state, then showing chat UI.
