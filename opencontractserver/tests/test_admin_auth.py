@@ -253,40 +253,33 @@ class TestAdminClaimsSync(TestCase):
     @override_settings(
         USE_AUTH0=True, AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/"
     )
-    def test_sync_numeric_1_claim(self):
-        """Numeric 1 should be parsed as boolean True."""
+    def test_sync_numeric_claim_does_not_promote(self):
+        """Numeric claims are not accepted; they fail closed to False.
+
+        Auth0 Actions should emit JSON booleans for admin flags. We refuse
+        to interpret 1/0 (or other non-canonical values) so a misconfigured
+        Action can never inadvertently grant staff/superuser.
+        """
         from config.graphql_auth0_auth.utils import sync_admin_claims_from_payload
 
-        payload = {
+        # Numeric 1 must NOT promote a non-staff user to staff.
+        payload_promote = {
             "sub": "auth0|test_user",
             "https://test.example.com/is_staff": 1,
         }
-
-        result = sync_admin_claims_from_payload(self.user, payload)
-
+        self.assertTrue(sync_admin_claims_from_payload(self.user, payload_promote))
         self.user.refresh_from_db()
-        self.assertTrue(result)
-        self.assertTrue(self.user.is_staff)
+        self.assertFalse(self.user.is_staff)
 
-    @override_settings(
-        USE_AUTH0=True, AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/"
-    )
-    def test_sync_numeric_0_claim(self):
-        """Numeric 0 should be parsed as boolean False."""
-        from config.graphql_auth0_auth.utils import sync_admin_claims_from_payload
-
+        # Numeric 0 against an existing staff user demotes (fail-closed).
         self.user.is_staff = True
         self.user.save()
-
-        payload = {
+        payload_demote = {
             "sub": "auth0|test_user",
             "https://test.example.com/is_staff": 0,
         }
-
-        result = sync_admin_claims_from_payload(self.user, payload)
-
+        self.assertTrue(sync_admin_claims_from_payload(self.user, payload_demote))
         self.user.refresh_from_db()
-        self.assertTrue(result)
         self.assertFalse(self.user.is_staff)
 
     @override_settings(
@@ -366,53 +359,28 @@ class TestBooleanClaimParsing(TestCase):
         self.assertTrue(valid)
         self.assertFalse(value)
 
-    def test_parse_string_yes(self):
-        """String 'yes' should be parsed as True."""
+    def test_non_canonical_string_values_rejected(self):
+        """Non-canonical truthy/falsy strings are not accepted.
+
+        We deliberately accept only JSON booleans and the canonical
+        "true"/"false" strings so a misconfigured Auth0 Action fails loudly
+        instead of silently emitting "yes"/"1"/"no"/"0" that quietly work.
+        """
         from config.graphql_auth0_auth.utils import _parse_boolean_claim
 
-        value, valid = _parse_boolean_claim("yes")
-        self.assertTrue(valid)
-        self.assertTrue(value)
+        for non_canonical in ("yes", "no", "1", "0"):
+            value, valid = _parse_boolean_claim(non_canonical)
+            self.assertFalse(valid, f"{non_canonical!r} should be rejected")
+            self.assertFalse(value)
 
-    def test_parse_string_no(self):
-        """String 'no' should be parsed as False."""
+    def test_numeric_values_rejected(self):
+        """Numeric values are not accepted as booleans."""
         from config.graphql_auth0_auth.utils import _parse_boolean_claim
 
-        value, valid = _parse_boolean_claim("no")
-        self.assertTrue(valid)
-        self.assertFalse(value)
-
-    def test_parse_string_1(self):
-        """String '1' should be parsed as True."""
-        from config.graphql_auth0_auth.utils import _parse_boolean_claim
-
-        value, valid = _parse_boolean_claim("1")
-        self.assertTrue(valid)
-        self.assertTrue(value)
-
-    def test_parse_string_0(self):
-        """String '0' should be parsed as False."""
-        from config.graphql_auth0_auth.utils import _parse_boolean_claim
-
-        value, valid = _parse_boolean_claim("0")
-        self.assertTrue(valid)
-        self.assertFalse(value)
-
-    def test_parse_int_1(self):
-        """Integer 1 should be parsed as True."""
-        from config.graphql_auth0_auth.utils import _parse_boolean_claim
-
-        value, valid = _parse_boolean_claim(1)
-        self.assertTrue(valid)
-        self.assertTrue(value)
-
-    def test_parse_int_0(self):
-        """Integer 0 should be parsed as False."""
-        from config.graphql_auth0_auth.utils import _parse_boolean_claim
-
-        value, valid = _parse_boolean_claim(0)
-        self.assertTrue(valid)
-        self.assertFalse(value)
+        for numeric in (0, 1, 1.0, 0.0):
+            value, valid = _parse_boolean_claim(numeric)
+            self.assertFalse(valid, f"{numeric!r} should be rejected")
+            self.assertFalse(value)
 
     def test_parse_none(self):
         """None should return (False, False)."""
@@ -459,75 +427,28 @@ class TestAuth0AdminBackend(TestCase):
             email="super@example.com",
         )
 
-    @override_settings(USE_AUTH0=True)
-    def test_authenticate_staff_user(self):
-        """Staff user should authenticate successfully."""
+    def test_authenticate_is_noop(self):
+        """``authenticate()`` never returns a user.
+
+        The admin backend exists purely to rehydrate the session. The login
+        view validates the JWT itself and then calls ``login(request, user,
+        backend=...)``, so any authenticate path that returned a user from a
+        bare kwarg would let callers bypass credential verification.
+        """
         from config.admin_auth.backends import Auth0AdminBackend
 
         backend = Auth0AdminBackend()
-        user = backend.authenticate(None, auth0_user_id="auth0|staff_user")
-
-        self.assertEqual(user, self.staff_user)
-
-    @override_settings(USE_AUTH0=True)
-    def test_authenticate_superuser(self):
-        """Superuser should authenticate successfully."""
-        from config.admin_auth.backends import Auth0AdminBackend
-
-        backend = Auth0AdminBackend()
-        user = backend.authenticate(None, auth0_user_id="auth0|superuser")
-
-        self.assertEqual(user, self.superuser)
-
-    @override_settings(USE_AUTH0=True)
-    def test_non_staff_user_denied(self):
-        """Non-staff user should be denied."""
-        from config.admin_auth.backends import Auth0AdminBackend
-
-        backend = Auth0AdminBackend()
-        user = backend.authenticate(None, auth0_user_id="auth0|regular_user")
-
-        self.assertIsNone(user)
-
-    @override_settings(USE_AUTH0=True)
-    def test_inactive_staff_denied(self):
-        """Inactive staff user should be denied."""
-        from config.admin_auth.backends import Auth0AdminBackend
-
-        backend = Auth0AdminBackend()
-        user = backend.authenticate(None, auth0_user_id="auth0|inactive_staff")
-
-        self.assertIsNone(user)
-
-    @override_settings(USE_AUTH0=True)
-    def test_nonexistent_user_denied(self):
-        """Non-existent user should be denied."""
-        from config.admin_auth.backends import Auth0AdminBackend
-
-        backend = Auth0AdminBackend()
-        user = backend.authenticate(None, auth0_user_id="auth0|does_not_exist")
-
-        self.assertIsNone(user)
-
-    @override_settings(USE_AUTH0=True)
-    def test_no_auth0_user_id_denied(self):
-        """Missing auth0_user_id should return None."""
-        from config.admin_auth.backends import Auth0AdminBackend
-
-        backend = Auth0AdminBackend()
-        user = backend.authenticate(None, auth0_user_id=None)
-
-        self.assertIsNone(user)
-
-    @override_settings(USE_AUTH0=False)
-    def test_auth0_disabled_returns_none(self):
-        """Backend should return None when Auth0 is disabled."""
-        from config.admin_auth.backends import Auth0AdminBackend
-
-        backend = Auth0AdminBackend()
-        user = backend.authenticate(None, auth0_user_id="auth0|staff_user")
-
-        self.assertIsNone(user)
+        for kwargs in (
+            {"auth0_user_id": "auth0|staff_user"},
+            {"auth0_user_id": "auth0|superuser"},
+            {"auth0_user_id": "auth0|regular_user"},
+            {"auth0_user_id": "auth0|inactive_staff"},
+            {"auth0_user_id": "auth0|does_not_exist"},
+            {"auth0_user_id": None},
+            {"username": "auth0|staff_user", "password": "anything"},
+            {},
+        ):
+            self.assertIsNone(backend.authenticate(None, **kwargs))
 
     @override_settings(USE_AUTH0=True)
     def test_get_user_success(self):

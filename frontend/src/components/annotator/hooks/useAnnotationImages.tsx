@@ -100,7 +100,7 @@ export const useAnnotationImages = (
         };
 
         if (token) {
-          headers["Authorization"] = `JWT ${token}`;
+          headers["Authorization"] = `Bearer ${token}`;
         }
 
         const response = await fetch(url, { headers });

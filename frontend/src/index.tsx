@@ -30,9 +30,6 @@ const {
 
 const api_root_url = REACT_APP_API_ROOT_URL || "http://localhost:8000";
 
-console.log("OpenContracts is using Auth0: ", REACT_APP_USE_AUTH0);
-console.log("OpenContracts frontend target api root", api_root_url);
-
 const authLink = new ApolloLink((operation, forward) => {
   // Get the token fresh on each request.
   // Only set Authorization when we actually have a token — sending an empty
@@ -50,7 +47,6 @@ const authLink = new ApolloLink((operation, forward) => {
   return forward(operation);
 });
 
-console.log("api_root_url", api_root_url);
 const httpLink = createHttpLink({
   uri: `${api_root_url}/graphql/`,
 });
@@ -70,8 +66,6 @@ const container = document.getElementById("root");
 const root = createRoot(container!);
 
 if (REACT_APP_USE_AUTH0) {
-  console.log("Rendering with USE_AUTH0");
-
   const providerConfig = {
     domain: REACT_APP_APPLICATION_DOMAIN,
     clientId: REACT_APP_APPLICATION_CLIENT_ID,
@@ -95,9 +89,6 @@ if (REACT_APP_USE_AUTH0) {
     authorizeTimeoutInSeconds: 10,
   };
 
-  console.log("[index.tsx] Auth0 providerConfig:", providerConfig);
-  console.log("[index.tsx] window.location.origin:", window.location.origin);
-
   root.render(
     <HelmetProvider>
       <BrowserRouter
@@ -116,8 +107,6 @@ if (REACT_APP_USE_AUTH0) {
     </HelmetProvider>
   );
 } else {
-  console.log("Rendering with NO AUTH0");
-
   root.render(
     <HelmetProvider>
       <ApolloProvider client={client}>

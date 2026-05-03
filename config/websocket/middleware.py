@@ -48,8 +48,12 @@ class JWTAuthMiddleware(BaseMiddleware):
     REST API and GraphQL layers.
 
     Token extraction:
-        - Query string: ws://host/path/?token=<jwt>
-        - Authorization header: Authorization: Bearer <jwt>
+        - Authorization header: Authorization: Bearer <jwt> (preferred)
+        - Query string: ws://host/path/?token=<jwt> (browser fallback;
+          browsers can't set headers on the WebSocket upgrade so the
+          query string is unavoidable for direct ``new WebSocket(...)``
+          callers — be aware tokens passed this way are visible to any
+          proxy or access log on the path).
 
     On authentication failure, sets scope['auth_error'] with details:
     - 'code': WS_CLOSE_TOKEN_EXPIRED (4001) or WS_CLOSE_TOKEN_INVALID (4002)
@@ -130,7 +134,3 @@ class JWTAuthMiddleware(BaseMiddleware):
             return None
 
         return parts[1]
-
-
-# Backwards compatibility alias
-GraphQLJWTTokenAuthMiddleware = JWTAuthMiddleware

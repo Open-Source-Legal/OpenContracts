@@ -1,5 +1,5 @@
 """
-Tests for GraphQLJWTTokenAuthMiddleware to ensure that it correctly validates the received token
+Tests for JWTAuthMiddleware to ensure that it correctly validates the received token
 and assigns the correct user (or AnonymousUser) to the WebSocket scope.
 
 These tests verify JWT token validation in the WebSocket middleware without exercising
@@ -47,9 +47,9 @@ def _create_mock_agent() -> MagicMock:
 
 
 @pytest.mark.serial
-class GraphQLJWTTokenAuthMiddlewareTestCase(WebsocketFixtureBaseTestCase):
+class JWTAuthMiddlewareTestCase(WebsocketFixtureBaseTestCase):
     """
-    Test class illustrating how GraphQLJWTTokenAuthMiddleware is tested in a WebSocket context.
+    Test class illustrating how JWTAuthMiddleware is tested in a WebSocket context.
     Uses the WebsocketFixtureBaseTestCase to provide test data and token handling.
 
     Marked as serial because websocket tests use async event loops that

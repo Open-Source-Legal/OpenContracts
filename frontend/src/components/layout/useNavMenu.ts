@@ -79,6 +79,15 @@ export const useNavMenu = () => {
     userObj(null);
     authStatusVar("ANONYMOUS");
 
+    // Drop the "user has logged in here before" hint so the next visit
+    // takes the fast first-time-visitor path in AuthGate instead of the
+    // slow silent-token verification.
+    try {
+      localStorage.removeItem("oc_has_authenticated");
+    } catch {
+      // localStorage may be unavailable; not fatal.
+    }
+
     // Fire-and-forget cache clear (don't block logout on this).
     resetOnAuthChange({ reason: "user_logout", refetchActive: false }).catch(
       (error) =>

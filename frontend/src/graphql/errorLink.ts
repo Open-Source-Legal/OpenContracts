@@ -25,7 +25,18 @@ export const errorLink = onError(
           err.extensions?.status ||
           err.extensions?.statusCode;
 
+        // Prefer the structured extension code (graphql_jwt sets this to
+        // ``JSONWebTokenExpired`` when the access token expires); fall back
+        // to message matching for older backends or non-standard errors.
+        const expiredCodeStrings = [
+          "JSONWebTokenExpired",
+          "TOKEN_EXPIRED",
+          "tokenExpired",
+        ];
+        const extCode = err.extensions?.code;
         const isExpiredToken =
+          (typeof extCode === "string" &&
+            expiredCodeStrings.includes(extCode)) ||
           err.message?.toLowerCase().includes("signature has expired") ||
           err.message?.toLowerCase().includes("token expired") ||
           err.message?.toLowerCase().includes("jwt expired");

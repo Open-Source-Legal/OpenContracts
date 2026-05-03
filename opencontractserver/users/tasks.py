@@ -6,8 +6,8 @@ Management API, and copy the result onto the local :class:`User` row.
 """
 
 import datetime
-import json
 import logging
+import urllib.parse
 from typing import Any, Optional
 
 import requests
@@ -15,6 +15,7 @@ from celery import chain
 from celery.result import AsyncResult
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 from config import celery_app
 from opencontractserver.users.models import Auth0APIToken
@@ -26,108 +27,106 @@ User = get_user_model()
 
 logger = logging.getLogger(__name__)
 
+# Outbound calls to Auth0 must always have a timeout; without one a single
+# unresponsive Auth0 request can hang a Celery worker indefinitely.
+AUTH0_HTTP_TIMEOUT = 10  # seconds
+
 # These tasks are only needed for AUTH0, so we don't define them unless we're using AUTH0
 if settings.USE_AUTH0:
 
     @celery_app.task()
     def get_new_auth0_token() -> Optional[str]:
-
-        # print("get_new_auth0_token")
         url = f"https://{auth0_settings.AUTH0_DOMAIN}/oauth/token"
-        # print(url)
-
         headers: dict[str, str] = {"content-type": "application/json"}
-        # print(headers)
-
         request_data: dict[str, str] = {
             "grant_type": auth0_settings.AUTH0_M2M_MANAGEMENT_GRANT_TYPE,
             "client_id": auth0_settings.AUTH0_M2M_MANAGEMENT_API_ID,
             "client_secret": auth0_settings.AUTH0_M2M_MANAGEMENT_API_SECRET,
             "audience": f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/",
         }
-        # print(f"Machine-2-Machine Request data: {request_data}")
 
-        response = requests.post(url, headers=headers, json=request_data)
+        try:
+            response = requests.post(
+                url, headers=headers, json=request_data, timeout=AUTH0_HTTP_TIMEOUT
+            )
+        except requests.RequestException as exc:
+            logger.error("Failed to request Auth0 management token: %s", exc)
+            return None
 
-        # print("Auth0 Response:")
-        # print(response.status_code)
-        # print(response.text)
+        if response.status_code != 200:
+            logger.error(
+                "Auth0 management token request failed (status=%s)",
+                response.status_code,
+            )
+            return None
 
-        if response.status_code == 200:
-            payload: dict[str, Any] = json.loads(response.text)
-            # print(payload)
+        try:
+            payload: dict[str, Any] = response.json()
             access_token: str = payload["access_token"]
             expires_in: int = payload["expires_in"]
+        except (ValueError, KeyError) as exc:
+            logger.error("Auth0 management token response malformed: %s", exc)
+            return None
 
-            newToken = Auth0APIToken()
-            newToken.token = access_token
-            newToken.expiration_Date = datetime.datetime.now() + datetime.timedelta(
-                0, expires_in
+        # Persist with a row-level lock to avoid two workers racing to insert
+        # duplicate token rows when both arrive after a token expiry.
+        with transaction.atomic():
+            Auth0APIToken.objects.select_for_update().all().delete()
+            new_token = Auth0APIToken.objects.create(
+                token=access_token,
+                expiration_Date=datetime.datetime.now(datetime.timezone.utc)
+                + datetime.timedelta(seconds=expires_in),
             )
-            newToken.auth0_Response = response.text
-            newToken.save()
 
-            return newToken.token
-
-        logger.error("Error retrieving access token to Auth0.")
-        return None
+        return new_token.token
 
     @celery_app.task()
-    def apply_data_to_user(data: dict[str, Any], userPk: str) -> None:
+    def apply_data_to_user(data: Optional[dict[str, Any]], userPk: str) -> None:
+        if not data or not isinstance(data, dict):
+            logger.warning("apply_data_to_user called with empty/invalid data")
+            return
 
-        # print(f"apply_data_to_user() - userPk is: {userPk}\nData: {data}")
+        try:
+            user = User.objects.get(username=userPk)
+        except User.DoesNotExist:
+            logger.warning("apply_data_to_user: user %s not found", userPk)
+            return
 
-        user = User.objects.get(username=userPk)
-        if user is not None and not user.synced:
+        if user.synced:
+            return
 
-            try:
-                user.email = data["email"]
-                # print(data["email"])
-                user.email_verified = data["email_verified"]
-                # print(data["email_verified"])
-                if data["email_verified"]:
-                    user.is_active = True
-                else:
-                    user.is_active = False  # disable accounts with unverified emails
-                user.name = data["name"]
-                # print(data["name"])
-                user.given_name = data["given_name"]
-                # print(data["given_name"])
-                user.family_name = data["family_name"]
-                # print(data["family_name"])
-                user.synced = True
-                user.is_social_user = True
-                user.last_synced = datetime.datetime.now(datetime.timezone.utc)
-                user.last_ip = data["last_ip"]
-                # print(user.last_ip)
-                # print(user)
-                user.save()
-
-            except Exception as inst:
-                logger.error(
-                    f"Exception applying data to user - exception: {type(inst)}"
-                )
-                logger.error(
-                    f"Exception applying data to user - exception args; {inst.args}"
-                )
+        try:
+            user.email = data.get("email", user.email)
+            email_verified = bool(data.get("email_verified", False))
+            user.email_verified = email_verified
+            # Disable accounts whose email is not verified by the IdP.
+            user.is_active = email_verified
+            user.name = data.get("name", "")
+            user.given_name = data.get("given_name", "")
+            user.family_name = data.get("family_name", "")
+            user.synced = True
+            user.is_social_user = True
+            user.last_synced = datetime.datetime.now(datetime.timezone.utc)
+            user.last_ip = data.get("last_ip", user.last_ip)
+            user.save()
+        except Exception as exc:
+            logger.error("apply_data_to_user failed for %s: %s", userPk, exc)
 
     @celery_app.task()
     def sync_remote_user(user_pk: str) -> AsyncResult:
+        # Pick a single live token if one exists; otherwise fetch a fresh one.
+        # Using ``filter().first()`` instead of ``all()`` avoids the previous
+        # "delete everything if there isn't exactly one row" reset that
+        # produced thrash under concurrent workers.
+        token_row = (
+            Auth0APIToken.objects.filter(
+                expiration_Date__gt=datetime.datetime.now(datetime.timezone.utc)
+            )
+            .order_by("-expiration_Date")
+            .first()
+        )
 
-        refresh = False
-        tokens = Auth0APIToken.objects.all()
-
-        if not len(tokens) == 1:
-            for tok in tokens:
-                tok.delete()
-            refresh = True
-        else:
-            if tokens[0].expiration_Date < datetime.datetime.now(datetime.timezone.utc):
-                # print("Token has expired. Refetching from Auth0")
-                tokens[0].delete()
-                refresh = True
-
-        if refresh:
+        if token_row is None:
             data = chain(
                 get_new_auth0_token.s(),
                 get_user_details_async.s(user_pk),
@@ -135,7 +134,7 @@ if settings.USE_AUTH0:
             )
         else:
             data = chain(
-                get_user_details_async.s(tokens[0].token, user_pk),
+                get_user_details_async.s(token_row.token, user_pk),
                 apply_data_to_user.s(user_pk),
             )
 
@@ -143,34 +142,46 @@ if settings.USE_AUTH0:
 
     @celery_app.task()
     def ensure_valid_auth0_token() -> Optional[str]:
-
-        tokens = Auth0APIToken.objects.all()
-
-        if len(tokens) == 0:
-            # print("No Auth0 Tokens... Request one.")
-            return get_new_auth0_token.delay().get()
-        elif len(tokens) > 1:
-            # print(
-            #     "Somehow there was more than 1 token. Going to delete all and refresh"
-            # )
-            for tok in tokens:
-                tok.delete()
-                return get_new_auth0_token.delay().get()
-            return None
-        else:
-            if tokens[0].expiration_Date < datetime.datetime.now(datetime.timezone.utc):
-                # print("Token has expired. Refetching from Auth0")
-                tokens[0].delete()
-                return get_new_auth0_token.delay().get()
-            else:
-                # print("Token is good!")
-                return tokens[0].token
+        token_row = (
+            Auth0APIToken.objects.filter(
+                expiration_Date__gt=datetime.datetime.now(datetime.timezone.utc)
+            )
+            .order_by("-expiration_Date")
+            .first()
+        )
+        if token_row is not None:
+            return token_row.token
+        return get_new_auth0_token.delay().get()
 
     @celery_app.task
-    def get_user_details_async(token: str, auth0_Id: str) -> dict[str, Any]:
-        headers: dict[str, str] = {
-            "Authorization": f"Bearer {token}",
-        }
-        url = f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/users/{auth0_Id}"
-        response = requests.get(url, headers=headers)
-        return json.loads(response.text)
+    def get_user_details_async(token: Optional[str], auth0_Id: str) -> dict[str, Any]:
+        if not token:
+            logger.warning("get_user_details_async called without a token")
+            return {}
+
+        # ``sub`` claims like ``auth0|abc`` contain reserved characters; URL
+        # quote the path segment so requests doesn't end up issuing a malformed
+        # request to the Management API.
+        quoted_id = urllib.parse.quote(auth0_Id, safe="")
+        url = f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/users/{quoted_id}"
+        headers: dict[str, str] = {"Authorization": f"Bearer {token}"}
+
+        try:
+            response = requests.get(url, headers=headers, timeout=AUTH0_HTTP_TIMEOUT)
+        except requests.RequestException as exc:
+            logger.error("Auth0 user fetch failed for %s: %s", auth0_Id, exc)
+            return {}
+
+        if response.status_code != 200:
+            logger.error(
+                "Auth0 user fetch returned status %s for %s",
+                response.status_code,
+                auth0_Id,
+            )
+            return {}
+
+        try:
+            return response.json()
+        except ValueError as exc:
+            logger.error("Auth0 user fetch returned invalid JSON: %s", exc)
+            return {}

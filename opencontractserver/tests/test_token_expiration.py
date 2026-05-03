@@ -58,18 +58,19 @@ class Auth0BackendTokenExpirationTestCase(TestCase):
 
     @mock.patch("config.graphql_auth0_auth.backends.graphql_jwt.utils.get_credentials")
     @mock.patch("config.graphql_auth0_auth.backends.get_user_by_token")
-    def test_other_jwt_errors_return_none(
+    def test_invalid_token_raises_exception(
         self, mock_get_user_by_token, mock_get_credentials
     ):
         """
-        Verify that other JWT errors (not expiration) still return None
-        to maintain backwards compatibility.
+        JSONWebTokenError must propagate so the GraphQL layer can return a
+        structured error to the client. Returning None here would silently
+        downgrade a tampered or malformed token to anonymous access.
         """
         mock_get_credentials.return_value = "invalid_token"
         mock_get_user_by_token.side_effect = JSONWebTokenError("Invalid token")
 
-        result = self.backend.authenticate(request=self.mock_request)
-        self.assertIsNone(result)
+        with self.assertRaises(JSONWebTokenError):
+            self.backend.authenticate(request=self.mock_request)
 
     @mock.patch("config.graphql_auth0_auth.backends.graphql_jwt.utils.get_credentials")
     @mock.patch("config.graphql_auth0_auth.backends.get_user_by_token")
@@ -118,7 +119,7 @@ class WebSocketTokenExpirationTestCase(WebsocketFixtureBaseTestCase):
         mock_create_document_agent: mock.AsyncMock,
     ) -> None:
         """
-        Verifies that GraphQLJWTTokenAuthMiddleware sets auth_error in scope
+        Verifies that JWTAuthMiddleware sets auth_error in scope
         when a token has expired, with the correct close code.
         """
         mock_create_document_agent.return_value = mock.MagicMock()
@@ -149,7 +150,7 @@ class WebSocketTokenExpirationTestCase(WebsocketFixtureBaseTestCase):
         mock_create_document_agent: mock.AsyncMock,
     ) -> None:
         """
-        Verifies that GraphQLJWTTokenAuthMiddleware sets auth_error in scope
+        Verifies that JWTAuthMiddleware sets auth_error in scope
         when a token is invalid (not expired), with the correct close code.
         """
         mock_create_document_agent.return_value = mock.MagicMock()

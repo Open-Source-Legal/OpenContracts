@@ -7,10 +7,7 @@ Django-settings-configurable constants respect overrides.
 
 from django.test import TestCase
 
-from opencontractserver.constants.auth import (
-    ADMIN_CLAIMS_CACHE_TTL,
-    TOKEN_LOG_PREFIX_LENGTH,
-)
+from opencontractserver.constants.auth import ADMIN_CLAIMS_CACHE_TTL
 from opencontractserver.constants.context_guardrails import (
     CHARS_PER_TOKEN_ESTIMATE,
     COMPACTION_SUMMARY_MAX_TOKENS,
@@ -57,11 +54,6 @@ from opencontractserver.constants.moderation import (
 
 class TestAuthConstants(TestCase):
     """Tests for authentication constants."""
-
-    def test_token_log_prefix_length_type_and_range(self):
-        self.assertIsInstance(TOKEN_LOG_PREFIX_LENGTH, int)
-        self.assertGreater(TOKEN_LOG_PREFIX_LENGTH, 0)
-        self.assertLessEqual(TOKEN_LOG_PREFIX_LENGTH, 50)
 
     def test_admin_claims_cache_ttl_type_and_range(self):
         self.assertIsInstance(ADMIN_CLAIMS_CACHE_TTL, int)
@@ -297,12 +289,8 @@ class TestConstantsBarrelImport(TestCase):
     """Tests that the __init__.py barrel import exposes all constants."""
 
     def test_auth_constants_accessible(self):
-        from opencontractserver.constants import (
-            ADMIN_CLAIMS_CACHE_TTL,
-            TOKEN_LOG_PREFIX_LENGTH,
-        )
+        from opencontractserver.constants import ADMIN_CLAIMS_CACHE_TTL
 
-        self.assertIsNotNone(TOKEN_LOG_PREFIX_LENGTH)
         self.assertIsNotNone(ADMIN_CLAIMS_CACHE_TTL)
 
     def test_moderation_constants_accessible(self):

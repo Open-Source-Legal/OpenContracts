@@ -448,7 +448,6 @@ class Auth0APIToken(django.db.models.Model):
     token = django.db.models.TextField("Auth0 Token")
     expiration_Date = django.db.models.DateTimeField("Token Expiration Date:")
     refreshing = django.db.models.BooleanField("Refreshing Token", default=False)
-    auth0_Response = django.db.models.TextField("Last Response from Auth0")
 
 
 class Installation(django.db.models.Model):

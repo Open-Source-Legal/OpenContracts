@@ -355,13 +355,13 @@
                     try {
                         await auth0Client.handleRedirectCallback();
                         var token = await auth0Client.getTokenSilently();
-                        var nextUrl = localStorage.getItem('admin_auth0_next') || '/admin/';
-                        localStorage.removeItem('admin_auth0_next');
+                        var nextUrl = sessionStorage.getItem('admin_auth0_next') || '/admin/';
+                        sessionStorage.removeItem('admin_auth0_next');
                         submitToken(token, nextUrl);
                     } catch (error) {
                         console.error('Auth0 callback error:', error);
                         showLoading(false);
-                        localStorage.removeItem('admin_auth0_next');
+                        sessionStorage.removeItem('admin_auth0_next');
                         window.history.replaceState({}, document.title, window.location.pathname);
                     }
                 }
@@ -382,7 +382,7 @@
             }
             showLoading(true);
             try {
-                localStorage.setItem('admin_auth0_next', '{{ next|escapejs }}' || '/admin/');
+                sessionStorage.setItem('admin_auth0_next', '{{ next|escapejs }}' || '/admin/');
                 await auth0Client.loginWithRedirect({
                     authorizationParams: {
                         redirect_uri: window.location.origin + window.location.pathname
