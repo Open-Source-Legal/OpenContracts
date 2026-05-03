@@ -1005,9 +1005,7 @@ class TestGetAnnotationImageTokensV2Paths(TestCase):
         )
 
         # Pass a dict that won't normalize (no 'v' key)
-        result = get_annotation_image_tokens(
-            annotation, pawls_data={"bogus": True}
-        )
+        result = get_annotation_image_tokens(annotation, pawls_data={"bogus": True})
         self.assertEqual(result, [])
 
     def test_loads_from_structural_set_pawls_file(self):
@@ -1106,9 +1104,7 @@ class TestExtractAndStoreAnnotationImages(TestCase):
             {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}}
         )
         # dict without 'v' key — _resolve_v2_pawls catches the ValueError
-        self.assertFalse(
-            extract_and_store_annotation_images(annot, {"bogus": "dict"})
-        )
+        self.assertFalse(extract_and_store_annotation_images(annot, {"bogus": "dict"}))
 
     def test_returns_false_when_no_image_tokens_referenced(self):
         """Annotation references only text tokens -> nothing extracted."""
@@ -1192,9 +1188,7 @@ class TestExtractAndStoreAnnotationImages(TestCase):
         )
         # _resolve_v2_pawls runs the dict through to_canonical_v2 which
         # rejects non-dict pages → returns None → function returns False.
-        self.assertFalse(
-            extract_and_store_annotation_images(annot, bogus_canonical)
-        )
+        self.assertFalse(extract_and_store_annotation_images(annot, bogus_canonical))
 
     def test_v1_input_auto_normalized(self):
         """A raw v1 list is auto-normalized inside the function."""

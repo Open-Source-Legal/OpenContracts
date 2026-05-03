@@ -123,9 +123,7 @@ class PopulateContentModalitiesCommandTests(TestCase):
         cls.image_label = AnnotationLabel.objects.create(
             text="figure", creator=cls.user
         )
-        cls.chart_label = AnnotationLabel.objects.create(
-            text="chart", creator=cls.user
-        )
+        cls.chart_label = AnnotationLabel.objects.create(text="chart", creator=cls.user)
 
     # ── Helpers ──────────────────────────────────────────────────
 
@@ -168,9 +166,7 @@ class PopulateContentModalitiesCommandTests(TestCase):
         """Invoke the command with stdout capture and return the captured text."""
         out = StringIO()
         err = StringIO()
-        call_command(
-            "populate_content_modalities", *args, stdout=out, stderr=err
-        )
+        call_command("populate_content_modalities", *args, stdout=out, stderr=err)
         return out.getvalue()
 
     # ── --dry-run preserves rows ─────────────────────────────────

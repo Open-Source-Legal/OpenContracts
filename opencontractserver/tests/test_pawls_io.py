@@ -341,9 +341,7 @@ class TokenViewToV1ImageDictTests(TestCase):
 
         self.assertTrue(out["is_image"])
         # v2 short keys are translated back to v1 long keys.
-        self.assertEqual(
-            out["image_path"], "user_1/doc_42/images/page_0_img_0.jpg"
-        )
+        self.assertEqual(out["image_path"], "user_1/doc_42/images/page_0_img_0.jpg")
         self.assertEqual(out["format"], "jpeg")
         self.assertEqual(out["content_hash"], "abc123")
         self.assertEqual(out["original_width"], 800)
