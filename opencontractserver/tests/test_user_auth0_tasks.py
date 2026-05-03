@@ -308,7 +308,9 @@ class Auth0TasksTestCase(TestCase):
         self.assertEqual(self.user.last_ip, "203.0.113.7")
         # last_synced is timezone-aware (post-PR fix).
         last_synced = self.user.last_synced
-        assert last_synced is not None  # narrows for mypy + clearer than assertIsNotNone
+        assert (
+            last_synced is not None
+        )  # narrows for mypy + clearer than assertIsNotNone
         self.assertIsNotNone(last_synced.tzinfo)
 
     def test_apply_data_unverified_email_disables_account(self):
