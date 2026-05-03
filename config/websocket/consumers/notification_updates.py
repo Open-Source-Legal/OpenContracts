@@ -35,6 +35,7 @@ import uuid
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from config.ratelimit.decorators import check_ws_rate_limit
+from config.websocket.auth_handshake import AuthHandshakeMixin
 from config.websocket.middleware import WS_CLOSE_RATE_LIMITED
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ def get_notification_channel_group(user_id: int) -> str:
     return f"notification_user_{user_id}"
 
 
-class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
+class NotificationUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
     """
     WebSocket consumer for subscribing to real-time notification updates.
 
@@ -140,7 +141,7 @@ class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
         self.room_group_name = get_notification_channel_group(self.user_id)
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
 
-        await self.accept()
+        await self.accept_with_auth()
         logger.info(
             f"[NotificationUpdates {self.consumer_id}] "
             f"User {self.user_id} subscribed to {self.room_group_name}"
@@ -159,6 +160,7 @@ class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code: int) -> None:
         """Leave the notification channel group on disconnect."""
+        await self.cleanup_auth_handshake()
         if hasattr(self, "room_group_name") and self.room_group_name:
             await self.channel_layer.group_discard(
                 self.room_group_name, self.channel_name
@@ -180,6 +182,14 @@ class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
         - ping: Connection health check
         - heartbeat: Keep-alive message
         """
+        try:
+            _payload = json.loads(text_data)
+        except json.JSONDecodeError:
+            _payload = None
+        if isinstance(_payload, dict) and _payload.get("type") == "AUTH":
+            await self.handle_auth_message(_payload)
+            return
+
         if await check_ws_rate_limit(self, "WS_HEARTBEAT"):
             return
 
