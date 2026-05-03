@@ -12,6 +12,7 @@ pydantic==2.*
 typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests>=2.33.1,<3  # https://requests.readthedocs.io/en/latest/
 httpx>=0.28.1,<1  # https://github.com/encode/httpx - async HTTP for agent tools
+brotli>=1.1.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes)
 
 
 # Django
