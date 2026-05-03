@@ -70,7 +70,7 @@ class AuthHandshakeMixin:
 
     @property
     def current_user(self):
-        return self.scope.get("user")
+        return self.scope.get("user")  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------ #
     #  Connection accept
@@ -78,8 +78,8 @@ class AuthHandshakeMixin:
 
     async def accept_with_auth(self) -> None:
         """Accept the connection echoing the negotiated subprotocol."""
-        subprotocol = self.scope.get("accepted_subprotocol")
-        await self.accept(subprotocol=subprotocol)
+        subprotocol = self.scope.get("accepted_subprotocol")  # type: ignore[attr-defined]
+        await self.accept(subprotocol=subprotocol)  # type: ignore[attr-defined]
         await self._send_initial_auth_ok()
 
     async def _send_initial_auth_ok(self) -> None:
@@ -91,7 +91,7 @@ class AuthHandshakeMixin:
             or user is None
             or not getattr(user, "is_authenticated", False)
         )
-        await self.send(
+        await self.send(  # type: ignore[attr-defined]
             text_data=json.dumps(
                 {
                     "type": "AUTH_OK",
@@ -151,9 +151,9 @@ class AuthHandshakeMixin:
             return
 
         # Success — swap, ack, cancel any pending grace timer.
-        self.scope["user"] = new_user
+        self.scope["user"] = new_user  # type: ignore[attr-defined]
         self._cancel_refresh_grace_timer()
-        await self.send(
+        await self.send(  # type: ignore[attr-defined]
             text_data=json.dumps(
                 {
                     "type": "AUTH_OK",
@@ -174,7 +174,7 @@ class AuthHandshakeMixin:
 
     async def _fail_auth(self, reason: str, close_code: int) -> None:
         try:
-            await self.send(
+            await self.send(  # type: ignore[attr-defined]
                 text_data=json.dumps(
                     {
                         "type": "AUTH_FAILED",
@@ -184,7 +184,7 @@ class AuthHandshakeMixin:
             )
         except Exception:
             pass
-        await self.close(code=close_code)
+        await self.close(code=close_code)  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------ #
     #  Refresh: server-nudged
@@ -195,7 +195,7 @@ class AuthHandshakeMixin:
         Ask the client to send a fresh token. If the client doesn't respond
         with a successful AUTH frame within ``grace_seconds``, close 4001.
         """
-        await self.send(
+        await self.send(  # type: ignore[attr-defined]
             text_data=json.dumps(
                 {
                     "type": "AUTH_REFRESH_REQUIRED",
@@ -215,7 +215,7 @@ class AuthHandshakeMixin:
             return
         if getattr(self, "_is_connected", True):
             logger.info("Refresh grace timer expired; closing 4001")
-            await self.close(code=WS_CLOSE_TOKEN_EXPIRED)
+            await self.close(code=WS_CLOSE_TOKEN_EXPIRED)  # type: ignore[attr-defined]
 
     def _cancel_refresh_grace_timer(self) -> None:
         task = self._refresh_grace_task

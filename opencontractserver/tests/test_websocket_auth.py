@@ -147,35 +147,42 @@ class GraphQLJWTTokenAuthMiddlewareTestCase(WebsocketFixtureBaseTestCase):
         self, mock_for_document: AsyncMock, mock_for_corpus: AsyncMock
     ) -> None:
         """
-        Verifies that providing a valid token results in successful connection
-        and a logged-in user on the scope. Uses a mock agent to avoid LLM calls.
+        Verifies that providing a valid token via subprotocol results in successful
+        connection and a logged-in user on the scope.  Uses a mock agent to avoid
+        LLM calls.  The consumer now emits an initial AUTH_OK frame on connect which
+        must be drained before sending the query.
         """
         mock_for_document.return_value = _create_mock_agent()
         mock_for_corpus.return_value = _create_mock_agent()
 
         self.assertTrue(hasattr(self, "doc"), "A fixture Document must be available.")
 
-        # Use unified agent-chat endpoint with document_id query param
         communicator = WebsocketCommunicator(
             self.application,
-            f"ws/agent-chat/?document_id={self.doc.id}&token={self.token}",
+            f"ws/agent-chat/?document_id={self.doc.id}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
         )
-
-        connected, _ = await communicator.connect()
+        connected, accepted_protocol = await communicator.connect()
         self.assertTrue(
-            connected,
-            "WebSocket should connect successfully with a valid token.",
+            connected, "WebSocket should connect successfully with a valid token."
         )
+        self.assertEqual(accepted_protocol, WS_AUTH_SUBPROTOCOL)
 
-        # Confirm that the scope user is authenticated
+        # Drain initial AUTH_OK frame from the mixin
+        raw = await communicator.receive_from(timeout=5)
+        msg = json.loads(raw)
+        self.assertEqual(msg["type"], "AUTH_OK")
+        self.assertEqual(msg["username"], self.user.username)
+        self.assertFalse(msg["anonymous"])
+        self.assertFalse(msg["refreshed"])
+
+        # Confirm scope user is authenticated
         scope_user = communicator.scope["user"]
-        self.assertTrue(scope_user.is_authenticated, "User must be authenticated.")
+        self.assertTrue(scope_user.is_authenticated)
         self.assertEqual(scope_user.username, self.user.username)
 
-        # Send a test query to verify the connection works end-to-end
         await communicator.send_to(json.dumps({"query": "Please summarize the doc."}))
 
-        # Gather messages until we encounter ASYNC_FINISH
         messages: list[dict[str, Any]] = []
         while True:
             try:
@@ -190,52 +197,36 @@ class GraphQLJWTTokenAuthMiddlewareTestCase(WebsocketFixtureBaseTestCase):
         self.assertTrue(
             len(messages) > 0, "Should receive messages from the agent query."
         )
-
         await communicator.disconnect()
 
     async def test_middleware_with_invalid_token(self) -> None:
         """
-        Verifies that providing an invalid token will lead to the connection being closed
-        with code 4002 (WS_CLOSE_TOKEN_INVALID), signaling the client should re-authenticate.
+        Verifies that providing an invalid token via subprotocol closes with 4002.
         """
         self.assertTrue(hasattr(self, "doc"), "A fixture Document must be available.")
-
-        # Use unified agent-chat endpoint with invalid token
         communicator = WebsocketCommunicator(
             self.application,
-            f"ws/agent-chat/?document_id={self.doc.id}&token=not_a_real_token",
+            f"ws/agent-chat/?document_id={self.doc.id}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, "not_a_real_token"],
         )
         connected, close_code = await communicator.connect()
         self.assertFalse(connected, "Connection should fail with invalid token.")
-        self.assertEqual(
-            close_code,
-            WS_CLOSE_TOKEN_INVALID,
-            "WebSocket should reject the connection with 4002 for an invalid token.",
-        )
+        self.assertEqual(close_code, WS_CLOSE_TOKEN_INVALID)
 
     async def test_middleware_without_token(self) -> None:
         """
-        Verifies that providing no token will lead to connection close with permission denied.
-
-        When no token is provided, the user is anonymous. The unified consumer checks
-        permissions and returns 4003 (permission denied) for anonymous users attempting
-        to access private documents, which is the expected security behavior.
+        Verifies that an anonymous connection (marker-only subprotocol) to a
+        private document is rejected with 4003 (permission denied).
         """
         self.assertTrue(hasattr(self, "doc"), "A fixture Document must be available.")
-
-        # Use unified agent-chat endpoint without token
         communicator = WebsocketCommunicator(
             self.application,
-            f"ws/agent-chat/?document_id={self.doc.id}",  # No token param
+            f"ws/agent-chat/?document_id={self.doc.id}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL],
         )
         connected, close_code = await communicator.connect()
         self.assertFalse(connected, "Connection should fail without token.")
-        # 4003 = permission denied (anonymous can't access private document)
-        self.assertEqual(
-            close_code,
-            4003,
-            "WebSocket should reject anonymous access to private document with code 4003.",
-        )
+        self.assertEqual(close_code, 4003)
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +310,7 @@ class AuthHandshakeMixinTests(WebsocketFixtureBaseTestCase):
         token = await database_sync_to_async(get_token)(self.user)
         c = await self._make_consumer(self.user)
         # Override permission check to deny
-        c._validate_resource_permissions = AsyncMock(return_value=False)
+        c._validate_resource_permissions = AsyncMock(return_value=False)  # type: ignore[method-assign]
         await c.handle_auth_message({"type": "AUTH", "token": token})
         self.assertEqual(c.closed_with, 4003)
         self.assertTrue(any('"PERMISSION_REVOKED"' in s for s in c.sent))
@@ -348,3 +339,59 @@ class AuthHandshakeMixinTests(WebsocketFixtureBaseTestCase):
 
         await asyncio.sleep(0.1)
         self.assertIsNone(c.closed_with)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end handshake / refresh tests on UnifiedAgentConsumer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.serial
+class UnifiedAgentHandshakeTests(WebsocketFixtureBaseTestCase):
+    """End-to-end handshake/refresh tests on UnifiedAgentConsumer."""
+
+    @mock.patch(
+        "config.websocket.consumers.unified_agent_conversation.agents.for_document"
+    )
+    async def test_inband_refresh_succeeds_no_reconnect(self, mock_for_document):
+        mock_for_document.return_value = _create_mock_agent()
+        communicator = WebsocketCommunicator(
+            self.application,
+            f"ws/agent-chat/?document_id={self.doc.id}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        # Drain initial AUTH_OK
+        raw = await communicator.receive_from(timeout=5)
+        self.assertEqual(json.loads(raw)["type"], "AUTH_OK")
+
+        # Send AUTH refresh with same-user token
+        new_token = await database_sync_to_async(get_token)(self.user)
+        await communicator.send_to(json.dumps({"type": "AUTH", "token": new_token}))
+        raw = await communicator.receive_from(timeout=5)
+        msg = json.loads(raw)
+        self.assertEqual(msg["type"], "AUTH_OK")
+        self.assertTrue(msg["refreshed"])
+        await communicator.disconnect()
+
+    async def test_inband_refresh_user_mismatch_closes_4002(self):
+        other_user = await database_sync_to_async(User.objects.create_user)(
+            username="other_handshake", password="x"
+        )
+        other_token = await database_sync_to_async(get_token)(other_user)
+
+        communicator = WebsocketCommunicator(
+            self.application,
+            f"ws/agent-chat/?document_id={self.doc.id}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        await communicator.receive_from(timeout=5)  # drain AUTH_OK
+
+        await communicator.send_to(json.dumps({"type": "AUTH", "token": other_token}))
+        raw = await communicator.receive_from(timeout=5)
+        self.assertIn('"USER_MISMATCH"', raw)
+        # Wait for close
+        await communicator.disconnect()

@@ -46,14 +46,27 @@ def _get_user_from_token(token: str):
 
 def _parse_subprotocol_token(
     headers: list[tuple[bytes, bytes]],
+    scope_subprotocols: list[str] | None = None,
 ) -> tuple[bool, str | None]:
     """
-    Parse the Sec-WebSocket-Protocol header.
+    Parse subprotocol auth token from either the Sec-WebSocket-Protocol header
+    (production/browser path) or the ASGI-spec ``scope["subprotocols"]`` list
+    (used by Channels' WebsocketCommunicator in tests).
 
     Returns (marker_present, token_or_None). Marker presence determines whether
     we echo the subprotocol back; token presence determines whether we attempt
     auth at all.
     """
+    # --- ASGI scope["subprotocols"] path (test communicator) --------------------
+    if scope_subprotocols:
+        parts = scope_subprotocols
+        if WS_AUTH_SUBPROTOCOL in parts:
+            for p in parts:
+                if p != WS_AUTH_SUBPROTOCOL:
+                    return (True, p)
+            return (True, None)
+
+    # --- HTTP header path (production browser / Daphne / uvicorn) ---------------
     raw: bytes | None = None
     for name, value in headers:
         if name.lower() == b"sec-websocket-protocol":
@@ -62,14 +75,14 @@ def _parse_subprotocol_token(
     if raw is None:
         return (False, None)
 
-    parts = [
+    parts_from_header = [
         p.strip() for p in raw.decode("utf-8", errors="ignore").split(",") if p.strip()
     ]
-    if WS_AUTH_SUBPROTOCOL not in parts:
+    if WS_AUTH_SUBPROTOCOL not in parts_from_header:
         return (False, None)
 
     # Token is any non-marker, non-empty entry. Take the first.
-    for p in parts:
+    for p in parts_from_header:
         if p != WS_AUTH_SUBPROTOCOL:
             return (True, p)
     return (True, None)
@@ -90,7 +103,10 @@ class JWTAuthMiddleware(BaseMiddleware):
         scope["auth_error"] = None
         scope["accepted_subprotocol"] = None
 
-        marker_present, token = _parse_subprotocol_token(scope.get("headers", []))
+        marker_present, token = _parse_subprotocol_token(
+            scope.get("headers", []),
+            scope.get("subprotocols"),
+        )
 
         if marker_present:
             scope["accepted_subprotocol"] = WS_AUTH_SUBPROTOCOL
