@@ -1242,6 +1242,12 @@ class TestSidecarImportTask(TestCase):
         is still created from export data.  Annotations in the sidecar are
         skipped because no labels are available, and the appropriate error is
         recorded.
+
+        Note: this scenario produces success=False — the sidecar declared
+        annotations that the importer was unable to apply (no labels), which
+        is silent annotation loss from the caller's perspective.  Prior to
+        the success-flag fix in PR #1489 this test asserted success=True;
+        that was the broken contract the fix corrects.
         """
         from opencontractserver.tasks.import_tasks import (
             import_zip_with_folder_structure,
@@ -1275,7 +1281,14 @@ class TestSidecarImportTask(TestCase):
         ).get()
 
         self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        # Sidecar errors must drop overall success (annotations were silently
+        # lost) — file itself was imported, but the user's request to import
+        # annotations was not fulfilled.
+        self.assertFalse(
+            result["success"],
+            "Sidecar with annotations but no labels should report "
+            "success=False since annotations were dropped.",
+        )
         self.assertEqual(result["files_processed"], 1)
         self.assertEqual(result["pipeline_skipped"], 1)
         # Labels file was not present
@@ -1428,6 +1441,81 @@ class TestSidecarImportTask(TestCase):
                 _read_sidecar(mock_zip, "doc.json")
 
         self.assertIn("exceeds limit", str(ctx.exception))
+
+    def test_sidecar_error_drops_overall_success_flag(self):
+        """
+        Regression: when a sidecar fails (here, oversized), the importer
+        previously returned success=True because the success determination
+        only checked files_errored — annotation_sidecars_errored was ignored
+        and callers had no signal that annotations were silently dropped.
+
+        After the fix, an oversized sidecar produces success=False even though
+        the document itself is created via the pipeline fallback. A clean
+        run with the same payload (default size limit) still yields
+        success=True, so this also pins the happy-path contract.
+        """
+        from unittest.mock import patch
+
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        sidecar = _build_sidecar_json(skip_pipeline=True)
+        sidecar_bytes = json.dumps(sidecar).encode("utf-8")
+        labels = _build_labels_json()
+
+        def _build_handle():
+            files = {
+                "doc.pdf": self.pdf_bytes,
+                "doc.json": sidecar_bytes,
+                "labels.json": json.dumps(labels).encode("utf-8"),
+            }
+            zip_buffer = self._create_test_zip(files)
+            return self._create_temp_file_handle(zip_buffer)
+
+        # Failure path: shrink the limit so the sidecar is rejected.
+        handle = _build_handle()
+        with patch(
+            "opencontractserver.tasks.import_tasks.ZIP_MAX_SIDECAR_SIZE_BYTES",
+            10,
+        ):
+            failed = import_zip_with_folder_structure.apply(
+                kwargs={
+                    "temporary_file_handle_id": handle.id,
+                    "user_id": self.user.id,
+                    "job_id": "test-success-flag-sidecar-error",
+                    "corpus_id": self.corpus.id,
+                }
+            ).get()
+
+        self.assertTrue(failed["completed"])
+        self.assertEqual(failed["annotation_sidecars_errored"], 1)
+        self.assertEqual(failed["files_errored"], 0)
+        self.assertFalse(
+            failed["success"],
+            "Sidecar errors must surface as success=False so callers don't "
+            "treat silent annotation loss as a clean import.",
+        )
+
+        # Happy path: same payload, default limit, success=True.
+        handle = _build_handle()
+        ok = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "test-success-flag-clean-run",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(ok["completed"])
+        self.assertEqual(ok["annotation_sidecars_errored"], 0)
+        self.assertEqual(ok["files_errored"], 0)
+        self.assertTrue(
+            ok["success"],
+            f"Clean import should report success=True, got errors: "
+            f"{ok.get('errors')}",
+        )
 
     def test_skip_pipeline_with_custom_meta_and_public(self):
         """
