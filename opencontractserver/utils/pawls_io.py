@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from typing import Any, cast
 
 from opencontractserver.utils.compact_pawls import (
@@ -327,8 +327,13 @@ class PageView:
         )
 
 
-def iter_pages(canonical_v2: dict[str, Any]) -> Iterable[PageView]:
+def iter_pages(canonical_v2: dict[str, Any]) -> Iterator[PageView]:
     """Yield :class:`PageView` for each page in a canonical v2 dict.
+
+    **Single-pass**: this is a generator, so callers that need to walk the
+    pages twice should materialize once via ``list(iter_pages(...))`` and
+    reuse the list — calling ``iter_pages`` again starts a fresh iterator
+    from the start.
 
     Args:
         canonical_v2: A v2 dict (must have ``"v": COMPACT_PAWLS_VERSION``

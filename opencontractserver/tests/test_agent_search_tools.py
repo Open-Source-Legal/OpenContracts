@@ -137,7 +137,7 @@ class TestDataExtractTasks(TestCase):
             creator=self.user,
         )
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_text_search_finds_structural_annotations(self, mock_exists):
         """Test that text_search finds structural annotations containing the query."""
         mock_exists.return_value = True
@@ -145,21 +145,21 @@ class TestDataExtractTasks(TestCase):
         self.assertIn("This is a test structural annotation", result)
         self.assertIn("Another test structural annotation", result)
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_text_search_case_insensitive(self, mock_exists):
         """Test that text_search is case insensitive."""
         mock_exists.return_value = True
         result = text_search(self.pdf_doc.id, "TEST STRUCTURAL")
         self.assertIn("This is a test structural annotation", result)
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_text_search_no_matches(self, mock_exists):
         """Test text_search when no matches are found."""
         mock_exists.return_value = True
         result = text_search(self.pdf_doc.id, "nonexistent text")
         self.assertEqual(result, "No structural annotations matched your text_search.")
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_text_search_limit_three_results(self, mock_exists):
         """Test that text_search returns at most 3 results."""
         mock_exists.return_value = True
@@ -178,17 +178,25 @@ class TestDataExtractTasks(TestCase):
         matches = result.count("\n") + 1  # Count newlines + 1 for the last line
         self.assertEqual(matches, 3)
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_annotation_window_pdf(self, mock_exists):
         """
-        Patch open() so that reading doc.pawls_parse_file.path gives us valid JSON
-        from create_mock_pawls_content, enabling JSON parsing and text snippet retrieval.
+        Patch the canonical-v2 PAWLs loader so the function operates on a known
+        pawls payload regardless of how the FieldFile is stored on disk.
         """
         mock_exists.return_value = True
-        pawls_json = create_mock_pawls_content(self.pdf_content)
+        pawls_v1 = json.loads(create_mock_pawls_content(self.pdf_content))
 
-        with patch("builtins.open", create=True) as mock_open:
-            mock_open.return_value.__enter__.return_value.read.return_value = pawls_json
+        # ``annotation_window`` calls ``load_canonical_v2(doc.pawls_parse_file)``;
+        # patch it to return canonical v2 derived from our mock v1 payload.
+        # ``load_canonical_v2`` accepts a pre-decoded list and returns v2.
+        from opencontractserver.utils.pawls_io import to_canonical_v2
+
+        canonical = to_canonical_v2(pawls_v1)
+        with patch(
+            "opencontractserver.tasks.data_extract_tasks.load_canonical_v2",
+            return_value=canonical,
+        ):
             result = annotation_window(
                 self.pdf_doc.id, str(self.pdf_annotation.id), "5"
             )
@@ -199,7 +207,7 @@ class TestDataExtractTasks(TestCase):
             # Possibly also expect words before/after if the window is big enough
             self.assertIn("This is a test document", result)
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_annotation_window_text(self, mock_exists):
         """
         The doc's text is now 'Test text annotation' (which is 19 chars long).
@@ -207,11 +215,15 @@ class TestDataExtractTasks(TestCase):
         """
         mock_exists.return_value = True
 
-        with patch("builtins.open", create=True) as mock_open:
-            # Return the same text that we stored in setUp
-            mock_open.return_value.__enter__.return_value.read.return_value = (
-                "Test text annotation"
-            )
+        # The new code reads via ``doc.txt_extract_file.open("rb").read()``.
+        # Patch the FieldFile-level open so the test is independent of disk I/O.
+        from io import BytesIO
+
+        with patch.object(
+            type(self.txt_doc.txt_extract_file),
+            "open",
+            return_value=BytesIO(b"Test text annotation"),
+        ):
             result = annotation_window(
                 self.txt_doc.id, str(self.txt_annotation.id), "5"
             )
@@ -220,7 +232,7 @@ class TestDataExtractTasks(TestCase):
             # Now it should indeed contain the raw_text
             self.assertIn("Test text annotation", result)
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_annotation_window_invalid_window_size(self, mock_exists):
         """Test annotation_window with invalid window size."""
         mock_exists.return_value = True
@@ -229,29 +241,52 @@ class TestDataExtractTasks(TestCase):
         )
         self.assertEqual(result, "Error: Could not parse window_size as an integer.")
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_annotation_window_nonexistent_annotation(self, mock_exists):
         """Test annotation_window with nonexistent annotation ID."""
         mock_exists.return_value = True
         result = annotation_window(self.pdf_doc.id, "99999", "5")
         self.assertEqual(result, "Error: Annotation [99999] not found.")
 
-    @patch("opencontractserver.tasks.data_extract_tasks.os.path.exists")
+    @patch("opencontractserver.tasks.data_extract_tasks.default_storage.exists")
     def test_annotation_window_size_limit(self, mock_exists):
-        """Test that annotation_window respects the maximum window size."""
+        """Test that annotation_window respects the maximum window size.
+
+        The caller asks for a window of 1000 words on each side, but the
+        function clamps to 500 (a global 1000-word total ceiling). Build a
+        synthetic v2 PAWLs payload whose token list is 2000 words long so
+        the clamp actually has something to bite on.
+        """
         mock_exists.return_value = True
-        # Create a long text with 2000 words
-        long_text = " ".join(["word"] * 2000)
-        with patch("builtins.open", create=True) as mock_open:
-            mock_open.return_value.__enter__.return_value.read.return_value = long_text
+        long_words = [f"word{i}" for i in range(2000)]
+        # Build a v1 PAWLs payload, then run it through to_canonical_v2.
+        v1_pawls = [
+            {
+                "page": {"width": 800, "height": 1000, "index": 0},
+                "tokens": [
+                    {"x": i, "y": 0, "width": 10, "height": 10, "text": w}
+                    for i, w in enumerate(long_words)
+                ],
+            }
+        ]
+        from opencontractserver.utils.pawls_io import to_canonical_v2
+
+        canonical = to_canonical_v2(v1_pawls)
+        with patch(
+            "opencontractserver.tasks.data_extract_tasks.load_canonical_v2",
+            return_value=canonical,
+        ):
             result = annotation_window(
                 self.pdf_doc.id, str(self.pdf_annotation.id), "1000"
             )
-            # Should be clamped to 500 words on each side
+            # Should be clamped to 500 words on each side. The annotation
+            # itself spans 3 tokens, so the total can be up to ~503 + 500 = 1003.
             self.assertIsNotNone(result)
-            # Count words in result
+            # Count words in result; allow a small buffer for the annotation tokens.
             word_count = len(result.split())
-            self.assertLessEqual(word_count, 1000)
+            self.assertLessEqual(word_count, 1010)
+            # And materially smaller than the unclamped 2000-word source.
+            self.assertLess(word_count, 2000)
 
     def tearDown(self):
         """Clean up test data."""

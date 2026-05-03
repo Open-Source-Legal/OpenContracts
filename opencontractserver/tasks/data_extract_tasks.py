@@ -1,11 +1,11 @@
 # opencontractserver/tasks/data_extract_tasks.py
 import json
 import logging
-import os
 from collections import Counter
 from typing import Any, Optional
 
 from asgiref.sync import sync_to_async
+from django.core.files.storage import default_storage
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
@@ -700,14 +700,17 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
             # -------------------------
             # Handle text/* annotation
             # -------------------------
-            if not doc.txt_extract_file or not os.path.exists(
-                doc.txt_extract_file.path
+            # Use default_storage.exists(.name) and FieldFile.open() so this
+            # works on both local filesystem and remote (S3/GCS) backends.
+            # ``.path`` raises NotImplementedError on remote storage backends.
+            if not doc.txt_extract_file or not default_storage.exists(
+                doc.txt_extract_file.name
             ):
                 return "Error: Document has no txt_extract_file or path is invalid."
 
-            # Read the entire doc text
-            with open(doc.txt_extract_file.path, encoding="utf-8") as f:
-                doc_text = f.read()
+            # Read the entire doc text via the storage-backend-aware FieldFile.
+            with doc.txt_extract_file.open("rb") as f:
+                doc_text = f.read().decode("utf-8")
 
             # The Annotation.json is presumably a TextSpanData
             anno_json = annotation.json
@@ -786,8 +789,11 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
             # -------------------------
             # Handle PDF annotation
             # -------------------------
-            if not doc.pawls_parse_file or not os.path.exists(
-                doc.pawls_parse_file.path
+            # Use default_storage.exists(.name) so this works on both local
+            # filesystem and remote (S3/GCS) backends. ``.path`` raises
+            # NotImplementedError on remote storage backends.
+            if not doc.pawls_parse_file or not default_storage.exists(
+                doc.pawls_parse_file.name
             ):
                 return "Error: Document has no pawls_parse_file or path is invalid."
 
