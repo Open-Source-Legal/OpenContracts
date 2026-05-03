@@ -5,7 +5,6 @@ This module provides helper functions for working with annotations,
 including content modality detection and token analysis.
 """
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -14,7 +13,11 @@ if TYPE_CHECKING:
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.types.enums import ContentModality
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import (
+    TokenView,
+    load_canonical_v2,
+    to_canonical_v2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ logger = logging.getLogger(__name__)
 def compute_content_modalities(
     tokens_jsons: list[dict[str, Any]],
     document: Optional["Document"] = None,
-    pawls_data: Optional[list[dict[str, Any]]] = None,
+    pawls_data: Optional[Any] = None,
 ) -> list[str]:
     """
     Compute the content modalities present in an annotation based on its tokens.
@@ -34,8 +37,9 @@ def compute_content_modalities(
         tokens_jsons: List of token references with {pageIndex, tokenIndex} format.
         document: Optional Document instance to load PAWLs data from.
                  If not provided, pawls_data must be supplied.
-        pawls_data: Optional pre-loaded PAWLs data (list of page dicts).
-                   If not provided, will be loaded from document.
+        pawls_data: Optional pre-loaded PAWLs data — preferred shape is the
+            canonical v2 dict from :func:`load_canonical_v2`. A v1 list is
+            also accepted for backward compatibility.
 
     Returns:
         List of modality strings (e.g., ["TEXT"], ["IMAGE"], ["TEXT", "IMAGE"]).
@@ -50,7 +54,8 @@ def compute_content_modalities(
         # No tokens referenced, default to TEXT for backward compatibility
         return [ContentModality.TEXT.value]
 
-    # Load PAWLs data if not provided
+    # Load / normalize PAWLs data to canonical v2.
+    canonical: Optional[dict[str, Any]] = None
     if pawls_data is None:
         if document is None:
             logger.warning(
@@ -64,17 +69,24 @@ def compute_content_modalities(
             return [ContentModality.TEXT.value]
 
         try:
-            if hasattr(pawls_content, "read"):
-                pawls_content.open("r")
-                try:
-                    pawls_data = expand_pawls_pages(json.load(pawls_content))
-                finally:
-                    pawls_content.close()
-            else:
-                pawls_data = expand_pawls_pages(pawls_content)
+            canonical = load_canonical_v2(pawls_content)
         except Exception as e:
             logger.error(f"Failed to load PAWLs data: {e}")
             return [ContentModality.TEXT.value]
+    else:
+        try:
+            if isinstance(pawls_data, list):
+                canonical = to_canonical_v2(pawls_data)
+            elif isinstance(pawls_data, dict):
+                canonical = pawls_data
+        except Exception as e:
+            logger.error(f"Failed to normalize PAWLs data: {e}")
+            return [ContentModality.TEXT.value]
+
+    if canonical is None:
+        return [ContentModality.TEXT.value]
+
+    pages = canonical.get("p") or []
 
     # Track which modalities are present
     has_text = False
@@ -91,23 +103,25 @@ def compute_content_modalities(
             continue
 
         # Bounds check
-        if page_idx < 0 or page_idx >= len(pawls_data):
+        if page_idx < 0 or page_idx >= len(pages):
             continue
 
-        page = pawls_data[page_idx]
-        if not isinstance(page, dict):
+        page_dict = pages[page_idx]
+        if not isinstance(page_dict, dict):
             continue
 
-        tokens = page.get("tokens", [])
-        if token_idx < 0 or token_idx >= len(tokens):
+        rows = page_dict.get("t") or []
+        if token_idx < 0 or token_idx >= len(rows):
             continue
 
-        token = tokens[token_idx]
-        if not isinstance(token, dict):
+        row = rows[token_idx]
+        if not isinstance(row, list):
             continue
+
+        token = TokenView(row)
 
         # Check if this is an image token
-        if token.get("is_image"):
+        if token.is_image:
             has_image = True
         else:
             has_text = True
@@ -133,7 +147,7 @@ def compute_content_modalities(
 def update_annotation_modalities(
     annotation: Any,
     document: Optional["Document"] = None,
-    pawls_data: Optional[list[dict[str, Any]]] = None,
+    pawls_data: Optional[Any] = None,
     save: bool = True,
 ) -> list[str]:
     """

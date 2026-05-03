@@ -218,8 +218,13 @@ class DocAnalyzerTaskTestCase(TestCase):
             .get()[2][0]["data"]
         )
 
-        # Load expected data from fixture
-        expected_tokens = json.loads(SAMPLE_PAWLS_FILE_ONE_PATH.read_text())
+        # Decorator now injects canonical v2 PAWLs; the on-disk fixture is v1
+        # so we run it through ``to_canonical_v2`` to compare like-for-like.
+        from opencontractserver.utils.pawls_io import to_canonical_v2
+
+        expected_tokens = to_canonical_v2(
+            json.loads(SAMPLE_PAWLS_FILE_ONE_PATH.read_text())
+        )
         self.assertEqual(received_tokens, expected_tokens)
 
     def test_doc_analyzer_task_missing_doc_id(self):

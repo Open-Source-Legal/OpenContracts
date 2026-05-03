@@ -230,7 +230,9 @@ class BaseParser(PipelineComponentBase, ABC):
         logger.info(f"Existing text label lookup: {existing_text_labels}")
 
         # 3) Import annotations & store mapping of old annotation IDs to new DB IDs
-        # Pass PAWLs data for pre-extracting image content (faster embeddings)
+        # Pass canonical v2 PAWLs data for pre-extracting image content (faster
+        # embeddings). ``compact_data`` is the v2 dict produced above; downstream
+        # consumers (``batch_extract_annotation_images``) work on canonical v2.
         annotation_id_map = import_annotations(
             user_id=user_id,
             doc_obj=document,
@@ -238,7 +240,7 @@ class BaseParser(PipelineComponentBase, ABC):
             annotations_data=open_contracts_data.get("labelled_text", []),
             label_lookup=existing_text_labels,
             label_type=target_label_type,
-            pawls_data=pawls_file_content,
+            pawls_data=compact_data if pawls_file_content else None,
         )
 
         # 4) If there are relationships, load/create relationship labels and then import

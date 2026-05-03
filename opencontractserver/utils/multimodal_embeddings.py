@@ -11,7 +11,7 @@ combined via weighted average with configurable weights (default: 30% text,
 """
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from django.conf import settings
@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.types.enums import ContentModality
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import (
+    TokenView,
+    load_canonical_v2,
+    to_canonical_v2,
+)
 from opencontractserver.utils.pdf_token_extraction import (
     get_image_as_base64,
     load_pawls_data,
@@ -100,9 +104,52 @@ def weighted_average_embeddings(
     return normalize_vector(combined.tolist())
 
 
+def _v2_image_token_to_v1_dict(token: TokenView) -> dict[str, Any]:
+    """Reconstruct a v1-shape image-token dict from a v2 :class:`TokenView`.
+
+    Embedders / image-helper consumers (``get_image_as_base64``, the embedder
+    pipeline) were written against v1 long-key fields (``image_path``,
+    ``content_hash``, ``base64_data``, ``format``, …). This adaptor lets the
+    Phase 2 v2-everywhere internal layer keep feeding them the shape they
+    expect.
+    """
+    out: dict[str, Any] = {
+        "x": token.x,
+        "y": token.y,
+        "width": token.width,
+        "height": token.height,
+        "text": token.text,
+    }
+    if token.is_image:
+        out["is_image"] = True
+        out.update(token.image_meta_v1 or {})
+    return out
+
+
+def _resolve_v2_pawls(
+    pawls_data: Any,
+) -> Optional[dict[str, Any]]:
+    """Normalize a caller-supplied PAWLs payload to canonical v2 (or ``None``).
+
+    Accepts already-v2 dicts, raw v1 lists (auto-normalized), or ``None`` /
+    falsy. Returns ``None`` if the input is empty or cannot be normalized.
+    """
+    if not pawls_data:
+        return None
+    if isinstance(pawls_data, list):
+        try:
+            return to_canonical_v2(pawls_data)
+        except Exception as e:
+            logger.error(f"Failed to normalize pawls_data list to v2: {e}")
+            return None
+    if isinstance(pawls_data, dict):
+        return pawls_data
+    return None
+
+
 def get_annotation_image_tokens(
     annotation: "Annotation",
-    pawls_data: Optional[list[dict]] = None,
+    pawls_data: Optional[Any] = None,
 ) -> list[dict]:
     """
     Extract image tokens referenced by an annotation.
@@ -112,11 +159,13 @@ def get_annotation_image_tokens(
 
     Args:
         annotation: Annotation model instance.
-        pawls_data: Optional pre-loaded PAWLs data. If not provided,
-                   will be loaded from annotation's document.
+        pawls_data: Optional pre-loaded PAWLs data — preferred shape is the
+            canonical v2 dict from :func:`load_canonical_v2`. A v1 list is
+            also accepted for backward compatibility and auto-normalized.
 
     Returns:
-        List of image token dicts from the PAWLs data.
+        List of v1-shape image token dicts (kept v1 because downstream
+        embedders / ``get_image_as_base64`` consume long-key fields).
     """
     # Fast path: check for pre-extracted image content file
     if annotation.image_content_file:
@@ -130,8 +179,6 @@ def get_annotation_image_tokens(
         # Fall through to PAWLs if file load failed
 
     try:
-        import json
-
         document = annotation.document
 
         # Load PAWLs data from document or structural_set (slow path)
@@ -142,18 +189,14 @@ def get_annotation_image_tokens(
                 annotation.structural_set and annotation.structural_set.pawls_parse_file
             ):
                 # Structural annotation without document - load from structural_set
-                # (same approach as get_annotation_images in image_tools.py)
-                pawls_file = annotation.structural_set.pawls_parse_file
                 try:
-                    pawls_file.open("r")
-                    try:
-                        pawls_data = expand_pawls_pages(json.load(pawls_file))
-                        logger.debug(
-                            f"Annotation {annotation.pk} loaded PAWLs from "
-                            f"structural_set {annotation.structural_set_id}"
-                        )
-                    finally:
-                        pawls_file.close()
+                    pawls_data = load_canonical_v2(
+                        annotation.structural_set.pawls_parse_file
+                    )
+                    logger.debug(
+                        f"Annotation {annotation.pk} loaded PAWLs from "
+                        f"structural_set {annotation.structural_set_id}"
+                    )
                 except Exception as e:
                     logger.error(
                         f"Error loading PAWLs from structural set "
@@ -167,27 +210,32 @@ def get_annotation_image_tokens(
                 )
                 return []
 
-        if not pawls_data:
+        canonical = _resolve_v2_pawls(pawls_data)
+        if canonical is None:
             return []
 
         # Get token references from annotation json (handles v1 and v2 formats)
-        image_tokens = []
+        image_tokens: list[dict] = []
+        pages = canonical.get("p") or []
 
         for page in iter_page_annotations(
             annotation.json or {}, raw_text=annotation.raw_text or ""
         ):
+            if page.page_index >= len(pages):
+                continue
+            page_dict = pages[page.page_index]
+            if not isinstance(page_dict, dict):
+                continue
+            rows = page_dict.get("t") or []
             for token_idx in page.token_indices:
-                # Get actual token from PAWLs data
-                if page.page_index < len(pawls_data):
-                    pawls_page = pawls_data[page.page_index]
-                    if not isinstance(pawls_page, dict):
-                        continue
-
-                    tokens = pawls_page.get("tokens", [])
-                    if token_idx < len(tokens):
-                        token = tokens[token_idx]
-                        if isinstance(token, dict) and token.get("is_image"):
-                            image_tokens.append(token)
+                if token_idx >= len(rows):
+                    continue
+                row = rows[token_idx]
+                if not isinstance(row, list):
+                    continue
+                view = TokenView(row)
+                if view.is_image:
+                    image_tokens.append(_v2_image_token_to_v1_dict(view))
 
         return image_tokens
     except Exception as e:
@@ -340,7 +388,7 @@ def generate_multimodal_embedding(
 
 def extract_and_store_annotation_images(
     annotation: "Annotation",
-    pawls_data: list[dict],
+    pawls_data: Any,
 ) -> bool:
     """
     Extract image data from PAWLs and store in annotation.image_content_file.
@@ -350,7 +398,9 @@ def extract_and_store_annotation_images(
 
     Args:
         annotation: Annotation to store images for (must have IMAGE modality).
-        pawls_data: Pre-loaded PAWLs data (list of page dicts).
+        pawls_data: Pre-loaded PAWLs data — preferred shape is the canonical
+            v2 dict from :func:`load_canonical_v2`. A v1 list is also accepted
+            and auto-normalized.
 
     Returns:
         True if images were extracted and stored, False otherwise.
@@ -360,36 +410,46 @@ def extract_and_store_annotation_images(
     from django.core.files.base import ContentFile
 
     try:
+        canonical = _resolve_v2_pawls(pawls_data)
+        if canonical is None:
+            return False
+
+        pages = canonical.get("p") or []
+
         # Get token references from annotation json (handles v1 and v2 formats)
         extracted_images = []
 
         for page in iter_page_annotations(
             annotation.json or {}, raw_text=annotation.raw_text or ""
         ):
+            if page.page_index >= len(pages):
+                continue
+            page_dict = pages[page.page_index]
+            if not isinstance(page_dict, dict):
+                continue
+            rows = page_dict.get("t") or []
             for token_idx in page.token_indices:
-                # Get actual token from PAWLs data
-                if page.page_index < len(pawls_data):
-                    pawls_page = pawls_data[page.page_index]
-                    if not isinstance(pawls_page, dict):
-                        continue
-
-                    tokens = pawls_page.get("tokens", [])
-                    if token_idx < len(tokens):
-                        token = tokens[token_idx]
-                        if isinstance(token, dict) and token.get("is_image"):
-                            # Extract image data
-                            base64_data = get_image_as_base64(token)
-                            if base64_data:
-                                extracted_images.append(
-                                    {
-                                        "base64": base64_data,
-                                        "format": token.get("format", "jpeg"),
-                                        "page_index": page.page_index,
-                                        "token_index": token_idx,
-                                        "width": token.get("width"),
-                                        "height": token.get("height"),
-                                    }
-                                )
+                if token_idx >= len(rows):
+                    continue
+                row = rows[token_idx]
+                if not isinstance(row, list):
+                    continue
+                view = TokenView(row)
+                if not view.is_image:
+                    continue
+                v1_token = _v2_image_token_to_v1_dict(view)
+                base64_data = get_image_as_base64(v1_token)
+                if base64_data:
+                    extracted_images.append(
+                        {
+                            "base64": base64_data,
+                            "format": v1_token.get("format", "jpeg"),
+                            "page_index": page.page_index,
+                            "token_index": token_idx,
+                            "width": view.width,
+                            "height": view.height,
+                        }
+                    )
 
         if not extracted_images:
             logger.debug(f"Annotation {annotation.pk} has no images to extract")
@@ -456,7 +516,7 @@ def load_images_from_annotation_file(annotation: "Annotation") -> list[dict]:
 
 def batch_extract_annotation_images(
     annotations: list["Annotation"],
-    pawls_data: list[dict],
+    pawls_data: Any,
 ) -> int:
     """
     Batch extract and store images for multiple annotations.
@@ -466,15 +526,20 @@ def batch_extract_annotation_images(
 
     Args:
         annotations: List of annotations to process.
-        pawls_data: Shared PAWLs data for all annotations.
+        pawls_data: Shared PAWLs data for all annotations — preferred shape
+            is the canonical v2 dict; a v1 list is auto-normalized once here.
 
     Returns:
         Number of annotations that had images extracted.
     """
+    canonical = _resolve_v2_pawls(pawls_data)
+    if canonical is None:
+        return 0
+
     count = 0
     for annotation in annotations:
         modalities = annotation.content_modalities or []
         if ContentModality.IMAGE.value in modalities:
-            if extract_and_store_annotation_images(annotation, pawls_data):
+            if extract_and_store_annotation_images(annotation, canonical):
                 count += 1
     return count

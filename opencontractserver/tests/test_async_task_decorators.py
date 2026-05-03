@@ -340,7 +340,13 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
         ) -> tuple[list[str], list[tuple[TextSpan, str]], list[dict[str, Any]], bool]:
             return [], [], [{"data": pdf_pawls_extract}], True
 
-        expected_tokens = json.loads(SAMPLE_PAWLS_FILE_ONE_PATH.read_text())
+        # Async decorator now injects canonical v2 PAWLs; the on-disk fixture
+        # is v1 so we run it through ``to_canonical_v2`` to compare like-for-like.
+        from opencontractserver.utils.pawls_io import to_canonical_v2
+
+        expected_tokens = to_canonical_v2(
+            json.loads(SAMPLE_PAWLS_FILE_ONE_PATH.read_text())
+        )
         received_tokens = (
             test_pawls_received.si(
                 doc_id=self.unlocked_pdf_doc.id, analysis_id=self.analysis.id

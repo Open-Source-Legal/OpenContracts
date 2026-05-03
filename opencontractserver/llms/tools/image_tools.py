@@ -8,7 +8,7 @@ permission-checked variants for secure access.
 import json
 import logging
 from functools import partial
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,12 @@ from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import (
+    TokenView,
+    iter_pages,
+    load_canonical_v2,
+    to_canonical_v2,
+)
 from opencontractserver.utils.pdf_token_extraction import (
     get_image_as_base64,
     get_image_data_url,
@@ -95,35 +100,29 @@ def list_document_images(
             return []
 
         images: list[ImageReference] = []
-        for page_idx, page in enumerate(pawls_data):
-            if page_index is not None and page_idx != page_index:
+        for page in iter_pages(pawls_data):
+            if page_index is not None and page.index != page_index:
                 continue
 
-            if not isinstance(page, dict):
-                continue
-
-            # Iterate through tokens and filter for image tokens
-            page_tokens = page.get("tokens", [])
-            for token_idx, token in enumerate(page_tokens):
-                if not isinstance(token, dict):
-                    continue
-
+            for token_idx, token in enumerate(page.tokens):
                 # Only process image tokens
-                if not token.get("is_image"):
+                if not token.is_image:
                     continue
 
+                meta = token.image_meta or {}
                 images.append(
                     ImageReference(
-                        page_index=page_idx,
+                        page_index=page.index,
                         token_index=token_idx,
-                        width=float(token.get("width", 0)),
-                        height=float(token.get("height", 0)),
-                        x=float(token.get("x", 0)),
-                        y=float(token.get("y", 0)),
-                        format=token.get("format", "jpeg"),
-                        image_type=token.get("image_type"),
-                        alt_text=token.get("alt_text"),
-                        content_hash=token.get("content_hash"),
+                        width=token.width,
+                        height=token.height,
+                        x=token.x,
+                        y=token.y,
+                        # v2 image-meta short keys: f=format, it=image_type, ch=content_hash
+                        format=meta.get("f", "jpeg"),
+                        image_type=meta.get("it"),
+                        alt_text=None,  # alt_text not currently persisted in v2 image meta
+                        content_hash=meta.get("ch"),
                     )
                 )
 
@@ -136,11 +135,61 @@ def list_document_images(
         return []
 
 
+def _v2_token_to_v1_image_dict(token: TokenView) -> dict[str, Any]:
+    """Build a v1-key image-token dict for the legacy image helpers.
+
+    ``get_image_as_base64`` / ``get_image_data_url`` were written against the
+    v1 ``PawlsTokenPythonType`` shape (``base64_data``/``image_path``/``format``
+    long keys). After Phase 2 we keep their contracts intact and feed them a
+    small dict reconstructed from a v2 :class:`TokenView`.
+    """
+    out: dict[str, Any] = {
+        "x": token.x,
+        "y": token.y,
+        "width": token.width,
+        "height": token.height,
+        "text": token.text,
+    }
+    if token.is_image:
+        out["is_image"] = True
+        out.update(token.image_meta_v1 or {})
+    return out
+
+
+def _get_v2_token(
+    pawls_data: dict[str, Any],
+    page_index: int,
+    token_index: int,
+) -> Optional[TokenView]:
+    """Locate the :class:`TokenView` at ``(page_index, token_index)`` or ``None``.
+
+    Args:
+        pawls_data: Canonical v2 PAWLs dict.
+        page_index: 0-based page index.
+        token_index: 0-based token index within the page.
+    """
+    pages = pawls_data.get("p")
+    if not isinstance(pages, list):
+        return None
+    if page_index < 0 or page_index >= len(pages):
+        return None
+    page_dict = pages[page_index]
+    if not isinstance(page_dict, dict):
+        return None
+    rows = page_dict.get("t") or []
+    if token_index < 0 or token_index >= len(rows):
+        return None
+    row = rows[token_index]
+    if not isinstance(row, list):
+        return None
+    return TokenView(row)
+
+
 def get_document_image(
     document_id: int,
     page_index: int,
     token_index: int,
-    pawls_data: Optional[list] = None,
+    pawls_data: Optional[dict[str, Any]] = None,
 ) -> Optional[ImageData]:
     """
     Get image data for a specific image token in a document.
@@ -160,50 +209,43 @@ def get_document_image(
         ImageData with base64 content and data URL, or None if not found or not an image token.
     """
     try:
-        # Load PAWLs data if not provided
+        # Load PAWLs data if not provided. Accept v1 list inputs for backward
+        # compatibility — normalize through to_canonical_v2 so all later code
+        # works on canonical v2.
         if pawls_data is None:
             document = Document.objects.get(pk=document_id)
             pawls_data = load_pawls_data(document)
+        elif isinstance(pawls_data, list):
+            pawls_data = to_canonical_v2(pawls_data)
 
         if not pawls_data:
             return None
 
-        if page_index < 0 or page_index >= len(pawls_data):
+        token = _get_v2_token(pawls_data, page_index, token_index)
+        if token is None:
             logger.warning(
-                f"Page index {page_index} out of bounds for document {document_id}"
+                f"Token ({page_index}, {token_index}) out of bounds for "
+                f"document {document_id}"
             )
             return None
-
-        page = pawls_data[page_index]
-        if not isinstance(page, dict):
-            return None
-
-        page_tokens = page.get("tokens", [])
-
-        if token_index < 0 or token_index >= len(page_tokens):
-            logger.warning(
-                f"Token index {token_index} out of bounds for page {page_index}"
-            )
-            return None
-
-        token = page_tokens[token_index]
 
         # Verify this is an image token
-        if not token.get("is_image"):
+        if not token.is_image:
             logger.warning(
                 f"Token at index {token_index} on page {page_index} is not an image token"
             )
             return None
 
-        base64_data = get_image_as_base64(token)
+        v1_token = _v2_token_to_v1_image_dict(token)
+        base64_data = get_image_as_base64(v1_token)
         if not base64_data:
             logger.warning(
                 f"Could not get base64 data for image token {token_index} on page {page_index}"
             )
             return None
 
-        data_url = get_image_data_url(token)
-        img_format = token.get("format", "jpeg")
+        data_url = get_image_data_url(v1_token)
+        img_format = v1_token.get("format", "jpeg")
 
         return ImageData(
             base64_data=base64_data,
@@ -221,7 +263,7 @@ def get_document_image(
 
 
 def _extract_image_from_pawls(
-    pawls_data: list[dict],
+    pawls_data: dict[str, Any],
     page_index: int,
     token_index: int,
 ) -> Optional[ImageData]:
@@ -231,7 +273,7 @@ def _extract_image_from_pawls(
     Helper function for structural annotations that don't have a document_id.
 
     Args:
-        pawls_data: Pre-loaded PAWLs data (list of page dicts).
+        pawls_data: Canonical v2 PAWLs dict (or v1 list, normalized internally).
         page_index: 0-based page index.
         token_index: 0-based token index within the page's tokens array.
 
@@ -239,34 +281,27 @@ def _extract_image_from_pawls(
         ImageData if the token is an image token, None otherwise.
     """
     try:
-        if page_index < 0 or page_index >= len(pawls_data):
-            logger.warning(f"Page index {page_index} out of bounds")
-            return None
+        if isinstance(pawls_data, list):
+            pawls_data = to_canonical_v2(pawls_data)
 
-        page = pawls_data[page_index]
-        if not isinstance(page, dict):
-            return None
-
-        page_tokens = page.get("tokens", [])
-
-        if token_index < 0 or token_index >= len(page_tokens):
+        token = _get_v2_token(pawls_data, page_index, token_index)
+        if token is None:
             logger.warning(
-                f"Token index {token_index} out of bounds for page {page_index}"
+                f"Token ({page_index}, {token_index}) out of bounds in PAWLs data"
             )
             return None
 
-        token = page_tokens[token_index]
-
         # Verify this is an image token
-        if not token.get("is_image"):
+        if not token.is_image:
             return None
 
-        base64_data = get_image_as_base64(token)
+        v1_token = _v2_token_to_v1_image_dict(token)
+        base64_data = get_image_as_base64(v1_token)
         if not base64_data:
             return None
 
-        data_url = get_image_data_url(token)
-        img_format = token.get("format", "jpeg")
+        data_url = get_image_data_url(v1_token)
+        img_format = v1_token.get("format", "jpeg")
 
         return ImageData(
             base64_data=base64_data,
@@ -354,13 +389,10 @@ def get_annotation_images(annotation_id: int) -> list[ImageData]:
             pawls_data = load_pawls_data(document)
         elif annotation.structural_set and annotation.structural_set.pawls_parse_file:
             # Structural annotation without document - load from structural_set
-            pawls_file = annotation.structural_set.pawls_parse_file
             try:
-                pawls_file.open("r")
-                try:
-                    pawls_data = expand_pawls_pages(json.load(pawls_file))
-                finally:
-                    pawls_file.close()
+                pawls_data = load_canonical_v2(
+                    annotation.structural_set.pawls_parse_file
+                )
             except Exception as e:
                 logger.error(f"Error loading PAWLs from structural set: {e}")
                 pawls_data = None

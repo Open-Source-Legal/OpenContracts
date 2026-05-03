@@ -77,7 +77,7 @@ def import_annotations(
     annotations_data: list[OpenContractsAnnotationPythonType],
     label_lookup: dict[str, AnnotationLabel],
     label_type: str = TOKEN_LABEL,
-    pawls_data: list[dict] = None,
+    pawls_data=None,
 ) -> dict[str | int, int]:
     """
     Import annotations, handling parent relationships, and return a mapping of old IDs
@@ -90,9 +90,10 @@ def import_annotations(
         annotations_data (List[OpenContractsAnnotationPythonType]): List of annotation data.
         label_lookup (Dict[str, AnnotationLabel]): Mapping of label names to AnnotationLabel objects.
         label_type (str): The type of the annotations if not specified in data.
-        pawls_data (List[dict]): Optional PAWLs data for extracting image content.
-            If provided, annotations with IMAGE modality will have their images
-            pre-extracted for faster embedding.
+        pawls_data: Optional PAWLs data for extracting image content. May be a
+            canonical v2 dict (preferred) or a v1 list (auto-normalized
+            downstream). If provided, annotations with IMAGE modality will
+            have their images pre-extracted for faster embedding.
 
     Returns:
         Dict[Union[str, int], int]: A dictionary mapping the "id" field from each incoming annotation

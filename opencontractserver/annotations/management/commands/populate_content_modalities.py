@@ -1,13 +1,12 @@
 """Management command to populate content_modalities field for existing annotations."""
 
-import json
 import logging
 
 from django.core.management.base import BaseCommand
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +96,9 @@ class Command(BaseCommand):
             else:
                 return ["TEXT"]
 
-        # Get PAWLs data
+        # Get PAWLs data as canonical v2
         try:
-            pawls_data = expand_pawls_pages(
-                json.loads(annotation.document.pawls_parse_file.read())
-            )
+            pawls_data = load_canonical_v2(annotation.document.pawls_parse_file)
         except Exception:
             # Can't read PAWLS data, use label as fallback
             label_text = annotation.annotation_label.text.lower()
@@ -111,6 +108,8 @@ class Command(BaseCommand):
             ):
                 return ["IMAGE"]
             return ["TEXT"]
+
+        pages = pawls_data.get("p") or []
 
         # Extract token references from the json field (handles v1 and v2 formats)
         all_token_refs = []
@@ -143,21 +142,29 @@ class Command(BaseCommand):
             if token_idx is None:
                 continue
 
-            if page_idx >= len(pawls_data):
+            if page_idx >= len(pages):
                 continue
 
-            page_data = pawls_data[page_idx]
-            if token_idx >= len(page_data["tokens"]):
+            page_dict = pages[page_idx]
+            if not isinstance(page_dict, dict):
                 continue
 
-            token = page_data["tokens"][token_idx]
+            rows = page_dict.get("t") or []
+            if token_idx >= len(rows):
+                continue
+
+            row = rows[token_idx]
+            if not isinstance(row, list):
+                continue
+
+            token = TokenView(row)
 
             # Check if this token is an image
-            if token.get("is_image", False):
+            if token.is_image:
                 has_image = True
             else:
                 # Text token (has non-empty text content)
-                if token.get("text", "").strip():
+                if token.text.strip():
                     has_text = True
 
         # Return appropriate modalities

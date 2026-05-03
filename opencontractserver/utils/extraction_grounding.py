@@ -12,7 +12,6 @@ skipped — the extraction result is never lost.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -127,6 +126,7 @@ def _load_document_text_and_layer(document: Document) -> tuple[str, Any, str]:
         TEXT_MIMETYPES,
     )
     from opencontractserver.utils.compact_pawls import expand_pawls_pages
+    from opencontractserver.utils.pawls_io import load_canonical_v2
 
     file_type = (document.file_type or "").lower()
 
@@ -138,10 +138,9 @@ def _load_document_text_and_layer(document: Document) -> tuple[str, Any, str]:
             )
         from plasmapdf.models.PdfDataLayer import build_translation_layer
 
-        with document.pawls_parse_file.open("r") as f:
-            pawls_tokens = expand_pawls_pages(json.load(f))
-
-        pdf_layer = build_translation_layer(pawls_tokens)
+        # Canonical v2 internally; v2→v1 only at the plasmapdf boundary.
+        pawls_canonical = load_canonical_v2(document.pawls_parse_file)
+        pdf_layer = build_translation_layer(expand_pawls_pages(pawls_canonical))
         return pdf_layer.doc_text, pdf_layer, TOKEN_LABEL
 
     elif file_type in TEXT_MIMETYPES or file_type == DOCX_MIME_TYPE:

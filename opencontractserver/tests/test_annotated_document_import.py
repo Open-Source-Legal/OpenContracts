@@ -13,7 +13,6 @@
 #  You should have received a copy of the GNU Affero General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import base64
-import json
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -26,7 +25,7 @@ from opencontractserver.tasks.import_tasks import import_document_to_corpus
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_TWO_PATH
 from opencontractserver.types.dicts import OpenContractsAnnotatedDocumentImportType
 from opencontractserver.types.enums import LabelType
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import iter_pages, load_canonical_v2
 
 User = get_user_model()
 
@@ -152,10 +151,12 @@ class TestImportDocumentToCorpus(TestCase):
             pdf_reader = PdfReader(pdf_file)
             self.assertEqual(len(pdf_reader.pages), 9)
 
-        # Check that the PAWLS file was imported correctly
-        with document.pawls_parse_file.open("r") as pawls_file:
-            raw_pawls = json.load(pawls_file)
-            pawls_data = expand_pawls_pages(raw_pawls)
-            self.assertEqual(len(pawls_data), 1)
-            self.assertEqual(len(pawls_data[0]["tokens"]), 1)
-            self.assertEqual(pawls_data[0]["tokens"][0]["text"], "Test")
+        # Check that the PAWLS file was imported correctly. Phase 2 reads via
+        # canonical v2 / PageView; the on-disk file has gone through
+        # ``to_canonical_v2`` at write time so we exercise that contract here.
+        pawls_data = load_canonical_v2(document.pawls_parse_file)
+        pages = list(iter_pages(pawls_data))
+        self.assertEqual(len(pages), 1)
+        tokens = list(pages[0].tokens)
+        self.assertEqual(len(tokens), 1)
+        self.assertEqual(tokens[0].text, "Test")

@@ -778,25 +778,20 @@ class StructuralAnnotationSet(BaseOCModel):
                         f"{new_annot.pk}: {e}"
                     )
             else:
-                # Slow path: extract from PAWLs (load once)
+                # Slow path: extract from PAWLs (load once, canonical v2)
                 if pawls_data is None and self.pawls_parse_file:
-                    import json as json_module
-
                     try:
-                        from opencontractserver.utils.compact_pawls import (
-                            expand_pawls_pages,
+                        from opencontractserver.utils.pawls_io import (
+                            load_canonical_v2,
                         )
 
-                        self.pawls_parse_file.open("r")
-                        try:
-                            pawls_data = expand_pawls_pages(
-                                json_module.load(self.pawls_parse_file)
-                            )
-                        finally:
-                            self.pawls_parse_file.close()
+                        pawls_data = load_canonical_v2(self.pawls_parse_file)
                     except Exception as e:
                         logger.error(f"Failed to load PAWLs for image extraction: {e}")
-                        pawls_data = []  # Prevent repeated attempts
+                        # Sentinel to prevent repeated attempts on subsequent
+                        # iterations of the enclosing loop. ``extract_and_store``
+                        # will normalize to v2 and short-circuit on empty input.
+                        pawls_data = {}
 
                 if pawls_data:
                     from opencontractserver.utils.multimodal_embeddings import (

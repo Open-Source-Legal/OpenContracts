@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from opencontractserver.documents.models import Document
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import load_canonical_v2
 
 from ._helpers import _db_sync_to_async
 
@@ -49,8 +50,6 @@ def search_exact_text_as_sources(
     ValueError
         If document doesn't exist or has unsupported file type.
     """
-    import json
-
     from plasmapdf.models.PdfDataLayer import build_translation_layer
     from plasmapdf.models.types import SpanAnnotation, TextSpan
 
@@ -72,11 +71,12 @@ def search_exact_text_as_sources(
                 f"PDF document id={document_id} lacks a PAWLS layer; cannot search."
             )
 
-        # Load PAWLS tokens once
-        with doc.pawls_parse_file.open("r") as f:
-            pawls_tokens = expand_pawls_pages(json.load(f))
-
-        pdf_layer = build_translation_layer(pawls_tokens)
+        # Load canonical v2 PAWLs once. ``build_translation_layer`` is a
+        # plasmapdf API that still consumes v1 ``PawlsPagePythonType`` lists,
+        # so ``expand_pawls_pages`` is the deliberate v2→v1 hand-off used at
+        # that external boundary only.
+        pawls_canonical = load_canonical_v2(doc.pawls_parse_file)
+        pdf_layer = build_translation_layer(expand_pawls_pages(pawls_canonical))
         doc_text = pdf_layer.doc_text
 
         # Find all matches for each search string

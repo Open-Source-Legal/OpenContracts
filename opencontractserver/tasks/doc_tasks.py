@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import enum
-import json
 import logging
 import traceback
 from typing import Any
@@ -46,10 +45,9 @@ from opencontractserver.types.dicts import (
     FunsdTokenType,
     LabelLookupPythonType,
     OpenContractDocExport,
-    PawlsTokenPythonType,
 )
 from opencontractserver.types.enums import AnnotationFilterMode
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
 from opencontractserver.utils.etl import build_document_export, pawls_bbox_to_funsd_box
 from opencontractserver.utils.files import split_pdf_into_images
 from opencontractserver.utils.text import truncate
@@ -546,13 +544,13 @@ def convert_doc_to_funsd(
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = AnnotationFilterMode.CORPUS_LABELSET_ONLY.value,
 ) -> tuple[int, dict[int | str, list[dict[str, Any]]], list[tuple[int, str, str]]]:
-    def pawls_token_to_funsd_token(pawls_token: PawlsTokenPythonType) -> FunsdTokenType:
-        pawls_xleft = pawls_token["x"]
-        pawls_ybottom = pawls_token["y"]
-        pawls_ytop = pawls_xleft + pawls_token["width"]
-        pawls_xright = pawls_ybottom + pawls_token["height"]
+    def pawls_token_to_funsd_token(pawls_token: TokenView) -> FunsdTokenType:
+        pawls_xleft = pawls_token.x
+        pawls_ybottom = pawls_token.y
+        pawls_ytop = pawls_xleft + pawls_token.width
+        pawls_xright = pawls_ybottom + pawls_token.height
         funsd_token = {
-            "text": pawls_token["text"],
+            "text": pawls_token.text,
             # In FUNSD, this must be serialzied to list but that's done by json.dumps and tuple has better typing
             # control (fixed length, positional datatypes, etc.)
             "box": (pawls_xleft, pawls_ytop, pawls_xright, pawls_ybottom),
@@ -603,8 +601,10 @@ def convert_doc_to_funsd(
         annotation_label__label_type=TOKEN_LABEL,
     ).order_by("page")
 
-    file_object = default_storage.open(doc.pawls_parse_file.name)
-    pawls_tokens = expand_pawls_pages(json.loads(file_object.read().decode("utf-8")))
+    # Canonical v2 PAWLs is the in-memory contract; iterate via TokenView for
+    # named attribute access on positional v2 token rows.
+    pawls_canonical = load_canonical_v2(doc.pawls_parse_file)
+    pawls_pages_v2 = pawls_canonical.get("p") or []
 
     pdf_object = default_storage.open(doc.pdf_file.name)
     pdf_bytes = pdf_object.read()
@@ -682,9 +682,19 @@ def convert_doc_to_funsd(
             annotation.json, raw_text=annotation.raw_text or ""
         ):
             expanded_tokens = []
+            page_v2 = (
+                pawls_pages_v2[page_data.page_index]
+                if 0 <= page_data.page_index < len(pawls_pages_v2)
+                else None
+            )
+            page_rows = (page_v2 or {}).get("t") or []
             for token_index in page_data.token_indices:
-                token = pawls_tokens[page_data.page_index]["tokens"][token_index]
-                expanded_tokens.append(pawls_token_to_funsd_token(token))
+                if 0 <= token_index < len(page_rows) and isinstance(
+                    page_rows[token_index], list
+                ):
+                    expanded_tokens.append(
+                        pawls_token_to_funsd_token(TokenView(page_rows[token_index]))
+                    )
 
             funsd_annotation: FunsdAnnotationType = {
                 "id": f"{base_id}-{page_data.page_index}",

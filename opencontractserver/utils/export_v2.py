@@ -13,7 +13,6 @@ Handles export of new features added since original export design:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 
@@ -37,6 +36,7 @@ from opencontractserver.types.dicts import (
     StructuralAnnotationSetExport,
 )
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import load_canonical_v2
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -57,11 +57,14 @@ def package_structural_annotation_set(
         StructuralAnnotationSetExport dict or None if error
     """
     try:
-        # Read PAWLS file content
-        pawls_content = []
+        # Read PAWLs as canonical v2 internally; the export wire format
+        # (``StructuralAnnotationSetExport.pawls_file_content``) is documented
+        # v1, so ``expand_pawls_pages`` below is the deliberate v2→v1 hand-off
+        # used at the export boundary only.
+        pawls_content: list = []
         if structural_set.pawls_parse_file:
-            with structural_set.pawls_parse_file.open("r") as f:
-                pawls_content = expand_pawls_pages(json.load(f))
+            pawls_canonical = load_canonical_v2(structural_set.pawls_parse_file)
+            pawls_content = expand_pawls_pages(pawls_canonical)
 
         # Read text extract
         txt_content = ""

@@ -1,10 +1,10 @@
 import base64
 import io
-import json
 import logging
 import os
 import traceback
 import uuid
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
@@ -37,6 +37,7 @@ from opencontractserver.types.dicts import (
 )
 from opencontractserver.types.enums import AnnotationFilterMode
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import iter_pages, load_canonical_v2
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -250,14 +251,23 @@ def build_document_export(
         except Exception as e:
             logger.warning(f"Could not export doc text for doc {doc_id}: {e}")
 
-        pawls_tokens: list[PawlsPagePythonType] = []
+        # Read PAWLs as canonical v2 internally; the export wire format
+        # (``OpenContractDocExport.pawls_file_content``) is documented v1, so
+        # we hold the v2→v1 hand-off (``expand_pawls_pages``) for the export-
+        # payload assembly point below — that is the deliberate, scoped use of
+        # the legacy helper at the export boundary.
+        pawls_canonical: dict[str, Any] | None = None
         try:
             with default_storage.open(doc.pawls_parse_file.name) as pawls_file:
-                pawls_tokens = expand_pawls_pages(
-                    json.loads(pawls_file.read().decode("utf-8"))
-                )
+                pawls_canonical = load_canonical_v2(pawls_file)
         except Exception as e:
             logger.warning(f"Could not export pawls tokens for doc {doc_id}: {e}")
+
+        # ``expand_pawls_pages`` here is the v2→v1 conversion ONLY for the
+        # export wire format below; do NOT introduce additional v1 reads.
+        pawls_tokens: list[PawlsPagePythonType] = (
+            expand_pawls_pages(pawls_canonical) if pawls_canonical else []
+        )
 
         annotated_pdf_bytes = io.BytesIO()
         doc_annotations = Annotation.objects.filter(document=doc, corpus=corpus)
@@ -317,13 +327,18 @@ def build_document_export(
         }
 
         page_highlights = {}
-        page_sizes = {}
+        page_sizes: dict[int, dict[str, Any]] = {}
 
-        if pawls_tokens:
-            page_sizes = {
-                pawls_page["page"]["index"]: pawls_page["page"]
-                for pawls_page in pawls_tokens
-            }
+        if pawls_canonical is not None:
+            # Build the v1-shape page-info lookup downstream consumers expect
+            # (``page_sizes[idx]["width"]``/``["height"]``) directly from
+            # canonical v2 page views.
+            for page in iter_pages(pawls_canonical):
+                page_sizes[page.index] = {
+                    "width": page.width,
+                    "height": page.height,
+                    "index": page.index,
+                }
 
         labelled_text = []
         labels_for_doc = []

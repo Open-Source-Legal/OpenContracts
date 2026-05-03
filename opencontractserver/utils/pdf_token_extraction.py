@@ -13,7 +13,6 @@ Image extraction capabilities added for LLM image annotation support.
 import base64
 import hashlib
 import io
-import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -33,7 +32,7 @@ from opencontractserver.types.dicts import (
     PawlsTokenPythonType,
     TokenIdPythonType,
 )
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import load_canonical_v2
 
 logger = logging.getLogger(__name__)
 
@@ -47,30 +46,28 @@ MAX_TOTAL_IMAGES_SIZE_BYTES = getattr(
 )
 
 
-def load_pawls_data(document: "Document") -> Optional[list[dict[str, Any]]]:
+def load_pawls_data(document: "Document") -> Optional[dict[str, Any]]:
     """
-    Load PAWLs data from a document.
+    Load PAWLs data from a document as canonical v2.
 
     This is a shared utility for loading PAWLs JSON from a document's
-    pawls_parse_file field.
+    ``pawls_parse_file`` field. Returns the canonical v2 dict shape
+    (``{"v": 2, "p": [...]}``); see
+    :mod:`opencontractserver.utils.pawls_io` for the read-views and
+    accessor patterns.
 
     Args:
         document: The Document instance.
 
     Returns:
-        Parsed PAWLs data as list of page dicts, or None if unavailable.
+        Canonical v2 PAWLs dict, or ``None`` if unavailable.
     """
     pawls_file = document.pawls_parse_file
     if not pawls_file:
         return None
 
     try:
-        pawls_file.open("r")
-        try:
-            raw_data = json.load(pawls_file)
-        finally:
-            pawls_file.close()
-        return expand_pawls_pages(raw_data)
+        return load_canonical_v2(pawls_file)
     except Exception as e:
         logger.error(f"Failed to load PAWLs data for document {document.pk}: {e}")
         return None

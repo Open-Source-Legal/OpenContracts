@@ -20,7 +20,7 @@ from opencontractserver.constants.llm import (
 )
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.shared.decorators import celery_task_with_async_to_sync
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
 from opencontractserver.utils.extraction_grounding import (
     ground_extraction_to_annotations,
 )
@@ -652,7 +652,7 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
         str: The textual window around the Annotation or an error message.
     """
     from opencontractserver.annotations.models import Annotation
-    from opencontractserver.types.dicts import PawlsPagePythonType, TextSpanData
+    from opencontractserver.types.dicts import TextSpanData
 
     # Step 1: Parse the window_size argument
     try:
@@ -791,11 +791,9 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
             ):
                 return "Error: Document has no pawls_parse_file or path is invalid."
 
-            with open(doc.pawls_parse_file.path, encoding="utf-8") as f:
-                pawls_pages = expand_pawls_pages(json.load(f))
-
-            if not isinstance(pawls_pages, list):
-                return "Error: pawls_parse_file is not a list of PawlsPagePythonType."
+            # Canonical v2 PAWLs is the in-memory contract; we walk pages by
+            # index and pull token text via :class:`TokenView`.
+            pawls_canonical = load_canonical_v2(doc.pawls_parse_file.path)
 
             if not isinstance(annotation.json, dict):
                 return "Error: Annotation.json is not a dictionary for PDF."
@@ -817,21 +815,18 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
 
             result_texts: list[str] = []
 
-            pawls_by_index: dict[int, PawlsPagePythonType] = {}
-
-            for page_obj in pawls_pages:
-                try:
-                    pg_ind = page_obj["page"]["index"]
-                    pawls_by_index[pg_ind] = PawlsPagePythonType(**page_obj)
-                except Exception:
-                    continue
+            v2_pages = pawls_canonical.get("p") or []
 
             def tokens_as_words(page_index: int) -> list[str]:
-                page_data = pawls_by_index.get(page_index)
-                if not page_data:
-                    return []
-                tokens_list = page_data["tokens"]
-                return [t["text"] for t in tokens_list]
+                if 0 <= page_index < len(v2_pages):
+                    page_dict = v2_pages[page_index]
+                    if isinstance(page_dict, dict):
+                        return [
+                            TokenView(row).text
+                            for row in (page_dict.get("t") or [])
+                            if isinstance(row, list)
+                        ]
+                return []
 
             for page in pages:
                 all_tokens = tokens_as_words(page.page_index)

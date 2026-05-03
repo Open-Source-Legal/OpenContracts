@@ -6,6 +6,7 @@ from uuid import uuid4
 from typing_extensions import TypedDict
 
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import load_canonical_v2
 
 from ._helpers import _db_sync_to_async
 
@@ -190,8 +191,6 @@ def add_annotations_from_exact_strings(
     Other file types raise ``ValueError``.
     """
 
-    import json
-
     from django.db import transaction
     from plasmapdf.models.PdfDataLayer import build_translation_layer
     from plasmapdf.models.types import SpanAnnotation, TextSpan
@@ -241,11 +240,9 @@ def add_annotations_from_exact_strings(
                 f"PDF document id={doc_id} lacks a PAWLS layer; cannot annotate."
             )
 
-        # Load PAWLS tokens once per document.
-        with doc.pawls_parse_file.open("r") as f:
-            pawls_tokens = expand_pawls_pages(json.load(f))
-
-        pdf_layer = build_translation_layer(pawls_tokens)
+        # Canonical v2 internally; v2→v1 only at the plasmapdf boundary.
+        pawls_canonical = load_canonical_v2(doc.pawls_parse_file)
+        pdf_layer = build_translation_layer(expand_pawls_pages(pawls_canonical))
         doc_text = pdf_layer.doc_text
 
         label_type_const = TOKEN_LABEL
