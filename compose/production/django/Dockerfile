@@ -74,7 +74,9 @@ RUN groupadd --system django \
 #   poppler-utils      : pdf2image (pdftoppm/pdftocairo)
 #   tesseract-ocr*     : pytesseract OCR runtime
 #   libgl1, libsm6,    : opencv-python-headless transitive runtime deps
-#   libxext6
+#   libxext6,            (libGL, libSM, libXext, gthread-2.0, libgomp).
+#   libglib2.0-0,        On slim-bookworm none of these are present in the
+#   libgomp1             base; without them `import cv2` raises ImportError.
 RUN apt-get update && apt-get install --no-install-recommends -y \
       libpq5 \
       gettext \
@@ -82,6 +84,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
       tesseract-ocr \
       tesseract-ocr-eng \
       libgl1 \
+      libglib2.0-0 \
+      libgomp1 \
       libsm6 \
       libxext6 \
     && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
@@ -93,6 +97,12 @@ COPY --from=python-build-stage /usr/src/app/wheels /wheels/
 RUN pip install --upgrade pip \
     && pip install --no-index --find-links=/wheels/ /wheels/* \
     && rm -rf /wheels/
+
+# Smoke test: `import cv2` must succeed inside the runtime image. Catches
+# regressions where opencv-python-headless picks up a new shared-library
+# dependency that we forgot to install above (the failure mode is silent at
+# build time but immediate at first request).
+RUN python -c "import cv2; print(f'cv2 {cv2.__version__} import OK')"
 
 # Spacy models used by TxtParser sentence chunker.
 RUN python -m spacy download en_core_web_sm \

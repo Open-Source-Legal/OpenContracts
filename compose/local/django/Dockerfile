@@ -71,7 +71,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR ${APP_HOME}
 
 # Runtime system dependencies. Mirror production with the addition of `wget`
-# (used below to fetch the large spaCy wheel with retry semantics).
+# (used below to fetch the large spaCy wheel with retry semantics). See the
+# production Dockerfile for the rationale on each opencv-python-headless dep.
 RUN apt-get update && apt-get install --no-install-recommends -y \
       libpq5 \
       gettext \
@@ -81,6 +82,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
       tesseract-ocr \
       tesseract-ocr-eng \
       libgl1 \
+      libglib2.0-0 \
+      libgomp1 \
       libsm6 \
       libxext6 \
     && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
@@ -91,6 +94,9 @@ COPY --from=python-build-stage /usr/src/app/wheels /wheels/
 RUN pip install --upgrade pip \
     && pip install --no-index --find-links=/wheels/ /wheels/* \
     && rm -rf /wheels/
+
+# Smoke test: `import cv2` must succeed (see production Dockerfile for context).
+RUN python -c "import cv2; print(f'cv2 {cv2.__version__} import OK')"
 
 # Download spacy models with retry logic. Using pip directly is more reliable
 # than the `spacy download` command in Docker.
