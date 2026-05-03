@@ -5,9 +5,18 @@ import { authToken, authStatusVar, userObj } from "./cache";
 /**
  * Length of the response-body excerpt logged when JSON parsing fails. Long
  * enough to expose where the truncation occurred without flooding the console
- * with megabytes of body text on a wedged transport.
+ * with megabytes of body text on a wedged transport. The preview is
+ * already-client-side data; capping at 500 chars exposes the truncation point
+ * without risking megabytes of PII landing in the console if the body is huge.
  */
 const PARSE_ERROR_BODY_PREVIEW_CHARS = 500;
+
+/**
+ * Toast ID used for ``ServerParseError``-driven toasts. Exported so tests can
+ * import the same string the implementation emits, preventing silent drift if
+ * the literal is ever renamed.
+ */
+export const SERVER_PARSE_ERROR_TOAST_ID = "server-parse-error";
 
 /**
  * Detect Apollo's ``ServerParseError`` — thrown by ``parseJsonBody`` in
@@ -157,10 +166,11 @@ export const errorLink = onError(
       if (isServerParseError(networkError)) {
         const bodyText = networkError.bodyText ?? "";
         const preview = bodyText.slice(0, PARSE_ERROR_BODY_PREVIEW_CHARS);
+        const operationLabel = operation.operationName || "unknown operation";
         console.error(
           "[Apollo Error Link] Server returned a malformed JSON response.",
           {
-            operationName: operation.operationName,
+            operationName: operationLabel,
             status: networkError.response?.status,
             url: networkError.response?.url,
             bodyLength: bodyText.length,
@@ -170,10 +180,10 @@ export const errorLink = onError(
         );
 
         toast.error(
-          `The server returned an unreadable response for "${operation.operationName}". ` +
+          `The server returned an unreadable response for "${operationLabel}". ` +
             `This usually means the request timed out or was interrupted. Please retry.`,
           {
-            toastId: "server-parse-error",
+            toastId: SERVER_PARSE_ERROR_TOAST_ID,
             autoClose: 8000,
           }
         );

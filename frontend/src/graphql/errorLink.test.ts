@@ -33,7 +33,7 @@ import {
 import { toast } from "react-toastify";
 import type { User } from "@auth0/auth0-react";
 
-import { errorLink } from "./errorLink";
+import { errorLink, SERVER_PARSE_ERROR_TOAST_ID } from "./errorLink";
 import { authToken, authStatusVar, userObj } from "./cache";
 
 // --- Mocks ------------------------------------------------------------------
@@ -309,7 +309,7 @@ describe("errorLink", () => {
       // Distinct toast (not the generic "check your connection" copy)
       expect(toast.error).toHaveBeenCalledWith(
         expect.stringContaining("unreadable response"),
-        expect.objectContaining({ toastId: "server-parse-error" })
+        expect.objectContaining({ toastId: SERVER_PARSE_ERROR_TOAST_ID })
       );
       // Generic network-error toast must not fire alongside it
       const toastErrorMock = toast.error as MockedFunction<typeof toast.error>;
