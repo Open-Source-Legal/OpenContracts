@@ -593,6 +593,9 @@ export const GET_CORPUS_LABELSET_AND_LABELS = gql`
 
 export interface GetCorpusesInputs {
   textSearch?: string;
+  usesLabelsetId?: string;
+  cursor?: string;
+  limit?: number;
 }
 
 export interface GetCorpusesOutputs {
@@ -2683,6 +2686,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
 export interface SearchAnnotationsForMentionInput {
   textSearch: string;
   corpusId?: string;
+  first?: number;
 }
 
 export interface SearchAnnotationsForMentionOutput {
@@ -2720,12 +2724,111 @@ export interface SearchAnnotationsForMentionOutput {
   };
 }
 
+/**
+ * Search notes for cross-content discovery.
+ * Backend filters results to notes the user can read (Note.objects.visible_to_user).
+ */
+export interface SearchNotesForMentionInput {
+  textSearch: string;
+  corpusId?: string;
+  documentId?: string;
+  first?: number;
+}
+
+export interface SearchNotesForMentionOutput {
+  searchNotesForMention: {
+    edges: Array<{
+      node: {
+        id: string;
+        title: string;
+        contentPreview: string | null;
+        modified: string;
+        creator: {
+          id: string;
+          username: string;
+          slug: string;
+        };
+        document: {
+          id: string;
+          title: string;
+          slug: string;
+          creator: {
+            id: string;
+            slug: string;
+          };
+        };
+        corpus: {
+          id: string;
+          title: string;
+          slug: string;
+          creator: {
+            id: string;
+            slug: string;
+          };
+        } | null;
+      };
+    }>;
+  };
+}
+
+export const SEARCH_NOTES_FOR_MENTION = gql`
+  query SearchNotesForMention(
+    $textSearch: String!
+    $corpusId: ID
+    $documentId: ID
+    $first: Int
+  ) {
+    searchNotesForMention(
+      textSearch: $textSearch
+      corpusId: $corpusId
+      documentId: $documentId
+      first: $first
+    ) {
+      edges {
+        node {
+          id
+          title
+          contentPreview
+          modified
+          creator {
+            id
+            username
+            slug
+          }
+          document {
+            id
+            title
+            slug
+            creator {
+              id
+              slug
+            }
+          }
+          corpus {
+            id
+            title
+            slug
+            creator {
+              id
+              slug
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const SEARCH_ANNOTATIONS_FOR_MENTION = gql`
-  query SearchAnnotationsForMention($textSearch: String!, $corpusId: ID) {
+  query SearchAnnotationsForMention(
+    $textSearch: String!
+    $corpusId: ID
+    $first: Int = 10
+  ) {
     searchAnnotationsForMention(
       textSearch: $textSearch
       corpusId: $corpusId
-      first: 10
+      first: $first
     ) {
       edges {
         node {

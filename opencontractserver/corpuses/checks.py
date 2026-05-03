@@ -25,7 +25,7 @@ def check_default_embedder_consistency(app_configs, **kwargs):
     differs from the current default embedder (from PipelineSettings) and
     issues a warning if found.
     """
-    errors = []
+    errors: list[Warning] = []
 
     try:
         # Only run this check when the database is available (not during
