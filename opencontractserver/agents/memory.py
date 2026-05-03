@@ -234,10 +234,11 @@ async def update_memory_content(
                 raise DocumentModel.DoesNotExist(
                     f"Memory document {doc.pk} was deleted concurrently."
                 )
-            # Delete the old storage file to avoid orphans (Django's
-            # FieldFile.save creates a new file rather than overwriting).
-            if locked_doc.txt_extract_file:
-                locked_doc.txt_extract_file.delete(save=False)
+            # Free the old storage file when it's safe to do so. The
+            # primitive returns False (without deleting) when the blob is
+            # shared with a sibling Document (e.g. a corpus-isolated copy
+            # created via Corpus.add_document) — see issue #1464.
+            locked_doc.safe_delete_field_blob("txt_extract_file")
             locked_doc.txt_extract_file.save(
                 MEMORY_DOCUMENT_FILENAME,
                 ContentFile(new_content.encode("utf-8")),

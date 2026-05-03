@@ -361,6 +361,73 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
 
         super().save(*args, **kwargs)
 
+    def safe_delete_field_blob(self, field_name: str, *, save: bool = False) -> bool:
+        """Delete the blob for ``field_name`` from storage *only* if no
+        other Document row references it.
+
+        Issue #1464: ``Corpus.add_document`` creates corpus-isolated copies
+        whose ``FileField``s share blob paths with the source. Calling
+        ``FieldFile.delete()`` unconditionally would silently destroy the
+        blob for every sibling row that still references it. Callers
+        anywhere in the codebase that need to free a blob from storage
+        MUST go through this method instead of ``FieldFile.delete()``
+        directly.
+
+        Behaviour:
+        - If the field is empty / unset → no-op, returns ``False``.
+        - If the blob path is unique to this row → calls
+          ``FieldFile.delete(save=save)``. The blob is removed from
+          storage and the field is cleared on this row.
+        - If the blob path is shared with another row → sets the field
+          to ``None`` on this row only (and saves it if ``save=True``),
+          leaving the blob alive in storage for the sibling.
+
+        The set of fields covered is derived from ``Document._meta`` so
+        adding a new ``FileField`` extends coverage automatically.
+
+        Args:
+            field_name: Name of a ``FileField`` on this Document.
+            save: If True, persist the field clear to the database when
+                the path is shared. Mirrors ``FieldFile.delete``'s
+                ``save`` kwarg for the unique-path branch.
+
+        Returns:
+            True if storage was actually freed for this blob, False
+            otherwise (empty field, or path retained because it's shared).
+
+        Raises:
+            ValueError: ``field_name`` does not refer to a ``FileField``
+                on this model. Fail-loud rather than silently no-op so
+                typos surface immediately.
+        """
+        try:
+            field = self._meta.get_field(field_name)
+        except Exception as exc:
+            raise ValueError(
+                f"safe_delete_field_blob: {field_name!r} is not a field "
+                f"on {type(self).__name__}"
+            ) from exc
+
+        if not isinstance(field, models.FileField):
+            raise ValueError(
+                f"safe_delete_field_blob: {field_name!r} is not a "
+                f"FileField on {type(self).__name__} (got {type(field).__name__})"
+            )
+
+        file_field = getattr(self, field_name)
+        if not file_field or not file_field.name:
+            return False
+
+        unique_paths = type(self).objects.unique_blob_paths(self)
+        if file_field.name in unique_paths:
+            file_field.delete(save=save)
+            return True
+
+        setattr(self, field_name, None)
+        if save:
+            self.save(update_fields=[field_name])
+        return False
+
 
 # Model for Django Guardian permissions... trying to improve performance...
 class DocumentUserObjectPermission(UserObjectPermissionBase):
