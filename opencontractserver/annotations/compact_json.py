@@ -425,12 +425,11 @@ def iter_page_annotations(
             except (ValueError, TypeError):
                 page_idx = 0
 
-            bounds = page_data.get("bounds")
-            if not isinstance(bounds, dict):
-                bounds = dict(_ZERO_BOUNDS)
+            bounds_raw = page_data.get("bounds")
+            bounds = bounds_raw if isinstance(bounds_raw, dict) else dict(_ZERO_BOUNDS)
 
             tokens_jsons = page_data.get("tokensJsons", [])
-            token_indices: list[int] = []
+            token_indices = []
             for tok in tokens_jsons:
                 if isinstance(tok, dict) and "tokenIndex" in tok:
                     token_indices.append(tok["tokenIndex"])

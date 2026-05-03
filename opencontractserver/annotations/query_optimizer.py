@@ -400,7 +400,10 @@ class AnnotationQueryOptimizer:
             return Annotation.objects.none()
         except DocumentPath.MultipleObjectsReturned:
             # Shouldn't happen with constraints, but handle safely
-            document_path = path_query.first()
+            first_path = path_query.first()
+            if first_path is None:
+                return Annotation.objects.none()
+            document_path = first_path
 
         # Use existing method with resolved document_id
         return cls.get_document_annotations(

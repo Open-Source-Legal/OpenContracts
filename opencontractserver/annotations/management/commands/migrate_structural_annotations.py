@@ -19,6 +19,7 @@ Options:
 """
 
 import logging
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
@@ -123,8 +124,9 @@ class Command(BaseCommand):
             )
             return
 
-        # Track statistics
-        stats = {
+        # Track statistics. Mixed value types (counters and an error list) so
+        # we widen to ``Any`` so mypy treats the dict as heterogeneous.
+        stats: dict[str, Any] = {
             "documents_processed": 0,
             "documents_skipped": 0,
             "structural_sets_created": 0,

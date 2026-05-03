@@ -419,7 +419,7 @@ class Embedding(BaseOCModel):
         modified (datetime): Timestamp when this embedding record was last updated.
     """
 
-    objects = EmbeddingManager()
+    objects = EmbeddingManager()  # type: ignore[misc]
 
     # One of these will be non-null if the embedding belongs to that model.
     document = django.db.models.ForeignKey(
@@ -464,7 +464,7 @@ class Embedding(BaseOCModel):
     )
 
     # Required: NULL would silently bypass the partial unique constraints below.
-    embedder_path: str = django.db.models.CharField(
+    embedder_path = django.db.models.CharField(
         max_length=256,
         help_text="Identifier for the embedding model or pipeline used (e.g. 'openai/text-embedding-ada-002').",
     )
@@ -648,7 +648,7 @@ class StructuralAnnotationSet(BaseOCModel):
 
     # Sharing - structural annotations are always public as they're inherent to content
     is_public = django.db.models.BooleanField(default=True)
-    creator = django.db.models.ForeignKey(
+    creator = django.db.models.ForeignKey(  # type: ignore[assignment]
         get_user_model(),
         on_delete=django.db.models.SET_NULL,
         null=True,
@@ -831,7 +831,7 @@ class StructuralAnnotationSet(BaseOCModel):
                         # Use embedder_path to bypass dual embedding strategy
                         # and use only the corpus's preferred embedder
                         transaction.on_commit(
-                            lambda a_id=annot.id: calculate_embedding_for_annotation_text.delay(
+                            lambda a_id=annot.id: calculate_embedding_for_annotation_text.delay(  # type: ignore[misc]
                                 annotation_id=a_id, embedder_path=embedder_path
                             )
                         )
@@ -850,7 +850,7 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     """
 
     # Use the custom manager that combines permissioning and CTE capabilities
-    objects = AnnotationManager()
+    objects = AnnotationManager()  # type: ignore[misc]
 
     page = django.db.models.IntegerField(default=1, blank=False)
     raw_text = django.db.models.TextField(null=True, blank=True)
@@ -1345,7 +1345,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
     Uses django_cte for hierarchical relationships.
     """
 
-    objects = NoteManager()
+    objects = NoteManager()  # type: ignore[misc]
 
     # Content
     title = django.db.models.CharField(max_length=1024, db_index=True)
@@ -1499,6 +1499,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
             NoteRevision: the created revision object (or `None` if no changes).
         """
         # Resolve author to User instance if an id is passed
+        author_obj: AbstractBaseUser
         if isinstance(author, int):
             author_obj = get_user_model().objects.get(pk=author)
         else:
@@ -1542,7 +1543,7 @@ class Note(BaseOCModel, HasEmbeddingMixin):
 
             revision = NoteRevision.objects.create(
                 note=self,
-                author=author_obj,
+                author=author_obj,  # type: ignore[misc]
                 version=next_version,
                 diff=diff_text,
                 snapshot=snapshot_text,

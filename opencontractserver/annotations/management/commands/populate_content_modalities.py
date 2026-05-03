@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any
 
 from django.core.management.base import BaseCommand
 
@@ -113,7 +114,7 @@ class Command(BaseCommand):
             return ["TEXT"]
 
         # Extract token references from the json field (handles v1 and v2 formats)
-        all_token_refs = []
+        all_token_refs: list[Any] = []
         for page in iter_page_annotations(
             annotation.json or {}, raw_text=annotation.raw_text or ""
         ):
