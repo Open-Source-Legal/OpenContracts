@@ -89,8 +89,8 @@ export const createTokenStringSearch = (
 
     for (var i = 0; i < page.tokens.length; i++) {
       const token = page.tokens[i];
-      // Handle image tokens and tokens with missing/null text gracefully
-      // Image tokens have is_image=true and text="" or undefined
+      // Handle image tokens and tokens with missing/null text gracefully.
+      // Image tokens have isImage=true and text="" (or absent).
       const text = token?.text ?? "";
 
       // Skip tokens with no text (e.g., image tokens)

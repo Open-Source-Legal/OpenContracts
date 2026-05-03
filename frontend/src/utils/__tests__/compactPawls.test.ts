@@ -1,46 +1,44 @@
 import { describe, test, expect } from "vitest";
-import { isCompactPawlsFormat, expandPawlsPages } from "../compactPawls";
+import { decodeV2Pawls, isV2WirePawls } from "../compactPawls";
 
-describe("isCompactPawlsFormat", () => {
-  test("returns true for valid v2 structure", () => {
-    expect(isCompactPawlsFormat({ v: 2, p: [] })).toBe(true);
+describe("isV2WirePawls", () => {
+  test("returns true for valid v2 envelope", () => {
+    expect(isV2WirePawls({ v: 2, p: [] })).toBe(true);
   });
 
   test("returns false for v1 list", () => {
-    expect(isCompactPawlsFormat([])).toBe(false);
+    expect(isV2WirePawls([])).toBe(false);
   });
 
   test("returns false for wrong version", () => {
-    expect(isCompactPawlsFormat({ v: 1, p: [] })).toBe(false);
+    expect(isV2WirePawls({ v: 1, p: [] })).toBe(false);
   });
 
   test("returns false for null/undefined", () => {
-    expect(isCompactPawlsFormat(null)).toBe(false);
-    expect(isCompactPawlsFormat(undefined)).toBe(false);
+    expect(isV2WirePawls(null)).toBe(false);
+    expect(isV2WirePawls(undefined)).toBe(false);
   });
 
   test("returns false for missing p key", () => {
-    expect(isCompactPawlsFormat({ v: 2 })).toBe(false);
+    expect(isV2WirePawls({ v: 2 })).toBe(false);
   });
 });
 
-describe("expandPawlsPages", () => {
+describe("decodeV2Pawls — null/empty inputs", () => {
   test("returns empty array for null/undefined", () => {
-    expect(expandPawlsPages(null)).toEqual([]);
-    expect(expandPawlsPages(undefined)).toEqual([]);
+    expect(decodeV2Pawls(null)).toEqual([]);
+    expect(decodeV2Pawls(undefined)).toEqual([]);
   });
 
-  test("passes through v1 list unchanged", () => {
-    const v1 = [
-      {
-        page: { width: 612, height: 792, index: 0 },
-        tokens: [{ x: 72, y: 720, width: 41, height: 12, text: "Hello" }],
-      },
-    ];
-    expect(expandPawlsPages(v1)).toBe(v1);
+  test("throws on garbage non-null input", () => {
+    expect(() => decodeV2Pawls({ random: "data" })).toThrow(/Invalid PAWLs/);
+    expect(() => decodeV2Pawls("hello")).toThrow(/Invalid PAWLs/);
+    expect(() => decodeV2Pawls(42)).toThrow(/Invalid PAWLs/);
   });
+});
 
-  test("expands v2 compact to v1 format", () => {
+describe("decodeV2Pawls — v2 wire input", () => {
+  test("expands v2 compact to canonical CompactPage[]", () => {
     const v2 = {
       v: 2,
       p: [
@@ -52,9 +50,13 @@ describe("expandPawlsPages", () => {
       ],
     };
 
-    const result = expandPawlsPages(v2);
+    const result = decodeV2Pawls(v2);
     expect(result).toHaveLength(1);
-    expect(result[0].page).toEqual({ width: 612, height: 792, index: 0 });
+    expect(result[0]).toMatchObject({
+      index: 0,
+      width: 612,
+      height: 792,
+    });
     expect(result[0].tokens).toHaveLength(1);
     expect(result[0].tokens[0]).toEqual({
       x: 72,
@@ -62,6 +64,7 @@ describe("expandPawlsPages", () => {
       width: 41,
       height: 12,
       text: "Hello",
+      isImage: false,
     });
   });
 
@@ -94,19 +97,21 @@ describe("expandPawlsPages", () => {
       ],
     };
 
-    const result = expandPawlsPages(v2);
+    const result = decodeV2Pawls(v2);
     const tok = result[0].tokens[0];
-    expect(tok.is_image).toBe(true);
-    expect(tok.image_path).toBe("path/img.jpg");
-    expect(tok.base64_data).toBe("iVBORw0KGgoAAAANSUhEUg==");
-    expect(tok.format).toBe("jpeg");
-    expect(tok.content_hash).toBe("hash123");
-    expect(tok.original_width).toBe(800);
-    expect(tok.original_height).toBe(600);
-    expect(tok.image_type).toBe("embedded");
+    expect(tok.isImage).toBe(true);
+    expect(tok.imageMeta).toEqual({
+      p: "path/img.jpg",
+      b64: "iVBORw0KGgoAAAANSUhEUg==",
+      f: "jpeg",
+      ch: "hash123",
+      ow: 800,
+      oh: 600,
+      it: "embedded",
+    });
   });
 
-  test("skips malformed tokens", () => {
+  test("skips malformed v2 tokens", () => {
     const v2 = {
       v: 2,
       p: [
@@ -121,7 +126,7 @@ describe("expandPawlsPages", () => {
       ],
     };
 
-    const result = expandPawlsPages(v2);
+    const result = decodeV2Pawls(v2);
     expect(result[0].tokens).toHaveLength(1);
     expect(result[0].tokens[0].text).toBe("valid");
   });
@@ -135,22 +140,101 @@ describe("expandPawlsPages", () => {
       ],
     };
 
-    const result = expandPawlsPages(v2);
+    const result = decodeV2Pawls(v2);
     expect(result).toHaveLength(2);
-    expect(result[0].page.index).toBe(0);
-    expect(result[1].page.index).toBe(1);
-    expect(result[1].page.width).toBe(800);
+    expect(result[0].index).toBe(0);
+    expect(result[1].index).toBe(1);
+    expect(result[1].width).toBe(800);
     expect(result[1].tokens[0].text).toBe("page1");
-  });
-
-  test("returns empty array for unrecognized format", () => {
-    expect(expandPawlsPages({ random: "data" })).toEqual([]);
   });
 
   test("handles empty pages", () => {
     const v2 = { v: 2, p: [{ w: 612, h: 792, t: [] }] };
-    const result = expandPawlsPages(v2);
+    const result = decodeV2Pawls(v2);
     expect(result).toHaveLength(1);
     expect(result[0].tokens).toEqual([]);
+  });
+});
+
+describe("decodeV2Pawls — v1 wire input (legacy tolerance)", () => {
+  test("decodes v1 wire format into canonical v2-shape objects", () => {
+    const v1 = [
+      {
+        page: { width: 612, height: 792, index: 0 },
+        tokens: [{ x: 72, y: 720, width: 41, height: 12, text: "Hello" }],
+      },
+    ];
+
+    const result = decodeV2Pawls(v1);
+    expect(result).toHaveLength(1);
+    // Output is v2-canonical: flat width/height, no nested `page` object,
+    // tokens carry isImage (camelCase) instead of is_image (snake_case).
+    expect(result[0]).toEqual({
+      index: 0,
+      width: 612,
+      height: 792,
+      tokens: [
+        {
+          x: 72,
+          y: 720,
+          width: 41,
+          height: 12,
+          text: "Hello",
+          isImage: false,
+        },
+      ],
+    });
+  });
+
+  test("decodes v1 image tokens by remapping snake_case to imageMeta short keys", () => {
+    const v1 = [
+      {
+        page: { width: 612, height: 792, index: 0 },
+        tokens: [
+          {
+            x: 50,
+            y: 100,
+            width: 200,
+            height: 300,
+            text: "",
+            is_image: true,
+            image_path: "path/img.jpg",
+            base64_data: "iVBORw0KGgo=",
+            format: "jpeg",
+            content_hash: "hash123",
+            original_width: 800,
+            original_height: 600,
+            image_type: "embedded",
+          },
+        ],
+      },
+    ];
+
+    const result = decodeV2Pawls(v1);
+    const tok = result[0].tokens[0];
+    expect(tok.isImage).toBe(true);
+    expect(tok.imageMeta).toEqual({
+      p: "path/img.jpg",
+      b64: "iVBORw0KGgo=",
+      f: "jpeg",
+      ch: "hash123",
+      ow: 800,
+      oh: 600,
+      it: "embedded",
+    });
+  });
+
+  test("v1 empty array decodes to empty result", () => {
+    expect(decodeV2Pawls([])).toEqual([]);
+  });
+
+  test("v1 page falls back to array index when index field missing", () => {
+    const v1 = [
+      { page: { width: 612, height: 792 }, tokens: [] },
+      { page: { width: 612, height: 792 }, tokens: [] },
+    ];
+    const result = decodeV2Pawls(v1);
+    expect(result[0].index).toBe(0);
+    expect(result[1].index).toBe(1);
   });
 });

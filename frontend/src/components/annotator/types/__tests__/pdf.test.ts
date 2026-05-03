@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { PDFPageInfo } from "../pdf";
-import { Token, BoundingBox } from "../../../types";
+import { CompactToken, BoundingBox } from "../../../types";
 import { LabelType } from "../../../../types/graphql-api";
 
 /**
@@ -22,9 +22,9 @@ function makeToken(
   width: number,
   height: number,
   text: string,
-  extra: Partial<Token> = {}
-): Token {
-  return { x, y, width, height, text, ...extra };
+  extra: Partial<CompactToken> = {}
+): CompactToken {
+  return { x, y, width, height, text, isImage: false, ...extra };
 }
 
 const PAGE_BOUNDS: BoundingBox = {
@@ -65,10 +65,10 @@ describe("PDFPageInfo", () => {
 
     it("excludes page-spanning image tokens (Docling page captures)", () => {
       const realToken = makeToken(100, 200, 50, 10, "Text");
-      // Docling emits full-page image tokens with is_image=true
+      // Docling emits full-page image tokens with isImage=true
       const pageImage = makeToken(0, 0, 612, 792, "", {
-        is_image: true,
-        image_path: "/page_capture.jpg",
+        isImage: true,
+        imageMeta: { p: "/page_capture.jpg" },
       });
 
       const pageInfo = new PDFPageInfo(
@@ -89,7 +89,7 @@ describe("PDFPageInfo", () => {
     it("excludes page-spanning tokens from getAnnotationForBounds", () => {
       const realToken = makeToken(100, 200, 50, 10, "World");
       const phantomToken = makeToken(0, 0, 612, 792, "", {
-        is_image: true,
+        isImage: true,
       });
 
       const pageInfo = new PDFPageInfo(
@@ -117,7 +117,7 @@ describe("PDFPageInfo", () => {
     it("excludes page-spanning tokens from getBoundsForTokens", () => {
       const realToken = makeToken(100, 200, 50, 10, "Real");
       const phantomToken = makeToken(0, 0, 612, 792, "", {
-        is_image: true,
+        isImage: true,
       });
 
       const pageInfo = new PDFPageInfo(
@@ -141,8 +141,8 @@ describe("PDFPageInfo", () => {
 
     it("includes normal-sized image tokens with empty text", () => {
       const imageToken = makeToken(50, 50, 200, 150, "", {
-        is_image: true,
-        image_path: "/test.png",
+        isImage: true,
+        imageMeta: { p: "/test.png" },
       });
 
       const pageInfo = new PDFPageInfo(

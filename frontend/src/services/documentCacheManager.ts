@@ -28,7 +28,10 @@ interface CacheMetadata {
 export class DocumentCacheManager {
   private db: IDBDatabase | null = null;
   private readonly DB_NAME = "OpenContractsDocumentCache";
-  private readonly DB_VERSION = 2;
+  // v3: pawls in-memory shape changed from v1 (`page.page.width`, `is_image`)
+  // to canonical v2 (`page.width`, `isImage`). Stale entries from v2 of this
+  // DB would deserialize into v1-shape objects and break consumers.
+  private readonly DB_VERSION = 3;
   private readonly STORE_NAME = "documents";
   private readonly METADATA_STORE_NAME = "metadata";
   private readonly MAX_CACHE_SIZE = 500 * 1024 * 1024; // 500MB
@@ -57,6 +60,8 @@ export class DocumentCacheManager {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const transaction = (event.target as IDBOpenDBRequest).transaction;
+        const oldVersion = event.oldVersion;
 
         // Create document blob store
         if (!db.objectStoreNames.contains(this.STORE_NAME)) {
@@ -73,6 +78,20 @@ export class DocumentCacheManager {
             keyPath: "documentId",
           });
           metaStore.createIndex("timestamp", "timestamp", { unique: false });
+        }
+
+        // v2 → v3: pawls in-memory shape changed from v1 to canonical v2.
+        // Wipe both stores so any cached blob/json is re-fetched and decoded
+        // through the new pipeline. PDFs/text files are cheap to re-cache.
+        if (oldVersion > 0 && oldVersion < 3 && transaction) {
+          for (const storeName of [
+            this.STORE_NAME,
+            this.METADATA_STORE_NAME,
+          ]) {
+            if (db.objectStoreNames.contains(storeName)) {
+              transaction.objectStore(storeName).clear();
+            }
+          }
         }
       };
     });

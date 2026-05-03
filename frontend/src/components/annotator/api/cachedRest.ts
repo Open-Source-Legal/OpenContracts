@@ -3,7 +3,7 @@
  * Wraps existing REST functions with caching layer
  */
 import axios from "axios";
-import { PageTokens } from "../../types";
+import { CompactPage } from "../../types";
 import { documentCacheManager } from "../../../services/documentCacheManager";
 import {
   getPawlsLayer as uncachedGetPawlsLayer,
@@ -17,7 +17,7 @@ import { DOCX_CACHE_MAX_ENTRIES } from "../../../assets/configurations/constants
 export async function getPawlsLayer(
   url: string,
   documentId?: string
-): Promise<PageTokens[]> {
+): Promise<CompactPage[]> {
   console.log(
     `📄 Loading PAWLS data for document ${documentId || "unknown"}...`
   );

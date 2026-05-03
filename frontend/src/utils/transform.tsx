@@ -3,11 +3,11 @@ import { ServerTokenAnnotation } from "../components/annotator/types/annotations
 import { ServerSpanAnnotation } from "../components/annotator/types/annotations";
 import {
   BoundingBox,
+  CompactPage,
+  CompactToken,
   MultipageAnnotationJson,
-  PageTokens,
   PermissionTypes,
   SpanAnnotationJson,
-  Token,
 } from "../components/types";
 import {
   AnalyzerManifestType,
@@ -336,7 +336,7 @@ export function doOverlap(a: BoundingBox, b: BoundingBox): boolean {
  * This function rescales token x/y/width/height so they align with the PDF.js
  * coordinate system at scale 1.
  *
- * @param pawlsPage  - The PAWLs page data containing `page` dimensions and `tokens`.
+ * @param pawlsPage  - The PAWLs page data containing page dimensions and `tokens`.
  * @param viewportWidth  - PDF.js viewport width at scale 1.
  * @param viewportHeight - PDF.js viewport height at scale 1.
  * @returns A new array of tokens with coordinates rescaled to the PDF.js
@@ -344,12 +344,12 @@ export function doOverlap(a: BoundingBox, b: BoundingBox): boolean {
  *          returned as-is (no unnecessary copies).
  */
 export function normalizeTokensToPdfViewport(
-  pawlsPage: PageTokens,
+  pawlsPage: CompactPage,
   viewportWidth: number,
   viewportHeight: number
-): Token[] {
-  const pawlsWidth = pawlsPage.page.width;
-  const pawlsHeight = pawlsPage.page.height;
+): CompactToken[] {
+  const pawlsWidth = pawlsPage.width;
+  const pawlsHeight = pawlsPage.height;
 
   // Cannot rescale if PAWLs or viewport reports zero dimensions (malformed data).
   if (
@@ -396,12 +396,12 @@ export function normalizeTokensToPdfViewport(
  * @returns The resolved (and possibly rescaled) token array for the page.
  */
 export function resolvePageTokens(
-  pawlsData: PageTokens[] | null | undefined,
+  pawlsData: CompactPage[] | null | undefined,
   pageIndex: number,
   viewportWidth: number,
   viewportHeight: number,
   pageNum: number
-): Token[] {
+): CompactToken[] {
   if (
     !pawlsData ||
     !Array.isArray(pawlsData) ||

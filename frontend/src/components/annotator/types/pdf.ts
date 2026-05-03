@@ -1,6 +1,10 @@
 import { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 import { AnnotationLabelType } from "../../../types/graphql-api";
-import { Token, BoundingBox, SinglePageAnnotationJson } from "../../types";
+import {
+  CompactToken,
+  BoundingBox,
+  SinglePageAnnotationJson,
+} from "../../types";
 import {
   scaled,
   normalizeBounds,
@@ -28,7 +32,7 @@ export class PDFPageInfo {
 
   constructor(
     public readonly page: PDFPageProxy,
-    public readonly tokens: Token[] = [],
+    public readonly tokens: CompactToken[] = [],
     public scale: number,
     public bounds?: BoundingBox
   ) {
@@ -43,7 +47,7 @@ export class PDFPageInfo {
    * bound to expand to the full page dimensions.
    */
   private isSelectableToken(
-    t: Token,
+    t: CompactToken,
     pageWidth: number,
     pageHeight: number
   ): boolean {
@@ -51,7 +55,7 @@ export class PDFPageInfo {
     // Docling tokens are the most problematic case, any empty-text token
     // contributes no selectable content and would only inflate annotation
     // bounding boxes without adding meaningful text to the selection.
-    if (!t.text?.trim() && !t.is_image) return false;
+    if (!t.text?.trim() && !t.isImage) return false;
 
     // Skip tokens that span the entire page (degenerate page captures)
     if (
@@ -222,7 +226,7 @@ export class PDFPageInfo {
     );
   }
 
-  getScaledTokenBounds(t: Token): BoundingBox {
+  getScaledTokenBounds(t: CompactToken): BoundingBox {
     //console.log("getScaledTokenBounds() for t: ", t );
     if (typeof t === "undefined") {
       return undefined_bounding_box;
@@ -230,7 +234,7 @@ export class PDFPageInfo {
     return this.getScaledBounds(this.getTokenBounds(t));
   }
 
-  getTokenBounds(t: Token): BoundingBox {
+  getTokenBounds(t: CompactToken): BoundingBox {
     if (!t) {
       return {
         left: 0,

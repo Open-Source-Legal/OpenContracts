@@ -28,33 +28,69 @@ export enum ViewState {
   ERROR,
 }
 
-export type Page = {
+/**
+ * Compact (v2-derived) image metadata.
+ *
+ * Mirrors the `CompactImageMetaType` short keys used on the backend wire
+ * format. Always carried inside a {@link CompactToken} via `imageMeta`.
+ *
+ * | wire key | meaning          |
+ * | -------- | ---------------- |
+ * | `p`      | image_path       |
+ * | `b64`    | base64_data      |
+ * | `f`      | format           |
+ * | `ch`     | content_hash     |
+ * | `ow`     | original_width   |
+ * | `oh`     | original_height  |
+ * | `it`     | image_type       |
+ */
+export interface CompactImageMeta {
+  p?: string;
+  b64?: string;
+  f?: string;
+  ch?: string;
+  ow?: number;
+  oh?: number;
+  it?: string;
+}
+
+/**
+ * Canonical in-memory PAWLs token (v2-derived).
+ *
+ * This is the only token shape the frontend runtime works with after
+ * decode. The wire format (v1 dict tokens or v2 positional arrays) is
+ * normalized to this shape inside `utils/compactPawls.ts` — every other
+ * consumer reads {@link CompactToken}.
+ *
+ * Field names remain PDF-semantic (`x`, `y`, `width`, `height`, `text`)
+ * because they describe the runtime geometry, not the wire encoding.
+ * `isImage` is always set (camelCase, no `is_image`); image-specific
+ * metadata lives on `imageMeta` using the v2 short keys.
+ */
+export interface CompactToken {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  /** True iff this token is an image (v2: had a 6th metadata element). */
+  isImage: boolean;
+  /** Compact image metadata (short keys). Undefined for text tokens. */
+  imageMeta?: CompactImageMeta;
+}
+
+/**
+ * Canonical in-memory PAWLs page (v2-derived).
+ *
+ * Replaces the old `PageTokens` + `Page` pair. The `index` field is
+ * materialized for ergonomic consumer access (the wire format relies on
+ * implicit array position).
+ */
+export interface CompactPage {
   index: number;
   width: number;
   height: number;
-};
-
-export type PageTokens = {
-  page: Page;
-  tokens: Token[];
-};
-
-export interface Token {
-  x: number;
-  y: number;
-  height: number;
-  width: number;
-  text: string;
-  // Image token fields (optional - only present for image tokens)
-  is_image?: boolean;
-  image_path?: string;
-  base64_data?: string;
-  format?: string;
-  content_hash?: string;
-  original_width?: number;
-  original_height?: number;
-  image_type?: string;
-  token_index?: number;
+  tokens: CompactToken[];
 }
 
 export interface LabelSet {
