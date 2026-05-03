@@ -306,9 +306,11 @@ describe("errorLink", () => {
       expect(authToken()).toBe("test-token");
       expect(authStatusVar()).toBe("AUTHENTICATED");
 
-      // Distinct toast (not the generic "check your connection" copy)
+      // Distinct toast (not the generic "check your connection" copy) and
+      // pin the operation-name interpolation so a future refactor that
+      // drops the operation label from the copy would be caught.
       expect(toast.error).toHaveBeenCalledWith(
-        expect.stringContaining("unreadable response"),
+        expect.stringContaining('unreadable response for "Test"'),
         expect.objectContaining({ toastId: SERVER_PARSE_ERROR_TOAST_ID })
       );
       // Generic network-error toast must not fire alongside it

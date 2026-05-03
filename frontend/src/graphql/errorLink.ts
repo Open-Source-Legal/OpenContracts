@@ -1,30 +1,12 @@
 import { onError } from "@apollo/client/link/error";
 import { toast } from "react-toastify";
 import { authToken, authStatusVar, userObj } from "./cache";
+import { PARSE_ERROR_BODY_PREVIEW_CHARS } from "../assets/configurations/constants";
 
-/**
- * Length of the response-body excerpt logged when JSON parsing fails. Long
- * enough to expose where the truncation occurred without flooding the console
- * with megabytes of body text on a wedged transport. The preview is
- * already-client-side data; capping at 500 chars exposes the truncation point
- * without risking megabytes of PII landing in the console if the body is huge.
- */
-const PARSE_ERROR_BODY_PREVIEW_CHARS = 500;
-
-/**
- * Toast ID used for ``ServerParseError``-driven toasts. Exported so tests can
- * import the same string the implementation emits, preventing silent drift if
- * the literal is ever renamed.
- */
+// Toast ID exported so tests can pin the exact string emitted by the link.
 export const SERVER_PARSE_ERROR_TOAST_ID = "server-parse-error";
 
-/**
- * Detect Apollo's ``ServerParseError`` — thrown by ``parseJsonBody`` in
- * ``@apollo/client/link/http`` when the HTTP response cannot be parsed as
- * JSON (truncated body, unexpected content type, etc.).  Apollo sets
- * ``name === "ServerParseError"`` and attaches ``bodyText``/``response``,
- * so duck-type on those rather than ``instanceof``.
- */
+// Apollo's ServerParseError isn't a public class — duck-type on its shape.
 const isServerParseError = (
   err: unknown
 ): err is Error & { bodyText?: string; response?: Response } => {
@@ -166,7 +148,7 @@ export const errorLink = onError(
       if (isServerParseError(networkError)) {
         const bodyText = networkError.bodyText ?? "";
         const preview = bodyText.slice(0, PARSE_ERROR_BODY_PREVIEW_CHARS);
-        const operationLabel = operation.operationName || "unknown operation";
+        const operationLabel = operation.operationName || "this request";
         console.error(
           "[Apollo Error Link] Server returned a malformed JSON response.",
           {

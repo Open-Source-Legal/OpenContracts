@@ -544,3 +544,8 @@ You have access to thread context, messages, and moderation tools. Use them judi
 // trigger is selected).
 export const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
   "You are a document processing agent for this corpus.";
+
+// Cap on the response-body excerpt logged when Apollo's ServerParseError
+// fires — long enough to show the truncation point, short enough to avoid
+// dumping megabytes of body text into the console.
+export const PARSE_ERROR_BODY_PREVIEW_CHARS = 500;
