@@ -35,8 +35,7 @@ from opencontractserver.types.dicts import (
     OpenContractsRelationshipPythonType,
     StructuralAnnotationSetExport,
 )
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
-from opencontractserver.utils.pawls_io import load_canonical_v2
+from opencontractserver.utils.pawls_io import load_canonical_v2, to_v1_pages
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -59,12 +58,12 @@ def package_structural_annotation_set(
     try:
         # Read PAWLs as canonical v2 internally; the export wire format
         # (``StructuralAnnotationSetExport.pawls_file_content``) is documented
-        # v1, so ``expand_pawls_pages`` below is the deliberate v2→v1 hand-off
-        # used at the export boundary only.
+        # v1, so ``to_v1_pages`` below is the deliberate v2→v1 hand-off used at
+        # the export boundary only.
         pawls_content: list = []
         if structural_set.pawls_parse_file:
             pawls_canonical = load_canonical_v2(structural_set.pawls_parse_file)
-            pawls_content = expand_pawls_pages(pawls_canonical)
+            pawls_content = to_v1_pages(pawls_canonical)
 
         # Read text extract
         txt_content = ""

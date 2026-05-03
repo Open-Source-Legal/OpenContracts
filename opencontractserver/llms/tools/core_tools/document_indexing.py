@@ -5,8 +5,7 @@ from uuid import uuid4
 
 from typing_extensions import NotRequired, TypedDict
 
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
-from opencontractserver.utils.pawls_io import load_canonical_v2
+from opencontractserver.utils.pawls_io import load_canonical_v2, to_v1_pages
 
 from ._helpers import _db_sync_to_async
 
@@ -112,7 +111,7 @@ def create_document_index(
             )
         # Canonical v2 internally; v2→v1 only at the plasmapdf boundary.
         pawls_canonical = load_canonical_v2(doc.pawls_parse_file)
-        pdf_layer = build_translation_layer(expand_pawls_pages(pawls_canonical))
+        pdf_layer = build_translation_layer(to_v1_pages(pawls_canonical))
         doc_text = pdf_layer.doc_text
         label_type_const = TOKEN_LABEL
 

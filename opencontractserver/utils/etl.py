@@ -36,8 +36,11 @@ from opencontractserver.types.dicts import (
     PawlsPagePythonType,
 )
 from opencontractserver.types.enums import AnnotationFilterMode
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
-from opencontractserver.utils.pawls_io import iter_pages, load_canonical_v2
+from opencontractserver.utils.pawls_io import (
+    iter_pages,
+    load_canonical_v2,
+    to_v1_pages,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -253,9 +256,9 @@ def build_document_export(
 
         # Read PAWLs as canonical v2 internally; the export wire format
         # (``OpenContractDocExport.pawls_file_content``) is documented v1, so
-        # we hold the v2→v1 hand-off (``expand_pawls_pages``) for the export-
-        # payload assembly point below — that is the deliberate, scoped use of
-        # the legacy helper at the export boundary.
+        # we hold the v2→v1 hand-off (``to_v1_pages``) for the export-payload
+        # assembly point below — that is the deliberate, scoped use of the
+        # boundary adaptor at the export wire boundary.
         pawls_canonical: dict[str, Any] | None = None
         try:
             with default_storage.open(doc.pawls_parse_file.name) as pawls_file:
@@ -263,10 +266,10 @@ def build_document_export(
         except Exception as e:
             logger.warning(f"Could not export pawls tokens for doc {doc_id}: {e}")
 
-        # ``expand_pawls_pages`` here is the v2→v1 conversion ONLY for the
-        # export wire format below; do NOT introduce additional v1 reads.
+        # ``to_v1_pages`` here is the v2→v1 conversion ONLY for the export
+        # wire format below; do NOT introduce additional v1 reads.
         pawls_tokens: list[PawlsPagePythonType] = (
-            expand_pawls_pages(pawls_canonical) if pawls_canonical else []
+            to_v1_pages(pawls_canonical) if pawls_canonical else []
         )
 
         annotated_pdf_bytes = io.BytesIO()

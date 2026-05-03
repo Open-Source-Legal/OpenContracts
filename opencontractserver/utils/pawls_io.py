@@ -34,6 +34,7 @@ from opencontractserver.constants.pawls import COMPACT_PAWLS_VERSION
 from opencontractserver.utils.compact_pawls import (
     _IMAGE_KEY_REVERSE,
     compact_pawls_pages,
+    expand_pawls_pages as _expand_pawls_pages,
     is_compact_pawls_format,
 )
 
@@ -343,10 +344,43 @@ def iter_pages(canonical_v2: dict[str, Any]) -> Iterable[PageView]:
             yield PageView(page, i)
 
 
+# ── Boundary-only v2 → v1 adaptor ────────────────────────────────
+
+
+def to_v1_pages(canonical_v2: Any) -> list[dict[str, Any]]:
+    """Convert canonical v2 PAWLs back to the v1 page list shape.
+
+    **Reserved for external/legacy boundaries.** The two allowed uses are:
+
+    1. Hand-off to ``plasmapdf.build_translation_layer``, which still
+       consumes v1 ``PawlsPagePythonType`` lists.
+    2. Building v1 wire-format export payloads
+       (``OpenContractDocExport.pawls_file_content``,
+       ``StructuralAnnotationSetExport.pawls_file_content``).
+
+    Active runtime code MUST NOT use this function — operate on the
+    canonical v2 dict (or :class:`PageView` / :class:`TokenView` views)
+    instead. v1 in-memory shape is a bug everywhere outside these two
+    documented boundaries.
+
+    Accepts pre-decoded v2 dicts. If you have raw input that may be v1
+    or v2, run it through :func:`to_canonical_v2` first.
+
+    Args:
+        canonical_v2: A canonical v2 PAWLs dict (or already a v1 list,
+            which is returned as-is for caller convenience).
+
+    Returns:
+        v1 ``list[PawlsPagePythonType]`` shape.
+    """
+    return _expand_pawls_pages(canonical_v2)
+
+
 __all__ = [
     "PageView",
     "TokenView",
     "iter_pages",
     "load_canonical_v2",
     "to_canonical_v2",
+    "to_v1_pages",
 ]

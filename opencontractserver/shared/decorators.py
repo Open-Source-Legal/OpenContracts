@@ -18,7 +18,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentAnalysisRow
 from opencontractserver.types.dicts import TextSpan
 from opencontractserver.types.enums import LabelType
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.pawls_io import to_v1_pages
 from opencontractserver.utils.etl import is_dict_instance_of_typed_dict
 from opencontractserver.utils.pawls_io import load_canonical_v2
 
@@ -114,7 +114,7 @@ def doc_analyzer_task(
                 # Canonical v2 PAWLs is the in-memory contract for downstream
                 # consumers and the user-supplied task. ``build_translation_layer``
                 # is a third-party (plasmapdf) API that still consumes v1-shape
-                # ``PawlsPagePythonType`` lists; ``expand_pawls_pages`` is the
+                # ``PawlsPagePythonType`` lists; ``to_v1_pages`` is the
                 # deliberate v2→v1 hand-off used at that external boundary only.
                 pdf_pawls_extract = (
                     load_canonical_v2(doc.pawls_parse_file)
@@ -122,7 +122,7 @@ def doc_analyzer_task(
                     else None
                 )
                 pdf_data_layer = (
-                    build_translation_layer(expand_pawls_pages(pdf_pawls_extract))
+                    build_translation_layer(to_v1_pages(pdf_pawls_extract))
                     if pdf_pawls_extract
                     else []
                 )
@@ -502,7 +502,7 @@ def async_doc_analyzer_task(
                 # ``pdf_pawls_extract`` is canonical v2; convert to v1 once at the
                 # plasmapdf boundary (its API still consumes v1 PawlsPagePythonType).
                 pdf_data_layer = (
-                    build_translation_layer(expand_pawls_pages(pdf_pawls_extract))
+                    build_translation_layer(to_v1_pages(pdf_pawls_extract))
                     if pdf_pawls_extract
                     else []
                 )

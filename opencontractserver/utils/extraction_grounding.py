@@ -125,8 +125,7 @@ def _load_document_text_and_layer(document: Document) -> tuple[str, Any, str]:
         DOCX_MIME_TYPE,
         TEXT_MIMETYPES,
     )
-    from opencontractserver.utils.compact_pawls import expand_pawls_pages
-    from opencontractserver.utils.pawls_io import load_canonical_v2
+    from opencontractserver.utils.pawls_io import load_canonical_v2, to_v1_pages
 
     file_type = (document.file_type or "").lower()
 
@@ -140,7 +139,7 @@ def _load_document_text_and_layer(document: Document) -> tuple[str, Any, str]:
 
         # Canonical v2 internally; v2→v1 only at the plasmapdf boundary.
         pawls_canonical = load_canonical_v2(document.pawls_parse_file)
-        pdf_layer = build_translation_layer(expand_pawls_pages(pawls_canonical))
+        pdf_layer = build_translation_layer(to_v1_pages(pawls_canonical))
         return pdf_layer.doc_text, pdf_layer, TOKEN_LABEL
 
     elif file_type in TEXT_MIMETYPES or file_type == DOCX_MIME_TYPE:

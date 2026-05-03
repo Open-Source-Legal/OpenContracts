@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from opencontractserver.documents.models import Document
-from opencontractserver.utils.compact_pawls import expand_pawls_pages
-from opencontractserver.utils.pawls_io import load_canonical_v2
+from opencontractserver.utils.pawls_io import load_canonical_v2, to_v1_pages
 
 from ._helpers import _db_sync_to_async
 
@@ -73,10 +72,10 @@ def search_exact_text_as_sources(
 
         # Load canonical v2 PAWLs once. ``build_translation_layer`` is a
         # plasmapdf API that still consumes v1 ``PawlsPagePythonType`` lists,
-        # so ``expand_pawls_pages`` is the deliberate v2→v1 hand-off used at
+        # so ``to_v1_pages`` is the deliberate v2→v1 hand-off used at
         # that external boundary only.
         pawls_canonical = load_canonical_v2(doc.pawls_parse_file)
-        pdf_layer = build_translation_layer(expand_pawls_pages(pawls_canonical))
+        pdf_layer = build_translation_layer(to_v1_pages(pawls_canonical))
         doc_text = pdf_layer.doc_text
 
         # Find all matches for each search string
