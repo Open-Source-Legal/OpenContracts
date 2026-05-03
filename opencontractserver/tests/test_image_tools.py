@@ -1393,3 +1393,228 @@ class ImageToolsPreExtractedContentTest(TestCase):
 
         images = _load_images_from_annotation_file(mock_annotation)
         self.assertEqual(images, [])
+
+
+class ExtractImageFromPawlsTest(TestCase):
+    """Tests for ``_extract_image_from_pawls`` — the structural-annotation
+    helper that pulls one image directly from a PAWLs payload (no document)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="extract_pawls_user", password="testpass123"
+        )
+
+    def _v1_image_pawls(self, base64_data: str) -> list:
+        return [
+            {
+                "page": {"width": 612, "height": 792, "index": 0},
+                "tokens": [
+                    {
+                        "x": 100,
+                        "y": 100,
+                        "width": 50,
+                        "height": 12,
+                        "text": "Hello",
+                    },
+                    {
+                        "x": 100,
+                        "y": 200,
+                        "width": 200,
+                        "height": 150,
+                        "text": "",
+                        "is_image": True,
+                        "base64_data": base64_data,
+                        "format": "jpeg",
+                    },
+                ],
+            }
+        ]
+
+    def _sample_image_base64(self) -> str:
+        from io import BytesIO
+
+        from PIL import Image
+
+        img = Image.new("RGB", (10, 10), color="blue")
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    def test_extracts_image_from_v1_input_normalizes_to_v2(self):
+        """v1 list input is normalized internally and the image is returned."""
+        from opencontractserver.llms.tools.image_tools import _extract_image_from_pawls
+
+        base64_data = self._sample_image_base64()
+        v1_pawls = self._v1_image_pawls(base64_data)
+
+        # Token index 1 is the image token.
+        result = _extract_image_from_pawls(v1_pawls, page_index=0, token_index=1)
+        self.assertIsNotNone(result)
+        assert result is not None  # for type narrowing
+        self.assertEqual(result.base64_data, base64_data)
+        self.assertEqual(result.format, "jpeg")
+        self.assertTrue(result.data_url.startswith("data:image/jpeg;base64,"))
+        self.assertEqual(result.page_index, 0)
+        self.assertEqual(result.token_index, 1)
+
+    def test_extracts_image_from_v2_canonical_dict(self):
+        """A pre-canonicalized v2 dict is consumed without conversion."""
+        from opencontractserver.llms.tools.image_tools import _extract_image_from_pawls
+        from opencontractserver.utils.pawls_io import to_canonical_v2
+
+        base64_data = self._sample_image_base64()
+        v2_pawls = to_canonical_v2(self._v1_image_pawls(base64_data))
+
+        result = _extract_image_from_pawls(v2_pawls, page_index=0, token_index=1)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.base64_data, base64_data)
+
+    def test_returns_none_when_token_is_not_image(self):
+        """A text token at the requested index returns ``None``."""
+        from opencontractserver.llms.tools.image_tools import _extract_image_from_pawls
+
+        v1_pawls = self._v1_image_pawls(self._sample_image_base64())
+        # Index 0 is a text token, not an image.
+        self.assertIsNone(
+            _extract_image_from_pawls(v1_pawls, page_index=0, token_index=0)
+        )
+
+    def test_returns_none_when_token_out_of_bounds(self):
+        """Out-of-bounds indices are logged and ``None`` is returned."""
+        from opencontractserver.llms.tools.image_tools import _extract_image_from_pawls
+
+        v1_pawls = self._v1_image_pawls(self._sample_image_base64())
+        self.assertIsNone(
+            _extract_image_from_pawls(v1_pawls, page_index=0, token_index=99)
+        )
+        self.assertIsNone(
+            _extract_image_from_pawls(v1_pawls, page_index=99, token_index=0)
+        )
+
+    def test_returns_none_on_unexpected_error(self):
+        """A garbage pawls_data triggers the broad except branch (returns None)."""
+        from opencontractserver.llms.tools.image_tools import _extract_image_from_pawls
+
+        # Passing a non-list non-canonical dict — to_canonical_v2 won't be
+        # invoked (isinstance check is for ``list``) so the inner code
+        # treats the dict as canonical and quickly fails to find tokens.
+        # An object with neither shape exercises the None return.
+        result = _extract_image_from_pawls(
+            {"unexpected": True},  # type: ignore[arg-type]
+            page_index=0,
+            token_index=0,
+        )
+        self.assertIsNone(result)
+
+
+class GetAnnotationImagesStructuralSetTest(TestCase):
+    """Tests for ``get_annotation_images`` paths that load PAWLs from a
+    structural_set (no document_id)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="structural_imgs_user", password="testpass123"
+        )
+        cls.label = AnnotationLabel.objects.create(
+            text="Structural Imgs Label", creator=cls.user
+        )
+
+    def _v1_image_pawls(self, base64_data: str) -> list:
+        return [
+            {
+                "page": {"width": 612, "height": 792, "index": 0},
+                "tokens": [
+                    {"x": 0, "y": 0, "width": 1, "height": 1, "text": "x"},
+                    {
+                        "x": 0,
+                        "y": 0,
+                        "width": 1,
+                        "height": 1,
+                        "text": "",
+                        "is_image": True,
+                        "base64_data": base64_data,
+                        "format": "jpeg",
+                    },
+                ],
+            }
+        ]
+
+    def _sample_b64(self) -> str:
+        from io import BytesIO
+
+        from PIL import Image
+
+        img = Image.new("RGB", (8, 8), color="green")
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    def test_loads_via_structural_set(self):
+        """Annotation with structural_set + no document loads PAWLs from
+        the structural_set's pawls_parse_file."""
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+        from opencontractserver.llms.tools.image_tools import get_annotation_images
+
+        b64 = self._sample_b64()
+        v1 = self._v1_image_pawls(b64)
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="hash_struct_imgs_test_" + "0" * 44,
+            parser_name="TestParser",
+            creator=self.user,
+            pawls_parse_file=ContentFile(json.dumps(v1).encode(), name="ss.pawls"),
+        )
+        annot = Annotation.objects.create(
+            structural_set=structural_set,
+            structural=True,
+            annotation_label=self.label,
+            creator=self.user,
+            json={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+
+        result = get_annotation_images(annot.pk)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].base64_data, b64)
+
+    def test_structural_set_load_failure_returns_empty(self):
+        """Malformed structural_set pawls_parse_file returns []."""
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+        from opencontractserver.llms.tools.image_tools import get_annotation_images
+
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="hash_struct_load_fail_" + "0" * 44,
+            parser_name="TestParser",
+            creator=self.user,
+            pawls_parse_file=ContentFile(b"not json at all", name="ss.pawls"),
+        )
+        annot = Annotation.objects.create(
+            structural_set=structural_set,
+            structural=True,
+            annotation_label=self.label,
+            creator=self.user,
+            json={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+        self.assertEqual(get_annotation_images(annot.pk), [])
+
+    def test_structural_set_without_pawls_file_returns_empty(self):
+        """Structural-set annotation whose ``pawls_parse_file`` is unset
+        falls into the warning branch and returns ``[]``."""
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+        from opencontractserver.llms.tools.image_tools import get_annotation_images
+
+        # Build a structural_set with no pawls_parse_file populated.
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="hash_struct_no_pawls_" + "0" * 44,
+            parser_name="TestParser",
+            creator=self.user,
+        )
+        annot = Annotation.objects.create(
+            structural_set=structural_set,
+            structural=True,
+            annotation_label=self.label,
+            creator=self.user,
+            json={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+        self.assertEqual(get_annotation_images(annot.pk), [])

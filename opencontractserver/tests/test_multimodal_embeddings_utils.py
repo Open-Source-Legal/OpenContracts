@@ -1209,3 +1209,348 @@ class TestExtractAndStoreAnnotationImages(TestCase):
         self.assertTrue(result)
         annot.refresh_from_db()
         self.assertTrue(bool(annot.image_content_file))
+
+
+class TestLoadImagesFromAnnotationFile(TestCase):
+    """Tests for load_images_from_annotation_file (image_content_file fast path)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="test_load_imgs_user", password="testpass123"
+        )
+        cls.corpus = Corpus.objects.create(
+            title="Test Corpus Load Imgs", creator=cls.user
+        )
+        cls.label = AnnotationLabel.objects.create(
+            text="Test Label Load Imgs", creator=cls.user
+        )
+
+    def _make_annotation(self):
+        document = Document.objects.create(
+            title="Doc Load Imgs",
+            creator=self.user,
+            pdf_file=ContentFile(b"pdf bytes", name="t.pdf"),
+        )
+        self.corpus.add_document(document=document, user=self.user)
+        return Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json={},
+        )
+
+    def test_no_image_content_file_returns_empty(self):
+        from opencontractserver.utils.multimodal_embeddings import (
+            load_images_from_annotation_file,
+        )
+
+        annot = self._make_annotation()
+        # Annotation has no image_content_file populated
+        self.assertEqual(load_images_from_annotation_file(annot), [])
+
+    def test_loads_and_converts_to_token_format(self):
+        """Stored images are returned as token-shaped dicts."""
+        from opencontractserver.utils.multimodal_embeddings import (
+            load_images_from_annotation_file,
+        )
+
+        annot = self._make_annotation()
+        payload = json.dumps(
+            {
+                "images": [
+                    {
+                        "base64": "ZmFrZS1iYXNlNjQ=",
+                        "format": "png",
+                        "width": 50.0,
+                        "height": 60.0,
+                        "page_index": 0,
+                        "token_index": 1,
+                    },
+                    {
+                        # No format → defaults to "jpeg"
+                        "base64": "YW5vdGhlci1pbWFnZQ==",
+                    },
+                ]
+            }
+        )
+        annot.image_content_file.save(
+            f"annot_{annot.pk}_images.json",
+            ContentFile(payload.encode("utf-8")),
+            save=True,
+        )
+
+        result = load_images_from_annotation_file(annot)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["is_image"], True)
+        self.assertEqual(result[0]["image_data"], "ZmFrZS1iYXNlNjQ=")
+        self.assertEqual(result[0]["format"], "png")
+        self.assertEqual(result[0]["width"], 50.0)
+        self.assertEqual(result[0]["height"], 60.0)
+        # Default format applied when missing.
+        self.assertEqual(result[1]["format"], "jpeg")
+
+    def test_corrupt_json_returns_empty(self):
+        """Malformed image_content_file returns [] rather than raising."""
+        from opencontractserver.utils.multimodal_embeddings import (
+            load_images_from_annotation_file,
+        )
+
+        annot = self._make_annotation()
+        annot.image_content_file.save(
+            f"annot_{annot.pk}_corrupt.json",
+            ContentFile(b"not valid json"),
+            save=True,
+        )
+        self.assertEqual(load_images_from_annotation_file(annot), [])
+
+
+class TestBatchExtractAnnotationImages(TestCase):
+    """Tests for batch_extract_annotation_images.
+
+    Covers the shared-PAWLs fast path that processes many annotations
+    against a single canonicalized v2 dict.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="test_batch_extract_user", password="testpass123"
+        )
+        cls.corpus = Corpus.objects.create(title="Test Corpus Batch", creator=cls.user)
+        cls.label = AnnotationLabel.objects.create(
+            text="Test Label Batch", creator=cls.user
+        )
+
+    def _make_annotation(self, *, modality, json_payload):
+        document = Document.objects.create(
+            title="Batch Doc",
+            creator=self.user,
+            pdf_file=ContentFile(b"pdf", name="t.pdf"),
+        )
+        self.corpus.add_document(document=document, user=self.user)
+        return Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json=json_payload,
+            content_modalities=[modality] if modality else [],
+        )
+
+    def test_returns_zero_when_pawls_unresolvable(self):
+        """``batch_extract`` short-circuits when canonicalization fails."""
+        from opencontractserver.utils.multimodal_embeddings import (
+            batch_extract_annotation_images,
+        )
+
+        annot = self._make_annotation(
+            modality=ContentModality.IMAGE.value,
+            json_payload={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+        # None / empty canonical → 0 with no work done.
+        self.assertEqual(batch_extract_annotation_images([annot], None), 0)
+        self.assertEqual(batch_extract_annotation_images([annot], []), 0)
+        self.assertEqual(batch_extract_annotation_images([annot], {}), 0)
+
+    def test_skips_annotations_without_image_modality(self):
+        """Annotations whose modality list lacks IMAGE are skipped."""
+        from opencontractserver.utils.multimodal_embeddings import (
+            batch_extract_annotation_images,
+        )
+
+        v2_pawls = to_canonical_v2(_make_v1_image_pawls(_sample_image_base64()))
+        text_only = self._make_annotation(
+            modality=ContentModality.TEXT.value,
+            json_payload={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+        no_modality = self._make_annotation(
+            modality=None,
+            json_payload={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+
+        self.assertEqual(
+            batch_extract_annotation_images([text_only, no_modality], v2_pawls),
+            0,
+        )
+        text_only.refresh_from_db()
+        no_modality.refresh_from_db()
+        self.assertFalse(bool(text_only.image_content_file))
+        self.assertFalse(bool(no_modality.image_content_file))
+
+    def test_extracts_for_image_modality_annotations(self):
+        """Only IMAGE-modality annotations get an image_content_file written."""
+        from opencontractserver.utils.multimodal_embeddings import (
+            batch_extract_annotation_images,
+        )
+
+        base64_data = _sample_image_base64()
+        v2_pawls = to_canonical_v2(_make_v1_image_pawls(base64_data))
+        # Two annotations, one IMAGE one TEXT — only the IMAGE one should
+        # produce a file.
+        image_annot = self._make_annotation(
+            modality=ContentModality.IMAGE.value,
+            json_payload={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+        text_annot = self._make_annotation(
+            modality=ContentModality.TEXT.value,
+            json_payload={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}},
+        )
+
+        count = batch_extract_annotation_images([image_annot, text_annot], v2_pawls)
+        self.assertEqual(count, 1)
+
+        image_annot.refresh_from_db()
+        text_annot.refresh_from_db()
+        self.assertTrue(bool(image_annot.image_content_file))
+        self.assertFalse(bool(text_annot.image_content_file))
+
+    def test_accepts_v1_input_via_internal_normalization(self):
+        """Raw v1 list is normalized once and reused across annotations."""
+        from opencontractserver.utils.multimodal_embeddings import (
+            batch_extract_annotation_images,
+        )
+
+        v1_pawls = _make_v1_image_pawls(_sample_image_base64())
+        annot = self._make_annotation(
+            modality=ContentModality.IMAGE.value,
+            json_payload={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+        )
+        self.assertEqual(batch_extract_annotation_images([annot], v1_pawls), 1)
+
+
+class TestGetAnnotationImageTokensFastPath(TestCase):
+    """Image-content-file fast path + no-source fallback for
+    get_annotation_image_tokens."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="test_fast_path_user", password="testpass123"
+        )
+        cls.corpus = Corpus.objects.create(title="Fast Path Corpus", creator=cls.user)
+        cls.label = AnnotationLabel.objects.create(
+            text="Fast Path Label", creator=cls.user
+        )
+
+    def test_fast_path_returns_pre_extracted_images(self):
+        """When image_content_file is populated, skip the PAWLs slow path."""
+        document = Document.objects.create(
+            title="Fast Path Doc",
+            creator=self.user,
+            pdf_file=ContentFile(b"pdf", name="t.pdf"),
+        )
+        self.corpus.add_document(document=document, user=self.user)
+        annot = Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json={},
+        )
+        # Pre-populate the image_content_file so the fast path can hit.
+        payload = json.dumps(
+            {
+                "images": [
+                    {
+                        "base64": _sample_image_base64(),
+                        "format": "jpeg",
+                        "width": 100,
+                        "height": 100,
+                    }
+                ]
+            }
+        )
+        annot.image_content_file.save(
+            f"annot_{annot.pk}_imgs.json",
+            ContentFile(payload.encode("utf-8")),
+            save=True,
+        )
+
+        result = get_annotation_image_tokens(annot)
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["is_image"])
+        self.assertTrue(result[0]["image_data"])
+
+    def test_no_document_and_no_structural_set_returns_empty(self):
+        """Annotation with no document AND no structural_set falls through
+        to the warning + ``return []`` branch."""
+        annot = MagicMock()
+        annot.image_content_file = None
+        annot.document = None
+        annot.structural_set = None
+        annot.pk = 999
+
+        result = get_annotation_image_tokens(annot)
+        self.assertEqual(result, [])
+
+    def test_outer_exception_returns_empty(self):
+        """Any unexpected exception inside the slow path is logged + []."""
+        annot = MagicMock()
+        annot.image_content_file = None
+        # Accessing .document raises — exercises the broad except path.
+        type(annot).document = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+        annot.pk = 1234
+
+        result = get_annotation_image_tokens(annot)
+        self.assertEqual(result, [])
+
+    def test_structural_set_load_failure_returns_empty(self):
+        """Structural-set PAWLs load failure logs and returns [] rather than
+        raising."""
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+
+        # Build a structural_set whose pawls_parse_file content is invalid
+        # JSON so load_canonical_v2 raises during the slow path.
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="hash_for_load_failure_test_" + "0" * 38,
+            parser_name="TestParser",
+            creator=self.user,
+            pawls_parse_file=ContentFile(b"this is not valid json", name="ss.pawls"),
+        )
+        annot = Annotation.objects.create(
+            structural_set=structural_set,
+            structural=True,
+            annotation_label=self.label,
+            creator=self.user,
+            json={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}},
+        )
+        result = get_annotation_image_tokens(annot)
+        self.assertEqual(result, [])
+
+
+class TestExtractAndStoreOuterException(TestCase):
+    """Exercises the outer ``except Exception`` branch in
+    extract_and_store_annotation_images so the broad catch is covered."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="test_extract_exc_user", password="testpass123"
+        )
+        cls.corpus = Corpus.objects.create(title="Extract Exc Corpus", creator=cls.user)
+        cls.label = AnnotationLabel.objects.create(
+            text="Extract Exc Label", creator=cls.user
+        )
+
+    def test_outer_exception_returns_false(self):
+        """Unexpected error inside the function body returns False, not raise."""
+        # Build a malformed annotation: .json access raises so the broad
+        # ``except`` is hit before any image extraction.
+        annot = MagicMock()
+        annot.pk = 7
+        # A canonical-v2 dict so _resolve_v2_pawls succeeds first.
+        canonical = to_canonical_v2(_make_v1_image_pawls(_sample_image_base64()))
+        # Make annotation.json raise to simulate an unexpected ORM error
+        # *after* canonicalization — exercises lines 450-452.
+        type(annot).json = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("forced"))
+        )
+        # raw_text accessed alongside json; just give it any value
+        annot.raw_text = ""
+
+        result = extract_and_store_annotation_images(annot, canonical)
+        self.assertFalse(result)

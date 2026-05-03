@@ -788,9 +788,10 @@ class StructuralAnnotationSet(BaseOCModel):
                         pawls_data = load_canonical_v2(self.pawls_parse_file)
                     except Exception as e:
                         logger.error(f"Failed to load PAWLs for image extraction: {e}")
-                        # Sentinel to prevent repeated attempts on subsequent
-                        # iterations of the enclosing loop. ``extract_and_store``
-                        # will normalize to v2 and short-circuit on empty input.
+                        # Falsy sentinel: prevents repeated load attempts on
+                        # subsequent loop iterations. The ``if pawls_data:``
+                        # guard below short-circuits before
+                        # ``extract_and_store_annotation_images`` is called.
                         pawls_data = {}
 
                 if pawls_data:

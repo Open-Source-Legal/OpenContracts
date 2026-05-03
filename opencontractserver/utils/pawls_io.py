@@ -184,6 +184,13 @@ def load_canonical_v2(
       * Pre-decoded JSON (``list`` or ``dict``) — passed straight through
         :func:`to_canonical_v2`
 
+    Note:
+        ``str`` inputs are always interpreted as filesystem paths. Pre-decoded
+        JSON must be passed as a ``list`` (v1) or ``dict`` (v2), never as a
+        raw JSON string. As a guard against the common mistake of handing in
+        a JSON string, a leading ``[`` or ``{`` after stripping whitespace
+        raises ``TypeError`` rather than falling through to ``open()``.
+
     Args:
         file_or_path: Source of PAWLs data.
 
@@ -192,7 +199,8 @@ def load_canonical_v2(
 
     Raises:
         ValueError: If the loaded payload is not a recognizable PAWLs format.
-        TypeError: If *file_or_path* isn't a supported source type.
+        TypeError: If *file_or_path* isn't a supported source type, or is a
+            ``str`` that looks like raw JSON content.
     """
     # Pre-decoded JSON shortcut — list or dict goes straight through.
     if isinstance(file_or_path, (list, dict)):
@@ -311,10 +319,12 @@ class PageView:
     def tokens(self) -> Iterator[TokenView]:
         """Iterate :class:`TokenView` instances in token-array order.
 
-        **Single-pass**: this is a fresh generator on each property access,
-        so callers that need to iterate twice (e.g. count then walk) should
-        materialize once via ``list(page.tokens)`` and reuse the list.
-        Each call to ``page.tokens`` yields a new iterator from the start.
+        Each access to ``page.tokens`` returns a **new iterator from the
+        start** — the property reads the same underlying rows every call.
+        A given iterator instance, however, is single-pass: once exhausted
+        it cannot be reused. Callers that need to iterate twice over the
+        *same* materialized sequence (e.g. count then walk) should snapshot
+        with ``list(page.tokens)`` rather than reusing one iterator.
         """
         for row in self._page.get("t", []):
             if isinstance(row, list):

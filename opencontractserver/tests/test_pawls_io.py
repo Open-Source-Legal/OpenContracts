@@ -286,6 +286,7 @@ class TokenViewTests(TestCase):
         self.assertFalse(view.is_image)
         self.assertIsNone(view.image_meta_v1)
 
+
 # ── PageView / iter_pages ────────────────────────────────────────
 
 
@@ -440,3 +441,42 @@ class RoundTripSemanticsTests(TestCase):
         through_boundary = expand_pawls_pages(to_canonical_v2(v1))
         direct = expand_pawls_pages(v1)
         self.assertEqual(through_boundary, direct)
+
+    def test_image_token_no_metadata_round_trip(self) -> None:
+        """
+        v1 image token with ``is_image=True`` but no v1 image metadata fields
+        must still produce a TokenView that reports ``is_image=True``.
+
+        Regression guard for the on-disk format change in
+        ``_compact_token``: image tokens always get an empty ``{}`` 6th
+        element so the is_image flag survives the v1 → v2 round trip even
+        when no metadata is present.
+        """
+        bare_image_token = {
+            "x": 10.0,
+            "y": 20.0,
+            "width": 30.0,
+            "height": 40.0,
+            "text": "",
+            "is_image": True,
+        }
+        v1 = [
+            {
+                "page": {"width": 612.0, "height": 792.0, "index": 0},
+                "tokens": [bare_image_token],
+            }
+        ]
+
+        v2 = to_canonical_v2(v1)
+        token_row = v2["p"][0]["t"][0]
+        # 6th element is the metadata dict (empty here, but present).
+        self.assertEqual(len(token_row), 6)
+        self.assertEqual(token_row[5], {})
+
+        view = TokenView(token_row)
+        self.assertTrue(view.is_image)
+        self.assertEqual(view.image_meta, {})
+
+        # Round-trip back to v1 preserves is_image=True.
+        v1_back = to_v1_pages(v2)
+        self.assertTrue(v1_back[0]["tokens"][0]["is_image"])
