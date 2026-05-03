@@ -283,7 +283,7 @@ class TestDuplicateToolRegistration(TransactionTestCase):
                 # We need to mock the temporary agent created inside structured_response
                 # The actual test is that the PydanticAIAgent constructor doesn't raise
                 with patch(
-                    "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+                    "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
                 ) as mock_agent_class:
                     mock_agent_instance = AsyncMock()
                     mock_agent_instance.run = AsyncMock(return_value=mock_result)

@@ -75,7 +75,7 @@ class TestLongConversationAPI(TransactionTestCase):
 
         # Mock only the LLM interaction, not the agent creation
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent that will be used internally
             mock_llm_agent = AsyncMock()
@@ -133,7 +133,7 @@ class TestLongConversationAPI(TransactionTestCase):
 
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -184,7 +184,7 @@ class TestLongConversationAPI(TransactionTestCase):
 
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -238,7 +238,7 @@ class TestLongConversationAPI(TransactionTestCase):
 
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -294,7 +294,7 @@ class TestLongConversationAPI(TransactionTestCase):
 
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -350,7 +350,7 @@ class TestLongConversationAPI(TransactionTestCase):
         """Test that anonymous conversations cannot be continued."""
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -385,7 +385,7 @@ class TestLongConversationAPI(TransactionTestCase):
 
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -429,7 +429,7 @@ class TestLongConversationAPI(TransactionTestCase):
 
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -475,7 +475,7 @@ class TestLongConversationAPI(TransactionTestCase):
         """Test multiple interactions in an anonymous conversation."""
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()
@@ -521,7 +521,7 @@ class TestLongConversationAPI(TransactionTestCase):
         """Test conversation info structure for both anonymous and persistent."""
         # Mock only the LLM interaction
         with patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         ) as MockPydanticAgent:
             # Create a mock LLM agent
             mock_llm_agent = AsyncMock()

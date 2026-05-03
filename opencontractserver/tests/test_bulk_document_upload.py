@@ -8,12 +8,17 @@ from uuid import UUID
 import django
 from celery.result import AsyncResult
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import Client
 from graphene.test import Client as GrapheneClient
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
+from opencontractserver.constants.zip_import import (
+    BULK_UPLOAD_OWNER_CACHE_PREFIX,
+    BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.tasks.import_tasks import process_documents_zip
@@ -211,6 +216,13 @@ class BulkDocumentUploadTests(TestCase):
         # Directly set the AsyncResult for this task ID to ensure it's available
         AsyncResult(test_task_id).backend.store_result(
             test_task_id, dummy_result, "SUCCESS"
+        )
+
+        # Bind ownership for the IDOR-protected status resolver.
+        cache.set(
+            f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{test_task_id}",
+            self.user.id,
+            BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
         )
 
         # Use our known task ID to perform the status query
@@ -548,3 +560,83 @@ class BulkDocumentUploadTests(TestCase):
         self.assertFalse(results["success"])
         self.assertEqual(results["processed_files"], 0)
         self.assertTrue(any("Job failed" in error for error in results["errors"]))
+
+
+class BulkDocumentUploadStatusIDORTests(TestCase):
+    """
+    Regression tests for the bulk_document_upload_status IDOR.
+
+    Before the fix, the resolver called celery_app.AsyncResult(job_id) with
+    no ownership check — any authenticated user with a leaked job_id could
+    read the job's results (including document_ids of the import).
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="owner", password="x")
+        self.attacker = User.objects.create_user(username="attacker", password="x")
+
+    def _execute_status_query(self, user, job_id: str) -> dict:
+        client = GrapheneClient(schema, context_value=TestContext(user))
+        query = """
+            query BulkDocumentUploadStatus($jobId: String!) {
+                bulkDocumentUploadStatus(jobId: $jobId) {
+                    completed
+                    success
+                    totalFiles
+                    documentIds
+                    errors
+                }
+            }
+        """
+        return client.execute(query, variable_values={"jobId": job_id})
+
+    @override_settings(
+        CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_STORE_EAGER_RESULT=True
+    )
+    def test_attacker_cannot_read_other_users_bulk_upload_status(self):
+        """A user without the ownership cache entry must get the uniform not-found response."""
+        # Owner enqueues a job (we just simulate the cache binding + a stored result).
+        job_id = f"test-task-{uuid.uuid4()}"
+        cache.set(
+            f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
+            self.owner.id,
+            BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+        )
+        AsyncResult(job_id).backend.store_result(
+            job_id,
+            {
+                "success": True,
+                "completed": True,
+                "total_files": 7,
+                "document_ids": ["secret-doc-1", "secret-doc-2"],
+                "errors": [],
+            },
+            "SUCCESS",
+        )
+
+        # Owner sees the real result.
+        owner_response = self._execute_status_query(self.owner, job_id)
+        owner_payload = owner_response["data"]["bulkDocumentUploadStatus"]
+        self.assertEqual(owner_payload["totalFiles"], 7)
+        self.assertEqual(owner_payload["documentIds"], ["secret-doc-1", "secret-doc-2"])
+
+        # Attacker gets the opaque not-found response — no document IDs leak.
+        attacker_response = self._execute_status_query(self.attacker, job_id)
+        attacker_payload = attacker_response["data"]["bulkDocumentUploadStatus"]
+        self.assertFalse(attacker_payload["completed"])
+        self.assertFalse(attacker_payload["success"])
+        # documentIds is unset on the not-found path → serializes to None.
+        self.assertIsNone(attacker_payload["documentIds"])
+        self.assertIn("not found", " ".join(attacker_payload["errors"]).lower())
+
+    @override_settings(
+        CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_STORE_EAGER_RESULT=True
+    )
+    def test_unknown_job_id_returns_uniform_not_found(self):
+        """Cache miss must fail closed — no celery state should be revealed."""
+        job_id = f"unknown-{uuid.uuid4()}"
+        response = self._execute_status_query(self.attacker, job_id)
+        payload = response["data"]["bulkDocumentUploadStatus"]
+        self.assertFalse(payload["completed"])
+        self.assertFalse(payload["success"])
+        self.assertIn("not found", " ".join(payload["errors"]).lower())

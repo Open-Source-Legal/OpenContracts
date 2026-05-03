@@ -9,6 +9,7 @@ from typing import Any
 
 import graphene
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import QuerySet
 from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
@@ -28,6 +29,7 @@ from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dyna
 from opencontractserver.constants.annotations import (
     DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT,
 )
+from opencontractserver.constants.zip_import import BULK_UPLOAD_OWNER_CACHE_PREFIX
 from opencontractserver.documents.models import (
     Document,
     DocumentRelationship,
@@ -217,6 +219,27 @@ class DocumentQueryMixin:
             BulkDocumentUploadStatusType with the current job status
         """
         from config import celery_app
+
+        # IDOR protection: ensure the requesting user is the one who enqueued
+        # this job. Cache miss (expired or unknown) fails closed with the
+        # same opaque "not found" response so attackers cannot distinguish
+        # missing-job from another-user's-job.
+        owner_id = cache.get(f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}")
+        not_found_response = BulkDocumentUploadStatusType(
+            job_id=job_id,
+            success=False,
+            completed=False,
+            errors=["Bulk upload job not found."],
+        )
+        # Coerce to int defensively: some Django cache backends (e.g. Redis
+        # with a custom serializer) deserialize integers as strings, which
+        # would silently break the legitimate-owner equality check.
+        try:
+            owner_id_int = int(owner_id) if owner_id is not None else None
+        except (TypeError, ValueError):
+            owner_id_int = None
+        if owner_id_int is None or owner_id_int != info.context.user.id:
+            return not_found_response
 
         try:
             # Try to get the task result from Celery

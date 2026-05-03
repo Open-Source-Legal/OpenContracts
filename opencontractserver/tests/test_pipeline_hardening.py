@@ -26,6 +26,8 @@ from opencontractserver.tasks.doc_tasks import (
     _mark_document_failed,
     retry_document_processing,
 )
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -182,6 +184,10 @@ class TestRetryDocumentProcessing(TestCase):
             processing_error="Previous error",
             processing_error_traceback="Previous traceback",
         )
+        # T-7 (#1463) defense-in-depth requires explicit guardian UPDATE
+        # permission for retries; production upload mutations grant CRUD
+        # to the uploader, so we mirror that here.
+        set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
 
         # Create a mock PDF file for the document
         pdf_content = b"%PDF-1.7\n%%EOF\n"

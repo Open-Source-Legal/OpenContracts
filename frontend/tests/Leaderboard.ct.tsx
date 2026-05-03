@@ -418,6 +418,100 @@ test.describe("Leaderboard", () => {
     await component.unmount();
   });
 
+  test("badge tile contains an extremely long badge name without overflow", async ({
+    mount,
+    page,
+  }) => {
+    // Regression coverage for the badge-overflow fix: a badge name with no
+    // natural break opportunities (a single very long token) used to escape
+    // its `BadgeCard`. With `overflow-wrap: anywhere` + `max-width: 100%` on
+    // the styled badge / name and `min-width: 0` on the card, the tile width
+    // must stay bounded by its grid column.
+    const longName = "ExtremelyLongBadgeNameThatWouldPreviouslyOverflowGrid";
+    const leaderboardMock = {
+      request: {
+        query: GET_LEADERBOARD,
+        variables: {
+          metric: "BADGES",
+          scope: "ALL_TIME",
+          corpusId: undefined,
+          limit: 25,
+        },
+      },
+      result: defaultLeaderboardMock.result,
+    };
+    const longNameStatsMock = {
+      request: {
+        query: GET_COMMUNITY_STATS,
+        variables: { corpusId: undefined },
+      },
+      result: {
+        data: {
+          communityStats: {
+            totalUsers: 100,
+            totalMessages: 500,
+            totalThreads: 50,
+            totalAnnotations: 2000,
+            totalBadgesAwarded: 75,
+            messagesThisWeek: 30,
+            messagesThisMonth: 120,
+            activeUsersThisWeek: 25,
+            activeUsersThisMonth: 60,
+            badgeDistribution: [
+              {
+                badge: {
+                  id: "badge-long",
+                  name: longName,
+                  description: "A badge whose name has no natural break points",
+                  icon: "trophy",
+                  color: "#0F766E",
+                  rarity: "EPIC",
+                },
+                awardCount: 5,
+                uniqueRecipients: 5,
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <LeaderboardTestWrapper
+        mocks={[
+          leaderboardMock,
+          { ...leaderboardMock },
+          { ...leaderboardMock },
+          longNameStatsMock,
+          { ...longNameStatsMock },
+          { ...longNameStatsMock },
+        ]}
+      />
+    );
+
+    const longBadge = page.getByText(longName).first();
+    await expect(longBadge).toBeVisible({ timeout: 10000 });
+
+    // The rendered badge name must fit inside its `BadgeCard` parent — i.e.
+    // the visible width must not exceed the card's content box. We grab the
+    // closest ancestor with `width: 100%` (the `BadgeCard` itself, which is
+    // a column-flex container) and assert its child does not overflow it.
+    const badgeBox = await longBadge.boundingBox();
+    expect(badgeBox).not.toBeNull();
+    const cardBox = await longBadge
+      .locator("xpath=ancestor::*[contains(@class, 'sc-')][1]")
+      .first()
+      .boundingBox();
+    expect(cardBox).not.toBeNull();
+    if (badgeBox && cardBox) {
+      expect(badgeBox.width).toBeLessThanOrEqual(cardBox.width + 1);
+    }
+
+    await docScreenshot(page, "community--leaderboard--long-badge-name");
+
+    await component.unmount();
+  });
+
   test("renders rank-3 medal styling and rank > 3 numeric fallback", async ({
     mount,
     page,

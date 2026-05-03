@@ -26,6 +26,7 @@ from graphql_relay import to_global_id
 from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
     AnnotationLabel,
+    Note,
     Relationship,
 )
 from opencontractserver.badges.models import Badge, BadgeTypeChoices
@@ -110,11 +111,12 @@ class TestRemoveRelationshipsSecurity(TestCase):
 
         result = client.execute(mutation, variables=variables)
 
-        # Mutation should fail
+        # Mutation should fail with the unified IDOR-safe message (issue #1449)
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["removeRelationships"]["ok"])
         self.assertIn(
-            "Permission denied", result["data"]["removeRelationships"]["message"]
+            "do not have permission",
+            result["data"]["removeRelationships"]["message"],
         )
 
         # Relationship should still exist
@@ -172,11 +174,13 @@ class TestRemoveRelationshipsSecurity(TestCase):
 
         result = client.execute(mutation, variables=variables)
 
-        # Should get same "not found" error
+        # Should get the same unified IDOR-safe message as the unauthorized
+        # case above (issue #1449)
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["removeRelationships"]["ok"])
         self.assertEqual(
-            result["data"]["removeRelationships"]["message"], "Relationship not found"
+            result["data"]["removeRelationships"]["message"],
+            "Relationship not found or you do not have permission to access it",
         )
 
 
@@ -256,11 +260,12 @@ class TestUpdateRelationsSecurity(TestCase):
 
         result = client.execute(mutation, variables=variables)
 
-        # Mutation should fail
+        # Mutation should fail with the unified IDOR-safe message (issue #1449)
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateRelationships"]["ok"])
         self.assertIn(
-            "Permission denied", result["data"]["updateRelationships"]["message"]
+            "do not have permission",
+            result["data"]["updateRelationships"]["message"],
         )
 
 
@@ -951,3 +956,244 @@ class TestRemoveRelationshipIDORProtection(TestCase):
         )
         self.assertFalse(result_no_perm["data"]["removeRelationship"]["ok"])
         self.assertFalse(result_not_found["data"]["removeRelationship"]["ok"])
+
+
+class TestUpdateNoteIDORProtection(TestCase):
+    """``UpdateNote`` must return identical responses for missing-id, hidden-id,
+    and visible-but-not-creator branches so an attacker cannot enumerate notes.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="note_owner", password="test", email="o@test.com"
+        )
+        self.outsider = User.objects.create_user(
+            username="note_outsider", password="test", email="x@test.com"
+        )
+        self.document = Document.objects.create(
+            title="Doc",
+            creator=self.owner,
+            is_public=True,  # outsider can see the doc but not the note
+            backend_lock=False,
+        )
+        self.note = Note.objects.create(
+            title="Private",
+            content="secret",
+            creator=self.owner,
+            document=self.document,
+        )
+
+    def _execute(self, user, note_pk: int) -> dict:
+        client = Client(schema, context_value=MockContext(user))
+        return client.execute(
+            """
+            mutation UpdateNote($noteId: ID!, $newContent: String!) {
+                updateNote(noteId: $noteId, newContent: $newContent) {
+                    ok
+                    message
+                }
+            }
+            """,
+            variables={
+                "noteId": to_global_id("NoteType", note_pk),
+                "newContent": "tampered",
+            },
+        )
+
+    def test_missing_and_hidden_and_non_creator_collapse_to_one_message(self):
+        # Branch A: note id does not exist
+        missing = self._execute(self.outsider, 999_999)
+        # Branch B: note exists but the caller is not the creator
+        non_creator = self._execute(self.outsider, self.note.id)
+
+        self.assertIsNone(missing.get("errors"))
+        self.assertIsNone(non_creator.get("errors"))
+        self.assertFalse(missing["data"]["updateNote"]["ok"])
+        self.assertFalse(non_creator["data"]["updateNote"]["ok"])
+        self.assertEqual(
+            missing["data"]["updateNote"]["message"],
+            non_creator["data"]["updateNote"]["message"],
+            "IDOR: missing-id and not-creator branches must be byte-identical",
+        )
+
+
+class TestUpdateCorpusDescriptionIDORProtection(TestCase):
+    """``UpdateCorpusDescription`` must collapse missing-id and not-creator
+    branches to a single response."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="cd_owner", password="test", email="cd@test.com"
+        )
+        self.outsider = User.objects.create_user(
+            username="cd_outsider", password="test", email="cdo@test.com"
+        )
+        # Public corpus so the outsider passes ``visible_to_user`` and we
+        # exercise the "visible but not the creator" branch.
+        self.corpus = Corpus.objects.create(
+            title="Public", creator=self.owner, is_public=True
+        )
+
+    def _execute(self, user, corpus_pk: int) -> dict:
+        client = Client(schema, context_value=MockContext(user))
+        return client.execute(
+            """
+            mutation UpdateCorpusDescription($corpusId: ID!, $new: String!) {
+                updateCorpusDescription(corpusId: $corpusId, newContent: $new) {
+                    ok
+                    message
+                }
+            }
+            """,
+            variables={
+                "corpusId": to_global_id("CorpusType", corpus_pk),
+                "new": "tampered",
+            },
+        )
+
+    def test_missing_and_non_creator_collapse_to_one_message(self):
+        missing = self._execute(self.outsider, 999_999)
+        non_creator = self._execute(self.outsider, self.corpus.id)
+
+        self.assertIsNone(missing.get("errors"))
+        self.assertIsNone(non_creator.get("errors"))
+        self.assertFalse(missing["data"]["updateCorpusDescription"]["ok"])
+        self.assertFalse(non_creator["data"]["updateCorpusDescription"]["ok"])
+        self.assertEqual(
+            missing["data"]["updateCorpusDescription"]["message"],
+            non_creator["data"]["updateCorpusDescription"]["message"],
+            "IDOR: missing-id and not-creator branches must be byte-identical",
+        )
+
+
+class TestRestoreDocumentToVersionIDORProtection(TestCase):
+    """``RestoreDocumentToVersion`` collapses four prior branches (missing doc,
+    missing corpus, doc-not-writable, corpus-not-writable) into one response.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="rv_owner", password="test", email="rv@test.com"
+        )
+        self.outsider = User.objects.create_user(
+            username="rv_outsider", password="test", email="rvo@test.com"
+        )
+        # Public corpus + public doc — outsider passes ``visible_to_user`` but
+        # has no UPDATE.
+        self.corpus = Corpus.objects.create(
+            title="Public", creator=self.owner, is_public=True
+        )
+        self.document = Document.objects.create(
+            title="Doc",
+            creator=self.owner,
+            is_public=True,
+            backend_lock=False,
+        )
+
+    def _execute(self, user, doc_pk: int, corpus_pk: int) -> dict:
+        client = Client(schema, context_value=MockContext(user))
+        return client.execute(
+            """
+            mutation Restore($documentId: String!, $corpusId: String!) {
+                restoreDocumentToVersion(documentId: $documentId, corpusId: $corpusId) {
+                    ok
+                    message
+                }
+            }
+            """,
+            variables={
+                "documentId": to_global_id("DocumentType", doc_pk),
+                "corpusId": to_global_id("CorpusType", corpus_pk),
+            },
+        )
+
+    def test_all_failure_branches_return_same_message(self):
+        # Branch A: document id does not exist
+        missing_doc = self._execute(self.outsider, 999_999, self.corpus.id)
+        # Branch B: corpus id does not exist
+        missing_corpus = self._execute(self.outsider, self.document.id, 999_999)
+        # Branch C: both visible but caller has no UPDATE
+        no_perm = self._execute(self.outsider, self.document.id, self.corpus.id)
+
+        for r in (missing_doc, missing_corpus, no_perm):
+            self.assertIsNone(r.get("errors"))
+            self.assertFalse(r["data"]["restoreDocumentToVersion"]["ok"])
+
+        message_a = missing_doc["data"]["restoreDocumentToVersion"]["message"]
+        message_b = missing_corpus["data"]["restoreDocumentToVersion"]["message"]
+        message_c = no_perm["data"]["restoreDocumentToVersion"]["message"]
+        self.assertEqual(message_a, message_b)
+        self.assertEqual(message_a, message_c)
+
+
+class TestUploadDocumentCorpusIDORProtection(TestCase):
+    """``UploadDocument`` with ``addToCorpusId`` must collapse missing-corpus
+    and visible-but-no-EDIT branches to one response so an attacker cannot
+    enumerate corpus IDs by attempting an upload."""
+
+    def setUp(self):
+        self.outsider = User.objects.create_user(
+            username="up_outsider", password="test", email="up@test.com"
+        )
+        self.other_owner = User.objects.create_user(
+            username="up_other_owner", password="test", email="upo@test.com"
+        )
+        # Public corpus — outsider is visible-to-user but has no EDIT.
+        self.public_corpus = Corpus.objects.create(
+            title="Public", creator=self.other_owner, is_public=True
+        )
+
+    def _execute(self, corpus_pk: int) -> dict:
+        client = Client(schema, context_value=MockContext(self.outsider))
+        return client.execute(
+            """
+            mutation Upload(
+                $file: String!
+                $filename: String!
+                $title: String!
+                $description: String!
+                $makePublic: Boolean!
+                $customMeta: GenericScalar!
+                $addToCorpusId: ID!
+            ) {
+                uploadDocument(
+                    base64FileString: $file
+                    filename: $filename
+                    title: $title
+                    description: $description
+                    makePublic: $makePublic
+                    customMeta: $customMeta
+                    addToCorpusId: $addToCorpusId
+                ) {
+                    ok
+                    message
+                    document { id }
+                }
+            }
+            """,
+            variables={
+                # Garbage payload — the mutation rejects on the corpus gate
+                # before it ever touches file bytes.
+                "file": "QUJD",  # base64("ABC")
+                "filename": "x.pdf",
+                "title": "x",
+                "description": "x",
+                "makePublic": False,
+                "customMeta": {},
+                "addToCorpusId": to_global_id("CorpusType", corpus_pk),
+            },
+        )
+
+    def test_missing_corpus_and_no_edit_return_same_message(self):
+        missing = self._execute(999_999)
+        no_edit = self._execute(self.public_corpus.id)
+
+        self.assertIsNone(missing.get("errors"))
+        self.assertIsNone(no_edit.get("errors"))
+        self.assertFalse(missing["data"]["uploadDocument"]["ok"])
+        self.assertFalse(no_edit["data"]["uploadDocument"]["ok"])
+        self.assertEqual(
+            missing["data"]["uploadDocument"]["message"],
+            no_edit["data"]["uploadDocument"]["message"],
+            "IDOR: missing-corpus and visible-but-no-EDIT branches must match",
+        )

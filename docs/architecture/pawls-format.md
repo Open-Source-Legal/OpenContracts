@@ -361,7 +361,7 @@ Key consumers read through `expand_pawls_pages()`. Run `grep -r expand_pawls_pag
 
 | Consumer | File |
 |----------|------|
-| LLM agent tools | `opencontractserver/llms/tools/core_tools.py` |
+| LLM agent tools | `opencontractserver/llms/tools/core_tools/` |
 | Image tools | `opencontractserver/llms/tools/image_tools.py` |
 | PDF token extraction | `opencontractserver/utils/pdf_token_extraction.py` |
 | Frontend REST fetch | `frontend/src/components/annotator/api/rest.ts` |

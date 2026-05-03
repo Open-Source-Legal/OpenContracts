@@ -99,6 +99,7 @@ from opencontractserver.utils.prompt_sanitization import (
 )
 from opencontractserver.utils.tools import deduplicate_tools, get_tool_name
 
+from .pydantic_ai_factory import make_pydantic_ai_agent
 from .timeline_schema import TimelineEntry
 from .timeline_utils import TimelineBuilder
 
@@ -1452,7 +1453,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             # ``model_settings=None`` to ``PydanticAIAgent`` when nothing
             # ended up being set, so non-Anthropic structured runs without
             # caller pins are bit-identical to before.
-            structured_agent = PydanticAIAgent(
+            structured_agent = make_pydantic_ai_agent(
                 model=effective_model,
                 instructions=structured_system_prompt,
                 output_type=target_type,
@@ -2532,7 +2533,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             tool_names,
         )
         logger.info(f"Created pydantic ai agent with context {config.system_prompt}")
-        pydantic_ai_agent_instance = PydanticAIAgent(
+        pydantic_ai_agent_instance = make_pydantic_ai_agent(
             model=config.model_name,
             instructions=config.system_prompt,
             deps_type=PydanticAIDependencies,
@@ -2944,7 +2945,7 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
                 effective_tools, tools, context="Caller"
             )
 
-        pydantic_ai_agent_instance = PydanticAIAgent(
+        pydantic_ai_agent_instance = make_pydantic_ai_agent(
             model=config.model_name,
             instructions=config.system_prompt,
             deps_type=PydanticAIDependencies,

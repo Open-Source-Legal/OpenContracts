@@ -16,6 +16,8 @@ from opencontractserver.pipeline.parsers.text_chunkers import (
 )
 from opencontractserver.tasks.doc_tasks import ingest_doc
 from opencontractserver.tests.fixtures import SAMPLE_TXT_FILE_ONE_PATH
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -44,6 +46,10 @@ class TxtIngestorTestCase(TestCase):
                 file_type="text/plain",
                 backend_lock=True,
             )
+        # T-7 (#1463) defense-in-depth: ingest_doc rejects callers without
+        # explicit guardian READ permission. Production upload mutations
+        # grant CRUD on creation; mirror that in the test.
+        set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
 
     @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
     def test_ingest_txt(self):

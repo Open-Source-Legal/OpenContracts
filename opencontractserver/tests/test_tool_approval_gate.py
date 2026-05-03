@@ -172,7 +172,7 @@ class TestApprovalFlow(TransactionTestCase):
     def _setup_mocks(self):  # noqa: D401 – Django hook
         """Set up mocks for the test - called at the end of setUp."""
         patcher = patch(
-            "opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIAgent"
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
         )
         self.addCleanup(patcher.stop)
         mock_cls = patcher.start()

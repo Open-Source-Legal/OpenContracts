@@ -255,10 +255,14 @@ class UploadDocumentMutationTestCase(TestCase):
             "Error message should mention permission",
         )
 
-        # Test 3: User with UPDATE permission should succeed
+        # Test 3: User with READ + UPDATE permission should succeed
         # Note: EDIT is an alias for UPDATE in permission checks, but set_permissions
-        # uses UPDATE to grant the actual permission
-        set_permissions_for_obj_to_user(self.user, corpus, [PermissionTypes.UPDATE])
+        # uses UPDATE to grant the actual permission. READ is also required because
+        # the mutation now routes the corpus load through ``visible_to_user`` before
+        # checking EDIT (IDOR-hardening - see config/graphql/document_mutations.py).
+        set_permissions_for_obj_to_user(
+            self.user, corpus, [PermissionTypes.READ, PermissionTypes.UPDATE]
+        )
 
         result = self.client.execute(
             self.mutation,

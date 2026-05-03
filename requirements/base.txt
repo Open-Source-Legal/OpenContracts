@@ -48,7 +48,14 @@ pdf2image>=1.17.0
 tiktoken==0.12.0  # https://github.com/openai/tiktoken
 openai>=2.33.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
 pytesseract
-pydantic-ai>=1.89.1,<2
+# Bumping pydantic-ai is a deliberate decision: this codebase relies on the
+# precedence rule that ``instructions=`` (not ``system_prompt=``) is the only
+# way to deliver a system instruction when ``message_history`` is non-empty
+# (see issue #1451 and CLAUDE.md pitfall #14). The regression test in
+# ``opencontractserver/tests/test_pydantic_ai_factory.py`` pins this behaviour
+# against the version installed; if that test fails on a bump, validate the
+# new precedence semantics before widening this pin.
+pydantic-ai>=1.89.1,<2  # see issue #1451 before bumping the upper bound
 spacy
 pdfplumber>=0.10.0  # https://github.com/jsvine/pdfplumber - PDF token extraction
 shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection

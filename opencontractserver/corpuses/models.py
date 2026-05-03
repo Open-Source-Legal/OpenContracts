@@ -521,15 +521,27 @@ class Corpus(TreeNode):
     def _propagate_public_status_to_documents(self) -> None:
         """Propagate this corpus's is_public flag to its documents.
 
-        When a corpus becomes public, all its documents become public.
+        When a corpus becomes public, all its documents become public —
+        EXCEPT documents that also live in another *private* corpus owned
+        by a different user. Publicizing those would leak material the
+        actor never had authority to share. Such docs are skipped and a
+        warning is logged. (I-1 fix.)
+
         When a corpus becomes private, documents are set private ONLY if
         they are not in any other public corpus (preserving visibility
         for documents shared across multiple corpora).
+
+        Document creators (other than the actor) are notified for every
+        publicized document so they can audit the change.
 
         This maintains the permissioning guide's rule: both document AND
         corpus must have is_public=True for anonymous access.
         """
         from opencontractserver.documents.models import Document, DocumentPath
+        from opencontractserver.notifications.models import (
+            Notification,
+            NotificationTypeChoices,
+        )
 
         doc_ids = list(
             DocumentPath.objects.filter(
@@ -541,10 +553,65 @@ class Corpus(TreeNode):
             return
 
         if self.is_public:
-            # Corpus became public → all its documents become public
-            Document.objects.filter(id__in=doc_ids, is_public=False).update(
-                is_public=True
+            # Identify documents that also live in a private corpus owned
+            # by someone OTHER than this corpus's creator. Publicizing
+            # those would expose material the actor never had authority
+            # to share, so they are excluded from propagation.
+            cross_owner_blocked_ids = set(
+                DocumentPath.objects.filter(
+                    document_id__in=doc_ids,
+                    corpus__is_public=False,
+                    is_current=True,
+                    is_deleted=False,
+                )
+                .exclude(corpus=self)
+                .exclude(corpus__creator=self.creator)
+                .values_list("document_id", flat=True)
             )
+            if cross_owner_blocked_ids:
+                logger.warning(
+                    "Corpus %s public flip skipped %d documents that are "
+                    "also members of a private corpus owned by a different "
+                    "user.",
+                    self.pk,
+                    len(cross_owner_blocked_ids),
+                )
+
+            publicize_ids = [d for d in doc_ids if d not in cross_owner_blocked_ids]
+            if not publicize_ids:
+                return
+
+            # Wrap the snapshot + update + notification fan-out in a single
+            # transaction so a concurrent publicize cannot slip in between
+            # the snapshot and the update and cause a stale notification
+            # for a document that didn't actually transition in this call.
+            with transaction.atomic():
+                transitioning = list(
+                    Document.objects.select_for_update()
+                    .filter(id__in=publicize_ids, is_public=False)
+                    .values("id", "creator_id", "title")
+                )
+                Document.objects.filter(id__in=publicize_ids, is_public=False).update(
+                    is_public=True
+                )
+
+                notifications = [
+                    Notification(
+                        recipient_id=row["creator_id"],
+                        notification_type=(NotificationTypeChoices.DOCUMENT_PUBLICIZED),
+                        actor=self.creator,
+                        data={
+                            "document_id": row["id"],
+                            "document_title": row["title"],
+                            "corpus_id": self.pk,
+                            "corpus_title": self.title,
+                        },
+                    )
+                    for row in transitioning
+                    if row["creator_id"] and row["creator_id"] != self.creator_id
+                ]
+                if notifications:
+                    Notification.objects.bulk_create(notifications)
         else:
             # Corpus became private → revoke public only for documents
             # NOT in any other public corpus

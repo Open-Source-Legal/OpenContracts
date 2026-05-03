@@ -52,3 +52,12 @@ ZIP_MAX_SIDECAR_SIZE_BYTES = getattr(
 
 # Batch size for document processing (commit after N documents)
 ZIP_DOCUMENT_BATCH_SIZE = getattr(settings, "ZIP_DOCUMENT_BATCH_SIZE", 50)
+
+# IDOR protection: bulk-upload job-id ↔ owner mapping in cache.
+# At enqueue time we cache the (job_id → user_id) pair; the status
+# resolver refuses to return progress for jobs the requester didn't
+# enqueue. TTL is generous so long-running imports remain queryable.
+BULK_UPLOAD_OWNER_CACHE_PREFIX = "bulk_upload_owner:"
+BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS = getattr(
+    settings, "BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS", 24 * 60 * 60
+)

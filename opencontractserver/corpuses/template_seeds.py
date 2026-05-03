@@ -22,7 +22,7 @@ _TRIGGER_ADD_DOCUMENT = "add_document"
 # ---------------------------------------------------------------------------
 
 # NOTE: Tool names (e.g. "add_annotations_from_exact_strings") must match the
-# registered tool names in opencontractserver/llms/tools/core_tools.py.
+# registered tool names in opencontractserver/llms/tools/core_tools/.
 #
 # Each template has both "tools" (available tools) and "pre_authorized" (tools
 # that don't require user confirmation).  For these default templates the lists

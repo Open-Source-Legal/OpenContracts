@@ -57,7 +57,6 @@ def curate_corpus_memory(
 async def _curate_corpus_memory_async(conversation_id: int) -> dict:
     """Async implementation of corpus memory curation."""
     from channels.db import database_sync_to_async
-    from pydantic_ai.agent import Agent as PydanticAIAgent
 
     from opencontractserver.agents.memory import (
         build_curation_prompt,
@@ -68,6 +67,9 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
     from opencontractserver.conversations.models import (
         Conversation,
         ConversationTypeChoices,
+    )
+    from opencontractserver.llms.agents.pydantic_ai_factory import (
+        make_pydantic_ai_agent,
     )
     from opencontractserver.llms.context_guardrails import estimate_token_count
 
@@ -182,7 +184,7 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
         await _release_claim()
         return {"status": "error", "reason": "config_failed"}
 
-    summarise_agent = PydanticAIAgent(
+    summarise_agent = make_pydantic_ai_agent(
         model=model_name,
         instructions=MEMORY_SUMMARISE_SYSTEM_PROMPT,
     )
@@ -209,7 +211,7 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
         max_insights=MEMORY_MAX_INSIGHTS_PER_CURATION,
     )
 
-    curation_agent = PydanticAIAgent(
+    curation_agent = make_pydantic_ai_agent(
         model=model_name,
         instructions=system_prompt,
     )
