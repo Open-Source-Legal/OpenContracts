@@ -151,7 +151,12 @@ if settings.USE_AUTH0:
         )
         if token_row is not None:
             return token_row.token
-        return get_new_auth0_token.delay().get()
+        # Run the token-fetch in-process rather than ``delay().get()``. The
+        # latter dispatches to the broker and blocks the current worker waiting
+        # for another worker to pick it up; under a saturated prefork pool this
+        # deadlocks. ``.run()`` invokes the task body synchronously in the
+        # current process.
+        return get_new_auth0_token.run()
 
     @celery_app.task
     def get_user_details_async(token: Optional[str], auth0_Id: str) -> dict[str, Any]:

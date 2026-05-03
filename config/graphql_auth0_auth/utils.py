@@ -6,6 +6,7 @@ import uuid
 
 import jwt
 import requests
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -76,12 +77,13 @@ def jwt_auth0_decode(token):
 
     issuer = f"https://{auth0_settings.AUTH0_DOMAIN}/"
 
-    # JWKS endpoints publish public keys only; the cryptography stubs widen
-    # ``RSAAlgorithm.from_jwk`` to ``RSAPrivateKey | RSAPublicKey`` so cast
-    # back to the public-key arm for ``jwt.decode``.
-    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+    # JWKS endpoints publish public keys only, but the cryptography stubs widen
+    # ``RSAAlgorithm.from_jwk`` to ``RSAPrivateKey | RSAPublicKey``. Use an
+    # explicit runtime check instead of ``assert`` so the guard is preserved
+    # under ``python -O`` (which strips assertions).
+    if not isinstance(public_key, RSAPublicKey):
+        raise jwt.InvalidTokenError("JWKS returned unexpected key type")
 
-    assert isinstance(public_key, RSAPublicKey)
     return jwt.decode(
         token,
         public_key,
@@ -136,6 +138,7 @@ def get_auth0_user_from_token(remote_username):
         return None
 
     UserModel = get_user_model()
+    user = None
 
     if auth0_settings.AUTH0_CREATE_NEW_USERS:
         try:
@@ -252,10 +255,25 @@ def sync_admin_claims_from_payload(user, payload):
 
     needs_save = False
     if is_staff_valid and user.is_staff != is_staff_claim:
+        # Privilege transitions are low-volume (rate-limited via
+        # ADMIN_CLAIMS_CACHE_TTL) and security-sensitive, so log them at INFO
+        # to preserve an audit trail.
+        logger.info(
+            "Auth0 claim sync changed is_staff for user %s: %s -> %s",
+            user.username,
+            user.is_staff,
+            is_staff_claim,
+        )
         user.is_staff = is_staff_claim
         needs_save = True
 
     if is_superuser_valid and user.is_superuser != is_superuser_claim:
+        logger.info(
+            "Auth0 claim sync changed is_superuser for user %s: %s -> %s",
+            user.username,
+            user.is_superuser,
+            is_superuser_claim,
+        )
         user.is_superuser = is_superuser_claim
         needs_save = True
 

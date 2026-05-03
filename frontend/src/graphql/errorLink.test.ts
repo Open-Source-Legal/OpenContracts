@@ -204,6 +204,65 @@ describe("errorLink", () => {
       expect(reloadSpy).toHaveBeenCalledTimes(1);
     });
 
+    it("treats extensions.code === 'JSONWebTokenExpired' as expired token", async () => {
+      // graphql_jwt sets this structured code on expired-token errors.
+      // The PR added preference for the structured extension code over
+      // brittle message matching.
+      const err = new GraphQLError("Signature has expired", {
+        extensions: { code: "JSONWebTokenExpired" },
+      });
+
+      await runOperation(graphQLErrorLink([err]));
+
+      expect(toast.warning).toHaveBeenCalledWith(
+        expect.stringContaining("session has expired. Refreshing"),
+        expect.objectContaining({ toastId: "token-expired" })
+      );
+      expect(authToken()).toBe("");
+      vi.advanceTimersByTime(1000);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("treats extensions.code === 'TOKEN_EXPIRED' as expired token", async () => {
+      const err = new GraphQLError("Authentication required", {
+        extensions: { code: "TOKEN_EXPIRED" },
+      });
+
+      await runOperation(graphQLErrorLink([err]));
+
+      expect(toast.warning).toHaveBeenCalledWith(
+        expect.stringContaining("session has expired. Refreshing"),
+        expect.objectContaining({ toastId: "token-expired" })
+      );
+      vi.advanceTimersByTime(1000);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("treats extensions.code === 'tokenExpired' as expired token", async () => {
+      const err = new GraphQLError("Authentication required", {
+        extensions: { code: "tokenExpired" },
+      });
+
+      await runOperation(graphQLErrorLink([err]));
+
+      vi.advanceTimersByTime(1000);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores unrelated extension codes (no expired-token branch)", async () => {
+      const err = new GraphQLError("Some other failure", {
+        extensions: { code: "SOMETHING_ELSE" },
+      });
+
+      await runOperation(graphQLErrorLink([err]));
+
+      // Auth state untouched; no reload scheduled.
+      expect(authToken()).toBe("test-token");
+      expect(authStatusVar()).toBe("AUTHENTICATED");
+      vi.advanceTimersByTime(2000);
+      expect(reloadSpy).not.toHaveBeenCalled();
+    });
+
     it("leaves auth state untouched for non-auth GraphQL errors", async () => {
       const err = new GraphQLError("Internal server error", {
         extensions: { code: 500 },
