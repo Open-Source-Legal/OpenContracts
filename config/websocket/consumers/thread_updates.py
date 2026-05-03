@@ -27,6 +27,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from graphql_relay import from_global_id
 
 from config.ratelimit.decorators import check_ws_rate_limit
+from config.websocket.auth_handshake import AuthHandshakeMixin
 from config.websocket.middleware import WS_CLOSE_RATE_LIMITED
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from opencontractserver.conversations.models import Conversation
@@ -39,7 +40,7 @@ def get_thread_channel_group(conversation_id: int) -> str:
     return f"thread_{conversation_id}"
 
 
-class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
+class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
     """
     WebSocket consumer for subscribing to thread updates.
 
@@ -126,7 +127,7 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
         self.room_group_name = get_thread_channel_group(self.conversation_id)
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
 
-        await self.accept()
+        await self.accept_with_auth()
         logger.info(
             f"[ThreadUpdates {self.consumer_id}] Subscribed to {self.room_group_name}"
         )
@@ -144,6 +145,7 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code: int) -> None:
         """Leave the thread channel group on disconnect."""
+        await self.cleanup_auth_handshake()
         if hasattr(self, "room_group_name") and self.room_group_name:
             await self.channel_layer.group_discard(
                 self.room_group_name, self.channel_name
@@ -159,6 +161,14 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
         This consumer is primarily for receiving broadcasts, but we handle
         a few client-initiated message types for connection management.
         """
+        try:
+            _payload = json.loads(text_data)
+        except json.JSONDecodeError:
+            _payload = None
+        if isinstance(_payload, dict) and _payload.get("type") == "AUTH":
+            await self.handle_auth_message(_payload)
+            return
+
         if await check_ws_rate_limit(self, "WS_HEARTBEAT"):
             return
 
@@ -255,6 +265,51 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
                 }
             )
         )
+
+    # -------------------------------------------------------------------------
+    #  AuthHandshakeMixin overrides
+    # -------------------------------------------------------------------------
+
+    async def _validate_resource_permissions(self, user) -> bool:
+        """Re-validate conversation access on token refresh."""
+        if self.conversation_id is None:
+            return True
+
+        @database_sync_to_async
+        def _check(user):
+            from opencontractserver.conversations.models import Conversation
+
+            try:
+                convo = Conversation.objects.get(pk=self.conversation_id)
+            except Conversation.DoesNotExist:
+                return False
+            if convo.creator_id == user.pk:
+                return True
+            if user.is_superuser:
+                return True
+
+            from opencontractserver.corpuses.models import Corpus
+            from opencontractserver.documents.models import Document
+
+            has_corpus = True
+            has_doc = True
+            if convo.chat_with_corpus_id:
+                has_corpus = (
+                    Corpus.objects.visible_to_user(user)
+                    .filter(pk=convo.chat_with_corpus_id)
+                    .exists()
+                )
+            if convo.chat_with_document_id:
+                has_doc = (
+                    Document.objects.visible_to_user(user)
+                    .filter(pk=convo.chat_with_document_id)
+                    .exists()
+                )
+            if convo.chat_with_corpus_id and convo.chat_with_document_id:
+                return has_corpus and has_doc
+            return has_corpus if convo.chat_with_corpus_id else has_doc
+
+        return await _check(user)
 
     # -------------------------------------------------------------------------
     #  Helper methods

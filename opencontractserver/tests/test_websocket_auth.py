@@ -395,3 +395,119 @@ class UnifiedAgentHandshakeTests(WebsocketFixtureBaseTestCase):
         self.assertIn('"USER_MISMATCH"', raw)
         # Wait for close
         await communicator.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# ThreadUpdatesConsumer handshake tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.serial
+class ThreadUpdatesHandshakeTests(WebsocketFixtureBaseTestCase):
+    async def _make_conversation(self):
+        from opencontractserver.conversations.models import Conversation
+
+        return await database_sync_to_async(Conversation.objects.create)(
+            creator=self.user,
+            chat_with_corpus=self.corpus,
+            title="Test",
+        )
+
+    async def test_handshake_valid_token_authenticates(self):
+        convo = await self._make_conversation()
+        communicator = WebsocketCommunicator(
+            self.application,
+            f"ws/thread-updates/?conversation_id={convo.pk}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        raw = await communicator.receive_from(timeout=5)
+        self.assertIn('"AUTH_OK"', raw)
+        await communicator.disconnect()
+
+    async def test_handshake_no_token_closes_4000(self):
+        convo = await self._make_conversation()
+        communicator = WebsocketCommunicator(
+            self.application,
+            f"ws/thread-updates/?conversation_id={convo.pk}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL],
+        )
+        connected, close_code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(close_code, 4000)
+
+    async def test_inband_refresh_succeeds(self):
+        convo = await self._make_conversation()
+        communicator = WebsocketCommunicator(
+            self.application,
+            f"ws/thread-updates/?conversation_id={convo.pk}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        # Drain initial AUTH_OK + CONNECTED frames
+        await communicator.receive_from(timeout=5)
+        await communicator.receive_from(timeout=5)
+
+        new_token = await database_sync_to_async(get_token)(self.user)
+        await communicator.send_to(json.dumps({"type": "AUTH", "token": new_token}))
+        raw = await communicator.receive_from(timeout=5)
+        msg = json.loads(raw)
+        self.assertEqual(msg["type"], "AUTH_OK")
+        self.assertTrue(msg["refreshed"])
+        await communicator.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# NotificationUpdatesConsumer handshake tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.serial
+class NotificationUpdatesHandshakeTests(WebsocketFixtureBaseTestCase):
+    async def test_handshake_valid_token_emits_AUTH_OK_then_CONNECTED(self):
+        communicator = WebsocketCommunicator(
+            self.application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        raw1 = await communicator.receive_from(timeout=5)
+        raw2 = await communicator.receive_from(timeout=5)
+        types = {json.loads(r)["type"] for r in (raw1, raw2)}
+        self.assertEqual(types, {"AUTH_OK", "CONNECTED"})
+        await communicator.disconnect()
+
+    async def test_handshake_no_token_closes_4001(self):
+        communicator = WebsocketCommunicator(
+            self.application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL],
+        )
+        connected, close_code = await communicator.connect()
+        self.assertFalse(connected)
+        # NotificationUpdatesConsumer.connect() closes 4001 for unauthenticated;
+        # behavior preserved.
+        self.assertEqual(close_code, 4001)
+
+    async def test_inband_refresh_succeeds(self):
+        communicator = WebsocketCommunicator(
+            self.application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        # Drain initial AUTH_OK + CONNECTED
+        await communicator.receive_from(timeout=5)
+        await communicator.receive_from(timeout=5)
+
+        new_token = await database_sync_to_async(get_token)(self.user)
+        await communicator.send_to(json.dumps({"type": "AUTH", "token": new_token}))
+        raw = await communicator.receive_from(timeout=5)
+        msg = json.loads(raw)
+        self.assertEqual(msg["type"], "AUTH_OK")
+        self.assertTrue(msg["refreshed"])
+        await communicator.disconnect()
