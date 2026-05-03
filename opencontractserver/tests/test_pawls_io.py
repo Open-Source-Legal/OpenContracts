@@ -118,6 +118,20 @@ class ToCanonicalV2Tests(TestCase):
                 {"v": COMPACT_PAWLS_VERSION, "p": [{"w": 1, "h": 1, "t": "x"}]}
             )
 
+    def test_v1_compact_fallback_raises_value_error(self) -> None:
+        # When ``compact_pawls_pages`` cannot produce a v2 dict (oversized
+        # page → fallback returns the v1 list unchanged), the boundary must
+        # refuse to leak v1 by raising ValueError.
+        from unittest.mock import patch
+
+        with patch(
+            "opencontractserver.utils.pawls_io.compact_pawls_pages",
+            return_value=[{"page": {}, "tokens": []}],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                to_canonical_v2(_make_v1(num_pages=1))
+            self.assertIn("Unable to compact", str(ctx.exception))
+
     def test_v1_list_with_no_page_dicts_still_returns_v2(self) -> None:
         # ``compact_pawls_pages`` skips non-dict entries silently — confirm we
         # still produce a (empty) v2 dict rather than leaking v1.
@@ -170,6 +184,41 @@ class LoadCanonicalV2Tests(TestCase):
         with self.assertRaises(TypeError):
             load_canonical_v2(42)
 
+    def test_load_empty_text_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            load_canonical_v2(BytesIO(b""))
+
+    def test_load_from_fieldfile_like_returns_str(self) -> None:
+        """Cover the FieldFile branch where ``source.read()`` returns ``str``.
+
+        Real Django ``FieldFile`` objects honour the open mode and so return
+        ``bytes`` when opened ``"rb"``; a few callers (and the test fixtures
+        in ``test_etl.py``) hand in pre-opened text-mode handles. The boundary
+        accepts both, so we exercise the str branch with a tiny FieldFile-like
+        mock that mimics the ``.open()/.read()/.close()`` contract.
+        """
+        v1 = _make_v1(num_pages=1)
+        text = json.dumps(v1)
+
+        class _StrFieldFileLike:
+            def __init__(self, payload: str) -> None:
+                self._payload = payload
+                self.closed = True
+
+            def open(self, mode: str = "rb") -> "_StrFieldFileLike":
+                self.closed = False
+                return self
+
+            def read(self) -> str:
+                return self._payload
+
+            def close(self) -> None:
+                self.closed = True
+
+        result = load_canonical_v2(_StrFieldFileLike(text))
+        self.assertTrue(is_compact_pawls_format(result))
+        self.assertEqual(len(result["p"]), 1)
+
 
 # ── TokenView ────────────────────────────────────────────────────
 
@@ -214,6 +263,32 @@ class TokenViewTests(TestCase):
         self.assertEqual(v1_meta["format"], meta["f"])
         self.assertEqual(v1_meta["content_hash"], meta["ch"])
 
+    def test_text_token_image_meta_v1_is_none(self) -> None:
+        # Text tokens have no image metadata; ``image_meta_v1`` should
+        # return ``None`` rather than raise or fabricate empty keys.
+        v2 = to_canonical_v2(_make_v1(num_pages=1))
+        text_row = v2["p"][0]["t"][0]
+        view = TokenView(text_row)
+        self.assertFalse(view.is_image)
+        self.assertIsNone(view.image_meta_v1)
+
+    def test_token_view_to_v1_image_dict(self) -> None:
+        from opencontractserver.utils.pawls_io import token_view_to_v1_image_dict
+
+        v2 = to_canonical_v2(_make_v1(num_pages=1, with_image=True))
+        # Text token: only the geometry + text fields.
+        text_view = TokenView(v2["p"][0]["t"][0])
+        text_dict = token_view_to_v1_image_dict(text_view)
+        self.assertEqual(text_dict["text"], "Hello")
+        self.assertNotIn("is_image", text_dict)
+
+        # Image token: gets ``is_image=True`` and v1 long-key meta merged in.
+        image_view = TokenView(v2["p"][0]["t"][-1])
+        image_dict = token_view_to_v1_image_dict(image_view)
+        self.assertTrue(image_dict["is_image"])
+        self.assertEqual(image_dict["format"], "jpeg")
+        self.assertEqual(image_dict["content_hash"], "abc123")
+
 
 # ── PageView / iter_pages ────────────────────────────────────────
 
@@ -244,6 +319,25 @@ class PageViewTests(TestCase):
     def test_iter_pages_rejects_non_v2(self) -> None:
         with self.assertRaises(ValueError):
             list(iter_pages([{"page": {}, "tokens": []}]))  # type: ignore[arg-type]
+
+    def test_iter_pages_skips_non_dict_pages(self) -> None:
+        # Defensive path: ``iter_pages`` skips anything inside ``p`` that
+        # isn't a dict rather than raising. Construct a v2 that satisfies
+        # ``is_compact_pawls_format`` (so the up-front check passes) but
+        # then mutate ``p`` to include a stray non-dict entry.
+        v2 = to_canonical_v2(_make_v1(num_pages=1))
+        v2["p"].append("not a dict")  # type: ignore[arg-type]
+        self.assertEqual(len(list(iter_pages(v2))), 1)
+
+    def test_page_view_tokens_skip_non_list_rows(self) -> None:
+        v2 = to_canonical_v2(_make_v1(num_pages=1))
+        # Inject a malformed (non-list) row into the page's token array; the
+        # tokens iterator must skip it rather than yield a TokenView wrapping
+        # garbage.
+        v2["p"][0]["t"].append("not a list")  # type: ignore[arg-type]
+        page = next(iter(iter_pages(v2)))
+        token_texts = [tok.text for tok in page.tokens]
+        self.assertEqual(token_texts, ["Hello", "world"])
 
 
 # ── Round-trip semantics ─────────────────────────────────────────

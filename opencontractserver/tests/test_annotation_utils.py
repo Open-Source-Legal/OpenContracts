@@ -228,6 +228,27 @@ class TestComputeContentModalities(TestCase):
         result = compute_content_modalities(tokens, pawls_data=pawls_data)
         self.assertEqual(result, [ContentModality.TEXT.value])
 
+    def test_garbage_pawls_data_raises_normalization_error_returns_text(self):
+        """A v2-shaped dict that fails ``to_canonical_v2`` validation should
+        be caught and fall back to TEXT default rather than propagate the
+        ValueError out of ``compute_content_modalities``.
+        """
+        # ``{"v": 99}`` looks dict-shaped to the isinstance gate but fails
+        # ``is_compact_pawls_format``, so ``to_canonical_v2`` raises.
+        tokens = [{"pageIndex": 0, "tokenIndex": 0}]
+        result = compute_content_modalities(tokens, pawls_data={"v": 99, "p": []})
+        self.assertEqual(result, [ContentModality.TEXT.value])
+
+    def test_non_list_non_dict_pawls_data_returns_text(self):
+        """A scalar pawls_data (not list/dict) should fall through to the
+        ``canonical is None`` guard and default to TEXT.
+        """
+        tokens = [{"pageIndex": 0, "tokenIndex": 0}]
+        # A plain string does not match the ``(list, dict)`` isinstance
+        # branch, so ``canonical`` stays ``None``.
+        result = compute_content_modalities(tokens, pawls_data="not a v1 list")
+        self.assertEqual(result, [ContentModality.TEXT.value])
+
     def test_early_exit_when_both_modalities_found(self):
         """Should exit early when both text and image are found."""
         pawls_data = [
