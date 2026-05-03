@@ -792,8 +792,10 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
                 return "Error: Document has no pawls_parse_file or path is invalid."
 
             # Canonical v2 PAWLs is the in-memory contract; we walk pages by
-            # index and pull token text via :class:`TokenView`.
-            pawls_canonical = load_canonical_v2(doc.pawls_parse_file.path)
+            # index and pull token text via :class:`TokenView`. Pass the
+            # ``FieldFile`` itself (not ``.path``) so cloud-storage backends
+            # work — ``.path`` raises ``NotImplementedError`` on S3/GCS.
+            pawls_canonical = load_canonical_v2(doc.pawls_parse_file)
 
             if not isinstance(annotation.json, dict):
                 return "Error: Annotation.json is not a dictionary for PDF."

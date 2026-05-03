@@ -6,7 +6,7 @@ including content modality detection and token analysis.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.types.enums import ContentModality
 from opencontractserver.utils.pawls_io import (
-    TokenView,
+    iter_pages,
     load_canonical_v2,
     to_canonical_v2,
 )
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def compute_content_modalities(
     tokens_jsons: list[dict[str, Any]],
     document: Optional["Document"] = None,
-    pawls_data: Optional[Any] = None,
+    pawls_data: Optional[Union[list[dict[str, Any]], dict[str, Any]]] = None,
 ) -> list[str]:
     """
     Compute the content modalities present in an annotation based on its tokens.
@@ -84,7 +84,9 @@ def compute_content_modalities(
     if canonical is None:
         return [ContentModality.TEXT.value]
 
-    pages = canonical.get("p") or []
+    # Materialize PageView wrappers up front so we can index into them by
+    # page index and walk each page's tokens via PageView.tokens.
+    pages = list(iter_pages(canonical))
 
     # Track which modalities are present
     has_text = False
@@ -104,19 +106,13 @@ def compute_content_modalities(
         if page_idx < 0 or page_idx >= len(pages):
             continue
 
-        page_dict = pages[page_idx]
-        if not isinstance(page_dict, dict):
+        # PageView.tokens is a single-pass iterator; materialize once per
+        # page so we can index by token_idx without re-iterating.
+        tokens = list(pages[page_idx].tokens)
+        if token_idx < 0 or token_idx >= len(tokens):
             continue
 
-        rows = page_dict.get("t") or []
-        if token_idx < 0 or token_idx >= len(rows):
-            continue
-
-        row = rows[token_idx]
-        if not isinstance(row, list):
-            continue
-
-        token = TokenView(row)
+        token = tokens[token_idx]
 
         # Check if this is an image token
         if token.is_image:
@@ -145,7 +141,7 @@ def compute_content_modalities(
 def update_annotation_modalities(
     annotation: Any,
     document: Optional["Document"] = None,
-    pawls_data: Optional[Any] = None,
+    pawls_data: Optional[Union[list[dict[str, Any]], dict[str, Any]]] = None,
     save: bool = True,
 ) -> list[str]:
     """

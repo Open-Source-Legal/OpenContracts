@@ -25,6 +25,8 @@ from opencontractserver.utils.pawls_io import (
     iter_pages,
     load_canonical_v2,
     to_canonical_v2,
+    to_v1_pages,
+    token_view_to_v1_image_dict,
 )
 
 # ── Fixtures ─────────────────────────────────────────────────────
@@ -170,6 +172,18 @@ class LoadCanonicalV2Tests(TestCase):
         with self.assertRaises(TypeError):
             load_canonical_v2(42)
 
+    def test_load_raw_json_string_raises_typeerror(self) -> None:
+        """A str that looks like JSON content is rejected up front.
+
+        Before this guard, the open() path raised ``FileNotFoundError`` with
+        a confusing message. ``str`` inputs are documented as filesystem
+        paths only; pre-decoded JSON should be passed as ``list``/``dict``.
+        """
+        with self.assertRaises(TypeError):
+            load_canonical_v2('[{"page": {"width": 1, "height": 1}, "tokens": []}]')
+        with self.assertRaises(TypeError):
+            load_canonical_v2('  {"v": 2, "p": []}')
+
 
 # ── TokenView ────────────────────────────────────────────────────
 
@@ -244,6 +258,97 @@ class PageViewTests(TestCase):
     def test_iter_pages_rejects_non_v2(self) -> None:
         with self.assertRaises(ValueError):
             list(iter_pages([{"page": {}, "tokens": []}]))  # type: ignore[arg-type]
+
+    def test_tokens_property_is_single_pass(self) -> None:
+        """``page.tokens`` returns a fresh iterator each access (single-pass).
+
+        The fix-up commentary asks future readers to materialize via
+        ``list(page.tokens)`` if they need to walk twice. Pin the documented
+        contract: a single iterator yields once, and a fresh property access
+        yields again.
+        """
+        v2 = to_canonical_v2(_make_v1(num_pages=1))
+        page = next(iter(iter_pages(v2)))
+
+        # First iterator: walk to exhaustion.
+        it = page.tokens
+        self.assertEqual([t.text for t in it], ["Hello", "world"])
+        # Re-using the *same* iterator yields nothing — it's single-pass.
+        self.assertEqual(list(it), [])
+        # A *fresh* property access yields the tokens again from the start.
+        self.assertEqual([t.text for t in page.tokens], ["Hello", "world"])
+
+
+# ── to_v1_pages boundary adaptor ─────────────────────────────────
+
+
+class ToV1PagesTests(TestCase):
+    """Smoke coverage for the boundary v2→v1 adaptor.
+
+    The adaptor delegates to ``expand_pawls_pages``, which already has its
+    own coverage; these tests just confirm the delegation works for the
+    shapes call sites pass in and that the v1-list pass-through holds.
+    """
+
+    def test_v2_input_returns_v1_page_list(self) -> None:
+        v1 = _make_v1(num_pages=2, with_image=True)
+        v2 = to_canonical_v2(v1)
+        v1_again = to_v1_pages(v2)
+
+        self.assertIsInstance(v1_again, list)
+        self.assertEqual(len(v1_again), 2)
+        # Each page is a v1-shape dict with `page` + `tokens`.
+        for page in v1_again:
+            self.assertIn("page", page)
+            self.assertIn("tokens", page)
+            self.assertIsInstance(page["tokens"], list)
+
+    def test_v1_list_input_passes_through(self) -> None:
+        # The docstring promises v1 list inputs are returned as-is
+        # (``expand_pawls_pages`` short-circuits on a list).
+        v1 = _make_v1(num_pages=1)
+        result = to_v1_pages(v1)
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
+
+
+# ── token_view_to_v1_image_dict bridge ───────────────────────────
+
+
+class TokenViewToV1ImageDictTests(TestCase):
+    """Bridge function for the two callers still on v1 image dicts (#1490)."""
+
+    def test_text_token_returns_no_image_keys(self) -> None:
+        v2 = to_canonical_v2(_make_v1(num_pages=1))
+        text_token = TokenView(v2["p"][0]["t"][0])
+
+        out = token_view_to_v1_image_dict(text_token)
+
+        self.assertEqual(out["text"], "Hello")
+        self.assertEqual(out["x"], 72.0)
+        self.assertEqual(out["y"], 720.0)
+        self.assertEqual(out["width"], 41.0)
+        self.assertEqual(out["height"], 12.0)
+        # No image fields populated for text tokens.
+        self.assertNotIn("is_image", out)
+        self.assertNotIn("image_path", out)
+
+    def test_image_token_unpacks_v1_long_keys(self) -> None:
+        v2 = to_canonical_v2(_make_v1(num_pages=1, with_image=True))
+        image_token = TokenView(v2["p"][0]["t"][-1])
+
+        out = token_view_to_v1_image_dict(image_token)
+
+        self.assertTrue(out["is_image"])
+        # v2 short keys are translated back to v1 long keys.
+        self.assertEqual(
+            out["image_path"], "user_1/doc_42/images/page_0_img_0.jpg"
+        )
+        self.assertEqual(out["format"], "jpeg")
+        self.assertEqual(out["content_hash"], "abc123")
+        self.assertEqual(out["original_width"], 800)
+        self.assertEqual(out["original_height"], 600)
+        self.assertEqual(out["image_type"], "embedded")
 
 
 # ── Round-trip semantics ─────────────────────────────────────────

@@ -29,7 +29,6 @@ import os
 from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
-from opencontractserver.constants.pawls import COMPACT_PAWLS_VERSION
 from opencontractserver.utils.compact_pawls import (
     IMAGE_META_V2_TO_V1,
     compact_pawls_pages,
@@ -92,16 +91,17 @@ def to_canonical_v2(raw: Any) -> dict[str, Any]:
     if isinstance(raw, list):
         # `compact_pawls_pages` may fall back to v1 if a page exceeds
         # MAX_TOKENS_PER_PAGE. In that case it returns the list unchanged,
-        # which is NOT canonical v2. Flag explicitly so callers don't get a
-        # silent v1 leak past this boundary. The is_compact_pawls_format
-        # guard above already proves the result is a dict.
+        # which is NOT canonical v2. The `is_compact_pawls_format` guard
+        # below catches that case and raises so callers don't get a silent
+        # v1 leak past this boundary.
         result = compact_pawls_pages(raw)
         if not is_compact_pawls_format(result):
             raise ValueError(
                 "Unable to compact v1 PAWLS to v2 (likely exceeds "
                 "MAX_TOKENS_PER_PAGE); refusing to leak v1 past load boundary"
             )
-        # Type narrowing: ``is_compact_pawls_format`` already proves dict.
+        # Type narrowing: the `is_compact_pawls_format` guard above proves
+        # `result` is a dict before we cast.
         return cast(dict[str, Any], result)
 
     raise ValueError(
@@ -123,9 +123,15 @@ def _read_text_from_source(source: Any) -> str:
     """
     # Filesystem path (str or PathLike, but NOT a JSON-string).
     # We treat str inputs as paths only if they look like a real filesystem
-    # path; raw JSON strings should be json.loads'd by the caller. Since the
-    # public API does not document accepting raw JSON strings, str is treated
-    # purely as a path here.
+    # path; raw JSON strings should be json.loads'd by the caller. Surface
+    # a clear error rather than the confusing FileNotFoundError that would
+    # otherwise come from open() when a caller mistakenly hands in a raw
+    # JSON document as a string.
+    if isinstance(source, str) and source.lstrip().startswith(("[", "{")):
+        raise TypeError(
+            "Pass pre-decoded JSON as list/dict, not a raw JSON string. "
+            "Got a str that looks like JSON content."
+        )
     if isinstance(source, (str, os.PathLike)):
         with open(source, encoding="utf-8") as fh:
             return fh.read()
@@ -303,7 +309,13 @@ class PageView:
 
     @property
     def tokens(self) -> Iterator[TokenView]:
-        """Iterate :class:`TokenView` instances in token-array order."""
+        """Iterate :class:`TokenView` instances in token-array order.
+
+        **Single-pass**: this is a fresh generator on each property access,
+        so callers that need to iterate twice (e.g. count then walk) should
+        materialize once via ``list(page.tokens)`` and reuse the list.
+        Each call to ``page.tokens`` yields a new iterator from the start.
+        """
         for row in self._page.get("t", []):
             if isinstance(row, list):
                 yield TokenView(row)
@@ -329,15 +341,12 @@ def iter_pages(canonical_v2: dict[str, Any]) -> Iterable[PageView]:
     Raises:
         ValueError: If *canonical_v2* isn't a valid v2 dict.
     """
+    # `is_compact_pawls_format` already enforces both the dict shape and
+    # `v == COMPACT_PAWLS_VERSION`, so no separate version check is needed.
     if not is_compact_pawls_format(canonical_v2):
         raise ValueError(
             "iter_pages requires canonical v2 PAWLs; got "
             f"{type(canonical_v2).__name__}"
-        )
-    if canonical_v2.get("v") != COMPACT_PAWLS_VERSION:
-        raise ValueError(
-            f"Unsupported PAWLs version: {canonical_v2.get('v')!r} "
-            f"(expected {COMPACT_PAWLS_VERSION})"
         )
     for i, page in enumerate(canonical_v2.get("p", [])):
         if isinstance(page, dict):
