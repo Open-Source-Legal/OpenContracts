@@ -241,8 +241,14 @@ def _process_single_upload(upload_id: UUID) -> None:
         pawls_content = metadata.get("pawls_file_content", [])
         text_content = metadata.get("content", "")
 
+        try:
+            canonical_pawls = to_canonical_v2(pawls_content)
+        except ValueError as e:
+            raise ValueError(
+                f"Worker upload {upload_id} has unprocessable PAWLs payload: {e}"
+            ) from e
         pawls_file = ContentFile(
-            json.dumps(to_canonical_v2(pawls_content)).encode("utf-8"),
+            json.dumps(canonical_pawls).encode("utf-8"),
             name="pawls_tokens.json",
         )
         txt_file = ContentFile(

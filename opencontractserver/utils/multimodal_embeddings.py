@@ -112,6 +112,11 @@ def _v2_image_token_to_v1_dict(token: TokenView) -> dict[str, Any]:
     ``content_hash``, ``base64_data``, ``format``, …). This adaptor lets the
     Phase 2 v2-everywhere internal layer keep feeding them the shape they
     expect.
+
+    Tracked in #1490: retire this adaptor when embedders / image helpers
+    are migrated to consume :class:`TokenView` (or v2 short-key dicts)
+    directly. It is the last v1-shape leakage inside an internal runtime
+    module.
     """
     out: dict[str, Any] = {
         "x": token.x,
@@ -136,14 +141,12 @@ def _resolve_v2_pawls(
     """
     if not pawls_data:
         return None
-    if isinstance(pawls_data, list):
+    if isinstance(pawls_data, (list, dict)):
         try:
             return to_canonical_v2(pawls_data)
         except Exception as e:
-            logger.error(f"Failed to normalize pawls_data list to v2: {e}")
+            logger.error(f"Failed to normalize pawls_data to v2: {e}")
             return None
-    if isinstance(pawls_data, dict):
-        return pawls_data
     return None
 
 

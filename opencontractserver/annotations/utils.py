@@ -75,10 +75,8 @@ def compute_content_modalities(
             return [ContentModality.TEXT.value]
     else:
         try:
-            if isinstance(pawls_data, list):
+            if isinstance(pawls_data, (list, dict)):
                 canonical = to_canonical_v2(pawls_data)
-            elif isinstance(pawls_data, dict):
-                canonical = pawls_data
         except Exception as e:
             logger.error(f"Failed to normalize PAWLs data: {e}")
             return [ContentModality.TEXT.value]

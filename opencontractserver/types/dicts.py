@@ -176,10 +176,11 @@ class CompactImageMetaType(TypedDict, total=False):
 # Layout (text token):  ``[x, y, width, height, text]``
 # Layout (image token): ``[x, y, width, height, text, CompactImageMetaType]``
 #
-# A typed-tuple alias is impractical here because the row length varies and
-# Python's ``TypedDict``/``tuple`` typing can't express "5 or 6 elements"
-# cleanly without ``Union``. We expose ``list`` and document the contract.
-CompactPawlsTokenType = list
+# Python's typing can't express "5 or 6 positional elements with mixed
+# numeric/str/dict types" cleanly. The element-union approximation below
+# lets type checkers catch obvious bugs (e.g. ``list[int]`` for a row) while
+# the structural contract is enforced at runtime by :mod:`pawls_io`.
+CompactPawlsTokenType = list[Union[float, int, str, CompactImageMetaType]]
 
 
 class CompactPawlsPageType(TypedDict):

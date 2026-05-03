@@ -136,7 +136,8 @@ def _read_text_from_source(source: Any) -> str:
         # Django FieldFile.open() returns the file (and is idempotent enough
         # for our purposes). Use a try/finally to close when we own opening.
         was_closed = getattr(source, "closed", True)
-        opener("rb") if was_closed else None
+        if was_closed:
+            opener("rb")
         try:
             data = source.read()
         finally:

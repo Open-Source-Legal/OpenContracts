@@ -57,7 +57,7 @@ interface CompactPageV2Wire {
 }
 
 /** v2 top-level wire envelope. */
-export interface CompactPawlsV2Wire {
+interface CompactPawlsV2Wire {
   v: 2;
   p: CompactPageV2Wire[];
 }
