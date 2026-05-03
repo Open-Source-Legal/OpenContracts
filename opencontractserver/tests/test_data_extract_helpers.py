@@ -9,8 +9,6 @@ fixtures without spinning up a full extraction.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -168,88 +166,6 @@ class LinkRetrievalCitationsTests(TestCase):
 # Failure-mode classification (`_classify_none_result` and the
 # `NONE_RESULT_*` constants) is covered by
 # ``test_data_extract_failure_classification.py``.
-
-
-class CrossEncoderRerankerTests(TestCase):
-    """Light coverage for ``CrossEncoderReranker._rerank_impl``.
-
-    The cross-encoder weights are large and we don't want to download
-    them in CI, so this exercises the scoring/ranking logic with a
-    mocked ``CrossEncoder`` backend.
-    """
-
-    def test_scores_sort_passages_by_relevance(self) -> None:
-        from opencontractserver.pipeline.rerankers import cross_encoder_reranker
-
-        # Mock the loader so the reranker doesn't try to download weights
-        fake_model = MagicMock()
-        # Simulate scores: passage 0 (hit), 1 (miss), 2 (best hit)
-        fake_model.predict.return_value = [0.4, 0.05, 0.95]
-
-        original_loader = cross_encoder_reranker._load_cross_encoder
-        cross_encoder_reranker._load_cross_encoder = (
-            lambda model_name, device: fake_model
-        )  # noqa: E731
-        try:
-            reranker = cross_encoder_reranker.CrossEncoderReranker()
-            results = reranker._rerank_impl(
-                query="capital of france",
-                passages=["paris is the capital", "lyon", "paris france capital"],
-            )
-        finally:
-            cross_encoder_reranker._load_cross_encoder = original_loader
-
-        # Result indices preserve input ordering; caller sorts by score.
-        scores = {r.index: r.score for r in results}
-        self.assertEqual(scores[0], 0.4)
-        self.assertEqual(scores[1], 0.05)
-        self.assertEqual(scores[2], 0.95)
-
-    def test_scalar_score_response_is_normalized(self) -> None:
-        """Single-pair scoring may come back as a numpy scalar — handle it."""
-        from opencontractserver.pipeline.rerankers import cross_encoder_reranker
-
-        fake_model = MagicMock()
-        # Some backends return a 0-d scalar instead of a length-1 list
-        fake_model.predict.return_value = 0.7
-
-        original_loader = cross_encoder_reranker._load_cross_encoder
-        cross_encoder_reranker._load_cross_encoder = (
-            lambda model_name, device: fake_model
-        )  # noqa: E731
-        try:
-            reranker = cross_encoder_reranker.CrossEncoderReranker()
-            results = reranker._rerank_impl(
-                query="anything", passages=["only one passage"]
-            )
-        finally:
-            cross_encoder_reranker._load_cross_encoder = original_loader
-
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].score, 0.7)
-
-    def test_score_count_mismatch_pads_with_neg_inf(self) -> None:
-        """If predict returns fewer scores than passages, pad defensively."""
-        from opencontractserver.pipeline.rerankers import cross_encoder_reranker
-
-        fake_model = MagicMock()
-        # Only one score for two passages
-        fake_model.predict.return_value = [0.5]
-
-        original_loader = cross_encoder_reranker._load_cross_encoder
-        cross_encoder_reranker._load_cross_encoder = (
-            lambda model_name, device: fake_model
-        )  # noqa: E731
-        try:
-            reranker = cross_encoder_reranker.CrossEncoderReranker()
-            results = reranker._rerank_impl(query="anything", passages=["one", "two"])
-        finally:
-            cross_encoder_reranker._load_cross_encoder = original_loader
-
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0].score, 0.5)
-        # Padded entries land at -inf so they sort to the bottom
-        self.assertEqual(results[1].score, float("-inf"))
 
 
 class ModelOverrideAllowlistTests(TestCase):

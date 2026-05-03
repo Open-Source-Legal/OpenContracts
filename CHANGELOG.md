@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Slimmed Django/Celery production image from ~6.3 GB to a target ≤1.5 GB** (Issue #1494). The image previously inherited from `pytorch/pytorch:2.7.1-cuda12.6-cudnn9-runtime`, dragging in CUDA 12.6, cuDNN 9, and a full PyTorch installation that nothing in the Django runtime imports — the only consumer was the optional in-process `CrossEncoderReranker`, which has been removed (see *Removed* below). Cold pod pulls dropped from ~5+ minutes to seconds, dramatically narrowing the recovery window when nodes reschedule.
+  - `compose/production/django/Dockerfile` and `compose/local/django/Dockerfile` now base on `python:3.11-slim-bookworm` for both build and runtime stages. The build toolchain (`build-essential`, `cmake`, `libtesseract-dev`, `libpq-dev`, etc.) is confined to the builder stage; the runtime stage installs only the libraries actually needed at execution time (`libpq5`, `gettext`, `poppler-utils`, `tesseract-ocr` + `tesseract-ocr-eng`, `libgl1`, `libsm6`, `libxext6`).
+  - Dead CUDA environment variables (`CUDA_MODULE_LOADING`, `TORCH_CUDA_ARCH_LIST`, `CUDA_VISIBLE_DEVICES`, `PYTORCH_CUDA_ALLOC_CONF`) and the now-unused `ffmpeg` apt package were removed from both Dockerfiles.
+  - `.dockerignore` was significantly tightened — `frontend/`, `fixtures/`, `docs/`, `cloudflare-og-worker/`, `tools/`, `model_preloaders/`, `locale/`, `.github/`, `.vscode/`, `.cursor/`, `.claude/`, `.envs/.local/`, `*.md` (except `CHANGELOG.md`), and Python caches are now excluded from the build context, both shrinking image size and reducing accidental secret/source leakage into runtime images.
+  - **CI image-size budget** added to `.github/workflows/docker-build-release.yml`: the release build now fails if the Django image exceeds 1.5 GiB (`1610612736` bytes), surfacing regressions immediately rather than at the next cold pod pull.
+
+### Removed
+
+- **In-process `CrossEncoderReranker`** (Issue #1494). The lazily-loaded `sentence_transformers.CrossEncoder` reranker added in PR #845 was the sole reason the Django/Celery image inherited a CUDA-enabled PyTorch base (~4–5 GB of bloat for a feature that few deployments enabled). Reranking is still available via `MicroserviceReranker` (HTTP side-car) and `CohereReranker` (API), both of which are framework-agnostic and require no in-container model weights.
+  - Deleted `opencontractserver/pipeline/rerankers/cross_encoder_reranker.py`. The pipeline registry auto-discovers reranker classes from the package, so removal cleanly drops `CrossEncoderReranker` from `get_registry().rerankers` with no further wiring changes.
+  - Deleted `CrossEncoderRerankerTest` (`opencontractserver/tests/test_reranker.py`) and `CrossEncoderRerankerTests` (`opencontractserver/tests/test_data_extract_helpers.py`). Both used in-process stubs of `_load_cross_encoder` to avoid downloading weights in CI; with the backend gone, their coverage target is gone too. The orphaned `from unittest.mock import MagicMock` import in `test_data_extract_helpers.py` was removed.
+  - Removed orphaned configuration: `SENTENCE_TRANSFORMER_MODELS_PATH` (`config/settings/base.py:986-988`) and the matching `SENTENCE_TRANSFORMER_MODELS_PATH=/models/sentence-transformers` line in `.github/workflows/production-stack.yml:107` were the only consumers of the deleted backend's model-cache directory.
+  - Removed the `tokenizers>=0.23.1,<0.24` pin from `requirements/base.txt`. Its inline comment ("Pin to prevent conflicts with transformers") referred to a transitive constraint that was only relevant while `sentence-transformers` was installed; nothing in the codebase imports `tokenizers` directly.
+  - Deleted `.github/workflows/docker-build-cuda.yml`. The CUDA-tagged image build had no remaining purpose once the only torch consumer was removed.
+  - Deleted `docs/deployment/docker-gpu-setup.md` and its `mkdocs.yml` nav entry. The guide documented the now-removed CUDA/PyTorch base image and was the only page under the *Deployment* nav section.
+
 ### Added
 
 - **Loud guardrail against the `system_prompt=` foot-gun in pydantic-ai** (Issue #1451): `pydantic_ai.Agent` accepts both `system_prompt=` and `instructions=`, but the `system_prompt` value is *only* materialised into the model request when `message_history` is `None`. OpenContracts' `chat()` flow always persists the user's HUMAN message before calling `Agent.run()`, so `message_history` is never empty in practice and any `system_prompt=` argument is silently dropped — the LLM runs without any system instruction. CLAUDE.md pitfall #14 documented the workaround (use `instructions=`), but a future pydantic-ai bump that renames or re-precedences these parameters could re-introduce the regression silently.

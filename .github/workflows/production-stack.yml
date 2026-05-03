@@ -104,7 +104,6 @@ jobs:
 
           # Docling
           DOCLING_MODELS_PATH=/models/docling
-          SENTENCE_TRANSFORMER_MODELS_PATH=/models/sentence-transformers
           EOF
 
           # Create minimal Postgres env file
