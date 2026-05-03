@@ -13,11 +13,14 @@ User = get_user_model()
 class AgentConfigurationQuerySet(models.QuerySet):
     """QuerySet with permission filtering for AgentConfiguration."""
 
-    def visible_to_user(self, user):
+    def visible_to_user(self, user, lightweight: bool = False):
         """
         Return agents visible to the user:
         - All active global agents (public)
         - Corpus agents for corpuses the user can access
+
+        ``lightweight`` is accepted for parity with ``BaseVisibilityManager``
+        but unused — agent rows are small and have no heavy prefetches.
         """
         from opencontractserver.corpuses.models import Corpus
 
@@ -46,9 +49,8 @@ class AgentConfigurationManager(BaseVisibilityManager):
     def get_queryset(self):
         return AgentConfigurationQuerySet(self.model, using=self._db)
 
-    def visible_to_user(self, user):
-        """Override to use AgentConfigurationQuerySet's visible_to_user method."""
-        return self.get_queryset().visible_to_user(user)
+    def visible_to_user(self, user=None, lightweight: bool = False):
+        return self.get_queryset().visible_to_user(user, lightweight=lightweight)
 
 
 class AgentConfiguration(BaseOCModel):
@@ -121,8 +123,7 @@ class AgentConfiguration(BaseOCModel):
         help_text="Whether this agent is active and can be used",
     )
 
-    # Manager
-    objects = AgentConfigurationManager()
+    objects = AgentConfigurationManager()  # type: ignore[misc]  # intentional manager override
 
     class Meta:
         constraints = [
@@ -148,9 +149,13 @@ class AgentConfiguration(BaseOCModel):
         )
 
     def __str__(self):
-        scope_label = (
-            f" ({self.corpus.title})" if self.scope == "CORPUS" else " (Global)"
-        )
+        if self.scope == "CORPUS":
+            # CheckConstraint above enforces corpus__isnull=False when
+            # scope == "CORPUS", so this narrows safely for type-checking.
+            assert self.corpus is not None
+            scope_label = f" ({self.corpus.title})"
+        else:
+            scope_label = " (Global)"
         return f"{self.name}{scope_label}"
 
     def save(self, *args, **kwargs):
@@ -191,10 +196,13 @@ class AgentConfigurationGroupObjectPermission(GroupObjectPermissionBase):
 class AgentActionResultQuerySet(models.QuerySet):
     """QuerySet with permission filtering for AgentActionResult."""
 
-    def visible_to_user(self, user):
+    def visible_to_user(self, user, lightweight: bool = False):
         """
         Return results visible to the user based on corpus permissions.
         Users can see results for corpuses they have access to.
+
+        ``lightweight`` is accepted for signature parity with
+        ``BaseVisibilityManager`` and is unused for this model.
         """
         from opencontractserver.corpuses.models import Corpus
 
@@ -216,8 +224,8 @@ class AgentActionResultManager(BaseVisibilityManager):
     def get_queryset(self):
         return AgentActionResultQuerySet(self.model, using=self._db)
 
-    def visible_to_user(self, user):
-        return self.get_queryset().visible_to_user(user)
+    def visible_to_user(self, user=None, lightweight: bool = False):
+        return self.get_queryset().visible_to_user(user, lightweight=lightweight)
 
 
 class AgentActionResult(BaseOCModel):
@@ -305,8 +313,9 @@ class AgentActionResult(BaseOCModel):
         help_text="Additional execution metadata (model used, token counts, etc.)",
     )
 
-    # Manager
-    objects = AgentActionResultManager()
+    # Manager (django-stubs flags re-declaring ``objects`` as overriding a
+    # class variable; intentional manager override).
+    objects = AgentActionResultManager()  # type: ignore[misc]
 
     class Meta:
         ordering = ["-started_at"]

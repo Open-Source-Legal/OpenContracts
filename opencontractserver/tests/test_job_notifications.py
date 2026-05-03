@@ -217,7 +217,7 @@ class AnalysisNotificationTests(TestCase):
         analysis.id = 1
         analysis.creator = self.user
         analysis.analyzer = MagicMock()
-        analysis.analyzer.analyzer_id = "test-analyzer"
+        analysis.analyzer.id = "test-analyzer"
         analysis.analyzed_corpus = MagicMock()
         analysis.analyzed_corpus.title = "Test Corpus"
 
@@ -239,7 +239,7 @@ class AnalysisNotificationTests(TestCase):
         analysis.id = 1
         analysis.creator = self.user
         analysis.analyzer = MagicMock()
-        analysis.analyzer.analyzer_id = "test-analyzer"
+        analysis.analyzer.id = "test-analyzer"
         analysis.analyzed_corpus = MagicMock()
         analysis.analyzed_corpus.title = "Test Corpus"
 

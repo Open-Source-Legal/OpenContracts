@@ -766,7 +766,7 @@ def _search_within_corpus(
         embedder_path, query_vector = corpus.embed_text(query)
         if query_vector:
             doc_results = list(
-                Document.objects.filter(id__in=corpus_doc_ids).search_by_embedding(
+                Document.objects.filter(id__in=corpus_doc_ids).search_by_embedding(  # type: ignore[attr-defined]
                     query_vector, embedder_path, top_k=limit
                 )
             )

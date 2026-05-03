@@ -189,37 +189,6 @@ config/websocket/consumers/unified_agent_conversation.py:699: error: Argument "m
 config/websocket/consumers/unified_agent_conversation.py:710: error: Argument "msg_type" to "_send_safe" of "UnifiedAgentConsumer" has incompatible type "Literal['ASYNC_RESUME']"; expected "Literal['ASYNC_START', 'ASYNC_CONTENT', 'ASYNC_FINISH', 'SYNC_CONTENT']"  [arg-type]
 config/websocket/consumers/unified_agent_conversation.py:717: error: Argument "msg_type" to "_send_safe" of "UnifiedAgentConsumer" has incompatible type "Literal['ASYNC_ERROR']"; expected "Literal['ASYNC_START', 'ASYNC_CONTENT', 'ASYNC_FINISH', 'SYNC_CONTENT']"  [arg-type]
 config/websocket/consumers/unified_agent_conversation.py:814: error: "Coroutine[Any, Any, UnifiedChatResponse | AsyncGenerator[ThoughtEvent | ContentEvent | SourceEvent | ApprovalNeededEvent | ApprovalResultEvent | ResumeEvent | FinalEvent | ErrorEvent, None]]" has no attribute "__aiter__" (not async iterable)  [attr-defined]
-opencontractserver/agents/admin.py:165: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/admin.py:166: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "admin_order_field"  [attr-defined]
-opencontractserver/agents/admin.py:183: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/admin.py:200: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/admin.py:213: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/admin.py:229: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/admin.py:241: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/admin.py:255: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/admin.py:266: error: "Callable[[AgentActionResultAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
-opencontractserver/agents/memory.py:328: error: Need type annotation for "result_parts" (hint: "result_parts: list[<type>] = ...")  [var-annotated]
-opencontractserver/agents/models.py:125: error: Cannot override class variable (previously declared on base class "BaseOCModel") with instance variable  [misc]
-opencontractserver/agents/models.py:152: error: Item "None" of "Corpus | None" has no attribute "title"  [union-attr]
-opencontractserver/agents/models.py:219: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/agents/models.py:219: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/agents/models.py:219: note:          def visible_to_user(self, user: Any) -> Any
-opencontractserver/agents/models.py:219: note:      Subclass:
-opencontractserver/agents/models.py:219: note:      Superclass:
-opencontractserver/agents/models.py:309: error: Cannot override class variable (previously declared on base class "BaseOCModel") with instance variable  [misc]
-opencontractserver/agents/models.py:49: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/agents/models.py:49: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/agents/models.py:49: note:          def visible_to_user(self, user: Any) -> Any
-opencontractserver/agents/models.py:49: note:      Subclass:
-opencontractserver/agents/models.py:49: note:      Superclass:
-opencontractserver/analyzer/utils.py:22: error: Incompatible types in assignment (expression has type "None", variable has type "Callable[[Any], Callable[..., Any] | None]")  [assignment]
-opencontractserver/analyzer/utils.py:44: error: Argument 1 to "is_dict_instance_of_typed_dict" has incompatible type "AnalyzerManifest"; expected "dict[Any, Any]"  [arg-type]
-opencontractserver/analyzer/utils.py:6: error: Library stubs not installed for "requests"  [import-untyped]
-opencontractserver/analyzer/utils.py:6: note: (or run "mypy --install-types" to install all missing stub packages)
-opencontractserver/analyzer/utils.py:6: note: Hint: "python3 -m pip install types-requests"
-opencontractserver/analyzer/utils.py:6: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
-opencontractserver/analyzer/utils.py:77: error: Function "get_doc_analyzer_task_by_name" could always be true in boolean context  [truthy-function]
-opencontractserver/analyzer/views.py:50: error: "Analyzer" has no attribute "analyzer_id"  [attr-defined]
 opencontractserver/annotations/admin.py:102: error: "Callable[[NoteEmbeddingInline, Any], Any]" has no attribute "short_description"  [attr-defined]
 opencontractserver/annotations/admin.py:141: error: "Callable[[AnnotationAdmin, Any], Any]" has no attribute "admin_order_field"  [attr-defined]
 opencontractserver/annotations/admin.py:142: error: "Callable[[AnnotationAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
@@ -486,7 +455,6 @@ opencontractserver/discovery/tests/test_discovery_views.py:78: error: "type[Llms
 opencontractserver/discovery/tests/test_discovery_views.py:81: error: "type[LlmsTxtTest]" has no attribute "owner"  [attr-defined]
 opencontractserver/discovery/tests/test_discovery_views.py:84: error: "type[LlmsTxtTest]" has no attribute "private_corpus"  [attr-defined]
 opencontractserver/discovery/tests/test_discovery_views.py:87: error: "type[LlmsTxtTest]" has no attribute "owner"  [attr-defined]
-opencontractserver/discovery/views.py:769: error: "QuerySet[Document, Document]" has no attribute "search_by_embedding"  [attr-defined]
 opencontractserver/documents/admin.py:36: error: "Callable[[DocumentEmbeddingInline, Any], Any]" has no attribute "short_description"  [attr-defined]
 opencontractserver/documents/admin.py:70: error: "Callable[[DocumentAdmin, Any], Any]" has no attribute "admin_order_field"  [attr-defined]
 opencontractserver/documents/admin.py:71: error: "Callable[[DocumentAdmin, Any], Any]" has no attribute "short_description"  [attr-defined]
