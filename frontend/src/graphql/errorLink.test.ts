@@ -13,7 +13,15 @@
  *  - Generic network error → error toast, auth state untouched
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  type MockedFunction,
+} from "vitest";
 import { GraphQLError } from "graphql";
 import {
   ApolloLink,
@@ -23,6 +31,7 @@ import {
   FetchResult,
 } from "@apollo/client";
 import { toast } from "react-toastify";
+import type { User } from "@auth0/auth0-react";
 
 import { errorLink } from "./errorLink";
 import { authToken, authStatusVar, userObj } from "./cache";
@@ -102,7 +111,7 @@ describe("errorLink", () => {
     // Seed authenticated state for each test
     authToken("test-token");
     authStatusVar("AUTHENTICATED");
-    userObj({ email: "test@example.com", sub: "user123" } as any);
+    userObj({ email: "test@example.com", sub: "user123" } as User);
 
     // Stub window.location.reload (the real method is non-configurable in jsdom)
     reloadSpy = vi.fn();
@@ -303,8 +312,9 @@ describe("errorLink", () => {
         expect.objectContaining({ toastId: "server-parse-error" })
       );
       // Generic network-error toast must not fire alongside it
-      const genericFired = (toast.error as any).mock.calls.some(
-        (call: any[]) =>
+      const toastErrorMock = toast.error as MockedFunction<typeof toast.error>;
+      const genericFired = toastErrorMock.mock.calls.some(
+        (call) =>
           typeof call[0] === "string" &&
           (call[0] as string).startsWith("Network error.")
       );
