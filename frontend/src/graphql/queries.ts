@@ -2822,6 +2822,41 @@ export const GET_EMBEDDERS = gql`
   }
 `;
 
+/**
+ * Defaults consumed by the new-corpus modal so the form opens with sensible
+ * pre-selections (default embedder from PipelineSettings, the install-wide
+ * default labelset). License defaults are kept frontend-side for now.
+ */
+export interface GetCorpusCreateDefaultsInput {}
+export interface GetCorpusCreateDefaultsOutput {
+  pipelineSettings: {
+    defaultEmbedder?: string | null;
+  };
+  defaultLabelset?: {
+    id: string;
+    title: string;
+    description?: string | null;
+    icon?: string | null;
+    isPublic: boolean;
+    isDefault?: boolean | null;
+  } | null;
+}
+export const GET_CORPUS_CREATE_DEFAULTS = gql`
+  query GetCorpusCreateDefaults {
+    pipelineSettings {
+      defaultEmbedder
+    }
+    defaultLabelset {
+      id
+      title
+      description
+      icon
+      isPublic
+      isDefault
+    }
+  }
+`;
+
 export interface GetDocumentKnowledgeAndAnnotationsInput {
   documentId: string;
   corpusId: string;
