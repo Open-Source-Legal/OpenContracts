@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.files.base import ContentFile, File
 from django.utils import timezone
@@ -77,7 +77,7 @@ def import_annotations(
     annotations_data: list[OpenContractsAnnotationPythonType],
     label_lookup: dict[str, AnnotationLabel],
     label_type: str = TOKEN_LABEL,
-    pawls_data=None,
+    pawls_data: list[dict[str, Any]] | dict[str, Any] | None = None,
 ) -> dict[str | int, int]:
     """
     Import annotations, handling parent relationships, and return a mapping of old IDs

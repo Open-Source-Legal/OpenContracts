@@ -123,7 +123,14 @@ def list_document_images(
                         # v2 image-meta short keys: f=format, it=image_type, ch=content_hash
                         format=meta.get("f", "jpeg"),
                         image_type=meta.get("it"),
-                        alt_text=None,  # alt_text not currently persisted in v2 image meta
+                        # alt_text has no v2 short key. The pre-v2 read site
+                        # used token.get("alt_text"), but no parser ever
+                        # populated it, so the field has been a no-op end-to-
+                        # end. Kept explicit-None here so the loss is visible
+                        # if a future parser starts emitting alt text — at
+                        # that point add a short key (e.g. "at") to
+                        # CompactImageMeta and read meta.get("at") here.
+                        alt_text=None,
                         content_hash=meta.get("ch"),
                     )
                 )
