@@ -72,6 +72,11 @@ class PageFundsAnnotationsExportType(TypedDict):
     form: list[FunsdAnnotationType]
 
 
+# v1 wire shape — accepted only at the import/load boundary (see
+# ``opencontractserver.utils.pawls_io.to_canonical_v2``). Do NOT use in
+# active runtime code paths after the v1→v2 internal migration. Kept here
+# because v1 conversion code paths and not-yet-migrated consumers still
+# reference these types.
 class PawlsTokenPythonType(TypedDict):
     """
     Unified token type for PAWLs data. Represents either a text token or an
@@ -115,6 +120,9 @@ class PawlsTokenPythonType(TypedDict):
     image_type: NotRequired[str]  # "embedded" or "cropped"
 
 
+# v1 wire shape — accepted only at the import/load boundary (see
+# ``opencontractserver.utils.pawls_io.to_canonical_v2``). Do NOT use in
+# active runtime code paths after the v1→v2 internal migration.
 class PawlsPagePythonType(TypedDict):
     """
     Pawls files are comprised of lists of jsons that correspond to the
@@ -128,6 +136,79 @@ class PawlsPagePythonType(TypedDict):
 
     page: PawlsPageBoundaryPythonType
     tokens: list[PawlsTokenPythonType]
+
+
+# ── Compact (v2) PAWLs type aliases ───────────────────────────────────
+#
+# These describe the canonical v2 wire / runtime shape used after the
+# load boundary. Token rows are positional lists, not dicts.
+
+
+class CompactImageMetaType(TypedDict, total=False):
+    """
+    Compact (v2) image-token metadata, carried as the 6th element of a
+    token row when (and only when) the token represents an image.
+
+    All keys are optional; the presence of the dict itself is the
+    discriminator that marks a row as an image token.
+
+    v2 short-key → v1 long-key mapping:
+      - ``p``   → ``image_path``
+      - ``b64`` → ``base64_data``
+      - ``f``   → ``format``
+      - ``ch``  → ``content_hash``
+      - ``ow``  → ``original_width``
+      - ``oh``  → ``original_height``
+      - ``it``  → ``image_type``
+    """
+
+    p: str  # image_path
+    b64: str  # base64_data
+    f: str  # format
+    ch: str  # content_hash
+    ow: int  # original_width
+    oh: int  # original_height
+    it: str  # image_type
+
+
+# Positional v2 token row.
+#
+# Layout (text token):  ``[x, y, width, height, text]``
+# Layout (image token): ``[x, y, width, height, text, CompactImageMetaType]``
+#
+# A typed-tuple alias is impractical here because the row length varies and
+# Python's ``TypedDict``/``tuple`` typing can't express "5 or 6 elements"
+# cleanly without ``Union``. We expose ``list`` and document the contract.
+CompactPawlsTokenType = list
+
+
+class CompactPawlsPageType(TypedDict):
+    """
+    Compact (v2) per-page payload.
+
+    - ``w``: page width in PDF points (rounded to v2 precision).
+    - ``h``: page height in PDF points (rounded to v2 precision).
+    - ``t``: list of positional token rows (see
+      :data:`CompactPawlsTokenType`). The page index is implicit — it is
+      the position of this dict in the parent ``"p"`` array.
+    """
+
+    w: float
+    h: float
+    t: list[CompactPawlsTokenType]
+
+
+class CompactPawlsV2Type(TypedDict):
+    """
+    Canonical v2 PAWLs document.
+
+    - ``v``: format version marker (always ``2``).
+    - ``p``: list of :class:`CompactPawlsPageType` — one entry per page,
+      in page-index order.
+    """
+
+    v: Literal[2]
+    p: list[CompactPawlsPageType]
 
 
 class BoundingBoxPythonType(TypedDict):

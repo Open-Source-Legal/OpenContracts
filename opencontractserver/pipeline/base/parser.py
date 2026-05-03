@@ -18,7 +18,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.types.dicts import OpenContractDocExport
-from opencontractserver.utils.compact_pawls import compact_pawls_pages
+from opencontractserver.utils.pawls_io import to_canonical_v2
 from opencontractserver.utils.importing import (
     import_annotations,
     import_relationships,
@@ -172,7 +172,7 @@ class BaseParser(PipelineComponentBase, ABC):
         # Handle PAWLS content if any
         pawls_file_content = open_contracts_data.get("pawls_file_content")
         if pawls_file_content:
-            compact_data = compact_pawls_pages(pawls_file_content)
+            compact_data = to_canonical_v2(pawls_file_content)
             pawls_string = json.dumps(compact_data)
             pawls_file = ContentFile(pawls_string.encode("utf-8"))
             document.pawls_parse_file.save(f"doc_{doc_id}.pawls", pawls_file)
