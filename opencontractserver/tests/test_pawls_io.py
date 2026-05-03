@@ -27,7 +27,6 @@ from opencontractserver.utils.pawls_io import (
     to_canonical_v2,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────
 
 _TEXT_TOKENS = [
@@ -169,7 +168,7 @@ class LoadCanonicalV2Tests(TestCase):
 
     def test_load_unsupported_source_raises(self) -> None:
         with self.assertRaises(TypeError):
-            load_canonical_v2(42)  # type: ignore[arg-type]
+            load_canonical_v2(42)
 
 
 # ── TokenView ────────────────────────────────────────────────────
@@ -199,7 +198,7 @@ class TokenViewTests(TestCase):
         self.assertEqual(view.text, "")
 
         meta = view.image_meta
-        self.assertIsNotNone(meta)
+        assert meta is not None
         # Compact short keys round-trip from the v1 source token.
         self.assertEqual(meta["p"], "user_1/doc_42/images/page_0_img_0.jpg")
         self.assertEqual(meta["f"], "jpeg")
@@ -210,6 +209,7 @@ class TokenViewTests(TestCase):
 
         # Convenience v1 translation also works.
         v1_meta = view.image_meta_v1
+        assert v1_meta is not None
         self.assertEqual(v1_meta["image_path"], meta["p"])
         self.assertEqual(v1_meta["format"], meta["f"])
         self.assertEqual(v1_meta["content_hash"], meta["ch"])
@@ -243,7 +243,7 @@ class PageViewTests(TestCase):
 
     def test_iter_pages_rejects_non_v2(self) -> None:
         with self.assertRaises(ValueError):
-            list(iter_pages([{"page": {}, "tokens": []}]))  # v1 list
+            list(iter_pages([{"page": {}, "tokens": []}]))  # type: ignore[arg-type]
 
 
 # ── Round-trip semantics ─────────────────────────────────────────

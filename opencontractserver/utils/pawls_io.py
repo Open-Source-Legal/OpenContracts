@@ -27,14 +27,17 @@ import json
 import logging
 import os
 from collections.abc import Iterable, Iterator
-from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 from opencontractserver.constants.pawls import COMPACT_PAWLS_VERSION
 from opencontractserver.utils.compact_pawls import (
     _IMAGE_KEY_REVERSE,
     compact_pawls_pages,
+)
+from opencontractserver.utils.compact_pawls import (
     expand_pawls_pages as _expand_pawls_pages,
+)
+from opencontractserver.utils.compact_pawls import (
     is_compact_pawls_format,
 )
 
@@ -80,13 +83,9 @@ def to_canonical_v2(raw: Any) -> dict[str, Any]:
             raise ValueError("Malformed v2 PAWLS: 'p' must be a list")
         for i, page in enumerate(pages):
             if not isinstance(page, dict):
-                raise ValueError(
-                    f"Malformed v2 PAWLS: page index {i} is not a dict"
-                )
+                raise ValueError(f"Malformed v2 PAWLS: page index {i} is not a dict")
             if "t" in page and not isinstance(page["t"], list):
-                raise ValueError(
-                    f"Malformed v2 PAWLS: page {i}'s 't' must be a list"
-                )
+                raise ValueError(f"Malformed v2 PAWLS: page {i}'s 't' must be a list")
         return raw
 
     # v1 path — convert through the existing encoder.
@@ -101,6 +100,7 @@ def to_canonical_v2(raw: Any) -> dict[str, Any]:
                 "Unable to compact v1 PAWLS to v2 (likely exceeds "
                 "MAX_TOKENS_PER_PAGE); refusing to leak v1 past load boundary"
             )
+        assert isinstance(result, dict)
         return result
 
     raise ValueError(
@@ -165,7 +165,7 @@ def _read_text_from_source(source: Any) -> str:
 
 
 def load_canonical_v2(
-    file_or_path: Union[str, "os.PathLike[str]", Any],
+    file_or_path: str | os.PathLike[str] | Any,
 ) -> dict[str, Any]:
     """Load PAWLs JSON from any supported source and return canonical v2.
 
@@ -250,7 +250,7 @@ class TokenView:
         (``p``, ``b64``, ``f``, ``ch``, ``ow``, ``oh``, ``it``).
         """
         if self.is_image:
-            return self._row[5]  # type: ignore[no-any-return]
+            return self._row[5]
         return None
 
     @property
@@ -263,9 +263,7 @@ class TokenView:
         meta = self.image_meta
         if meta is None:
             return None
-        return {
-            _IMAGE_KEY_REVERSE.get(k, k): v for k, v in meta.items()
-        }
+        return {_IMAGE_KEY_REVERSE.get(k, k): v for k, v in meta.items()}
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         kind = "image" if self.is_image else "text"

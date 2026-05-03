@@ -20,11 +20,11 @@ from opencontractserver.constants.llm import (
 )
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.shared.decorators import celery_task_with_async_to_sync
-from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
 from opencontractserver.utils.extraction_grounding import (
     ground_extraction_to_annotations,
 )
 from opencontractserver.utils.llm import is_anthropic_model
+from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
 
 logger = logging.getLogger(__name__)
 

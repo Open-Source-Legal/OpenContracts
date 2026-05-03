@@ -38,7 +38,6 @@ from opencontractserver.types.dicts import (
     OpenContractsAnnotatedDocumentImportType,
 )
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.pawls_io import to_canonical_v2
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.importing import (
     create_document_from_export_data,
@@ -48,6 +47,7 @@ from opencontractserver.utils.importing import (
     prepare_import_labels,
     validate_labels_data,
 )
+from opencontractserver.utils.pawls_io import to_canonical_v2
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
@@ -126,9 +126,7 @@ def import_document_to_corpus(
 
         doc_data = document_import_data["doc_data"]
         pawls_parse_file = ContentFile(
-            json.dumps(to_canonical_v2(doc_data["pawls_file_content"])).encode(
-                "utf-8"
-            ),
+            json.dumps(to_canonical_v2(doc_data["pawls_file_content"])).encode("utf-8"),
             name="pawls_tokens.json",
         )
 

@@ -18,9 +18,8 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentAnalysisRow
 from opencontractserver.types.dicts import TextSpan
 from opencontractserver.types.enums import LabelType
-from opencontractserver.utils.pawls_io import to_v1_pages
 from opencontractserver.utils.etl import is_dict_instance_of_typed_dict
-from opencontractserver.utils.pawls_io import load_canonical_v2
+from opencontractserver.utils.pawls_io import load_canonical_v2, to_v1_pages
 
 # Timing constants for retry and backoff durations
 MAX_DELAY = 1800  # 30 minutes

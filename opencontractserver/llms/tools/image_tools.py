@@ -8,13 +8,14 @@ permission-checked variants for secure access.
 import json
 import logging
 from functools import partial
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from pydantic import BaseModel, Field
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.documents.models import Document
+from opencontractserver.types.dicts import PawlsTokenPythonType
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.pawls_io import (
     TokenView,
@@ -236,7 +237,7 @@ def get_document_image(
             )
             return None
 
-        v1_token = _v2_token_to_v1_image_dict(token)
+        v1_token = cast(PawlsTokenPythonType, _v2_token_to_v1_image_dict(token))
         base64_data = get_image_as_base64(v1_token)
         if not base64_data:
             logger.warning(
@@ -295,7 +296,7 @@ def _extract_image_from_pawls(
         if not token.is_image:
             return None
 
-        v1_token = _v2_token_to_v1_image_dict(token)
+        v1_token = cast(PawlsTokenPythonType, _v2_token_to_v1_image_dict(token))
         base64_data = get_image_as_base64(v1_token)
         if not base64_data:
             return None

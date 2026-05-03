@@ -34,14 +34,19 @@
  * `[x, y, w, h, "", {p: "...", f: "jpeg", ch: "...", ...}]`.
  */
 
-import { CompactImageMeta, CompactPage, CompactToken } from "../components/types";
+import {
+  CompactImageMeta,
+  CompactPage,
+  CompactToken,
+} from "../components/types";
 
 // ─────────────────────────────────────────────────────────────────────
 // Wire-shape types (internal — never leak past the decoder)
 // ─────────────────────────────────────────────────────────────────────
 
 /** v2 wire token: a positional array, optionally with a 6th metadata dict. */
-type CompactTokenV2Wire = [number, number, number, number, string]
+type CompactTokenV2Wire =
+  | [number, number, number, number, string]
   | [number, number, number, number, string, CompactImageMeta];
 
 /** v2 wire page: short keys + array of positional tokens. */

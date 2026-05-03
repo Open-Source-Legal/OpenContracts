@@ -47,9 +47,9 @@ from opencontractserver.types.dicts import (
     OpenContractDocExport,
 )
 from opencontractserver.types.enums import AnnotationFilterMode
-from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
 from opencontractserver.utils.etl import build_document_export, pawls_bbox_to_funsd_box
 from opencontractserver.utils.files import split_pdf_into_images
+from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
 from opencontractserver.utils.text import truncate
 
 logger = get_task_logger(__name__)

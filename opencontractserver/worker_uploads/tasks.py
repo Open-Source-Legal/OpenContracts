@@ -40,12 +40,12 @@ from opencontractserver.documents.models import (
     DocumentProcessingStatus,
 )
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.pawls_io import to_canonical_v2
 from opencontractserver.utils.importing import (
     import_annotations,
     import_relationships,
     load_or_create_labels,
 )
+from opencontractserver.utils.pawls_io import to_canonical_v2
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 from opencontractserver.worker_uploads.models import (
     UploadStatus,

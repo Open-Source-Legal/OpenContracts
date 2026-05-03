@@ -18,12 +18,12 @@ from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.types.dicts import OpenContractDocExport
-from opencontractserver.utils.pawls_io import to_canonical_v2
 from opencontractserver.utils.importing import (
     import_annotations,
     import_relationships,
     load_or_create_labels,
 )
+from opencontractserver.utils.pawls_io import to_canonical_v2
 
 from .base_component import PipelineComponentBase
 

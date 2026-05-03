@@ -84,10 +84,7 @@ export class DocumentCacheManager {
         // Wipe both stores so any cached blob/json is re-fetched and decoded
         // through the new pipeline. PDFs/text files are cheap to re-cache.
         if (oldVersion > 0 && oldVersion < 3 && transaction) {
-          for (const storeName of [
-            this.STORE_NAME,
-            this.METADATA_STORE_NAME,
-          ]) {
+          for (const storeName of [this.STORE_NAME, this.METADATA_STORE_NAME]) {
             if (db.objectStoreNames.contains(storeName)) {
               transaction.objectStore(storeName).clear();
             }
