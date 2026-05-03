@@ -237,9 +237,13 @@ def update_document_summary(
     except Corpus.DoesNotExist as exc:
         raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
 
-    # Use the model's update_summary method
+    # Use the model's update_summary method. The early guard above ensures at
+    # least one of `author` / `author_id` is set, so the narrowed value is
+    # never None here.
+    summary_author = author if author is not None else author_id
+    assert summary_author is not None
     revision = doc.update_summary(
-        new_content=new_content, author=author or author_id, corpus=corpus
+        new_content=new_content, author=summary_author, corpus=corpus
     )
 
     if revision is None:

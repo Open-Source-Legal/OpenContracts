@@ -80,8 +80,10 @@ class VectorSearchViaEmbeddingMixin:
             )
         vector_field = self._dimension_to_field(dimension)
 
-        # JOIN to Embedding rows matching the embedder and non-null vector
-        base_qs = self.filter(
+        # JOIN to Embedding rows matching the embedder and non-null vector.
+        # ``self.filter`` is provided by the QuerySet that this mixin is
+        # combined with at the concrete subclass level.
+        base_qs = self.filter(  # type: ignore[attr-defined]
             **{
                 f"{self.EMBEDDING_RELATED_NAME}__embedder_path": embedder_path,
                 f"{vector_field}__isnull": False,
@@ -204,7 +206,7 @@ class HasEmbeddingMixin:
             self.get_embedding_reference_kwargs()
         )  # e.g. {"document_id": self.pk} for Documents
         return Embedding.objects.store_embedding(
-            creator=self.creator,
+            creator=self.creator,  # type: ignore[attr-defined]
             dimension=dimension,
             vector=vector,
             embedder_path=embedder_path,
@@ -232,7 +234,7 @@ class HasEmbeddingMixin:
             dimension = len(vec)
             kwargs = self.get_embedding_reference_kwargs()
             emb = Embedding.objects.store_embedding(
-                creator=self.creator,
+                creator=self.creator,  # type: ignore[attr-defined]
                 dimension=dimension,
                 vector=vec,
                 embedder_path=embedder_path,

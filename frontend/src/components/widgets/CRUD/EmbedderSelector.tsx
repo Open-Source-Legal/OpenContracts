@@ -66,7 +66,12 @@ export const EmbedderSelector = ({
     onChange?.({ preferredEmbedder: value ?? null });
   };
 
-  const embedders = data?.pipelineComponents?.embedders || [];
+  // Superusers receive every registered embedder from the backend regardless
+  // of PipelineSettings.enabled_components, so filter the disabled ones out
+  // client-side to match what the rest of the system will actually accept.
+  const embedders = (data?.pipelineComponents?.embedders || []).filter(
+    (embedder: PipelineComponentType) => embedder.enabled !== false
+  );
   const hasEmbedders = embedders.length > 0;
 
   const options = embedders.map((embedder: PipelineComponentType) => ({

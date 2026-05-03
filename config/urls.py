@@ -85,7 +85,7 @@ urlpatterns = [
         else [
             *(
                 []
-                if not settings.USE_SILK
+                if not getattr(settings, "USE_SILK", False)
                 else [path("silk/", include("silk.urls", namespace="silk"))]
             ),
             path(

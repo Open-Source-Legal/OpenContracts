@@ -19,6 +19,7 @@ const embeddersMock = {
             inputSchema: null,
             vectorSize: 384,
             className: "DefaultEmbedder",
+            enabled: true,
           },
           {
             name: "large_embedder",
@@ -30,6 +31,7 @@ const embeddersMock = {
             inputSchema: null,
             vectorSize: 1024,
             className: "LargeEmbedder",
+            enabled: true,
           },
         ],
       },
@@ -139,6 +141,74 @@ test.describe("EmbedderSelector", () => {
       1
     );
     await expect(options.filter({ hasText: "Large Embedder" })).toHaveCount(1);
+
+    await component.unmount();
+  });
+
+  test("filters out embedders disabled in pipeline settings", async ({
+    mount,
+    page,
+  }) => {
+    const mixedMock = {
+      request: { query: GET_EMBEDDERS },
+      result: {
+        data: {
+          pipelineComponents: {
+            embedders: [
+              {
+                name: "default_embedder",
+                moduleName:
+                  "opencontractserver.pipeline.embedders.DefaultEmbedder",
+                title: "Default Embedder",
+                description: "Standard text embedding model",
+                author: "OpenContracts",
+                componentType: "embedder",
+                inputSchema: null,
+                vectorSize: 384,
+                className: "DefaultEmbedder",
+                enabled: true,
+              },
+              {
+                name: "disabled_embedder",
+                moduleName:
+                  "opencontractserver.pipeline.embedders.DisabledEmbedder",
+                title: "Disabled Embedder",
+                description: "Should not appear in the dropdown",
+                author: "OpenContracts",
+                componentType: "embedder",
+                inputSchema: null,
+                vectorSize: 768,
+                className: "DisabledEmbedder",
+                enabled: false,
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <EmbedderSelectorTestWrapper mocks={[mixedMock, { ...mixedMock }]} />
+    );
+
+    await expect(component.locator(".oc-dropdown__placeholder")).toHaveText(
+      "Choose a preferred embedder",
+      { timeout: 5000 }
+    );
+
+    await component.locator(".oc-dropdown__trigger").click();
+
+    const menu = page.locator(".oc-dropdown__menu");
+    await expect(menu).toBeVisible();
+
+    const options = menu.locator(".oc-dropdown__option");
+    await expect(options).toHaveCount(1);
+    await expect(options.filter({ hasText: "Default Embedder" })).toHaveCount(
+      1
+    );
+    await expect(options.filter({ hasText: "Disabled Embedder" })).toHaveCount(
+      0
+    );
 
     await component.unmount();
   });

@@ -7,8 +7,10 @@ These limits protect against:
 - Resource exhaustion
 - Denial of service
 
-All limits can be overridden via Django settings with the same name.
-Example: settings.ZIP_MAX_FILE_COUNT = 2000
+All limits can be overridden via Django settings with the same name and via
+the matching environment variable consumed in `config/settings/base.py`.
+Example: settings.ZIP_MAX_FILE_COUNT = 2000  (or `ZIP_MAX_FILE_COUNT=2000`
+in the environment).
 """
 
 from django.conf import settings
@@ -43,11 +45,13 @@ ZIP_MAX_PATH_COMPONENT_LENGTH = getattr(settings, "ZIP_MAX_PATH_COMPONENT_LENGTH
 # Maximum total path length in characters
 ZIP_MAX_PATH_LENGTH = getattr(settings, "ZIP_MAX_PATH_LENGTH", 1024)
 
-# Maximum size of a single annotation sidecar JSON in bytes (10MB default)
+# Maximum size of a single annotation sidecar JSON in bytes (50MB default).
 # Sidecars are fully loaded into memory for JSON parsing; this limit
 # prevents a single oversized sidecar from causing excessive memory usage.
+# Override via Django settings (ZIP_MAX_SIDECAR_SIZE_BYTES) or the
+# matching environment variable consumed in config/settings/base.py.
 ZIP_MAX_SIDECAR_SIZE_BYTES = getattr(
-    settings, "ZIP_MAX_SIDECAR_SIZE_BYTES", 10 * 1024 * 1024
+    settings, "ZIP_MAX_SIDECAR_SIZE_BYTES", 50 * 1024 * 1024
 )
 
 # Batch size for document processing (commit after N documents)

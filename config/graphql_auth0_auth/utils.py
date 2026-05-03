@@ -109,6 +109,12 @@ def jwt_auth0_decode(token):
             "jwt_auth0_decode() - Algorithm: %s", auth0_settings.AUTH0_TOKEN_ALGORITHM
         )
 
+        # JWKS endpoints publish public keys only; the cryptography stubs widen
+        # ``RSAAlgorithm.from_jwk`` to ``RSAPrivateKey | RSAPublicKey`` so cast
+        # back to the public-key arm for ``jwt.decode``.
+        from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+
+        assert isinstance(public_key, RSAPublicKey)
         decoded = jwt.decode(
             token,
             public_key,

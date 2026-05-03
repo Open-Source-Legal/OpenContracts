@@ -9,7 +9,7 @@ GET  /api/worker-uploads/documents/<id> — check status of a specific upload
 import json
 import logging
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -71,7 +71,7 @@ class WorkerDocumentUploadView(APIView):
     parser_classes = [MultiPartParser]
 
     def post(self, request: Request) -> Response:
-        token: CorpusAccessToken = request.auth
+        token = cast(CorpusAccessToken, request.auth)
 
         # Enforce file size limit
         max_size = settings.MAX_WORKER_UPLOAD_SIZE_BYTES
@@ -166,7 +166,7 @@ class WorkerDocumentUploadStatusView(RetrieveAPIView):
     lookup_url_kwarg = "upload_id"
 
     def get_queryset(self) -> "QuerySet[WorkerDocumentUpload]":
-        token: CorpusAccessToken = self.request.auth
+        token = cast(CorpusAccessToken, self.request.auth)
         return WorkerDocumentUpload.objects.select_related(
             "result_document", "corpus_access_token"
         ).filter(corpus_access_token=token)
@@ -187,7 +187,7 @@ class WorkerDocumentUploadListView(ListAPIView):
     pagination_class = WorkerUploadPagination
 
     def get_queryset(self) -> "QuerySet[WorkerDocumentUpload]":
-        token: CorpusAccessToken = self.request.auth
+        token = cast(CorpusAccessToken, self.request.auth)
         qs = WorkerDocumentUpload.objects.select_related(
             "result_document", "corpus_access_token"
         ).filter(corpus_access_token=token)

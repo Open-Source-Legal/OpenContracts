@@ -73,7 +73,7 @@ def load_document_txt_extract(
 
     if not use_cache:
         # (Re)load from storage.
-        content_bytes = doc.txt_extract_file.read()  # type: ignore[arg-type]
+        content_bytes = doc.txt_extract_file.read()
         content_str = content_bytes.decode("utf-8")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
@@ -132,7 +132,7 @@ async def aload_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
-        content_str = doc.txt_extract_file.read().decode("utf-8")  # type: ignore[arg-type]
+        content_str = doc.txt_extract_file.read().decode("utf-8")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
         logger.debug(
