@@ -42,7 +42,7 @@ def create_mock_pawls_content(text: str) -> str:
         x_pos += len(word) * 10 + 5  # Add space between words
 
     pawls_content = [
-        {"page": {"width": 800, "height": 1000, "index": 1}, "tokens": tokens}
+        {"page": {"width": 800, "height": 1000, "index": 0}, "tokens": tokens}
     ]
     return json.dumps(pawls_content)
 
@@ -117,10 +117,10 @@ class TestDataExtractTasks(TestCase):
             raw_text="test document with some",  # part of self.pdf_content
             page=1,
             json={
-                "1": {
+                "0": {
                     "bounds": {"top": 0, "bottom": 10, "left": 20, "right": 100},
                     "tokensJsons": [
-                        {"pageIndex": 1, "tokenIndex": i} for i in range(3, 6)
+                        {"pageIndex": 0, "tokenIndex": i} for i in range(3, 6)
                     ],
                     "rawText": "test document with some",
                 }

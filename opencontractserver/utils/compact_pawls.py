@@ -125,12 +125,15 @@ def _compact_token(token: dict[str, Any]) -> list:
     ]
 
     if token.get("is_image"):
+        # The 6th-element dict is the v2 contract for "this is an image
+        # token". We append it unconditionally for image tokens — even when
+        # all v1 image metadata fields are absent — so the is_image flag
+        # survives the v1 → v2 round trip.
         img_meta: dict[str, Any] = {}
         for v1_key, v2_key in _IMAGE_KEY_MAP.items():
             if v1_key in token and token[v1_key] is not None:
                 img_meta[v2_key] = token[v1_key]
-        if img_meta:
-            arr.append(img_meta)
+        arr.append(img_meta)
 
     return arr
 
