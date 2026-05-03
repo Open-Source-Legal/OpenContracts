@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from channels.db import database_sync_to_async
 from django.core.files.base import ContentFile
@@ -130,7 +130,10 @@ async def get_or_create_memory_document(corpus: Corpus, user: Any) -> Document:
             # Another transaction created it concurrently; re-read
             corpus.refresh_from_db()
             if corpus.memory_document_id:
-                return corpus.memory_document
+                # FK descriptor raises Document.DoesNotExist if the row is
+                # missing — it never returns None when memory_document_id is
+                # set. The cast just narrows for mypy.
+                return cast(Document, corpus.memory_document)
             raise
 
         # Phase 3: Re-acquire the lock to write back the FK.
@@ -327,7 +330,7 @@ async def get_memory_for_injection(corpus: Corpus, query: str = "") -> str:
 
     if not query:
         # No query signal — return first N sections up to token budget
-        result_parts = []
+        result_parts: list[str] = []
         budget = MEMORY_FULL_INJECTION_MAX_TOKENS
         for section in sections:
             cost = estimate_token_count(section)

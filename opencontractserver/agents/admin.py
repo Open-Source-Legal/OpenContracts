@@ -164,8 +164,8 @@ class AgentActionResultAdmin(GuardedModelAdmin):
             obj.get_status_display(),
         )
 
-    status_badge.short_description = "Status"
-    status_badge.admin_order_field = "status"
+    status_badge.short_description = "Status"  # type: ignore[attr-defined]
+    status_badge.admin_order_field = "status"  # type: ignore[attr-defined]
 
     def corpus_action_link(self, obj: AgentActionResult) -> str:
         """Link to the corpus action in admin."""
@@ -182,16 +182,13 @@ class AgentActionResultAdmin(GuardedModelAdmin):
             )
         return "-"
 
-    corpus_action_link.short_description = "Corpus Action"
+    corpus_action_link.short_description = "Corpus Action"  # type: ignore[attr-defined]
 
     def document_link(self, obj: AgentActionResult) -> str:
         """Link to the document in admin."""
         if obj.document:
-            title = (
-                obj.document.title[:30] + "..."
-                if len(obj.document.title or "") > 30
-                else obj.document.title
-            )
+            doc_title = obj.document.title or ""
+            title = doc_title[:30] + "..." if len(doc_title) > 30 else doc_title
             return format_html(
                 '<a href="/admin/documents/document/{}/change/">{}</a>',
                 obj.document_id,
@@ -199,7 +196,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
             )
         return "-"
 
-    document_link.short_description = "Document"
+    document_link.short_description = "Document"  # type: ignore[attr-defined]
 
     def tools_count(self, obj: AgentActionResult) -> str:
         """Display count of tools executed."""
@@ -212,7 +209,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
             )
         return "0"
 
-    tools_count.short_description = "Tools"
+    tools_count.short_description = "Tools"  # type: ignore[attr-defined]
 
     def duration_display(self, obj: AgentActionResult) -> str:
         """Display execution duration."""
@@ -228,7 +225,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
                 return f"{minutes}m {seconds:.0f}s"
         return "-"
 
-    duration_display.short_description = "Duration"
+    duration_display.short_description = "Duration"  # type: ignore[attr-defined]
 
     def agent_response_display(self, obj: AgentActionResult) -> str:
         """Display agent response with formatting."""
@@ -240,7 +237,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
             return format_html("<pre style='white-space: pre-wrap;'>{}</pre>", response)
         return "No response"
 
-    agent_response_display.short_description = "Agent Response"
+    agent_response_display.short_description = "Agent Response"  # type: ignore[attr-defined]
 
     def tools_executed_display(self, obj: AgentActionResult) -> str:
         """Display tools executed as formatted JSON."""
@@ -254,7 +251,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
             return format_html("<pre>{}</pre>", formatted)
         return "None"
 
-    tools_executed_display.short_description = "Tools Executed"
+    tools_executed_display.short_description = "Tools Executed"  # type: ignore[attr-defined]
 
     def execution_metadata_display(self, obj: AgentActionResult) -> str:
         """Display execution metadata as formatted JSON."""
@@ -265,7 +262,7 @@ class AgentActionResultAdmin(GuardedModelAdmin):
             return format_html("<pre>{}</pre>", formatted)
         return "None"
 
-    execution_metadata_display.short_description = "Execution Metadata"
+    execution_metadata_display.short_description = "Execution Metadata"  # type: ignore[attr-defined]
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[AgentActionResult]:
         """Optimize queryset with select_related."""
