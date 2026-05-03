@@ -23,6 +23,7 @@ from graphql_jwt.shortcuts import get_token
 
 from config.websocket.middleware import (
     WS_AUTH_SUBPROTOCOL,
+    WS_CLOSE_TOKEN_EXPIRED,
     WS_CLOSE_TOKEN_INVALID,
     JWTAuthMiddleware,
 )
@@ -235,3 +236,115 @@ class GraphQLJWTTokenAuthMiddlewareTestCase(WebsocketFixtureBaseTestCase):
             4003,
             "WebSocket should reject anonymous access to private document with code 4003.",
         )
+
+
+# ---------------------------------------------------------------------------
+# AuthHandshakeMixin tests
+# ---------------------------------------------------------------------------
+
+from config.websocket.auth_handshake import AuthHandshakeMixin  # noqa: E402
+
+
+class _DummyConsumer(AuthHandshakeMixin):
+    """Bare consumer instance used to exercise the mixin in isolation."""
+
+    def __init__(self, scope: dict):
+        self.scope = scope
+        self.sent: list[str] = []
+        self.closed_with: int | None = None
+        self._is_connected = True
+
+    async def send(self, text_data: str) -> None:
+        self.sent.append(text_data)
+
+    async def close(self, code: int | None = None) -> None:
+        self.closed_with = code
+        self._is_connected = False
+
+    async def accept(self, subprotocol: str | None = None) -> None:
+        self.accepted_subprotocol = subprotocol
+
+    async def _validate_resource_permissions(self, user) -> bool:
+        return True
+
+
+@pytest.mark.serial
+class AuthHandshakeMixinTests(WebsocketFixtureBaseTestCase):
+    """Tests for AuthHandshakeMixin behavior in isolation."""
+
+    async def _make_consumer(self, user) -> _DummyConsumer:
+        return _DummyConsumer(
+            scope={
+                "user": user,
+                "accepted_subprotocol": WS_AUTH_SUBPROTOCOL,
+                "auth_error": None,
+            }
+        )
+
+    async def test_accept_with_auth_echoes_subprotocol(self):
+        c = await self._make_consumer(self.user)
+        await c.accept_with_auth()
+        self.assertEqual(c.accepted_subprotocol, WS_AUTH_SUBPROTOCOL)
+
+    async def test_handle_auth_valid_same_user_sends_AUTH_OK(self):
+        token = await database_sync_to_async(get_token)(self.user)
+        c = await self._make_consumer(self.user)
+        await c.handle_auth_message({"type": "AUTH", "token": token})
+        self.assertIsNone(c.closed_with)
+        self.assertTrue(any('"AUTH_OK"' in s for s in c.sent))
+
+    async def test_handle_auth_user_mismatch_closes_4002(self):
+        # Build a token for a *different* user
+        other_user = await database_sync_to_async(User.objects.create_user)(
+            username="other", password="x"
+        )
+        other_token = await database_sync_to_async(get_token)(other_user)
+        c = await self._make_consumer(self.user)
+        await c.handle_auth_message({"type": "AUTH", "token": other_token})
+        self.assertEqual(c.closed_with, WS_CLOSE_TOKEN_INVALID)
+        self.assertTrue(any('"USER_MISMATCH"' in s for s in c.sent))
+
+    async def test_handle_auth_invalid_token_closes_4002(self):
+        c = await self._make_consumer(self.user)
+        await c.handle_auth_message({"type": "AUTH", "token": "garbage"})
+        self.assertEqual(c.closed_with, WS_CLOSE_TOKEN_INVALID)
+        self.assertTrue(any('"INVALID"' in s for s in c.sent))
+
+    async def test_handle_auth_missing_token_field_closes_4002(self):
+        c = await self._make_consumer(self.user)
+        await c.handle_auth_message({"type": "AUTH"})
+        self.assertEqual(c.closed_with, WS_CLOSE_TOKEN_INVALID)
+
+    async def test_handle_auth_resource_permission_revoked_closes_4003(self):
+        token = await database_sync_to_async(get_token)(self.user)
+        c = await self._make_consumer(self.user)
+        # Override permission check to deny
+        c._validate_resource_permissions = AsyncMock(return_value=False)
+        await c.handle_auth_message({"type": "AUTH", "token": token})
+        self.assertEqual(c.closed_with, 4003)
+        self.assertTrue(any('"PERMISSION_REVOKED"' in s for s in c.sent))
+
+    async def test_nudge_refresh_emits_AUTH_REFRESH_REQUIRED(self):
+        c = await self._make_consumer(self.user)
+        await c.request_token_refresh(grace_seconds=1)
+        self.assertTrue(any('"AUTH_REFRESH_REQUIRED"' in s for s in c.sent))
+
+    async def test_nudge_refresh_grace_timer_closes_4001_on_timeout(self):
+        c = await self._make_consumer(self.user)
+        await c.request_token_refresh(grace_seconds=0.05)
+        # Wait for grace timer to fire
+        import asyncio
+
+        await asyncio.sleep(0.2)
+        self.assertEqual(c.closed_with, WS_CLOSE_TOKEN_EXPIRED)
+
+    async def test_nudge_refresh_cancelled_by_auth_message(self):
+        token = await database_sync_to_async(get_token)(self.user)
+        c = await self._make_consumer(self.user)
+        await c.request_token_refresh(grace_seconds=10)
+        await c.handle_auth_message({"type": "AUTH", "token": token})
+        # Timer cancelled — even after waiting, no close
+        import asyncio
+
+        await asyncio.sleep(0.1)
+        self.assertIsNone(c.closed_with)

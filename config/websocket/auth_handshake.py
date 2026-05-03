@@ -1,0 +1,232 @@
+"""
+AuthHandshakeMixin — adds in-band token-refresh and re-validation behavior to
+any AsyncWebsocketConsumer.
+
+Wire protocol (frames in addition to whatever the consumer already speaks):
+
+  Client -> Server:
+    {"type": "AUTH", "token": "<jwt>"}
+
+  Server -> Client:
+    {"type": "AUTH_OK", "user_id": int|null, "username": str|null,
+     "anonymous": bool, "refreshed": bool}
+    {"type": "AUTH_FAILED", "reason":
+        "EXPIRED" | "INVALID" | "USER_MISMATCH" | "PERMISSION_REVOKED"}
+    {"type": "AUTH_REFRESH_REQUIRED", "grace_seconds": float}
+
+Security guarantees enforced by handle_auth_message():
+  1. A live socket bound to user A cannot be re-bound to user B (USER_MISMATCH).
+  2. If the user has lost access to a bound resource since connect, the next
+     AUTH frame closes 4003 (PERMISSION_REVOKED).
+  3. An expired/invalid AUTH frame closes the socket (4001/4002) and never
+     leaves the consumer in an inconsistent state.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from typing import Any
+
+from channels.db import database_sync_to_async
+from django.contrib.auth.models import AnonymousUser
+from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
+
+from config.jwt_utils import get_user_from_jwt_token
+from config.websocket.middleware import (
+    WS_CLOSE_TOKEN_EXPIRED,
+    WS_CLOSE_TOKEN_INVALID,
+)
+
+logger = logging.getLogger(__name__)
+
+# Permission-denied close code (consistent with existing consumer usage).
+WS_CLOSE_PERMISSION_DENIED = 4003
+
+
+@database_sync_to_async
+def _get_user_from_token(token: str):
+    return get_user_from_jwt_token(token)
+
+
+class AuthHandshakeMixin:
+    """
+    Mix this into an AsyncWebsocketConsumer to opt into in-band auth refresh.
+
+    Consumers using this mixin should:
+      1. Replace ``await self.accept()`` with ``await self.accept_with_auth()``.
+      2. In ``receive()``, dispatch frames whose top-level "type" == "AUTH" to
+         ``await self.handle_auth_message(payload)`` BEFORE any other handling.
+      3. Optionally override ``_validate_resource_permissions(user)`` to re-run
+         resource-level access checks on refresh; default is permissive.
+      4. Optionally call ``await self.request_token_refresh()`` from streaming
+         code that catches a JSONWebTokenExpired mid-flight.
+    """
+
+    # Populated by accept_with_auth() and updated by handle_auth_message().
+    _refresh_grace_task: asyncio.Task | None = None
+    _initial_auth_sent: bool = False
+
+    @property
+    def current_user(self):
+        return self.scope.get("user")
+
+    # ------------------------------------------------------------------ #
+    #  Connection accept
+    # ------------------------------------------------------------------ #
+
+    async def accept_with_auth(self) -> None:
+        """Accept the connection echoing the negotiated subprotocol."""
+        subprotocol = self.scope.get("accepted_subprotocol")
+        await self.accept(subprotocol=subprotocol)
+        await self._send_initial_auth_ok()
+
+    async def _send_initial_auth_ok(self) -> None:
+        if self._initial_auth_sent:
+            return
+        user = self.current_user
+        is_anon = (
+            isinstance(user, AnonymousUser)
+            or user is None
+            or not getattr(user, "is_authenticated", False)
+        )
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "AUTH_OK",
+                    "user_id": None if is_anon else user.pk,
+                    "username": None if is_anon else user.username,
+                    "anonymous": is_anon,
+                    "refreshed": False,
+                }
+            )
+        )
+        self._initial_auth_sent = True
+
+    # ------------------------------------------------------------------ #
+    #  Refresh: client-driven
+    # ------------------------------------------------------------------ #
+
+    async def handle_auth_message(self, payload: dict[str, Any]) -> None:
+        """
+        Process a ``{"type":"AUTH","token":...}`` frame from the client.
+
+        Validates the token, refuses user-pk swap, re-validates resource
+        permissions, swaps scope["user"] on success, and cancels any pending
+        server-nudge grace timer.
+        """
+        token = payload.get("token")
+        if not token or not isinstance(token, str):
+            await self._fail_auth("INVALID", WS_CLOSE_TOKEN_INVALID)
+            return
+
+        try:
+            new_user = await _get_user_from_token(token)
+        except JSONWebTokenExpired:
+            await self._fail_auth("EXPIRED", WS_CLOSE_TOKEN_EXPIRED)
+            return
+        except JSONWebTokenError:
+            await self._fail_auth("INVALID", WS_CLOSE_TOKEN_INVALID)
+            return
+        except Exception:
+            logger.exception("Unexpected error validating refresh token")
+            await self._fail_auth("INVALID", WS_CLOSE_TOKEN_INVALID)
+            return
+
+        # User-pk swap is forbidden — defense in depth.
+        current = self.current_user
+        current_is_anon = (
+            isinstance(current, AnonymousUser)
+            or current is None
+            or not getattr(current, "is_authenticated", False)
+        )
+        if not current_is_anon and current.pk != new_user.pk:
+            await self._fail_auth("USER_MISMATCH", WS_CLOSE_TOKEN_INVALID)
+            return
+
+        # Re-validate resource permissions.
+        if not await self._validate_resource_permissions(new_user):
+            await self._fail_auth("PERMISSION_REVOKED", WS_CLOSE_PERMISSION_DENIED)
+            return
+
+        # Success — swap, ack, cancel any pending grace timer.
+        self.scope["user"] = new_user
+        self._cancel_refresh_grace_timer()
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "AUTH_OK",
+                    "user_id": new_user.pk,
+                    "username": new_user.username,
+                    "anonymous": False,
+                    "refreshed": True,
+                }
+            )
+        )
+
+    async def _validate_resource_permissions(self, user) -> bool:
+        """
+        Override in consumers that have resource-level access requirements
+        (e.g., document/corpus/conversation membership). Default permits.
+        """
+        return True
+
+    async def _fail_auth(self, reason: str, close_code: int) -> None:
+        try:
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "AUTH_FAILED",
+                        "reason": reason,
+                    }
+                )
+            )
+        except Exception:
+            pass
+        await self.close(code=close_code)
+
+    # ------------------------------------------------------------------ #
+    #  Refresh: server-nudged
+    # ------------------------------------------------------------------ #
+
+    async def request_token_refresh(self, grace_seconds: float = 30.0) -> None:
+        """
+        Ask the client to send a fresh token. If the client doesn't respond
+        with a successful AUTH frame within ``grace_seconds``, close 4001.
+        """
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "AUTH_REFRESH_REQUIRED",
+                    "grace_seconds": grace_seconds,
+                }
+            )
+        )
+        self._cancel_refresh_grace_timer()
+        self._refresh_grace_task = asyncio.create_task(
+            self._refresh_grace_timeout(grace_seconds)
+        )
+
+    async def _refresh_grace_timeout(self, grace_seconds: float) -> None:
+        try:
+            await asyncio.sleep(grace_seconds)
+        except asyncio.CancelledError:
+            return
+        if getattr(self, "_is_connected", True):
+            logger.info("Refresh grace timer expired; closing 4001")
+            await self.close(code=WS_CLOSE_TOKEN_EXPIRED)
+
+    def _cancel_refresh_grace_timer(self) -> None:
+        task = self._refresh_grace_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._refresh_grace_task = None
+
+    # ------------------------------------------------------------------ #
+    #  Cleanup
+    # ------------------------------------------------------------------ #
+
+    async def cleanup_auth_handshake(self) -> None:
+        """Consumers should call this from their ``disconnect()``."""
+        self._cancel_refresh_grace_timer()
