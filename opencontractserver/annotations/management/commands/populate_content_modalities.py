@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
 from opencontractserver.annotations.models import Annotation
-from opencontractserver.utils.pawls_io import TokenView, load_canonical_v2
+from opencontractserver.utils.pawls_io import iter_pages, load_canonical_v2
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,8 @@ class Command(BaseCommand):
                 return ["IMAGE"]
             return ["TEXT"]
 
-        pages = pawls_data.get("p") or []
+        # Materialize page views once so we can index into them by page index.
+        pages = list(iter_pages(pawls_data))
 
         # Extract token references from the json field (handles v1 and v2 formats)
         all_token_refs = []
@@ -142,22 +143,14 @@ class Command(BaseCommand):
             if token_idx is None:
                 continue
 
-            if page_idx >= len(pages):
+            if page_idx < 0 or page_idx >= len(pages):
                 continue
 
-            page_dict = pages[page_idx]
-            if not isinstance(page_dict, dict):
+            tokens = list(pages[page_idx].tokens)
+            if token_idx < 0 or token_idx >= len(tokens):
                 continue
 
-            rows = page_dict.get("t") or []
-            if token_idx >= len(rows):
-                continue
-
-            row = rows[token_idx]
-            if not isinstance(row, list):
-                continue
-
-            token = TokenView(row)
+            token = tokens[token_idx]
 
             # Check if this token is an image
             if token.is_image:

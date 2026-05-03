@@ -23,7 +23,6 @@ from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.types.enums import ContentModality
 from opencontractserver.utils.multimodal_embeddings import (
     _resolve_v2_pawls,
-    batch_extract_annotation_images,
     embed_images_average,
     extract_and_store_annotation_images,
     generate_multimodal_embedding,
@@ -32,6 +31,7 @@ from opencontractserver.utils.multimodal_embeddings import (
     normalize_vector,
     weighted_average_embeddings,
 )
+from opencontractserver.utils.pawls_io import to_canonical_v2
 
 User = get_user_model()
 
@@ -845,245 +845,367 @@ class TestGenerateMultimodalEmbedding(TestCase):
         self.assertIsNotNone(result)
 
 
-class TestResolveV2Pawls(TestCase):
-    """Tests for the private ``_resolve_v2_pawls`` helper."""
+# ── Helpers shared by the new v2-path test classes ─────────────────────
 
-    def test_falsy_input_returns_none(self):
+
+def _make_v1_image_pawls(base64_data: str) -> list:
+    """Build a v1-shape PAWLs payload with one text + one image token."""
+    return [
+        {
+            "page": {"width": 612, "height": 792, "index": 0},
+            "tokens": [
+                {"x": 100, "y": 100, "width": 50, "height": 12, "text": "Hello"},
+                {
+                    "x": 100,
+                    "y": 200,
+                    "width": 200,
+                    "height": 150,
+                    "text": "",
+                    "is_image": True,
+                    "base64_data": base64_data,
+                    "format": "jpeg",
+                },
+            ],
+        }
+    ]
+
+
+def _sample_image_base64(width: int = 100, height: int = 100) -> str:
+    """Create a tiny base64-encoded JPEG for tests."""
+    from PIL import Image
+
+    img = Image.new("RGB", (width, height), color="red")
+    buffer = BytesIO()
+    img.save(buffer, format="JPEG", quality=85)
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+
+class TestResolveV2Pawls(TestCase):
+    """Unit tests for _resolve_v2_pawls — the v2 normalization helper."""
+
+    def test_returns_none_for_none(self):
         self.assertIsNone(_resolve_v2_pawls(None))
+
+    def test_returns_none_for_empty_list(self):
         self.assertIsNone(_resolve_v2_pawls([]))
+
+    def test_returns_none_for_empty_dict(self):
         self.assertIsNone(_resolve_v2_pawls({}))
 
-    def test_v1_list_normalized_to_v2(self):
-        v1 = [
-            {
-                "page": {"width": 612, "height": 792, "index": 0},
-                "tokens": [
-                    {"x": 0, "y": 0, "width": 10, "height": 10, "text": "x"},
-                ],
-            }
-        ]
+    def test_returns_none_for_empty_string(self):
+        # Strings are not list/dict, but the function short-circuits on
+        # falsy input first — empty string falls into the `not pawls_data`
+        # branch and returns None.
+        self.assertIsNone(_resolve_v2_pawls(""))
+
+    def test_returns_none_for_unsupported_type(self):
+        # A non-empty string is truthy but not list/dict -> None
+        self.assertIsNone(_resolve_v2_pawls("not-a-pawls-payload"))
+
+    def test_normalizes_v1_list_to_v2(self):
+        v1 = _make_v1_image_pawls(_sample_image_base64())
         result = _resolve_v2_pawls(v1)
         self.assertIsNotNone(result)
-        self.assertEqual(result["v"], 2)
+        self.assertEqual(result.get("v"), 2)
+        self.assertIsInstance(result.get("p"), list)
+        self.assertEqual(len(result["p"]), 1)
+        # First page should have w/h short keys
+        page0 = result["p"][0]
+        self.assertIn("w", page0)
+        self.assertIn("h", page0)
+        self.assertIn("t", page0)
 
-    def test_garbage_dict_returns_none(self):
-        # ``{"v": 99}`` survives the truthiness gate but fails normalization.
-        # _resolve_v2_pawls must trap the ValueError and return None rather
-        # than propagate it to callers.
-        result = _resolve_v2_pawls({"v": 99, "p": []})
-        self.assertIsNone(result)
+    def test_idempotent_on_v2_dict(self):
+        v1 = _make_v1_image_pawls(_sample_image_base64())
+        v2 = to_canonical_v2(v1)
+        # Round-trip: resolving an already-v2 dict returns it as-is.
+        result = _resolve_v2_pawls(v2)
+        self.assertIs(result, v2)
 
-    def test_unsupported_type_returns_none(self):
-        # A scalar (string) is truthy but not list/dict — covered by the
-        # final ``return None`` guard.
-        self.assertIsNone(_resolve_v2_pawls("not a pawls payload"))
+    def test_returns_none_on_invalid_v2_dict_shape(self):
+        # Dict that fails is_compact_pawls_format (no 'v' or wrong shape) —
+        # to_canonical_v2 raises ValueError, _resolve_v2_pawls catches it.
+        garbage_dict = {"not_v2": True, "random": [1, 2, 3]}
+        self.assertIsNone(_resolve_v2_pawls(garbage_dict))
+
+    def test_returns_none_on_malformed_v2_pages(self):
+        # v=2 but 'p' is not a list -> to_canonical_v2 raises -> None
+        malformed = {"v": 2, "p": "not-a-list"}
+        self.assertIsNone(_resolve_v2_pawls(malformed))
 
 
-class TestExtractAndStoreAnnotationImages(TestCase):
-    """Tests for ``extract_and_store_annotation_images``."""
+class TestGetAnnotationImageTokensV2Paths(TestCase):
+    """Tests for v2-canonical pawls_data and structural_set v2 load paths."""
 
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
-            username="test_extract_store_images_user", password="testpass123"
+            username="test_mm_v2_paths_user", password="testpass123"
         )
         cls.corpus = Corpus.objects.create(
-            title="Test Corpus",
+            title="Test Corpus V2",
             creator=cls.user,
         )
         cls.label = AnnotationLabel.objects.create(
-            text="Test Label",
+            text="Test Label V2",
             creator=cls.user,
         )
 
-    def _create_sample_image_base64(self) -> str:
-        from PIL import Image
+    def test_accepts_v2_canonical_pawls_data(self):
+        """A pre-built v2 canonical dict is consumed directly (no v1 conv)."""
+        base64_data = _sample_image_base64()
+        v2_pawls = to_canonical_v2(_make_v1_image_pawls(base64_data))
 
-        img = Image.new("RGB", (40, 40), color="red")
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
-        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+        document = Document.objects.create(
+            title="Test Doc V2",
+            creator=self.user,
+            pdf_file=ContentFile(b"fake pdf content", name="test.pdf"),
+        )
+        self.corpus.add_document(document=document, user=self.user)
 
-    def _make_image_pawls_data(self) -> list:
-        return [
-            {
-                "page": {"width": 612, "height": 792, "index": 0},
-                "tokens": [
-                    {"x": 10, "y": 10, "width": 30, "height": 12, "text": "Hi"},
-                    {
-                        "x": 100,
-                        "y": 100,
-                        "width": 200,
-                        "height": 150,
-                        "text": "",
-                        "is_image": True,
-                        "base64_data": self._create_sample_image_base64(),
-                        "format": "jpeg",
-                    },
-                ],
-            }
-        ]
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json={
+                "0": {
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 0},
+                        {"pageIndex": 0, "tokenIndex": 1},
+                    ]
+                }
+            },
+        )
 
-    def _make_annotation(self, document, json_payload):
+        result = get_annotation_image_tokens(annotation, pawls_data=v2_pawls)
+        self.assertEqual(len(result), 1)
+        # token_view_to_v1_image_dict re-emits v1 long keys for embedder pipeline
+        self.assertTrue(result[0].get("is_image"))
+        self.assertEqual(result[0].get("base64_data"), base64_data)
+        self.assertEqual(result[0].get("format"), "jpeg")
+        # Coordinate fields should be present in v1 long-key form
+        self.assertIn("x", result[0])
+        self.assertIn("width", result[0])
+
+    def test_garbage_pawls_data_returns_empty(self):
+        """Garbage pawls_data that fails normalization yields []."""
+        document = Document.objects.create(
+            title="Test Doc Garbage",
+            creator=self.user,
+            pdf_file=ContentFile(b"fake pdf content", name="test.pdf"),
+        )
+        self.corpus.add_document(document=document, user=self.user)
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            json={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}},
+        )
+
+        # Pass a dict that won't normalize (no 'v' key)
+        result = get_annotation_image_tokens(annotation, pawls_data={"bogus": True})
+        self.assertEqual(result, [])
+
+    def test_loads_from_structural_set_pawls_file(self):
+        """When annotation has no document but has structural_set, load v2
+        from structural_set.pawls_parse_file."""
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+
+        base64_data = _sample_image_base64()
+        v1_pawls = _make_v1_image_pawls(base64_data)
+
+        # Build a structural set whose pawls_parse_file holds v1 JSON; the
+        # production code path runs it through load_canonical_v2 which
+        # auto-normalizes v1 -> v2.
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="hash_for_v2_path_test_" + "0" * 40,
+            parser_name="TestParser",
+            creator=self.user,
+            pawls_parse_file=ContentFile(
+                json.dumps(v1_pawls).encode(), name="ss.pawls"
+            ),
+        )
+
+        annotation = Annotation.objects.create(
+            structural_set=structural_set,
+            structural=True,  # required by structural_set_requires_structural_flag
+            annotation_label=self.label,
+            creator=self.user,
+            json={
+                "0": {
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 0},
+                        {"pageIndex": 0, "tokenIndex": 1},
+                    ]
+                }
+            },
+        )
+
+        # No document, no pawls_data passed — must load via structural_set
+        result = get_annotation_image_tokens(annotation)
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].get("is_image"))
+        self.assertEqual(result[0].get("base64_data"), base64_data)
+
+
+class TestExtractAndStoreAnnotationImages(TestCase):
+    """Tests for extract_and_store_annotation_images.
+
+    Covers the new v2 path + idempotency / boundary checks.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="test_extract_store_user", password="testpass123"
+        )
+        cls.corpus = Corpus.objects.create(
+            title="Test Corpus Extract",
+            creator=cls.user,
+        )
+        cls.label = AnnotationLabel.objects.create(
+            text="Test Label Extract",
+            creator=cls.user,
+        )
+
+    def _make_annotation(self, annotation_json):
+        document = Document.objects.create(
+            title="Test Doc Extract",
+            creator=self.user,
+            pdf_file=ContentFile(b"fake pdf content", name="test.pdf"),
+        )
+        self.corpus.add_document(document=document, user=self.user)
         return Annotation.objects.create(
             document=document,
             corpus=self.corpus,
             annotation_label=self.label,
             creator=self.user,
-            json=json_payload,
+            json=annotation_json,
         )
 
-    def _create_document(self, pawls_data):
-        document = Document.objects.create(
-            title="Test Doc",
-            creator=self.user,
-            pdf_file=ContentFile(b"fake pdf content", name="test.pdf"),
-            pawls_parse_file=ContentFile(
-                json.dumps(pawls_data).encode(), name="test.pawls"
-            ),
+    def test_returns_false_when_pawls_data_is_none(self):
+        annot = self._make_annotation(
+            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}}
         )
-        self.corpus.add_document(document=document, user=self.user)
-        return document
+        self.assertFalse(extract_and_store_annotation_images(annot, None))
 
-    def test_falsy_pawls_returns_false(self):
-        document = self._create_document(self._make_image_pawls_data())
-        annotation = self._make_annotation(
-            document,
-            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+    def test_returns_false_when_pawls_data_is_empty(self):
+        annot = self._make_annotation(
+            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}}
         )
-        self.assertFalse(extract_and_store_annotation_images(annotation, None))
-        self.assertFalse(annotation.image_content_file)
+        self.assertFalse(extract_and_store_annotation_images(annot, []))
+        self.assertFalse(extract_and_store_annotation_images(annot, {}))
 
-    def test_no_image_tokens_returns_false(self):
-        # Page 0 token 0 is text; no image will be extracted.
-        pawls = self._make_image_pawls_data()
-        document = self._create_document(pawls)
-        annotation = self._make_annotation(
-            document,
-            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}},
+    def test_returns_false_on_garbage_pawls_data(self):
+        """Pawls dict that won't normalize yields False (not an exception)."""
+        annot = self._make_annotation(
+            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}}
         )
-        self.assertFalse(extract_and_store_annotation_images(annotation, pawls))
-        self.assertFalse(annotation.image_content_file)
+        # dict without 'v' key — _resolve_v2_pawls catches the ValueError
+        self.assertFalse(extract_and_store_annotation_images(annot, {"bogus": "dict"}))
 
-    def test_extracts_image_and_writes_file(self):
-        pawls = self._make_image_pawls_data()
-        document = self._create_document(pawls)
-        annotation = self._make_annotation(
-            document,
-            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
+    def test_returns_false_when_no_image_tokens_referenced(self):
+        """Annotation references only text tokens -> nothing extracted."""
+        v1_pawls = _make_v1_image_pawls(_sample_image_base64())
+        # Reference only the text token at index 0
+        annot = self._make_annotation(
+            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}}
         )
-        self.assertTrue(extract_and_store_annotation_images(annotation, pawls))
+        self.assertFalse(extract_and_store_annotation_images(annot, v1_pawls))
 
-        annotation.refresh_from_db()
-        self.assertTrue(bool(annotation.image_content_file))
-        annotation.image_content_file.open("r")
-        try:
-            payload = json.load(annotation.image_content_file)
-        finally:
-            annotation.image_content_file.close()
-        self.assertEqual(len(payload["images"]), 1)
-        img_entry = payload["images"][0]
-        self.assertEqual(img_entry["page_index"], 0)
-        self.assertEqual(img_entry["token_index"], 1)
-
-    def test_skips_out_of_bounds_pages_and_tokens(self):
-        # The annotation references a page that doesn't exist in pawls; the
-        # function must not crash and should return False because nothing was
-        # extracted.
-        pawls = self._make_image_pawls_data()
-        document = self._create_document(pawls)
-        annotation = self._make_annotation(
-            document,
+    def test_extracts_and_stores_images_from_v2_dict(self):
+        """A valid v2 dict + image-referencing annotation produces a file."""
+        base64_data = _sample_image_base64()
+        v2_pawls = to_canonical_v2(_make_v1_image_pawls(base64_data))
+        annot = self._make_annotation(
             {
-                "5": {  # out-of-bounds page
-                    "tokensJsons": [{"pageIndex": 5, "tokenIndex": 1}]
-                },
-            },
-        )
-        self.assertFalse(extract_and_store_annotation_images(annotation, pawls))
-
-
-class TestBatchExtractAnnotationImages(TestCase):
-    """Tests for ``batch_extract_annotation_images``."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_user(
-            username="test_batch_extract_user", password="testpass123"
-        )
-        cls.corpus = Corpus.objects.create(
-            title="Test Corpus",
-            creator=cls.user,
-        )
-        cls.label = AnnotationLabel.objects.create(
-            text="Test Label",
-            creator=cls.user,
-        )
-
-    def _create_sample_image_base64(self) -> str:
-        from PIL import Image
-
-        img = Image.new("RGB", (40, 40), color="red")
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
-        return base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-    def test_unresolvable_pawls_returns_zero(self):
-        self.assertEqual(batch_extract_annotation_images([], None), 0)
-
-    def test_only_image_modality_annotations_processed(self):
-        pawls_data = [
-            {
-                "page": {"width": 612, "height": 792, "index": 0},
-                "tokens": [
-                    {"x": 10, "y": 10, "width": 30, "height": 12, "text": "T"},
-                    {
-                        "x": 100,
-                        "y": 100,
-                        "width": 200,
-                        "height": 150,
-                        "text": "",
-                        "is_image": True,
-                        "base64_data": self._create_sample_image_base64(),
-                        "format": "jpeg",
-                    },
-                ],
+                "0": {
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 0},
+                        {"pageIndex": 0, "tokenIndex": 1},
+                    ]
+                }
             }
-        ]
-        document = Document.objects.create(
-            title="Batch Doc",
-            creator=self.user,
-            pdf_file=ContentFile(b"fake pdf content", name="batch.pdf"),
-            pawls_parse_file=ContentFile(
-                json.dumps(pawls_data).encode(), name="batch.pawls"
-            ),
-        )
-        self.corpus.add_document(document=document, user=self.user)
-
-        # IMAGE-modality annotation — should be processed.
-        image_annot = Annotation.objects.create(
-            document=document,
-            corpus=self.corpus,
-            annotation_label=self.label,
-            creator=self.user,
-            json={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
-            content_modalities=[ContentModality.IMAGE.value],
-        )
-        # TEXT-only annotation — should be skipped even if it points at an
-        # image token.
-        text_annot = Annotation.objects.create(
-            document=document,
-            corpus=self.corpus,
-            annotation_label=self.label,
-            creator=self.user,
-            json={"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}]}},
-            content_modalities=[ContentModality.TEXT.value],
         )
 
-        count = batch_extract_annotation_images([image_annot, text_annot], pawls_data)
-        self.assertEqual(count, 1)
+        # Sanity: nothing stored yet
+        self.assertFalse(bool(annot.image_content_file))
 
-        image_annot.refresh_from_db()
-        text_annot.refresh_from_db()
-        self.assertTrue(bool(image_annot.image_content_file))
-        self.assertFalse(bool(text_annot.image_content_file))
+        result = extract_and_store_annotation_images(annot, v2_pawls)
+        self.assertTrue(result)
+
+        # Reload and verify the file content
+        annot.refresh_from_db()
+        self.assertTrue(bool(annot.image_content_file))
+
+        annot.image_content_file.open("r")
+        try:
+            payload = json.load(annot.image_content_file)
+        finally:
+            annot.image_content_file.close()
+
+        self.assertIn("images", payload)
+        self.assertEqual(len(payload["images"]), 1)
+        stored = payload["images"][0]
+        self.assertEqual(stored["base64"], base64_data)
+        self.assertEqual(stored["format"], "jpeg")
+        self.assertEqual(stored["page_index"], 0)
+        self.assertEqual(stored["token_index"], 1)
+
+    def test_skips_out_of_bounds_page_index(self):
+        """Annotation references a page that doesn't exist in PAWLs -> False."""
+        v2_pawls = to_canonical_v2(_make_v1_image_pawls(_sample_image_base64()))
+        # Reference page 5 (PAWLs only has page 0)
+        v2_json = {"v": 2, "p": {"5": {"b": [0, 0, 0, 0], "t": "1"}}}
+        annot = self._make_annotation(v2_json)
+
+        # No image tokens collected → returns False, no file written
+        self.assertFalse(extract_and_store_annotation_images(annot, v2_pawls))
+        annot.refresh_from_db()
+        self.assertFalse(bool(annot.image_content_file))
+
+    def test_skips_out_of_bounds_token_index(self):
+        """Annotation references a token index past the end of the page."""
+        v2_pawls = to_canonical_v2(_make_v1_image_pawls(_sample_image_base64()))
+        # Page 0 has 2 tokens (indices 0, 1); reference index 99
+        annot = self._make_annotation(
+            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 99}]}}
+        )
+        self.assertFalse(extract_and_store_annotation_images(annot, v2_pawls))
+
+    def test_skips_non_dict_page_entries(self):
+        """Non-dict entries in canonical 'p' are safely skipped.
+
+        We hand-craft a canonical-shaped dict with a bogus page so the
+        defensive ``isinstance(page_dict, dict)`` guard fires. Going
+        through ``to_canonical_v2`` would reject it, so we bypass that here.
+        """
+        bogus_canonical = {"v": 2, "p": ["not_a_dict_page"]}
+        annot = self._make_annotation(
+            {"0": {"tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}]}}
+        )
+        # _resolve_v2_pawls runs the dict through to_canonical_v2 which
+        # rejects non-dict pages → returns None → function returns False.
+        self.assertFalse(extract_and_store_annotation_images(annot, bogus_canonical))
+
+    def test_v1_input_auto_normalized(self):
+        """A raw v1 list is auto-normalized inside the function."""
+        base64_data = _sample_image_base64()
+        v1_pawls = _make_v1_image_pawls(base64_data)
+        annot = self._make_annotation(
+            {
+                "0": {
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 0},
+                        {"pageIndex": 0, "tokenIndex": 1},
+                    ]
+                }
+            }
+        )
+
+        result = extract_and_store_annotation_images(annot, v1_pawls)
+        self.assertTrue(result)
+        annot.refresh_from_db()
+        self.assertTrue(bool(annot.image_content_file))

@@ -237,4 +237,118 @@ describe("decodeV2Pawls — v1 wire input (legacy tolerance)", () => {
     expect(result[0].index).toBe(0);
     expect(result[1].index).toBe(1);
   });
+
+  test("v1 page rejects non-object entries", () => {
+    expect(() => decodeV2Pawls(["not an object"])).toThrow(
+      /Invalid v1 PAWLs page/
+    );
+    expect(() => decodeV2Pawls([null])).toThrow(/Invalid v1 PAWLs page/);
+  });
+
+  test("v1 page tolerates missing/non-numeric width/height with 0 fallback", () => {
+    const v1 = [
+      // No `page` key at all -> fallback to {width:0, height:0}
+      { tokens: [] },
+      // `page` exists but width/height are non-numeric -> 0 fallback
+      { page: { width: "wide", height: null }, tokens: [] },
+    ];
+    const result = decodeV2Pawls(v1);
+    expect(result[0]).toMatchObject({ index: 0, width: 0, height: 0 });
+    expect(result[1]).toMatchObject({ index: 1, width: 0, height: 0 });
+  });
+
+  test("v1 token with non-object entries are skipped", () => {
+    const v1 = [
+      {
+        page: { width: 100, height: 100 },
+        tokens: [
+          // Skipped - not an object
+          "garbage",
+          null,
+          // Skipped - missing required numeric fields
+          { x: "wrong", y: 1, width: 1, height: 1, text: "" },
+          { x: 1 },
+          // Kept
+          { x: 1, y: 2, width: 3, height: 4, text: "Real" },
+        ],
+      },
+    ];
+    const result = decodeV2Pawls(v1);
+    expect(result[0].tokens).toHaveLength(1);
+    expect(result[0].tokens[0].text).toBe("Real");
+  });
+
+  test("v1 token with non-string text falls back to empty string", () => {
+    const v1 = [
+      {
+        page: { width: 100, height: 100 },
+        tokens: [{ x: 1, y: 2, width: 3, height: 4 }],
+      },
+    ];
+    const result = decodeV2Pawls(v1);
+    expect(result[0].tokens[0].text).toBe("");
+    expect(result[0].tokens[0].isImage).toBe(false);
+  });
+
+  test("v1 image token with no metadata fields produces empty imageMeta", () => {
+    const v1 = [
+      {
+        page: { width: 100, height: 100 },
+        tokens: [
+          {
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+            text: "",
+            is_image: true,
+            // no image_path / format / etc.
+          },
+        ],
+      },
+    ];
+    const result = decodeV2Pawls(v1);
+    expect(result[0].tokens[0].isImage).toBe(true);
+    expect(result[0].tokens[0].imageMeta).toEqual({});
+  });
+
+  test("v1 page with non-array tokens yields empty token list", () => {
+    const v1 = [
+      { page: { width: 100, height: 100 }, tokens: undefined },
+      { page: { width: 100, height: 100 }, tokens: "not an array" },
+    ];
+    const result = decodeV2Pawls(v1);
+    expect(result[0].tokens).toEqual([]);
+    expect(result[1].tokens).toEqual([]);
+  });
+});
+
+describe("decodeV2Pawls — v2 wire edge cases", () => {
+  test("v2 page with non-array tokens yields empty token list", () => {
+    const v2 = { v: 2, p: [{ w: 100, h: 100 }] }; // no `t`
+    const result = decodeV2Pawls(v2);
+    expect(result[0].tokens).toEqual([]);
+  });
+
+  test("v2 page falls back to width/height 0 when w/h missing", () => {
+    const v2 = { v: 2, p: [{ t: [] }] };
+    const result = decodeV2Pawls(v2);
+    expect(result[0]).toMatchObject({ index: 0, width: 0, height: 0 });
+  });
+
+  test("v2 token with non-array entry is skipped", () => {
+    const v2 = {
+      v: 2,
+      p: [
+        {
+          w: 100,
+          h: 100,
+          t: ["garbage", [1, 2, 3, 4, "ok"]],
+        },
+      ],
+    };
+    const result = decodeV2Pawls(v2);
+    expect(result[0].tokens).toHaveLength(1);
+    expect(result[0].tokens[0].text).toBe("ok");
+  });
 });
