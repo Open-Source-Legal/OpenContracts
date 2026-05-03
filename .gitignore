@@ -202,3 +202,8 @@ docs/superpowers/
 # every number in docs/benchmarks/legalbench_rag_results.md has a
 # traceable artifact. Do not exclude that directory.
 !docs/benchmarks/runs/
+
+# Auto-generated documentation screenshots. Regenerated locally on demand
+# via `cd frontend && yarn test:ct --reporter=list`. Excluded from git so
+# binary churn never produces PR merge conflicts.
+docs/assets/images/screenshots/auto/

@@ -317,15 +317,15 @@ const component = await mount(
 
 ### Automated Documentation Screenshots
 
-**Location**: `docs/assets/images/screenshots/auto/` (output) | `frontend/tests/utils/docScreenshot.ts` (utility)
+**Location**: `docs/assets/images/screenshots/auto/` (output, **gitignored**) | `frontend/tests/utils/docScreenshot.ts` (utility)
 
-Screenshots for documentation are **automatically captured** during Playwright component tests and committed back to the PR branch by the `screenshots.yml` CI workflow.
+Screenshots for documentation are captured during Playwright component tests as a side-effect. The `auto/` directory is gitignored to avoid PR merge conflicts on binary churn — regenerate locally on demand with `cd frontend && yarn test:ct --reporter=list`.
 
 **How it works**:
 1. Import `docScreenshot` from `./utils/docScreenshot` in any `.ct.tsx` test file
 2. Call `await docScreenshot(page, "area--component--state")` after the component reaches the desired visual state
 3. Reference the image in markdown: `![Alt text](../assets/images/screenshots/auto/area--component--state.png)`
-4. CI runs tests on every PR, captures screenshots, and auto-commits any changes
+4. Run `yarn test:ct --reporter=list` locally when the docs site needs refreshed images
 
 **Naming convention** (`--` separates segments, `-` within words):
 
@@ -348,7 +348,7 @@ await docScreenshot(page, "badges--celebration-modal--auto-award");
 **Rules**:
 - Place `docScreenshot()` calls AFTER assertions that confirm the desired visual state
 - The filename IS the contract between tests and docs — keep names stable
-- Never manually edit files in `docs/assets/images/screenshots/auto/` — they are overwritten by CI
+- Never manually edit files in `docs/assets/images/screenshots/auto/` — they are overwritten when component tests are rerun
 - Manually curated screenshots stay in `docs/assets/images/screenshots/` (parent directory)
 
 #### Release Screenshots (Point-in-Time)
