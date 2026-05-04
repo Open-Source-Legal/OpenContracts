@@ -324,14 +324,17 @@ export function buildQueryParams(params: QueryParams): string {
  * @returns Full corpus URL with query string, or "#" if slugs missing
  */
 export function getCorpusUrl(
-  corpus: Pick<CorpusType, "id" | "slug"> & {
-    creator?: Pick<UserType, "id" | "slug"> | null;
-  },
+  corpus:
+    | (Pick<CorpusType, "id" | "slug"> & {
+        creator?: Pick<UserType, "id" | "slug"> | null;
+      })
+    | null
+    | undefined,
   queryParams?: QueryParams
 ): string {
   // Always use slug-based URL with /c/ prefix
   // If slugs are missing, we can't generate a valid URL
-  if (!corpus.slug || !corpus.creator?.slug) {
+  if (!corpus?.slug || !corpus.creator?.slug) {
     console.warn("Cannot generate corpus URL without slugs:", corpus);
     return "#"; // Return a safe fallback that won't navigate
   }
@@ -356,10 +359,15 @@ export function getCorpusUrl(
  * optional avoids forcing callers to synthesize a dummy value.
  */
 export function getDocumentUrl(
-  document: Pick<DocumentType, "slug"> &
-    Partial<Pick<DocumentType, "id">> & {
-      creator?: (Pick<UserType, "slug"> & Partial<Pick<UserType, "id">>) | null;
-    },
+  document:
+    | (Pick<DocumentType, "slug"> &
+        Partial<Pick<DocumentType, "id">> & {
+          creator?:
+            | (Pick<UserType, "slug"> & Partial<Pick<UserType, "id">>)
+            | null;
+        })
+    | null
+    | undefined,
   corpus?:
     | (Pick<CorpusType, "slug"> &
         Partial<Pick<CorpusType, "id">> & {
@@ -376,13 +384,13 @@ export function getDocumentUrl(
   if (
     corpus?.slug &&
     corpus?.creator?.slug &&
-    document.slug &&
-    document.creator?.slug
+    document?.slug &&
+    document?.creator?.slug
   ) {
     basePath = `/d/${corpus.creator.slug}/${corpus.slug}/${document.slug}`;
   }
   // Standalone document URL
-  else if (document.slug && document.creator?.slug) {
+  else if (document?.slug && document.creator?.slug) {
     basePath = `/d/${document.creator.slug}/${document.slug}`;
   }
   // Can't generate URL without slugs
