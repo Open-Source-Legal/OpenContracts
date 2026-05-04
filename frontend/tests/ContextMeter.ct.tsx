@@ -126,6 +126,11 @@ async function installWsStub(page: any, opts: WsStubOptions) {
       let msgCounter = 0;
 
       class StubSocket {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
         url: string;
         readyState: number;
         onopen?: (event: any) => void;
@@ -481,6 +486,11 @@ test("shows compaction thought in timeline during streaming", async ({
     let msgCounter = 0;
 
     class StubSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+
       url: string;
       readyState: number;
       onopen?: (event: any) => void;
@@ -680,6 +690,11 @@ test("context meter not visible before first response", async ({
   await page.evaluate(() => {
     const activeInstances = new Set();
     class StubSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+
       url: string;
       readyState: number;
       onopen?: (event: any) => void;
