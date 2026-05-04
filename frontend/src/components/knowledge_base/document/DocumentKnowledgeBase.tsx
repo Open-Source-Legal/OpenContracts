@@ -2145,6 +2145,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
                 autoZoomEnabled={autoZoomEnabled}
                 onAutoZoomChange={setAutoZoomEnabled}
                 isMobile={isMobile}
+                hideDocumentTools={showRightPanel && sidebarViewMode === "chat"}
               />
 
               {/* Floating Analyses Panel - only show with corpus and when no analysis selected (results now in sidebar) */}
