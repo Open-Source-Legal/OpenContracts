@@ -3,6 +3,7 @@ Tests for PDF file hash functionality in Document model.
 """
 
 import hashlib
+from typing import Any
 from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
@@ -49,6 +50,7 @@ class DocumentPDFHashTestCase(TestCase):
         )
 
         computed_hash = document.compute_pdf_hash()
+        assert computed_hash is not None
         self.assertEqual(computed_hash, self.pdf_hash)
         self.assertEqual(len(computed_hash), 64)  # SHA-256 produces 64 hex chars
 
@@ -111,8 +113,11 @@ class DocumentPDFHashTestCase(TestCase):
 
     def test_pdf_file_hash_field_indexed(self):
         """Test that pdf_file_hash field is indexed for efficient lookups."""
-        # This is more of a migration test, but we can verify the field properties
-        field = Document._meta.get_field("pdf_file_hash")
+        # This is more of a migration test, but we can verify the field properties.
+        # ``_meta.get_field`` returns the abstract Field type without
+        # CharField-specific attributes (``db_index``, ``max_length``); cast to
+        # ``Any`` so the introspection assertions type-check.
+        field: Any = Document._meta.get_field("pdf_file_hash")
         self.assertTrue(field.db_index)
         self.assertEqual(field.max_length, 64)
         self.assertTrue(field.null)

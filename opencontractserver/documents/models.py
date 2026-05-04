@@ -43,7 +43,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
     Document
     """
 
-    objects = DocumentManager()
+    objects = DocumentManager()  # type: ignore[misc]
 
     # Key fields
     title = django.db.models.CharField(max_length=1024, null=True, blank=True)
@@ -245,6 +245,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
             DocumentSummaryRevision | None: the stored revision or None if no content change.
         """
 
+        author_obj: AbstractBaseUser
         if isinstance(author, int):
             author_obj = get_user_model().objects.get(pk=author)
         else:
@@ -293,7 +294,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
             revision = DocumentSummaryRevision.objects.create(
                 document=self,
                 corpus=corpus,
-                author=author_obj,
+                author=author_obj,  # type: ignore[misc]
                 version=next_version,
                 diff=diff_text,
                 snapshot=snapshot_text,
@@ -1711,7 +1712,7 @@ class PipelineSettings(django.db.models.Model):
         missing_by_component: dict[str, list[str]] = {}
 
         # Collect all components
-        all_components = []
+        all_components: list[Any] = []
         all_components.extend(registry.parsers)
         all_components.extend(registry.embedders)
         all_components.extend(registry.thumbnailers)
@@ -1774,7 +1775,7 @@ class PipelineSettings(django.db.models.Model):
         registry = get_registry()
         schemas: dict[str, dict] = {}
 
-        all_components = []
+        all_components: list[Any] = []
         all_components.extend(registry.parsers)
         all_components.extend(registry.embedders)
         all_components.extend(registry.thumbnailers)

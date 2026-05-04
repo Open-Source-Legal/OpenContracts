@@ -1,11 +1,12 @@
 name: Update Documentation Screenshots
 
 on:
-  pull_request:
-    paths:
-      - "frontend/**"
-      - "docs/**"
-      - ".github/workflows/screenshots.yml"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to update screenshots for (required — workflow checks out the PR head, runs tests, and pushes screenshots back to that branch)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -20,14 +21,27 @@ jobs:
   update-screenshots:
     name: Capture & Commit Screenshots
     runs-on: ubuntu-latest
-    # Only run on PRs from branches in the same repo (not forks) since we
-    # need write access to push commits back to the PR branch.
-    if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
+      - name: Resolve PR head ref
+        id: pr
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ inputs.pr_number }}"
+          HEAD_REF=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json headRefName --jq .headRefName)
+          HEAD_REPO=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json headRepository,headRepositoryOwner --jq '.headRepositoryOwner.login + "/" + .headRepository.name')
+          if [ "$HEAD_REPO" != "${{ github.repository }}" ]; then
+            echo "Refusing to run on fork PR ($HEAD_REPO) — needs write access to push commits back."
+            exit 1
+          fi
+          echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "Resolved PR #$PR_NUMBER → $HEAD_REF"
+
       - name: Checkout PR branch
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ steps.pr.outputs.head_ref }}
           # Fetch enough history so we can rebase onto the base branch.
           fetch-depth: 0
           # Use the default GITHUB_TOKEN - it has contents:write from the
@@ -61,7 +75,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_NUMBER="${{ inputs.pr_number }}"
           echo "Waiting for CI workflows on PR #${PR_NUMBER}..."
 
           # Poll for up to 60 minutes (component tests take ~10min, backend ~60min)
@@ -157,12 +171,12 @@ jobs:
           # Pull latest changes. If commits were pushed while tests ran,
           # this may conflict on PNGs. We abort any failed rebase/merge
           # and force our screenshots back in.
-          if ! git pull --rebase origin ${{ github.head_ref }}; then
+          if ! git pull --rebase origin ${{ steps.pr.outputs.head_ref }}; then
             echo "Rebase conflict detected — aborting and restoring screenshots"
             git rebase --abort
 
             # Merge instead (less likely to conflict, and if it does we fix it)
-            git pull --no-rebase origin ${{ github.head_ref }} || true
+            git pull --no-rebase origin ${{ steps.pr.outputs.head_ref }} || true
 
             # Force our freshly generated screenshots regardless of conflict state
             cp -a "$BACKUP_DIR"/. "$SCREENSHOT_DIR"/
