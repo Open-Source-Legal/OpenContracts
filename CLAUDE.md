@@ -319,13 +319,13 @@ const component = await mount(
 
 **Location**: `docs/assets/images/screenshots/auto/` (output) | `frontend/tests/utils/docScreenshot.ts` (utility)
 
-Screenshots for documentation are **automatically captured** during Playwright component tests and committed back to the PR branch by the `screenshots.yml` CI workflow.
+Screenshots for documentation are captured during Playwright component tests and pushed back to a PR branch by the `screenshots.yml` workflow. The workflow is **manual / on-demand only** (`workflow_dispatch`) — it does not auto-trigger on PR push or merge. Run it from the Actions tab or via `gh workflow run "Update Documentation Screenshots" -f pr_number=<N>` when you want to refresh the screenshots on a PR.
 
 **How it works**:
 1. Import `docScreenshot` from `./utils/docScreenshot` in any `.ct.tsx` test file
 2. Call `await docScreenshot(page, "area--component--state")` after the component reaches the desired visual state
 3. Reference the image in markdown: `![Alt text](../assets/images/screenshots/auto/area--component--state.png)`
-4. CI runs tests on every PR, captures screenshots, and auto-commits any changes
+4. Trigger the screenshot workflow on demand for the PR; it captures screenshots and commits any changes back to the PR branch
 
 **Naming convention** (`--` separates segments, `-` within words):
 
