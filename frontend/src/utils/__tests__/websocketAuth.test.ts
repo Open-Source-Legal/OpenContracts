@@ -35,6 +35,20 @@ describe("websocketAuth helpers", () => {
     expect(m).toEqual({ type: "AUTH_OK", user_id: 1, anonymous: false });
   });
 
+  it("parses AUTH_FAILED frames", () => {
+    const m = parseAuthMessage(
+      JSON.stringify({ type: "AUTH_FAILED", reason: "EXPIRED" })
+    );
+    expect(m).toEqual({ type: "AUTH_FAILED", reason: "EXPIRED" });
+  });
+
+  it("parses AUTH_REFRESH_REQUIRED frames", () => {
+    const m = parseAuthMessage(
+      JSON.stringify({ type: "AUTH_REFRESH_REQUIRED", grace_seconds: 30 })
+    );
+    expect(m).toEqual({ type: "AUTH_REFRESH_REQUIRED", grace_seconds: 30 });
+  });
+
   it("returns null for non-AUTH frames", () => {
     expect(
       parseAuthMessage(JSON.stringify({ type: "ASYNC_CONTENT" }))
@@ -43,5 +57,16 @@ describe("websocketAuth helpers", () => {
 
   it("returns null for malformed JSON", () => {
     expect(parseAuthMessage("not json")).toBeNull();
+  });
+
+  it("returns null for non-object JSON (number, string, array)", () => {
+    expect(parseAuthMessage(JSON.stringify(42))).toBeNull();
+    expect(parseAuthMessage(JSON.stringify("hello"))).toBeNull();
+    expect(parseAuthMessage(JSON.stringify([1, 2, 3]))).toBeNull();
+  });
+
+  it("returns null when type field is missing or not a string", () => {
+    expect(parseAuthMessage(JSON.stringify({ payload: "x" }))).toBeNull();
+    expect(parseAuthMessage(JSON.stringify({ type: 99 }))).toBeNull();
   });
 });
