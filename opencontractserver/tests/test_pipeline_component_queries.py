@@ -650,15 +650,18 @@ class TestPostProcessor(BasePostProcessor):
         self.assertTrue(docx_entry["stageCoverage"]["thumbnailer"])
         self.assertTrue(docx_entry["fullySupported"])
 
-    def test_supported_mime_types_requires_auth(self):
-        """Test that supportedMimeTypes requires authentication."""
+    def test_supported_mime_types_allows_anonymous(self):
+        """Test that supportedMimeTypes is accessible to anonymous users."""
         query = """
         query {
             supportedMimeTypes {
                 mimetype
+                fileType
             }
         }
         """
         client = Client(schema, context_value=TestContext(AnonymousUser()))
         result = client.execute(query)
-        self.assertIsNotNone(result.get("errors"))
+        self.assertIsNone(result.get("errors"))
+        mime_types = result["data"]["supportedMimeTypes"]
+        self.assertGreater(len(mime_types), 0)

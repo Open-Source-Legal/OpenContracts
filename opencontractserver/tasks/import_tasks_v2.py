@@ -292,6 +292,10 @@ def _import_corpus(
         all_annot_id_maps: dict[str, int] = {}  # aggregated old_id -> new_id
         # Track doc_hash -> corpus_doc for DocumentPath reconstruction
         doc_hash_to_corpus_doc: dict[str, Document] = {}
+        # Strict filename -> corpus_doc map (no hash keys mixed in).  Used
+        # by CAML README rewriting where mixing in hash keys would risk a
+        # filename / hash string collision silently mapping to the wrong doc.
+        doc_filename_to_corpus_doc: dict[str, Document] = {}
 
         for doc_filename, doc_data in data_json["annotated_docs"].items():
             logger.info("Importing document: %s", doc_filename)
@@ -315,6 +319,7 @@ def _import_corpus(
                 # The export side uses the same filename as its fallback
                 # document_ref in package_document_paths().
                 doc_hash_to_corpus_doc[doc_filename] = corpus_doc
+                doc_filename_to_corpus_doc[doc_filename] = corpus_doc
 
         # ===== V2 only: Import additional features =====
         if is_v2:
@@ -353,12 +358,21 @@ def _import_corpus(
             if agent_config:
                 import_agent_config(agent_config, corpus_obj)
 
-            # Import markdown description
+            # Import markdown description.
+            # Pass the doc-filename and annotation id maps so any
+            # ``oc-import://`` placeholder links written in the README by
+            # the zip author are rewritten to live URLs after all referenced
+            # objects have been created.  See utils/caml_rewrite.py.
             md_description = data_json.get("md_description")
             md_revisions = data_json.get("md_description_revisions", [])
             if md_description or md_revisions:
                 import_md_description_revisions(
-                    md_description, md_revisions, corpus_obj, user_obj
+                    md_description,
+                    md_revisions,
+                    corpus_obj,
+                    user_obj,
+                    doc_filename_to_doc=doc_filename_to_corpus_doc,
+                    annot_old_id_to_new_pk=all_annot_id_maps,
                 )
 
             # Import conversations (if present)

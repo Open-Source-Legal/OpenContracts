@@ -202,7 +202,6 @@ class PipelineQueryMixin:
         "(parser and embedder) are covered.",
     )
 
-    @login_required
     def resolve_supported_mime_types(
         self, info: graphene.ResolveInfo
     ) -> list[SupportedMimeTypeType]:
@@ -210,7 +209,9 @@ class PipelineQueryMixin:
         Resolver for the supported_mime_types query.
 
         Derives supported file types from the pipeline component registry
-        rather than static configuration.
+        rather than static configuration. Available to anonymous users so
+        that uploaders/landing pages can advertise accepted file formats
+        without requiring login.
         """
         entries = get_supported_mime_types()
         return [
