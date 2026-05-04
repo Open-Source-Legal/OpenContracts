@@ -27,6 +27,8 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from opencontractserver.annotations.models import Annotation
+
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
@@ -91,17 +93,38 @@ def rewrite_oc_import_links(
     user_slug = getattr(getattr(corpus, "creator", None), "slug", None) or ""
     corpus_slug = corpus.slug or ""
 
+    if not user_slug or not corpus_slug:
+        logger.warning(
+            "CAML rewrite: missing user_slug or corpus_slug "
+            "(user_slug=%r, corpus_slug=%r); rewritten URLs will be malformed.",
+            user_slug,
+            corpus_slug,
+        )
+
     # Normalize annotation map to string keys — the export always emits
     # ``"id": f"{annot.id}"`` as a string, but we accept int too.
     annot_str_map: dict[str, int] = {
         str(k): int(v) for k, v in annot_old_id_to_new_pk.items()
     }
 
-    # Build a quick filename lookup that tolerates leading "./" and
-    # mismatched leading slashes — authors may write either of:
+    # Pre-fetch every annotation that any reference might resolve to so we
+    # don't issue one query per regex match inside ``_replace``.
+    referenced_pks = set(annot_str_map.values())
+    annot_pk_to_obj: dict[int, Annotation] = (
+        {
+            a.pk: a
+            for a in Annotation.objects.select_related(
+                "document", "document__creator"
+            ).filter(pk__in=referenced_pks)
+        }
+        if referenced_pks
+        else {}
+    )
+
+    # Build a quick filename lookup that tolerates leading "./" — authors
+    # may write either of:
     #   oc-import://document/documents/foo.pdf
     #   oc-import://document/./documents/foo.pdf
-    #   oc-import://document//documents/foo.pdf
     normalized_doc_map: dict[str, Document] = {}
     for fname, doc in doc_filename_to_doc.items():
         normalized_doc_map[fname] = doc
@@ -116,8 +139,7 @@ def rewrite_oc_import_links(
     }
 
     def _normalize_ref(ref: str) -> str:
-        """Strip leading ``./`` and ``/`` so lookups are consistent."""
-        ref = ref.lstrip()
+        """Strip a leading ``./`` so lookups are consistent."""
         if ref.startswith("./"):
             ref = ref[2:]
         return ref
@@ -128,7 +150,7 @@ def rewrite_oc_import_links(
 
         if url.startswith(_DOCUMENT_PREFIX):
             ref = _normalize_ref(url[len(_DOCUMENT_PREFIX) :])
-            doc = normalized_doc_map.get(ref) or normalized_doc_map.get(f"./{ref}")
+            doc = normalized_doc_map.get(ref)
             if doc is None:
                 stats["documents_unresolved"] += 1
                 logger.warning(
@@ -151,15 +173,8 @@ def rewrite_oc_import_links(
                     old_id,
                 )
                 return match.group(0)
-            # Look up the new annotation's parent document so we can build a
-            # full /d/.../?ann=<pk> URL that the mention parser recognises.
-            from opencontractserver.annotations.models import Annotation
-
-            try:
-                annot = Annotation.objects.select_related(
-                    "document", "document__creator"
-                ).get(pk=new_pk)
-            except Annotation.DoesNotExist:
+            annot = annot_pk_to_obj.get(new_pk)
+            if annot is None:
                 stats["annotations_unresolved"] += 1
                 logger.warning(
                     "CAML rewrite: annotation pk %s vanished between import "

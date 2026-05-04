@@ -14,7 +14,6 @@ URLs.  These tests cover:
 
 from __future__ import annotations
 
-import pytest
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -30,8 +29,6 @@ from opencontractserver.utils.caml_rewrite import rewrite_oc_import_links
 from opencontractserver.utils.import_v2 import import_md_description_revisions
 
 User = get_user_model()
-
-pytestmark = pytest.mark.django_db
 
 
 class TestCamlRewriteUnit(TestCase):
@@ -150,6 +147,24 @@ class TestCamlRewriteUnit(TestCase):
 
         self.assertIn("oc-import://annotation/9999", rewritten)
         self.assertEqual(stats["annotations_unresolved"], 1)
+
+    def test_annotation_pk_in_map_but_row_missing_is_left_unchanged(self):
+        # The id map points at a PK whose Annotation row no longer exists
+        # (e.g., deleted between import and rewrite).  The reference must
+        # be left intact and counted as unresolved rather than blowing up.
+        missing_pk = self.annotation.pk + 999_999
+        content = "[orphan](oc-import://annotation/old-99)"
+
+        rewritten, stats = rewrite_oc_import_links(
+            content=content,
+            corpus=self.corpus,
+            doc_filename_to_doc={},
+            annot_old_id_to_new_pk={"old-99": missing_pk},
+        )
+
+        self.assertIn("oc-import://annotation/old-99", rewritten)
+        self.assertEqual(stats["annotations_unresolved"], 1)
+        self.assertEqual(stats["annotations_resolved"], 0)
 
     def test_non_oc_import_links_are_passthrough(self):
         content = (
