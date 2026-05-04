@@ -398,7 +398,9 @@ class AnnotationQueryOptimizer:
         except DocumentPath.DoesNotExist:
             # Path doesn't exist or is deleted
             return Annotation.objects.none()
-        except DocumentPath.MultipleObjectsReturned:  # pragma: no cover -- defensive; uniqueness constraints prevent this
+        except (
+            DocumentPath.MultipleObjectsReturned
+        ):  # pragma: no cover -- defensive; uniqueness constraints prevent this
             # Shouldn't happen with constraints. first() is non-None when
             # MultipleObjectsReturned was raised (≥2 rows); cast narrows
             # DocumentPath | None → DocumentPath for mypy.
