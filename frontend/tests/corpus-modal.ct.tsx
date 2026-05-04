@@ -3,7 +3,11 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { MockedProvider } from "@apollo/client/testing";
 import { CorpusModal } from "../src/components/corpuses/CorpusModal";
-import { GET_LABELSETS, GET_EMBEDDERS } from "../src/graphql/queries";
+import {
+  GET_CORPUS_CREATE_DEFAULTS,
+  GET_EMBEDDERS,
+  GET_LABELSETS,
+} from "../src/graphql/queries";
 import { CorpusType } from "../src/types/graphql-api";
 import { docScreenshot } from "./utils/docScreenshot";
 
@@ -72,6 +76,42 @@ const embeddersMock = {
   },
 };
 
+// Default mock: no defaults available (matches a fresh install where no one
+// has run the labelset seeder yet). Tests that need pre-fill to actually
+// populate fields override this with `defaultsPopulatedMock`.
+const createDefaultsEmptyMock = {
+  request: {
+    query: GET_CORPUS_CREATE_DEFAULTS,
+    variables: {},
+  },
+  result: {
+    data: {
+      pipelineSettings: { defaultEmbedder: null },
+      defaultLabelset: null,
+    },
+  },
+};
+
+const defaultsPopulatedMock = {
+  request: {
+    query: GET_CORPUS_CREATE_DEFAULTS,
+    variables: {},
+  },
+  result: {
+    data: {
+      pipelineSettings: { defaultEmbedder: mockEmbedder.className },
+      defaultLabelset: {
+        id: mockLabelSet.id,
+        title: mockLabelSet.title,
+        description: mockLabelSet.description,
+        icon: null,
+        isPublic: true,
+        isDefault: true,
+      },
+    },
+  },
+};
+
 test.describe("CorpusModal - CREATE Mode", () => {
   test("should render create modal with empty form", async ({
     mount,
@@ -79,7 +119,7 @@ test.describe("CorpusModal - CREATE Mode", () => {
   }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -119,7 +159,7 @@ test.describe("CorpusModal - CREATE Mode", () => {
   }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -149,7 +189,7 @@ test.describe("CorpusModal - CREATE Mode", () => {
 
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -185,7 +225,7 @@ test.describe("CorpusModal - CREATE Mode", () => {
 
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -215,7 +255,7 @@ test.describe("CorpusModal - EDIT Mode", () => {
   }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -248,7 +288,7 @@ test.describe("CorpusModal - EDIT Mode", () => {
 
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -281,7 +321,7 @@ test.describe("CorpusModal - EDIT Mode", () => {
   test("should show loading state", async ({ mount, page }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -310,7 +350,7 @@ test.describe("CorpusModal - VIEW Mode", () => {
   }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -353,7 +393,7 @@ test.describe("CorpusModal - Mobile Responsiveness", () => {
   }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -385,7 +425,7 @@ test.describe("CorpusModal - Mobile Responsiveness", () => {
   }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -426,7 +466,7 @@ test.describe("CorpusModal - Form Validation", () => {
   test("should require title field", async ({ mount, page }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -451,7 +491,7 @@ test.describe("CorpusModal - Form Validation", () => {
   test("should require description field", async ({ mount, page }) => {
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -478,7 +518,7 @@ test.describe("CorpusModal - Form Validation", () => {
 
     const component = await mount(
       <MockedProvider
-        mocks={[labelSetsMock, embeddersMock]}
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
         addTypename={false}
       >
         <CorpusModal
@@ -503,6 +543,128 @@ test.describe("CorpusModal - Form Validation", () => {
     // Empty slug becomes undefined so backend auto-generates one
     expect(submittedData).not.toBeNull();
     expect(submittedData.slug).toBeUndefined();
+
+    await component.unmount();
+  });
+});
+
+test.describe("CorpusModal - CREATE Mode Defaults", () => {
+  test("should pre-select default license (CC-BY-4.0)", async ({
+    mount,
+    page,
+  }) => {
+    let submittedData: any = null;
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[labelSetsMock, embeddersMock, createDefaultsEmptyMock]}
+        addTypename={false}
+      >
+        <CorpusModal
+          open={true}
+          mode="CREATE"
+          onSubmit={(data) => {
+            submittedData = data;
+          }}
+          onClose={() => {}}
+        />
+      </MockedProvider>
+    );
+
+    // Fill required fields and submit; the license field is hidden behind a
+    // selector, but the submitted payload should carry the pre-filled default.
+    await page.locator("#corpus-title").fill("Default-License Corpus");
+    await page
+      .locator("#corpus-description")
+      .fill("Verifies pre-filled license");
+    await page.locator('button:has-text("Create Corpus")').click();
+
+    expect(submittedData).not.toBeNull();
+    expect(submittedData.license).toBe("CC-BY-4.0");
+
+    await component.unmount();
+  });
+
+  test("should pre-fill labelset and embedder from defaults query", async ({
+    mount,
+    page,
+  }) => {
+    let submittedData: any = null;
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[labelSetsMock, embeddersMock, defaultsPopulatedMock]}
+        addTypename={false}
+      >
+        <CorpusModal
+          open={true}
+          mode="CREATE"
+          onSubmit={(data) => {
+            submittedData = data;
+          }}
+          onClose={() => {}}
+        />
+      </MockedProvider>
+    );
+
+    // Wait for the defaults query to settle and Apollo to update state.
+    // The labelset/embedder selectors don't expose a plain text input, so
+    // the simplest cross-cutting check is the submitted payload — which is
+    // also the part that actually matters for backend behaviour.
+    await page.locator("#corpus-title").fill("Pre-filled Corpus");
+    await page
+      .locator("#corpus-description")
+      .fill("Pre-filled defaults applied");
+
+    // Give the cache-first query time to land before submit.
+    await page.waitForTimeout(300);
+    await page.locator('button:has-text("Create Corpus")').click();
+
+    expect(submittedData).not.toBeNull();
+    expect(submittedData.labelSet).toBe(mockLabelSet.id);
+    expect(submittedData.preferredEmbedder).toBe(mockEmbedder.className);
+
+    await component.unmount();
+  });
+
+  test("should silently fall back when defaults query fails", async ({
+    mount,
+    page,
+  }) => {
+    let submittedData: any = null;
+    const erroringDefaultsMock = {
+      request: {
+        query: GET_CORPUS_CREATE_DEFAULTS,
+        variables: {},
+      },
+      error: new Error("Network down"),
+    };
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[labelSetsMock, embeddersMock, erroringDefaultsMock]}
+        addTypename={false}
+      >
+        <CorpusModal
+          open={true}
+          mode="CREATE"
+          onSubmit={(data) => {
+            submittedData = data;
+          }}
+          onClose={() => {}}
+        />
+      </MockedProvider>
+    );
+
+    // The form must remain usable even if the defaults query errors out —
+    // license still defaults client-side, labelset/embedder stay unset.
+    await page.locator("#corpus-title").fill("Fallback Corpus");
+    await page.locator("#corpus-description").fill("Fallback path works");
+    await page.locator('button:has-text("Create Corpus")').click();
+
+    expect(submittedData).not.toBeNull();
+    expect(submittedData.title).toBe("Fallback Corpus");
+    expect(submittedData.license).toBe("CC-BY-4.0");
 
     await component.unmount();
   });

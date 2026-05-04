@@ -31,6 +31,7 @@ from django.test.utils import override_settings
 from graphql_jwt.shortcuts import get_token
 from graphql_relay import to_global_id
 
+from config.websocket.middleware import WS_AUTH_SUBPROTOCOL
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -57,6 +58,7 @@ async def connect_and_verify(
     path: str,
     expected_connected: bool,
     expected_close_code: int | None = None,
+    token: str | None = None,
 ) -> WebsocketCommunicator:
     """
     Helper to test WebSocket connection acceptance/rejection.
@@ -66,11 +68,17 @@ async def connect_and_verify(
         path: WebSocket path to connect to
         expected_connected: Whether connection should succeed
         expected_close_code: Expected close code if connection should fail
+        token: Optional JWT token to send via Sec-WebSocket-Protocol header
 
     Returns:
         The WebsocketCommunicator instance
     """
-    communicator = WebsocketCommunicator(application, path)
+    if token is not None:
+        communicator = WebsocketCommunicator(
+            application, path, subprotocols=[WS_AUTH_SUBPROTOCOL, token]
+        )
+    else:
+        communicator = WebsocketCommunicator(application, path)
     connected, code = await communicator.connect()
 
     assert (
@@ -159,9 +167,13 @@ class ConsumerCorpusPermissionTestCase(AgentConfigMixin, WebsocketFixtureBaseTes
 
         # User owns the corpus from fixture, so has permission
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
-        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}&token={self.token}"
+        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
         await communicator.disconnect()
@@ -181,9 +193,13 @@ class ConsumerCorpusPermissionTestCase(AgentConfigMixin, WebsocketFixtureBaseTes
         await database_sync_to_async(self.corpus.save)(update_fields=["is_public"])
 
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
-        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}&token={other_token}"
+        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, other_token],
+        )
         connected, code = await communicator.connect()
         self.assertFalse(connected)
         self.assertEqual(code, 4003)  # Permission denied
@@ -235,9 +251,13 @@ class ConsumerCorpusPermissionTestCase(AgentConfigMixin, WebsocketFixtureBaseTes
 
         crud_token = await database_sync_to_async(get_token)(user=crud_user)
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
-        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}&token={crud_token}"
+        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, crud_token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)  # CRUD includes READ
         await communicator.disconnect()
@@ -264,9 +284,13 @@ class ConsumerDocumentPermissionTestCase(
         await database_sync_to_async(self.doc.save)(update_fields=["is_public"])
 
         doc_gid = to_global_id("DocumentType", self.doc.id)
-        ws_path = f"ws/agent-chat/?document_id={quote(doc_gid)}&token={self.token}"
+        ws_path = f"ws/agent-chat/?document_id={quote(doc_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
         await communicator.disconnect()
@@ -286,9 +310,13 @@ class ConsumerDocumentPermissionTestCase(
         await database_sync_to_async(self.doc.save)(update_fields=["is_public"])
 
         doc_gid = to_global_id("DocumentType", self.doc.id)
-        ws_path = f"ws/agent-chat/?document_id={quote(doc_gid)}&token={other_token}"
+        ws_path = f"ws/agent-chat/?document_id={quote(doc_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, other_token],
+        )
         connected, code = await communicator.connect()
         self.assertFalse(connected)
         self.assertEqual(code, 4003)
@@ -358,10 +386,14 @@ class ConsumerCombinedPermissionTestCase(
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
         ws_path = (
             f"ws/agent-chat/?document_id={quote(doc_gid)}"
-            f"&corpus_id={quote(corpus_gid)}&token={limited_token}"
+            f"&corpus_id={quote(corpus_gid)}"
         )
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, limited_token],
+        )
         connected, code = await communicator.connect()
         self.assertFalse(connected)
         self.assertEqual(code, 4003)
@@ -392,10 +424,14 @@ class ConsumerCombinedPermissionTestCase(
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
         ws_path = (
             f"ws/agent-chat/?document_id={quote(doc_gid)}"
-            f"&corpus_id={quote(corpus_gid)}&token={limited_token}"
+            f"&corpus_id={quote(corpus_gid)}"
         )
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, limited_token],
+        )
         connected, code = await communicator.connect()
         self.assertFalse(connected)
         self.assertEqual(code, 4003)
@@ -414,10 +450,14 @@ class ConsumerCombinedPermissionTestCase(
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
         ws_path = (
             f"ws/agent-chat/?document_id={quote(doc_gid)}"
-            f"&corpus_id={quote(corpus_gid)}&token={self.token}"
+            f"&corpus_id={quote(corpus_gid)}"
         )
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
         await communicator.disconnect()
@@ -899,9 +939,13 @@ class CrossUserEscalationTestCase(AgentConfigMixin, WebsocketFixtureBaseTestCase
 
         # User A (self.user) should not be able to connect to User B's document
         doc_gid = to_global_id("DocumentType", user_b_doc.id)
-        ws_path = f"ws/agent-chat/?document_id={quote(doc_gid)}&token={self.token}"
+        ws_path = f"ws/agent-chat/?document_id={quote(doc_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, code = await communicator.connect()
         self.assertFalse(connected)
         self.assertEqual(code, 4003)
@@ -1190,9 +1234,13 @@ class FullConversationFlowTestCase(AgentConfigMixin, WebsocketFixtureBaseTestCas
 
         # 1. Connection succeeds
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
-        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}&token={read_token}"
+        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, read_token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected, "Read-only user should be able to connect")
         await communicator.disconnect()
@@ -1211,9 +1259,13 @@ class FullConversationFlowTestCase(AgentConfigMixin, WebsocketFixtureBaseTestCas
 
         # Connection succeeds
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
-        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}&token={self.token}"
+        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected, "Owner should be able to connect")
         await communicator.disconnect()
@@ -1259,9 +1311,13 @@ class FullConversationFlowTestCase(AgentConfigMixin, WebsocketFixtureBaseTestCas
         await database_sync_to_async(self.corpus.save)(update_fields=["is_public"])
 
         corpus_gid = to_global_id("CorpusType", self.corpus.id)
-        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}&token={outsider_token}"
+        ws_path = f"ws/agent-chat/?corpus_id={quote(corpus_gid)}"
 
-        communicator = WebsocketCommunicator(self.application, ws_path)
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, outsider_token],
+        )
         connected, code = await communicator.connect()
 
         # 1. Connection rejected

@@ -16,6 +16,7 @@ import pytest
 from channels.testing import WebsocketCommunicator
 from django.test.utils import override_settings
 
+from config.websocket.middleware import WS_AUTH_SUBPROTOCOL
 from opencontractserver.llms.agents.core_agents import (
     ApprovalNeededEvent,
     ContentEvent,
@@ -102,11 +103,22 @@ class WebsocketApprovalGateTestCase(WebsocketFixtureBaseTestCase):
             mp.setattr(_agents_module, "for_document", _fake_for_document, raising=True)
 
             # Build websocket path using unified agent-chat endpoint
-            ws_path = f"ws/agent-chat/?document_id={self.doc.id}&corpus_id={self.corpus.id}&token={self.token}"
+            ws_path = (
+                f"ws/agent-chat/?document_id={self.doc.id}"
+                f"&corpus_id={self.corpus.id}"
+            )
 
-            communicator = WebsocketCommunicator(self.application, ws_path)
+            communicator = WebsocketCommunicator(
+                self.application,
+                ws_path,
+                subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+            )
             connected, _ = await communicator.connect()
             self.assertTrue(connected)
+
+            # Drain initial AUTH_OK frame from auth handshake mixin
+            raw = await communicator.receive_from(timeout=5)
+            self.assertEqual(json.loads(raw)["type"], "AUTH_OK")
 
             # ---------------- send first query ----------------
             await communicator.send_to(json.dumps({"query": "run sensitive"}))

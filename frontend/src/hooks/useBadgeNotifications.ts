@@ -74,7 +74,6 @@ export function useBadgeNotifications() {
   const { connectionState } = useNotificationWebSocket({
     onNotificationCreated: handleNotificationCreated,
     enabled: true,
-    autoReconnect: true,
   });
 
   const clearNewBadges = useCallback(() => {

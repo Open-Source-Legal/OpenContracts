@@ -21,6 +21,7 @@ on:
       - "Frontend CI"
       - "Frontend E2E Integration"
       - "Frontend E2E Extract Pipeline (VCR)"
+      - "Frontend E2E WebSocket Auth (VCR)"
     types: [completed]
 
 concurrency:
@@ -45,6 +46,7 @@ jobs:
               "Frontend CI",
               "Frontend E2E Integration",
               "Frontend E2E Extract Pipeline (VCR)",
+              "Frontend E2E WebSocket Auth (VCR)",
             ];
 
             // Fetch every workflow run attached to this SHA. Sort explicitly

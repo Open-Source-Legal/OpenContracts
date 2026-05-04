@@ -111,12 +111,22 @@ export interface ChatTrayPersist {
   conversationId: string | null;
   scrollOffset: number;
   isNewChat: boolean;
+  /**
+   * Whether the conversation-list overlay is visible. Lifted onto the
+   * atom (was previously a useState in DocumentKnowledgeBase passed as
+   * `setShowLoad` down to ChatTray) so child write paths don't trigger
+   * cross-component setState during ChatTray's render phase, which
+   * surfaced as a "Cannot update a component (DocumentKnowledgeBase)
+   * while rendering a different component (ChatTray)" warning.
+   */
+  showLoad: boolean;
 }
 export const chatTrayStateAtom = atom<ChatTrayPersist>({
   isOpen: false,
   conversationId: null,
   scrollOffset: 0,
   isNewChat: false,
+  showLoad: false,
 });
 
 /**

@@ -12,7 +12,7 @@ from django.db import DatabaseError, IntegrityError, transaction
 from django.utils import timezone
 from graphql import GraphQLError
 from graphql_jwt.decorators import login_required, user_passes_test
-from graphql_relay import from_global_id
+from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.base import DRFDeletion, DRFMutation
 from config.graphql.graphene_types import (
@@ -152,6 +152,21 @@ class CreateCorpusMutation(DRFMutation):
 
     @classmethod
     def mutate(cls, root, info, *args, **kwargs) -> "CreateCorpusMutation":
+        # Pre-fill the install-wide default LabelSet when the caller didn't
+        # pick one, so corpuses created through the API land with a usable
+        # starter palette. We default here (mutation layer) rather than in
+        # Corpus.save() to keep direct ORM creates in tests/scripts opt-in.
+        if not kwargs.get("label_set"):
+            from opencontractserver.annotations.models import LabelSet
+
+            default_labelset = (
+                LabelSet.objects.visible_to_user(info.context.user)
+                .filter(is_default=True)
+                .first()
+            )
+            if default_labelset is not None:
+                kwargs["label_set"] = to_global_id("LabelSetType", default_labelset.pk)
+
         result = super().mutate(root, info, *args, **kwargs)
 
         if result.ok and result.obj_id:

@@ -1,0 +1,262 @@
+name: Frontend E2E WebSocket Auth (VCR)
+
+# Drives the full WebSocket auth handshake end-to-end via Playwright:
+#   login → notification subscribe → server-trigger badge → assert frame
+#   anonymous → ?token= regression → 4001 / 4003 close codes
+#   in-band AUTH refresh on a public document
+#   authenticated agent chat → ASYNC_FINISH (LLM via VCR cassette)
+#
+# This is the user-facing wire-protocol companion to
+# `opencontractserver/tests/test_websocket_auth.py`. The Python tests
+# verify the middleware + AuthHandshakeMixin against Channels'
+# `WebsocketCommunicator` — that's the right tool for unit-level
+# protocol assertions but it bypasses the actual browser, the Vite
+# dev-server proxy, and Daphne's ASGI scope assembly. This workflow
+# closes that gap by running real `new WebSocket(...)` calls from
+# Chromium against `local.yml` (Daphne, not runserver).
+#
+# The agent-chat test wraps `UnifiedAgentConsumer._stream_agent_response`
+# in a vcr.py cassette so no OpenAI traffic is generated. See
+# `docs/development/e2e_vcr.md` for the cassette refresh workflow.
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+defaults:
+  run:
+    working-directory: ./
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "config/websocket/**"
+      - "config/asgi.py"
+      - "opencontractserver/notifications/**"
+      - "opencontractserver/utils/vcr_replay.py"
+      - "opencontractserver/tests/fixtures/cassettes/e2e_websocket_auth/**"
+      - "frontend/src/utils/websocketAuth.ts"
+      - "frontend/src/hooks/useWebSocketAuth.ts"
+      - "frontend/src/hooks/useNotificationWebSocket.ts"
+      - "frontend/src/hooks/useAgentChat.ts"
+      - "frontend/src/components/chat/get_websockets.ts"
+      - "frontend/tests/e2e/websocket-auth.spec.ts"
+      - "frontend/tests/e2e/helpers.ts"
+      - "frontend/tests/e2e/fixtures.ts"
+      - ".github/workflows/frontend-e2e-websocket.yml"
+
+concurrency:
+  group: frontend-e2e-websocket-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-websocket:
+    name: WebSocket auth handshake (login → notify → agent chat)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install Yarn
+        run: npm install -g yarn
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: yarn playwright install --with-deps chromium
+
+      # ────────────────────────────────────────────────────────────────
+      # Same env-seeding dance as `frontend-e2e-extract.yml` — see that
+      # workflow's comment block for the full rationale. Recap:
+      #   * `.envs/.local/*` are gitignored (developer creds), so we
+      #     materialize them from the committed `.envs/.test/*` templates.
+      #   * Overlay DATABASE_URL (local.yml's django expects it),
+      #     `DJANGO_SETTINGS_MODULE=config.settings.local` (local.yml runs
+      #     the dev server, not the test runner), strip TESTING=true,
+      #     and pin PDF_PARSER=docling so the workflow doesn't hit
+      #     LlamaParse.
+      # ────────────────────────────────────────────────────────────────
+      - name: Seed local env files (from .envs/.test)
+        run: |
+          mkdir -p .envs/.local
+          cp .envs/.test/.django .envs/.local/.django
+          cp .envs/.test/.postgres .envs/.local/.postgres
+
+          set -a
+          # shellcheck disable=SC1091
+          . .envs/.local/.postgres
+          set +a
+          echo "DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}" >> .envs/.local/.django
+
+          sed -i 's|^DJANGO_SETTINGS_MODULE=.*|DJANGO_SETTINGS_MODULE=config.settings.local|' .envs/.local/.django
+          sed -i '/^TESTING=/d' .envs/.local/.django
+          # The websocket spec uploads a tiny .txt fixture (faster than
+          # PDF parse) — Docling isn't strictly required, but pinning it
+          # keeps behaviour identical to the extract workflow.
+          echo "PDF_PARSER=docling" >> .envs/.local/.django
+
+          echo "--- .envs/.local/.django (head) ---"
+          grep -E '^(DJANGO_SETTINGS_MODULE|DJANGO_SUPERUSER_USERNAME|STORAGE_BACKEND|USE_AUTH0|PDF_PARSER|DATABASE_URL=postgres://)' .envs/.local/.django || true
+
+      - name: Build django image
+        run: docker compose -f local.yml build django
+
+      - name: Start backend stack with VCR replay (and coverage.py wrapping Django)
+        env:
+          # The agent-chat test branch is gated on this env var. The
+          # auth/handshake/refresh tests don't need it (they exercise the
+          # transport, not the LLM).
+          OC_LLM_VCR_MODE: replay
+          OC_LLM_VCR_CASSETTE: /app/opencontractserver/tests/fixtures/cassettes/e2e_websocket_auth/agent_chat.yaml
+          # CI provisions a fake OpenAI key — VCR intercepts every
+          # request so this is never sent. Pinned to a clearly bogus
+          # value so an accidental real call fails loudly.
+          OPENAI_API_KEY: sk-FAKE-VCR-CI-NOT-REAL
+          PDF_PARSER: docling
+        run: |
+          # `local.e2e-coverage.yml` swaps the Django start command for
+          # `/start-with-coverage` (coverage.py wrapping the dev server).
+          # All other services keep their default commands.
+          docker compose -f local.yml -f local.e2e-coverage.yml up -d
+          echo "Waiting for django to become healthy…"
+          for i in {1..60}; do
+            state=$(docker inspect -f '{{.State.Health.Status}}' \
+              opencontracts-django-1 2>/dev/null || echo "starting")
+            if [ "$state" = "healthy" ]; then echo "django healthy"; break; fi
+            if [ "$i" = "60" ]; then
+              echo "django did not become healthy in time"
+              docker compose -f local.yml logs django | tail -100
+              exit 1
+            fi
+            sleep 2
+          done
+
+      # ────────────────────────────────────────────────────────────────
+      # Run the websocket spec under coverage.
+      #
+      # COVERAGE=true causes vite-plugin-istanbul to instrument the
+      # frontend source. The fixture in `tests/e2e/fixtures.ts` extracts
+      # `window.__coverage__` after each test and dumps it under
+      # `coverage/e2e/.nyc_output/`. We then run `nyc report` directly
+      # to merge those JSON files into an lcov report for Codecov.
+      # ────────────────────────────────────────────────────────────────
+      - name: Run Playwright websocket-auth spec with coverage
+        working-directory: ./frontend
+        env:
+          CI: "true"
+          COVERAGE: "true"
+          # Forwarded into the helpers — the agent-chat test skips when
+          # this is not "replay" so contributors can run the auth-only
+          # subset locally without touching VCR.
+          OC_LLM_VCR_MODE: replay
+          # The describe block in websocket-auth.spec.ts is gated on
+          # this var so the generic `Frontend E2E Integration` workflow
+          # (which globs every `tests/e2e/*.spec.ts`) doesn't pick this
+          # spec up — that workflow runs `test.yml` with runserver,
+          # which doesn't speak WebSockets.
+          OC_RUN_WS_E2E: "true"
+          E2E_TEST_USERNAME: admin
+          # Must match DJANGO_SUPERUSER_PASSWORD in `.envs/.test/.django`.
+          E2E_TEST_PASSWORD: Openc0ntracts_def@ult
+          # The websocket helpers shell out to `docker compose exec` to
+          # set up fixtures. Override the compose file/service names if
+          # the workflow ever runs against a non-standard stack.
+          E2E_COMPOSE_FILE: local.yml
+          E2E_DJANGO_SERVICE: django
+        run: |
+          set +e
+          yarn playwright test --grep "WebSocket auth handshake" --reporter=list
+          E2E_EXIT=$?
+          mkdir -p coverage/e2e/.nyc_output
+          yarn nyc report --all \
+            --reporter=lcov --reporter=text \
+            --report-dir=coverage/e2e \
+            --temp-dir=coverage/e2e/.nyc_output \
+            || echo 'No coverage data to report (nyc report failed)'
+          exit $E2E_EXIT
+
+      # ────────────────────────────────────────────────────────────────
+      # Backend coverage: gracefully stopping Django triggers
+      # coverage.py's atexit handler which writes /app/.coverage (visible
+      # on the host via the volume mount). A throwaway exec converts to
+      # XML for codecov.
+      # ────────────────────────────────────────────────────────────────
+      - name: Stop Django gracefully (triggers coverage write)
+        if: success() || failure()
+        run: docker compose -f local.yml stop -t 15 django
+
+      - name: Export backend coverage to XML
+        if: success() || failure()
+        run: |
+          docker compose -f local.yml run --rm --no-deps django \
+            coverage xml -o /app/coverage-backend-e2e-websocket.xml || true
+          ls -la coverage-backend-e2e-websocket.xml || true
+
+      - name: Capture backend logs on failure
+        if: failure()
+        run: |
+          mkdir -p artifacts
+          docker compose -f local.yml ps > artifacts/docker-ps.txt || true
+          docker compose -f local.yml logs --no-color > artifacts/docker-compose-logs.txt || true
+
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-websocket-backend-logs
+          path: artifacts/
+
+      - name: Upload Playwright HTML report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-websocket-playwright-report
+          path: frontend/playwright-report-e2e/
+          if-no-files-found: ignore
+
+      # ────────────────────────────────────────────────────────────────
+      # Codecov uploads — same flag pattern frontend-e2e-extract.yml uses
+      # so the patch-coverage check can attribute the websocket spec's
+      # coverage to the right buckets. The extra `websocket` flag drilling
+      # lets the codecov UI break this job out from the broader e2e suite.
+      # ────────────────────────────────────────────────────────────────
+      - name: Upload frontend E2E coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: frontend/coverage/e2e/lcov.info
+          # Same flag pattern as `frontend-e2e.yml`. The `frontend` rollup
+          # rides along so the README badge sees this upload's coverage.
+          flags: frontend-e2e,frontend,websocket
+          name: frontend-e2e-websocket-coverage
+          fail_ci_if_error: false
+          disable_search: true
+
+      - name: Upload backend E2E coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-backend-e2e-websocket.xml
+          flags: backend-e2e,websocket
+          name: backend-e2e-websocket-coverage
+          fail_ci_if_error: false
+          disable_search: true
+
+      - name: Tear down backend stack
+        if: always()
+        run: docker compose -f local.yml down -v

@@ -1296,6 +1296,11 @@ class LabelSet(BaseOCModel):
         "analyzer.Analyzer", on_delete=django.db.models.SET_NULL, null=True, blank=True
     )
 
+    # Marks the install-wide default labelset. Pre-selected in the new-corpus
+    # modal and assigned automatically when a corpus is created without one.
+    # A partial unique constraint guarantees at most one default exists.
+    is_default = django.db.models.BooleanField(default=False, db_index=True)
+
     class Meta:
         permissions = (
             ("permission_labelset", "Can permission labelset"),
@@ -1319,7 +1324,12 @@ class LabelSet(BaseOCModel):
             django.db.models.UniqueConstraint(
                 fields=["analyzer", "title"],
                 name="Only install one labelset of given title for each analyzer (no duplicates)",
-            )
+            ),
+            django.db.models.UniqueConstraint(
+                fields=["is_default"],
+                condition=django.db.models.Q(is_default=True),
+                name="only_one_default_labelset",
+            ),
         ]
 
 

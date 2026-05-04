@@ -37,6 +37,7 @@ from django.conf import settings
 from graphql_relay import from_global_id
 
 from config.ratelimit.decorators import check_ws_rate_limit
+from config.websocket.auth_handshake import AuthHandshakeMixin
 from config.websocket.middleware import WS_CLOSE_RATE_LIMITED, WS_CLOSE_UNAUTHENTICATED
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from opencontractserver.agents.models import AgentConfiguration
@@ -61,7 +62,7 @@ from opencontractserver.utils.permissioning import user_has_permission_for_obj
 logger = logging.getLogger(__name__)
 
 
-class UnifiedAgentConsumer(AsyncWebsocketConsumer):
+class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
     """
     Unified WebSocket consumer for all agent conversation contexts.
 
@@ -137,28 +138,10 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
             if is_authenticated:
                 self.user_id = user.id
 
-            # 4. Load and validate corpus (if provided)
+            # 4. Load corpus (if provided) — existence check only
             if self.corpus_id:
                 try:
                     self.corpus = await Corpus.objects.aget(id=self.corpus_id)
-                    if is_authenticated:
-                        has_perm = await database_sync_to_async(
-                            user_has_permission_for_obj
-                        )(user, self.corpus, PermissionTypes.READ)
-                        if not has_perm:
-                            logger.warning(
-                                f"[Session {self.session_id}] User {user.id} "
-                                f"lacks read permission on Corpus {self.corpus_id}"
-                            )
-                            await self.close(code=4003)
-                            return
-                    elif not self.corpus.is_public:
-                        logger.warning(
-                            f"[Session {self.session_id}] Anonymous user "
-                            f"accessing non-public Corpus {self.corpus_id}"
-                        )
-                        await self.close(code=4003)
-                        return
                 except Corpus.DoesNotExist:
                     logger.error(
                         f"[Session {self.session_id}] Corpus not found: {self.corpus_id}"
@@ -166,34 +149,25 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
                     await self.close(code=4004)
                     return
 
-            # 5. Load and validate document (if provided)
+            # 5. Load document (if provided) — existence check only
             if self.document_id:
                 try:
                     self.document = await Document.objects.aget(id=self.document_id)
-                    if is_authenticated:
-                        has_perm = await database_sync_to_async(
-                            user_has_permission_for_obj
-                        )(user, self.document, PermissionTypes.READ)
-                        if not has_perm:
-                            logger.warning(
-                                f"[Session {self.session_id}] User {user.id} "
-                                f"lacks read permission on Document {self.document_id}"
-                            )
-                            await self.close(code=4003)
-                            return
-                    elif not self.document.is_public:
-                        logger.warning(
-                            f"[Session {self.session_id}] Anonymous user "
-                            f"accessing non-public Document {self.document_id}"
-                        )
-                        await self.close(code=4003)
-                        return
                 except Document.DoesNotExist:
                     logger.error(
                         f"[Session {self.session_id}] Document not found: {self.document_id}"
                     )
                     await self.close(code=4004)
                     return
+
+            # 5a. Validate access rights for the loaded resources
+            if not await self._validate_resource_permissions(user):
+                logger.warning(
+                    f"[Session {self.session_id}] Permission denied for user "
+                    f"{getattr(user, 'id', 'anonymous')} on requested resources."
+                )
+                await self.close(code=4003)
+                return
 
             # 6. Resolve agent configuration
             self.agent_config = await self._resolve_agent_config()
@@ -209,8 +183,8 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
                 f"(slug={self.agent_config.slug})"
             )
 
-            # 7. Accept connection
-            await self.accept()
+            # 7. Accept connection (echoes subprotocol + sends initial AUTH_OK)
+            await self.accept_with_auth()
             self._is_connected = True
             logger.debug(f"[Session {self.session_id}] Connection accepted.")
 
@@ -223,12 +197,57 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code: int) -> None:
         """Clean up on socket close."""
+        await self.cleanup_auth_handshake()
         self._is_connected = False
         logger.debug(
             f"[UnifiedAgent {self.consumer_id} | Session {self.session_id}] "
             f"disconnect() called. Code={close_code}"
         )
         self.agent = None
+
+    # -------------------------------------------------------------------------
+    #  Resource permission validation (AuthHandshakeMixin override)
+    # -------------------------------------------------------------------------
+
+    async def _validate_resource_permissions(self, user) -> bool:
+        """
+        Re-run the same checks performed in connect() for the resources
+        this consumer is currently bound to. Used by AuthHandshakeMixin on
+        refresh to detect mid-connection access revocation.
+        """
+        is_authenticated = user is not None and user.is_authenticated
+
+        if self.corpus is not None:
+            if is_authenticated:
+                has_perm = await database_sync_to_async(user_has_permission_for_obj)(
+                    user, self.corpus, PermissionTypes.READ
+                )
+                if not has_perm:
+                    return False
+            else:
+                # Anonymous fallback: re-fetch is_public from the DB rather
+                # than trusting the in-memory object loaded at connect time.
+                # If the owner flips the corpus to private mid-connection, an
+                # anonymous AUTH refresh would otherwise pass on stale state.
+                fresh_corpus = await Corpus.objects.aget(pk=self.corpus.pk)
+                if not fresh_corpus.is_public:
+                    return False
+
+        if self.document is not None:
+            if is_authenticated:
+                has_perm = await database_sync_to_async(user_has_permission_for_obj)(
+                    user, self.document, PermissionTypes.READ
+                )
+                if not has_perm:
+                    return False
+            else:
+                # Same anonymous-refresh stale-read concern as the corpus
+                # branch above.
+                fresh_document = await Document.objects.aget(pk=self.document.pk)
+                if not fresh_document.is_public:
+                    return False
+
+        return True
 
     # -------------------------------------------------------------------------
     #  Query param parsing
@@ -372,6 +391,7 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
         Handle incoming WebSocket messages.
 
         Expected payloads:
+        - Auth refresh: {"type": "AUTH", "token": "..."}
         - Query: {"query": "user question"}
         - Approval: {"approval_decision": true/false, "llm_message_id": 123}
         """
@@ -379,7 +399,20 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
 
         try:
             payload: dict[str, Any] = json.loads(text_data)
+        except json.JSONDecodeError:
+            await self._send_safe(
+                msg_type="SYNC_CONTENT",
+                data={"error": "Malformed JSON payload."},
+            )
+            return
 
+        # Route AUTH refresh frames before anything else (per-connection
+        # cooldown + DB-backed token validation live in handle_auth_message).
+        if isinstance(payload, dict) and payload.get("type") == "AUTH":
+            await self.handle_auth_message(payload)
+            return
+
+        try:
             # Handle approval workflow
             if "approval_decision" in payload:
                 if await check_ws_rate_limit(
@@ -436,11 +469,6 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
             # Stream the response
             await self._stream_agent_response(user_query)
 
-        except json.JSONDecodeError:
-            await self._send_safe(
-                msg_type="SYNC_CONTENT",
-                data={"error": "Malformed JSON payload."},
-            )
         except Exception as e:
             logger.error(
                 f"[Session {self.session_id}] Error during message processing: {e}",
@@ -613,15 +641,25 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
 
     async def _stream_agent_response(self, user_query: str) -> None:
         """Stream the agent's response to the client."""
+        # When OC_LLM_VCR_MODE is set, wrap the LLM HTTP traffic in a vcr.py
+        # cassette so the e2e websocket-auth workflow can replay a recorded
+        # conversation rather than making real OpenAI/Anthropic calls.
+        # In production (env vars unset) the helper is a no-op context manager.
+        # Lazy import: vcrpy is a dev/CI dependency and we don't want it
+        # touched on the production cold path until this code branch
+        # actually runs (which itself is gated on a chat being initiated).
+        from opencontractserver.utils.vcr_replay import maybe_vcr_cassette
+
         try:
-            async for event in self.agent.stream(user_query):
-                if not self._is_connected:
-                    logger.debug(
-                        f"[Session {self.session_id}] Client disconnected mid-stream, "
-                        "stopping iteration."
-                    )
-                    break
-                await self._handle_agent_event(event)
+            with maybe_vcr_cassette():
+                async for event in self.agent.stream(user_query):
+                    if not self._is_connected:
+                        logger.debug(
+                            f"[Session {self.session_id}] Client disconnected mid-stream, "
+                            "stopping iteration."
+                        )
+                        break
+                    await self._handle_agent_event(event)
 
             logger.debug(f"[Session {self.session_id}] Streaming complete.")
 
@@ -809,17 +847,24 @@ class UnifiedAgentConsumer(AsyncWebsocketConsumer):
             )
             return
 
+        # Same VCR wrap as _stream_agent_response so the approval-resume
+        # leg also replays cassette traffic when OC_LLM_VCR_MODE is set.
+        # Lazy import: see _stream_agent_response for rationale (vcrpy is a
+        # dev/CI dep we don't want imported on the production cold path).
+        from opencontractserver.utils.vcr_replay import maybe_vcr_cassette
+
         try:
-            # Stream the resumed answer
-            async for event in self.agent.resume_with_approval(
-                llm_msg_id, approved, stream=True
-            ):
-                if not self._is_connected:
-                    logger.debug(
-                        f"[Session {self.session_id}] Client disconnected during approval stream."
-                    )
-                    break
-                await self._handle_agent_event(event)
+            with maybe_vcr_cassette():
+                # Stream the resumed answer
+                async for event in self.agent.resume_with_approval(
+                    llm_msg_id, approved, stream=True
+                ):
+                    if not self._is_connected:
+                        logger.debug(
+                            f"[Session {self.session_id}] Client disconnected during approval stream."
+                        )
+                        break
+                    await self._handle_agent_event(event)
 
         except Exception as e:
             if not self._is_connected:

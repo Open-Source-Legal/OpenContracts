@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useApolloClient } from "@apollo/client";
 import styled, { createGlobalStyle } from "styled-components";
 import {
   Modal,
@@ -18,7 +19,14 @@ import { FilePreviewAndUpload } from "../widgets/file-controls/FilePreviewAndUpl
 import { CategorySelector } from "./CategorySelector";
 import { CorpusType, LabelSetType } from "../../types/graphql-api";
 import { arraysEqualUnordered } from "../../utils/arrayUtils";
-import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
+import {
+  DEFAULT_NEW_CORPUS_LICENSE,
+  MOBILE_VIEW_BREAKPOINT,
+} from "../../assets/configurations/constants";
+import {
+  GET_CORPUS_CREATE_DEFAULTS,
+  GetCorpusCreateDefaultsOutput,
+} from "../../graphql/queries";
 import {
   OS_LEGAL_COLORS,
   accentAlpha,
@@ -386,6 +394,44 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
   // Initialize to false so that if modal starts open, we still initialize the form
   const prevOpenRef = useRef(false);
 
+  const apolloClient = useApolloClient();
+
+  // Pre-fill defaults (default embedder + default labelset) from the backend
+  // when the modal opens in CREATE mode.  Runs as a side-effect so we don't
+  // block first paint of the modal — fields populate as the response lands.
+  // Only one in-flight fetch per modal-open, since the form-init effect
+  // resets state every time `open` flips on.
+  const fetchCreateDefaults = useCallback(async () => {
+    try {
+      const { data } = await apolloClient.query<GetCorpusCreateDefaultsOutput>({
+        query: GET_CORPUS_CREATE_DEFAULTS,
+        fetchPolicy: "cache-first",
+      });
+      if (data?.pipelineSettings?.defaultEmbedder) {
+        setPreferredEmbedder(
+          (current) => current ?? data.pipelineSettings.defaultEmbedder ?? null
+        );
+      }
+      if (data?.defaultLabelset) {
+        const ls = data.defaultLabelset;
+        setLabelSetId((current) => current ?? ls.id);
+        setLabelSetObj(
+          (current) =>
+            current ??
+            ({
+              id: ls.id,
+              title: ls.title,
+              description: ls.description ?? "",
+              icon: ls.icon ?? "",
+              isPublic: ls.isPublic,
+            } as LabelSetType)
+        );
+      }
+    } catch {
+      // Silent fallback — empty fields are still acceptable.
+    }
+  }, [apolloClient]);
+
   // Initialize form from corpus data only when modal opens (not on every render)
   useEffect(() => {
     // Only initialize form when modal transitions from closed to open
@@ -432,7 +478,9 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
         licenseLink: corpusLicenseLink,
       });
     } else {
-      // Reset for create mode
+      // Reset for create mode and pre-fill defaults.  Pre-selected values
+      // are intentionally pure UX nudges — the user can clear them, and the
+      // backend independently applies defaults at save time.
       setTitle("");
       setSlug("");
       setDescription("");
@@ -441,9 +489,10 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
       setLabelSetObj(undefined);
       setPreferredEmbedder(null);
       setCategories([]);
-      setLicense("");
+      setLicense(DEFAULT_NEW_CORPUS_LICENSE);
       setLicenseLink("");
       setOriginalValues(null);
+      void fetchCreateDefaults();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // corpus intentionally omitted - we only want to initialize on modal open,

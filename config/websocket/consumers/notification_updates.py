@@ -35,7 +35,11 @@ import uuid
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from config.ratelimit.decorators import check_ws_rate_limit
-from config.websocket.middleware import WS_CLOSE_RATE_LIMITED
+from config.websocket.auth_handshake import AuthHandshakeMixin
+from config.websocket.middleware import (
+    WS_CLOSE_RATE_LIMITED,
+    WS_CLOSE_UNAUTHENTICATED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,7 @@ def get_notification_channel_group(user_id: int) -> str:
     return f"notification_user_{user_id}"
 
 
-class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
+class NotificationUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
     """
     WebSocket consumer for subscribing to real-time notification updates.
 
@@ -130,7 +134,12 @@ class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
                 f"[NotificationUpdates {self.consumer_id}] "
                 "Unauthenticated connection rejected"
             )
-            await self.close(code=4001)
+            # 4000 (UNAUTHENTICATED) — there was no token at all. Use 4001
+            # (TOKEN_EXPIRED) only when the middleware actually decoded a
+            # token and found it expired (scope["auth_error"]). Otherwise
+            # the frontend treats every anonymous-mount as "the user's
+            # session expired" and stops reconnecting.
+            await self.close(code=WS_CLOSE_UNAUTHENTICATED)
             return
 
         self.user_id = user.pk
@@ -140,7 +149,7 @@ class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
         self.room_group_name = get_notification_channel_group(self.user_id)
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
 
-        await self.accept()
+        await self.accept_with_auth()
         logger.info(
             f"[NotificationUpdates {self.consumer_id}] "
             f"User {self.user_id} subscribed to {self.room_group_name}"
@@ -159,6 +168,7 @@ class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code: int) -> None:
         """Leave the notification channel group on disconnect."""
+        await self.cleanup_auth_handshake()
         if hasattr(self, "room_group_name") and self.room_group_name:
             await self.channel_layer.group_discard(
                 self.room_group_name, self.channel_name
@@ -180,35 +190,40 @@ class NotificationUpdatesConsumer(AsyncWebsocketConsumer):
         - ping: Connection health check
         - heartbeat: Keep-alive message
         """
-        if await check_ws_rate_limit(self, "WS_HEARTBEAT"):
-            return
-
         try:
             data = json.loads(text_data)
-            msg_type = data.get("type", "")
-
-            if msg_type == "ping":
-                await self.send(text_data=json.dumps({"type": "pong"}))
-
-            elif msg_type == "heartbeat":
-                await self.send(
-                    text_data=json.dumps(
-                        {
-                            "type": "heartbeat_ack",
-                            "session_id": self.session_id,
-                        }
-                    )
-                )
-
-            else:
-                logger.debug(
-                    f"[NotificationUpdates {self.consumer_id}] "
-                    f"Unknown message type: {msg_type}"
-                )
-
         except json.JSONDecodeError:
             logger.warning(
                 f"[NotificationUpdates {self.consumer_id}] Invalid JSON received"
+            )
+            return
+
+        if isinstance(data, dict) and data.get("type") == "AUTH":
+            await self.handle_auth_message(data)
+            return
+
+        if await check_ws_rate_limit(self, "WS_HEARTBEAT"):
+            return
+
+        msg_type = data.get("type", "") if isinstance(data, dict) else ""
+
+        if msg_type == "ping":
+            await self.send(text_data=json.dumps({"type": "pong"}))
+
+        elif msg_type == "heartbeat":
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "heartbeat_ack",
+                        "session_id": self.session_id,
+                    }
+                )
+            )
+
+        else:
+            logger.debug(
+                f"[NotificationUpdates {self.consumer_id}] "
+                f"Unknown message type: {msg_type}"
             )
 
     # -------------------------------------------------------------------------

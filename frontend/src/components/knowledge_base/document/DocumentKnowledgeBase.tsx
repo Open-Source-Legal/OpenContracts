@@ -1599,7 +1599,12 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   // Add new state for floating panels
   const [showAnalysesPanel, setShowAnalysesPanel] = useState(false);
   const [showExtractsPanel, setShowExtractsPanel] = useState(false);
-  const [showLoad, setShowLoad] = useState(false);
+  // showLoad was lifted onto chatTrayStateAtom — see ChatTray.tsx and
+  // UISettingsAtom.tsx (ChatTrayPersist.showLoad). Owning it here as a
+  // useState made ChatTray's mount-time setShowLoad(false) call a
+  // cross-component setState during render, which React flagged as a
+  // "Cannot update a component (DocumentKnowledgeBase) while rendering
+  // a different component (ChatTray)" warning.
   const [pendingChatMessage, setPendingChatMessage] = useState<string>();
 
   // Clear pending message after passing it to ChatTray
@@ -2552,8 +2557,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
                       corpusId={corpusId}
                       setActiveLayer={setActiveLayer}
                       setSelectedNote={setSelectedNote}
-                      showLoad={showLoad}
-                      setShowLoad={setShowLoad}
                       pendingChatMessage={pendingChatMessage}
                     />
                   </SlidingPanel>
