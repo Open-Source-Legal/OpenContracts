@@ -143,21 +143,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   onViewModeChange,
   onSourceNavigate,
 }) => {
-  // ── DIAGNOSTIC: mount/unmount tracker (remove once chat stability is verified)
-  // Tag every log with a per-instance ID so multiple <CorpusChat> renders in
-  // the tree (Corpuses.tsx mounts up to 3) are distinguishable in the console.
-  const instanceIdRef = useRef<string>(
-    `cc-${Math.random().toString(36).slice(2, 8)}`
-  );
-  useEffect(() => {
-    console.info(
-      `[CorpusChat ${instanceIdRef.current}] MOUNT corpusId=${corpusId} forceNewChat=${forceNewChat}`
-    );
-    return () => {
-      console.info(`[CorpusChat ${instanceIdRef.current}] UNMOUNT`);
-    };
-  }, []);
-
   // Chat state
   const [isNewChat, setIsNewChat] = useState(forceNewChat);
   const [newMessage, setNewMessage] = useState("");
@@ -508,26 +493,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   });
   const wsEnabled = !!(selectedConversationId || isNewChat);
 
-  // ── DIAGNOSTIC: log every wsUrl recomputation that actually changes
-  // value — same value across renders is a no-op for the connect effect,
-  // so only flag the transitions that will tear down + reopen the socket.
-  const prevWsUrlRef = useRef<string | undefined>(undefined);
-  const prevWsEnabledRef = useRef<boolean | undefined>(undefined);
-  useEffect(() => {
-    if (
-      prevWsUrlRef.current !== wsUrl ||
-      prevWsEnabledRef.current !== wsEnabled
-    ) {
-      console.info(
-        `[CorpusChat ${instanceIdRef.current}] WS URL/enabled CHANGED: ` +
-          `enabled ${prevWsEnabledRef.current} → ${wsEnabled}, ` +
-          `isNewChat=${isNewChat} selectedConversationId=${selectedConversationId} ` +
-          `url ${prevWsUrlRef.current} → ${wsUrl}`
-      );
-      prevWsUrlRef.current = wsUrl;
-      prevWsEnabledRef.current = wsEnabled;
-    }
-  }, [wsUrl, wsEnabled, isNewChat, selectedConversationId]);
   const {
     isConnected: wsReady,
     send: wsSend,
@@ -552,17 +517,8 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   useEffect(() => {
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
-      console.info(
-        `[CorpusChat ${instanceIdRef.current}] forceNewChat effect: initial mount, skipping`
-      );
       return;
     }
-    console.info(
-      `[CorpusChat ${instanceIdRef.current}] forceNewChat effect: ` +
-        `forceNewChat=${forceNewChat} → ${
-          forceNewChat ? "calling startNewChat()" : "no-op"
-        }`
-    );
     if (forceNewChat) {
       startNewChat();
     }
@@ -570,17 +526,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
 
   // Send the initial query once the WebSocket is ready
   useEffect(() => {
-    console.info(
-      `[CorpusChat ${instanceIdRef.current}] initialQuery effect: ` +
-        `initialQuery=${JSON.stringify(
-          initialQuery
-        )} wsReady=${wsReady} isNewChat=${isNewChat} ` +
-        `→ ${
-          initialQuery && initialQuery.trim().length > 0 && wsReady && isNewChat
-            ? "WILL SEND"
-            : "skip"
-        }`
-    );
     if (
       initialQuery &&
       initialQuery.trim().length > 0 &&
@@ -589,9 +534,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     ) {
       const timer = setTimeout(() => {
         const trimmed = initialQuery.trim();
-        console.info(
-          `[CorpusChat ${instanceIdRef.current}] initialQuery effect: SENDING "${trimmed}"`
-        );
         const ok = wsSend(JSON.stringify({ query: trimmed }));
         if (ok) {
           setChat((prev) => [
@@ -621,10 +563,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
    * @param conversationId The ID of the chosen conversation
    */
   const loadConversation = (conversationId: string): void => {
-    console.info(
-      `[CorpusChat ${instanceIdRef.current}] loadConversation(${conversationId}) — ` +
-        `clearing chat, setting isNewChat=false`
-    );
     setSelectedConversationId(conversationId);
     setIsNewChat(false);
     setShowLoad(false);
@@ -645,10 +583,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
    * Start a brand-new chat (unselect existing conversation).
    */
   const startNewChat = useCallback((): void => {
-    console.info(
-      `[CorpusChat ${instanceIdRef.current}] startNewChat() — ` +
-        `clearing chat + conversation, setting isNewChat=true`
-    );
     setContextExhausted(false);
     setContextStatus(null);
     setCompactionNotice(null);

@@ -147,16 +147,7 @@ export function useWebSocketAuth(
   // (via the second effect below). The exception is `requireAuth`: token
   // empty → non-empty re-runs this effect because `shouldConnect` flips.
   useEffect(() => {
-    // ── DIAGNOSTIC: per-effect-run id so open/close pairs are traceable
-    // when the connect effect fires repeatedly. Remove once stable.
-    const runId = Math.random().toString(36).slice(2, 8);
     if (!shouldConnect) {
-      console.info(
-        `[useWebSocketAuth ${runId}] SKIP open: shouldConnect=false ` +
-          `(enabled=${enabled} requireAuth=${requireAuth} hasToken=${Boolean(
-            token
-          )}) url=${url}`
-      );
       setIsConnected(false);
       setIsAuthenticated(false);
       return;
@@ -164,16 +155,10 @@ export function useWebSocketAuth(
 
     clearReconnectTimer();
     const protocols = buildAuthProtocols(tokenRef.current);
-    console.info(
-      `[useWebSocketAuth ${runId}] OPEN ${url} (hasToken=${Boolean(
-        tokenRef.current
-      )})`
-    );
     const ws = new WebSocket(url, protocols);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.info(`[useWebSocketAuth ${runId}] onopen ${url}`);
       setIsConnected(true);
       setLastError(null);
       failureCountRef.current = 0;
@@ -203,10 +188,6 @@ export function useWebSocketAuth(
     };
 
     ws.onclose = (event) => {
-      console.info(
-        `[useWebSocketAuth ${runId}] onclose code=${event.code} ` +
-          `wasClean=${event.wasClean} url=${url}`
-      );
       setIsConnected(false);
       setIsAuthenticated(false);
       onCloseRef.current?.(event.code);
@@ -238,9 +219,6 @@ export function useWebSocketAuth(
     };
 
     return () => {
-      console.info(
-        `[useWebSocketAuth ${runId}] CLEANUP (effect re-run or unmount) url=${url}`
-      );
       clearReconnectTimer();
       try {
         ws.close(WS_CLOSE_NORMAL, "hook unmount");
@@ -260,18 +238,8 @@ export function useWebSocketAuth(
   // Token rotation → in-band AUTH refresh (no reconnect).
   useEffect(() => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.info(
-        `[useWebSocketAuth] token effect: skip (no live socket) hasToken=${Boolean(
-          token
-        )}`
-      );
-      return;
-    }
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (!token) return;
-    console.info(
-      `[useWebSocketAuth] token effect: sending in-band AUTH refresh`
-    );
     ws.send(JSON.stringify(buildAuthMessage(token)));
   }, [token]);
 
