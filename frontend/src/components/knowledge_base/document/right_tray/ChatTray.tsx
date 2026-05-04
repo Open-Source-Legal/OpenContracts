@@ -73,8 +73,6 @@ export type { WebSocketSources, MessageData } from "../../../chat/types";
  */
 interface ChatTrayProps {
   documentId: string;
-  showLoad: boolean;
-  setShowLoad: React.Dispatch<React.SetStateAction<boolean>>;
   onMessageSelect?: () => void;
   corpusId?: string;
   /**
@@ -100,8 +98,6 @@ interface ChatTrayProps {
  */
 export const ChatTray: React.FC<ChatTrayProps> = ({
   documentId,
-  showLoad,
-  setShowLoad,
   onMessageSelect,
   corpusId,
   initialMessage,
@@ -197,6 +193,18 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   );
 
   const { chatTrayState, setChatTrayState } = useUISettings();
+
+  // showLoad lives on chatTrayStateAtom (lifted out of DocumentKnowledgeBase
+  // to break the cross-component setState chain that triggered React's
+  // "Cannot update a component while rendering a different component"
+  // warning when ChatTray's mount effect called the parent setter prop).
+  // The local `setShowLoad` shape preserves the previous call sites.
+  const setShowLoad = useCallback(
+    (value: boolean) => {
+      setChatTrayState((prev) => ({ ...prev, showLoad: value }));
+    },
+    [setChatTrayState]
+  );
 
   // Ref to manage auto-scrolling behaviour
   const autoScrollRef = useRef(true);
