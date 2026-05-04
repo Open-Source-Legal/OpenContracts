@@ -84,6 +84,7 @@ export const GET_DOCUMENTS = gql`
           isPublic
           myPermissions
           creator {
+            id
             slug
           }
           is_selected @client
@@ -377,6 +378,7 @@ export const SEARCH_DOCUMENTS = gql`
           isPublic
           myPermissions
           creator {
+            id
             slug
           }
           is_selected @client
@@ -642,6 +644,7 @@ export const GET_CORPUSES = gql`
           icon
           title
           creator {
+            id
             email
             slug
           }
@@ -2075,6 +2078,7 @@ export const GET_EXTRACT_GRID_EMBED = gql`
         id
         slug
         creator {
+          id
           slug
         }
       }
@@ -2102,6 +2106,7 @@ export const GET_EXTRACT_GRID_EMBED = gql`
           title
           slug
           creator {
+            id
             slug
           }
         }
@@ -2632,6 +2637,7 @@ export const SEARCH_CORPUSES_FOR_MENTION = gql`
           slug
           title
           creator {
+            id
             slug
           }
         }
@@ -2693,6 +2699,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
           slug
           title
           creator {
+            id
             slug
           }
           pathRecords(first: 1) {
@@ -2703,6 +2710,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
                   slug
                   title
                   creator {
+                    id
                     slug
                   }
                 }
@@ -3621,6 +3629,7 @@ export const GET_CORPUS_CONVERSATIONS = gql`
             totalCount
           }
           creator {
+            id
             email
           }
         }
@@ -3648,6 +3657,7 @@ export const GET_CORPUS_CHAT_MESSAGES = gql`
           createdAt
           data
           creator {
+            id
             email
           }
         }
@@ -4392,6 +4402,7 @@ export const SEARCH_CONVERSATIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -4400,6 +4411,7 @@ export const SEARCH_CONVERSATIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -5095,6 +5107,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             icon
             slug
             creator {
+              id
               slug
             }
           }
@@ -5106,6 +5119,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             icon
             slug
             creator {
+              id
               slug
             }
           }
@@ -5119,6 +5133,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             id
             slug
             creator {
+              id
               slug
             }
           }
@@ -5188,6 +5203,7 @@ export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
           icon
           fileType
           creator {
+            id
             slug
           }
         }
@@ -5222,6 +5238,7 @@ export const GET_CORPUS_ARTICLE = gql`
           txtExtractFile
           modified
           creator {
+            id
             email
           }
         }
@@ -5244,6 +5261,7 @@ export interface GetCorpusArticleOutput {
         txtExtractFile: string | null;
         modified: string;
         creator: {
+          id: string;
           email: string;
         };
       };

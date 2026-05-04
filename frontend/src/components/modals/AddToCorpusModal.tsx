@@ -175,6 +175,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
             icon
             title
             creator {
+              id
               email
             }
             description

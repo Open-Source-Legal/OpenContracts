@@ -2032,9 +2032,17 @@ export const Corpuses = () => {
     }
   }, [metadataCorpusId]); // Only depend on ID, not the full object
 
-  useEffect(() => {
-    refetch_documents();
-  }, [selected_metadata_id_to_filter_on]);
+  // NOTE: A previous version of this effect called ``refetch_documents()``
+  // whenever ``selected_metadata_id_to_filter_on`` changed. ``refetch_documents``
+  // is the ``refetch`` of a ``useLazyQuery`` that fires the query *immediately*
+  // — including on mount, when the dependency starts as ``undefined``. That
+  // produced a duplicate ``GET_DOCUMENTS`` network call on every corpus open
+  // (with no ``inFolderId``), racing against the per-folder ``GET_DOCUMENTS``
+  // already issued by ``CorpusDocumentCards``. The list there is authoritative
+  // and re-runs on its own when ``selected_metadata_id_to_filter_on`` changes
+  // (its variables include ``hasAnnotationsWithIds``), so this effect is
+  // redundant — and the duplicate response merging into the same cache nodes
+  // was contributing to the document-list reload loop.
 
   // Fetch corpus stats - with proper ID validation
   // Handle both string and number IDs, convert to string for GraphQL

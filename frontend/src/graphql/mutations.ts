@@ -2452,6 +2452,7 @@ export const CREATE_THREAD = gql`
           title
           slug
           creator {
+            id
             slug
           }
         }
@@ -2460,6 +2461,7 @@ export const CREATE_THREAD = gql`
           title
           slug
           creator {
+            id
             slug
           }
         }
