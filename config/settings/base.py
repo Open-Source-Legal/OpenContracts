@@ -1021,9 +1021,6 @@ DEFAULT_IMAGE = """data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD
 
 # Model paths
 DOCLING_MODELS_PATH = env.str("DOCLING_MODELS_PATH", default="/models/docling")
-SENTENCE_TRANSFORMER_MODELS_PATH = env.str(
-    "SENTENCE_TRANSFORMER_MODELS_PATH", default="/models/sentence-transformers"
-)
 
 # Parser selection via environment variable
 # Options: "docling" (default), "llamaparse"

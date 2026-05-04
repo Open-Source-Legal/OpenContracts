@@ -87,16 +87,23 @@ If no options are provided, the viewport is captured.
 4. Run the test locally: `cd frontend && yarn test:ct --reporter=list -g "test name"`
 5. Verify the PNG in the output directory
 6. Reference it in your markdown docs
-7. Commit the test change and the PNG — CI will keep it fresh on future PRs
+7. Commit the test change and the PNG — re-run the screenshot workflow on demand whenever the visual needs to be refreshed
 
 ## CI Workflow
 
-The `screenshots.yml` workflow (`.github/workflows/screenshots.yml`) runs on every PR that touches `frontend/` or `docs/`:
+The `screenshots.yml` workflow (`.github/workflows/screenshots.yml`) is **manual / on-demand only** — it does not run automatically on PR push or merge. Trigger it from the Actions tab (or `gh workflow run`) with the PR number you want to refresh:
 
-1. Checks out the PR branch
+```bash
+gh workflow run "Update Documentation Screenshots" -f pr_number=1234
+```
+
+When triggered, it:
+
+1. Resolves the PR's head branch and checks it out
 2. Runs all component tests (which capture screenshots as a side-effect)
-3. If any files in `auto/` changed, commits and pushes them back to the PR branch
-4. Test failures don't block screenshot commits (`continue-on-error: true`) — the main CI workflow gates on test success separately
+3. Waits for the PR's CI checks to pass before committing
+4. If any files in `auto/` changed, commits and pushes them back to the PR branch
+5. Test failures during the screenshot run don't block commits (`continue-on-error: true`) — the CI gate on the prior step handles that separately
 
 The workflow only touches `docs/assets/images/screenshots/auto/`. Release screenshots in `releases/` are never modified by CI.
 
@@ -120,7 +127,7 @@ Note: we use `-diff -text` (not `binary`) to suppress diffs without overriding t
 
 ```yaml
 git config merge.ours.driver true
-git pull --rebase origin ${{ github.head_ref }}
+git pull --rebase origin ${{ steps.pr.outputs.head_ref }}
 ```
 
 If the rebase still fails (e.g. non-screenshot conflicts), it falls back to `git checkout --ours` on the auto directory.
