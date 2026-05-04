@@ -1,16 +1,60 @@
+# Build context exclusions for the Django/Celery image. Anything excluded
+# here is never sent to the daemon and never reaches `COPY . ${APP_HOME}`.
+
+# Local virtualenvs and editor state
 venv/
-uploadfiles/
-staticfiles/
-site/
+.venv/
+env/
+.env
+.envs/.local/
+.vscode/
+.idea/
+
+# VCS metadata (workflows are not needed inside the runtime image)
 .git/
+.gitignore
 .github/
-.ipython/
-.pytest_cache/
+
+# Python build artefacts and caches
 __pycache__/
-docs/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
 .coverage
-frontend/node_modules
-opencontractserver/media
-site/
-static/
+.coverage.*
+htmlcov/
+
+# Frontend has its own image
+frontend/
+
+# Documentation, dev tooling, and one-off scripts not needed at runtime
+docs/
+mkdocs.yml
+schema.json
+schema.graphql
+cloudflare-og-worker/
+tools/
+fixtures/
+locale/
+model_preloaders/
+
+# User-uploaded content / runtime state
+uploadfiles/
+opencontractserver/media/
 user_*/
+staticfiles/
+static/
+site/
+.ipython/
+
+# Top-level docs (CHANGELOG.md is intentionally retained)
+README.md
+CLAUDE.md
+
+# Misc dev tooling
+.pre-commit-config.yaml
+.cursor/
+.claude/

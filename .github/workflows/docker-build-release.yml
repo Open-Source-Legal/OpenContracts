@@ -57,6 +57,7 @@ jobs:
             type=sha,prefix={{tag}}-
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
@@ -67,5 +68,29 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+          load: ${{ matrix.image == 'django' }}
           build-args: |
             BUILD_ENVIRONMENT=production
+
+      # Image-size budget for the Django/Celery image (issue #1494). The
+      # uncompressed image must fit under DJANGO_IMAGE_BUDGET_BYTES; we fail
+      # the release build otherwise so regressions surface immediately rather
+      # than at the next cold pod pull.
+      - name: Enforce Django image size budget
+        if: matrix.image == 'django'
+        env:
+          # 1.5 GiB budget per acceptance criteria on issue #1494.
+          DJANGO_IMAGE_BUDGET_BYTES: "1610612736"
+        run: |
+          set -euo pipefail
+          first_tag="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"
+          size_bytes="$(docker image inspect --format='{{.Size}}' "$first_tag")"
+          budget="$DJANGO_IMAGE_BUDGET_BYTES"
+          human_size="$(numfmt --to=iec-i --suffix=B "$size_bytes")"
+          human_budget="$(numfmt --to=iec-i --suffix=B "$budget")"
+          echo "Django image size: $human_size ($size_bytes bytes)"
+          echo "Budget:            $human_budget ($budget bytes)"
+          if [ "$size_bytes" -gt "$budget" ]; then
+            echo "::error::Django image $human_size exceeds the $human_budget budget. See issue #1494."
+            exit 1
+          fi
