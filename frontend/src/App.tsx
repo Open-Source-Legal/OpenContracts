@@ -89,6 +89,7 @@ import { LeaderboardRoute } from "./components/routes/LeaderboardRoute";
 import { GlobalDiscussionsRoute } from "./components/routes/GlobalDiscussionsRoute";
 import { ThreadSearchRoute } from "./views/ThreadSearchRoute";
 import { DiscoveryLanding } from "./views/DiscoveryLanding";
+import { DiscoverSearchResults } from "./views/DiscoverSearchResults";
 import { CentralRouteManager } from "./routing/CentralRouteManager";
 import { CRUDModal } from "./components/widgets/CRUD/CRUDModal";
 import { updateAnnotationDisplayParams } from "./utils/navigationUtils";
@@ -480,6 +481,12 @@ export const App = () => {
                   {/* List views */}
                   <Route path="/corpuses" element={<Corpuses />} />
                   <Route path="/documents" element={<Documents />} />
+
+                  {/* Cross-content Discover search */}
+                  <Route
+                    path="/discover/search"
+                    element={<DiscoverSearchResults />}
+                  />
 
                   {/* Global Discussions Route (Issue #623) */}
                   <Route

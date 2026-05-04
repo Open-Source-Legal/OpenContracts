@@ -142,7 +142,7 @@ class Command(BaseCommand):
         pipeline_settings = PipelineSettings.get_instance(use_cache=False)
 
         # Collect all components
-        all_components = []
+        all_components: list[Any] = []
         all_components.extend(registry.parsers)
         all_components.extend(registry.embedders)
         all_components.extend(registry.thumbnailers)
@@ -163,8 +163,9 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Found {len(all_components)} pipeline components\n")
 
-        # Track migration stats
-        stats = {
+        # Track migration stats. Mixed value types (counters and lists) so
+        # we widen to ``Any`` so mypy treats the dict as heterogeneous.
+        stats: dict[str, Any] = {
             "total": len(all_components),
             "with_schema": 0,
             "settings_migrated": 0,
@@ -349,7 +350,7 @@ class Command(BaseCommand):
         registry = get_registry()
         pipeline_settings = PipelineSettings.get_instance(use_cache=False)
 
-        all_components = []
+        all_components: list[Any] = []
         all_components.extend(registry.parsers)
         all_components.extend(registry.embedders)
         all_components.extend(registry.thumbnailers)
@@ -602,8 +603,9 @@ class Command(BaseCommand):
         total_components = 0
         components_with_settings = 0
 
-        for group_name, components in component_groups:
+        for group_name, group_components in component_groups:
             # Filter if specific component requested
+            components: list[Any] = list(group_components)
             if specific_component:
                 components = [
                     c

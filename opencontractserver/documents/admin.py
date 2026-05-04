@@ -33,7 +33,7 @@ class DocumentEmbeddingInline(admin.TabularInline):
             return "3072"
         return "Unknown"
 
-    dimension.short_description = "Dimension"
+    dimension.short_description = "Dimension"  # type: ignore[attr-defined]
 
 
 @admin.register(Document)
@@ -67,8 +67,8 @@ class DocumentAdmin(GuardedModelAdmin):
         """
         return obj.total_embeddings
 
-    total_embeddings.admin_order_field = "total_embeddings"
-    total_embeddings.short_description = "Embeddings"
+    total_embeddings.admin_order_field = "total_embeddings"  # type: ignore[attr-defined]
+    total_embeddings.short_description = "Embeddings"  # type: ignore[attr-defined]
 
 
 @admin.register(DocumentAnalysisRow)

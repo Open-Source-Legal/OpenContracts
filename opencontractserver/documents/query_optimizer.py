@@ -6,7 +6,7 @@ Follows the least-privilege permission model.
 """
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db.models import (
     BooleanField,
@@ -69,7 +69,7 @@ class DocumentActionsQueryOptimizer:
         from opencontractserver.corpuses.models import Corpus, CorpusAction
         from opencontractserver.documents.models import Document
 
-        result = {
+        result: dict[str, list[Any]] = {
             "corpus_actions": [],
             "extracts": [],
             "analysis_rows": [],

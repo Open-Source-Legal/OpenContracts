@@ -102,6 +102,8 @@ export const OS_LEGAL_COLORS = {
   // Folder-specific colors - amber/golden theme
   /** Folder icon color - amber/golden for visual distinction from documents. */
   folderIcon: "#D97706",
+  /** Darker amber companion to folderIcon (used as gradient end-stop). */
+  folderIconDark: "#b45309",
   /** Folder background gradient - warm amber tones. */
   folderIconBg: "linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%)",
 

@@ -121,8 +121,6 @@ nav:
       - Frontend Notes: development/frontend-notes.md
       - Documentation: development/documentation.md
       - Generating GraphQL Schema: development/generating-new-graphql-schema.md
-  - Deployment:
-      - Docker GPU Setup: deployment/docker-gpu-setup.md
 
 plugins:
   # Built-in

@@ -1049,7 +1049,7 @@ class Corpus(TreeNode):
             corpus=self,
             path=path,
             content=content,
-            user=user,
+            user=user,  # type: ignore[arg-type]
             folder=folder,
             file_type=effective_file_type,
             **doc_kwargs,
