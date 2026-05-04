@@ -2930,7 +2930,6 @@ export const GET_EMBEDDERS = gql`
  * pre-selections (default embedder from PipelineSettings, the install-wide
  * default labelset). License defaults are kept frontend-side for now.
  */
-export interface GetCorpusCreateDefaultsInput {}
 export interface GetCorpusCreateDefaultsOutput {
   pipelineSettings: {
     defaultEmbedder?: string | null;

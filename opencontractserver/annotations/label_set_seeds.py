@@ -1,20 +1,17 @@
-"""
-Default LabelSet definition and seeding logic.
+"""Default LabelSet definition and seeding logic shared by the
+``annotations/0070`` data migration and the ``seed_default_labelset``
+management command.
 
-The data migration (``annotations/0069``) and the ``seed_default_labelset``
-management command both call ``create_default_labelset`` from here so that the
-behaviour stays in one place. The caller passes its own ``apps`` registry so
-migrations use historical model state while the management command uses the
-live registry.
+Callers pass an ``apps`` registry so the migration can use historical model
+state while the management command uses the live registry.
 """
 
 import logging
 
+from django.db import transaction
+
 logger = logging.getLogger(__name__)
 
-# Title used to identify the seeded default labelset. Treat this as a stable
-# identifier — users may rename or reassign the default via is_default flips,
-# but the seeder itself only looks for this title to stay idempotent.
 DEFAULT_LABELSET_TITLE = "Default Labels"
 DEFAULT_LABELSET_DESCRIPTION = (
     "Default annotation label set seeded at install. Pre-selected in the "
@@ -22,26 +19,9 @@ DEFAULT_LABELSET_DESCRIPTION = (
     "box. Owned by the install's first superuser; safe to edit."
 )
 
-# A starter palette covering both generic research/review patterns
-# (Important, Question, Reference) and the most common corporate-contract
-# concepts (parties, dates, term, governing law, liability limits). Picked
-# to be useful out of the box for legal/compliance teams without being
-# overwhelming. Users can add, remove, or rename labels freely after
-# creation — these are seeds, not lock-ins.
-#
-# label_type is "TOKEN_LABEL" everywhere because all of these apply to text
-# spans rather than whole documents. Strings are used (instead of importing
-# the LABEL_TYPES enum) so the migration runtime registry doesn't need to
-# import the live module.
-#
-# Color palette: red for risk/exits, amber/orange for time pressure, blue
-# for definitional/structural concepts, green for effective/positive dates,
-# purple for actors, teal for cross-references, slate for jurisdictional
-# scaffolding. Icon names map to lucide-react in the frontend; unknown
-# names fall back to the default tag glyph, so non-existent icons just
-# degrade gracefully.
+# Strings (not the LABEL_TYPES enum) so the migration's historical app
+# registry doesn't need to import the live module.
 DEFAULT_LABELS: list[dict[str, str]] = [
-    # --- General research / review ---
     {
         "text": "Important",
         "description": "A key passage worth highlighting.",
@@ -63,7 +43,6 @@ DEFAULT_LABELS: list[dict[str, str]] = [
         "icon": "link",
         "label_type": "TOKEN_LABEL",
     },
-    # --- Contract structure ---
     {
         "text": "Definition",
         "description": "A defined term or definitional clause.",
@@ -85,7 +64,6 @@ DEFAULT_LABELS: list[dict[str, str]] = [
         "icon": "scale",
         "label_type": "TOKEN_LABEL",
     },
-    # --- Dates & lifecycle ---
     {
         "text": "Effective Date",
         "description": "The date the agreement becomes effective.",
@@ -121,7 +99,6 @@ DEFAULT_LABELS: list[dict[str, str]] = [
         "icon": "repeat",
         "label_type": "TOKEN_LABEL",
     },
-    # --- Risk allocation ---
     {
         "text": "Limitation of Liability",
         "description": "Caps, carve-outs, or other liability-limiting language.",
@@ -133,18 +110,12 @@ DEFAULT_LABELS: list[dict[str, str]] = [
 
 
 def create_default_labelset(apps, schema_editor):
-    """Create the install-wide default LabelSet and its starter labels.
+    """Idempotently seed the install-wide default LabelSet and its starter
+    labels.
 
-    Idempotent: if a LabelSet titled ``DEFAULT_LABELSET_TITLE`` already
-    exists, it is reused. Missing labels are added; existing labels are not
-    duplicated. The labelset is marked ``is_default=True`` and ``is_public=
-    True`` so all users see it by default.
-
-    Args:
-        apps: An app registry — either ``django.apps.apps`` (live) or the
-            historical registry provided by a migration's ``apps`` parameter.
-        schema_editor: The migration schema editor, or ``None`` when called
-            from the management command.
+    Wrapped in ``transaction.atomic()`` so concurrent migration workers and
+    the management command can't both create a duplicate labelset between
+    the title lookup and the create.
     """
     User = apps.get_model("users", "User")
     LabelSet = apps.get_model("annotations", "LabelSet")
@@ -159,31 +130,32 @@ def create_default_labelset(apps, schema_editor):
         )
         return
 
-    labelset = LabelSet.objects.filter(title=DEFAULT_LABELSET_TITLE).first()
-    if labelset is None:
-        labelset = LabelSet.objects.create(
+    with transaction.atomic():
+        labelset, created = LabelSet.objects.get_or_create(
             title=DEFAULT_LABELSET_TITLE,
-            description=DEFAULT_LABELSET_DESCRIPTION,
-            creator=system_user,
-            is_public=True,
-            is_default=True,
+            defaults={
+                "description": DEFAULT_LABELSET_DESCRIPTION,
+                "creator": system_user,
+                "is_public": True,
+                "is_default": True,
+            },
         )
-    else:
-        # Backfill flags on a pre-existing labelset that matched by title.
-        updates = {}
-        if not labelset.is_public:
-            updates["is_public"] = True
-        if not labelset.is_default:
-            # Clear any other default first to satisfy the partial unique
-            # constraint, then promote this one.
-            LabelSet.objects.filter(is_default=True).exclude(pk=labelset.pk).update(
-                is_default=False
-            )
-            updates["is_default"] = True
-        if updates:
-            for field, value in updates.items():
-                setattr(labelset, field, value)
-            labelset.save(update_fields=list(updates.keys()))
+
+        if not created:
+            updates = {}
+            if not labelset.is_public:
+                updates["is_public"] = True
+            if not labelset.is_default:
+                # Demote any other default to keep the partial unique
+                # constraint satisfied before promoting this one.
+                LabelSet.objects.filter(is_default=True).exclude(pk=labelset.pk).update(
+                    is_default=False
+                )
+                updates["is_default"] = True
+            if updates:
+                for field, value in updates.items():
+                    setattr(labelset, field, value)
+                labelset.save(update_fields=list(updates.keys()))
 
     existing_label_texts = set(
         labelset.annotation_labels.values_list("text", flat=True)
@@ -209,11 +181,8 @@ def create_default_labelset(apps, schema_editor):
 
 
 def reverse_migration(apps, schema_editor):
-    """Remove the seeded default labelset and its starter labels.
-
-    Only deletes labels owned by the seeded labelset and not used by any
-    other labelset, to avoid pulling out labels users may have reused.
-    """
+    """Remove the seeded default labelset and any starter labels that aren't
+    referenced by another labelset (so user-edited reuses survive)."""
     LabelSet = apps.get_model("annotations", "LabelSet")
     AnnotationLabel = apps.get_model("annotations", "AnnotationLabel")
 
