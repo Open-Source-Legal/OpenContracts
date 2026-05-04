@@ -223,26 +223,47 @@ export const CorpusDocumentCards = ({
     [document_ids]
   );
 
-  // Update the global reactive var with current view document IDs for toolbar's Select All functionality
+  // Update the global reactive var with current view document IDs for toolbar's Select All functionality.
+  // CRITICAL: Do NOT return a cleanup that resets the var here. Returning
+  // `() => currentViewDocumentIds([])` from this effect makes every
+  // dep change fire two writes (cleanup → []  then  body → new ids),
+  // which re-renders every subscriber twice per change. Worse, subscribers
+  // (e.g. FolderDocumentBrowser via useReactiveVar) re-render this
+  // component, and any reference instability in the dep used to feed an
+  // infinite reload loop. Only write when the value actually changed,
+  // and put the unmount-only reset in a separate `[]`-deps effect below.
   useEffect(() => {
-    currentViewDocumentIds(document_ids);
-
-    // Clear on unmount
-    return () => {
-      currentViewDocumentIds([]);
-    };
+    const current = currentViewDocumentIds();
+    const next = document_ids;
+    if (
+      current.length !== next.length ||
+      current.some((id, i) => id !== next[i])
+    ) {
+      currentViewDocumentIds(next);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document_ids_key]);
+  useEffect(
+    () => () => {
+      currentViewDocumentIds([]);
+    },
+    []
+  );
 
-  // Sync loading state to reactive var for toolbar to disable Select All while loading
+  // Sync loading state to reactive var. Same rule: no cleanup-then-set on
+  // dep change, and skip identical writes so we don't notify subscribers
+  // for no-op transitions.
   useEffect(() => {
-    documentsLoadingVar(documents_loading);
-
-    // Clear on unmount
-    return () => {
-      documentsLoadingVar(false);
-    };
+    if (documentsLoadingVar() !== documents_loading) {
+      documentsLoadingVar(documents_loading);
+    }
   }, [documents_loading]);
+  useEffect(
+    () => () => {
+      documentsLoadingVar(false);
+    },
+    []
+  );
 
   const handleRemoveContracts = (delete_ids: string[]) => {
     removeDocumentsFromCorpus({
