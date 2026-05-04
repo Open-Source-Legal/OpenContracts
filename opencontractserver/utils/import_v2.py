@@ -287,17 +287,44 @@ def import_md_description_revisions(
     revisions_data: list[DescriptionRevisionExport],
     corpus: Corpus,
     user_obj: User,
+    doc_filename_to_doc: dict | None = None,
+    annot_old_id_to_new_pk: dict | None = None,
 ) -> None:
     """
     Import markdown description and revision history.
+
+    If ``doc_filename_to_doc`` and/or ``annot_old_id_to_new_pk`` are provided,
+    ``oc-import://`` placeholder links in the current ``md_description`` are
+    rewritten to live URLs that reference the imported documents and
+    annotations.  Revision snapshots / diffs are intentionally left untouched
+    because their ``checksum_base`` / ``checksum_full`` fields refer to that
+    historical content; rewriting would invalidate the chain.  Bulk-import
+    authors only write the current README, so this is a deliberate scope
+    choice — see ``utils/caml_rewrite.py``.
 
     Args:
         md_description: Current markdown description content
         revisions_data: List of revision dicts
         corpus: Target Corpus instance
         user_obj: User performing import
+        doc_filename_to_doc: Optional mapping of zip filename to imported
+            Document instance.  Used to rewrite document references.
+        annot_old_id_to_new_pk: Optional mapping of old annotation id (string
+            or int, as in ``data.json``) to new annotation pk.  Used to
+            rewrite annotation references.
     """
     try:
+        # Rewrite oc-import:// links if maps are supplied (bulk-import path).
+        if md_description and (doc_filename_to_doc or annot_old_id_to_new_pk):
+            from opencontractserver.utils.caml_rewrite import rewrite_oc_import_links
+
+            md_description, _stats = rewrite_oc_import_links(
+                content=md_description,
+                corpus=corpus,
+                doc_filename_to_doc=doc_filename_to_doc or {},
+                annot_old_id_to_new_pk=annot_old_id_to_new_pk or {},
+            )
+
         # Import current description
         if md_description:
             filename = "description.md"

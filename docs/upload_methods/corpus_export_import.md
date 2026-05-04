@@ -96,6 +96,52 @@ contained data. Format version is auto-detected from `data.json`.
   regenerated on import because different deployments may use different
   embedding models.
 
+### CAML README References (`oc-import://`)
+
+The corpus README (`md_description`) supports placeholder URLs that the
+importer rewrites to live document and annotation URLs after the rest of the
+zip has been imported.  This lets a zip author hand-write a README that
+references resources bundled in the same zip without knowing the destination
+deployment's primary keys or slugs.
+
+| Placeholder | Resolves to |
+|-------------|-------------|
+| `oc-import://document/<filename-in-zip>` | `/d/<user-slug>/<corpus-slug>/<doc-slug>` |
+| `oc-import://annotation/<id-in-data.json>` | `/d/<user-slug>/<corpus-slug>/<doc-slug>?ann=<new-pk>` |
+
+`<filename-in-zip>` must match a key under `annotated_docs` in `data.json`
+(typically the path of the document file inside the zip, e.g.
+`documents/lease.pdf`).  Leading `./` is tolerated.
+
+`<id-in-data.json>` must match the `"id"` field of an annotation under
+`annotated_docs.<filename>.labelled_text[*]`.  The annotation's parent
+document is resolved automatically so the rewritten URL is fully qualified
+and recognised by the [@ mention parser](../architecture/llms/README.md).
+
+**Example** — README authored inside the zip:
+
+```markdown
+# Onboarding
+
+Start with [the master lease](oc-import://document/documents/lease.pdf).
+The renewal mechanic lives in [section 4(b)](oc-import://annotation/old-42).
+```
+
+After import, that same content reads:
+
+```markdown
+# Onboarding
+
+Start with [the master lease](/d/jane/my-corpus/lease).
+The renewal mechanic lives in [section 4(b)](/d/jane/my-corpus/lease?ann=587).
+```
+
+Unresolved references (filename not present in the zip, annotation id absent
+from `data.json`) are **left intact** and a warning is logged so the author
+can fix and re-import.  Revision snapshots are not rewritten — their
+checksums refer to historical content, and bulk-import authors only write the
+current README.
+
 ## Label Types in Exports
 
 Labels in the export are categorized by type:

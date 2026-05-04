@@ -353,12 +353,26 @@ def _import_corpus(
             if agent_config:
                 import_agent_config(agent_config, corpus_obj)
 
-            # Import markdown description
+            # Import markdown description.
+            # Pass the doc-filename and annotation id maps so any
+            # ``oc-import://`` placeholder links written in the README by
+            # the zip author are rewritten to live URLs after all referenced
+            # objects have been created.  See utils/caml_rewrite.py.
             md_description = data_json.get("md_description")
             md_revisions = data_json.get("md_description_revisions", [])
             if md_description or md_revisions:
+                doc_filename_to_doc = {
+                    fname: doc
+                    for fname, doc in doc_hash_to_corpus_doc.items()
+                    if fname in data_json["annotated_docs"]
+                }
                 import_md_description_revisions(
-                    md_description, md_revisions, corpus_obj, user_obj
+                    md_description,
+                    md_revisions,
+                    corpus_obj,
+                    user_obj,
+                    doc_filename_to_doc=doc_filename_to_doc,
+                    annot_old_id_to_new_pk=all_annot_id_maps,
                 )
 
             # Import conversations (if present)
