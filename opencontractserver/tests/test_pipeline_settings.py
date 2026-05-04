@@ -235,6 +235,31 @@ class PipelineSettingsModelTestCase(TestCase):
         instance = PipelineSettings.get_instance()
         self.assertEqual(instance.get_parser_kwargs("anything"), {})
 
+    def test_get_component_settings_merges_encrypted_secrets(self):
+        """get_component_settings overlays encrypted_secrets on plaintext settings.
+
+        Symmetric with get_parser_kwargs: the model-level component_settings
+        getter must not silently drop secrets so that direct callers (and the
+        ``get_full_component_settings`` wrapper) deliver decrypted values to
+        consumers.
+        """
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        comp_path = "my.embedder.TestEmbedder"
+        instance.component_settings = {
+            comp_path: {"timeout": 30, "api_key": ""},
+        }
+        instance.set_secrets({comp_path: {"api_key": "sk-real-component-key"}})
+        instance.save()
+
+        merged = instance.get_component_settings(comp_path)
+        # Plaintext kept, secret wins over empty placeholder
+        self.assertEqual(merged["timeout"], 30)
+        self.assertEqual(merged["api_key"], "sk-real-component-key")
+        # Stored plaintext dict must not be mutated by the merge
+        self.assertEqual(instance.component_settings[comp_path]["api_key"], "")
+
     def test_get_parser_kwargs_log_redaction_hides_secret(self):
         """The merged dict, after redact_sensitive_kwargs, must not leak the key.
 
@@ -586,43 +611,64 @@ class PipelineSettingsGraphQLTestCase(TestCase):
                 embedder.class_name,
             )
 
-    def _find_component_with_secret(self):
-        """Locate a registered component that declares a SECRET setting.
+    def _make_fake_secret_registry(self):
+        """Build a mock registry containing a parser-class fake with a SECRET field.
 
-        Returns (component_def, secret_field_name) or None if no such
-        component is registered in the current test environment.
+        Returns ``(registry_mock, fake_class_name, secret_field_name)``. Tests
+        patch ``opencontractserver.pipeline.registry.get_registry`` to return
+        ``registry_mock`` so plaintext-secret rejection logic is exercised
+        regardless of which real components are installed in the test image.
         """
         from opencontractserver.pipeline.base.settings_schema import (
-            get_secret_settings,
+            PipelineSetting,
+            SettingType,
         )
-        from opencontractserver.pipeline.registry import get_registry
 
-        registry = get_registry()
-        for group in (
-            registry.parsers,
-            registry.embedders,
-            registry.thumbnailers,
-        ):
-            for comp in group:
-                if not getattr(comp, "component_class", None):
-                    continue
-                secrets = get_secret_settings(comp.component_class)
-                if secrets:
-                    return comp, secrets[0]
-        return None
+        @dataclass
+        class FakeSettings:
+            api_key: str = field(
+                default="",
+                metadata={
+                    "pipeline_setting": PipelineSetting(
+                        setting_type=SettingType.SECRET,
+                        required=True,
+                        description="Fake secret for tests",
+                    )
+                },
+            )
+
+        class FakeSecretParser:
+            Settings = FakeSettings
+
+        fake_class_name = "fake.module.FakeSecretParser"
+        fake_def = type(
+            "FakeDef",
+            (),
+            {
+                "component_class": FakeSecretParser,
+                "class_name": fake_class_name,
+            },
+        )()
+
+        registry_mock = type(
+            "MockRegistry",
+            (),
+            {
+                "get_by_class_name": lambda self, path: (
+                    fake_def if path == fake_class_name else None
+                ),
+                "parsers": (fake_def,),
+                "embedders": (),
+                "thumbnailers": (),
+                "post_processors": (),
+            },
+        )()
+
+        return registry_mock, fake_class_name, "api_key"
 
     def test_update_parser_kwargs_rejects_plaintext_secret(self):
         """parser_kwargs must reject non-empty values for SECRET-typed fields."""
-        found = self._find_component_with_secret()
-        if found is None:
-            self.skipTest("No registered component declares a SECRET setting")
-        component_def, secret_field = found
-        # Only run this case if the secret-bearing component is a parser
-        from opencontractserver.pipeline.registry import get_registry
-
-        registry = get_registry()
-        if component_def not in registry.parsers:
-            self.skipTest("Secret-bearing component is not a parser")
+        registry_mock, fake_path, secret_field = self._make_fake_secret_registry()
 
         mutation = """
             mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
@@ -634,11 +680,16 @@ class PipelineSettingsGraphQLTestCase(TestCase):
         """
         variables = {
             "parserKwargs": {
-                component_def.class_name: {secret_field: "sk-real-secret-value"},
+                fake_path: {secret_field: "sk-real-secret-value"},
             }
         }
 
-        result = self.superuser_client.execute(mutation, variables=variables)
+        with patch(
+            "opencontractserver.pipeline.registry.get_registry",
+            return_value=registry_mock,
+        ):
+            result = self.superuser_client.execute(mutation, variables=variables)
+
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
         message = result["data"]["updatePipelineSettings"]["message"]
@@ -649,15 +700,7 @@ class PipelineSettingsGraphQLTestCase(TestCase):
 
     def test_update_parser_kwargs_allows_empty_secret_placeholder(self):
         """Empty-string placeholders for SECRET fields are allowed as schema markers."""
-        found = self._find_component_with_secret()
-        if found is None:
-            self.skipTest("No registered component declares a SECRET setting")
-        component_def, secret_field = found
-        from opencontractserver.pipeline.registry import get_registry
-
-        registry = get_registry()
-        if component_def not in registry.parsers:
-            self.skipTest("Secret-bearing component is not a parser")
+        registry_mock, fake_path, secret_field = self._make_fake_secret_registry()
 
         mutation = """
             mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
@@ -668,22 +711,45 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             }
         """
         variables = {
-            "parserKwargs": {component_def.class_name: {secret_field: ""}},
+            "parserKwargs": {fake_path: {secret_field: ""}},
         }
 
-        result = self.superuser_client.execute(mutation, variables=variables)
+        with patch(
+            "opencontractserver.pipeline.registry.get_registry",
+            return_value=registry_mock,
+        ):
+            result = self.superuser_client.execute(mutation, variables=variables)
+
         self.assertIsNone(result.get("errors"))
         self.assertTrue(
             result["data"]["updatePipelineSettings"]["ok"],
             msg=result["data"]["updatePipelineSettings"]["message"],
         )
 
+    def test_update_parser_kwargs_rejects_non_dict_value(self):
+        """parser_kwargs entries must be dicts; non-dict values produce a clear error."""
+        mutation = """
+            mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
+                updatePipelineSettings(parserKwargs: $parserKwargs) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {
+            "parserKwargs": {"my.parser.P": "not-a-dict"},
+        }
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        message = result["data"]["updatePipelineSettings"]["message"]
+        self.assertIn("my.parser.P", message)
+        self.assertIn("must be dicts", message)
+
     def test_update_component_settings_rejects_plaintext_secret(self):
         """component_settings must also reject plaintext secrets (audit-siblings)."""
-        found = self._find_component_with_secret()
-        if found is None:
-            self.skipTest("No registered component declares a SECRET setting")
-        component_def, secret_field = found
+        registry_mock, fake_path, secret_field = self._make_fake_secret_registry()
 
         mutation = """
             mutation UpdatePipelineSettings($componentSettings: GenericScalar) {
@@ -695,11 +761,16 @@ class PipelineSettingsGraphQLTestCase(TestCase):
         """
         variables = {
             "componentSettings": {
-                component_def.class_name: {secret_field: "sk-leak-attempt"},
+                fake_path: {secret_field: "sk-leak-attempt"},
             }
         }
 
-        result = self.superuser_client.execute(mutation, variables=variables)
+        with patch(
+            "opencontractserver.pipeline.registry.get_registry",
+            return_value=registry_mock,
+        ):
+            result = self.superuser_client.execute(mutation, variables=variables)
+
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
         message = result["data"]["updatePipelineSettings"]["message"]

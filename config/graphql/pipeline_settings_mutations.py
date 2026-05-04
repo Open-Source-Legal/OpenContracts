@@ -15,6 +15,7 @@ from graphql_jwt.decorators import login_required
 
 from config.graphql.graphene_types import PipelineSettingsType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from opencontractserver.pipeline.base.settings_schema import get_secret_settings
 
 # All pipeline mutations use RateLimits.WRITE_LIGHT (30 requests/minute).
 # This is appropriate for superuser-only admin operations that are
@@ -162,10 +163,6 @@ def find_plaintext_secret_keys(
     component_def = registry.get_by_class_name(component_path)
     if not component_def or not component_def.component_class:
         return []
-
-    from opencontractserver.pipeline.base.settings_schema import (
-        get_secret_settings,
-    )
 
     secret_names = set(get_secret_settings(component_def.component_class))
     if not secret_names:
