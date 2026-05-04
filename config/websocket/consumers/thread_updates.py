@@ -27,9 +27,12 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from graphql_relay import from_global_id
 
 from config.ratelimit.decorators import check_ws_rate_limit
+from config.websocket.auth_handshake import AuthHandshakeMixin
 from config.websocket.middleware import WS_CLOSE_RATE_LIMITED
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from opencontractserver.conversations.models import Conversation
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +42,7 @@ def get_thread_channel_group(conversation_id: int) -> str:
     return f"thread_{conversation_id}"
 
 
-class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
+class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
     """
     WebSocket consumer for subscribing to thread updates.
 
@@ -114,7 +117,9 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
                 return
 
         # Validate access to conversation
-        has_access = await self._check_conversation_access(user)
+        has_access = await self._check_conversation_access(
+            user, cache_conversation=True
+        )
         if not has_access:
             logger.warning(
                 f"[ThreadUpdates {self.consumer_id}] Access denied for conversation {self.conversation_id}"
@@ -126,7 +131,7 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
         self.room_group_name = get_thread_channel_group(self.conversation_id)
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
 
-        await self.accept()
+        await self.accept_with_auth()
         logger.info(
             f"[ThreadUpdates {self.consumer_id}] Subscribed to {self.room_group_name}"
         )
@@ -144,6 +149,7 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code: int) -> None:
         """Leave the thread channel group on disconnect."""
+        await self.cleanup_auth_handshake()
         if hasattr(self, "room_group_name") and self.room_group_name:
             await self.channel_layer.group_discard(
                 self.room_group_name, self.channel_name
@@ -159,33 +165,38 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
         This consumer is primarily for receiving broadcasts, but we handle
         a few client-initiated message types for connection management.
         """
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            logger.warning(f"[ThreadUpdates {self.consumer_id}] Invalid JSON received")
+            return
+
+        if isinstance(data, dict) and data.get("type") == "AUTH":
+            await self.handle_auth_message(data)
+            return
+
         if await check_ws_rate_limit(self, "WS_HEARTBEAT"):
             return
 
-        try:
-            data = json.loads(text_data)
-            msg_type = data.get("type", "")
+        msg_type = data.get("type", "") if isinstance(data, dict) else ""
 
-            if msg_type == "ping":
-                await self.send(text_data=json.dumps({"type": "pong"}))
+        if msg_type == "ping":
+            await self.send(text_data=json.dumps({"type": "pong"}))
 
-            elif msg_type == "heartbeat":
-                await self.send(
-                    text_data=json.dumps(
-                        {
-                            "type": "heartbeat_ack",
-                            "session_id": self.session_id,
-                        }
-                    )
+        elif msg_type == "heartbeat":
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "heartbeat_ack",
+                        "session_id": self.session_id,
+                    }
                 )
+            )
 
-            else:
-                logger.debug(
-                    f"[ThreadUpdates {self.consumer_id}] Unknown message type: {msg_type}"
-                )
-
-        except json.JSONDecodeError:
-            logger.warning(f"[ThreadUpdates {self.consumer_id}] Invalid JSON received")
+        else:
+            logger.debug(
+                f"[ThreadUpdates {self.consumer_id}] Unknown message type: {msg_type}"
+            )
 
     # -------------------------------------------------------------------------
     #  Channel layer message handlers (from Celery tasks)
@@ -257,70 +268,63 @@ class ThreadUpdatesConsumer(AsyncWebsocketConsumer):
         )
 
     # -------------------------------------------------------------------------
-    #  Helper methods
+    #  Permission check (shared between connect() and AuthHandshakeMixin refresh)
     # -------------------------------------------------------------------------
 
     @database_sync_to_async
-    def _check_conversation_access(self, user) -> bool:
+    def _check_conversation_access(self, user, *, cache_conversation: bool) -> bool:
         """
-        Check if user has access to the conversation.
+        Check if ``user`` may participate in ``self.conversation_id``.
 
         For conversations with BOTH chat_with_corpus AND chat_with_document set
-        (doc-in-corpus threads), user must have access to BOTH the corpus AND
-        the document (AND logic).
+        (doc-in-corpus threads), the user must have access to BOTH the corpus
+        AND the document (AND logic). For single-context conversations the user
+        only needs access to that one resource.
 
-        For single-context conversations, user only needs access to the
-        respective corpus OR document.
+        ``cache_conversation`` controls whether the resolved Conversation is
+        attached to ``self.conversation`` for downstream use; the connect path
+        wants this side effect, the refresh path does not.
         """
         try:
             conversation = Conversation.objects.get(pk=self.conversation_id)
-            self.conversation = conversation
-
-            # Check if user can participate in this conversation
-            # Options: owner, corpus member, or public conversation
-            if conversation.creator_id == user.pk:
-                return True
-
-            if user.is_superuser:
-                return True
-
-            has_corpus_access = True  # Default true if no corpus context
-            has_document_access = True  # Default true if no document context
-
-            # Check corpus access if conversation has corpus context
-            if conversation.chat_with_corpus:
-                from opencontractserver.corpuses.models import Corpus
-
-                try:
-                    Corpus.objects.visible_to_user(user).get(
-                        pk=conversation.chat_with_corpus_id
-                    )
-                    has_corpus_access = True
-                except Corpus.DoesNotExist:
-                    has_corpus_access = False
-
-            # Check document access if conversation has document context
-            if conversation.chat_with_document:
-                from opencontractserver.documents.models import Document
-
-                try:
-                    Document.objects.visible_to_user(user).get(
-                        pk=conversation.chat_with_document_id
-                    )
-                    has_document_access = True
-                except Document.DoesNotExist:
-                    has_document_access = False
-
-            # For THREAD type with both contexts: require BOTH permissions (AND)
-            # For single context: require that context's permission
-            if conversation.chat_with_corpus and conversation.chat_with_document:
-                return has_corpus_access and has_document_access
-            elif conversation.chat_with_corpus:
-                return has_corpus_access
-            elif conversation.chat_with_document:
-                return has_document_access
-
-            return False
-
         except Conversation.DoesNotExist:
             return False
+
+        if cache_conversation:
+            self.conversation = conversation
+
+        if conversation.creator_id == user.pk or user.is_superuser:
+            return True
+
+        has_corpus = (
+            Corpus.objects.visible_to_user(user)
+            .filter(pk=conversation.chat_with_corpus_id)
+            .exists()
+            if conversation.chat_with_corpus_id
+            else None
+        )
+        has_document = (
+            Document.objects.visible_to_user(user)
+            .filter(pk=conversation.chat_with_document_id)
+            .exists()
+            if conversation.chat_with_document_id
+            else None
+        )
+
+        if has_corpus is not None and has_document is not None:
+            return has_corpus and has_document
+        if has_corpus is not None:
+            return has_corpus
+        if has_document is not None:
+            return has_document
+        return False
+
+    # -------------------------------------------------------------------------
+    #  AuthHandshakeMixin override
+    # -------------------------------------------------------------------------
+
+    async def _validate_resource_permissions(self, user) -> bool:
+        """Re-validate conversation access on token refresh."""
+        if self.conversation_id is None:
+            return True
+        return await self._check_conversation_access(user, cache_conversation=False)

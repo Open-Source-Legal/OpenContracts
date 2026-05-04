@@ -664,6 +664,23 @@ class AnnotationQueryMixin:
         django_pk = from_global_id(kwargs.get("id", None))[1]
         return LabelSet.objects.visible_to_user(info.context.user).get(id=django_pk)
 
+    default_labelset = graphene.Field(
+        LabelSetType,
+        description=(
+            "The install-wide default LabelSet (is_default=True), or null if "
+            "none has been seeded yet or the current user cannot see it. "
+            "Used by the new-corpus modal to pre-fill the label set field."
+        ),
+    )
+
+    @login_required
+    def resolve_default_labelset(self, info, **kwargs) -> Any:
+        return (
+            LabelSet.objects.visible_to_user(info.context.user)
+            .filter(is_default=True)
+            .first()
+        )
+
     # NOTE RESOLVERS #####################################
     notes = DjangoConnectionField(
         NoteType,

@@ -84,10 +84,6 @@ export interface RightPanelContentProps {
   setActiveLayer: (layer: "knowledge" | "document") => void;
   /** Setter for selected note */
   setSelectedNote: Dispatch<SetStateAction<NoteType | null>>;
-  /** Whether to show load state in chat */
-  showLoad: boolean;
-  /** Setter for show load state */
-  setShowLoad: Dispatch<SetStateAction<boolean>>;
   /** Pending chat message to send */
   pendingChatMessage?: string;
 }
@@ -116,8 +112,6 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
   corpusId,
   setActiveLayer,
   setSelectedNote,
-  showLoad,
-  setShowLoad,
   pendingChatMessage,
 }) => {
   const isIndexExpanded = useReactiveVar(tocExpandAll);
@@ -275,8 +269,6 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
     <FlexColumnPanel>
       {controlBar}
       <ChatTray
-        setShowLoad={setShowLoad}
-        showLoad={showLoad}
         documentId={documentId}
         onMessageSelect={() => {
           setActiveLayer("document");

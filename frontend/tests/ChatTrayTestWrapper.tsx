@@ -12,6 +12,10 @@ interface ChatTrayTestWrapperProps {
   documentId: string;
   corpusId?: string;
   initialMessage?: string;
+  // showLoad / setShowLoad were removed from ChatTray's prop surface;
+  // the conversation-list overlay now lives on chatTrayStateAtom. The
+  // option is preserved here as a no-op for source compatibility with
+  // existing tests; flip the atom in your test setup if you need it.
   showLoad?: boolean;
   setShowLoad?: React.Dispatch<React.SetStateAction<boolean>>;
   onMessageSelect?: () => void;
@@ -41,8 +45,8 @@ export const ChatTrayTestWrapper: React.FC<ChatTrayTestWrapperProps> = ({
   documentId,
   corpusId,
   initialMessage,
-  showLoad = false,
-  setShowLoad = () => {},
+  showLoad: _showLoad = false,
+  setShowLoad: _setShowLoad = () => {},
   onMessageSelect = () => {},
   initialEntries = ["/"],
 }) => {
@@ -67,8 +71,6 @@ export const ChatTrayTestWrapper: React.FC<ChatTrayTestWrapperProps> = ({
             <ChatTray
               documentId={documentId}
               corpusId={corpusId}
-              showLoad={showLoad}
-              setShowLoad={setShowLoad}
               onMessageSelect={onMessageSelect}
               initialMessage={initialMessage}
             />

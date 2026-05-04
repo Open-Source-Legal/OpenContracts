@@ -1,5 +1,5 @@
 {
-  "total": 460,
+  "total": 454,
   "byArea": {
     "components_other": 122,
     "annotator": 90,
@@ -8,8 +8,8 @@
     "graphql": 27,
     "types": 27,
     "other": 24,
-    "hooks": 23,
     "widgets_other": 18,
+    "hooks": 17,
     "routing": 13,
     "widgets_chat": 2
   }

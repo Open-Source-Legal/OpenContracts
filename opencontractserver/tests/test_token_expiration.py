@@ -18,6 +18,7 @@ from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 
 from config.graphql_auth0_auth.backends import Auth0RemoteUserJSONWebTokenBackend
 from config.websocket.middleware import (
+    WS_AUTH_SUBPROTOCOL,
     WS_CLOSE_TOKEN_EXPIRED,
     WS_CLOSE_TOKEN_INVALID,
     WS_CLOSE_UNAUTHENTICATED,
@@ -127,7 +128,8 @@ class WebSocketTokenExpirationTestCase(WebsocketFixtureBaseTestCase):
         # Use unified agent-chat endpoint
         communicator = WebsocketCommunicator(
             self.application,
-            f"ws/agent-chat/?document_id={self.doc.id}&token=expired_token",
+            f"ws/agent-chat/?document_id={self.doc.id}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, "expired_token"],
         )
 
         # The connection may fail, but we want to verify the scope was set correctly
@@ -160,7 +162,8 @@ class WebSocketTokenExpirationTestCase(WebsocketFixtureBaseTestCase):
         # Use unified agent-chat endpoint
         communicator = WebsocketCommunicator(
             self.application,
-            f"ws/agent-chat/?document_id={self.doc.id}&token=invalid_token",
+            f"ws/agent-chat/?document_id={self.doc.id}",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, "invalid_token"],
         )
 
         connected, close_code = await communicator.connect()

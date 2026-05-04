@@ -7,10 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`supportedMimeTypes` GraphQL query is now accessible to anonymous users** (`config/graphql/pipeline_queries.py:205`). Removed the `@login_required` decorator from `resolve_supported_mime_types` so that uploaders, landing pages, and other unauthenticated UI surfaces can advertise the accepted file formats without forcing a login. The data returned is derived purely from the pipeline registry and exposes no user-specific information. Test updated: `opencontractserver/tests/test_pipeline_component_queries.py::test_supported_mime_types_allows_anonymous`.
+
 ### Added
 
 - **Server-derived `me.canImportCorpus` field** (`config/graphql/user_types.py:43-60`). A new boolean on `UserType` that mirrors the backend permission check enforced by `UploadCorpusImportZip` / `ImportZipToCorpus`: returns `false` for anonymous users and for usage-capped users when `USAGE_CAPPED_USER_CAN_IMPORT_CORPUS` is disabled, otherwise `true`. Exposed through `GET_ME` (`frontend/src/graphql/queries.ts`) so the frontend can gate corpus-import UI without re-implementing the rule. Tests: `opencontractserver/tests/test_user_can_import_corpus.py` covers the three states (capped+disabled, capped+enabled, uncapped).
 - **Dedicated `ImportCorpusModal`** (`frontend/src/components/widgets/modals/ImportCorpusModal.tsx`). Replaces the previous hidden `<input type="file">` flow on the Corpuses page with a confirm/upload/progress modal that calls `importOpenContractsZip` to create a brand-new corpus from an OpenContracts export ZIP. The trigger button on `CorpusListView` is now hidden for users whose `me.canImportCorpus` is `false`, eliminating the prior UX where usage-capped users could pick a file and only then receive a backend permission error.
+
+### Security
+
+- **WebSocket authentication tokens no longer travel in URL query strings**
+  (issue: JWT leakage via nginx logs, browser history, `Referer` headers,
+  Sentry breadcrumbs, and CDN/WAF logs). All WS connections now authenticate
+  via the standard `Sec-WebSocket-Protocol` handshake header
+  (`opencontracts.jwt.v1, <jwt>`). Token rotation is in-band via
+  `{"type":"AUTH","token":"..."}` frames — no socket churn on refresh. Hard
+  cutover: `?token=` URL parameters are stripped by the new middleware
+  (`config/websocket/middleware.py`) and ignored. `Authorization: Bearer`
+  headers are also no longer consulted for WS auth (browsers cannot set them
+  on the WebSocket constructor anyway). Stale browser tabs from before the
+  deploy must reload to recover.
+
+  - **`AuthHandshakeMixin`** (`config/websocket/auth_handshake.py`) — added
+    to all three consumers. Refuses user-pk swap mid-connection
+    (`USER_MISMATCH` → close 4002), re-runs resource permission checks on
+    refresh (`PERMISSION_REVOKED` → close 4003), supports server-nudged
+    refresh via `AUTH_REFRESH_REQUIRED` with a grace timer that closes 4001
+    on timeout.
+
+  - **Frontend `useWebSocketAuth` hook**
+    (`frontend/src/hooks/useWebSocketAuth.ts`) — single shared lifecycle
+    owner used by `useAgentChat`, `useNotificationWebSocket`, and
+    `CorpusChat`. Token rotation no longer reconnects the socket.
+
+  - **Removed**: deprecated `getDocumentQueryWebSocket` and
+    `getCorpusQueryWebSocket` URL helpers (forwarded to the unified
+    endpoint and now gone per the no-dead-code rule). Removed the
+    `autoReconnect` / `reconnectDelay` options on `useNotificationWebSocket`
+    — reconnect is owned by the shared hook.
+
+  - **Hook return-shape change** (`useNotificationWebSocket`): the previous
+    `{ connect, disconnect }` actions are replaced by `{ reconnect }`. The
+    socket is now opened by the shared `useWebSocketAuth` lifecycle on mount
+    and closed on unmount; manual open/close was redundant. External
+    consumers that imported the hook directly will fail typecheck.
+
+  - **Tests**: `opencontractserver/tests/test_websocket_auth.py` gains four
+    new test classes (`JWTAuthMiddlewareSubprotocolTests`,
+    `AuthHandshakeMixinTests`, `UnifiedAgentHandshakeTests`,
+    `ThreadUpdatesHandshakeTests`, `NotificationUpdatesHandshakeTests`) —
+    ~30 cases covering middleware, mixin, per-consumer integration,
+    user-mismatch refusal, and `?token=` regression. Frontend adds
+    `useWebSocketAuth.test.ts` and `websocketAuth.test.ts`; the existing
+    `useNotificationWebSocket.auth.test.ts` is rewritten as a no-token-in-URL
+    regression suite.
+
+  - **Manual test script**:
+    `docs/test_scripts/websocket-auth-handshake.md` — verifies subprotocol
+    transport, in-band refresh, user-pk-swap refusal, and DevTools sanity
+    check that the JWT never appears in the request URL.
+
+  - **Full-stack E2E spec**:
+    `frontend/tests/e2e/websocket-auth.spec.ts` drives the real-browser →
+    Vite proxy → Daphne ASGI → consumer pipeline for all three websocket
+    consumers. Asserts on actual frames captured via Playwright's
+    `page.on('websocket')` so the wire protocol (subprotocol echo, AUTH_OK,
+    NOTIFICATION_CREATED, in-band refresh) is the source of truth — no
+    mocks. Triggers a real BADGE notification via `docker compose exec` to
+    prove signal-driven broadcast end-to-end. Companion CI workflow
+    `.github/workflows/frontend-e2e-websocket.yml` boots the local stack
+    (Daphne, not runserver), runs under VCR replay so the LLM-touching
+    test needs no real OpenAI key, and uploads coverage to Codecov under
+    flags `frontend-e2e,frontend,websocket` and `backend-e2e,websocket`.
+    The agent-chat path of `UnifiedAgentConsumer` (`_stream_agent_response`
+    + `_handle_approval_decision`) is now wrapped in `maybe_vcr_cassette()`
+    so the cassette covers both branches.
+
+  - **Browser close-code surface is documented**: real browsers see close
+    code `1006` (abnormal closure) for any auth rejection that happens
+    before the consumer calls `accept()` — Channels translates a pre-accept
+    `close()` into an HTTP 403 handshake rejection, which never produces
+    a WebSocket close frame with the application code. The
+    `WebsocketCommunicator` tests still see `4001`/`4002`/`4003` because
+    Channels exposes the intended code to its test runner. The new e2e
+    spec asserts the real browser surface (1006) for all pre-accept paths
+    so a future change to accept-then-close (which would let the browser
+    see the application code) is caught and the test gets updated.
+
+  - **Per-connection AUTH-frame cooldown** in `AuthHandshakeMixin`: a
+    1-second floor between accepted AUTH frames per socket prevents a
+    malicious client from spamming refresh frames to burn DB queries on
+    `_get_user_from_token` + `_validate_resource_permissions`. Auth0 silent
+    renewal happens roughly every 50 minutes, so legitimate refreshes are
+    unaffected.
+
+  - **Auth-failure close codes are terminal in the frontend**:
+    `useWebSocketAuth` treats close codes 4000 (UNAUTHENTICATED), 4001
+    (TOKEN_EXPIRED), and 4002 (TOKEN_INVALID) as auth-invalid signals —
+    `onAuthInvalid` fires once and the hook stops spawning new sockets.
+    Previously 4000/4001 fell through to exponential-backoff reconnect,
+    which would just be rejected again in a loop until the user
+    re-authenticated. The hook also no longer returns the underlying
+    `WebSocket` reference (it was stale on the first render), to remove a
+    footgun for downstream consumers.
+
+  - **`CorpusChat` and `ChatTray` migrated to `useWebSocketAuth`**: both
+    chat surfaces previously instantiated raw `new WebSocket(url)` without
+    subprotocols, so authenticated users would have hit the new middleware
+    as anonymous after this deploy. Both now compose the shared hook
+    (subprotocol auth on connect, in-band AUTH refresh on token rotation,
+    close-code-aware reconnect policy).
+
+  - **Backend `receive()` cleanup**: each consumer now parses the incoming
+    text frame once and dispatches AUTH/non-AUTH from the same payload
+    (was double-parsing). `thread_updates.py` consolidates redundant
+    nested imports of `Conversation` / `Corpus` / `Document` to module
+    level.
 
 ### Changed
 
@@ -40,6 +154,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Deleted `docs/deployment/docker-gpu-setup.md` and its `mkdocs.yml` nav entry. The guide documented the now-removed CUDA/PyTorch base image and was the only page under the *Deployment* nav section.
 
 ### Added
+
+- **Pre-fill defaults in the new-corpus modal**:
+  - **Default LabelSet seeded at install** (`opencontractserver/annotations/label_set_seeds.py`, migration `annotations/0069_labelset_is_default_and_seed_default.py`): a public `LabelSet` titled "Default Labels" is now created on install (owned by the first superuser) with a starter palette aimed at corporate operations review — three general research labels (Important, Question, Reference) plus a light contract palette (Definition, Party, Governing Law, Effective Date, Termination Date, Expiration, Termination, Renewal, Limitation of Liability). New `LabelSet.is_default` BooleanField with a partial unique constraint ensures at most one labelset is flagged as the default. Idempotent management command `python manage.py seed_default_labelset` (`opencontractserver/annotations/management/commands/seed_default_labelset.py`) re-runs the seed safely after the first superuser is created and appends any newly-added labels to an already-seeded labelset.
+  - **`defaultLabelset` GraphQL query** (`config/graphql/annotation_queries.py`): returns the install-wide default LabelSet visible to the current user (or null). `LabelSetType` exposes the new `is_default` field via `DjangoObjectType`'s default field set.
+  - **`CreateCorpusMutation` auto-fills `label_set`** (`config/graphql/corpus_mutations.py`): when the mutation is called without a label_set the install-wide default is substituted, so corpuses created via the API land with a usable starter palette. Defaulting is intentionally at the mutation layer, not in `Corpus.save()`, so direct ORM creates in tests/scripts remain opt-in.
+  - **CorpusModal CREATE mode pre-fills** (`frontend/src/components/corpuses/CorpusModal.tsx`, `frontend/src/graphql/queries.ts`): on open, the modal fetches `pipelineSettings.defaultEmbedder` + `defaultLabelset` via a single `GET_CORPUS_CREATE_DEFAULTS` query and seeds the embedder and labelset selectors. License pre-selects `CC-BY-4.0` via the new `DEFAULT_NEW_CORPUS_LICENSE` constant in `frontend/src/assets/configurations/constants.ts`. All three pre-fills are pure UX nudges — users can clear them before submitting.
 
 - **Cross-content Discover search** at `/discover/search`. The Discover hero
   search box now lands on a unified results page that fans out across

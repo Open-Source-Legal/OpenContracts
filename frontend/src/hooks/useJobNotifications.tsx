@@ -107,7 +107,6 @@ export function useJobNotifications(options: UseJobNotificationsOptions = {}) {
   const { connectionState } = useNotificationWebSocket({
     onNotificationCreated: handleNotificationCreated,
     enabled,
-    autoReconnect: true,
   });
 
   // Clear shown IDs periodically to prevent memory leak

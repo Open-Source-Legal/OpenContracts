@@ -1,220 +1,72 @@
 /**
- * Environment-variable helper that works in both Vite (import.meta.env)
- * and CRA / Node (process.env). It returns the first defined value for the
- * provided keys.
+ * WebSocket URL builders. Tokens are NEVER included in the URL — auth is
+ * carried via the Sec-WebSocket-Protocol handshake header (see
+ * frontend/src/utils/websocketAuth.ts and useWebSocketAuth hook).
  */
+
 function getEnvVar(...keys: string[]): string | undefined {
-  // Vite style – import.meta.env
   if (typeof import.meta !== "undefined" && (import.meta as any).env) {
     for (const k of keys) {
       const v = (import.meta as any).env[k];
       if (v !== undefined) return v as string;
     }
   }
-
-  // CRA / Node style – process.env (guard for undefined in Vite build)
   if (typeof process !== "undefined" && (process as any).env) {
     for (const k of keys) {
       const v = (process as any).env[k];
       if (v !== undefined) return v as string;
     }
   }
-
   return undefined;
 }
 
-/**
- * Decide the websocket base URL using env vars or window.location.
- */
 function resolveWsBaseUrl(): string {
   const envUrl =
     getEnvVar("VITE_WS_URL", "REACT_APP_WS_URL") ||
     getEnvVar("VITE_API_URL", "REACT_APP_API_URL");
-
   if (envUrl) return envUrl.replace(/\/+$/, "");
-
-  // Fallback – construct from current location
   return `${window.location.protocol === "https:" ? "wss" : "ws"}://${
     window.location.host
   }`;
 }
 
-/**
- * Get WebSocket URL for document queries.
- *
- * @deprecated This function now delegates to getUnifiedAgentWebSocket() which uses
- * the secure unified endpoint with proper permission checks. The legacy
- * DocumentQueryConsumer and StandaloneDocumentQueryConsumer have been deprecated.
- *
- * @param documentId - Document identifier.
- * @param token - Authentication token from the user session.
- * @param conversationId - (Optional) If provided, the conversation id to load from.
- * @param corpusId - (Optional) If provided, scopes the document to a corpus.
- * @returns WebSocket URL with necessary query parameters.
- */
-export function getDocumentQueryWebSocket(
-  documentId: string,
-  token?: string,
-  conversationId?: string,
-  corpusId?: string
-): string {
-  // Delegate to unified endpoint for proper permission enforcement
-  return getUnifiedAgentWebSocket(
-    { documentId, corpusId, conversationId },
-    token
-  );
+function normalizeBase(): string {
+  return resolveWsBaseUrl()
+    .replace(/\/+$/, "")
+    .replace(/^http/, "ws")
+    .replace(/^https/, "wss");
 }
 
-/**
- * Get WebSocket URL for corpus queries.
- *
- * @deprecated This function now delegates to getUnifiedAgentWebSocket() which uses
- * the secure unified endpoint with proper permission checks. The legacy
- * CorpusQueryConsumer has been deprecated.
- *
- * @param corpusId - Corpus identifier.
- * @param token - Authentication token from the user session.
- * @param conversationId - (Optional) If provided, the conversation id to load from.
- * @returns WebSocket URL with necessary query parameters.
- */
-export function getCorpusQueryWebSocket(
-  corpusId: string,
-  token: string,
-  conversationId?: string
-): string {
-  // Delegate to unified endpoint for proper permission enforcement
-  return getUnifiedAgentWebSocket({ corpusId, conversationId }, token);
-}
-
-/**
- * Context for the unified agent WebSocket consumer.
- */
 export interface UnifiedAgentContext {
-  /** Corpus ID for corpus-scoped conversations */
   corpusId?: string;
-  /** Document ID for document-scoped conversations */
   documentId?: string;
-  /** Explicit agent ID to use (overrides defaults) */
   agentId?: string;
-  /** Conversation ID to resume */
   conversationId?: string;
 }
 
-/**
- * Get WebSocket URL for the unified agent consumer.
- * This is the preferred way to connect to agents, replacing the legacy
- * document and corpus specific endpoints.
- *
- * @param context - Context object with corpus, document, agent, and conversation IDs.
- * @param token - Authentication token from the user session.
- * @returns WebSocket URL with query parameters.
- */
-export function getUnifiedAgentWebSocket(
-  context: UnifiedAgentContext,
-  token?: string
-): string {
-  const wsBaseUrl = resolveWsBaseUrl();
-
-  const normalizedBaseUrl = wsBaseUrl
-    .replace(/\/+$/, "")
-    .replace(/^http/, "ws")
-    .replace(/^https/, "wss");
-
-  let url = `${normalizedBaseUrl}/ws/agent-chat/`;
+export function getUnifiedAgentWebSocket(context: UnifiedAgentContext): string {
+  let url = `${normalizeBase()}/ws/agent-chat/`;
   const params: string[] = [];
-
-  if (context.corpusId) {
+  if (context.corpusId)
     params.push(`corpus_id=${encodeURIComponent(context.corpusId)}`);
-  }
-  if (context.documentId) {
+  if (context.documentId)
     params.push(`document_id=${encodeURIComponent(context.documentId)}`);
-  }
-  if (context.agentId) {
+  if (context.agentId)
     params.push(`agent_id=${encodeURIComponent(context.agentId)}`);
-  }
-  if (context.conversationId) {
+  if (context.conversationId)
     params.push(
       `conversation_id=${encodeURIComponent(context.conversationId)}`
     );
-  }
-  if (token) {
-    params.push(`token=${encodeURIComponent(token)}`);
-  }
-
-  if (params.length > 0) {
-    url += `?${params.join("&")}`;
-  }
-
+  if (params.length) url += `?${params.join("&")}`;
   return url;
 }
 
-/**
- * Get WebSocket URL for thread updates (agent mention streaming responses).
- *
- * This endpoint is used for receiving streaming updates when agents are
- * @mentioned in conversation messages. The thread updates consumer is
- * separate from the main agent chat consumer.
- *
- * @param conversationId - The conversation ID to subscribe to for updates.
- * @param token - Authentication token from the user session.
- * @returns WebSocket URL with query parameters.
- */
-export function getThreadUpdatesWebSocket(
-  conversationId: string,
-  token?: string
-): string {
-  const wsBaseUrl = resolveWsBaseUrl();
-
-  const normalizedBaseUrl = wsBaseUrl
-    .replace(/\/+$/, "")
-    .replace(/^http/, "ws")
-    .replace(/^https/, "wss");
-
-  let url = `${normalizedBaseUrl}/ws/thread-updates/`;
-  const params: string[] = [];
-
-  params.push(`conversation_id=${encodeURIComponent(conversationId)}`);
-
-  if (token) {
-    params.push(`token=${encodeURIComponent(token)}`);
-  }
-
-  url += `?${params.join("&")}`;
-
-  return url;
+export function getThreadUpdatesWebSocket(conversationId: string): string {
+  return `${normalizeBase()}/ws/thread-updates/?conversation_id=${encodeURIComponent(
+    conversationId
+  )}`;
 }
 
-/**
- * Get WebSocket URL for notification updates (real-time notifications).
- *
- * This endpoint is used for receiving real-time notifications about:
- * - Badge awards
- * - Message replies
- * - Mentions
- * - Thread updates
- * - Moderation actions
- *
- * The consumer automatically subscribes to notifications for the authenticated user.
- * No query parameters are required beyond the auth token.
- *
- * @param token - Authentication token from the user session.
- * @returns WebSocket URL with query parameters.
- *
- * Issue #637: Migrate badge notifications from polling to WebSocket
- */
-export function getNotificationUpdatesWebSocket(token?: string): string {
-  const wsBaseUrl = resolveWsBaseUrl();
-
-  const normalizedBaseUrl = wsBaseUrl
-    .replace(/\/+$/, "")
-    .replace(/^http/, "ws")
-    .replace(/^https/, "wss");
-
-  let url = `${normalizedBaseUrl}/ws/notification-updates/`;
-
-  if (token) {
-    url += `?token=${encodeURIComponent(token)}`;
-  }
-
-  return url;
+export function getNotificationUpdatesWebSocket(): string {
+  return `${normalizeBase()}/ws/notification-updates/`;
 }

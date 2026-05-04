@@ -438,6 +438,13 @@ export const LICENSE_OPTIONS = [
 export type LicenseValue = (typeof LICENSE_OPTIONS)[number]["value"];
 
 /**
+ * License pre-selected in the new-corpus modal. Users can change it before
+ * creating, and the choice is purely a UX nudge — backend leaves the field
+ * blank when the user doesn't pick one.
+ */
+export const DEFAULT_NEW_CORPUS_LICENSE: LicenseValue = "CC-BY-4.0";
+
+/**
  * Known acronyms that should be preserved in display names.
  * Used by getComponentDisplayName to properly capitalize technology names.
  */

@@ -29,6 +29,16 @@ services:
     env_file:
       - ./.envs/.local/.django
       - ./.envs/.local/.postgres
+    environment:
+      # Forwarded from the host so CI / local repro runs can flip on
+      # cassette record / replay without editing the env files. The
+      # WebSocket consumer (UnifiedAgentConsumer) runs the LLM agent
+      # in-process here under Daphne, so the django service needs the
+      # same VCR wiring as celeryworker (which handles task-side runs).
+      # See opencontractserver/utils/vcr_replay.py.
+      OC_LLM_VCR_MODE: ${OC_LLM_VCR_MODE-}
+      OC_LLM_VCR_CASSETTE: ${OC_LLM_VCR_CASSETTE-}
+      OC_LLM_VCR_DEBUG: ${OC_LLM_VCR_DEBUG-}
     ports:
       - "8000:8000"
     command: /start

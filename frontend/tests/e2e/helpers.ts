@@ -18,7 +18,9 @@
  * still ultimately render a view from `src/views/`, so they're included.
  */
 
-import { Page, expect } from "@playwright/test";
+import { Page, WebSocket as PWWebSocket, expect } from "@playwright/test";
+import { execSync } from "child_process";
+import * as path from "path";
 
 export interface ViewSpec {
   /** URL path, e.g. "/corpuses". */
@@ -1193,5 +1195,345 @@ export async function postThreadReplyViaUI(
   // Wait for the new message text to appear in the discussion list.
   await expect(page.getByText(replyContent).first()).toBeVisible({
     timeout: 15_000,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WebSocket auth e2e helpers (PR #1502 — Sec-WebSocket-Protocol JWT transport)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// These helpers cover end-to-end testing of the websocket auth-handshake
+// protocol. They:
+//   - run small Django shell snippets via `docker compose exec` to set up
+//     fixture data (badges, public flags) without going through the slow UI;
+//   - capture WebSocket frames from the real browser session so assertions
+//     run against the actual wire protocol (subprotocol echo, AUTH_OK,
+//     AUTH_FAILED, AUTH_REFRESH_REQUIRED, NOTIFICATION_CREATED, etc.).
+//
+// Naming convention: `*ViaDocker` helpers shell out to the local stack and
+// are NOT a substitute for UI-driven flows where the UI itself is what's
+// being tested. They exist so the websocket spec can stay focused on the
+// transport layer rather than re-uploading PDFs every test.
+
+/**
+ * Compose file the local stack runs under. The websocket e2e spec needs
+ * `local.yml` (Daphne ASGI server) — `test.yml` runs `runserver` which
+ * does not handle websockets in the same code path as production.
+ */
+const E2E_COMPOSE_FILE = process.env.E2E_COMPOSE_FILE || "local.yml";
+const E2E_DJANGO_SERVICE = process.env.E2E_DJANGO_SERVICE || "django";
+
+/**
+ * Repo root, computed from this file's location. The compose files live
+ * at the repo root, but the playwright runner cwd is `frontend/`, so all
+ * docker invocations need an absolute `-f` path.
+ */
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+
+/**
+ * Run a Python snippet inside the Django container and return stdout.
+ * Throws if the container isn't running (caller should skip the test).
+ *
+ * The snippet is piped to `manage.py shell` over stdin (rather than
+ * `-c "..."`) so multi-line statements with dict literals, kwargs that
+ * span lines, and trailing commas all work without collapsing to a
+ * `;`-joined one-liner. The previous one-liner approach broke on
+ * `Model.objects.create(\n    field=value,\n)` because `,\n;` is invalid
+ * Python syntax.
+ */
+function runDjangoShell(snippet: string): string {
+  const dedented = snippet.replace(/^[ \t]+/gm, "").trim();
+  const composePath = path.join(REPO_ROOT, E2E_COMPOSE_FILE);
+  const args = [
+    "compose",
+    "-f",
+    composePath,
+    "exec",
+    "-T",
+    E2E_DJANGO_SERVICE,
+    "python",
+    "manage.py",
+    "shell",
+  ];
+  // execFileSync would be safer than execSync for arg quoting, but we
+  // need the snippet on stdin and execSync supports the `input` option
+  // cleanly. Wrap each arg in single quotes (compose path has no
+  // single quotes; service/file names are alphanumeric).
+  const quoted = args.map((a) => `'${a}'`).join(" ");
+  return execSync(`docker ${quoted}`, {
+    encoding: "utf-8",
+    cwd: REPO_ROOT,
+    input: dedented + "\n",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+/**
+ * Award a tiny throwaway global badge to the named user so the post_save
+ * signal fires `broadcast_notification_via_websocket`. Used by the
+ * notification subscribe/receive test to prove the consumer delivers a
+ * frame end-to-end.
+ *
+ * The Badge model has a UNIQUE on `name` and the UserBadge model has a
+ * unique (user, badge) for global badges, so both names include a
+ * timestamp suffix to keep reruns isolated.
+ */
+export function triggerBadgeNotificationViaDocker(username: string): void {
+  const tag = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  runDjangoShell(`
+    from django.contrib.auth import get_user_model
+    from opencontractserver.badges.models import Badge, UserBadge, BadgeTypeChoices
+    User = get_user_model()
+    u = User.objects.get(username='${username}')
+    b = Badge.objects.create(
+        name='E2E WS Badge ${tag}',
+        description='Triggered by websocket-auth.spec.ts',
+        icon='Award',
+        badge_type=BadgeTypeChoices.GLOBAL,
+        creator=u,
+    )
+    UserBadge.objects.create(user=u, badge=b)
+    print('badge_awarded')
+  `);
+}
+
+/**
+ * Mark a document public so anonymous WS connections to UnifiedAgentConsumer
+ * pass the resource-permission check. Looks up by exact title (RUN_ID
+ * suffixes make the test specs unique enough that this is unambiguous).
+ */
+export function markDocumentPublicViaDocker(documentTitle: string): void {
+  runDjangoShell(`
+    from opencontractserver.documents.models import Document
+    d = Document.objects.get(title='${documentTitle}')
+    d.is_public = True
+    d.save(update_fields=['is_public'])
+    print('document_made_public')
+  `);
+}
+
+/**
+ * Look up the Relay global ID for a document by exact title via Django
+ * shell. Bypasses GraphQL entirely so it works even when the page-context
+ * fetch is anonymous (the e2e fixture's GraphQL proxy doesn't forward the
+ * page's bearer token).
+ */
+export function getDocumentGlobalIdViaDocker(documentTitle: string): string {
+  const out = runDjangoShell(`
+    from opencontractserver.documents.models import Document
+    from graphql_relay import to_global_id
+    d = Document.objects.get(title='${documentTitle}')
+    print(to_global_id('DocumentType', d.id))
+  `);
+  const lines = out
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines[lines.length - 1];
+}
+
+/**
+ * Issue a fresh JWT for the given user and return the encoded token.
+ * Used by the in-band refresh test to swap an existing socket's auth
+ * without forcing the spec to round-trip through the password mutation.
+ */
+export function issueJwtForUserViaDocker(username: string): string {
+  const out = runDjangoShell(`
+    from django.contrib.auth import get_user_model
+    from graphql_jwt.shortcuts import get_token
+    User = get_user_model()
+    u = User.objects.get(username='${username}')
+    print(get_token(u))
+  `);
+  // The `print()` line is the LAST non-empty line of stdout; preceding
+  // lines are Django's startup banner ("System check identified no issues").
+  const lines = out
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines[lines.length - 1];
+}
+
+/**
+ * Captured WebSocket activity for a single page session.
+ *
+ * Use `attachWebSocketCapture(page)` BEFORE navigating and read the
+ * `sockets` array after — Playwright's `framereceived` events are
+ * delivered synchronously as the page runs, so we need the listeners
+ * attached before any socket opens.
+ */
+export interface CapturedWebSocket {
+  url: string;
+  /** Frames received from server, parsed as JSON when possible. */
+  framesReceived: any[];
+  /** Frames sent from client. */
+  framesSent: any[];
+  /** Close code, populated once the socket closes. */
+  closeCode?: number;
+  closeReason?: string;
+  /** True until `socketclose` fires. */
+  closed: boolean;
+  /** Raw Playwright handle, used by tests that want to wait for `socketerror`. */
+  raw: PWWebSocket;
+}
+
+export interface WebSocketCapture {
+  /** All sockets opened during the capture window, in open order. */
+  sockets: CapturedWebSocket[];
+  /** Filter helpers — the spec mostly cares about one consumer at a time. */
+  forUrlContains: (substring: string) => CapturedWebSocket[];
+}
+
+function tryParseJson(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Attach Playwright's WebSocket listener to the page and start collecting
+ * frames into the returned `WebSocketCapture`.
+ *
+ * Must be called BEFORE the page opens any sockets (typically right after
+ * `page.goto`).
+ */
+export function attachWebSocketCapture(page: Page): WebSocketCapture {
+  const sockets: CapturedWebSocket[] = [];
+
+  page.on("websocket", (ws) => {
+    const captured: CapturedWebSocket = {
+      url: ws.url(),
+      framesReceived: [],
+      framesSent: [],
+      closed: false,
+      raw: ws,
+    };
+    sockets.push(captured);
+
+    ws.on("framereceived", (data) => {
+      // Playwright only delivers text frames as `payload`; binary frames
+      // arrive as a Buffer. Our consumers all send JSON text, so we
+      // prefer the parsed form for ergonomics but fall back to raw.
+      const text =
+        typeof data.payload === "string"
+          ? data.payload
+          : data.payload?.toString?.("utf-8") ?? "";
+      captured.framesReceived.push(tryParseJson(text));
+    });
+    ws.on("framesent", (data) => {
+      const text =
+        typeof data.payload === "string"
+          ? data.payload
+          : data.payload?.toString?.("utf-8") ?? "";
+      captured.framesSent.push(tryParseJson(text));
+    });
+    ws.on("close", () => {
+      captured.closed = true;
+    });
+    // Playwright's WebSocket close-code surface is limited — the
+    // close event fires without code/reason. To capture them, hook
+    // into the close inside `page.evaluate` if you need them; in
+    // practice the receivedFrames stream + auth-failed frame is the
+    // assertion we care about.
+  });
+
+  return {
+    sockets,
+    forUrlContains: (substring) =>
+      sockets.filter((s) => s.url.includes(substring)),
+  };
+}
+
+/**
+ * Wait until at least one captured socket whose URL contains `urlSubstring`
+ * has received a frame matching `predicate`. Returns the matched frame.
+ *
+ * Polls the in-memory capture every 100ms — Playwright fires `framereceived`
+ * synchronously so a freshly-arrived frame becomes visible to this loop on
+ * the next tick.
+ */
+export async function waitForWsFrame(
+  capture: WebSocketCapture,
+  urlSubstring: string,
+  predicate: (frame: any) => boolean,
+  timeoutMs = 15_000
+): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const sock of capture.forUrlContains(urlSubstring)) {
+      const match = sock.framesReceived.find((f) => predicate(f));
+      if (match) return match;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(
+    `Timed out waiting for WS frame matching predicate on URL containing "${urlSubstring}". ` +
+      `Sockets captured: ${capture.sockets
+        .map((s) => `${s.url} (frames=${s.framesReceived.length})`)
+        .join(", ")}`
+  );
+}
+
+/**
+ * Open a raw WebSocket from inside the page, with the supplied subprotocols
+ * (or none), wait for the first close event, and return its code + any frames
+ * received before it closed.
+ *
+ * Used by the auth-rejection tests where we want full control over the
+ * handshake — the production hooks always include the `opencontracts.jwt.v1`
+ * marker, which is exactly what we need to prove can NOT be skipped.
+ */
+export async function openRawWebSocket(
+  page: Page,
+  url: string,
+  protocols: string[]
+): Promise<{ closeCode: number; frames: any[] }> {
+  return await page.evaluate(
+    ([wsUrl, wsProtocols]) =>
+      new Promise<{ closeCode: number; frames: any[] }>((resolve) => {
+        const frames: any[] = [];
+        // Empty array → omit subprotocol entirely (used by the
+        // ?token=... regression test).
+        const ws =
+          (wsProtocols as string[]).length === 0
+            ? new WebSocket(wsUrl as string)
+            : new WebSocket(wsUrl as string, wsProtocols as string[]);
+        ws.onmessage = (ev) => {
+          try {
+            frames.push(JSON.parse(ev.data));
+          } catch {
+            frames.push(ev.data);
+          }
+        };
+        ws.onclose = (ev) => resolve({ closeCode: ev.code, frames });
+        ws.onerror = () => {
+          // onerror always fires before onclose, so resolve in onclose.
+        };
+        // Hard ceiling so a hung socket fails the test rather than
+        // hanging the run forever. The longest legitimate close path
+        // (rate-limit guard then close) takes well under 5s.
+        setTimeout(() => {
+          try {
+            ws.close();
+          } catch {}
+        }, 8000);
+      }),
+    [url, protocols] as const
+  );
+}
+
+/**
+ * Resolve the page-side WebSocket URL for the websocket spec.
+ *
+ * Production hooks build URLs from `window.location` (vite proxies /ws/*
+ * to Django:8000 in dev). The spec does the same so we exercise the same
+ * code path the production hooks use.
+ */
+export async function getPageWsBaseUrl(page: Page): Promise<string> {
+  return await page.evaluate(() => {
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${window.location.host}`;
   });
 }

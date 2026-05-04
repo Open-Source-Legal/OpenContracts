@@ -383,6 +383,11 @@ test.beforeEach(async ({ page }) => {
     const activeInstances = new Set();
 
     class StubSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+
       url: string;
       readyState: number;
       onopen?: (event: any) => void;

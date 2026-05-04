@@ -505,6 +505,7 @@ export type LabelSetType = Node & {
   modified?: Scalars["DateTime"];
   corpusSet?: CorpusTypeConnection;
   isPublic?: Scalars["Boolean"];
+  isDefault?: Scalars["Boolean"];
   myPermissions?: PermissionTypes[];
 };
 

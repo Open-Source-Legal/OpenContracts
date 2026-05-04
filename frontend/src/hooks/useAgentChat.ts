@@ -5,19 +5,22 @@
  * connecting to the unified backend consumer (ws/agent-chat/).
  *
  * Features:
- * - Automatic WebSocket connection management
+ * - Automatic WebSocket connection management (via useWebSocketAuth)
  * - Streaming message support (ASYNC_START, ASYNC_CONTENT, ASYNC_FINISH)
  * - Thought/timeline tracking for agent reasoning
  * - Source pinning integration with ChatSourceAtom
  * - Approval flow for permission-required tools
  * - Conversation persistence
+ * - In-band token refresh (no socket churn on auth rotation)
  * - Automatic reconnection on page visibility change (Issue #697)
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReactiveVar } from "@apollo/client";
-import { authToken, userObj } from "../graphql/cache";
+import { userObj } from "../graphql/cache";
 import { useNetworkStatus } from "./useNetworkStatus";
+import { getUnifiedAgentWebSocket } from "../components/chat/get_websockets";
+import { useWebSocketAuth } from "./useWebSocketAuth";
 import {
   useChatSourceState,
   mapWebSocketSourcesToChatMessageSources,
@@ -174,85 +177,6 @@ export interface UseAgentChatReturn {
 }
 
 // ============================================================================
-// WebSocket URL Builder
-// ============================================================================
-
-/**
- * Get environment variable from Vite or CRA style.
- */
-function getEnvVar(...keys: string[]): string | undefined {
-  if (typeof import.meta !== "undefined" && (import.meta as any).env) {
-    for (const k of keys) {
-      const v = (import.meta as any).env[k];
-      if (v !== undefined) return v as string;
-    }
-  }
-  if (typeof process !== "undefined" && (process as any).env) {
-    for (const k of keys) {
-      const v = (process as any).env[k];
-      if (v !== undefined) return v as string;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Resolve WebSocket base URL from env vars or window.location.
- */
-function resolveWsBaseUrl(): string {
-  const envUrl =
-    getEnvVar("VITE_WS_URL", "REACT_APP_WS_URL") ||
-    getEnvVar("VITE_API_URL", "REACT_APP_API_URL");
-
-  if (envUrl) return envUrl.replace(/\/+$/, "");
-
-  return `${window.location.protocol === "https:" ? "wss" : "ws"}://${
-    window.location.host
-  }`;
-}
-
-/**
- * Build WebSocket URL for the unified agent consumer.
- */
-export function getUnifiedAgentWebSocketUrl(
-  context: AgentChatContext,
-  token?: string
-): string {
-  const wsBaseUrl = resolveWsBaseUrl();
-  const normalizedBaseUrl = wsBaseUrl
-    .replace(/\/+$/, "")
-    .replace(/^http/, "ws")
-    .replace(/^https/, "wss");
-
-  let url = `${normalizedBaseUrl}/ws/agent-chat/`;
-  const params: string[] = [];
-
-  if (context.corpusId) {
-    params.push(`corpus_id=${encodeURIComponent(context.corpusId)}`);
-  }
-  if (context.documentId) {
-    params.push(`document_id=${encodeURIComponent(context.documentId)}`);
-  }
-  if (context.agentId) {
-    params.push(`agent_id=${encodeURIComponent(context.agentId)}`);
-  }
-  if (context.conversationId) {
-    params.push(
-      `conversation_id=${encodeURIComponent(context.conversationId)}`
-    );
-  }
-  if (token) {
-    params.push(`token=${encodeURIComponent(token)}`);
-  }
-
-  if (params.length > 0) {
-    url += `?${params.join("&")}`;
-  }
-
-  return url;
-}
-
-// ============================================================================
 // Hook Implementation
 // ============================================================================
 
@@ -264,21 +188,12 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     onMessageSelect,
   } = options;
 
-  // Auth state
-  const auth_token = useReactiveVar(authToken);
+  // User state
   const user_obj = useReactiveVar(userObj);
 
-  // WebSocket state
-  const socketRef = useRef<WebSocket | null>(null);
   const sendingLockRef = useRef<boolean>(false);
-  const [isConnected, setIsConnected] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Reconnect trigger - increment to force reconnection (Issue #697)
-  const [reconnectTrigger, setReconnectTrigger] = useState(0);
-  // Guard to prevent duplicate reconnection attempts
-  const isReconnectingRef = useRef<boolean>(false);
 
   // Message state
   const [messages, setMessages] = useState<ChatMessageProps[]>([]);
@@ -288,11 +203,10 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     useState<PendingApproval | null>(null);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
 
-  // Mirror `pendingApproval` in a ref so the WebSocket effect below can read
-  // the latest value without having to include `pendingApproval` in its
-  // dependency array. Without this, every approval-state transition tore
-  // down and recreated the socket mid-conversation (issue #1296), which
-  // dropped streaming tokens and made approval decisions race the reconnect.
+  // Mirror `pendingApproval` in a ref so the WebSocket handler can read
+  // the latest value without including `pendingApproval` in its dep array.
+  // Without this, every approval-state transition would reconnect the socket
+  // mid-conversation (issue #1296), dropping streaming tokens.
   const pendingApprovalRef = useRef<PendingApproval | null>(pendingApproval);
   useEffect(() => {
     pendingApprovalRef.current = pendingApproval;
@@ -608,43 +522,20 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
   );
 
   // ========================================================================
-  // WebSocket Management
+  // WebSocket Management (via useWebSocketAuth)
   // ========================================================================
 
-  useEffect(() => {
-    // Need at least one context identifier
-    if (!context.corpusId && !context.documentId && !context.agentId) {
-      return;
-    }
+  const url = getUnifiedAgentWebSocket(context);
+  const enabled = !!(context.corpusId || context.documentId || context.agentId);
 
-    // Set reconnecting flag to prevent duplicate attempts
-    isReconnectingRef.current = true;
-
-    const wsUrl = getUnifiedAgentWebSocketUrl(context, auth_token || undefined);
-    const newSocket = new WebSocket(wsUrl);
-
-    newSocket.onopen = () => {
-      isReconnectingRef.current = false;
-      setIsConnected(true);
-      setError(null);
-      console.debug("[useAgentChat] WebSocket connected:", wsUrl);
-    };
-
-    newSocket.onerror = (event) => {
-      isReconnectingRef.current = false;
-      setIsConnected(false);
-      setError("Error connecting to the chat server.");
-      console.error("[useAgentChat] WebSocket error:", event);
-    };
-
-    newSocket.onmessage = (event) => {
+  const handleAgentMessage = useCallback(
+    (event: MessageEvent) => {
       try {
         const messageData: AgentMessageData = JSON.parse(event.data);
         if (!messageData) return;
 
         const { type: msgType, content, data } = messageData;
 
-        // Handle approval status updates
         if (data?.approval_decision && data?.message_id) {
           updateMessageApprovalStatus(
             data.message_id,
@@ -725,7 +616,6 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
           }
 
           case "ASYNC_RESUME":
-            // Agent is resuming after approval – keep processing indicator.
             setIsProcessing(true);
             break;
 
@@ -793,40 +683,25 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
       } catch (err) {
         console.error("[useAgentChat] Failed to parse message:", err);
       }
-    };
+    },
+    [
+      appendStreamingToken,
+      appendThought,
+      mergeSourcesIntoMessage,
+      finalizeResponse,
+      handleCompleteMessage,
+      updateMessageApprovalStatus,
+    ]
+  );
 
-    newSocket.onclose = (event) => {
-      isReconnectingRef.current = false;
-      setIsConnected(false);
-      console.debug("[useAgentChat] WebSocket closed:", event);
-    };
-
-    socketRef.current = newSocket;
-
-    return () => {
-      isReconnectingRef.current = false;
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-    };
-  }, [
-    context.corpusId,
-    context.documentId,
-    context.agentId,
-    context.conversationId,
-    auth_token,
-    reconnectTrigger, // Added for Issue #697 - triggers reconnection when incremented
-    appendStreamingToken,
-    appendThought,
-    mergeSourcesIntoMessage,
-    finalizeResponse,
-    handleCompleteMessage,
-    updateMessageApprovalStatus,
-    // `pendingApproval` intentionally omitted — handlers read it via
-    // `pendingApprovalRef.current` so the socket does not reconnect on
-    // every approval-gate transition (issue #1296).
-  ]);
+  const { isConnected, send, reconnect } = useWebSocketAuth({
+    url,
+    enabled,
+    onMessage: handleAgentMessage,
+    onOpen: () => setError(null),
+    onAuthInvalid: () =>
+      setError("Authentication failed. Please log in again."),
+  });
 
   // Send initial message once connected
   useEffect(() => {
@@ -836,10 +711,8 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
 
       // Use a slight delay to ensure socket is fully ready
       setTimeout(() => {
-        if (
-          socketRef.current &&
-          socketRef.current.readyState === WebSocket.OPEN
-        ) {
+        const ok = send(JSON.stringify({ query: msg }));
+        if (ok) {
           setMessages((prev) => [
             ...prev,
             {
@@ -851,14 +724,12 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
               isComplete: true,
             },
           ]);
-          socketRef.current.send(JSON.stringify({ query: msg }));
         }
       }, 100);
     }
-  }, [isConnected, user_obj?.email]);
+  }, [isConnected, user_obj?.email, send]);
 
   // Reconnect when page becomes visible after being hidden (Issue #697)
-  // This handles mobile devices where the app may be suspended when screen is locked
   const hasContext = !!(
     context.corpusId ||
     context.documentId ||
@@ -867,40 +738,12 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
 
   useNetworkStatus({
     onResume: () => {
-      console.debug("[useAgentChat] Page resumed, checking connection...");
-
-      // Check if WebSocket is still connected and not already reconnecting
-      if (
-        hasContext &&
-        !isReconnectingRef.current &&
-        socketRef.current?.readyState !== WebSocket.OPEN &&
-        socketRef.current?.readyState !== WebSocket.CONNECTING
-      ) {
-        console.debug(
-          "[useAgentChat] WebSocket disconnected, triggering reconnection..."
-        );
-        // Trigger reconnection by incrementing the reconnectTrigger
-        // This will cause the WebSocket useEffect to re-run and establish a new connection
-        setReconnectTrigger((prev) => prev + 1);
-      }
+      if (hasContext && !isConnected) reconnect();
     },
     onOnline: () => {
-      console.debug("[useAgentChat] Network online, checking connection...");
-
-      // Reconnect if WebSocket is disconnected and not already reconnecting
-      if (
-        hasContext &&
-        !isReconnectingRef.current &&
-        socketRef.current?.readyState !== WebSocket.OPEN &&
-        socketRef.current?.readyState !== WebSocket.CONNECTING
-      ) {
-        console.debug(
-          "[useAgentChat] Triggering reconnection after network recovery..."
-        );
-        setReconnectTrigger((prev) => prev + 1);
-      }
+      if (hasContext && !isConnected) reconnect();
     },
-    resumeThreshold: 1000, // 1 second hidden threshold
+    resumeThreshold: 1000,
     enabled: hasContext,
   });
 
@@ -911,8 +754,7 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
   const sendMessage = useCallback(
     (content: string): void => {
       const trimmed = content.trim();
-      if (!trimmed || !socketRef.current || !isConnected || isProcessing)
-        return;
+      if (!trimmed || !isConnected || isProcessing) return;
 
       if (sendingLockRef.current) {
         console.warn("[useAgentChat] Message already being sent");
@@ -935,7 +777,11 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
             isComplete: true,
           },
         ]);
-        socketRef.current.send(JSON.stringify({ query: trimmed }));
+        const ok = send(JSON.stringify({ query: trimmed }));
+        if (!ok) {
+          setError("Failed to send message. Please try again.");
+          return;
+        }
         setError(null);
       } catch (err) {
         console.error("[useAgentChat] Failed to send message:", err);
@@ -946,23 +792,29 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
         }, 300);
       }
     },
-    [isConnected, isProcessing, user_obj?.email]
+    [isConnected, isProcessing, user_obj?.email, send]
   );
 
   const sendApprovalDecisionFn = useCallback(
     (approved: boolean): void => {
-      if (!pendingApproval || !socketRef.current || !isConnected) {
+      if (!pendingApproval || !isConnected) {
         console.warn("[useAgentChat] Cannot send approval decision");
         return;
       }
 
       try {
-        socketRef.current.send(
+        const ok = send(
           JSON.stringify({
             approval_decision: approved,
             llm_message_id: pendingApproval.messageId,
           })
         );
+
+        if (!ok) {
+          setError("Failed to send approval decision. Please try again.");
+          setShowApprovalModal(true);
+          return;
+        }
 
         setShowApprovalModal(false);
         updateMessageApprovalStatus(
@@ -977,7 +829,7 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
         setShowApprovalModal(true);
       }
     },
-    [pendingApproval, isConnected, updateMessageApprovalStatus]
+    [pendingApproval, isConnected, updateMessageApprovalStatus, send]
   );
 
   const clearError = useCallback(() => setError(null), []);
