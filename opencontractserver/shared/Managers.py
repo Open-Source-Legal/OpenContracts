@@ -61,7 +61,9 @@ def _apply_document_prefetches(
     so this short-circuits the per-document
     ``AnnotationQueryOptimizer.get_document_annotations`` call that the
     list-view badge query (``GET_DOCUMENTS`` with ``annotateDocLabels: true``)
-    otherwise triggers per row.
+    otherwise triggers per row. The flag is only consulted in lightweight
+    mode — the full prefetch path already loads every doc_annotation, so a
+    focused prefetch on top would be redundant work.
     """
     queryset = queryset.select_related("creator", "user_lock", "parent")
 

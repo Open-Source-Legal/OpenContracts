@@ -102,8 +102,11 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # Prefer the prefetched ``user_feedback`` list when the parent resolver
         # populated it (see ``AnnotationQueryOptimizer.get_document_annotations``);
         # ``QuerySet.count()`` always issues a fresh ``COUNT(*)`` and would
-        # produce one round-trip per annotation.
-        prefetched = getattr(self, "_prefetched_objects_cache", {}) or {}
+        # produce one round-trip per annotation. ``_prefetched_objects_cache``
+        # is a Django internal — if it changes shape in a future release the
+        # ``self.user_feedback.count()`` fallback keeps correctness intact, only
+        # losing the per-row optimisation.
+        prefetched = getattr(self, "_prefetched_objects_cache", {})
         if "user_feedback" in prefetched:
             return len(prefetched["user_feedback"])
         return self.user_feedback.count()

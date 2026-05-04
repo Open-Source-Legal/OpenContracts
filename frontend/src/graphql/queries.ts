@@ -43,6 +43,14 @@ export interface RequestDocumentsOutputs {
   };
 }
 
+// NOTE: The shape of this query is matched by ``requests_doc_label_annotations``
+// in config/graphql/custom_resolvers.py (it walks the AST looking for
+// ``documents → edges → node → docAnnotations(annotationLabel_LabelType:
+// "DOC_TYPE_LABEL")``) so the resolver can opt into a focused doc-label
+// prefetch. Restructuring the connection (extra wrapping levels, renames, or
+// moving docAnnotations into a fragment at the top level) silently disables
+// that optimisation and returns the per-row N+1 — update the AST helper there
+// in lockstep with any structural change.
 export const GET_DOCUMENTS = gql`
   query (
     $inCorpusWithId: String

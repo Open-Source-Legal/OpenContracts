@@ -154,12 +154,19 @@ class AnnotationQueryOptimizer:
         Return the ``Document`` for ``document_id``, caching the instance on
         ``context._document_instance_cache`` so the same request never fetches
         the same row twice.
+
+        ``structural_annotation_set`` is ``select_related`` so the FK
+        dereference inside ``get_document_annotations`` (which builds a query
+        spanning the document's structural set) stays on the original SELECT
+        instead of triggering a follow-up round-trip per request.
         """
         from opencontractserver.documents.models import Document
 
         if context is None:
             try:
-                return Document.objects.get(id=document_id)
+                return Document.objects.select_related("structural_annotation_set").get(
+                    id=document_id
+                )
             except Document.DoesNotExist:
                 return None
 
@@ -170,7 +177,9 @@ class AnnotationQueryOptimizer:
         if document_id in cache:
             return cache[document_id]
         try:
-            instance = Document.objects.get(id=document_id)
+            instance = Document.objects.select_related("structural_annotation_set").get(
+                id=document_id
+            )
         except Document.DoesNotExist:
             instance = None
         cache[document_id] = instance
@@ -262,19 +271,13 @@ class AnnotationQueryOptimizer:
 
         # Fetch the document (request-cached if ``context`` is provided so we
         # don't re-fetch the row that ``_compute_effective_permissions`` and
-        # parent resolvers have already loaded). Use ``structural_annotation_set``
-        # via select_related when we miss the cache so the structural-set
-        # branch below stays a single round-trip.
+        # parent resolvers have already loaded). The cached fetcher
+        # ``_get_document_for_request`` uses ``select_related(
+        # "structural_annotation_set")`` so the structural-set branch below
+        # never triggers a follow-up round-trip on FK dereference.
         document = cls._get_document_for_request(document_id, context)
         if document is None:
             return Annotation.objects.none()
-        if document.structural_annotation_set_id and not hasattr(
-            document, "_structural_annotation_set_loaded"
-        ):
-            # The cached fetch above wasn't ``select_related`` — make sure we
-            # don't trigger an extra round-trip when the FK is dereferenced
-            # later by accessing the ID only (which is already on the row).
-            pass
 
         # Build base filter for annotations from BOTH sources:
         # 1. Direct document annotations (corpus-specific, user-created)
