@@ -224,8 +224,14 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 )
                 if not has_perm:
                     return False
-            elif not self.corpus.is_public:
-                return False
+            else:
+                # Anonymous fallback: re-fetch is_public from the DB rather
+                # than trusting the in-memory object loaded at connect time.
+                # If the owner flips the corpus to private mid-connection, an
+                # anonymous AUTH refresh would otherwise pass on stale state.
+                fresh_corpus = await Corpus.objects.aget(pk=self.corpus.pk)
+                if not fresh_corpus.is_public:
+                    return False
 
         if self.document is not None:
             if is_authenticated:
@@ -234,8 +240,12 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 )
                 if not has_perm:
                     return False
-            elif not self.document.is_public:
-                return False
+            else:
+                # Same anonymous-refresh stale-read concern as the corpus
+                # branch above.
+                fresh_document = await Document.objects.aget(pk=self.document.pk)
+                if not fresh_document.is_public:
+                    return False
 
         return True
 
@@ -635,6 +645,9 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         # cassette so the e2e websocket-auth workflow can replay a recorded
         # conversation rather than making real OpenAI/Anthropic calls.
         # In production (env vars unset) the helper is a no-op context manager.
+        # Lazy import: vcrpy is a dev/CI dependency and we don't want it
+        # touched on the production cold path until this code branch
+        # actually runs (which itself is gated on a chat being initiated).
         from opencontractserver.utils.vcr_replay import maybe_vcr_cassette
 
         try:
@@ -836,6 +849,8 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
         # Same VCR wrap as _stream_agent_response so the approval-resume
         # leg also replays cassette traffic when OC_LLM_VCR_MODE is set.
+        # Lazy import: see _stream_agent_response for rationale (vcrpy is a
+        # dev/CI dep we don't want imported on the production cold path).
         from opencontractserver.utils.vcr_replay import maybe_vcr_cassette
 
         try:

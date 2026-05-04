@@ -49,7 +49,11 @@ beforeEach(() => {
   MockWebSocket.instances = [];
   // @ts-expect-error - global override
   globalThis.WebSocket = MockWebSocket;
-  authToken("");
+  // useNotificationWebSocket sets `requireAuth: true` on useWebSocketAuth,
+  // which short-circuits the connect effect when authToken is empty.
+  // Seed a non-empty token so the hook is allowed to open a socket; tests
+  // that need to assert the no-token gate set `authToken("")` explicitly.
+  authToken("test-token");
 });
 afterEach(() => {
   cleanup();
@@ -63,6 +67,24 @@ describe("useNotificationWebSocket", () => {
     );
     expect(MockWebSocket.instances.length).toBe(0);
     expect(result.current.connectionState).toBe("disconnected");
+  });
+
+  it("does not open a socket while authToken is empty (requireAuth gate)", () => {
+    // Override the beforeEach seed to simulate the App-mount-before-login
+    // window. Notifications are per-user; opening a token-less socket would
+    // get rejected 4000 by the consumer and put the hook into terminal
+    // auth-failure state for the rest of the session.
+    authToken("");
+    const { result, rerender } = renderHook(() => useNotificationWebSocket());
+    expect(MockWebSocket.instances.length).toBe(0);
+    expect(result.current.connectionState).toBe("disconnected");
+
+    // Once the token lands, the connect effect should re-run and open.
+    act(() => {
+      authToken("late-arriving-token");
+    });
+    rerender();
+    expect(MockWebSocket.instances.length).toBe(1);
   });
 
   it("opens a socket when enabled and reports connecting until AUTH_OK", () => {

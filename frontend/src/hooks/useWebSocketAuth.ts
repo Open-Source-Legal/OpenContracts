@@ -193,6 +193,15 @@ export function useWebSocketAuth(
       onCloseRef.current?.(event.code);
 
       const code = event.code;
+      // 1000 (NORMAL) is a clean close — no reconnect needed.
+      // 4003 (PERMISSION_DENIED) means the server explicitly revoked
+      // access to this resource; reconnecting would just be rejected
+      // again. We deliberately do NOT fire onAuthInvalid here because
+      // the user's auth is fine — the resource permission isn't —
+      // so the caller should react via its own error UI (e.g., a
+      // toast or a route redirect) rather than treating it as a
+      // session-expired event. The user must reload or navigate away
+      // to recover; transient 4003s require a manual reconnect().
       if (code === WS_CLOSE_NORMAL || code === WS_CLOSE_PERMISSION_DENIED) {
         return;
       }

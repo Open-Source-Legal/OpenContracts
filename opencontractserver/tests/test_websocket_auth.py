@@ -21,6 +21,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from graphql_jwt.shortcuts import get_token
 
+from config.websocket.auth_handshake import AuthHandshakeMixin
 from config.websocket.middleware import (
     WS_AUTH_SUBPROTOCOL,
     WS_CLOSE_TOKEN_EXPIRED,
@@ -232,8 +233,6 @@ class GraphQLJWTTokenAuthMiddlewareTestCase(WebsocketFixtureBaseTestCase):
 # ---------------------------------------------------------------------------
 # AuthHandshakeMixin tests
 # ---------------------------------------------------------------------------
-
-from config.websocket.auth_handshake import AuthHandshakeMixin  # noqa: E402
 
 
 class _DummyConsumer(AuthHandshakeMixin):
@@ -497,7 +496,7 @@ class NotificationUpdatesHandshakeTests(WebsocketFixtureBaseTestCase):
         self.assertEqual(types, {"AUTH_OK", "CONNECTED"})
         await communicator.disconnect()
 
-    async def test_handshake_no_token_closes_4001(self):
+    async def test_handshake_no_token_closes_4000(self):
         communicator = WebsocketCommunicator(
             self.application,
             "ws/notification-updates/",
@@ -505,9 +504,12 @@ class NotificationUpdatesHandshakeTests(WebsocketFixtureBaseTestCase):
         )
         connected, close_code = await communicator.connect()
         self.assertFalse(connected)
-        # NotificationUpdatesConsumer.connect() closes 4001 for unauthenticated;
-        # behavior preserved.
-        self.assertEqual(close_code, 4001)
+        # NotificationUpdatesConsumer.connect() closes 4000 (UNAUTHENTICATED)
+        # when there is no token at all. 4001 (TOKEN_EXPIRED) is reserved for
+        # the case where the middleware decoded a token and found it stale —
+        # using 4001 for "no token sent" caused the frontend hook to treat
+        # every anonymous-mount as "session expired" and stop reconnecting.
+        self.assertEqual(close_code, 4000)
 
     async def test_inband_refresh_succeeds(self):
         communicator = WebsocketCommunicator(

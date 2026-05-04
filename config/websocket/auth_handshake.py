@@ -40,6 +40,7 @@ from config.websocket.middleware import (
     WS_CLOSE_TOKEN_EXPIRED,
     WS_CLOSE_TOKEN_INVALID,
 )
+from opencontractserver.constants.auth import WS_AUTH_REFRESH_GRACE_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +227,9 @@ class AuthHandshakeMixin:
     #  Refresh: server-nudged
     # ------------------------------------------------------------------ #
 
-    async def request_token_refresh(self, grace_seconds: float = 30.0) -> None:
+    async def request_token_refresh(
+        self, grace_seconds: float = WS_AUTH_REFRESH_GRACE_SECONDS
+    ) -> None:
         """
         Ask the client to send a fresh token. If the client doesn't respond
         with a successful AUTH frame within ``grace_seconds``, close 4001.
