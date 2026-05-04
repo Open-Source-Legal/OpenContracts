@@ -361,9 +361,11 @@ export interface StartImportCorpusInputs {
 }
 
 export interface StartImportCorpusExport {
-  ok: boolean;
-  message: string;
-  corpus: CorpusType;
+  importOpenContractsZip: {
+    ok: boolean;
+    message: string;
+    corpus: CorpusType | null;
+  };
 }
 
 export const START_IMPORT_CORPUS = gql`

@@ -941,6 +941,7 @@ export type UserType = Node & {
   password?: Scalars["String"];
   lastLogin?: Maybe<Scalars["DateTime"]>;
   isUsageCapped?: Scalars["Boolean"];
+  canImportCorpus?: Scalars["Boolean"];
   isSuperuser?: Scalars["Boolean"];
   username?: Scalars["String"];
   email: Scalars["String"];

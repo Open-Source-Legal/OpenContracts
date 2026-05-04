@@ -3657,6 +3657,7 @@ export const GET_ME = gql`
       phone
       isSuperuser
       isUsageCapped # Crucially, fetch this field
+      canImportCorpus # Server-side gate for corpus-import UI
       isProfilePublic # Issue #611
     }
   }
