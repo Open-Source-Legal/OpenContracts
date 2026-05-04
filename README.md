@@ -10,7 +10,7 @@ The open source platform for building knowledge bases that humans and AI agents 
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Backend coverage  | [![backend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=backend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=backend)                                                                                                                                                                                                                                         |
 | Frontend coverage | [![frontend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=frontend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=frontend)                                                                                                                                                                                                                                      |
-| Meta              | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](https://www.gnu.org/licenses/agpl-3.0) |
+| Meta              | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - MIT](https://img.shields.io/badge/license-MIT-green)](https://opensource.org/licenses/MIT) |
 
 ---
 
@@ -237,4 +237,8 @@ This project builds on work from:
 
 ## License
 
-AGPL-3.0 — See [LICENSE](LICENSE) for details.
+OpenContracts is now released under the **MIT License** — one of the most permissive open source licenses available. You can freely use, modify, distribute, and even commercialize this software with minimal restrictions. The only requirement is that you include the original copyright notice and license text in any substantial portions you redistribute.
+
+This relicensing reflects our commitment to making OpenContracts as broadly usable as possible: build proprietary products on top of it, embed it in commercial offerings, fork it, ship it — no copyleft strings attached.
+
+See [LICENSE](LICENSE) for the full text.
