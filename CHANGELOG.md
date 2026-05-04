@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Discover search crash on null annotation/note documents** (`frontend/src/views/DiscoverSearchResults.tsx:467-469, 600-603` and `frontend/src/utils/navigationUtils.ts:326-342, 358-400`). Running a search on the Discover view could throw `TypeError: can't access property "slug", e is null` when the backend returned an annotation or note edge whose `document` field was null (e.g., document filtered out by visibility or recently soft-deleted). `getDocumentUrl` accessed `document.slug` directly, and the section render lists never filtered for the missing relation. Fix: filter edges with `node.document == null` out of the annotation and note lists, and widen `getDocumentUrl` / `getCorpusUrl` to accept nullable inputs and fall through to the existing `"#"` no-op return path instead of throwing.
 
+### Changed
+
+- **`supportedMimeTypes` GraphQL query is now accessible to anonymous users** (`config/graphql/pipeline_queries.py:205`). Removed the `@login_required` decorator from `resolve_supported_mime_types` so that uploaders, landing pages, and other unauthenticated UI surfaces can advertise the accepted file formats without forcing a login. The data returned is derived purely from the pipeline registry and exposes no user-specific information. Test updated: `opencontractserver/tests/test_pipeline_component_queries.py::test_supported_mime_types_allows_anonymous`.
+
 ### Added
 
 - **Server-derived `me.canImportCorpus` field** (`config/graphql/user_types.py:43-60`). A new boolean on `UserType` that mirrors the backend permission check enforced by `UploadCorpusImportZip` / `ImportZipToCorpus`: returns `false` for anonymous users and for usage-capped users when `USAGE_CAPPED_USER_CAN_IMPORT_CORPUS` is disabled, otherwise `true`. Exposed through `GET_ME` (`frontend/src/graphql/queries.ts`) so the frontend can gate corpus-import UI without re-implementing the rule. Tests: `opencontractserver/tests/test_user_can_import_corpus.py` covers the three states (capped+disabled, capped+enabled, uncapped).
