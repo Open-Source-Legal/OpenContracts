@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`supportedMimeTypes` GraphQL query is now accessible to anonymous users** (`config/graphql/pipeline_queries.py:205`). Removed the `@login_required` decorator from `resolve_supported_mime_types` so that uploaders, landing pages, and other unauthenticated UI surfaces can advertise the accepted file formats without forcing a login. The data returned is derived purely from the pipeline registry and exposes no user-specific information. Test updated: `opencontractserver/tests/test_pipeline_component_queries.py::test_supported_mime_types_allows_anonymous`.
+
 ### Added
 
 - **CAML README references in bulk-import zips** (`opencontractserver/utils/caml_rewrite.py`, `opencontractserver/utils/import_v2.py:285`, `opencontractserver/tasks/import_tasks_v2.py:357`). The corpus README (`md_description`) shipped inside a V2 import zip now supports `oc-import://document/<filename-in-zip>` and `oc-import://annotation/<id-in-data.json>` placeholder URLs that are rewritten to live `/d/<user-slug>/<corpus-slug>/<doc-slug>[?ann=<new-pk>]` URLs after all referenced objects have been created. Lets a zip author hand-write a README that links to bundled documents and annotations without knowing the destination deployment's primary keys or slugs. Document references key off the same filename used as the `annotated_docs` key in `data.json`; annotation references key off the export-time `"id"` already aggregated by the importer as `all_annot_id_maps`. Unresolved references are left intact and warned about (no silent stripping). Revision snapshots are intentionally not rewritten to preserve the existing checksum chain. New tests in `opencontractserver/tests/test_caml_rewrite.py`. Documented in `docs/upload_methods/corpus_export_import.md`.
