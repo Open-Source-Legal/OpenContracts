@@ -147,9 +147,7 @@ class CorpusQueryMixin:
             shared_count = 0
         else:
             mine_count = visible.filter(creator=user).count()
-            shared_count = (
-                visible.exclude(creator=user).exclude(is_public=True).count()
-            )
+            shared_count = visible.exclude(creator=user).exclude(is_public=True).count()
         return {
             "all": all_count,
             "mine": mine_count,

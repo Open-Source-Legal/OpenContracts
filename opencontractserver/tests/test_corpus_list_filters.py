@@ -161,9 +161,7 @@ class CorpusListFiltersAndCountsTestCase(GraphQLTestCase):
         # Backend text_search uses substring contains on title/description.
         # Use the literal title prefix shared by both Alice fixtures so the
         # match set is deterministic.
-        response = self.query(
-            COUNTS_QUERY, variables={"textSearch": f"{PREFIX}Alice"}
-        )
+        response = self.query(COUNTS_QUERY, variables={"textSearch": f"{PREFIX}Alice"})
         counts = response.json()["data"]["corpusFilterCounts"]
         # Matches Alice Private + Alice Public — both mine, one public.
         self.assertEqual(counts, {"all": 2, "mine": 2, "shared": 0, "public": 1})
