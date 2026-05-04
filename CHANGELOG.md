@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Celery configured for at-least-once delivery so worker death no longer silently loses tasks** (Issue #1493, `config/settings/base.py:677`): `CELERY_TASK_ACKS_LATE = True` and `CELERY_TASK_REJECT_ON_WORKER_LOST = True` are now set globally. Previously Celery acked messages on receive (at-most-once): if a worker died mid-task — OOM, host failure, deploy, eviction, SIGKILL — the broker had already removed the message and the task was silently lost, leaving long-running ingest/parse/embed work with documents stuck at `backend_lock=True` and no parsed content. With the new settings the broker only acks after the task returns successfully, and hard-killed workers cause redelivery rather than silent disappearance. To prevent the Redis broker from double-delivering long-running tasks (the default visibility timeout is 1 hour), `CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 12 * 60 * 60}` raises the threshold above any expected document-processing job. The redundant per-task `acks_late=True` on `opencontractserver/worker_uploads/tasks.py:76` is left in place as an explicit declaration of intent (it is now equivalent to the global default). Trade-off: at-least-once delivery means tasks may run twice, so all tasks must be idempotent — `docs/architecture/asynchronous-processing.md` documents the contract, lists known non-idempotent tasks to harden in follow-up work, and describes the per-task opt-out (`@shared_task(acks_late=False, reject_on_worker_lost=False)`) for tasks that genuinely cannot be made idempotent. Regression test in `opencontractserver/tests/test_celery_worker_death_resilience.py` pins all three settings and verifies the namespaced Django→Celery wiring still propagates them, so a future settings refactor cannot silently revert the resilience guarantee.
+
 ### Added
 
 - **Pre-fill defaults in the new-corpus modal**:
@@ -14,6 +18,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`defaultLabelset` GraphQL query** (`config/graphql/annotation_queries.py`): returns the install-wide default LabelSet visible to the current user (or null). `LabelSetType` exposes the new `is_default` field via `DjangoObjectType`'s default field set.
   - **`CreateCorpusMutation` auto-fills `label_set`** (`config/graphql/corpus_mutations.py`): when the mutation is called without a label_set the install-wide default is substituted, so corpuses created via the API land with a usable starter palette. Defaulting is intentionally at the mutation layer, not in `Corpus.save()`, so direct ORM creates in tests/scripts remain opt-in.
   - **CorpusModal CREATE mode pre-fills** (`frontend/src/components/corpuses/CorpusModal.tsx`, `frontend/src/graphql/queries.ts`): on open, the modal fetches `pipelineSettings.defaultEmbedder` + `defaultLabelset` via a single `GET_CORPUS_CREATE_DEFAULTS` query and seeds the embedder and labelset selectors. License pre-selects `CC-BY-4.0` via the new `DEFAULT_NEW_CORPUS_LICENSE` constant in `frontend/src/assets/configurations/constants.ts`. All three pre-fills are pure UX nudges — users can clear them before submitting.
+
+- **Cross-content Discover search** at `/discover/search`. The Discover hero
+  search box now lands on a unified results page that fans out across
+  discussions, annotations, collections (corpuses), and notes in parallel,
+  rather than redirecting to discussion-only search.
+  - Backend: new `searchNotesForMention` resolver in
+    `config/graphql/search_queries.py` (visibility via
+    `Note.objects.visible_to_user`, optional `corpusId` / `documentId`
+    scoping, eager-loads `document`, `corpus`, and creators).
+    `NoteType` is exported through the same `DjangoConnectionField` shape
+    used by the other mention searches and goes through `NoteType.get_queryset`
+    for a second visibility pass.
+  - Frontend view: `frontend/src/views/DiscoverSearchResults.tsx` reuses
+    `ThreadListItem` for discussions and a single shared `ResultRow` for
+    annotations / collections / notes. Tabbed UI: All (preview of 5 each),
+    Discussions, Annotations, Collections, Notes.
+  - Routing: `?q=` and `?type=` are URL-driven (replace, no history spam).
+    Result rows deep-link via `getCorpusUrl` / `getDocumentUrl`; annotation
+    rows preserve `?ann=`, note rows pass `?note=` to the document URL.
+  - New `?note=<id>` deep-link param wired through `selectedNoteId`
+    (`frontend/src/graphql/cache.ts`), `QueryParams.noteId`
+    (`frontend/src/utils/navigationUtils.ts`), and the central manager
+    Phase 2/4 sync (`frontend/src/routing/CentralRouteManager.tsx`).
+    `DocumentKnowledgeBase` now consumes the var: when the loaded
+    document contains a note matching the URL id, the existing note
+    detail modal opens once and the param is consumed (one-shot
+    deep-link, mirrored back to the URL via Phase 4).
+  - Hero wiring: `NewHeroSection.handleSearchSubmit` now navigates to
+    `/discover/search?q=...`. The legacy `/discussions?search=...` route is
+    preserved for callers that want a discussion-only listing.
+  - Tests: `MentionSearchTestCase` in
+    `opencontractserver/tests/test_mentions.py` covers visibility
+    filtering, content-substring matching, corpus / document scoping,
+    anonymous-user filtering, wrong-type global-id rejection, the
+    `-modified` ordering contract, and both
+    `content_preview` paths (DB-annotated `Left('content', 400)` for
+    search results, Python fallback for per-id note fetch).
+  - Component test: `frontend/tests/DiscoverSearchResults.ct.tsx`
+    covers the empty-prompt state, the four-section header render
+    after typing, and a populated-results render exercising every
+    section's row primitives. Captures both
+    `discover--search-results--empty-prompt.png` and
+    `discover--search-results--with-results.png` for docs.
 
 - **Loud guardrail against the `system_prompt=` foot-gun in pydantic-ai** (Issue #1451): `pydantic_ai.Agent` accepts both `system_prompt=` and `instructions=`, but the `system_prompt` value is *only* materialised into the model request when `message_history` is `None`. OpenContracts' `chat()` flow always persists the user's HUMAN message before calling `Agent.run()`, so `message_history` is never empty in practice and any `system_prompt=` argument is silently dropped — the LLM runs without any system instruction. CLAUDE.md pitfall #14 documented the workaround (use `instructions=`), but a future pydantic-ai bump that renames or re-precedences these parameters could re-introduce the regression silently.
   - **Single construction path** (`opencontractserver/llms/agents/pydantic_ai_factory.py`): new `make_pydantic_ai_agent(...)` factory is now the only place in the codebase that instantiates `pydantic_ai.Agent`. The factory uses a sentinel-based check (not `is not None`) to refuse `system_prompt=` outright — even `system_prompt=None` raises `TypeError` so the lesson cannot be re-learned by accident. The error message references issue #1451 and CLAUDE.md pitfall #14.
@@ -36,6 +83,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stray planning artifacts at repo root** (Issue #1453): deleted `plan.md` (CorpusHome query-performance optimization plan) and `plans/routing-audit-report.md` (frontend routing audit). Both described work that has already shipped — `CountableConnection.resolve_total_count()` already calls `.count()` directly (`config/graphql/base.py:88`) and `browseRoutes` already includes `"discussions"` (`frontend/src/utils/navigationUtils.ts:177`). The `plans/` directory is now gone; future planning docs belong under `docs/plans/` or `docs/architecture/` per existing conventions.
 
 ### Fixed
+
+- **Discover search section header miscounted threads when soft-deleted ones were present** (`frontend/src/views/DiscoverSearchResults.tsx`): the discussions section displayed `data.conversations.totalCount` as the count, but rendered rows are filtered client-side via `!n?.deletedAt`. With even one tombstoned thread in the results, the header read e.g. "5 threads" while only 4 rows appeared. Switched the count to `threads.length` (post-filter) so the badge always matches what the user sees.
+
+- **`?note=<id>` deep-link could pin in the URL forever for documents with no notes** (`frontend/src/components/knowledge_base/document/DocumentKnowledgeBase.tsx`): the auto-open effect early-returned on `notes.length === 0`, which is *also* true while the document query is loading. The intent comment said "Clear regardless of match" but the early return skipped the clear call entirely. If the underlying document genuinely had no notes (or the loaded notes simply did not contain the deep-linked id) the reactive var stayed set, so `CentralRouteManager` Phase 4 kept writing `?note=<id>` back into the URL on every render — the deep-link became sticky with no user-visible escape hatch. Effect now gates only on `combinedData?.document` being loaded; once the query has resolved, the effect runs `find` (possibly empty) and always clears the var.
+
+- **`NewHeroSection` had a dead `isAuthenticated` prop** (`frontend/src/components/landing/NewHeroSection.tsx`, `frontend/src/views/DiscoveryLanding.tsx`): the prop was declared on the interface and threaded through `DiscoveryLanding` but never read inside the component. Removed from the interface and the call site.
+
+- **Discover search rows silently no-op'd on `"#"` URLs from missing slugs** (`frontend/src/views/DiscoverSearchResults.tsx`): `getDocumentUrl` / `getCorpusUrl` return `"#"` when slugs are missing on the underlying entities. Each section's `onClick` did `if (url !== "#") navigate(url)`, so the row remained visually clickable, hover styles fired, and the click was swallowed with no feedback. `ResultRow` now accepts `disabled` / `disabledReason`; sections compute `unrouteable = url === "#"` once and forward both. Disabled rows render with `opacity 0.55`, `cursor: not-allowed`, native `disabled` (and `aria-disabled`), and a tooltip explaining the missing data — replacing the silent failure with a discoverable one. `disabled:not(:disabled)` scoping on the hover style stops the disabled rows from animating on hover.
 
 - **Annotation deep-links from the corpus-home Table of Contents silently no-op'd** (`frontend/src/components/corpuses/DocumentAnnotationIndex.tsx`, `frontend/src/components/knowledge_base/document/document_kb/RightPanelContent.tsx`): clicking a structural section in the corpus-home document index (e.g. "Subchapter I. Formation, p. 2") was supposed to open the document with the annotation pre-selected and scrolled into view. Instead it appeared to do nothing. Root cause: `DocumentAnnotationIndex` overloaded a single `embedded` prop with two semantics — visual layout ("render without an outer container") *and* click routing ("we are already on the document page, just rewrite `?ann=`"). The corpus-home call site (`DocumentTableOfContents.tsx:919`) needed the visual flavor but absolutely was *not* on a document page, so `handleSectionClick` took the wrong branch and wrote `?ann=<id>` onto the corpus URL — no navigation, no scroll. Fix splits the prop: `embedded` is now purely visual, and a new explicit `onDocumentPage` prop controls click routing. The single call site that's actually on a document page (`RightPanelContent.tsx`) opts in. Regression test in `frontend/src/components/corpuses/__tests__/DocumentAnnotationIndex.test.tsx` pins the new contract: a click from a corpus URL must produce a string-form `navigate("/d/.../doc?ann=<id>")` (full deep link), while a click from a document URL with `onDocumentPage` produces `navigate({ search: "...ann=<id>..." }, { replace: true })`.
 
