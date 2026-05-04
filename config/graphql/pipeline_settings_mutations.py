@@ -143,6 +143,41 @@ def validate_secrets_input(secrets: dict) -> Optional[str]:
     return None
 
 
+def find_plaintext_secret_keys(
+    component_path: str, supplied_kwargs: dict, registry
+) -> list[str]:
+    """
+    Return the list of keys in ``supplied_kwargs`` that the component declares
+    as secrets (``SettingType.SECRET``) and whose value is non-empty.
+
+    Empty placeholders (``None`` or ``""``) are allowed as schema markers and
+    are not flagged. Real secret values must be stored via the encrypted
+    secrets API (``UpdateComponentSecretsMutation``), never inline in
+    ``parser_kwargs`` or ``component_settings``.
+
+    Returns an empty list when the component is not registered, has no
+    component class, or declares no secret fields — in that case there is
+    no schema to enforce against.
+    """
+    component_def = registry.get_by_class_name(component_path)
+    if not component_def or not component_def.component_class:
+        return []
+
+    from opencontractserver.pipeline.base.settings_schema import (
+        get_secret_settings,
+    )
+
+    secret_names = set(get_secret_settings(component_def.component_class))
+    if not secret_names:
+        return []
+
+    return sorted(
+        k
+        for k, v in supplied_kwargs.items()
+        if k in secret_names and v not in (None, "")
+    )
+
+
 def validate_json_field_size(value: dict, field_name: str) -> Optional[str]:
     """
     Validate that a JSON field does not exceed the maximum allowed size.
@@ -319,6 +354,36 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     return UpdatePipelineSettingsMutation(
                         ok=False, message=error, pipeline_settings=None
                     )
+
+                # Reject plaintext secrets in parser_kwargs. Operators must
+                # store API keys / credentials via UpdateComponentSecretsMutation
+                # so they are encrypted at rest. Empty placeholders are allowed
+                # as schema markers.
+                for parser_path, kwargs in parser_kwargs.items():
+                    if not isinstance(kwargs, dict):
+                        return UpdatePipelineSettingsMutation(
+                            ok=False,
+                            message=(
+                                f"parser_kwargs entries must be dicts; got "
+                                f"{type(kwargs).__name__} for '{parser_path}'."
+                            ),
+                            pipeline_settings=None,
+                        )
+                    plaintext = find_plaintext_secret_keys(
+                        parser_path, kwargs, registry
+                    )
+                    if plaintext:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False,
+                            message=(
+                                f"parser_kwargs for '{parser_path}' contains "
+                                f"plaintext values for secret fields: "
+                                f"{', '.join(plaintext)}. Store these via "
+                                f"the updateComponentSecrets mutation instead. "
+                                f"Empty values are permitted as schema markers."
+                            ),
+                            pipeline_settings=None,
+                        )
                 settings_instance.parser_kwargs = parser_kwargs
 
             # Validate component_settings
@@ -352,6 +417,25 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         return UpdatePipelineSettingsMutation(
                             ok=False,
                             message=f"Settings for '{comp_path}' must be a dictionary.",
+                            pipeline_settings=None,
+                        )
+
+                    # Reject plaintext secrets in component_settings. Empty
+                    # placeholders are allowed as schema markers; real secret
+                    # values must go through updateComponentSecrets.
+                    plaintext = find_plaintext_secret_keys(
+                        comp_path, comp_settings, registry
+                    )
+                    if plaintext:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False,
+                            message=(
+                                f"component_settings for '{comp_path}' contains "
+                                f"plaintext values for secret fields: "
+                                f"{', '.join(plaintext)}. Store these via "
+                                f"the updateComponentSecrets mutation instead. "
+                                f"Empty values are permitted as schema markers."
+                            ),
                             pipeline_settings=None,
                         )
 
