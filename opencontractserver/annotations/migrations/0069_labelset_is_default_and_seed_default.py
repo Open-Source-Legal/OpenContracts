@@ -1,24 +1,19 @@
-"""
-Add ``LabelSet.is_default`` flag with a partial unique constraint and seed an
-install-wide default LabelSet (owned by the first superuser, public, with a
-small starter palette).
+"""Add ``LabelSet.is_default`` flag with a partial unique constraint.
+
+Schema-only migration. The default LabelSet is seeded in
+``0070_seed_default_labelset`` so that PostgreSQL does not refuse to create
+the new index while FK trigger events queued by the data seeder are still
+pending in the same transaction.
 """
 
 import django.db.models
 from django.db import migrations, models
-
-from opencontractserver.annotations.label_set_seeds import (
-    create_default_labelset,
-    reverse_migration,
-)
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
         ("annotations", "0068_enforce_embedder_path_not_null"),
-        # Need the install's first superuser to own the seeded labelset.
-        ("users", "0003_create_initial_superuser"),
     ]
 
     operations = [
@@ -34,9 +29,5 @@ class Migration(migrations.Migration):
                 fields=("is_default",),
                 name="only_one_default_labelset",
             ),
-        ),
-        migrations.RunPython(
-            create_default_labelset,
-            reverse_migration,
         ),
     ]

@@ -160,8 +160,8 @@ class CreateCorpusMutation(DRFMutation):
             from opencontractserver.annotations.models import LabelSet
 
             default_labelset = (
-                LabelSet.objects.filter(is_default=True)
-                .visible_to_user(info.context.user)
+                LabelSet.objects.visible_to_user(info.context.user)
+                .filter(is_default=True)
                 .first()
             )
             if default_labelset is not None:

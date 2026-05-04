@@ -230,5 +230,5 @@ def reverse_migration(apps, schema_editor):
     labelset.delete()
 
     AnnotationLabel.objects.filter(
-        id__in=candidate_labels, included_in_labelsets__isnull=True
+        id__in=candidate_labels, included_in_labelset__isnull=True
     ).delete()
