@@ -596,6 +596,11 @@ export interface GetCorpusesInputs {
   usesLabelsetId?: string;
   cursor?: string;
   limit?: number;
+  // Tab filters for the Corpuses view. Server applies these on top of the
+  // user-visible queryset so pagination + badge counts stay correct.
+  mine?: boolean;
+  isPublic?: boolean;
+  sharedWithMe?: boolean;
 }
 
 export interface GetCorpusesOutputs {
@@ -611,10 +616,16 @@ export const GET_CORPUSES = gql`
     $usesLabelsetId: String
     $cursor: String
     $limit: Int
+    $mine: Boolean
+    $isPublic: Boolean
+    $sharedWithMe: Boolean
   ) {
     corpuses(
       textSearch: $textSearch
       usesLabelsetId: $usesLabelsetId
+      mine: $mine
+      isPublic: $isPublic
+      sharedWithMe: $sharedWithMe
       first: $limit
       after: $cursor
     ) {
@@ -663,6 +674,32 @@ export const GET_CORPUSES = gql`
           licenseLink
         }
       }
+    }
+  }
+`;
+
+export interface CorpusFilterCounts {
+  all: number;
+  mine: number;
+  shared: number;
+  public: number;
+}
+
+export interface GetCorpusFilterCountsInputs {
+  textSearch?: string;
+}
+
+export interface GetCorpusFilterCountsOutputs {
+  corpusFilterCounts: CorpusFilterCounts;
+}
+
+export const GET_CORPUS_FILTER_COUNTS = gql`
+  query CorpusFilterCounts($textSearch: String) {
+    corpusFilterCounts(textSearch: $textSearch) {
+      all
+      mine
+      shared
+      public
     }
   }
 `;

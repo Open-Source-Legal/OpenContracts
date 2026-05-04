@@ -15,6 +15,7 @@ from config.graphql.base import OpenContractsNode
 from config.graphql.filters import CorpusCategoryFilter, CorpusFilter
 from config.graphql.graphene_types import (
     CorpusCategoryType,
+    CorpusFilterCountsType,
     CorpusFolderType,
     CorpusStatsType,
     CorpusType,
@@ -111,6 +112,50 @@ class CorpusQueryMixin:
         )
 
     corpus = OpenContractsNode.Field(CorpusType)  # relay.Node.Field(CorpusType)
+
+    corpus_filter_counts = graphene.Field(
+        CorpusFilterCountsType,
+        text_search=graphene.String(
+            required=False,
+            description=(
+                "Optional text search to apply alongside the tab counts so badges "
+                "match the result set the user actually sees when searching."
+            ),
+        ),
+        description=(
+            "Tab-filter totals for the corpus list view (all/mine/shared/public). "
+            "Each total respects the same visible_to_user permission filtering "
+            "used by the corpuses connection, so badges stay accurate without "
+            "paginating every page on the client."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_filter_counts(
+        self, info, text_search: str | None = None, **kwargs
+    ) -> dict[str, int]:
+        user = info.context.user
+        visible = Corpus.objects.visible_to_user(user)
+        if text_search:
+            visible = visible.filter(
+                Q(description__contains=text_search) | Q(title__contains=text_search)
+            )
+        all_count = visible.count()
+        public_count = visible.filter(is_public=True).count()
+        if user is None or not user.is_authenticated:
+            mine_count = 0
+            shared_count = 0
+        else:
+            mine_count = visible.filter(creator=user).count()
+            shared_count = (
+                visible.exclude(creator=user).exclude(is_public=True).count()
+            )
+        return {
+            "all": all_count,
+            "mine": mine_count,
+            "shared": shared_count,
+            "public": public_count,
+        }
 
     # CORPUS CATEGORY RESOLVERS #####################################
     corpus_categories = DjangoFilterConnectionField(

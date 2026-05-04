@@ -154,6 +154,36 @@ class CorpusFilter(django_filters.FilterSet):
         field_name="categories",
     )
 
+    # Tab filters used by the Corpuses view. The base queryset is already
+    # restricted to corpuses visible to the requesting user (via
+    # Corpus.objects.visible_to_user(user) in the resolver), so these flags
+    # only need to narrow that visible set.
+    mine = filters.BooleanFilter(method="mine_method")
+    is_public = filters.BooleanFilter(method="is_public_method")
+    shared_with_me = filters.BooleanFilter(method="shared_with_me_method")
+
+    def mine_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        if not value:
+            return queryset
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return queryset.none()
+        return queryset.filter(creator=user)
+
+    def is_public_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        return queryset.filter(is_public=bool(value))
+
+    def shared_with_me_method(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
+        if not value:
+            return queryset
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return queryset.none()
+        # "Shared" = visible to me, but neither created by me nor public.
+        return queryset.exclude(creator=user).exclude(is_public=True)
+
     class Meta:
         model = Corpus
         fields = {

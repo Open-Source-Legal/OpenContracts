@@ -195,23 +195,34 @@ export const CorpusDocumentCards = ({
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // Query to shape item data
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  const document_data = documents_response?.documents?.edges
-    ? documents_response.documents.edges
-    : [];
-  const document_items = document_data
-    .map((edge) => (edge?.node ? edge.node : undefined))
-    .filter((item): item is DocumentType => !!item);
+  // Memoize on the stable Apollo edges reference so identity only changes
+  // when the query result itself changes. Without this, .map().filter()
+  // produced a fresh array every render, which made the [document_items]
+  // effect below fire its cleanup-then-set cycle on every render and
+  // thrash the currentViewDocumentIds reactive var.
+  const document_items = useMemo<DocumentType[]>(() => {
+    const edges = documents_response?.documents?.edges ?? [];
+    return edges
+      .map((edge) => (edge?.node ? edge.node : undefined))
+      .filter((item): item is DocumentType => !!item);
+  }, [documents_response?.documents?.edges]);
+
+  // Stable, primitive key derived from the items so the effect only re-runs
+  // when the actual id set changes (not just the array reference).
+  const document_ids_key = useMemo(
+    () => document_items.map((doc) => doc.id).join(","),
+    [document_items]
+  );
 
   // Update the global reactive var with current view document IDs for toolbar's Select All functionality
   useEffect(() => {
-    const ids = document_items.map((doc) => doc.id);
-    currentViewDocumentIds(ids);
+    currentViewDocumentIds(document_ids_key ? document_ids_key.split(",") : []);
 
     // Clear on unmount
     return () => {
       currentViewDocumentIds([]);
     };
-  }, [document_items]);
+  }, [document_ids_key]);
 
   // Sync loading state to reactive var for toolbar to disable Select All while loading
   useEffect(() => {

@@ -277,12 +277,10 @@ export const DocumentCards = ({
   onLinkToDocument,
   onDocumentDrop,
 }: DocumentCardProps) => {
-  console.log("[DocumentCards] Rendering with viewMode:", viewMode);
   const [contextMenuOpen, setContextMenuOpen] = useState<string | null>(null);
 
   const handleUpdate = () => {
     if (!loading && pageInfo?.hasNextPage) {
-      console.log("cursor", pageInfo.endCursor);
       fetchMore({
         variables: {
           limit: 20,

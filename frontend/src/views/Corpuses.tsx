@@ -103,6 +103,9 @@ import {
   GET_CORPUSES,
   GET_CORPUS_METADATA,
   GET_CORPUS_STATS,
+  GET_CORPUS_FILTER_COUNTS,
+  GetCorpusFilterCountsInputs,
+  GetCorpusFilterCountsOutputs,
   RequestDocumentsInputs,
   RequestDocumentsOutputs,
   GET_DOCUMENTS,
@@ -1667,6 +1670,13 @@ export const Corpuses = () => {
   const [documentsViewMode, setDocumentsViewMode] =
     useState<ViewMode>("modern-list");
 
+  // Active tab on the Corpuses list view ("all" | "my" | "shared" | "public").
+  // Lifted up here so it can drive the GET_CORPUSES query variables — the
+  // server applies the tab filter and counts so pagination + badges stay
+  // accurate regardless of how many pages have been loaded.
+  const [corpusListActiveFilter, setCorpusListActiveFilter] =
+    useState<string>("all");
+
   // Track whether CorpusChat is showing a conversation (vs the list view)
   // Used to hide parent navigation header when CorpusChat handles its own
   const [chatInConversation, setChatInConversation] = useState<boolean>(false);
@@ -1818,13 +1828,22 @@ export const Corpuses = () => {
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // CRITICAL: Memoize corpus_variables to prevent infinite re-renders
   // Creating new object on every render causes Apollo to refetch → cache update → re-render → new object → LOOP
-  const corpus_variables = useMemo(() => {
-    const vars: LooseObject = {};
+  const corpus_variables = useMemo<GetCorpusesInputs>(() => {
+    const vars: GetCorpusesInputs = {};
     if (corpus_search_term) {
-      vars["textSearch"] = corpus_search_term;
+      vars.textSearch = corpus_search_term;
+    }
+    // Map active tab to backend filter args. Only one tab flag at a time —
+    // "all" sends no flag so the server returns the full visible set.
+    if (corpusListActiveFilter === "my") {
+      vars.mine = true;
+    } else if (corpusListActiveFilter === "shared") {
+      vars.sharedWithMe = true;
+    } else if (corpusListActiveFilter === "public") {
+      vars.isPublic = true;
     }
     return vars;
-  }, [corpus_search_term]);
+  }, [corpus_search_term, corpusListActiveFilter]);
 
   // Now that auth is guaranteed to be ready before this component renders,
   // we can use a regular useQuery
@@ -1842,6 +1861,31 @@ export const Corpuses = () => {
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true, // required to get loading signal on fetchMore
   });
+
+  // Tab counts for the Corpuses list view. Server-computed so they reflect
+  // the user's actual visible set (and the current text search) without
+  // needing every page paginated in.
+  const corpus_filter_counts_variables = useMemo<GetCorpusFilterCountsInputs>(
+    () => (corpus_search_term ? { textSearch: corpus_search_term } : {}),
+    [corpus_search_term]
+  );
+  const {
+    data: corpus_filter_counts_data,
+    refetch: refetchCorpusFilterCounts,
+  } = useQuery<GetCorpusFilterCountsOutputs, GetCorpusFilterCountsInputs>(
+    GET_CORPUS_FILTER_COUNTS,
+    {
+      variables: corpus_filter_counts_variables,
+      fetchPolicy: "cache-and-network",
+    }
+  );
+  const corpus_filter_counts =
+    corpus_filter_counts_data?.corpusFilterCounts ?? {
+      all: 0,
+      mine: 0,
+      shared: 0,
+      public: 0,
+    };
 
   /* --------------------------------------------------------------------------------------------------
    * Entity resolution is now handled by CentralRouteManager
@@ -2075,6 +2119,7 @@ export const Corpuses = () => {
     onCompleted: (data) => {
       refetchCorpuses();
       refetchStats(); // Refresh stats after corpus update
+      refetchCorpusFilterCounts();
       editingCorpus(null);
     },
   });
@@ -2086,8 +2131,23 @@ export const Corpuses = () => {
     DeleteCorpusOutputs,
     DeleteCorpusInputs
   >(DELETE_CORPUS, {
-    onCompleted: (data) => {
+    // Remove the deleted corpus from every cached connection (every tab,
+    // every search term) so the list updates instantly without waiting on
+    // the refetch round-trip.
+    update: (cache, { data }, { variables }) => {
+      if (!data?.deleteCorpus?.ok || !variables?.id) return;
+      const cacheId = cache.identify({
+        __typename: "CorpusType",
+        id: variables.id,
+      });
+      if (cacheId) {
+        cache.evict({ id: cacheId });
+        cache.gc();
+      }
+    },
+    onCompleted: () => {
       refetchCorpuses();
+      refetchCorpusFilterCounts();
     },
   });
 
@@ -2111,6 +2171,7 @@ export const Corpuses = () => {
     onCompleted: (data) => {
       refetchCorpuses();
       refetchStats(); // Refresh stats after corpus creation
+      refetchCorpusFilterCounts();
       setShowNewCorpusModal(false);
     },
   });
@@ -2732,6 +2793,9 @@ export const Corpuses = () => {
         allowImport={
           REACT_APP_ALLOW_IMPORTS && Boolean(backendUser?.canImportCorpus)
         }
+        activeFilter={corpusListActiveFilter}
+        onFilterChange={setCorpusListActiveFilter}
+        filterCounts={corpus_filter_counts}
       />
     );
   } else if (

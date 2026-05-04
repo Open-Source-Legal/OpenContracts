@@ -434,6 +434,20 @@ class CorpusStatsType(graphene.ObjectType):
     total_relationships = graphene.Int()
 
 
+class CorpusFilterCountsType(graphene.ObjectType):
+    """Counts of corpuses visible to the user, broken down by tab filter.
+
+    Each count respects guardian permissions (matches Corpus.objects.visible_to_user)
+    so tab badges in the corpus list view stay accurate without paginating every
+    page on the client.
+    """
+
+    all = graphene.Int()
+    mine = graphene.Int()
+    shared = graphene.Int()
+    public = graphene.Int()
+
+
 # ---------------- CorpusDescriptionRevisionType ----------------
 class CorpusDescriptionRevisionType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     """GraphQL type for corpus description revisions."""
