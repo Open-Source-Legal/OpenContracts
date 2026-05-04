@@ -100,6 +100,7 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
             "document_id": self.id,
             "user": getattr(info.context, "user", None),
             "use_cache": True,
+            "context": info.context,
         }
 
         structural = kwargs.get("structural")
@@ -123,6 +124,7 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
             "document_id": self.id,
             "user": getattr(info.context, "user", None),
             "use_cache": True,
+            "context": info.context,
         }
 
         structural = kwargs.get("structural")

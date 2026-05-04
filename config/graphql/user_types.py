@@ -222,6 +222,23 @@ class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def get_queryset(cls, queryset, info) -> Any:
         from django.db.models import QuerySet
 
+        # When the parent resolver prefetched the reverse relation
+        # (see ``AnnotationQueryOptimizer.get_document_annotations`` which
+        # registers a ``Prefetch("user_feedback", ...)``), the manager passed
+        # in here has its parent's ``_prefetched_objects_cache`` populated.
+        # Re-applying ``.visible_to_user(...)`` invalidates that cache and
+        # forces a fresh SELECT per parent row — the original N+1 storm we
+        # were trying to eliminate. Detect the prefetch and pass through.
+        instance = getattr(queryset, "instance", None)
+        cache_name = getattr(queryset, "prefetch_cache_name", None)
+        prefetched = getattr(instance, "_prefetched_objects_cache", None) or {}
+        if (
+            instance is not None
+            and cache_name is not None
+            and cache_name in prefetched
+        ):
+            return queryset
+
         if issubclass(type(queryset), QuerySet):
             return queryset.visible_to_user(info.context.user)
         elif "RelatedManager" in str(type(queryset)):
