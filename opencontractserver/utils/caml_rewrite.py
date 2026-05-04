@@ -48,8 +48,8 @@ def _doc_url(user_slug: str, corpus_slug: str, doc_slug: str) -> str:
 
 def rewrite_oc_import_links(
     content: str,
-    corpus: "Corpus",
-    doc_filename_to_doc: dict[str, "Document"],
+    corpus: Corpus,
+    doc_filename_to_doc: dict[str, Document],
     annot_old_id_to_new_pk: dict[str | int, int],
 ) -> tuple[str, dict[str, int]]:
     """
@@ -102,7 +102,7 @@ def rewrite_oc_import_links(
     #   oc-import://document/documents/foo.pdf
     #   oc-import://document/./documents/foo.pdf
     #   oc-import://document//documents/foo.pdf
-    normalized_doc_map: dict[str, "Document"] = {}
+    normalized_doc_map: dict[str, Document] = {}
     for fname, doc in doc_filename_to_doc.items():
         normalized_doc_map[fname] = doc
         if fname.startswith("./"):
