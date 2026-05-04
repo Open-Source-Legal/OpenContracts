@@ -47,6 +47,52 @@ interface WrapperProps {
   allowImport?: boolean;
 }
 
+/**
+ * Compute the four tab counts from a static list. Mirrors the server-side
+ * filter semantics so test counts match what the real backend would return.
+ */
+const computeFilterCounts = (
+  corpuses: CorpusType[],
+  currentUserEmail?: string
+) => {
+  const all = corpuses.length;
+  let mine = 0;
+  let shared = 0;
+  let publicCount = 0;
+  for (const c of corpuses) {
+    const isOwner = c.creator?.email === currentUserEmail;
+    if (isOwner) mine++;
+    else if (!c.isPublic) shared++;
+    if (c.isPublic) publicCount++;
+  }
+  return { all, mine, shared, public: publicCount };
+};
+
+/**
+ * Apply tab filtering client-side in the test harness. The real
+ * `CorpusListView` no longer filters internally because the server does that
+ * — but tests pass a static list, so the wrapper has to replicate the
+ * server's tab semantics for the active filter.
+ */
+const applyTabFilter = (
+  corpuses: CorpusType[],
+  activeFilter: string,
+  currentUserEmail?: string
+): CorpusType[] => {
+  switch (activeFilter) {
+    case "my":
+      return corpuses.filter((c) => c.creator?.email === currentUserEmail);
+    case "shared":
+      return corpuses.filter(
+        (c) => c.creator?.email !== currentUserEmail && !c.isPublic
+      );
+    case "public":
+      return corpuses.filter((c) => c.isPublic);
+    default:
+      return corpuses;
+  }
+};
+
 export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
   corpuses,
   searchValue,
@@ -70,6 +116,18 @@ export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
     }
   }, [isAuthenticated, userEmail]);
 
+  const [activeFilter, setActiveFilter] = React.useState("all");
+
+  const filterCounts = React.useMemo(
+    () => computeFilterCounts(corpuses, userEmail),
+    [corpuses, userEmail]
+  );
+
+  const visibleCorpuses = React.useMemo(
+    () => applyTabFilter(corpuses, activeFilter, userEmail),
+    [corpuses, activeFilter, userEmail]
+  );
+
   const defaultPageInfo: PageInfo = {
     hasNextPage: false,
     hasPreviousPage: false,
@@ -83,7 +141,7 @@ export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
       <MemoryRouter initialEntries={["/corpuses"]}>
         <MockedProvider mocks={createMocks()} cache={createTestCache()}>
           <CorpusListView
-            corpuses={corpuses}
+            corpuses={visibleCorpuses}
             pageInfo={pageInfo ?? defaultPageInfo}
             loading={loading}
             fetchMore={() => {}}
@@ -92,6 +150,9 @@ export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
             searchValue={searchValue}
             onSearchChange={onSearchChange}
             allowImport={allowImport}
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
+            filterCounts={filterCounts}
           />
         </MockedProvider>
       </MemoryRouter>
