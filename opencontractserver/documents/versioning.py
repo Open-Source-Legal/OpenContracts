@@ -30,9 +30,8 @@ import hashlib
 import logging
 import mimetypes
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 
@@ -40,8 +39,10 @@ from opencontractserver.constants.document_processing import TEXT_MIMETYPES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.documents.models import Document, DocumentPath
 
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User
+
 logger = logging.getLogger(__name__)
-User = get_user_model()
 
 
 # Map MIME types to file extensions for creating filenames
@@ -132,7 +133,7 @@ def import_document(
     corpus: Corpus,
     path: str,
     content: bytes,
-    user: User,
+    user: "User",
     folder: Optional[CorpusFolder] = None,
     pdf_file=None,
     txt_file=None,
@@ -409,8 +410,8 @@ def move_document(
     corpus: Corpus,
     old_path: str,
     new_path: str,
-    user: User,
-    new_folder: Optional[CorpusFolder] = "UNSET",
+    user: "User",
+    new_folder: "Optional[CorpusFolder] | Literal['UNSET']" = "UNSET",
 ) -> DocumentPath:
     """
     Move document - creates new DocumentPath, Document unchanged.
@@ -429,10 +430,16 @@ def move_document(
         current.is_current = False
         current.save(update_fields=["is_current"])
 
-        # Determine folder for new path
+        folder_to_use: Optional[CorpusFolder]
         if new_folder == "UNSET":
             # Not specified, keep current folder
             folder_to_use = current.folder
+        elif isinstance(new_folder, str):
+            # Defensive: assert is stripped under python -O so use a real raise
+            raise TypeError(
+                f"new_folder must be a CorpusFolder, None, or 'UNSET'; "
+                f"got {new_folder!r}"
+            )
         else:
             # Explicitly set (could be None or a folder)
             folder_to_use = new_folder
@@ -461,7 +468,7 @@ def move_document(
         return new_path_record
 
 
-def delete_document(corpus: Corpus, path: str, user: User) -> DocumentPath:
+def delete_document(corpus: Corpus, path: str, user: "User") -> DocumentPath:
     """
     Soft delete - creates deleted DocumentPath.
 
@@ -498,7 +505,7 @@ def delete_document(corpus: Corpus, path: str, user: User) -> DocumentPath:
         return deleted_path
 
 
-def restore_document(corpus: Corpus, path: str, user: User) -> DocumentPath:
+def restore_document(corpus: Corpus, path: str, user: "User") -> DocumentPath:
     """
     Restore deleted document.
 
@@ -669,7 +676,7 @@ def has_references_in_other_corpuses(
 
 
 def permanently_delete_document(
-    corpus: Corpus, document: Document, user: User
+    corpus: Corpus, document: Document, user: "User"
 ) -> tuple[bool, str]:
     """
     Permanently delete a soft-deleted document from a corpus.
@@ -774,7 +781,7 @@ def permanently_delete_document(
 
 
 def permanently_delete_all_in_trash(
-    corpus: Corpus, user: User
+    corpus: Corpus, user: "User"
 ) -> tuple[int, list[str]]:
     """
     Permanently delete ALL soft-deleted documents in a corpus (empty trash).

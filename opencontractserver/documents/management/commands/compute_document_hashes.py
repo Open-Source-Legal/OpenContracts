@@ -72,7 +72,15 @@ class Command(BaseCommand):
                     )
                     continue
 
-                # Check if file exists
+                if document.pdf_file.name is None:
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f"Document {document.id} has a file field with no name"
+                        )
+                    )
+                    errors += 1
+                    continue
+
                 if not document.pdf_file.storage.exists(document.pdf_file.name):
                     self.stdout.write(
                         self.style.ERROR(
@@ -106,7 +114,7 @@ class Command(BaseCommand):
                     updated += 1
                 else:
                     self.stdout.write(
-                        f"Document {document.id} already has correct hash: {old_hash[:8]}..."
+                        f"Document {document.id} already has correct hash: {(old_hash or '')[:8]}..."
                     )
 
                 processed += 1
