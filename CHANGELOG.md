@@ -54,6 +54,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     transport, in-band refresh, user-pk-swap refusal, and DevTools sanity
     check that the JWT never appears in the request URL.
 
+  - **Full-stack E2E spec**:
+    `frontend/tests/e2e/websocket-auth.spec.ts` drives the real-browser →
+    Vite proxy → Daphne ASGI → consumer pipeline for all three websocket
+    consumers. Asserts on actual frames captured via Playwright's
+    `page.on('websocket')` so the wire protocol (subprotocol echo, AUTH_OK,
+    NOTIFICATION_CREATED, in-band refresh) is the source of truth — no
+    mocks. Triggers a real BADGE notification via `docker compose exec` to
+    prove signal-driven broadcast end-to-end. Companion CI workflow
+    `.github/workflows/frontend-e2e-websocket.yml` boots the local stack
+    (Daphne, not runserver), runs under VCR replay so the LLM-touching
+    test needs no real OpenAI key, and uploads coverage to Codecov under
+    flags `frontend-e2e,frontend,websocket` and `backend-e2e,websocket`.
+    The agent-chat path of `UnifiedAgentConsumer` (`_stream_agent_response`
+    + `_handle_approval_decision`) is now wrapped in `maybe_vcr_cassette()`
+    so the cassette covers both branches.
+
+  - **Browser close-code surface is documented**: real browsers see close
+    code `1006` (abnormal closure) for any auth rejection that happens
+    before the consumer calls `accept()` — Channels translates a pre-accept
+    `close()` into an HTTP 403 handshake rejection, which never produces
+    a WebSocket close frame with the application code. The
+    `WebsocketCommunicator` tests still see `4001`/`4002`/`4003` because
+    Channels exposes the intended code to its test runner. The new e2e
+    spec asserts the real browser surface (1006) for all pre-accept paths
+    so a future change to accept-then-close (which would let the browser
+    see the application code) is caught and the test gets updated.
+
   - **Per-connection AUTH-frame cooldown** in `AuthHandshakeMixin`: a
     1-second floor between accepted AUTH frames per socket prevents a
     malicious client from spamming refresh frames to burn DB queries on

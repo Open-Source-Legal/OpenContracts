@@ -631,15 +631,22 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
     async def _stream_agent_response(self, user_query: str) -> None:
         """Stream the agent's response to the client."""
+        # When OC_LLM_VCR_MODE is set, wrap the LLM HTTP traffic in a vcr.py
+        # cassette so the e2e websocket-auth workflow can replay a recorded
+        # conversation rather than making real OpenAI/Anthropic calls.
+        # In production (env vars unset) the helper is a no-op context manager.
+        from opencontractserver.utils.vcr_replay import maybe_vcr_cassette
+
         try:
-            async for event in self.agent.stream(user_query):
-                if not self._is_connected:
-                    logger.debug(
-                        f"[Session {self.session_id}] Client disconnected mid-stream, "
-                        "stopping iteration."
-                    )
-                    break
-                await self._handle_agent_event(event)
+            with maybe_vcr_cassette():
+                async for event in self.agent.stream(user_query):
+                    if not self._is_connected:
+                        logger.debug(
+                            f"[Session {self.session_id}] Client disconnected mid-stream, "
+                            "stopping iteration."
+                        )
+                        break
+                    await self._handle_agent_event(event)
 
             logger.debug(f"[Session {self.session_id}] Streaming complete.")
 
@@ -827,17 +834,22 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             )
             return
 
+        # Same VCR wrap as _stream_agent_response so the approval-resume
+        # leg also replays cassette traffic when OC_LLM_VCR_MODE is set.
+        from opencontractserver.utils.vcr_replay import maybe_vcr_cassette
+
         try:
-            # Stream the resumed answer
-            async for event in self.agent.resume_with_approval(
-                llm_msg_id, approved, stream=True
-            ):
-                if not self._is_connected:
-                    logger.debug(
-                        f"[Session {self.session_id}] Client disconnected during approval stream."
-                    )
-                    break
-                await self._handle_agent_event(event)
+            with maybe_vcr_cassette():
+                # Stream the resumed answer
+                async for event in self.agent.resume_with_approval(
+                    llm_msg_id, approved, stream=True
+                ):
+                    if not self._is_connected:
+                        logger.debug(
+                            f"[Session {self.session_id}] Client disconnected during approval stream."
+                        )
+                        break
+                    await self._handle_agent_event(event)
 
         except Exception as e:
             if not self._is_connected:
