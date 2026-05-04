@@ -207,21 +207,31 @@ export const CorpusDocumentCards = ({
       .filter((item): item is DocumentType => !!item);
   }, [documents_response?.documents?.edges]);
 
-  // Stable, primitive key derived from the items so the effect only re-runs
-  // when the actual id set changes (not just the array reference).
-  const document_ids_key = useMemo(
-    () => document_items.map((doc) => doc.id).join(","),
+  // Memoize the id array on the same input as document_items so we can hand
+  // it to the reactive var without re-deriving on every render.
+  const document_ids = useMemo(
+    () => document_items.map((doc) => doc.id),
     [document_items]
+  );
+
+  // Stable, primitive key derived from the ids so the effect only re-runs
+  // when the actual id set changes (not just the array reference). We use the
+  // joined string purely as the dep key — the effect body reads the array
+  // directly so we don't have to rely on ids being comma-free.
+  const document_ids_key = useMemo(
+    () => document_ids.join(","),
+    [document_ids]
   );
 
   // Update the global reactive var with current view document IDs for toolbar's Select All functionality
   useEffect(() => {
-    currentViewDocumentIds(document_ids_key ? document_ids_key.split(",") : []);
+    currentViewDocumentIds(document_ids);
 
     // Clear on unmount
     return () => {
       currentViewDocumentIds([]);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document_ids_key]);
 
   // Sync loading state to reactive var for toolbar to disable Select All while loading

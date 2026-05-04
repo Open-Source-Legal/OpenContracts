@@ -158,6 +158,13 @@ class CorpusFilter(django_filters.FilterSet):
     # restricted to corpuses visible to the requesting user (via
     # Corpus.objects.visible_to_user(user) in the resolver), so these flags
     # only need to narrow that visible set.
+    #
+    # Contract: each flag is treated as opt-in only. Passing `False` is a
+    # no-op (returns the unfiltered queryset) — these methods do NOT invert
+    # the filter. The Corpuses tab UI sends exactly one flag per request, so
+    # combining flags is undefined and intentionally not supported. Treating
+    # `False` as a no-op (rather than raising) keeps the GraphQL surface
+    # forgiving for older clients that may serialize defaults explicitly.
     mine = filters.BooleanFilter(method="mine_method")
     is_public = filters.BooleanFilter(method="is_public_method")
     shared_with_me = filters.BooleanFilter(method="shared_with_me_method")
@@ -171,7 +178,9 @@ class CorpusFilter(django_filters.FilterSet):
         return queryset.filter(creator=user)
 
     def is_public_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
-        return queryset.filter(is_public=bool(value))
+        if not value:
+            return queryset
+        return queryset.filter(is_public=True)
 
     def shared_with_me_method(
         self, queryset: QuerySet, name: str, value: Any

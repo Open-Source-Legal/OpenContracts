@@ -2146,6 +2146,10 @@ export const Corpuses = () => {
       }
     },
     onCompleted: () => {
+      // cache.evict gives instant removal in every cached page; the refetch
+      // is still load-bearing because deleting a corpus shifts every
+      // server-side pagination cursor that comes after it, so subsequent
+      // fetchMore calls would otherwise skip or duplicate items.
       refetchCorpuses();
       refetchCorpusFilterCounts();
     },

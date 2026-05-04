@@ -442,10 +442,10 @@ class CorpusFilterCountsType(graphene.ObjectType):
     page on the client.
     """
 
-    all = graphene.Int()
-    mine = graphene.Int()
-    shared = graphene.Int()
-    public = graphene.Int()
+    all = graphene.Int(required=True)
+    mine = graphene.Int(required=True)
+    shared = graphene.Int(required=True)
+    public = graphene.Int(required=True)
 
 
 # ---------------- CorpusDescriptionRevisionType ----------------

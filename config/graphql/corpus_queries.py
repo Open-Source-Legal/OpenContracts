@@ -140,19 +140,26 @@ class CorpusQueryMixin:
             visible = visible.filter(
                 Q(description__contains=text_search) | Q(title__contains=text_search)
             )
-        all_count = visible.count()
-        public_count = visible.filter(is_public=True).count()
-        if user is None or not user.is_authenticated:
-            mine_count = 0
-            shared_count = 0
-        else:
-            mine_count = visible.filter(creator=user).count()
-            shared_count = visible.exclude(creator=user).exclude(is_public=True).count()
+
+        # Single aggregation produces all four counts in one query plan
+        # rather than four separate COUNT(*) round-trips against the same
+        # (non-trivial, guardian-filtered) visible queryset.
+        is_authed = user is not None and user.is_authenticated
+        aggregations: dict[str, Any] = {
+            "all": Count("id"),
+            "public": Count("id", filter=Q(is_public=True)),
+        }
+        if is_authed:
+            aggregations["mine"] = Count("id", filter=Q(creator=user))
+            aggregations["shared"] = Count(
+                "id", filter=Q(is_public=False) & ~Q(creator=user)
+            )
+        counts = visible.aggregate(**aggregations)
         return {
-            "all": all_count,
-            "mine": mine_count,
-            "shared": shared_count,
-            "public": public_count,
+            "all": counts["all"],
+            "mine": counts.get("mine", 0),
+            "shared": counts.get("shared", 0),
+            "public": counts["public"],
         }
 
     # CORPUS CATEGORY RESOLVERS #####################################
