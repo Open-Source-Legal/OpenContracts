@@ -35,6 +35,7 @@ interface MockWebSocketInstance {
   _deliver: (data: AgentMessageData | string) => void;
   _open: () => void;
   _fail: () => void;
+  _serverClose: (code: number) => void;
 }
 
 let wsInstances: MockWebSocketInstance[] = [];
@@ -69,6 +70,11 @@ class MockWebSocket implements MockWebSocketInstance {
 
   _fail() {
     if (this.onerror) this.onerror({} as Event);
+  }
+
+  _serverClose(code: number) {
+    this.readyState = CLOSED;
+    if (this.onclose) this.onclose({ code } as CloseEvent);
   }
 
   _deliver(data: AgentMessageData | string) {
@@ -137,7 +143,8 @@ describe("useAgentChat", () => {
 
       expect(wsInstances).toHaveLength(1);
       expect(latestSocket().url).toContain("corpus_id=c-1");
-      expect(latestSocket().url).toContain("token=test-token");
+      // PR #1502: token must NOT be in URL — auth happens via Sec-WebSocket-Protocol
+      expect(latestSocket().url).not.toContain("token=");
       expect(result.current.isConnected).toBe(false);
 
       act(() => latestSocket()._open());
@@ -146,17 +153,18 @@ describe("useAgentChat", () => {
       expect(result.current.error).toBeNull();
     });
 
-    it("surfaces connection errors", () => {
+    it("surfaces auth-failure close codes via the consumer error state", () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const { result } = renderHook(
         () => useAgentChat({ context: { documentId: "d-1" } }),
         { wrapper: createWrapper() }
       );
 
-      act(() => latestSocket()._fail());
+      // Backend rejected the token (close 4002 → onAuthInvalid in the hook)
+      act(() => latestSocket()._serverClose(4002));
 
       expect(result.current.isConnected).toBe(false);
-      expect(result.current.error).toMatch(/Error connecting/i);
+      expect(result.current.error).toMatch(/Authentication failed/i);
       errorSpy.mockRestore();
     });
 
@@ -650,7 +658,8 @@ describe("useAgentChat", () => {
         () => useAgentChat({ context: { corpusId: "c-1" } }),
         { wrapper: createWrapper() }
       );
-      act(() => latestSocket()._fail());
+      // Trigger consumer-visible error via auth-failure close (4002)
+      act(() => latestSocket()._serverClose(4002));
       expect(result.current.error).not.toBeNull();
 
       act(() => result.current.clearError());

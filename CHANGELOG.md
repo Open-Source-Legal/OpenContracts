@@ -54,6 +54,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     transport, in-band refresh, user-pk-swap refusal, and DevTools sanity
     check that the JWT never appears in the request URL.
 
+  - **Per-connection AUTH-frame cooldown** in `AuthHandshakeMixin`: a
+    1-second floor between accepted AUTH frames per socket prevents a
+    malicious client from spamming refresh frames to burn DB queries on
+    `_get_user_from_token` + `_validate_resource_permissions`. Auth0 silent
+    renewal happens roughly every 50 minutes, so legitimate refreshes are
+    unaffected.
+
+  - **Auth-failure close codes are terminal in the frontend**:
+    `useWebSocketAuth` treats close codes 4000 (UNAUTHENTICATED), 4001
+    (TOKEN_EXPIRED), and 4002 (TOKEN_INVALID) as auth-invalid signals —
+    `onAuthInvalid` fires once and the hook stops spawning new sockets.
+    Previously 4000/4001 fell through to exponential-backoff reconnect,
+    which would just be rejected again in a loop until the user
+    re-authenticated. The hook also no longer returns the underlying
+    `WebSocket` reference (it was stale on the first render), to remove a
+    footgun for downstream consumers.
+
+  - **`CorpusChat` and `ChatTray` migrated to `useWebSocketAuth`**: both
+    chat surfaces previously instantiated raw `new WebSocket(url)` without
+    subprotocols, so authenticated users would have hit the new middleware
+    as anonymous after this deploy. Both now compose the shared hook
+    (subprotocol auth on connect, in-band AUTH refresh on token rotation,
+    close-code-aware reconnect policy).
+
+  - **Backend `receive()` cleanup**: each consumer now parses the incoming
+    text frame once and dispatches AUTH/non-AUTH from the same payload
+    (was double-parsing). `thread_updates.py` consolidates redundant
+    nested imports of `Conversation` / `Corpus` / `Document` to module
+    level.
+
 ### Added
 
 - **Cross-content Discover search** at `/discover/search`. The Discover hero

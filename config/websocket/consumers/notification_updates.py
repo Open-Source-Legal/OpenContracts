@@ -183,42 +183,39 @@ class NotificationUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         - heartbeat: Keep-alive message
         """
         try:
-            _payload = json.loads(text_data)
+            data = json.loads(text_data)
         except json.JSONDecodeError:
-            _payload = None
-        if isinstance(_payload, dict) and _payload.get("type") == "AUTH":
-            await self.handle_auth_message(_payload)
+            logger.warning(
+                f"[NotificationUpdates {self.consumer_id}] Invalid JSON received"
+            )
+            return
+
+        if isinstance(data, dict) and data.get("type") == "AUTH":
+            await self.handle_auth_message(data)
             return
 
         if await check_ws_rate_limit(self, "WS_HEARTBEAT"):
             return
 
-        try:
-            data = json.loads(text_data)
-            msg_type = data.get("type", "")
+        msg_type = data.get("type", "") if isinstance(data, dict) else ""
 
-            if msg_type == "ping":
-                await self.send(text_data=json.dumps({"type": "pong"}))
+        if msg_type == "ping":
+            await self.send(text_data=json.dumps({"type": "pong"}))
 
-            elif msg_type == "heartbeat":
-                await self.send(
-                    text_data=json.dumps(
-                        {
-                            "type": "heartbeat_ack",
-                            "session_id": self.session_id,
-                        }
-                    )
+        elif msg_type == "heartbeat":
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "heartbeat_ack",
+                        "session_id": self.session_id,
+                    }
                 )
+            )
 
-            else:
-                logger.debug(
-                    f"[NotificationUpdates {self.consumer_id}] "
-                    f"Unknown message type: {msg_type}"
-                )
-
-        except json.JSONDecodeError:
-            logger.warning(
-                f"[NotificationUpdates {self.consumer_id}] Invalid JSON received"
+        else:
+            logger.debug(
+                f"[NotificationUpdates {self.consumer_id}] "
+                f"Unknown message type: {msg_type}"
             )
 
     # -------------------------------------------------------------------------

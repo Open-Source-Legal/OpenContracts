@@ -387,19 +387,22 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         """
         logger.debug(f"[Session {self.session_id}] receive(): {text_data[:200]}...")
 
-        # Route AUTH refresh frames before anything else (no rate-limit gate, no
-        # JSON dispatch, no agent re-init). Pure metadata mutation on scope.user.
         try:
-            _payload = json.loads(text_data)
+            payload: dict[str, Any] = json.loads(text_data)
         except json.JSONDecodeError:
-            _payload = None
-        if isinstance(_payload, dict) and _payload.get("type") == "AUTH":
-            await self.handle_auth_message(_payload)
+            await self._send_safe(
+                msg_type="SYNC_CONTENT",
+                data={"error": "Malformed JSON payload."},
+            )
+            return
+
+        # Route AUTH refresh frames before anything else (per-connection
+        # cooldown + DB-backed token validation live in handle_auth_message).
+        if isinstance(payload, dict) and payload.get("type") == "AUTH":
+            await self.handle_auth_message(payload)
             return
 
         try:
-            payload: dict[str, Any] = json.loads(text_data)
-
             # Handle approval workflow
             if "approval_decision" in payload:
                 if await check_ws_rate_limit(
@@ -456,11 +459,6 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             # Stream the response
             await self._stream_agent_response(user_query)
 
-        except json.JSONDecodeError:
-            await self._send_safe(
-                msg_type="SYNC_CONTENT",
-                data={"error": "Malformed JSON payload."},
-            )
         except Exception as e:
             logger.error(
                 f"[Session {self.session_id}] Error during message processing: {e}",

@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 from channels.db import database_sync_to_async
@@ -43,6 +44,12 @@ logger = logging.getLogger(__name__)
 
 # Permission-denied close code (consistent with existing consumer usage).
 WS_CLOSE_PERMISSION_DENIED = 4003
+
+# Minimum interval between accepted AUTH frames on a single connection.
+# Auth0 silent renewal happens on the order of every 50 minutes, so a 1-second
+# floor cannot interfere with legitimate refreshes but stops a malicious client
+# from spamming AUTH frames to burn DB queries (issue raised in PR #1502 review).
+_MIN_AUTH_FRAME_INTERVAL_SEC = 1.0
 
 
 @database_sync_to_async
@@ -67,6 +74,9 @@ class AuthHandshakeMixin:
     # Populated by accept_with_auth() and updated by handle_auth_message().
     _refresh_grace_task: asyncio.Task | None = None
     _initial_auth_sent: bool = False
+    # Monotonic timestamp of the last AUTH frame we accepted; used to throttle
+    # spam at the per-connection level before any DB work runs.
+    _last_auth_frame_at: float = 0.0
 
     @property
     def current_user(self):
@@ -115,7 +125,18 @@ class AuthHandshakeMixin:
         Validates the token, refuses user-pk swap, re-validates resource
         permissions, swaps scope["user"] on success, and cancels any pending
         server-nudge grace timer.
+
+        Enforces a per-connection cooldown so a malicious client cannot spam
+        AUTH frames to burn DB queries on token validation + permission checks.
+        Frames arriving inside the cooldown window are silently dropped without
+        touching the database.
         """
+        now = time.monotonic()
+        if now - self._last_auth_frame_at < _MIN_AUTH_FRAME_INTERVAL_SEC:
+            logger.debug("Dropping AUTH frame: per-connection cooldown active")
+            return
+        self._last_auth_frame_at = now
+
         token = payload.get("token")
         if not token or not isinstance(token, str):
             await self._fail_auth("INVALID", WS_CLOSE_TOKEN_INVALID)

@@ -31,6 +31,8 @@ from config.websocket.auth_handshake import AuthHandshakeMixin
 from config.websocket.middleware import WS_CLOSE_RATE_LIMITED
 from config.websocket.utils.auth_helpers import check_auth_and_close_if_failed
 from opencontractserver.conversations.models import Conversation
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
 
 logger = logging.getLogger(__name__)
 
@@ -162,40 +164,37 @@ class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         a few client-initiated message types for connection management.
         """
         try:
-            _payload = json.loads(text_data)
+            data = json.loads(text_data)
         except json.JSONDecodeError:
-            _payload = None
-        if isinstance(_payload, dict) and _payload.get("type") == "AUTH":
-            await self.handle_auth_message(_payload)
+            logger.warning(f"[ThreadUpdates {self.consumer_id}] Invalid JSON received")
+            return
+
+        if isinstance(data, dict) and data.get("type") == "AUTH":
+            await self.handle_auth_message(data)
             return
 
         if await check_ws_rate_limit(self, "WS_HEARTBEAT"):
             return
 
-        try:
-            data = json.loads(text_data)
-            msg_type = data.get("type", "")
+        msg_type = data.get("type", "") if isinstance(data, dict) else ""
 
-            if msg_type == "ping":
-                await self.send(text_data=json.dumps({"type": "pong"}))
+        if msg_type == "ping":
+            await self.send(text_data=json.dumps({"type": "pong"}))
 
-            elif msg_type == "heartbeat":
-                await self.send(
-                    text_data=json.dumps(
-                        {
-                            "type": "heartbeat_ack",
-                            "session_id": self.session_id,
-                        }
-                    )
+        elif msg_type == "heartbeat":
+            await self.send(
+                text_data=json.dumps(
+                    {
+                        "type": "heartbeat_ack",
+                        "session_id": self.session_id,
+                    }
                 )
+            )
 
-            else:
-                logger.debug(
-                    f"[ThreadUpdates {self.consumer_id}] Unknown message type: {msg_type}"
-                )
-
-        except json.JSONDecodeError:
-            logger.warning(f"[ThreadUpdates {self.consumer_id}] Invalid JSON received")
+        else:
+            logger.debug(
+                f"[ThreadUpdates {self.consumer_id}] Unknown message type: {msg_type}"
+            )
 
     # -------------------------------------------------------------------------
     #  Channel layer message handlers (from Celery tasks)
@@ -277,8 +276,6 @@ class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
         @database_sync_to_async
         def _check(user):
-            from opencontractserver.conversations.models import Conversation
-
             try:
                 convo = Conversation.objects.get(pk=self.conversation_id)
             except Conversation.DoesNotExist:
@@ -287,9 +284,6 @@ class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 return True
             if user.is_superuser:
                 return True
-
-            from opencontractserver.corpuses.models import Corpus
-            from opencontractserver.documents.models import Document
 
             has_corpus = True
             has_doc = True
@@ -344,8 +338,6 @@ class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
             # Check corpus access if conversation has corpus context
             if conversation.chat_with_corpus:
-                from opencontractserver.corpuses.models import Corpus
-
                 try:
                     Corpus.objects.visible_to_user(user).get(
                         pk=conversation.chat_with_corpus_id
@@ -356,8 +348,6 @@ class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
             # Check document access if conversation has document context
             if conversation.chat_with_document:
-                from opencontractserver.documents.models import Document
-
                 try:
                     Document.objects.visible_to_user(user).get(
                         pk=conversation.chat_with_document_id

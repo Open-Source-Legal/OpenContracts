@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react-hooks";
 import { authToken } from "../../graphql/cache";
 import {
   WS_AUTH_SUBPROTOCOL,
   WS_CLOSE_PERMISSION_DENIED,
+  WS_CLOSE_TOKEN_EXPIRED,
+  WS_CLOSE_TOKEN_INVALID,
+  WS_CLOSE_UNAUTHENTICATED,
 } from "../../utils/websocketAuth";
 import { useWebSocketAuth } from "../useWebSocketAuth";
 
@@ -138,4 +141,21 @@ describe("useWebSocketAuth", () => {
     act(() => MockWebSocket.instances[0]._serverClose(1000));
     expect(MockWebSocket.instances.length).toBe(1);
   });
+
+  // Auth-failure family: reconnecting would just be rejected the same way,
+  // so the hook must surface the failure once and stop spawning new sockets.
+  for (const [label, code] of [
+    ["4000 (UNAUTHENTICATED)", WS_CLOSE_UNAUTHENTICATED],
+    ["4001 (TOKEN_EXPIRED)", WS_CLOSE_TOKEN_EXPIRED],
+    ["4002 (TOKEN_INVALID)", WS_CLOSE_TOKEN_INVALID],
+  ] as const) {
+    it(`fires onAuthInvalid and does not reconnect on close ${label}`, () => {
+      authToken("t");
+      const onAuthInvalid = vi.fn();
+      renderHook(() => useWebSocketAuth({ url: "ws://x/", onAuthInvalid }));
+      act(() => MockWebSocket.instances[0]._serverClose(code));
+      expect(onAuthInvalid).toHaveBeenCalledTimes(1);
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+  }
 });

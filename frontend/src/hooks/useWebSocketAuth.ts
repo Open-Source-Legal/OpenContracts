@@ -18,6 +18,8 @@ import { useReactiveVar } from "@apollo/client";
 import { authToken } from "../graphql/cache";
 import {
   WS_CLOSE_NORMAL,
+  WS_CLOSE_UNAUTHENTICATED,
+  WS_CLOSE_TOKEN_EXPIRED,
   WS_CLOSE_TOKEN_INVALID,
   WS_CLOSE_PERMISSION_DENIED,
   WS_CLOSE_RATE_LIMITED,
@@ -44,7 +46,6 @@ export interface UseWebSocketAuthOptions {
 }
 
 export interface UseWebSocketAuthReturn {
-  ws: WebSocket | null;
   isConnected: boolean;
   isAuthenticated: boolean;
   lastError: string | null;
@@ -144,7 +145,13 @@ export function useWebSocketAuth(
       if (code === WS_CLOSE_NORMAL || code === WS_CLOSE_PERMISSION_DENIED) {
         return;
       }
-      if (code === WS_CLOSE_TOKEN_INVALID) {
+      // Auth-failure family — reconnecting will just be rejected the same way
+      // until the user signs in again, so surface the failure and stop.
+      if (
+        code === WS_CLOSE_UNAUTHENTICATED ||
+        code === WS_CLOSE_TOKEN_EXPIRED ||
+        code === WS_CLOSE_TOKEN_INVALID
+      ) {
         onAuthInvalid?.();
         return;
       }
@@ -188,7 +195,6 @@ export function useWebSocketAuth(
   }, []);
 
   return {
-    ws: wsRef.current,
     isConnected,
     isAuthenticated,
     lastError,

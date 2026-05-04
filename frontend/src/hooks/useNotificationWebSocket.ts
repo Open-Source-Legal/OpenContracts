@@ -136,10 +136,8 @@ export interface UseNotificationWebSocketReturn {
   sessionId: string | null;
   /** Recently received notifications (last 50) */
   recentNotifications: NotificationUpdate[];
-  /** Manually connect to WebSocket */
-  connect: () => void;
-  /** Manually disconnect from WebSocket */
-  disconnect: () => void;
+  /** Force a reconnect (e.g. on page resume). */
+  reconnect: () => void;
   /** Send a ping to check connection */
   sendPing: () => void;
   /** Clear recent notifications */
@@ -301,18 +299,11 @@ export function useNotificationWebSocket(
     send(JSON.stringify({ type: "ping" }));
   }, [send]);
 
-  // Preserve API: connect/disconnect become reconnect/no-op
-  const connect = reconnect;
-  const disconnect = useCallback(() => {
-    /* lifecycle owned by useWebSocketAuth */
-  }, []);
-
   return {
     connectionState,
     sessionId,
     recentNotifications,
-    connect,
-    disconnect,
+    reconnect,
     sendPing,
     clearRecent,
   };

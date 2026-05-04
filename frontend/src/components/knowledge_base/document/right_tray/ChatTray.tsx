@@ -35,6 +35,7 @@ import {
 } from "../../../../graphql/queries";
 import { userObj } from "../../../../graphql/cache";
 import { getWebSocketUrl } from "../utils";
+import { useWebSocketAuth } from "../../../../hooks/useWebSocketAuth";
 import {
   ChatInputContainer,
   ChatInput,
@@ -118,7 +119,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   const [isNewChat, setIsNewChat] = useState<boolean>(readOnly || !user_obj);
   const [newMessage, setNewMessage] = useState("");
   const [chat, setChat] = useState<ChatMessageProps[]>([]);
-  const [wsReady, setWsReady] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | undefined
@@ -147,8 +147,14 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   // For messages from server (via the new GET_CHAT_MESSAGES query)
   const [serverMessages, setServerMessages] = useState<ChatMessageProps[]>([]);
 
-  // WebSocket reference
-  const socketRef = useRef<WebSocket | null>(null);
+  // Mirror pendingApproval in a ref so the WebSocket onmessage closure (which
+  // is captured once at effect-mount time inside useWebSocketAuth) can read
+  // the latest value without retriggering the connection effect.
+  const pendingApprovalRef = useRef<PendingApproval | null>(null);
+  useEffect(() => {
+    pendingApprovalRef.current = pendingApproval;
+  }, [pendingApproval]);
+
   const sendingLockRef = useRef<boolean>(false);
 
   // State for the search filter
@@ -763,43 +769,17 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   }, [titleFilter]);
 
   /**
-   * Whenever the selected conversation changes, (re)establish the WebSocket connection.
+   * Handle non-auth WebSocket frames. Wrapped in useCallback so the
+   * useWebSocketAuth onmessage closure remains stable; reads transient
+   * approval state via pendingApprovalRef to avoid stale closures.
    */
-  useEffect(() => {
-    // If no conversation is selected and not in new chat mode, close any socket and exit.
-    if (!selectedConversationId && !isNewChat) {
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-      setWsReady(false);
-      return;
-    }
-
-    // Build WebSocket URL, including conversation ID
-    const wsUrl = getWebSocketUrl(documentId, selectedConversationId, corpusId);
-    const newSocket = new WebSocket(wsUrl);
-
-    newSocket.onopen = () => {
-      setWsReady(true);
-      setWsError(null);
-      console.log(
-        "WebSocket connected for conversation:",
-        selectedConversationId
-      );
-    };
-
-    newSocket.onerror = (event) => {
-      setWsReady(false);
-      setWsError("Error connecting to the websocket.");
-      console.error("WebSocket error:", event);
-    };
-
-    newSocket.onmessage = (event) => {
+  const handleAgentMessage = useCallback(
+    (event: MessageEvent) => {
       try {
         const messageData: MessageData = JSON.parse(event.data);
         if (!messageData) return;
         const { type: msgType, content, data } = messageData;
+        const currentApproval = pendingApprovalRef.current;
 
         console.log("[ChatTray WebSocket] Received message:", {
           type: msgType,
@@ -829,13 +809,13 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
             appendStreamingTokenToChat(content, data?.message_id);
             // Clear pending approval if agent resumes after approval decision
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
               // Update the approval status of the message
               updateMessageApprovalStatus(
-                pendingApproval.messageId,
+                currentApproval.messageId,
                 "approved"
               );
             }
@@ -879,14 +859,14 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
           case "ASYNC_APPROVAL_RESULT":
             // Informational – backend echoes the user's decision.
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
               setShowApprovalModal(false);
               if (data?.decision) {
                 updateMessageApprovalStatus(
-                  pendingApproval.messageId,
+                  currentApproval.messageId,
                   data.decision as "approved" | "rejected"
                 );
               }
@@ -911,14 +891,14 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
             }
             // Clear pending approval when streaming finishes (covers both approval and rejection cases)
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
               // Update status based on the final content or metadata
               if (data?.approval_decision) {
                 updateMessageApprovalStatus(
-                  pendingApproval.messageId,
+                  currentApproval.messageId,
                   data.approval_decision as "approved" | "rejected"
                 );
               }
@@ -979,23 +959,20 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       } catch (err) {
         console.error("Failed to parse WS message:", err);
       }
-    };
+    },
+    [updateMessageApprovalStatus]
+  );
 
-    newSocket.onclose = (event) => {
-      setWsReady(false);
-      console.warn("WebSocket closed:", event);
-    };
-
-    socketRef.current = newSocket;
-
-    // Cleanup on unmount or conversation change
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-    };
-  }, [documentId, selectedConversationId, isNewChat, corpusId]);
+  const wsUrl = getWebSocketUrl(documentId, selectedConversationId, corpusId);
+  const wsEnabled = !!(selectedConversationId || isNewChat);
+  const { isConnected: wsReady, send: wsSend } = useWebSocketAuth({
+    url: wsUrl,
+    enabled: wsEnabled,
+    onMessage: handleAgentMessage,
+    onOpen: () => setWsError(null),
+    onAuthInvalid: () =>
+      setWsError("Authentication failed. Please log in again."),
+  });
 
   /**
    * Load existing conversation by ID, clearing local state, then showing chat UI.
@@ -1033,10 +1010,8 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     setSelectedConversationId(undefined);
     setPendingApproval(null);
     setShowApprovalModal(false);
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
-    }
+    // Clearing selectedConversationId + isNewChat makes wsEnabled false,
+    // and useWebSocketAuth tears the socket down on its next effect run.
     refetch();
   };
 
@@ -1080,7 +1055,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
    */
   const sendMessageOverSocket = useCallback((): void => {
     const trimmed = newMessage.trim();
-    if (!trimmed || !socketRef.current) return;
+    if (!trimmed) return;
     if (!wsReady) {
       console.warn("WebSocket not ready yet");
       return;
@@ -1096,6 +1071,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     sendingLockRef.current = true;
 
     try {
+      const ok = wsSend(JSON.stringify({ query: trimmed }));
+      if (!ok) {
+        setWsError("Failed to send message. Please try again.");
+        return;
+      }
       setChat((prev) => [
         ...prev,
         {
@@ -1109,7 +1089,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
           isComplete: false,
         },
       ]);
-      socketRef.current.send(JSON.stringify({ query: trimmed }));
       setNewMessage("");
       setWsError(null);
     } catch (err) {
@@ -1121,14 +1100,14 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         sendingLockRef.current = false;
       }, 300);
     }
-  }, [newMessage, user_obj?.email, wsReady]);
+  }, [newMessage, user_obj?.email, wsReady, wsSend]);
 
   /**
    * Send approval decision back to the WebSocket.
    */
   const sendApprovalDecision = useCallback(
     (approved: boolean): void => {
-      if (!pendingApproval || !socketRef.current || !wsReady) {
+      if (!pendingApproval || !wsReady) {
         console.warn("Cannot send approval decision - missing requirements");
         return;
       }
@@ -1139,7 +1118,12 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
           llm_message_id: pendingApproval.messageId,
         };
 
-        socketRef.current.send(JSON.stringify(messageData));
+        const ok = wsSend(JSON.stringify(messageData));
+        if (!ok) {
+          setWsError("Failed to send approval decision. Please try again.");
+          setShowApprovalModal(true);
+          return;
+        }
 
         // Hide the modal immediately after sending the decision (optimistic UI)
         setShowApprovalModal(false);
@@ -1160,7 +1144,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         setShowApprovalModal(true);
       }
     },
-    [pendingApproval, wsReady, updateMessageApprovalStatus]
+    [pendingApproval, wsReady, updateMessageApprovalStatus, wsSend]
   );
 
   // Render error if GraphQL query fails
@@ -1328,12 +1312,17 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   const sendTextImmediately = useCallback(
     (text: string): void => {
       const trimmed = text.trim();
-      if (!trimmed || !socketRef.current || !wsReady) return;
+      if (!trimmed || !wsReady) return;
 
       if (sendingLockRef.current) return;
       sendingLockRef.current = true;
 
       try {
+        const ok = wsSend(JSON.stringify({ query: trimmed }));
+        if (!ok) {
+          setWsError("Failed to send message. Please try again.");
+          return;
+        }
         setChat((prev) => [
           ...prev,
           {
@@ -1347,8 +1336,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
             isComplete: false,
           },
         ]);
-
-        socketRef.current.send(JSON.stringify({ query: trimmed }));
         setWsError(null);
       } catch (err) {
         console.error("Failed to send initial message:", err);
@@ -1359,7 +1346,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         }, 300);
       }
     },
-    [wsReady, user_obj?.email]
+    [wsReady, user_obj?.email, wsSend]
   );
 
   // Once the socket is ready, flush the pending initial message (if any)

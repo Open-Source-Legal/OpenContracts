@@ -191,8 +191,6 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
   // User state
   const user_obj = useReactiveVar(userObj);
 
-  // WebSocket ref — mirrored from useWebSocketAuth so legacy socketRef.current.send still works
-  const socketRef = useRef<WebSocket | null>(null);
   const sendingLockRef = useRef<boolean>(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -696,7 +694,7 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     ]
   );
 
-  const { ws, isConnected, send, reconnect } = useWebSocketAuth({
+  const { isConnected, send, reconnect } = useWebSocketAuth({
     url,
     enabled,
     onMessage: handleAgentMessage,
@@ -704,11 +702,6 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     onAuthInvalid: () =>
       setError("Authentication failed. Please log in again."),
   });
-
-  // Mirror ws into socketRef so existing places that call socketRef.current.send still work
-  useEffect(() => {
-    socketRef.current = ws;
-  }, [ws]);
 
   // Send initial message once connected
   useEffect(() => {
@@ -718,10 +711,8 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
 
       // Use a slight delay to ensure socket is fully ready
       setTimeout(() => {
-        if (
-          socketRef.current &&
-          socketRef.current.readyState === WebSocket.OPEN
-        ) {
+        const ok = send(JSON.stringify({ query: msg }));
+        if (ok) {
           setMessages((prev) => [
             ...prev,
             {
@@ -733,11 +724,10 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
               isComplete: true,
             },
           ]);
-          socketRef.current.send(JSON.stringify({ query: msg }));
         }
       }, 100);
     }
-  }, [isConnected, user_obj?.email]);
+  }, [isConnected, user_obj?.email, send]);
 
   // Reconnect when page becomes visible after being hidden (Issue #697)
   const hasContext = !!(

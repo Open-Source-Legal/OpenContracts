@@ -6,6 +6,7 @@ import { GET_CONVERSATIONS, GET_CHAT_MESSAGES } from "../src/graphql/queries";
 import { ConversationType, ChatMessageType } from "../src/types/graphql-api";
 import { WebSocketSources } from "../src/components/knowledge_base/document/right_tray/ChatTray";
 import { attachWsDebug } from "./utils/wsDebug";
+import { docScreenshot } from "./utils/docScreenshot";
 
 /* -------------------------------------------------------------------------- */
 /* Mock Data                                                                   */
@@ -239,6 +240,8 @@ test("displays conversation list on initial load", async ({ mount, page }) => {
   await expect(page.getByText("Test Conversation 2")).toBeVisible();
   await expect(page.getByText("5")).toBeVisible(); // message count
   await expect(page.getByText("3")).toBeVisible(); // message count
+
+  await docScreenshot(page, "knowledge-base--chat-tray--conversation-list");
 });
 
 test("loads messages when conversation is selected", async ({
@@ -1363,6 +1366,14 @@ test.beforeEach(async ({ page }) => {
     const activeInstances = new Set();
 
     class StubSocket {
+      // useWebSocketAuth checks `ws.readyState !== WebSocket.OPEN`
+      // before calling .send(), so the stub must expose the readyState constants
+      // as statics on the class itself (since `window.WebSocket = StubSocket`).
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+
       url: string;
       readyState: number;
       onopen?: (event: any) => void;

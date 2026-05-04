@@ -60,6 +60,7 @@ import {
   TimelineEntry,
 } from "../widgets/chat/ChatMessage";
 import { getUnifiedAgentWebSocket } from "../chat/get_websockets";
+import { useWebSocketAuth } from "../../hooks/useWebSocketAuth";
 import type {
   WebSocketSources,
   MessageData,
@@ -146,7 +147,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   const [isNewChat, setIsNewChat] = useState(forceNewChat);
   const [newMessage, setNewMessage] = useState("");
   const [chat, setChat] = useState<ChatMessageProps[]>([]);
-  const [wsReady, setWsReady] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
 
   // Track whether the assistant is currently generating a response
@@ -154,10 +154,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
 
   // Track whether the anonymous session context has been exhausted
   const [contextExhausted, setContextExhausted] = useState(false);
-
-  // Bumped on startNewChat to force WebSocket reconnection even when
-  // isNewChat and selectedConversationId haven't changed (anonymous sessions).
-  const [wsReconnectKey, setWsReconnectKey] = useState(0);
 
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | undefined
@@ -176,8 +172,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   // GraphQL & user state
   const user_obj = useReactiveVar(userObj);
 
-  // WebSocket reference
-  const socketRef = useRef<WebSocket | null>(null);
   const sendingLockRef = useRef<boolean>(false);
 
   // State for the search filter
@@ -197,6 +191,14 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(null);
   const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
+
+  // Mirror pendingApproval in a ref so the WebSocket message handler can read
+  // the latest value without including pendingApproval in its dep array
+  // (avoiding stale closures in the once-installed onmessage listener).
+  const pendingApprovalRef = useRef<PendingApproval | null>(null);
+  useEffect(() => {
+    pendingApprovalRef.current = pendingApproval;
+  }, [pendingApproval]);
 
   /**
    * Update approval status on a message in both chat and serverMessages arrays.
@@ -319,49 +321,20 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   }, [combinedMessages, scrollToBottom]);
 
   /**
-   * (Re)Establish the WebSocket connection if a conversation is selected (or if isNewChat),
-   * otherwise close any existing socket.
+   * Handle incoming WebSocket messages. Wrapped in useCallback so the
+   * useWebSocketAuth onmessage closure stays stable; reads transient
+   * approval state via pendingApprovalRef to avoid stale closures.
    *
    * Note: We allow connections without auth_token to support anonymous users on public corpuses.
    * The backend will reject anonymous connections to non-public corpuses with code 4003.
    */
-  useEffect(() => {
-    if (!selectedConversationId && !isNewChat) {
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-      setWsReady(false);
-      return;
-    }
-
-    const wsUrl = getUnifiedAgentWebSocket({
-      corpusId,
-      conversationId: isNewChat ? undefined : selectedConversationId,
-    });
-    const newSocket = new WebSocket(wsUrl);
-
-    newSocket.onopen = () => {
-      setWsReady(true);
-      setWsError(null);
-      setContextExhausted(false);
-      console.log(
-        "WebSocket connected for corpus conversation:",
-        selectedConversationId
-      );
-    };
-
-    newSocket.onerror = (event) => {
-      setWsReady(false);
-      setWsError("Error connecting to the corpus WebSocket.");
-      console.error("WebSocket error:", event);
-    };
-
-    newSocket.onmessage = (event) => {
+  const handleAgentMessage = useCallback(
+    (event: MessageEvent) => {
       try {
         const messageData: MessageData = JSON.parse(event.data);
         if (!messageData) return;
         const { type: msgType, content, data } = messageData;
+        const currentApproval = pendingApprovalRef.current;
 
         switch (msgType) {
           case "ASYNC_START":
@@ -371,8 +344,8 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
           case "ASYNC_CONTENT":
             appendStreamingTokenToChat(content, data?.message_id);
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
             }
@@ -412,8 +385,8 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
           case "ASYNC_APPROVAL_RESULT":
             // Informational – the backend echoes the decision back.
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
               setShowApprovalModal(false);
@@ -443,8 +416,8 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
               setContextStatus(data.context_status as ContextStatus);
             }
             if (
-              pendingApproval &&
-              data?.message_id === pendingApproval.messageId
+              currentApproval &&
+              data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
             }
@@ -510,22 +483,30 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       } catch (err) {
         console.error("Failed to parse WS message:", err);
       }
-    };
+    },
+    [updateMessageApprovalStatus]
+  );
 
-    newSocket.onclose = (event) => {
-      setWsReady(false);
-      console.warn("WebSocket closed:", event);
-    };
-
-    socketRef.current = newSocket;
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-    };
-  }, [corpusId, selectedConversationId, isNewChat, wsReconnectKey]);
+  const wsUrl = getUnifiedAgentWebSocket({
+    corpusId,
+    conversationId: isNewChat ? undefined : selectedConversationId,
+  });
+  const wsEnabled = !!(selectedConversationId || isNewChat);
+  const {
+    isConnected: wsReady,
+    send: wsSend,
+    reconnect: wsReconnect,
+  } = useWebSocketAuth({
+    url: wsUrl,
+    enabled: wsEnabled,
+    onMessage: handleAgentMessage,
+    onOpen: () => {
+      setWsError(null);
+      setContextExhausted(false);
+    },
+    onAuthInvalid: () =>
+      setWsError("Authentication failed. Please log in again."),
+  });
 
   // Track if this is the initial mount - skip forceNewChat effect on mount
   // since isNewChat is already initialized from forceNewChat prop
@@ -551,8 +532,9 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       isNewChat
     ) {
       const timer = setTimeout(() => {
-        if (socketRef.current && wsReady) {
-          const trimmed = initialQuery.trim();
+        const trimmed = initialQuery.trim();
+        const ok = wsSend(JSON.stringify({ query: trimmed }));
+        if (ok) {
           setChat((prev) => [
             ...prev,
             {
@@ -566,7 +548,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
               isComplete: false,
             },
           ]);
-          socketRef.current.send(JSON.stringify({ query: trimmed }));
           setNewMessage("");
           setWsError(null);
         }
@@ -574,7 +555,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
 
       return () => clearTimeout(timer);
     }
-  }, [initialQuery, wsReady, isNewChat, user_obj?.email]);
+  }, [initialQuery, wsReady, isNewChat, user_obj?.email, wsSend]);
 
   /**
    * Loads existing conversation by ID, clearing local state, then showing chat UI.
@@ -611,8 +592,8 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     setServerMessages([]);
     // Force WebSocket reconnection even when deps haven't changed
     // (e.g. anonymous user where isNewChat is already true).
-    setWsReconnectKey((k) => k + 1);
-  }, [setShowLoad]);
+    wsReconnect();
+  }, [setShowLoad, wsReconnect]);
 
   /**
    * Infinite scroll trigger for more conversation summary cards.
@@ -640,7 +621,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
    */
   const sendMessageOverSocket = useCallback((): void => {
     const trimmed = newMessage.trim();
-    if (!trimmed || !socketRef.current || isProcessing) return;
+    if (!trimmed || isProcessing) return;
     if (!wsReady) {
       console.warn("WebSocket not ready yet");
       return;
@@ -654,6 +635,11 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     sendingLockRef.current = true;
 
     try {
+      const ok = wsSend(JSON.stringify({ query: trimmed }));
+      if (!ok) {
+        setWsError("Failed to send message. Please try again.");
+        return;
+      }
       setChat((prev) => [
         ...prev,
         {
@@ -663,7 +649,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
           isAssistant: false,
         },
       ]);
-      socketRef.current.send(JSON.stringify({ query: trimmed }));
       setNewMessage("");
       setWsError(null);
     } catch (err) {
@@ -674,7 +659,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         sendingLockRef.current = false;
       }, 300);
     }
-  }, [newMessage, user_obj?.email, wsReady, isProcessing]);
+  }, [newMessage, user_obj?.email, wsReady, isProcessing, wsSend]);
 
   // Conversion of GQL data to a local list
   const conversations = useMemo(() => {
@@ -961,7 +946,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
    */
   const sendApprovalDecision = useCallback(
     (approved: boolean): void => {
-      if (!pendingApproval || !socketRef.current || !wsReady) {
+      if (!pendingApproval || !wsReady) {
         console.warn("Cannot send approval decision - missing requirements");
         return;
       }
@@ -978,7 +963,12 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
           } for message ${pendingApproval.messageId}`
         );
 
-        socketRef.current.send(JSON.stringify(messageData));
+        const ok = wsSend(JSON.stringify(messageData));
+        if (!ok) {
+          setWsError("Failed to send approval decision. Please try again.");
+          setShowApprovalModal(true);
+          return;
+        }
 
         // Hide the modal immediately after sending the decision (optimistic UI)
         setShowApprovalModal(false);
@@ -992,7 +982,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         setShowApprovalModal(true);
       }
     },
-    [pendingApproval, wsReady]
+    [pendingApproval, wsReady, wsSend]
   );
 
   // If the GraphQL query fails entirely:
