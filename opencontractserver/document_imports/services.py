@@ -1,12 +1,18 @@
 """
-Shared upload services used by both the GraphQL upload mutations
-(``config/graphql/document_mutations.py``) and the multipart REST
-endpoints in this app.
+Shared document-import services used by both the GraphQL upload
+mutations (``config/graphql/document_mutations.py``) and the multipart
+REST endpoints in this app.
 
 Centralising the logic here avoids duplicating permission, validation,
 and storage handling across two transport surfaces, and keeps the only
 real difference the way bytes are obtained (base64 string vs. uploaded
 file stream).
+
+Both transports terminate in the same place — staging documents into a
+corpus or queueing ``process_documents_zip`` (see
+``opencontractserver/tasks/import_tasks.py``) — hence the "import"
+naming. "Upload" survives only as the name of the transport verb on
+the legacy GraphQL mutations.
 """
 
 from __future__ import annotations
@@ -52,8 +58,8 @@ CORPUS_NOT_FOUND_MSG = (
 
 
 @dataclass
-class UploadResult:
-    """Result of a single-document upload."""
+class ImportResult:
+    """Result of a single-document import."""
 
     document: Optional[Document]
     error: Optional[str]
@@ -61,8 +67,8 @@ class UploadResult:
 
 
 @dataclass
-class ZipUploadResult:
-    """Result of a bulk zip upload."""
+class ZipImportResult:
+    """Result of a bulk zip import."""
 
     job_id: Optional[str]
     error: Optional[str]
@@ -117,7 +123,7 @@ def _check_usage_cap(user) -> None:
         )
 
 
-def upload_document_for_user(
+def import_document_for_user(
     *,
     user,
     file_bytes: bytes,
@@ -130,7 +136,7 @@ def upload_document_for_user(
     add_to_folder_id: Any = None,
     slug: str | None = None,
     lineage_kwargs: dict | None = None,
-) -> UploadResult:
+) -> ImportResult:
     """
     Core upload path for a single document.
 
@@ -144,7 +150,7 @@ def upload_document_for_user(
     Both ``add_to_corpus_id`` and ``add_to_folder_id`` accept either a Relay
     global id or a raw primary key — REST callers may use either.
 
-    Returns an :class:`UploadResult`. On failure, ``document`` is ``None`` and
+    Returns an :class:`ImportResult`. On failure, ``document`` is ``None`` and
     ``error`` carries a user-safe message; the caller is responsible for
     mapping that to the appropriate transport response.
     """
@@ -153,9 +159,9 @@ def upload_document_for_user(
     # MIME detection
     kind = detect_mime_type(file_bytes, filename)
     if kind is None:
-        return UploadResult(document=None, error="Unable to determine file type")
+        return ImportResult(document=None, error="Unable to determine file type")
     if kind not in get_allowed_mime_types():
-        return UploadResult(document=None, error=f"Unallowed filetype: {kind}")
+        return ImportResult(document=None, error=f"Unallowed filetype: {kind}")
 
     # Corpus + folder resolution
     folder = None
@@ -164,17 +170,17 @@ def upload_document_for_user(
         try:
             corpus = Corpus.objects.visible_to_user(user).get(id=corpus_pk)
         except (Corpus.DoesNotExist, ValueError, TypeError):
-            return UploadResult(document=None, error=CORPUS_NOT_FOUND_MSG)
+            return ImportResult(document=None, error=CORPUS_NOT_FOUND_MSG)
 
         if not user_has_permission_for_obj(user, corpus, PermissionTypes.EDIT):
-            return UploadResult(document=None, error=CORPUS_NOT_FOUND_MSG)
+            return ImportResult(document=None, error=CORPUS_NOT_FOUND_MSG)
 
         if add_to_folder_id is not None:
             folder_pk = _resolve_pk(add_to_folder_id)
             try:
                 folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
             except (CorpusFolder.DoesNotExist, ValueError, TypeError):
-                return UploadResult(
+                return ImportResult(
                     document=None,
                     error="Folder not found in the specified corpus",
                 )
@@ -197,17 +203,17 @@ def upload_document_for_user(
             **(lineage_kwargs or {}),
         )
     except Exception as e:  # noqa: BLE001
-        logger.error(f"[UPLOAD] Error importing document: {e}")
-        return UploadResult(document=None, error=f"Upload failed due to error: {e}")
+        logger.error(f"[IMPORT] Error importing document: {e}")
+        return ImportResult(document=None, error=f"Import failed due to error: {e}")
 
     set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
     logger.info(
-        f"[UPLOAD] Document {document.id} ({status}) uploaded to corpus {corpus.id}"
+        f"[IMPORT] Document {document.id} ({status}) imported into corpus {corpus.id}"
     )
-    return UploadResult(document=document, error=None, status=status)
+    return ImportResult(document=document, error=None, status=status)
 
 
-def upload_documents_zip_for_user(
+def import_documents_zip_for_user(
     *,
     user,
     zip_source: UploadedFile | bytes,
@@ -217,7 +223,7 @@ def upload_documents_zip_for_user(
     custom_meta: dict | None = None,
     make_public: bool = False,
     add_to_corpus_id: Any = None,
-) -> ZipUploadResult:
+) -> ZipImportResult:
     """
     Stage a zip archive in a :class:`TemporaryFileHandle` and queue
     ``process_documents_zip`` to ingest it.
@@ -227,7 +233,7 @@ def upload_documents_zip_for_user(
     because it streams to storage without buffering the full archive in
     memory.
 
-    Returns :class:`ZipUploadResult`. On failure, ``job_id`` is ``None``.
+    Returns :class:`ZipImportResult`. On failure, ``job_id`` is ``None``.
     """
     if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
         raise PermissionError(
@@ -245,9 +251,9 @@ def upload_documents_zip_for_user(
         try:
             corpus = Corpus.objects.visible_to_user(user).get(id=corpus_pk)
         except (Corpus.DoesNotExist, ValueError, TypeError):
-            return ZipUploadResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
+            return ZipImportResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
         if not user_has_permission_for_obj(user, corpus, PermissionTypes.EDIT):
-            return ZipUploadResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
+            return ZipImportResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
         corpus_id = corpus.id
 
     # IDOR protection: bind this job_id to the requesting user so the
@@ -276,8 +282,8 @@ def upload_documents_zip_for_user(
                 # without loading the full archive into memory.
                 temporary_file.file.save(storage_filename, zip_source, save=True)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"[UPLOAD-ZIP] Failed to stage zip: {e}")
-        return ZipUploadResult(job_id=None, error=f"Failed to stage zip: {e}")
+        logger.error(f"[IMPORT-ZIP] Failed to stage zip: {e}")
+        return ZipImportResult(job_id=None, error=f"Failed to stage zip: {e}")
 
     # Launch async task. In test/eager mode the task runs synchronously
     # before the response is returned (matches the GraphQL mutation behaviour).
@@ -314,5 +320,5 @@ def upload_documents_zip_for_user(
             ).apply_async()
         )
 
-    logger.info(f"[UPLOAD-ZIP] Zip job {job_id} staged for user {user.id}")
-    return ZipUploadResult(job_id=job_id, error=None)
+    logger.info(f"[IMPORT-ZIP] Zip job {job_id} staged for user {user.id}")
+    return ZipImportResult(job_id=job_id, error=None)

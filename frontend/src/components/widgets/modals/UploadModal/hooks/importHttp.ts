@@ -1,5 +1,6 @@
 /**
- * Multipart/form-data upload helpers for the document upload REST endpoints.
+ * Multipart/form-data helpers for the document import REST endpoints
+ * (``POST /api/imports/documents/`` and ``/api/imports/documents-zip/``).
  *
  * Used instead of the legacy base64-over-GraphQL path to avoid Apollo's
  * "Payload allocation size overflow" invariant — base64 inflates the file
@@ -23,7 +24,7 @@ function buildAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export interface UploadDocumentRestInput {
+export interface ImportDocumentRestInput {
   file: File;
   title: string;
   description?: string;
@@ -35,23 +36,23 @@ export interface UploadDocumentRestInput {
   customMeta?: Record<string, unknown>;
 }
 
-export interface UploadDocumentRestSuccess {
+export interface ImportDocumentRestSuccess {
   ok: true;
   document_id: number;
   status?: string | null;
 }
 
-export interface UploadDocumentRestFailure {
+export interface ImportDocumentRestFailure {
   ok: false;
   error: string;
   status_code: number;
 }
 
-export type UploadDocumentRestResult =
-  | UploadDocumentRestSuccess
-  | UploadDocumentRestFailure;
+export type ImportDocumentRestResult =
+  | ImportDocumentRestSuccess
+  | ImportDocumentRestFailure;
 
-export interface UploadZipRestInput {
+export interface ImportZipRestInput {
   file: File;
   titlePrefix?: string;
   description?: string;
@@ -60,21 +61,21 @@ export interface UploadZipRestInput {
   customMeta?: Record<string, unknown>;
 }
 
-export interface UploadZipRestSuccess {
+export interface ImportZipRestSuccess {
   ok: true;
   job_id: string;
   message?: string;
 }
 
-export interface UploadZipRestFailure {
+export interface ImportZipRestFailure {
   ok: false;
   error: string;
   status_code: number;
 }
 
-export type UploadZipRestResult =
-  | UploadZipRestSuccess
-  | UploadZipRestFailure;
+export type ImportZipRestResult =
+  | ImportZipRestSuccess
+  | ImportZipRestFailure;
 
 function appendIfDefined(
   fd: FormData,
@@ -85,9 +86,7 @@ function appendIfDefined(
   fd.append(key, value);
 }
 
-async function parseErrorMessage(
-  response: Response
-): Promise<string> {
+async function parseErrorMessage(response: Response): Promise<string> {
   try {
     const data = await response.json();
     if (typeof data === "string") return data;
@@ -102,12 +101,12 @@ async function parseErrorMessage(
   } catch {
     // fall through to generic message
   }
-  return `Upload failed (HTTP ${response.status})`;
+  return `Import failed (HTTP ${response.status})`;
 }
 
-export async function uploadDocumentMultipart(
-  input: UploadDocumentRestInput
-): Promise<UploadDocumentRestResult> {
+export async function importDocumentMultipart(
+  input: ImportDocumentRestInput
+): Promise<ImportDocumentRestResult> {
   const fd = new FormData();
   fd.append("file", input.file);
   fd.append("title", input.title);
@@ -121,7 +120,7 @@ export async function uploadDocumentMultipart(
     fd.append("custom_meta", JSON.stringify(input.customMeta));
   }
 
-  const response = await fetch(`${getApiRoot()}/api/uploads/documents/`, {
+  const response = await fetch(`${getApiRoot()}/api/imports/documents/`, {
     method: "POST",
     headers: buildAuthHeaders(),
     body: fd,
@@ -145,15 +144,15 @@ export async function uploadDocumentMultipart(
     return {
       ok: false,
       status_code: response.status,
-      error: data.error || "Upload failed",
+      error: data.error || "Import failed",
     };
   }
   return { ok: true, document_id: data.document_id, status: data.status };
 }
 
-export async function uploadZipMultipart(
-  input: UploadZipRestInput
-): Promise<UploadZipRestResult> {
+export async function importDocumentsZipMultipart(
+  input: ImportZipRestInput
+): Promise<ImportZipRestResult> {
   const fd = new FormData();
   fd.append("file", input.file);
   appendIfDefined(fd, "title_prefix", input.titlePrefix);
@@ -165,7 +164,7 @@ export async function uploadZipMultipart(
   }
 
   const response = await fetch(
-    `${getApiRoot()}/api/uploads/documents-zip/`,
+    `${getApiRoot()}/api/imports/documents-zip/`,
     {
       method: "POST",
       headers: buildAuthHeaders(),
@@ -191,7 +190,7 @@ export async function uploadZipMultipart(
     return {
       ok: false,
       status_code: response.status,
-      error: data.error || "Upload failed",
+      error: data.error || "Import failed",
     };
   }
   return { ok: true, job_id: data.job_id, message: data.message };

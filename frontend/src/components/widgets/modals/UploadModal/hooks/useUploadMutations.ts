@@ -4,9 +4,9 @@ import { toast } from "react-toastify";
 import { GET_DOCUMENTS } from "../../../../../graphql/queries";
 import { GET_CORPUS_FOLDERS } from "../../../../../graphql/queries/folders";
 import {
-  uploadDocumentMultipart,
-  uploadZipMultipart,
-} from "./uploadHttp";
+  importDocumentMultipart,
+  importDocumentsZipMultipart,
+} from "./importHttp";
 import { FileUploadPackage, UploadStatus } from "./useUploadState";
 
 interface UseUploadMutationsProps {
@@ -67,7 +67,7 @@ export function useUploadMutations({
       onFileStatusChange(index, "uploading");
       setSingleInFlight(true);
       try {
-        const result = await uploadDocumentMultipart({
+        const result = await importDocumentMultipart({
           file,
           title: formData.title || file.name,
           description: formData.description || "",
@@ -117,7 +117,7 @@ export function useUploadMutations({
         for (const [index, pkg] of files.entries()) {
           onFileStatusChange(index, "uploading");
           try {
-            const result = await uploadDocumentMultipart({
+            const result = await importDocumentMultipart({
               file: pkg.file,
               title: pkg.formData?.title || pkg.file.name,
               description: pkg.formData?.description || "",
@@ -176,7 +176,7 @@ export function useUploadMutations({
     ): Promise<boolean> => {
       setZipInFlight(true);
       try {
-        const result = await uploadZipMultipart({
+        const result = await importDocumentsZipMultipart({
           file: zipFile,
           addToCorpusId: targetCorpusId ?? null,
           makePublic,

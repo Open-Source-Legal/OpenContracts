@@ -1,10 +1,10 @@
 """
-Tests for the multipart REST document upload endpoints.
+Tests for the multipart REST document import endpoints.
 
 Covers:
-- DocumentUploadView (POST /api/uploads/documents/)
-- DocumentsZipUploadView (POST /api/uploads/documents-zip/)
-- Shared services in opencontractserver.document_uploads.services
+- DocumentImportView (POST /api/imports/documents/)
+- DocumentsZipImportView (POST /api/imports/documents-zip/)
+- Shared services in opencontractserver.document_imports.services
 
 The previous transport (base64-over-GraphQL) hit Apollo's
 "Payload allocation size overflow" invariant for large files because
@@ -60,15 +60,15 @@ def _make_zip(entries: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-SINGLE_URL = "/api/uploads/documents/"
-ZIP_URL = "/api/uploads/documents-zip/"
+SINGLE_URL = "/api/imports/documents/"
+ZIP_URL = "/api/imports/documents-zip/"
 
 
 @override_settings(
     CELERY_TASK_ALWAYS_EAGER=False,  # zip path uses transaction.on_commit
 )
-class DocumentUploadViewTests(TestCase):
-    """Multipart single-document upload (POST /api/uploads/documents/)."""
+class DocumentImportViewTests(TestCase):
+    """Multipart single-document upload (POST /api/imports/documents/)."""
 
     def setUp(self):
         self.user = User.objects.create_user(
@@ -258,7 +258,7 @@ class DocumentUploadViewTests(TestCase):
 
     def test_oversize_file_returns_413(self):
         self._login()
-        with override_settings(MAX_DOCUMENT_UPLOAD_SIZE_BYTES=10):
+        with override_settings(MAX_DOCUMENT_IMPORT_SIZE_BYTES=10):
             response = self._upload()
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.json()["max_bytes"], 10)
@@ -282,9 +282,9 @@ class DocumentUploadViewTests(TestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
-class DocumentsZipUploadViewTests(TestCase):
+class DocumentsZipImportViewTests(TestCase):
     """
-    Multipart bulk-zip upload (POST /api/uploads/documents-zip/).
+    Multipart bulk-zip upload (POST /api/imports/documents-zip/).
 
     With ``CELERY_TASK_ALWAYS_EAGER=False`` the queued ``process_documents_zip``
     task is registered via ``transaction.on_commit``; under
@@ -388,7 +388,7 @@ class DocumentsZipUploadViewTests(TestCase):
 
     def test_oversize_zip_returns_413(self):
         self._login()
-        with override_settings(MAX_DOCUMENT_UPLOAD_SIZE_BYTES=10):
+        with override_settings(MAX_DOCUMENT_IMPORT_SIZE_BYTES=10):
             response = self.client.post(
                 ZIP_URL,
                 {
@@ -412,7 +412,7 @@ class DocumentsZipUploadViewTests(TestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
-class UploadServicesTests(TestCase):
+class ImportServicesTests(TestCase):
     """
     Direct tests for the shared service functions, ensuring the GraphQL
     and REST transports route through identical logic.
@@ -430,12 +430,12 @@ class UploadServicesTests(TestCase):
             username="svc_other", password="pw", is_usage_capped=False
         )
 
-    def test_upload_document_for_user_creates_document(self):
-        from opencontractserver.document_uploads.services import (
-            upload_document_for_user,
+    def test_import_document_for_user_creates_document(self):
+        from opencontractserver.document_imports.services import (
+            import_document_for_user,
         )
 
-        result = upload_document_for_user(
+        result = import_document_for_user(
             user=self.user,
             file_bytes=PDF_BYTES,
             filename="x.pdf",
@@ -446,18 +446,18 @@ class UploadServicesTests(TestCase):
         self.assertIsNone(result.error)
         self.assertIsNotNone(result.document)
 
-    def test_upload_document_for_user_rejects_inaccessible_corpus_with_idor_msg(
+    def test_import_document_for_user_rejects_inaccessible_corpus_with_idor_msg(
         self,
     ):
-        from opencontractserver.document_uploads.services import (
+        from opencontractserver.document_imports.services import (
             CORPUS_NOT_FOUND_MSG,
-            upload_document_for_user,
+            import_document_for_user,
         )
 
         other_corpus = Corpus.objects.create(
             title="Other", creator=self.other, backend_lock=False
         )
-        result_no_perm = upload_document_for_user(
+        result_no_perm = import_document_for_user(
             user=self.user,
             file_bytes=PDF_BYTES,
             filename="x.pdf",
@@ -466,7 +466,7 @@ class UploadServicesTests(TestCase):
             make_public=False,
             add_to_corpus_id=str(other_corpus.id),
         )
-        result_no_exist = upload_document_for_user(
+        result_no_exist = import_document_for_user(
             user=self.user,
             file_bytes=PDF_BYTES,
             filename="x.pdf",
@@ -478,16 +478,16 @@ class UploadServicesTests(TestCase):
         self.assertEqual(result_no_perm.error, CORPUS_NOT_FOUND_MSG)
         self.assertEqual(result_no_exist.error, CORPUS_NOT_FOUND_MSG)
 
-    def test_upload_documents_zip_for_user_accepts_uploaded_file(self):
-        from opencontractserver.document_uploads.services import (
-            upload_documents_zip_for_user,
+    def test_import_documents_zip_for_user_accepts_uploaded_file(self):
+        from opencontractserver.document_imports.services import (
+            import_documents_zip_for_user,
         )
 
         zip_bytes = _make_zip({"a.pdf": PDF_BYTES})
         uploaded = SimpleUploadedFile(
             "z.zip", zip_bytes, content_type="application/zip"
         )
-        result = upload_documents_zip_for_user(
+        result = import_documents_zip_for_user(
             user=self.user,
             zip_source=uploaded,
             make_public=False,
@@ -495,14 +495,14 @@ class UploadServicesTests(TestCase):
         self.assertIsNone(result.error)
         self.assertTrue(result.job_id)
 
-    def test_upload_documents_zip_for_user_accepts_bytes(self):
+    def test_import_documents_zip_for_user_accepts_bytes(self):
         """Legacy/GraphQL path passes raw bytes; same code path must work."""
-        from opencontractserver.document_uploads.services import (
-            upload_documents_zip_for_user,
+        from opencontractserver.document_imports.services import (
+            import_documents_zip_for_user,
         )
 
         zip_bytes = _make_zip({"a.pdf": PDF_BYTES})
-        result = upload_documents_zip_for_user(
+        result = import_documents_zip_for_user(
             user=self.user,
             zip_source=zip_bytes,
             make_public=False,

@@ -6,7 +6,7 @@
  * and refetch+onComplete fire only after every file in a sequential batch.
  *
  * The wire-level transport (FormData, fetch URL, headers) is covered by
- * uploadHttp.test.ts; here we mock the helpers so the assertions stay
+ * importHttp.test.ts; here we mock the helpers so the assertions stay
  * tightly scoped to the hook.
  */
 
@@ -23,20 +23,20 @@ vi.mock("react-toastify", () => ({
   },
 }));
 
-vi.mock("../uploadHttp", () => ({
-  uploadDocumentMultipart: vi.fn(),
-  uploadZipMultipart: vi.fn(),
+vi.mock("../importHttp", () => ({
+  importDocumentMultipart: vi.fn(),
+  importDocumentsZipMultipart: vi.fn(),
 }));
 
 import { useUploadMutations } from "../useUploadMutations";
 import type { FileUploadPackage } from "../useUploadState";
 import {
-  uploadDocumentMultipart,
-  uploadZipMultipart,
-} from "../uploadHttp";
+  importDocumentMultipart,
+  importDocumentsZipMultipart,
+} from "../importHttp";
 
-const mockedUploadDoc = vi.mocked(uploadDocumentMultipart);
-const mockedUploadZip = vi.mocked(uploadZipMultipart);
+const mockedUploadDoc = vi.mocked(importDocumentMultipart);
+const mockedUploadZip = vi.mocked(importDocumentsZipMultipart);
 
 function makeClient() {
   const client = new ApolloClient({ cache: new InMemoryCache() });

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authToken } from "../../../../../../graphql/cache";
 import {
-  uploadDocumentMultipart,
-  uploadZipMultipart,
-} from "../uploadHttp";
+  importDocumentMultipart,
+  importDocumentsZipMultipart,
+} from "../importHttp";
 
 /**
  * The frontend bulk-upload bug was specifically a result of the GraphQL
@@ -39,7 +39,7 @@ function makeJsonResponse(
   } as unknown as Response;
 }
 
-describe("uploadHttp.uploadDocumentMultipart", () => {
+describe("importHttp.importDocumentMultipart", () => {
   beforeEach(() => {
     authToken("test-token-123");
   });
@@ -50,7 +50,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
     delete (globalThis as any)[FETCH_KEY];
   });
 
-  it("posts FormData to /api/uploads/documents/ with bearer auth", async () => {
+  it("posts FormData to /api/imports/documents/ with bearer auth", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       makeJsonResponse({ ok: true, document_id: 7, status: "created" })
     );
@@ -59,7 +59,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
     const file = new File(["hello"], "hello.pdf", {
       type: "application/pdf",
     });
-    const result = await uploadDocumentMultipart({
+    const result = await importDocumentMultipart({
       file,
       title: "T",
       description: "D",
@@ -75,7 +75,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/api/uploads/documents/");
+    expect(String(url)).toContain("/api/imports/documents/");
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({
       Authorization: "Bearer test-token-123",
@@ -99,7 +99,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
     setMockFetch(fetchMock);
 
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
-    await uploadDocumentMultipart({ file, title: "T" });
+    await importDocumentMultipart({ file, title: "T" });
 
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers).toEqual({});
@@ -112,7 +112,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
     setMockFetch(fetchMock);
 
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
-    await uploadDocumentMultipart({
+    await importDocumentMultipart({
       file,
       title: "T",
       description: "",
@@ -136,7 +136,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
     setMockFetch(fetchMock);
 
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
-    const result = await uploadDocumentMultipart({ file, title: "T" });
+    const result = await importDocumentMultipart({ file, title: "T" });
 
     expect(result).toEqual({
       ok: false,
@@ -156,7 +156,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
     setMockFetch(fetchMock);
 
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
-    const result = await uploadDocumentMultipart({ file, title: "T" });
+    const result = await importDocumentMultipart({ file, title: "T" });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -166,7 +166,7 @@ describe("uploadHttp.uploadDocumentMultipart", () => {
   });
 });
 
-describe("uploadHttp.uploadZipMultipart", () => {
+describe("importHttp.importDocumentsZipMultipart", () => {
   beforeEach(() => {
     authToken("zip-token");
   });
@@ -176,7 +176,7 @@ describe("uploadHttp.uploadZipMultipart", () => {
     delete (globalThis as any)[FETCH_KEY];
   });
 
-  it("posts FormData to /api/uploads/documents-zip/ and surfaces job_id", async () => {
+  it("posts FormData to /api/imports/documents-zip/ and surfaces job_id", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       makeJsonResponse(
         {
@@ -192,7 +192,7 @@ describe("uploadHttp.uploadZipMultipart", () => {
     const file = new File([new Uint8Array([1, 2, 3])], "bundle.zip", {
       type: "application/zip",
     });
-    const result = await uploadZipMultipart({
+    const result = await importDocumentsZipMultipart({
       file,
       addToCorpusId: "9",
       makePublic: false,
@@ -204,7 +204,7 @@ describe("uploadHttp.uploadZipMultipart", () => {
       message: "Upload started. Job ID: abc-123",
     });
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/api/uploads/documents-zip/");
+    expect(String(url)).toContain("/api/imports/documents-zip/");
     expect(init.body).toBeInstanceOf(FormData);
   });
 
@@ -220,7 +220,7 @@ describe("uploadHttp.uploadZipMultipart", () => {
     const file = new File([new Uint8Array([1])], "bundle.zip", {
       type: "application/zip",
     });
-    const result = await uploadZipMultipart({ file, makePublic: false });
+    const result = await importDocumentsZipMultipart({ file, makePublic: false });
 
     expect(result).toEqual({
       ok: false,
@@ -238,7 +238,7 @@ describe("uploadHttp.uploadZipMultipart", () => {
     const file = new File([new Uint8Array([1])], "bundle.zip", {
       type: "application/zip",
     });
-    const result = await uploadZipMultipart({ file, makePublic: false });
+    const result = await importDocumentsZipMultipart({ file, makePublic: false });
     expect(result.ok).toBe(false);
   });
 });

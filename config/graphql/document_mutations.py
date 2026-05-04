@@ -137,8 +137,8 @@ class UploadDocument(graphene.Mutation):
         external_id=None,
         ingestion_metadata=None,
     ) -> "UploadDocument":
-        from opencontractserver.document_uploads.services import (
-            upload_document_for_user,
+        from opencontractserver.document_imports.services import (
+            import_document_for_user,
         )
 
         if add_to_corpus_id is not None and add_to_extract_id is not None:
@@ -179,7 +179,7 @@ class UploadDocument(graphene.Mutation):
             )
 
         try:
-            result = upload_document_for_user(
+            result = import_document_for_user(
                 user=user,
                 file_bytes=file_bytes,
                 filename=filename,
@@ -456,8 +456,8 @@ class UploadDocumentsZip(graphene.Mutation):
         custom_meta=None,
         add_to_corpus_id=None,
     ) -> "UploadDocumentsZip":
-        from opencontractserver.document_uploads.services import (
-            upload_documents_zip_for_user,
+        from opencontractserver.document_imports.services import (
+            import_documents_zip_for_user,
         )
 
         user = info.context.user
@@ -470,7 +470,7 @@ class UploadDocumentsZip(graphene.Mutation):
                 message=f"Could not decode base64 zip: {e}", ok=False, job_id=None
             )
 
-        result = upload_documents_zip_for_user(
+        result = import_documents_zip_for_user(
             user=user,
             zip_source=decoded_file_data,
             title_prefix=title_prefix,

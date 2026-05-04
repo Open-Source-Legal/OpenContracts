@@ -1,13 +1,13 @@
-"""Serializers for the multipart document upload REST endpoints."""
+"""Serializers for the multipart document import REST endpoints."""
 
 from __future__ import annotations
 
 from rest_framework import serializers
 
 
-class DocumentUploadSerializer(serializers.Serializer):
+class DocumentImportSerializer(serializers.Serializer):
     """
-    Validates a single-document multipart/form-data upload.
+    Validates a single-document multipart/form-data import.
 
     The ``file`` field is the binary document payload; all other fields
     are textual metadata. Empty strings are coerced to None / defaults
@@ -34,8 +34,8 @@ class DocumentUploadSerializer(serializers.Serializer):
     custom_meta = serializers.JSONField(required=False, default=dict)
 
 
-class DocumentsZipUploadSerializer(serializers.Serializer):
-    """Validates a bulk zip upload (one ``.zip`` file + a few flags)."""
+class DocumentsZipImportSerializer(serializers.Serializer):
+    """Validates a bulk zip import (one ``.zip`` file + a few flags)."""
 
     file = serializers.FileField(required=True)
     title_prefix = serializers.CharField(
