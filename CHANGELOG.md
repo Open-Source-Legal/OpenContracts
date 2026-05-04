@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`supportedMimeTypes` GraphQL query is now accessible to anonymous users** (`config/graphql/pipeline_queries.py:205`). Removed the `@login_required` decorator from `resolve_supported_mime_types` so that uploaders, landing pages, and other unauthenticated UI surfaces can advertise the accepted file formats without forcing a login. The data returned is derived purely from the pipeline registry and exposes no user-specific information. Test updated: `opencontractserver/tests/test_pipeline_component_queries.py::test_supported_mime_types_allows_anonymous`.
+
 ### Added
 
 - **Server-derived `me.canImportCorpus` field** (`config/graphql/user_types.py:43-60`). A new boolean on `UserType` that mirrors the backend permission check enforced by `UploadCorpusImportZip` / `ImportZipToCorpus`: returns `false` for anonymous users and for usage-capped users when `USAGE_CAPPED_USER_CAN_IMPORT_CORPUS` is disabled, otherwise `true`. Exposed through `GET_ME` (`frontend/src/graphql/queries.ts`) so the frontend can gate corpus-import UI without re-implementing the rule. Tests: `opencontractserver/tests/test_user_can_import_corpus.py` covers the three states (capped+disabled, capped+enabled, uncapped).
