@@ -327,6 +327,4 @@ class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         """Re-validate conversation access on token refresh."""
         if self.conversation_id is None:
             return True
-        return await self._check_conversation_access(
-            user, cache_conversation=False
-        )
+        return await self._check_conversation_access(user, cache_conversation=False)

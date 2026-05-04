@@ -29,6 +29,7 @@ from config.asgi import application
 from config.websocket.consumers.notification_updates import (
     get_notification_channel_group,
 )
+from config.websocket.middleware import WS_AUTH_SUBPROTOCOL
 from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.notifications.models import (
@@ -126,11 +127,19 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_authenticated_connection_accepted(self):
         """Authenticated users should be able to connect."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        ws_path = "ws/notification-updates/"
+        communicator = WebsocketCommunicator(
+            application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, subprotocol = await communicator.connect()
 
         self.assertTrue(connected)
+
+        # Drain initial AUTH_OK frame from auth handshake mixin
+        raw = await communicator.receive_from(timeout=5)
+        self.assertEqual(json.loads(raw)["type"], "AUTH_OK")
 
         # Should receive CONNECTED message
         response = await communicator.receive_from(timeout=5)
@@ -144,12 +153,17 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_ping_pong(self):
         """Client should be able to ping and receive pong."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        ws_path = "ws/notification-updates/"
+        communicator = WebsocketCommunicator(
+            application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
 
-        # Consume CONNECTED message
+        # Drain initial AUTH_OK + CONNECTED messages
+        await communicator.receive_from(timeout=5)
         await communicator.receive_from(timeout=5)
 
         # Send ping
@@ -164,12 +178,17 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_heartbeat_ack(self):
         """Client should be able to send heartbeat and receive ack."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        ws_path = "ws/notification-updates/"
+        communicator = WebsocketCommunicator(
+            application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
 
-        # Consume CONNECTED message
+        # Drain initial AUTH_OK + CONNECTED messages
+        await communicator.receive_from(timeout=5)
         await communicator.receive_from(timeout=5)
 
         # Send heartbeat
@@ -185,12 +204,17 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_invalid_json_handling(self):
         """Consumer should gracefully handle invalid JSON from client."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        ws_path = "ws/notification-updates/"
+        communicator = WebsocketCommunicator(
+            application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
 
-        # Consume CONNECTED message
+        # Drain initial AUTH_OK + CONNECTED messages
+        await communicator.receive_from(timeout=5)
         await communicator.receive_from(timeout=5)
 
         # Send invalid JSON (should be logged and ignored, not crash)
@@ -206,12 +230,17 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_unknown_message_type_handling(self):
         """Consumer should gracefully handle unknown message types."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        ws_path = "ws/notification-updates/"
+        communicator = WebsocketCommunicator(
+            application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
 
-        # Consume CONNECTED message
+        # Drain initial AUTH_OK + CONNECTED messages
+        await communicator.receive_from(timeout=5)
         await communicator.receive_from(timeout=5)
 
         # Send unknown message type (should be logged and ignored)
@@ -227,12 +256,17 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_notification_broadcast_via_channel_layer(self):
         """Notifications should be broadcast via channel layer."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        ws_path = "ws/notification-updates/"
+        communicator = WebsocketCommunicator(
+            application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
 
-        # Consume CONNECTED message
+        # Drain initial AUTH_OK + CONNECTED messages
+        await communicator.receive_from(timeout=5)
         await communicator.receive_from(timeout=5)
 
         # Manually send notification via channel layer
@@ -270,11 +304,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
     async def test_user_isolation_idor_prevention(self):
         """Users should only receive their own notifications (IDOR prevention)."""
         # Connect user1
-        ws_path1 = f"ws/notification-updates/?token={self.token}"
-        communicator1 = WebsocketCommunicator(application, ws_path1)
+        communicator1 = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected1, _ = await communicator1.connect()
         self.assertTrue(connected1)
-        await communicator1.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator1.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator1.receive_from(timeout=5)  # Drain CONNECTED
 
         # Create user2's token
         user2 = await database_sync_to_async(
@@ -285,11 +323,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
         user2_token_str = await database_sync_to_async(get_token)(user2)
 
         # Connect user2
-        ws_path2 = f"ws/notification-updates/?token={user2_token_str}"
-        communicator2 = WebsocketCommunicator(application, ws_path2)
+        communicator2 = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, user2_token_str],
+        )
         connected2, _ = await communicator2.connect()
         self.assertTrue(connected2)
-        await communicator2.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator2.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator2.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send notification to user2's channel group ONLY
         channel_layer = get_channel_layer()
@@ -352,11 +394,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_notification_update_broadcast(self):
         """Notification updates should be broadcast."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send notification update via channel layer
         channel_layer = get_channel_layer()
@@ -384,11 +430,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_notification_deleted_broadcast(self):
         """Notification deletions should be broadcast."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send notification deletion via channel layer
         channel_layer = get_channel_layer()
@@ -414,17 +464,25 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
     async def test_multiple_concurrent_connections(self):
         """Multiple users can connect concurrently without interference."""
         # Connect user1 twice (simulate multiple tabs)
-        ws_path1a = f"ws/notification-updates/?token={self.token}"
-        communicator1a = WebsocketCommunicator(application, ws_path1a)
+        communicator1a = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected1a, _ = await communicator1a.connect()
         self.assertTrue(connected1a)
-        await communicator1a.receive_from(timeout=5)
+        await communicator1a.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator1a.receive_from(timeout=5)  # Drain CONNECTED
 
-        ws_path1b = f"ws/notification-updates/?token={self.token}"
-        communicator1b = WebsocketCommunicator(application, ws_path1b)
+        communicator1b = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected1b, _ = await communicator1b.connect()
         self.assertTrue(connected1b)
-        await communicator1b.receive_from(timeout=5)
+        await communicator1b.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator1b.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send notification to user1's channel group
         channel_layer = get_channel_layer()
@@ -456,11 +514,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_disconnect_cleanup(self):
         """Disconnecting should remove user from channel group."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Disconnect
         await communicator.disconnect()
@@ -486,11 +548,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_document_processed_notification_broadcast(self):
         """DOCUMENT_PROCESSED notifications should be broadcast correctly (Issue #624)."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send DOCUMENT_PROCESSED notification via channel layer
         channel_layer = get_channel_layer()
@@ -527,11 +593,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_extract_complete_notification_broadcast(self):
         """EXTRACT_COMPLETE notifications should be broadcast correctly (Issue #624)."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send EXTRACT_COMPLETE notification via channel layer
         channel_layer = get_channel_layer()
@@ -568,11 +638,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_analysis_complete_notification_broadcast(self):
         """ANALYSIS_COMPLETE notifications should be broadcast correctly (Issue #624)."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send ANALYSIS_COMPLETE notification via channel layer
         channel_layer = get_channel_layer()
@@ -609,11 +683,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_analysis_failed_notification_broadcast(self):
         """ANALYSIS_FAILED notifications should be broadcast correctly (Issue #624)."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send ANALYSIS_FAILED notification via channel layer
         channel_layer = get_channel_layer()
@@ -649,11 +727,15 @@ class NotificationWebSocketTestCase(WebsocketFixtureBaseTestCase):
 
     async def test_export_complete_notification_broadcast(self):
         """EXPORT_COMPLETE notifications should be broadcast correctly (Issue #624)."""
-        ws_path = f"ws/notification-updates/?token={self.token}"
-        communicator = WebsocketCommunicator(application, ws_path)
+        communicator = WebsocketCommunicator(
+            application,
+            "ws/notification-updates/",
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        await communicator.receive_from(timeout=5)  # Consume CONNECTED
+        await communicator.receive_from(timeout=5)  # Drain AUTH_OK
+        await communicator.receive_from(timeout=5)  # Drain CONNECTED
 
         # Send EXPORT_COMPLETE notification via channel layer
         channel_layer = get_channel_layer()

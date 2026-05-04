@@ -243,14 +243,17 @@ class _DummyConsumer(AuthHandshakeMixin):
         self.scope = scope
         self.sent: list[str] = []
         self.closed_with: int | None = None
-        self._is_connected = True
+        # Simulate an already-accepted connection so the mixin's grace-timer
+        # close path runs without us having to drive accept_with_auth() in
+        # every test.
+        self._handshake_connected = True
 
     async def send(self, text_data: str) -> None:
         self.sent.append(text_data)
 
     async def close(self, code: int | None = None) -> None:
         self.closed_with = code
-        self._is_connected = False
+        self._handshake_connected = False
 
     async def accept(self, subprotocol: str | None = None) -> None:
         self.accepted_subprotocol = subprotocol
