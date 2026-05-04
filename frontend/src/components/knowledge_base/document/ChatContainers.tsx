@@ -60,8 +60,8 @@ export const ChatInputContainer = styled(motion.div)<{ $isTyping?: boolean }>`
   bottom: 0;
   display: flex;
   align-items: flex-end;
-  gap: 0.875rem;
-  padding: 1.25rem 1.5rem;
+  gap: 0.625rem;
+  padding: 0.875rem 1rem calc(0.875rem + env(safe-area-inset-bottom, 0px));
   background: white;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.04);
@@ -80,6 +80,7 @@ export const ChatInputContainer = styled(motion.div)<{ $isTyping?: boolean }>`
   /* Ensure proper containment */
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: auto;
   max-height: 40vh; /* Limit maximum expansion */
 
@@ -98,13 +99,14 @@ export const ChatInputContainer = styled(motion.div)<{ $isTyping?: boolean }>`
 `;
 
 export const ChatInputWrapper = styled.div`
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   position: relative;
   background: ${OS_LEGAL_COLORS.surfaceHover};
-  border: 2px solid #e8ecf0;
-  border-radius: 14px;
+  border: 1px solid #e8ecf0;
+  border-radius: 12px;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
@@ -118,8 +120,8 @@ export const ChatInputWrapper = styled.div`
   &:focus-within {
     border-color: #667eea;
     background: white;
-    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12),
-      0 4px 16px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15),
+      0 4px 12px rgba(0, 0, 0, 0.06);
   }
 `;
 
