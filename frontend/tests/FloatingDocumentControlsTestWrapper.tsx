@@ -93,6 +93,7 @@ interface FloatingDocumentControlsTestWrapperProps {
   extractsOpen?: boolean;
   panelOffset?: number;
   readOnly?: boolean;
+  hideDocumentTools?: boolean;
   // Test configuration props
   showBoundingBoxes?: boolean;
   showStructural?: boolean;
@@ -292,6 +293,7 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
   extractsOpen = false,
   panelOffset = 0,
   readOnly = false,
+  hideDocumentTools = false,
   showBoundingBoxes = false,
   showStructural = false,
   showSelectedOnly = false,
@@ -369,6 +371,7 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
                 extractsOpen={extractsOpen}
                 panelOffset={panelOffset}
                 readOnly={readOnly}
+                hideDocumentTools={hideDocumentTools}
               />
             </div>
           </TestSetup>

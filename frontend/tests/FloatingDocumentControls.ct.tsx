@@ -1,5 +1,6 @@
 import { test, expect } from "./utils/coverage";
 import { FloatingDocumentControlsTestWrapper } from "./FloatingDocumentControlsTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 
 test.describe("FloatingDocumentControls", () => {
   test("renders visible controls with core buttons", async ({
@@ -498,5 +499,48 @@ test.describe("FloatingDocumentControls", () => {
     const analysesButton = page.getByTestId("analyses-button");
     await analysesButton.click();
     expect(analysesCalled).toBe(true);
+  });
+
+  test("hideDocumentTools=true hides extracts/analyses/create-analysis but keeps settings", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        hideDocumentTools={true}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    // Settings (panel-width control) must remain visible.
+    await expect(page.getByTestId("settings-button")).toBeVisible();
+
+    // All document-tool FABs must be absent.
+    await expect(page.getByTestId("extracts-button")).toHaveCount(0);
+    await expect(page.getByTestId("analyses-button")).toHaveCount(0);
+    await expect(page.getByTestId("create-analysis-button")).toHaveCount(0);
+
+    await docScreenshot(
+      page,
+      "knowledge-base--floating-document-controls--hidden-tools"
+    );
+  });
+
+  test("hideDocumentTools=false keeps document tool buttons visible", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        hideDocumentTools={false}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    await expect(page.getByTestId("settings-button")).toBeVisible();
+    await expect(page.getByTestId("extracts-button")).toBeVisible();
+    await expect(page.getByTestId("analyses-button")).toBeVisible();
   });
 });

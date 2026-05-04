@@ -857,34 +857,18 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                 <BarChart3 />
               </ActionButton>
 
-              {/* New button: Start Analysis - only show if user has permissions and not in readOnly mode */}
-              {(() => {
-                const shouldShowAnalysisButton =
-                  canCreateAnalysis && !readOnly && selectedCorpus;
-
-                return shouldShowAnalysisButton ? (
-                  <ActionButton
-                    $color={OS_LEGAL_COLORS.greenMedium}
-                    data-testid="create-analysis-button"
-                    onClick={() => {
-                      // Note: openedCorpus is managed by CentralRouteManager, not set here
-                      // Modal reads corpus from reactive var or component state as needed
-                      if (selectedCorpus) {
-                        showSelectCorpusAnalyzerOrFieldsetModal(true);
-                      } else {
-                        console.warn(
-                          "FloatingDocumentControls: No corpus context available for analysis"
-                        );
-                      }
-                    }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    title="Start New Analysis"
-                  >
-                    <Plus />
-                  </ActionButton>
-                ) : null;
-              })()}
+              {canCreateAnalysis && !readOnly && selectedCorpus && (
+                <ActionButton
+                  $color={OS_LEGAL_COLORS.greenMedium}
+                  data-testid="create-analysis-button"
+                  onClick={() => showSelectCorpusAnalyzerOrFieldsetModal(true)}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  title="Start New Analysis"
+                >
+                  <Plus />
+                </ActionButton>
+              )}
             </>
           )}
         </ControlsContainer>
