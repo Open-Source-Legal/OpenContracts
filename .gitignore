@@ -187,6 +187,11 @@ scratch.py
 # Claude Code
 .claude/
 
+# Local git worktrees scratch space (used by /ultrareview and ad-hoc
+# parallel branches). Each subdirectory is its own checkout, not part
+# of this repo's tree.
+.worktrees/
+
 # Implementation plans (ephemeral)
 docs/plans/
 docs/superpowers/
