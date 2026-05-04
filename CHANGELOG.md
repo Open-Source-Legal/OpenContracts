@@ -13,6 +13,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sidecar token recalculation when the parser pipeline runs**
+  (`opencontractserver/tasks/import_tasks.py`,
+  `opencontractserver/utils/pdf_token_extraction.py`). When a bulk-import zip
+  contains an annotation sidecar and `skip_pipeline` is **not** set, the
+  parser pipeline regenerates PAWLs for the document — invalidating the
+  sidecar's `tokensJsons` references which were keyed against the sidecar's
+  own (now-discarded) tokenization. Bounding boxes, however, remain spatially
+  valid. After applying the sidecar's annotations, `_apply_sidecar_annotations`
+  now schedules a deferred Celery task
+  (`recalculate_annotation_tokens_from_bboxes`) that waits for the pipeline
+  to reach `COMPLETED`, builds a per-page STRtree spatial index from the
+  freshly-parsed PAWLs (new helper `build_spatial_indices_from_pawls`), and
+  rebuilds each annotation's `tokensJsons` by intersecting its per-page
+  bounds with the new tokens via the existing `find_tokens_in_bbox` utility.
+  The task self-retries with bounded exponential backoff while the document
+  is still `PENDING`/`PROCESSING`, gives up gracefully on `FAILED`, and is a
+  no-op when `skip_pipeline=True`. Tests:
+  `opencontractserver/tests/test_recalculate_annotation_tokens.py`,
+  `opencontractserver/tests/test_pdf_token_extraction.py::TestBuildSpatialIndicesFromPawls`.
+
 - **Server-derived `me.canImportCorpus` field** (`config/graphql/user_types.py:43-60`). A new boolean on `UserType` that mirrors the backend permission check enforced by `UploadCorpusImportZip` / `ImportZipToCorpus`: returns `false` for anonymous users and for usage-capped users when `USAGE_CAPPED_USER_CAN_IMPORT_CORPUS` is disabled, otherwise `true`. Exposed through `GET_ME` (`frontend/src/graphql/queries.ts`) so the frontend can gate corpus-import UI without re-implementing the rule. Tests: `opencontractserver/tests/test_user_can_import_corpus.py` covers the three states (capped+disabled, capped+enabled, uncapped).
 - **Dedicated `ImportCorpusModal`** (`frontend/src/components/widgets/modals/ImportCorpusModal.tsx`). Replaces the previous hidden `<input type="file">` flow on the Corpuses page with a confirm/upload/progress modal that calls `importOpenContractsZip` to create a brand-new corpus from an OpenContracts export ZIP. The trigger button on `CorpusListView` is now hidden for users whose `me.canImportCorpus` is `false`, eliminating the prior UX where usage-capped users could pick a file and only then receive a backend permission error.
 

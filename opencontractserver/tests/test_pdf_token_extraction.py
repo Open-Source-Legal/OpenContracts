@@ -18,6 +18,7 @@ from shapely.geometry import box
 from shapely.strtree import STRtree
 
 from opencontractserver.utils.pdf_token_extraction import (
+    build_spatial_indices_from_pawls,
     crop_image_from_pdf,
     extract_images_from_pdf,
     extract_pawls_tokens_from_pdf,
@@ -422,6 +423,79 @@ class TestFindTokensInBbox(TestCase):
         # All refs should have pageIndex=5
         for ref in token_refs:
             self.assertEqual(ref["pageIndex"], 5)
+
+
+class TestBuildSpatialIndicesFromPawls(TestCase):
+    """Tests for build_spatial_indices_from_pawls."""
+
+    def _page(self, page_idx: int, tokens: list[dict]) -> dict:
+        return {
+            "page": {"index": page_idx, "width": 612, "height": 792},
+            "tokens": tokens,
+        }
+
+    def test_builds_index_per_page_and_finds_tokens(self):
+        pages = [
+            self._page(
+                0,
+                [
+                    {"x": 100, "y": 100, "width": 50, "height": 20, "text": "A"},
+                    {"x": 160, "y": 100, "width": 50, "height": 20, "text": "B"},
+                ],
+            ),
+            self._page(
+                1,
+                [
+                    {"x": 50, "y": 50, "width": 30, "height": 10, "text": "C"},
+                ],
+            ),
+        ]
+        indices, indices_by_page = build_spatial_indices_from_pawls(pages)
+        self.assertIn(0, indices)
+        self.assertIn(1, indices)
+        self.assertEqual(list(indices_by_page[0]), [0, 1])
+        self.assertEqual(list(indices_by_page[1]), [0])
+
+        # find_tokens_in_bbox round-trips against the freshly-built index.
+        bbox = {"left": 90, "top": 90, "right": 220, "bottom": 130}
+        refs = find_tokens_in_bbox(bbox, 0, indices[0], indices_by_page[0])
+        self.assertEqual(
+            sorted(r["tokenIndex"] for r in refs),
+            [0, 1],
+        )
+
+    def test_skips_invalid_or_zero_size_tokens(self):
+        pages = [
+            self._page(
+                0,
+                [
+                    {"x": 0, "y": 0, "width": 0, "height": 10, "text": "zero-w"},
+                    {"x": 0, "y": 0, "width": 10, "height": 0, "text": "zero-h"},
+                    {"x": 100, "y": 100, "width": 50, "height": 20, "text": "ok"},
+                    "not-a-dict",
+                    {"x": "bad", "y": 1, "width": 1, "height": 1, "text": "bad"},
+                ],
+            )
+        ]
+        indices, indices_by_page = build_spatial_indices_from_pawls(pages)
+        # Only the "ok" token (original index 2) is indexed.
+        self.assertEqual(list(indices_by_page[0]), [2])
+
+    def test_falls_back_to_position_when_page_index_missing(self):
+        pages = [
+            {"tokens": [{"x": 0, "y": 0, "width": 5, "height": 5, "text": "x"}]},
+        ]
+        indices, indices_by_page = build_spatial_indices_from_pawls(pages)
+        self.assertIn(0, indices)
+        self.assertEqual(list(indices_by_page[0]), [0])
+
+    def test_returns_empty_indices_for_page_with_no_valid_tokens(self):
+        pages = [self._page(0, [])]
+        indices, indices_by_page = build_spatial_indices_from_pawls(pages)
+        self.assertNotIn(0, indices)
+        # Empty arrays are still recorded so callers can distinguish "page seen
+        # but had no tokens" from "page absent".
+        self.assertEqual(len(indices_by_page[0]), 0)
 
 
 class TestExtractImagesFromPdf(TestCase):
