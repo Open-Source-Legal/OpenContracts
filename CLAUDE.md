@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-OpenContracts is an AGPL-3.0 enterprise document analytics platform for PDFs and text-based formats. It features a Django/GraphQL backend with PostgreSQL + pgvector, a React/TypeScript frontend with Jotai state management, and pluggable document processing pipelines powered by machine learning models.
+OpenContracts is an MIT-licensed enterprise document analytics platform for PDFs and text-based formats. It features a Django/GraphQL backend with PostgreSQL + pgvector, a React/TypeScript frontend with Jotai state management, and pluggable document processing pipelines powered by machine learning models.
 
 ## Baseline Commit Rules
 1. Always ensure all affected (or new) tests pass - backend tests suite should only be run in its entirety for good reason as it takes 30+ minutes.

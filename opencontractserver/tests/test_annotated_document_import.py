@@ -1,4 +1,4 @@
-#  Copyright (C) 2022  John Scrudato / Gordium Knot Inc. d/b/a OpenSource.Legal
+#  Copyright (C) 2026  John Scrudato
 #
 #  Licensed under the MIT License. See the LICENSE file in the project root for
 #  the full license text.
