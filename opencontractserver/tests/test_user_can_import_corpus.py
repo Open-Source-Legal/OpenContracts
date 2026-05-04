@@ -5,16 +5,14 @@ The frontend uses this server-derived flag to gate visibility of the
 UploadCorpusImportZip / ImportZipToCorpus.
 """
 
-import logging
-
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase, override_settings
 from graphene.test import Client
 
 from config.graphql.schema import schema
 
 User = get_user_model()
-logger = logging.getLogger(__name__)
 
 
 class _Ctx:
@@ -67,3 +65,18 @@ class CanImportCorpusFieldTestCase(TestCase):
         result = self._run(self.uncapped_user)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["me"]["canImportCorpus"])
+
+    @override_settings(USAGE_CAPPED_USER_CAN_IMPORT_CORPUS=True)
+    def test_anonymous_user_me_returns_null(self) -> None:
+        """Anonymous users get ``me: null`` rather than a partial ``UserType``.
+
+        ``resolve_me`` short-circuits on unauthenticated requests so callers
+        never see a partially-resolved ``AnonymousUser`` (which lacks
+        model-only fields like ``is_usage_capped``). This means the
+        frontend's ``canImportCorpus`` gating defaults to ``false`` for
+        anonymous users via the absent ``me`` payload.
+        """
+        client = Client(schema, context_value=_Ctx(AnonymousUser()))
+        result = client.execute(ME_QUERY)
+        self.assertIsNone(result.get("errors"))
+        self.assertIsNone(result["data"]["me"])

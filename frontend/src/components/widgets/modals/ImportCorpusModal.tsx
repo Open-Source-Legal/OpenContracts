@@ -9,7 +9,7 @@
  * `me.canImportCorpus` field; this modal still defends itself against
  * disallowed users by showing a permission error if the mutation fails.
  */
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import {
   Modal,
@@ -31,6 +31,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+import { UPLOAD } from "../../../assets/configurations/constants";
 import { showImportCorpusModal } from "../../../graphql/cache";
 import {
   START_IMPORT_CORPUS,
@@ -72,6 +73,18 @@ export const ImportCorpusModal: React.FC = () => {
   const [isDragActive, setIsDragActive] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
+
+  const clearProgressInterval = useCallback(() => {
+    if (progressIntervalRef.current !== null) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearProgressInterval, [clearProgressInterval]);
 
   const [startImportCorpus] = useMutation<
     StartImportCorpusExport,
@@ -101,7 +114,15 @@ export const ImportCorpusModal: React.FC = () => {
       return;
     }
 
+    if (file.size > UPLOAD.MAX_IMPORT_ZIP_BYTES) {
+      setError(
+        `File exceeds the ${UPLOAD.MAX_IMPORT_ZIP_DISPLAY} import limit.`
+      );
+      return;
+    }
+
     setSelectedFile(file);
+    setBase64File(null);
     setError(null);
 
     const reader = new FileReader();
@@ -165,7 +186,7 @@ export const ImportCorpusModal: React.FC = () => {
     setStep("progress");
     setUploadProgress(10);
 
-    const progressInterval = setInterval(() => {
+    progressIntervalRef.current = setInterval(() => {
       setUploadProgress((prev) => Math.min(prev + 10, 90));
     }, 500);
 
@@ -174,7 +195,7 @@ export const ImportCorpusModal: React.FC = () => {
         variables: { base64FileString: base64File },
       });
 
-      clearInterval(progressInterval);
+      clearProgressInterval();
 
       if (result.data?.importOpenContractsZip?.ok) {
         setUploadProgress(100);
@@ -188,15 +209,17 @@ export const ImportCorpusModal: React.FC = () => {
         setStep("upload");
         setUploadProgress(0);
       }
-    } catch (err: any) {
-      clearInterval(progressInterval);
-      setError(err.message || "An error occurred during import.");
+    } catch (err) {
+      clearProgressInterval();
+      const message =
+        err instanceof Error ? err.message : "An error occurred during import.";
+      setError(message);
       setStep("upload");
       setUploadProgress(0);
     } finally {
       setLoading(false);
     }
-  }, [base64File, startImportCorpus, handleClose]);
+  }, [base64File, startImportCorpus, handleClose, clearProgressInterval]);
 
   const handleConfirm = useCallback(() => setStep("upload"), []);
 
@@ -343,18 +366,18 @@ export const ImportCorpusModal: React.FC = () => {
     </ProgressContent>
   );
 
-  const getSubtitle = () => {
-    switch (step) {
+  const getSubtitle = (current: ImportStep): string => {
+    switch (current) {
       case "confirm":
         return "Review import details before proceeding";
       case "upload":
         return "Select a corpus export ZIP to import";
       case "progress":
         return "Processing your import...";
-      default:
-        return "";
     }
   };
+
+  const isReadingFile = selectedFile !== null && base64File === null;
 
   if (!visible) return null;
 
@@ -370,7 +393,7 @@ export const ImportCorpusModal: React.FC = () => {
               Import Corpus
             </>
           }
-          subtitle={getSubtitle()}
+          subtitle={getSubtitle(step)}
           onClose={handleClose}
           showCloseButton={step !== "progress"}
         />
@@ -405,9 +428,9 @@ export const ImportCorpusModal: React.FC = () => {
                   disabled={!selectedFile || !base64File || loading}
                 >
                   <ButtonIcon>
-                    <CloudUpload />
+                    {isReadingFile ? <Loader /> : <CloudUpload />}
                   </ButtonIcon>
-                  Start Import
+                  {isReadingFile ? "Reading file…" : "Start Import"}
                 </Button>
               </>
             )}

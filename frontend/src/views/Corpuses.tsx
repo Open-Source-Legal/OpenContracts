@@ -1629,7 +1629,7 @@ export const Corpuses = () => {
   const filter_to_label_id = useReactiveVar(filterToLabelId);
 
   const currentUser = useReactiveVar(userObj);
-  const backend_user = useReactiveVar(backendUserObj);
+  const backendUser = useReactiveVar(backendUserObj);
   const annotation_search_term = useReactiveVar(annotationContentSearchTerm);
   const show_query_view_state = useReactiveVar(showQueryViewState);
   const show_create_extract_modal = useReactiveVar(showCreateExtractModal);
@@ -2241,7 +2241,7 @@ export const Corpuses = () => {
     // public demo) AND by the server-derived `canImportCorpus` permission on
     // the authenticated user. Mirrors the backend check in
     // UploadCorpusImportZip / ImportZipToCorpus.
-    if (REACT_APP_ALLOW_IMPORTS && backend_user?.canImportCorpus) {
+    if (REACT_APP_ALLOW_IMPORTS && backendUser?.canImportCorpus) {
       corpus_actions.push({
         icon: "cloud upload",
         title: "Import Corpus",
@@ -2730,7 +2730,7 @@ export const Corpuses = () => {
         searchValue={corpusSearchCache}
         onSearchChange={handleCorpusSearchChange}
         allowImport={
-          REACT_APP_ALLOW_IMPORTS && Boolean(backend_user?.canImportCorpus)
+          REACT_APP_ALLOW_IMPORTS && Boolean(backendUser?.canImportCorpus)
         }
       />
     );

@@ -26,8 +26,6 @@ from config.graphql.graphene_types import (
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AnonymousUser
-
     from opencontractserver.users.models import User
 
 
@@ -38,8 +36,11 @@ class UserQueryMixin:
     me = graphene.Field(UserType)
     user_by_slug = graphene.Field(UserType, slug=graphene.String(required=True))
 
-    def resolve_me(self, info: graphene.ResolveInfo) -> User | AnonymousUser:
-        return info.context.user
+    def resolve_me(self, info: graphene.ResolveInfo) -> User | None:
+        user = info.context.user
+        if not user.is_authenticated:
+            return None
+        return user
 
     def resolve_user_by_slug(
         self, info: graphene.ResolveInfo, slug: str

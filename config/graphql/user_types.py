@@ -51,7 +51,7 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_can_import_corpus(self, info) -> bool:
-        if not getattr(self, "is_authenticated", False):
+        if not self.is_authenticated:
             return False
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
             return False
