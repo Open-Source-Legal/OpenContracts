@@ -4,7 +4,7 @@ Direct database queries with smart prefetching and permission filtering.
 No caching layer - just optimized queries.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
     from opencontractserver.analyzer.models import Analysis
@@ -398,14 +398,11 @@ class AnnotationQueryOptimizer:
         except DocumentPath.DoesNotExist:
             # Path doesn't exist or is deleted
             return Annotation.objects.none()
-        except DocumentPath.MultipleObjectsReturned:
-            # Shouldn't happen with constraints, but handle safely.
-            # first() returns None only on an empty QS; unreachable here, but
-            # needed to narrow DocumentPath | None → DocumentPath for mypy.
-            first_path = path_query.first()
-            if first_path is None:
-                return Annotation.objects.none()
-            document_path = first_path
+        except DocumentPath.MultipleObjectsReturned:  # pragma: no cover -- defensive; uniqueness constraints prevent this
+            # Shouldn't happen with constraints. first() is non-None when
+            # MultipleObjectsReturned was raised (≥2 rows); cast narrows
+            # DocumentPath | None → DocumentPath for mypy.
+            document_path = cast("DocumentPath", path_query.first())
 
         # Use existing method with resolved document_id
         return cls.get_document_annotations(
