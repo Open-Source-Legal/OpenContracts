@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import _ from "lodash";
 import { toast } from "react-toastify";
 import {
-  ApolloError,
   useLazyQuery,
   useMutation,
   useQuery,
@@ -74,6 +73,8 @@ import {
   selectedThreadId,
   corpusPowerUserMode,
   showCreateExtractModal,
+  showImportCorpusModal,
+  backendUserObj,
 } from "../graphql/cache";
 import {
   updateTabParam,
@@ -93,9 +94,6 @@ import {
   REMOVE_DOCUMENTS_FROM_CORPUS,
   RemoveDocumentsFromCorpusOutputs,
   RemoveDocumentsFromCorpusInputs,
-  StartImportCorpusExport,
-  StartImportCorpusInputs,
-  START_IMPORT_CORPUS,
 } from "../graphql/mutations";
 import {
   GetCorpusesInputs,
@@ -111,7 +109,6 @@ import {
 } from "../graphql/queries";
 import { CorpusType, LabelType } from "../types/graphql-api";
 import { LooseObject, PermissionTypes } from "../components/types";
-import { toBase64 } from "../utils/files";
 import { FilterToLabelSelector } from "../components/widgets/model-filters/FilterToLabelSelector";
 import { ensureValidCorpusId } from "../utils/graphqlGuards";
 import { CorpusAnnotationCards } from "../components/annotations/CorpusAnnotationCards";
@@ -124,6 +121,7 @@ import { CorpusAnalysesCards } from "../components/analyses/CorpusAnalysesCards"
 import { FilterToAnalysesSelector } from "../components/widgets/model-filters/FilterToAnalysesSelector";
 import useWindowDimensions from "../components/hooks/WindowDimensionHook";
 import { SelectExportTypeModal } from "../components/widgets/modals/SelectExportTypeModal";
+import { ImportCorpusModal } from "../components/widgets/modals/ImportCorpusModal";
 import { FilterToCorpusActionOutputs } from "../components/widgets/model-filters/FilterToCorpusActionOutputs";
 import { CorpusExtractCards } from "../components/extracts/CorpusExtractCards";
 import { CorpusExtractDetail } from "../components/extracts/CorpusExtractDetail";
@@ -1631,14 +1629,13 @@ export const Corpuses = () => {
   const filter_to_label_id = useReactiveVar(filterToLabelId);
 
   const currentUser = useReactiveVar(userObj);
+  const backendUser = useReactiveVar(backendUserObj);
   const annotation_search_term = useReactiveVar(annotationContentSearchTerm);
   const show_query_view_state = useReactiveVar(showQueryViewState);
   const show_create_extract_modal = useReactiveVar(showCreateExtractModal);
 
   const location = useLocation();
   const navigate = useNavigate();
-
-  const corpusUploadRef = useRef() as React.MutableRefObject<HTMLInputElement>;
 
   const [show_multi_delete_confirm, setShowMultiDeleteConfirm] =
     useState<boolean>(false);
@@ -1815,21 +1812,6 @@ export const Corpuses = () => {
       );
     }
   }, [location.search, location.pathname, navigate]);
-
-  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // Setup document resolvers and mutations
-  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  const [startImportCorpus, {}] = useMutation<
-    StartImportCorpusExport,
-    StartImportCorpusInputs
-  >(START_IMPORT_CORPUS, {
-    onCompleted: () => {
-      toast.success("SUCCESS!\vCorpus file upload and import has started.");
-      // Note: Import is async, stats will update via polling
-    },
-    onError: (error: ApolloError) =>
-      toast.error(`Could Not Start Import: ${error.message}`),
-  });
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // Query to get corpuses
@@ -2133,30 +2115,6 @@ export const Corpuses = () => {
     },
   });
 
-  // When an import file is selected by user and change is detected in <input>,
-  // read and convert file to base64string, then upload to the start import mutation.
-  const onImportFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event?.target?.files?.item(0)) {
-      let reader = new FileReader();
-      reader.onload = async (e) => {
-        if (event?.target?.files?.item(0) != null) {
-          var base64FileString = await toBase64(
-            event.target.files.item(0) as File
-          );
-          if (
-            typeof base64FileString === "string" ||
-            base64FileString instanceof String
-          ) {
-            startImportCorpus({
-              variables: { base64FileString: base64FileString.split(",")[1] },
-            });
-          }
-        }
-      };
-      reader.readAsDataURL(event.target.files[0]);
-    }
-  };
-
   // Handle corpus update with properly typed form data
   const handleUpdateCorpus = (formData: CorpusFormData) => {
     const variables: UpdateCorpusInputs = {
@@ -2279,15 +2237,17 @@ export const Corpuses = () => {
       },
     ];
 
-    // Currently the import capability is enabled via an env variable in case we want it disabled
-    // (which we'll probably do for the public demo to cut down on attack surface and load on server)
-    if (REACT_APP_ALLOW_IMPORTS) {
+    // Imports are gated by a global env kill-switch (used to disable for the
+    // public demo) AND by the server-derived `canImportCorpus` permission on
+    // the authenticated user. Mirrors the backend check in
+    // UploadCorpusImportZip / ImportZipToCorpus.
+    if (REACT_APP_ALLOW_IMPORTS && backendUser?.canImportCorpus) {
       corpus_actions.push({
         icon: "cloud upload",
         title: "Import Corpus",
         key: `Corpus_action_${1}`,
         color: "green",
-        action_function: () => corpusUploadRef.current.click(),
+        action_function: () => showImportCorpusModal(true),
       });
     }
   }
@@ -2766,10 +2726,12 @@ export const Corpuses = () => {
         }
         fetchMore={fetchMoreCorpuses}
         onCreateCorpus={() => setShowNewCorpusModal(true)}
-        onImportCorpus={() => corpusUploadRef.current.click()}
+        onImportCorpus={() => showImportCorpusModal(true)}
         searchValue={corpusSearchCache}
         onSearchChange={handleCorpusSearchChange}
-        allowImport={REACT_APP_ALLOW_IMPORTS && Boolean(currentUser)}
+        allowImport={
+          REACT_APP_ALLOW_IMPORTS && Boolean(backendUser?.canImportCorpus)
+        }
       />
     );
   } else if (
@@ -3188,13 +3150,7 @@ export const Corpuses = () => {
       }
       BreadCrumbs={null}
     >
-      <input
-        ref={corpusUploadRef}
-        id="uploadInputFile"
-        hidden
-        type="file"
-        onChange={onImportFileChange}
-      />
+      <ImportCorpusModal />
       {content}
     </CardLayout>
   );

@@ -3,6 +3,7 @@
 from typing import Any
 
 import graphene
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from graphene import relay
 from graphene_django import DjangoObjectType
@@ -39,6 +40,22 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     total_documents_uploaded = graphene.Int(
         description="Total number of documents uploaded by this user (visible to requester)"
     )
+
+    can_import_corpus = graphene.Boolean(
+        description=(
+            "Whether this user is permitted to import a corpus. Mirrors the "
+            "server-side check in UploadCorpusImportZip / ImportZipToCorpus: "
+            "false for usage-capped users when "
+            "USAGE_CAPPED_USER_CAN_IMPORT_CORPUS is disabled."
+        )
+    )
+
+    def resolve_can_import_corpus(self, info) -> bool:
+        if not self.is_authenticated:
+            return False
+        if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
+            return False
+        return True
 
     def resolve_reputation_global(self, info) -> Any:
         """

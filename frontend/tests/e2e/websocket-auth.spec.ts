@@ -71,6 +71,19 @@ test.describe("WebSocket auth handshake (full-stack)", () => {
   // The whole spec needs the local stack with Daphne (not test.yml's
   // runserver). The workflow boots `local.yml` before invoking us;
   // local devs need to do the same.
+  //
+  // We also gate the entire describe behind OC_RUN_WS_E2E so that the
+  // generic `Frontend E2E Integration` workflow (which globs every
+  // `tests/e2e/*.spec.ts`) doesn't pick this spec up — it runs against
+  // `test.yml`'s runserver, which doesn't speak WebSockets, and the
+  // helpers' `docker compose -f local.yml exec` calls would all fail.
+  // The dedicated `Frontend E2E WebSocket Auth (VCR)` workflow sets
+  // OC_RUN_WS_E2E=true.
+  test.skip(
+    process.env.OC_RUN_WS_E2E !== "true",
+    "Set OC_RUN_WS_E2E=true to run; needs the local.yml stack (Daphne)."
+  );
+
   test.setTimeout(15 * 60 * 1000);
 
   // ───────────────────────────────────────────────────────────────────

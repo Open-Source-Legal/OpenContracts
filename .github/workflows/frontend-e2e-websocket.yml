@@ -162,6 +162,12 @@ jobs:
           # this is not "replay" so contributors can run the auth-only
           # subset locally without touching VCR.
           OC_LLM_VCR_MODE: replay
+          # The describe block in websocket-auth.spec.ts is gated on
+          # this var so the generic `Frontend E2E Integration` workflow
+          # (which globs every `tests/e2e/*.spec.ts`) doesn't pick this
+          # spec up — that workflow runs `test.yml` with runserver,
+          # which doesn't speak WebSockets.
+          OC_RUN_WS_E2E: "true"
           E2E_TEST_USERNAME: admin
           # Must match DJANGO_SUPERUSER_PASSWORD in `.envs/.test/.django`.
           E2E_TEST_PASSWORD: Openc0ntracts_def@ult

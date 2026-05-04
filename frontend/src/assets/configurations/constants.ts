@@ -108,6 +108,10 @@ export const UPLOAD = {
   BULK_PROGRESS_INITIAL: 50,
   /** Maximum number of corpuses to show in the inline selector preview */
   CORPUS_PREVIEW_LIMIT: 5,
+  /** Maximum corpus-import ZIP size in bytes (500MB) */
+  MAX_IMPORT_ZIP_BYTES: 500 * 1024 * 1024,
+  /** Maximum corpus-import ZIP size display string */
+  MAX_IMPORT_ZIP_DISPLAY: "500MB",
 } as const;
 
 // Document metadata constraints
