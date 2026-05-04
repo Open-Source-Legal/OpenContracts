@@ -36,7 +36,10 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 from config.ratelimit.decorators import check_ws_rate_limit
 from config.websocket.auth_handshake import AuthHandshakeMixin
-from config.websocket.middleware import WS_CLOSE_RATE_LIMITED
+from config.websocket.middleware import (
+    WS_CLOSE_RATE_LIMITED,
+    WS_CLOSE_UNAUTHENTICATED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +134,12 @@ class NotificationUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 f"[NotificationUpdates {self.consumer_id}] "
                 "Unauthenticated connection rejected"
             )
-            await self.close(code=4001)
+            # 4000 (UNAUTHENTICATED) — there was no token at all. Use 4001
+            # (TOKEN_EXPIRED) only when the middleware actually decoded a
+            # token and found it expired (scope["auth_error"]). Otherwise
+            # the frontend treats every anonymous-mount as "the user's
+            # session expired" and stops reconnecting.
+            await self.close(code=WS_CLOSE_UNAUTHENTICATED)
             return
 
         self.user_id = user.pk

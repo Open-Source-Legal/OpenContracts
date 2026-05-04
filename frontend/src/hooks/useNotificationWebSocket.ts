@@ -257,6 +257,11 @@ export function useNotificationWebSocket(
   const { isConnected, isAuthenticated, send, reconnect } = useWebSocketAuth({
     url,
     enabled,
+    // Notifications are inherently per-user; the server rejects
+    // anonymous connections. Without this gate the hook would open a
+    // token-less socket on app mount, the consumer would close 4001,
+    // and reconnects would be suppressed for the rest of the session.
+    requireAuth: true,
     onMessage: handleMessage,
     onOpen: () => {
       setConnectionState("connected");

@@ -51,6 +51,22 @@ export interface UseWebSocketAuthOptions {
   onAuthInvalid?: () => void;
   /** Skip everything (e.g. while context not ready). */
   enabled?: boolean;
+  /**
+   * When true, the hook will NOT open a socket while the auth token
+   * reactive var is empty. Use this for endpoints that reject anonymous
+   * connections (e.g. /ws/notification-updates/) — without this gate,
+   * the hook would open a token-less socket on first render, the
+   * consumer would reject 4000/4001, the close would land in the
+   * auth-failure family, and reconnects would be suppressed for the
+   * rest of the session even after login completes.
+   *
+   * The hook still re-opens automatically when the token transitions
+   * empty → non-empty (e.g. login completes after mount).
+   *
+   * Default: false (preserves existing behavior for endpoints that
+   * accept anonymous connections like /ws/agent-chat/ on public docs).
+   */
+  requireAuth?: boolean;
   /** Initial reconnect delay (ms). Doubled per failure up to 8x. */
   reconnectDelayMs?: number;
 }
@@ -74,6 +90,7 @@ export function useWebSocketAuth(
     onClose,
     onAuthInvalid,
     enabled = true,
+    requireAuth = false,
     reconnectDelayMs = 3000,
   } = options;
 
@@ -118,10 +135,19 @@ export function useWebSocketAuth(
     setReconnectTrigger((n) => n + 1);
   }, []);
 
+  // Whether the connect effect is currently allowed to open a socket.
+  // We re-evaluate `requireAuth` against the live token here (rather
+  // than against `tokenRef`, which doesn't trigger re-renders) so the
+  // effect re-runs when the token transitions empty → non-empty after
+  // login completes.
+  const shouldConnect = enabled && (!requireAuth || Boolean(token));
+
   // Open / replace the socket whenever url, enabled, or reconnectTrigger changes.
-  // Token changes do NOT trigger reconnect — they fire an in-band AUTH frame.
+  // Token changes do NOT trigger reconnect — they fire an in-band AUTH frame
+  // (via the second effect below). The exception is `requireAuth`: token
+  // empty → non-empty re-runs this effect because `shouldConnect` flips.
   useEffect(() => {
-    if (!enabled) {
+    if (!shouldConnect) {
       setIsConnected(false);
       setIsAuthenticated(false);
       return;
@@ -201,7 +227,13 @@ export function useWebSocketAuth(
       }
       wsRef.current = null;
     };
-  }, [url, enabled, reconnectTrigger, clearReconnectTimer, reconnectDelayMs]);
+  }, [
+    url,
+    shouldConnect,
+    reconnectTrigger,
+    clearReconnectTimer,
+    reconnectDelayMs,
+  ]);
 
   // Token rotation → in-band AUTH refresh (no reconnect).
   useEffect(() => {
