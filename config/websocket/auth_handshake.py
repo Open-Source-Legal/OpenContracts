@@ -36,14 +36,12 @@ from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 
 from config.jwt_utils import get_user_from_jwt_token
 from config.websocket.middleware import (
+    WS_CLOSE_PERMISSION_DENIED,
     WS_CLOSE_TOKEN_EXPIRED,
     WS_CLOSE_TOKEN_INVALID,
 )
 
 logger = logging.getLogger(__name__)
-
-# Permission-denied close code (consistent with existing consumer usage).
-WS_CLOSE_PERMISSION_DENIED = 4003
 
 # Minimum interval between accepted AUTH frames on a single connection.
 # Auth0 silent renewal happens on the order of every 50 minutes, so a 1-second
@@ -171,8 +169,20 @@ class AuthHandshakeMixin:
             await self._fail_auth("USER_MISMATCH", WS_CLOSE_TOKEN_INVALID)
             return
 
-        # Re-validate resource permissions.
-        if not await self._validate_resource_permissions(new_user):
+        # Re-validate resource permissions. Treat any unexpected error
+        # (DB timeout, stale FK lookup, etc.) as a permission denial so
+        # the consumer is never left in a half-swapped state — better to
+        # close the socket and let the client reconnect than to keep
+        # serving a connection whose authorization we can't confirm.
+        try:
+            permitted = await self._validate_resource_permissions(new_user)
+        except Exception:
+            logger.exception(
+                "Unexpected error in _validate_resource_permissions during "
+                "AUTH refresh; treating as PERMISSION_REVOKED"
+            )
+            permitted = False
+        if not permitted:
             await self._fail_auth("PERMISSION_REVOKED", WS_CLOSE_PERMISSION_DENIED)
             return
 

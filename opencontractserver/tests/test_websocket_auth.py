@@ -318,6 +318,20 @@ class AuthHandshakeMixinTests(WebsocketFixtureBaseTestCase):
         self.assertEqual(c.closed_with, 4003)
         self.assertTrue(any('"PERMISSION_REVOKED"' in s for s in c.sent))
 
+    async def test_handle_auth_resource_permission_exception_closes_4003(self):
+        """Unexpected errors in the override (e.g. DB timeout) must NOT
+        leave the consumer in a half-swapped state — they should fail
+        closed as PERMISSION_REVOKED, same as an explicit deny.
+        """
+        token = await database_sync_to_async(get_token)(self.user)
+        c = await self._make_consumer(self.user)
+        c._validate_resource_permissions = AsyncMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError("simulated DB timeout")
+        )
+        await c.handle_auth_message({"type": "AUTH", "token": token})
+        self.assertEqual(c.closed_with, 4003)
+        self.assertTrue(any('"PERMISSION_REVOKED"' in s for s in c.sent))
+
     async def test_nudge_refresh_emits_AUTH_REFRESH_REQUIRED(self):
         c = await self._make_consumer(self.user)
         await c.request_token_refresh(grace_seconds=1)

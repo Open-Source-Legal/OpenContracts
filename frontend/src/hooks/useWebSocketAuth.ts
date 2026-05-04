@@ -37,7 +37,17 @@ export interface UseWebSocketAuthOptions {
   onOpen?: () => void;
   /** Called on socket close, with the close code. */
   onClose?: (code: number) => void;
-  /** Called when token validation fails on the server (close 4002). */
+  /**
+   * Called when the server rejects auth — close codes 4000
+   * (UNAUTHENTICATED), 4001 (TOKEN_EXPIRED), or 4002 (TOKEN_INVALID).
+   *
+   * Reconnect contract: when this fires the hook stops scheduling
+   * reconnects, because reconnecting with the same stale token would
+   * just be rejected in a tight loop. The caller is responsible for
+   * obtaining a fresh token (e.g. Auth0 silent renewal) and then
+   * calling the returned ``reconnect()`` to resume — or doing nothing
+   * if the user must re-authenticate via the login flow.
+   */
   onAuthInvalid?: () => void;
   /** Skip everything (e.g. while context not ready). */
   enabled?: boolean;

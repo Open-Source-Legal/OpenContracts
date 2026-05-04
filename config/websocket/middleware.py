@@ -51,10 +51,14 @@ logger = logging.getLogger(__name__)
 WS_AUTH_SUBPROTOCOL = "opencontracts.jwt.v1"
 
 # WebSocket close codes (1000-1015 reserved; 4000-4999 application).
+# This module is the canonical home for the wire-protocol vocabulary —
+# every consumer / mixin / frontend hook imports from here so the
+# numeric values cannot drift.
 WS_CLOSE_NORMAL = 1000
 WS_CLOSE_UNAUTHENTICATED = 4000
 WS_CLOSE_TOKEN_EXPIRED = 4001
 WS_CLOSE_TOKEN_INVALID = 4002
+WS_CLOSE_PERMISSION_DENIED = 4003
 WS_CLOSE_RATE_LIMITED = 4029
 
 
@@ -77,7 +81,12 @@ def _parse_subprotocol_token(
     we echo the subprotocol back; token presence determines whether we attempt
     auth at all.
     """
-    # --- ASGI scope["subprotocols"] path (test communicator) --------------------
+    # --- ASGI scope["subprotocols"] path (Daphne + test communicator) ----------
+    # Daphne (and any other ASGI-spec-compliant server) parses the
+    # ``Sec-WebSocket-Protocol`` header into ``scope["subprotocols"]``
+    # for us, so this is the primary production path. The HTTP-header
+    # parsing branch below is a safety net for non-standard ASGI servers
+    # that leave the raw header for the application to parse.
     if scope_subprotocols:
         parts = scope_subprotocols
         if WS_AUTH_SUBPROTOCOL in parts:
@@ -86,7 +95,7 @@ def _parse_subprotocol_token(
                     return (True, p)
             return (True, None)
 
-    # --- HTTP header path (production browser / Daphne / uvicorn) ---------------
+    # --- HTTP header fallback (non-spec ASGI servers) --------------------------
     raw: bytes | None = None
     for name, value in headers:
         if name.lower() == b"sec-websocket-protocol":
