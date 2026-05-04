@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { authToken } from "../../../../../../graphql/cache";
+import { authToken } from "../../graphql/cache";
 import {
   importDocumentMultipart,
   importDocumentsZipMultipart,
@@ -51,9 +51,11 @@ describe("importHttp.importDocumentMultipart", () => {
   });
 
   it("posts FormData to /api/imports/documents/ with bearer auth", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      makeJsonResponse({ ok: true, document_id: 7, status: "created" })
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse({ ok: true, document_id: 7, status: "created" })
+      );
     setMockFetch(fetchMock);
 
     const file = new File(["hello"], "hello.pdf", {
@@ -93,9 +95,9 @@ describe("importHttp.importDocumentMultipart", () => {
 
   it("omits Authorization header when no token is set", async () => {
     authToken("");
-    const fetchMock = vi.fn().mockResolvedValue(
-      makeJsonResponse({ ok: true, document_id: 1 })
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeJsonResponse({ ok: true, document_id: 1 }));
     setMockFetch(fetchMock);
 
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
@@ -106,9 +108,9 @@ describe("importHttp.importDocumentMultipart", () => {
   });
 
   it("does not append blank-string optional fields", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      makeJsonResponse({ ok: true, document_id: 1 })
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeJsonResponse({ ok: true, document_id: 1 }));
     setMockFetch(fetchMock);
 
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
@@ -127,12 +129,14 @@ describe("importHttp.importDocumentMultipart", () => {
   });
 
   it("returns a structured error on HTTP failure", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      makeJsonResponse(
-        { ok: false, error: "Corpus not found" },
-        { status: 400 }
-      )
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse(
+          { ok: false, error: "Corpus not found" },
+          { status: 400 }
+        )
+      );
     setMockFetch(fetchMock);
 
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
@@ -209,18 +213,23 @@ describe("importHttp.importDocumentsZipMultipart", () => {
   });
 
   it("returns ok:false when the server reports a logical failure", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      makeJsonResponse(
-        { ok: false, error: "Corpus not found" },
-        { status: 400 }
-      )
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse(
+          { ok: false, error: "Corpus not found" },
+          { status: 400 }
+        )
+      );
     setMockFetch(fetchMock);
 
     const file = new File([new Uint8Array([1])], "bundle.zip", {
       type: "application/zip",
     });
-    const result = await importDocumentsZipMultipart({ file, makePublic: false });
+    const result = await importDocumentsZipMultipart({
+      file,
+      makePublic: false,
+    });
 
     expect(result).toEqual({
       ok: false,
@@ -230,15 +239,16 @@ describe("importHttp.importDocumentsZipMultipart", () => {
   });
 
   it("treats a 200 response missing a job_id as a failure", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      makeJsonResponse({ ok: true })
-    );
+    const fetchMock = vi.fn().mockResolvedValue(makeJsonResponse({ ok: true }));
     setMockFetch(fetchMock);
 
     const file = new File([new Uint8Array([1])], "bundle.zip", {
       type: "application/zip",
     });
-    const result = await importDocumentsZipMultipart({ file, makePublic: false });
+    const result = await importDocumentsZipMultipart({
+      file,
+      makePublic: false,
+    });
     expect(result.ok).toBe(false);
   });
 });

@@ -144,4 +144,3 @@ describe("downloadFile", () => {
     expect(logged).toBe(true);
   });
 });
-

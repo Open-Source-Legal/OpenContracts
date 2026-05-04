@@ -6,7 +6,7 @@ import { GET_CORPUS_FOLDERS } from "../../../../../graphql/queries/folders";
 import {
   importDocumentMultipart,
   importDocumentsZipMultipart,
-} from "./importHttp";
+} from "../../../../../utils/importHttp";
 import { FileUploadPackage, UploadStatus } from "./useUploadState";
 
 interface UseUploadMutationsProps {
@@ -154,14 +154,7 @@ export function useUploadMutations({
 
       onComplete?.();
     },
-    [
-      corpusId,
-      folderId,
-      makePublic,
-      client,
-      onFileStatusChange,
-      onComplete,
-    ]
+    [corpusId, folderId, makePublic, client, onFileStatusChange, onComplete]
   );
 
   /**
@@ -170,10 +163,7 @@ export function useUploadMutations({
    * Returns true on success, false on failure.
    */
   const uploadZipFile = useCallback(
-    async (
-      zipFile: File,
-      targetCorpusId?: string | null
-    ): Promise<boolean> => {
+    async (zipFile: File, targetCorpusId?: string | null): Promise<boolean> => {
       setZipInFlight(true);
       try {
         const result = await importDocumentsZipMultipart({

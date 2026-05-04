@@ -10,10 +10,16 @@
  * These helpers stream the file via FormData; the browser handles
  * boundaries and the byte stream goes straight to the server.
  */
-import { authToken } from "../../../../../graphql/cache";
-import { getRuntimeEnv } from "../../../../../utils/env";
+import { authToken } from "../graphql/cache";
+import { getRuntimeEnv } from "./env";
 
-const DEFAULT_API_ROOT = "http://localhost:8000";
+/**
+ * Default to "" so requests are issued same-origin (the Vite dev server
+ * proxies ``/api/*`` to Django, and same-origin production deployments
+ * serve frontend + backend off the same host). Cross-origin deployments
+ * must set ``REACT_APP_API_ROOT_URL`` explicitly.
+ */
+const DEFAULT_API_ROOT = "";
 
 function getApiRoot(): string {
   return getRuntimeEnv().REACT_APP_API_ROOT_URL || DEFAULT_API_ROOT;
@@ -73,9 +79,7 @@ export interface ImportZipRestFailure {
   status_code: number;
 }
 
-export type ImportZipRestResult =
-  | ImportZipRestSuccess
-  | ImportZipRestFailure;
+export type ImportZipRestResult = ImportZipRestSuccess | ImportZipRestFailure;
 
 function appendIfDefined(
   fd: FormData,
@@ -163,14 +167,11 @@ export async function importDocumentsZipMultipart(
     fd.append("custom_meta", JSON.stringify(input.customMeta));
   }
 
-  const response = await fetch(
-    `${getApiRoot()}/api/imports/documents-zip/`,
-    {
-      method: "POST",
-      headers: buildAuthHeaders(),
-      body: fd,
-    }
-  );
+  const response = await fetch(`${getApiRoot()}/api/imports/documents-zip/`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: fd,
+  });
 
   if (!response.ok) {
     return {

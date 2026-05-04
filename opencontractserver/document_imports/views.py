@@ -66,7 +66,7 @@ def _enforce_size_cap(uploaded: UploadedFile) -> Response | None:
     leaving it unset (``None``) disables the check.
     """
     limit = getattr(settings, "MAX_DOCUMENT_IMPORT_SIZE_BYTES", None)
-    if limit and uploaded.size and uploaded.size > limit:
+    if limit and uploaded.size is not None and uploaded.size > limit:
         return Response(
             {
                 "ok": False,
@@ -94,14 +94,13 @@ class DocumentImportView(APIView):
         if oversize is not None:
             return oversize
 
-        filename = _normalise_optional(data.get("filename")) or uploaded.name
-        try:
-            file_bytes = uploaded.read()
-        finally:
-            try:
-                uploaded.seek(0)
-            except Exception:
-                pass
+        # ``UploadedFile.name`` is typed Optional but the serializer guarantees a
+        # file was provided, so we fall back to a sentinel only to satisfy the
+        # type checker — the service relies on it for MIME-extension hints.
+        filename: str = (
+            _normalise_optional(data.get("filename")) or uploaded.name or "upload"
+        )
+        file_bytes = uploaded.read()
 
         try:
             result = import_document_for_user(

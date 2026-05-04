@@ -20,8 +20,9 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
+from celery import chain
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -61,35 +62,66 @@ CORPUS_NOT_FOUND_MSG = (
 class ImportResult:
     """Result of a single-document import."""
 
-    document: Optional[Document]
-    error: Optional[str]
-    status: Optional[str] = None  # 'created' | 'updated' from import_content
+    document: Document | None
+    error: str | None
+    status: str | None = None  # 'created' | 'updated' from import_content
 
 
 @dataclass
 class ZipImportResult:
     """Result of a bulk zip import."""
 
-    job_id: Optional[str]
-    error: Optional[str]
+    job_id: str | None
+    error: str | None
 
 
-def _resolve_pk(global_or_pk_id: Any) -> str:
+def _resolve_pk(global_or_pk_id: Any) -> str | None:
     """
     Accept either a Relay global id (``base64(Type:pk)``) or a raw pk and
     return the underlying primary key string.
 
     REST callers may submit raw PKs, GraphQL callers always submit global ids.
+
+    Note that ``from_global_id`` is permissive: a non-base64 input like
+    ``"1"`` does not raise — it returns ``ResolvedGlobalId(type='', id='')``.
+    We treat any empty/blank decode result as a signal that the caller
+    sent a raw PK and fall back to the original string.
     """
     if global_or_pk_id is None:
         return None
     raw = str(global_or_pk_id)
     try:
-        # Will raise if not base64 / not Relay-encoded.
-        _, pk = from_global_id(raw)
-        return pk
+        type_name, pk = from_global_id(raw)
     except Exception:
         return raw
+    if not type_name or not pk:
+        return raw
+    return pk
+
+
+# Standard ZIP local-file-header signatures. ``PK\x03\x04`` is the normal
+# header; ``PK\x05\x06`` is an empty archive; ``PK\x07\x08`` is a spanned
+# archive. We accept any of them so legitimate edge-case archives still pass.
+_ZIP_MAGIC_PREFIXES: tuple[bytes, ...] = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+
+
+def _peek_zip_magic(zip_source: UploadedFile | bytes) -> bool:
+    """
+    Return True iff ``zip_source`` begins with a recognised ZIP magic
+    signature. For ``UploadedFile`` the stream is rewound after peeking
+    so the subsequent storage write sees the full archive.
+    """
+    if isinstance(zip_source, (bytes, bytearray)):
+        head = bytes(zip_source[:4])
+    else:
+        try:
+            head = zip_source.read(4)
+        finally:
+            try:
+                zip_source.seek(0)
+            except Exception:
+                pass
+    return any(head.startswith(prefix) for prefix in _ZIP_MAGIC_PREFIXES)
 
 
 def detect_mime_type(file_bytes: bytes, filename: str | None) -> str | None:
@@ -111,7 +143,14 @@ def detect_mime_type(file_bytes: bytes, filename: str | None) -> str | None:
     return kind.mime
 
 
-def _check_usage_cap(user) -> None:
+def check_usage_cap(user) -> None:
+    """
+    Raise :class:`PermissionError` if ``user`` has hit the per-user
+    document cap. Public so transports can run this check before any
+    transport-specific resolution (e.g. ``ingestion_source_id`` lookup
+    in the GraphQL upload mutation) — keeping the cap error visible to
+    capped users even when other inputs are invalid.
+    """
     if (
         user.is_usage_capped
         and user.document_set.count() > settings.USAGE_CAPPED_USER_DOC_CAP_COUNT - 1
@@ -154,7 +193,7 @@ def import_document_for_user(
     ``error`` carries a user-safe message; the caller is responsible for
     mapping that to the appropriate transport response.
     """
-    _check_usage_cap(user)
+    check_usage_cap(user)
 
     # MIME detection
     kind = detect_mime_type(file_bytes, filename)
@@ -241,11 +280,20 @@ def import_documents_zip_for_user(
             "Please contact the admin to authorize your account."
         )
 
+    # Reject non-zip uploads up front: the downstream
+    # ``process_documents_zip`` task will fail in confusing ways if handed
+    # a PDF, so we'd rather surface an explicit error to the caller.
+    if not _peek_zip_magic(zip_source):
+        return ZipImportResult(
+            job_id=None,
+            error="Uploaded file does not appear to be a valid ZIP archive",
+        )
+
     job_id = str(uuid.uuid4())
 
     # Validate corpus before we stage anything: avoids creating an orphan
     # TemporaryFileHandle row for a request we're going to reject anyway.
-    corpus_id: Optional[int] = None
+    corpus_id: int | None = None
     if add_to_corpus_id is not None:
         corpus_pk = _resolve_pk(add_to_corpus_id)
         try:
@@ -287,38 +335,20 @@ def import_documents_zip_for_user(
 
     # Launch async task. In test/eager mode the task runs synchronously
     # before the response is returned (matches the GraphQL mutation behaviour).
+    task_signature = process_documents_zip.s(
+        temporary_file.id,
+        user.id,
+        job_id,
+        title_prefix,
+        description,
+        custom_meta,
+        make_public,
+        corpus_id,
+    )
     if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-        from celery import chain
-
-        chain(
-            process_documents_zip.s(
-                temporary_file.id,
-                user.id,
-                job_id,
-                title_prefix,
-                description,
-                custom_meta,
-                make_public,
-                corpus_id,
-            )
-        ).apply_async()
+        chain(task_signature).apply_async()
     else:
-        from celery import chain
-
-        transaction.on_commit(
-            lambda: chain(
-                process_documents_zip.s(
-                    temporary_file.id,
-                    user.id,
-                    job_id,
-                    title_prefix,
-                    description,
-                    custom_meta,
-                    make_public,
-                    corpus_id,
-                )
-            ).apply_async()
-        )
+        transaction.on_commit(lambda: chain(task_signature).apply_async())
 
     logger.info(f"[IMPORT-ZIP] Zip job {job_id} staged for user {user.id}")
     return ZipImportResult(job_id=job_id, error=None)

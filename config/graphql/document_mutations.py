@@ -138,6 +138,7 @@ class UploadDocument(graphene.Mutation):
         ingestion_metadata=None,
     ) -> "UploadDocument":
         from opencontractserver.document_imports.services import (
+            check_usage_cap,
             import_document_for_user,
         )
 
@@ -149,6 +150,11 @@ class UploadDocument(graphene.Mutation):
             )
 
         user = info.context.user
+
+        # Run the usage-cap check before any transport-specific resolution
+        # so a capped user with an invalid ingestion_source_id still sees
+        # the cap error (not a misleading "Ingestion source not found").
+        check_usage_cap(user)
 
         # Resolve ingestion source up front (GraphQL-only feature) so we
         # can hand a fully-built lineage dict to the shared service.

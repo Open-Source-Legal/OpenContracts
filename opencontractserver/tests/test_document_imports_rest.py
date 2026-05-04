@@ -70,6 +70,10 @@ ZIP_URL = "/api/imports/documents-zip/"
 class DocumentImportViewTests(TestCase):
     """Multipart single-document upload (POST /api/imports/documents/)."""
 
+    # Override the parent ``Client`` annotation so mypy knows that ``setUp``
+    # swaps in DRF's APIClient (which is the only client with ``force_authenticate``).
+    client: APIClient
+
     def setUp(self):
         self.user = User.objects.create_user(
             username="alice",
@@ -293,6 +297,8 @@ class DocumentsZipImportViewTests(TestCase):
     (staging, job_id, IDOR semantics) rather than the import pipeline
     (covered by test_bulk_document_upload).
     """
+
+    client: APIClient
 
     def setUp(self):
         self.user = User.objects.create_user(

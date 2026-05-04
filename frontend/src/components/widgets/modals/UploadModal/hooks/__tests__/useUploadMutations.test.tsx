@@ -23,7 +23,7 @@ vi.mock("react-toastify", () => ({
   },
 }));
 
-vi.mock("../importHttp", () => ({
+vi.mock("../../../../../../utils/importHttp", () => ({
   importDocumentMultipart: vi.fn(),
   importDocumentsZipMultipart: vi.fn(),
 }));
@@ -33,7 +33,7 @@ import type { FileUploadPackage } from "../useUploadState";
 import {
   importDocumentMultipart,
   importDocumentsZipMultipart,
-} from "../importHttp";
+} from "../../../../../../utils/importHttp";
 
 const mockedUploadDoc = vi.mocked(importDocumentMultipart);
 const mockedUploadZip = vi.mocked(importDocumentsZipMultipart);
