@@ -72,6 +72,13 @@ urlpatterns = [
         "api/worker-uploads/",
         include("opencontractserver.worker_uploads.urls", namespace="worker_uploads"),
     ),
+    path(
+        "api/uploads/",
+        include(
+            "opencontractserver.document_uploads.urls",
+            namespace="document_uploads",
+        ),
+    ),
     *(
         []
         if not settings.USE_ANALYZER

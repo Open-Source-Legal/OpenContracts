@@ -157,6 +157,7 @@ LOCAL_APPS = [
     "opencontractserver.notifications",
     "opencontractserver.agents",
     "opencontractserver.worker_uploads",
+    "opencontractserver.document_uploads",
     "opencontractserver.discovery",
     "opencontractserver.benchmarks",
 ]
@@ -758,6 +759,18 @@ MAX_WORKER_UPLOAD_SIZE_BYTES = int(
 
 # Minutes before a PROCESSING upload is considered stalled and reset to PENDING.
 WORKER_UPLOAD_STALE_MINUTES = int(env("WORKER_UPLOAD_STALE_MINUTES", default="15"))
+
+# Maximum file size (in bytes) accepted by the multipart REST upload
+# endpoints under /api/uploads/. Applied to both single-document and
+# bulk-zip uploads. Default: same ceiling as DATA_UPLOAD_MAX_MEMORY_SIZE
+# (5 GB). Set to 0 to disable the per-endpoint check (Django's
+# DATA_UPLOAD_MAX_MEMORY_SIZE still applies to non-file form data).
+MAX_DOCUMENT_UPLOAD_SIZE_BYTES = int(
+    env(
+        "MAX_DOCUMENT_UPLOAD_SIZE_BYTES",
+        default=str(MAX_FILE_UPLOAD_SIZE_BYTES),
+    )
+)
 
 # Maximum metadata JSON size (in bytes) accepted by the worker upload endpoint.
 # Default: 500 MB. Set to 0 to disable the limit.
