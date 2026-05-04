@@ -1543,6 +1543,9 @@ class Note(BaseOCModel, HasEmbeddingMixin):
 
             revision = NoteRevision.objects.create(
                 note=self,
+                # django-stubs: create() infers AUTH_USER_MODEL exactly,
+                # not AbstractBaseUser, so passing the abstract type triggers
+                # a misc error even though it is a runtime-correct subtype.
                 author=author_obj,  # type: ignore[misc]
                 version=next_version,
                 diff=diff_text,

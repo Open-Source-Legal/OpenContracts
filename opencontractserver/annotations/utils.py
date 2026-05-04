@@ -156,7 +156,7 @@ def update_annotation_modalities(
 
     # Get tokens from annotation's json field (handles both v1 and v2 formats)
     annotation_json = annotation.json or {}
-    all_tokens: list[Any] = []
+    all_tokens: list[dict[str, int]] = []
 
     for page in iter_page_annotations(
         annotation_json, raw_text=getattr(annotation, "raw_text", "") or ""
