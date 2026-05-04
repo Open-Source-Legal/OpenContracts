@@ -73,6 +73,9 @@ assert all(
     bind=True,
     queue="worker_uploads",
     max_retries=0,
+    # Redundant since the global default became acks_late=True (Issue #1493),
+    # but kept as an explicit declaration of intent: this task in particular
+    # MUST redeliver on worker death so pending uploads aren't dropped.
     acks_late=True,
 )
 def process_pending_uploads(self: Any) -> dict[str, int]:

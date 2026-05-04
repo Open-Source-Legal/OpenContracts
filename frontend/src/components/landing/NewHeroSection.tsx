@@ -11,7 +11,6 @@ import {
 } from "../../graphql/landing-queries";
 
 interface NewHeroSectionProps {
-  isAuthenticated?: boolean;
   selectedCategory: string | null;
   onCategoryChange: (categoryId: string | null) => void;
 }
@@ -65,7 +64,6 @@ const FilterContainer = styled.div`
 `;
 
 export const NewHeroSection: React.FC<NewHeroSectionProps> = ({
-  isAuthenticated,
   selectedCategory,
   onCategoryChange,
 }) => {
@@ -86,7 +84,7 @@ export const NewHeroSection: React.FC<NewHeroSectionProps> = ({
   const handleSearchSubmit = useCallback(
     (value: string) => {
       if (value.trim()) {
-        navigate(`/discussions?search=${encodeURIComponent(value.trim())}`);
+        navigate(`/discover/search?q=${encodeURIComponent(value.trim())}`);
       }
     },
     [navigate]

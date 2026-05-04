@@ -3,9 +3,13 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { CompactLeaderboard } from "../src/components/landing/CompactLeaderboard";
 import { CallToAction } from "../src/components/landing/CallToAction";
+import { NewHeroSection } from "../src/components/landing/NewHeroSection";
 import { DiscoveryLanding } from "../src/views/DiscoveryLanding";
 import { LandingTestWrapper } from "./LandingTestWrapper";
-import { GET_DISCOVERY_DATA } from "../src/graphql/landing-queries";
+import {
+  GET_DISCOVERY_DATA,
+  GET_CORPUS_CATEGORIES,
+} from "../src/graphql/landing-queries";
 import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 
 // Mock data
@@ -314,6 +318,66 @@ test.describe("DiscoveryLanding Page", () => {
     await releaseScreenshot(page, "v3.0.0.b3", "landing-page", {
       fullPage: true,
     });
+
+    await component.unmount();
+  });
+});
+
+// ============================================================================
+// NewHeroSection: search submission routes to /discover/search
+// ============================================================================
+test.describe("NewHeroSection", () => {
+  const emptyCategoriesMock = {
+    request: { query: GET_CORPUS_CATEGORIES },
+    result: { data: { corpusCategories: { edges: [] } } },
+  };
+
+  test("submitting the hero search box navigates to /discover/search?q=…", async ({
+    mount,
+    page,
+  }) => {
+    // Reset history so we can read window.location after submit.
+    await page.evaluate(() => window.history.replaceState(null, "", "/"));
+
+    const component = await mount(
+      <LandingTestWrapper mocks={[emptyCategoriesMock]}>
+        <NewHeroSection selectedCategory={null} onCategoryChange={() => {}} />
+      </LandingTestWrapper>
+    );
+
+    const input = component.getByPlaceholder(
+      "Search across all legal knowledge..."
+    );
+    await input.fill("indemnity caps");
+    await input.press("Enter");
+
+    await expect.poll(() => page.url()).toContain("/discover/search");
+    await expect.poll(() => page.url()).toContain("q=indemnity%20caps");
+
+    await component.unmount();
+  });
+
+  test("submitting an all-whitespace value is a no-op (no navigation)", async ({
+    mount,
+    page,
+  }) => {
+    await page.evaluate(() => window.history.replaceState(null, "", "/"));
+
+    const component = await mount(
+      <LandingTestWrapper mocks={[emptyCategoriesMock]}>
+        <NewHeroSection selectedCategory={null} onCategoryChange={() => {}} />
+      </LandingTestWrapper>
+    );
+
+    const input = component.getByPlaceholder(
+      "Search across all legal knowledge..."
+    );
+    await input.fill("   ");
+    await input.press("Enter");
+
+    // Brief settle, then assert URL is unchanged.
+    await page.waitForTimeout(200);
+    expect(new URL(page.url()).pathname).not.toContain("/discover/search");
 
     await component.unmount();
   });
