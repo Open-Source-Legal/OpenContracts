@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `autoReconnect` / `reconnectDelay` options on `useNotificationWebSocket`
     — reconnect is owned by the shared hook.
 
+  - **Hook return-shape change** (`useNotificationWebSocket`): the previous
+    `{ connect, disconnect }` actions are replaced by `{ reconnect }`. The
+    socket is now opened by the shared `useWebSocketAuth` lifecycle on mount
+    and closed on unmount; manual open/close was redundant. External
+    consumers that imported the hook directly will fail typecheck.
+
   - **Tests**: `opencontractserver/tests/test_websocket_auth.py` gains four
     new test classes (`JWTAuthMiddlewareSubprotocolTests`,
     `AuthHandshakeMixinTests`, `UnifiedAgentHandshakeTests`,

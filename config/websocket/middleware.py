@@ -13,6 +13,25 @@ The server MUST echo a selected subprotocol or browsers fail the handshake.
 We always echo "opencontracts.jwt.v1" when the marker is present, even on
 auth failure, so the consumer can close the socket cleanly with the right
 4xxx code instead of failing at the transport layer.
+
+Reverse-proxy requirement
+-------------------------
+nginx forwards the standard WebSocket handshake headers by default, but any
+``location`` block that overrides ``proxy_set_header`` MUST also pass
+``Sec-WebSocket-Protocol`` through to Daphne/uvicorn. A typical config is::
+
+    location /ws/ {
+        proxy_pass http://daphne;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+        proxy_set_header Host              $host;
+        proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
+    }
+
+If the proxy strips the header, every WS auth attempt is rejected as
+anonymous — there is no fallback. ``docs/test_scripts/websocket-auth-handshake.md``
+documents a DevTools-driven sanity check.
 """
 
 import logging
@@ -32,6 +51,7 @@ logger = logging.getLogger(__name__)
 WS_AUTH_SUBPROTOCOL = "opencontracts.jwt.v1"
 
 # WebSocket close codes (1000-1015 reserved; 4000-4999 application).
+WS_CLOSE_NORMAL = 1000
 WS_CLOSE_UNAUTHENTICATED = 4000
 WS_CLOSE_TOKEN_EXPIRED = 4001
 WS_CLOSE_TOKEN_INVALID = 4002

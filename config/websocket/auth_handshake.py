@@ -74,6 +74,10 @@ class AuthHandshakeMixin:
     # Populated by accept_with_auth() and updated by handle_auth_message().
     _refresh_grace_task: asyncio.Task | None = None
     _initial_auth_sent: bool = False
+    # Tracks whether the handshake has accepted but not yet been cleaned up.
+    # The grace-timer guard uses this to avoid calling close() on a socket
+    # that has already been disconnected through other paths.
+    _handshake_connected: bool = False
     # Monotonic timestamp of the last AUTH frame we accepted; used to throttle
     # spam at the per-connection level before any DB work runs.
     _last_auth_frame_at: float = 0.0
@@ -90,6 +94,7 @@ class AuthHandshakeMixin:
         """Accept the connection echoing the negotiated subprotocol."""
         subprotocol = self.scope.get("accepted_subprotocol")  # type: ignore[attr-defined]
         await self.accept(subprotocol=subprotocol)  # type: ignore[attr-defined]
+        self._handshake_connected = True
         await self._send_initial_auth_ok()
 
     async def _send_initial_auth_ok(self) -> None:
@@ -234,7 +239,7 @@ class AuthHandshakeMixin:
             await asyncio.sleep(grace_seconds)
         except asyncio.CancelledError:
             return
-        if getattr(self, "_is_connected", True):
+        if self._handshake_connected:
             logger.info("Refresh grace timer expired; closing 4001")
             await self.close(code=WS_CLOSE_TOKEN_EXPIRED)  # type: ignore[attr-defined]
 
@@ -250,4 +255,5 @@ class AuthHandshakeMixin:
 
     async def cleanup_auth_handshake(self) -> None:
         """Consumers should call this from their ``disconnect()``."""
+        self._handshake_connected = False
         self._cancel_refresh_grace_timer()

@@ -73,6 +73,21 @@ export function useWebSocketAuth(
     tokenRef.current = token || "";
   }, [token]);
 
+  // Hold callbacks in refs so the long-lived ws.onopen/onmessage/onclose
+  // handlers always invoke the latest version. Without this, a consumer
+  // re-rendering with a new callback identity would silently keep firing
+  // the stale closure captured when the connection effect ran.
+  const onMessageRef = useRef(onMessage);
+  const onOpenRef = useRef(onOpen);
+  const onCloseRef = useRef(onClose);
+  const onAuthInvalidRef = useRef(onAuthInvalid);
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+    onOpenRef.current = onOpen;
+    onCloseRef.current = onClose;
+    onAuthInvalidRef.current = onAuthInvalid;
+  }, [onMessage, onOpen, onClose, onAuthInvalid]);
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failureCountRef = useRef(0);
@@ -111,7 +126,7 @@ export function useWebSocketAuth(
       setIsConnected(true);
       setLastError(null);
       failureCountRef.current = 0;
-      onOpen?.();
+      onOpenRef.current?.();
     };
 
     ws.onmessage = (event) => {
@@ -129,7 +144,7 @@ export function useWebSocketAuth(
         }
         return;
       }
-      onMessage?.(event);
+      onMessageRef.current?.(event);
     };
 
     ws.onerror = () => {
@@ -139,7 +154,7 @@ export function useWebSocketAuth(
     ws.onclose = (event) => {
       setIsConnected(false);
       setIsAuthenticated(false);
-      onClose?.(event.code);
+      onCloseRef.current?.(event.code);
 
       const code = event.code;
       if (code === WS_CLOSE_NORMAL || code === WS_CLOSE_PERMISSION_DENIED) {
@@ -152,7 +167,7 @@ export function useWebSocketAuth(
         code === WS_CLOSE_TOKEN_EXPIRED ||
         code === WS_CLOSE_TOKEN_INVALID
       ) {
-        onAuthInvalid?.();
+        onAuthInvalidRef.current?.();
         return;
       }
 
@@ -176,8 +191,7 @@ export function useWebSocketAuth(
       }
       wsRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, enabled, reconnectTrigger]);
+  }, [url, enabled, reconnectTrigger, clearReconnectTimer, reconnectDelayMs]);
 
   // Token rotation → in-band AUTH refresh (no reconnect).
   useEffect(() => {
