@@ -294,7 +294,7 @@ class Corpus(TreeNode):
 
         # First try text-mode which yields `str` directly.
         try:
-            self.md_description.open("r")  # type: ignore[arg-type]
+            self.md_description.open("r")
             try:
                 return self.md_description.read()
             finally:
@@ -302,7 +302,7 @@ class Corpus(TreeNode):
         except Exception:
             # Fall back to binary mode and decode manually.
             try:
-                self.md_description.open("rb")  # type: ignore[arg-type]
+                self.md_description.open("rb")
                 return self.md_description.read().decode("utf-8", errors="ignore")
             finally:
                 self.md_description.close()
@@ -361,6 +361,7 @@ class Corpus(TreeNode):
             CorpusDescriptionRevision | None: the stored revision or None if no content change.
         """
 
+        author_obj: AbstractBaseUser
         if isinstance(author, int):
             author_obj = get_user_model().objects.get(pk=author)
         else:
@@ -409,7 +410,7 @@ class Corpus(TreeNode):
 
             revision = CorpusDescriptionRevision.objects.create(
                 corpus=self,
-                author=author_obj,
+                author=author_obj,  # type: ignore[misc]
                 version=next_version,
                 diff=diff_text,
                 snapshot=snapshot_text,
@@ -753,7 +754,7 @@ class Corpus(TreeNode):
                 # "Permission matching query does not exist" errors.
                 cls._ensure_corpus_permissions_exist()
                 # Grant full permissions to the user
-                set_permissions_for_obj_to_user(user, corpus, [PermissionTypes.ALL])
+                set_permissions_for_obj_to_user(user, corpus, [PermissionTypes.ALL])  # type: ignore[arg-type]
             elif not corpus.slug:
                 # Backfill slug for corpuses created before slug auto-generation
                 # (e.g. by migration 0038 which used historical models).
@@ -873,7 +874,7 @@ class Corpus(TreeNode):
                     doc_kwargs.get("structural_annotation_set")
                     or document.structural_annotation_set
                 ),
-                creator=user,
+                creator=user,  # type: ignore[misc]
                 # CRITICAL: Set processing_started to prevent ingest signal from firing
                 # Corpus copies share parsing artifacts - they don't need re-parsing
                 processing_started=timezone.now(),
@@ -909,7 +910,9 @@ class Corpus(TreeNode):
                 c_id = self.pk
                 # Use default args to capture values at lambda creation (not by reference)
                 transaction.on_commit(
-                    lambda ss=ss_id, c=c_id: ensure_embeddings_for_corpus.delay(ss, c)
+                    lambda ss=ss_id, c=c_id: ensure_embeddings_for_corpus.delay(  # type: ignore[misc]
+                        ss, c
+                    )
                 )
 
             # Check if path is occupied — use select_for_update to prevent
@@ -944,7 +947,7 @@ class Corpus(TreeNode):
                 parent=parent,
                 is_current=True,
                 is_deleted=False,
-                creator=user,
+                creator=user,  # type: ignore[misc]
                 **path_kwargs,
             )
 
@@ -1110,7 +1113,7 @@ class Corpus(TreeNode):
                         parent=active_path,
                         is_deleted=True,
                         is_current=True,
-                        creator=user,
+                        creator=user,  # type: ignore[misc]
                     )
                     deleted_paths.append(deleted_path)
                     logger.info(
@@ -1121,7 +1124,10 @@ class Corpus(TreeNode):
                         f"Path {path} not found in corpus {self.pk} for deletion"
                     )
             else:
-                # Delete all paths for this document
+                # Delete all paths for this document. The early
+                # ``if not document and not path`` guard above ensures
+                # ``document`` is set whenever ``path`` is falsy.
+                assert document is not None
                 active_paths = DocumentPath.objects.filter(
                     corpus=self, document=document, is_current=True, is_deleted=False
                 )
@@ -1141,7 +1147,7 @@ class Corpus(TreeNode):
                         parent=path_record,
                         is_deleted=True,
                         is_current=True,
-                        creator=user,
+                        creator=user,  # type: ignore[misc]
                     )
                     deleted_paths.append(deleted_path)
                     logger.info(
@@ -1506,7 +1512,7 @@ class CorpusActionTemplate(BaseOCModel):
     # Override BaseOCModel.creator to use SET_NULL — system-level templates
     # are owned by an arbitrary superuser at migration time and must survive
     # that user being deleted.
-    creator = django.db.models.ForeignKey(
+    creator = django.db.models.ForeignKey(  # type: ignore[assignment]
         get_user_model(),
         on_delete=django.db.models.SET_NULL,
         null=True,
@@ -1864,7 +1870,7 @@ class CorpusFolder(TreeNode):
 
     def get_descendant_folders(self) -> QuerySet[CorpusFolder]:
         """Get all descendant folders efficiently using CTE."""
-        return self.descendants(include_self=True)  # type: ignore[return-value]
+        return self.descendants(include_self=True)
 
     def get_document_count(self) -> int:
         """
@@ -2099,8 +2105,9 @@ class CorpusActionExecution(BaseOCModel):
         """,
     )
 
-    # Custom manager for optimized queries
-    objects = CorpusActionExecutionManager()
+    # Custom manager for optimized queries (django-stubs flags re-declaring
+    # ``objects`` as overriding a class variable; intentional manager override).
+    objects = CorpusActionExecutionManager()  # type: ignore[misc]
 
     class Meta:
         ordering = ["-queued_at"]
@@ -2301,7 +2308,7 @@ class CorpusActionExecution(BaseOCModel):
             for doc_id in document_ids
         ]
 
-        return cls.objects.bulk_create(executions)
+        return cls.objects.bulk_create(executions)  # type: ignore[return-value,arg-type]
 
 
 class CorpusActionExecutionUserObjectPermission(UserObjectPermissionBase):

@@ -166,6 +166,7 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
             documentId={documentId}
             corpusId={corpusId}
             embedded
+            onDocumentPage
           />
         </ScrollableFillPanel>
       </FlexColumnPanel>

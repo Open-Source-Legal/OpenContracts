@@ -209,6 +209,14 @@ export const OC_SECTION_LABEL = "OC_SECTION";
 // Document search/picker limits
 export const DOCUMENT_PICKER_SEARCH_LIMIT = 20;
 
+// Discover cross-content search (DiscoverSearchResults view)
+/** Number of results shown per section on the "All" tab (preview mode). */
+export const DISCOVER_SEARCH_ALL_TAB_PREVIEW = 5;
+/** Number of results shown when an entity tab is selected. */
+export const DISCOVER_SEARCH_ENTITY_TAB_LIMIT = 25;
+/** Debounce (ms) before firing cross-content search queries. */
+export const DISCOVER_SEARCH_DEBOUNCE_MS = 250;
+
 // Mutation batching
 export const MUTATION_BATCH_SIZE = 10;
 

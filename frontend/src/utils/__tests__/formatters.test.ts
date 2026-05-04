@@ -7,6 +7,7 @@ import {
   formatShortDate,
   formatSettingLabel,
   formatCellValue,
+  stripMarkdown,
 } from "../formatters";
 import { EXTRACT_GRID_CELL_TRUNCATE_LENGTH } from "../../assets/configurations/constants";
 
@@ -197,6 +198,53 @@ describe("formatters", () => {
       const result = formatCellValue(big);
       expect(result.endsWith("\u2026")).toBe(true);
       expect(result.length).toBe(EXTRACT_GRID_CELL_TRUNCATE_LENGTH + 1);
+    });
+  });
+
+  describe("stripMarkdown", () => {
+    it("returns empty string for null/undefined/empty", () => {
+      expect(stripMarkdown(null)).toBe("");
+      expect(stripMarkdown(undefined)).toBe("");
+      expect(stripMarkdown("")).toBe("");
+    });
+
+    it("strips emphasis markers", () => {
+      expect(stripMarkdown("This is **bold** and *italic*")).toBe(
+        "This is bold and italic"
+      );
+      expect(stripMarkdown("__bold__ __also bold__ _ital_")).toBe(
+        "bold also bold ital"
+      );
+    });
+
+    it("strips inline and fenced code", () => {
+      expect(stripMarkdown("Use `foo()` to fly")).toBe("Use foo() to fly");
+      expect(stripMarkdown("before\n```\ncode\nblock\n```\nafter")).toBe(
+        "before after"
+      );
+    });
+
+    it("strips links and images down to label/alt text", () => {
+      expect(stripMarkdown("see [the docs](https://x.test) please")).toBe(
+        "see the docs please"
+      );
+      expect(stripMarkdown("![alt](http://x/y.png)")).toBe("alt");
+    });
+
+    it("strips ATX headers, blockquotes, and list markers", () => {
+      expect(stripMarkdown("# Header\nbody")).toBe("Header body");
+      expect(stripMarkdown("> a quote")).toBe("a quote");
+      expect(stripMarkdown("- item one\n- item two")).toBe("item one item two");
+      expect(stripMarkdown("1. first\n2. second")).toBe("first second");
+    });
+
+    it("strips raw HTML tags and entities", () => {
+      expect(stripMarkdown("<p>hello <b>world</b></p>")).toBe("hello world");
+      expect(stripMarkdown("a &amp; b")).toBe("a b");
+    });
+
+    it("collapses whitespace", () => {
+      expect(stripMarkdown("  too   many\n\nspaces  ")).toBe("too many spaces");
     });
   });
 });

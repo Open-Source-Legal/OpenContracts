@@ -46,6 +46,7 @@ export interface QueryParams {
   folderId?: string | null;
   tab?: string | null;
   messageId?: string | null;
+  noteId?: string | null;
   homeView?: "about" | "toc" | null; // corpus home view selection
   tocExpanded?: boolean; // true to expand all TOC nodes
   view?: "landing" | "details" | "discussions" | "article" | null; // corpus detail view selection
@@ -268,6 +269,9 @@ export function buildQueryParams(params: QueryParams): string {
   }
   if (params.messageId) {
     searchParams.set("message", params.messageId);
+  }
+  if (params.noteId) {
+    searchParams.set("note", params.noteId);
   }
   if (params.homeView) {
     searchParams.set("homeView", params.homeView);

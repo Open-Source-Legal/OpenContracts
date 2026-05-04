@@ -84,6 +84,14 @@ interface DocumentAnnotationIndexProps {
   maxDepth?: number;
   /** When true, renders without outer container (for embedding in tabs) */
   embedded?: boolean;
+  /**
+   * When true, the component is being rendered inside the document page
+   * itself, so a section click should only update the `?ann=` selection on
+   * the current URL. When false (the default), a click navigates to the
+   * document URL with the selection preset — required for corpus-level
+   * tables of contents that deep-link into a document.
+   */
+  onDocumentPage?: boolean;
   /** Case-insensitive filter applied to section titles and descriptions */
   filterQuery?: string;
 }
@@ -407,6 +415,7 @@ export const DocumentAnnotationIndex: React.FC<
   corpusId,
   maxDepth = DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH,
   embedded = false,
+  onDocumentPage = false,
   filterQuery,
 }) => {
   const navigate = useNavigate();
@@ -624,9 +633,8 @@ export const DocumentAnnotationIndex: React.FC<
     }
   }, [filterQuery, allNodeIds]);
 
-  // Handle section click - select annotation via URL params (routing mantra)
   const handleSectionClick = (node: SectionNode) => {
-    if (embedded) {
+    if (onDocumentPage) {
       // Already on the document page — update ?ann= to select the annotation.
       // CentralRouteManager will sync selectedAnnotationIds, triggering scroll.
       updateAnnotationSelectionParams(location, navigate, {
