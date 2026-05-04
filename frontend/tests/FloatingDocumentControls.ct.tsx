@@ -542,5 +542,134 @@ test.describe("FloatingDocumentControls", () => {
     await expect(page.getByTestId("settings-button")).toBeVisible();
     await expect(page.getByTestId("extracts-button")).toBeVisible();
     await expect(page.getByTestId("analyses-button")).toBeVisible();
+    // Permissions and !readOnly satisfy canCreateAnalysis; the create-analysis
+    // FAB must render so a future regression that drops only this button is
+    // caught here.
+    await expect(page.getByTestId("create-analysis-button")).toBeVisible();
+  });
+
+  test("mobile speed dial: hideDocumentTools=true hides document tools but keeps settings", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={true}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    // Expand the speed dial so the orbital buttons render.
+    // OrbitButtons animate in via framer-motion so we assert presence in the
+    // DOM (toHaveCount), not visibility — the animation can leave them at
+    // opacity 0 momentarily even with reducedMotion.
+    await page.getByTestId("speed-dial-main-fab").click();
+
+    await expect(page.getByTestId("settings-button")).toHaveCount(1);
+    await expect(page.getByTestId("extracts-button")).toHaveCount(0);
+    await expect(page.getByTestId("analyses-button")).toHaveCount(0);
+    await expect(page.getByTestId("create-analysis-button")).toHaveCount(0);
+  });
+
+  test("mobile speed dial: hideDocumentTools=false renders all document tool buttons", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    await page.getByTestId("speed-dial-main-fab").click();
+
+    await expect(page.getByTestId("settings-button")).toHaveCount(1);
+    await expect(page.getByTestId("extracts-button")).toHaveCount(1);
+    await expect(page.getByTestId("analyses-button")).toHaveCount(1);
+    await expect(page.getByTestId("create-analysis-button")).toHaveCount(1);
+  });
+
+  test("mobile speed dial: clicking analyses closes open extracts panel first", async ({
+    mount,
+    page,
+  }) => {
+    let analysesCalled = 0;
+    let extractsCalled = 0;
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        extractsOpen={true}
+        analysesOpen={false}
+        onAnalysesClick={() => {
+          analysesCalled++;
+        }}
+        onExtractsClick={() => {
+          extractsCalled++;
+        }}
+      />
+    );
+
+    await page.getByTestId("speed-dial-main-fab").click();
+    await page.getByTestId("analyses-button").click();
+
+    expect(extractsCalled).toBe(1);
+    expect(analysesCalled).toBe(1);
+  });
+
+  test("mobile speed dial: clicking extracts closes open analyses panel first", async ({
+    mount,
+    page,
+  }) => {
+    let analysesCalled = 0;
+    let extractsCalled = 0;
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        analysesOpen={true}
+        extractsOpen={false}
+        onAnalysesClick={() => {
+          analysesCalled++;
+        }}
+        onExtractsClick={() => {
+          extractsCalled++;
+        }}
+      />
+    );
+
+    await page.getByTestId("speed-dial-main-fab").click();
+    await page.getByTestId("extracts-button").click();
+
+    expect(analysesCalled).toBe(1);
+    expect(extractsCalled).toBe(1);
+  });
+
+  test("mobile speed dial: create-analysis hidden when readOnly even with permissions", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        readOnly={true}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    await page.getByTestId("speed-dial-main-fab").click();
+
+    await expect(page.getByTestId("create-analysis-button")).toHaveCount(0);
+    await expect(page.getByTestId("extracts-button")).toHaveCount(1);
+    await expect(page.getByTestId("analyses-button")).toHaveCount(1);
   });
 });
