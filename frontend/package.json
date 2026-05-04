@@ -2,7 +2,7 @@
   "name": "gui3",
   "version": "0.1.0",
   "private": true,
-  "license": "AGPL-3.0",
+  "license": "MIT",
   "dependencies": {
     "@apollo/client": "^3.13.8",
     "@auth0/auth0-react": "^2.3.0",
