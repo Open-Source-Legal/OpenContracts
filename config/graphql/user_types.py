@@ -232,11 +232,7 @@ class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         instance = getattr(queryset, "instance", None)
         cache_name = getattr(queryset, "prefetch_cache_name", None)
         prefetched = getattr(instance, "_prefetched_objects_cache", None) or {}
-        if (
-            instance is not None
-            and cache_name is not None
-            and cache_name in prefetched
-        ):
+        if instance is not None and cache_name is not None and cache_name in prefetched:
             return queryset
 
         if issubclass(type(queryset), QuerySet):

@@ -13,9 +13,11 @@ coverage.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 from django.test import SimpleTestCase
 from graphql import parse
+from graphql.language.ast import FragmentDefinitionNode, OperationDefinitionNode
 
 from config.graphql.custom_resolvers import requests_doc_label_annotations
 
@@ -27,10 +29,10 @@ def _info_for(query: str, variables: dict | None = None) -> SimpleNamespace:
     ``field_nodes``, ``fragments``, and ``variable_values``.
     """
     document = parse(query)
-    operation = document.definitions[0]
+    operation = cast(OperationDefinitionNode, document.definitions[0])
     documents_field = operation.selection_set.selections[0]
     fragments = {
-        d.name.value: d
+        cast(FragmentDefinitionNode, d).name.value: d
         for d in document.definitions
         if d.kind == "fragment_definition"
     }
@@ -44,8 +46,7 @@ def _info_for(query: str, variables: dict | None = None) -> SimpleNamespace:
 class RequestsDocLabelAnnotationsTests(SimpleTestCase):
     def test_returns_true_for_get_documents_with_annotate_doc_labels(self) -> None:
         """The corpus list view (``GET_DOCUMENTS`` with the badge alias)."""
-        info = _info_for(
-            """
+        info = _info_for("""
             query {
               documents {
                 edges {
@@ -60,8 +61,7 @@ class RequestsDocLabelAnnotationsTests(SimpleTestCase):
                 }
               }
             }
-            """
-        )
+            """)
         self.assertTrue(requests_doc_label_annotations(info))
 
     def test_returns_true_when_label_type_is_a_variable(self) -> None:
@@ -85,18 +85,15 @@ class RequestsDocLabelAnnotationsTests(SimpleTestCase):
         self.assertTrue(requests_doc_label_annotations(info))
 
     def test_returns_false_when_doc_annotations_omitted(self) -> None:
-        info = _info_for(
-            """
+        info = _info_for("""
             query {
               documents { edges { node { id title } } }
             }
-            """
-        )
+            """)
         self.assertFalse(requests_doc_label_annotations(info))
 
     def test_returns_false_for_unrelated_label_type(self) -> None:
-        info = _info_for(
-            """
+        info = _info_for("""
             query {
               documents {
                 edges {
@@ -108,14 +105,12 @@ class RequestsDocLabelAnnotationsTests(SimpleTestCase):
                 }
               }
             }
-            """
-        )
+            """)
         self.assertFalse(requests_doc_label_annotations(info))
 
     def test_traverses_fragment_spreads(self) -> None:
         """Selection-set walk must follow fragment spreads."""
-        info = _info_for(
-            """
+        info = _info_for("""
             query {
               documents {
                 edges {
@@ -130,6 +125,5 @@ class RequestsDocLabelAnnotationsTests(SimpleTestCase):
                 edges { node { id } }
               }
             }
-            """
-        )
+            """)
         self.assertTrue(requests_doc_label_annotations(info))

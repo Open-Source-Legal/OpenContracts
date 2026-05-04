@@ -136,6 +136,7 @@ class CorpusActionExecutionManager(BaseVisibilityManager):
         self,
         user: AbstractBaseUser | None = None,
         lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
     ) -> CorpusActionExecutionQuerySet:
         """
         Override to return our custom QuerySet type while preserving permission
@@ -143,9 +144,9 @@ class CorpusActionExecutionManager(BaseVisibilityManager):
 
         This allows chaining: .visible_to_user(user).for_corpus(id).pending()
 
-        ``lightweight`` is forwarded to ``BaseVisibilityManager`` for
-        signature parity but has no effect on this model (no heavy
-        prefetches involved).
+        ``lightweight`` and ``with_doc_label_annotations`` are forwarded to
+        ``BaseVisibilityManager`` for signature parity but have no effect on
+        this model (no heavy prefetches involved).
         """
         # Get the base filtered queryset from parent
         base_qs = super().visible_to_user(user, lightweight=lightweight)

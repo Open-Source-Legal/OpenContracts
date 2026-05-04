@@ -51,8 +51,6 @@ class AnnotationQueryOptimizer:
 
         Returns: (can_read, can_create, can_update, can_delete, can_comment)
         """
-        from opencontractserver.corpuses.models import Corpus
-        from opencontractserver.documents.models import Document
         from opencontractserver.types.enums import PermissionTypes
         from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
@@ -71,9 +69,9 @@ class AnnotationQueryOptimizer:
             if cached is not None:
                 return cached
 
-        def _store(result: tuple[bool, bool, bool, bool, bool]) -> tuple[
-            bool, bool, bool, bool, bool
-        ]:
+        def _store(
+            result: tuple[bool, bool, bool, bool, bool],
+        ) -> tuple[bool, bool, bool, bool, bool]:
             if perms_cache is not None:
                 perms_cache[cache_key] = result
             return result
@@ -103,34 +101,22 @@ class AnnotationQueryOptimizer:
         if not doc_read:
             return _store((False, False, False, False, False))
 
-        doc_create = user_has_permission_for_obj(
-            user, document, PermissionTypes.CREATE
-        )
-        doc_update = user_has_permission_for_obj(
-            user, document, PermissionTypes.UPDATE
-        )
-        doc_delete = user_has_permission_for_obj(
-            user, document, PermissionTypes.DELETE
-        )
+        doc_create = user_has_permission_for_obj(user, document, PermissionTypes.CREATE)
+        doc_update = user_has_permission_for_obj(user, document, PermissionTypes.UPDATE)
+        doc_delete = user_has_permission_for_obj(user, document, PermissionTypes.DELETE)
         doc_comment = user_has_permission_for_obj(
             user, document, PermissionTypes.COMMENT
         )
 
         if not corpus_id:
-            return _store(
-                (doc_read, doc_create, doc_update, doc_delete, doc_comment)
-            )
+            return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
 
         corpus = cls._get_corpus_for_request(corpus_id, context)
         if corpus is None:
             # Corpus doesn't exist or isn't visible — fall back to document perms.
-            return _store(
-                (doc_read, doc_create, doc_update, doc_delete, doc_comment)
-            )
+            return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
 
-        corpus_read = user_has_permission_for_obj(
-            user, corpus, PermissionTypes.READ
-        )
+        corpus_read = user_has_permission_for_obj(user, corpus, PermissionTypes.READ)
         corpus_create = user_has_permission_for_obj(
             user, corpus, PermissionTypes.CREATE
         )
@@ -458,24 +444,26 @@ class AnnotationQueryOptimizer:
         # ``AnnotationType.resolve_feedback_count``.
         from opencontractserver.feedback.models import UserFeedback
 
-        qs = qs.select_related(
-            "annotation_label", "creator", "analysis"
-        ).prefetch_related(
-            Prefetch(
-                "user_feedback",
-                queryset=UserFeedback.objects.only(
-                    "id",
-                    "approved",
-                    "rejected",
-                    "commented_annotation_id",
-                ),
+        qs = (
+            qs.select_related("annotation_label", "creator", "analysis")
+            .prefetch_related(
+                Prefetch(
+                    "user_feedback",
+                    queryset=UserFeedback.objects.only(
+                        "id",
+                        "approved",
+                        "rejected",
+                        "commented_annotation_id",
+                    ),
+                )
             )
-        ).annotate(
-            _can_read=Value(can_read),
-            _can_create=Value(can_create),
-            _can_update=Value(can_update),
-            _can_delete=Value(can_delete),
-            _can_comment=Value(can_comment),
+            .annotate(
+                _can_read=Value(can_read),
+                _can_create=Value(can_create),
+                _can_update=Value(can_update),
+                _can_delete=Value(can_delete),
+                _can_comment=Value(can_comment),
+            )
         )
 
         return qs

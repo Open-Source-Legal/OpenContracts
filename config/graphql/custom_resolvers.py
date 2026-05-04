@@ -277,7 +277,9 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
     return annotations
 
 
-def _argument_string_value(argument: gql_ast.ArgumentNode, variables: dict) -> str | None:
+def _argument_string_value(
+    argument: gql_ast.ArgumentNode, variables: dict
+) -> str | None:
     """Return the resolved string value of a GraphQL argument node, or None."""
     value_node = argument.value
     if isinstance(value_node, gql_ast.StringValueNode):

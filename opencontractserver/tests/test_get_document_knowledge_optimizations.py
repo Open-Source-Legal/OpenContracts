@@ -32,8 +32,9 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.types.enums import LabelType
+from opencontractserver.users.models import User
 
-User = get_user_model()
+UserModel = get_user_model()
 
 
 class _FakeContext(SimpleNamespace):
@@ -46,9 +47,13 @@ def _superuser_request_context() -> _FakeContext:
 
 
 class ComputeEffectivePermissionsCacheTests(TestCase):
+    owner: User
+    corpus: Corpus
+    document: Document
+
     @classmethod
     def setUpTestData(cls) -> None:
-        cls.owner = User.objects.create_superuser(
+        cls.owner = UserModel.objects.create_superuser(
             username="opt_owner", email="opt_owner@test.com", password="x"
         )
         cls.corpus = Corpus.objects.create(title="Optim Corpus", creator=cls.owner)
@@ -89,9 +94,7 @@ class ComputeEffectivePermissionsCacheTests(TestCase):
         ctx = _superuser_request_context()
 
         with CaptureQueriesContext(connection) as queries_first:
-            AnnotationQueryOptimizer._get_document_for_request(
-                self.document.pk, ctx
-            )
+            AnnotationQueryOptimizer._get_document_for_request(self.document.pk, ctx)
             AnnotationQueryOptimizer._get_corpus_for_request(self.corpus.pk, ctx)
         self.assertGreater(len(queries_first), 0)
 
@@ -116,9 +119,14 @@ class ComputeEffectivePermissionsCacheTests(TestCase):
 
 
 class AnnotationFeedbackPrefetchTests(TestCase):
+    owner: User
+    corpus: Corpus
+    document: Document
+    annotations: list[Annotation]
+
     @classmethod
     def setUpTestData(cls) -> None:
-        cls.owner = User.objects.create_superuser(
+        cls.owner = UserModel.objects.create_superuser(
             username="fb_owner", email="fb_owner@test.com", password="x"
         )
         cls.corpus = Corpus.objects.create(title="FB Corpus", creator=cls.owner)
@@ -140,7 +148,7 @@ class AnnotationFeedbackPrefetchTests(TestCase):
         # Fan out 10 annotations + 2 feedbacks each. The exact numbers don't
         # matter; what matters is that resolving feedback should be a single
         # batched ``IN (...)`` SELECT, not one per annotation.
-        cls.annotations: list[Annotation] = []
+        cls.annotations = []
         for index in range(10):
             ann = Annotation.objects.create(
                 creator=cls.owner,
@@ -202,8 +210,7 @@ class AnnotationFeedbackPrefetchTests(TestCase):
 
         with CaptureQueriesContext(connection) as captured:
             counts = [
-                AnnotationType.resolve_feedback_count(ann, info=None)
-                for ann in results
+                AnnotationType.resolve_feedback_count(ann, info=None) for ann in results
             ]
         self.assertEqual(counts, [2] * len(results))
         # Zero new queries — every count came from the prefetch cache.
