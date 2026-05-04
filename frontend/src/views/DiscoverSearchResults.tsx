@@ -464,7 +464,12 @@ const AnnotationsSection: React.FC<AnnotationsSectionProps> = ({
     skip: !query,
   });
 
-  const rows = data?.searchAnnotationsForMention.edges ?? [];
+  // Drop edges whose annotation lost its parent document — without a
+  // document we can't build a URL or render the meta row, and the
+  // backend can null it out for visibility/soft-delete reasons.
+  const rows = (data?.searchAnnotationsForMention.edges ?? []).filter(
+    (e): e is NonNullable<typeof e> => Boolean(e?.node && e.node.document)
+  );
 
   return (
     <Section
@@ -597,7 +602,11 @@ const NotesSection: React.FC<NotesSectionProps> = ({ query, limit }) => {
     skip: !query,
   });
 
-  const rows = data?.searchNotesForMention.edges ?? [];
+  // Drop edges whose note has lost its parent document — without it
+  // there's no routeable target and the meta row would crash on null.
+  const rows = (data?.searchNotesForMention.edges ?? []).filter(
+    (e): e is NonNullable<typeof e> => Boolean(e?.node && e.node.document)
+  );
 
   return (
     <Section
