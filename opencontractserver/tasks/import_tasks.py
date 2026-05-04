@@ -699,10 +699,18 @@ def _apply_sidecar_annotations(
     label_lookup: dict[str, AnnotationLabel],
     doc_label_lookup: dict[str, AnnotationLabel],
     results: dict[str, Any],
-    recalculate_tokens: bool = False,
 ) -> None:
     """
     Import annotations from pre-parsed sidecar data onto a corpus document.
+
+    When the parser pipeline runs (``skip_pipeline=False``), the imported
+    annotations carry token references keyed against the sidecar's own
+    tokenization which is about to be discarded. They are rebuilt from each
+    annotation's bounding box once parsing finishes — that fan-out is
+    triggered from
+    :func:`opencontractserver.tasks.doc_tasks.set_doc_lock_state`, the same
+    post-pipeline hook used for ``process_corpus_action`` (see
+    ``opencontractserver/corpuses/signals.py``). No bookkeeping needed here.
 
     Args:
         doc_data: Pre-parsed sidecar JSON data (OpenContractDocExport).
@@ -713,11 +721,6 @@ def _apply_sidecar_annotations(
         label_lookup: Combined label lookup (text + doc labels) keyed by name.
         doc_label_lookup: Doc-type label lookup keyed by label text.
         results: Mutable results dict to update counters.
-        recalculate_tokens: When True (i.e. ``skip_pipeline=False``), schedule
-            an async pass that recalculates each annotation's ``tokensJsons``
-            from its bounding box against the freshly-parsed PAWLs the parser
-            pipeline will produce. The sidecar's bboxes are kept verbatim;
-            only token references are rebuilt.
     """
     try:
         # Validate sidecar schema before any database work.
@@ -784,27 +787,6 @@ def _apply_sidecar_annotations(
                 annotation_id_map=annot_id_map,
             )
 
-        # When the pipeline regenerates PAWLs, the sidecar's tokensJsons no
-        # longer reference the right tokens — schedule a deferred pass to
-        # rebuild them from each annotation's bounding box once parsing
-        # finishes. Bboxes are spatial and remain valid; only token refs
-        # need to change.
-        if recalculate_tokens and annot_id_map:
-            from django.db import transaction
-
-            new_annot_pks = list(annot_id_map.values())
-            transaction.on_commit(
-                lambda: recalculate_annotation_tokens_from_bboxes.delay(
-                    annotation_ids=new_annot_pks,
-                    document_id=corpus_doc.id,
-                )
-            )
-            logger.info(
-                f"import_zip_with_folder_structure() - Queued token "
-                f"recalculation for {len(new_annot_pks)} annotation(s) on "
-                f"document {corpus_doc.id} (pipeline will regenerate PAWLs)"
-            )
-
         results["annotation_sidecars_processed"] += 1
         logger.info(
             f"import_zip_with_folder_structure() - Applied sidecar annotations "
@@ -824,121 +806,90 @@ def _apply_sidecar_annotations(
         )
 
 
-# Backoff schedule (seconds) used while waiting for the parser pipeline to
-# finish before recalculating annotation tokens from bboxes. Capped to keep
-# worker occupancy bounded for slow parses.
-_RECALC_TOKENS_RETRY_BACKOFF = (5, 10, 20, 30, 60, 60, 60, 60, 60, 60)
-
-
-@celery_app.task(bind=True, max_retries=len(_RECALC_TOKENS_RETRY_BACKOFF))
+@celery_app.task()
 def recalculate_annotation_tokens_from_bboxes(
-    self,
-    annotation_ids: list[int],
     document_id: int,
+    annotation_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """
-    Recalculate ``tokensJsons`` for sidecar-imported annotations against the
-    document's freshly-parsed PAWLs.
+    Rebuild ``tokensJsons`` for a document's TOKEN_LABEL annotations using
+    each annotation's per-page bounding box and the document's PAWLs.
 
-    Why: when a sidecar is imported with ``skip_pipeline=False`` the parser
-    pipeline regenerates PAWLs for the document. The token references that
-    came in the sidecar's ``annotation_json`` were keyed against the sidecar's
-    own (now-discarded) tokenization, so they no longer point at the right
-    tokens. Bounding boxes, however, are spatial and remain valid — so we
-    re-derive token references by intersecting each annotation's per-page
-    bounds with the freshly-parsed tokens.
+    When the parser pipeline regenerates PAWLs for a document (e.g. a
+    sidecar-imported zip with ``skip_pipeline=False``), any pre-existing
+    annotations carry token references keyed against an older tokenization
+    that no longer matches. Bounding boxes are spatial and remain valid, so
+    we re-derive token references by intersecting each annotation's bounds
+    with the freshly-parsed tokens via :func:`find_tokens_in_bbox`.
 
-    The parser pipeline runs asynchronously (chained via
-    ``process_doc_on_create_atomic``), so this task self-retries with a
-    bounded backoff schedule until the document reaches ``COMPLETED`` (or
-    ``FAILED``, in which case we leave the sidecar's original token refs in
-    place as a best-effort fallback).
+    Convention: this task is dispatched from
+    :func:`opencontractserver.tasks.doc_tasks.set_doc_lock_state` once the
+    ingest chain completes successfully — the same hook that already fan-outs
+    ``process_corpus_action`` calls (see
+    ``opencontractserver/corpuses/signals.py`` for the documented pattern).
+    Because of that, the task assumes PAWLs are ready and skips silently if
+    they are not (e.g. text-only / CAML documents).
 
     Args:
-        self: Celery task instance (``bind=True``).
-        annotation_ids: PKs of annotations to recalculate. Must all belong
-            to ``document_id``.
         document_id: PK of the document whose PAWLs to query.
+        annotation_ids: Optional restriction to a specific subset of the
+            document's annotations. When ``None`` (the common case from
+            ``set_doc_lock_state``), all of the document's TOKEN_LABEL
+            annotations are considered. Recalculation is idempotent —
+            annotations whose tokens already match their bbox produce
+            identical output.
 
     Returns:
-        Dict with ``status`` ("success" | "skipped" | "deferred") and
-        per-annotation counters.
+        Dict with ``status`` ("success" | "skipped") and per-annotation
+        counters.
     """
     from opencontractserver.annotations.compact_json import (
         is_span_format,
         iter_page_annotations,
     )
     from opencontractserver.annotations.models import TOKEN_LABEL, Annotation
-    from opencontractserver.documents.models import (
-        DocumentProcessingStatus,
-    )
     from opencontractserver.utils.pdf_token_extraction import (
         build_spatial_indices_from_pawls,
         find_tokens_in_bbox,
         load_pawls_data,
     )
 
-    if not annotation_ids:
-        return {"status": "skipped", "reason": "no annotations"}
-
     try:
         document = Document.objects.get(pk=document_id)
     except Document.DoesNotExist:
         logger.warning(
             "[recalculate_annotation_tokens_from_bboxes] Document %s gone; "
-            "skipping recalculation for %d annotations",
+            "nothing to recalculate",
             document_id,
-            len(annotation_ids),
         )
         return {"status": "skipped", "reason": "document missing"}
 
-    status = document.processing_status
-    if status == DocumentProcessingStatus.FAILED:
-        logger.warning(
-            "[recalculate_annotation_tokens_from_bboxes] Document %s failed "
-            "to parse; leaving %d annotation(s) with original sidecar tokens",
-            document_id,
-            len(annotation_ids),
-        )
-        return {"status": "skipped", "reason": "document failed to parse"}
-
-    if status != DocumentProcessingStatus.COMPLETED:
-        # Pipeline hasn't finished yet — defer.
-        if self.request.retries >= len(_RECALC_TOKENS_RETRY_BACKOFF):
-            logger.warning(
-                "[recalculate_annotation_tokens_from_bboxes] Document %s "
-                "still in status=%s after %d retries; giving up",
-                document_id,
-                status,
-                self.request.retries,
-            )
-            return {"status": "skipped", "reason": "pipeline timeout"}
-        countdown = _RECALC_TOKENS_RETRY_BACKOFF[self.request.retries]
-        raise self.retry(countdown=countdown)
-
     pawls_pages = load_pawls_data(document)
     if not pawls_pages:
-        logger.warning(
+        # Common for text-only / CAML / non-PDF documents — not an error.
+        logger.debug(
             "[recalculate_annotation_tokens_from_bboxes] Document %s has no "
             "PAWLs data; skipping recalculation",
             document_id,
         )
         return {"status": "skipped", "reason": "no pawls data"}
 
+    qs = Annotation.objects.filter(
+        document_id=document_id, annotation_type=TOKEN_LABEL
+    )
+    if annotation_ids is not None:
+        qs = qs.filter(pk__in=annotation_ids)
+    annotations = list(qs)
+    if not annotations:
+        return {"status": "skipped", "reason": "no token annotations"}
+
     spatial_indices, token_indices_by_page = build_spatial_indices_from_pawls(
         pawls_pages
-    )
-
-    annotations = list(
-        Annotation.objects.filter(pk__in=annotation_ids, document_id=document_id)
     )
 
     updated = 0
     skipped = 0
     for annotation in annotations:
-        if annotation.annotation_type != TOKEN_LABEL:
-            skipped += 1
-            continue
         if not isinstance(annotation.json, dict) or is_span_format(annotation.json):
             skipped += 1
             continue
@@ -977,18 +928,16 @@ def recalculate_annotation_tokens_from_bboxes(
 
     logger.info(
         "[recalculate_annotation_tokens_from_bboxes] Document %s: recalculated "
-        "%d annotation(s), skipped %d (of %d requested)",
+        "%d annotation(s), skipped %d",
         document_id,
         updated,
         skipped,
-        len(annotation_ids),
     )
     return {
         "status": "success",
         "document_id": document_id,
         "updated": updated,
         "skipped": skipped,
-        "requested": len(annotation_ids),
     }
 
 
@@ -1493,10 +1442,9 @@ def import_zip_with_folder_structure(
 
                             # Apply sidecar annotations if we have parsed data.
                             # When the parser pipeline ran (skip_pipeline=False),
-                            # ask _apply_sidecar_annotations to schedule a
-                            # post-pipeline pass that recalculates each
-                            # annotation's token refs from its bbox against
-                            # the freshly-parsed PAWLs.
+                            # set_doc_lock_state will fan out a token
+                            # recalculation pass once parsing completes —
+                            # nothing to schedule here.
                             if sidecar_data:
                                 _apply_sidecar_annotations(
                                     doc_data=sidecar_data,
@@ -1507,7 +1455,6 @@ def import_zip_with_folder_structure(
                                     label_lookup=label_lookup,
                                     doc_label_lookup=doc_label_lookup,
                                     results=results,
-                                    recalculate_tokens=not skip_pipeline,
                                 )
 
                     except PermissionError as e:

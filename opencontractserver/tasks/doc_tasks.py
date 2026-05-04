@@ -202,6 +202,23 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
     # Trigger corpus actions when unlocking (document is now ready)
     # Query DocumentPath as the source of truth for corpus membership
     if not locked:
+        # Recalculate annotation tokens from bboxes against the freshly-parsed
+        # PAWLs. Annotations applied via sidecar import (or any other path
+        # that creates annotations before parsing finishes) carry token refs
+        # keyed against an older tokenization; bounding boxes are spatial and
+        # stay valid, so we re-derive token refs here. Recalculation is
+        # idempotent — annotations that already match their bbox produce
+        # identical output — so it's safe to fire unconditionally.
+        from opencontractserver.annotations.models import TOKEN_LABEL, Annotation
+        from opencontractserver.tasks.import_tasks import (
+            recalculate_annotation_tokens_from_bboxes,
+        )
+
+        if Annotation.objects.filter(
+            document_id=doc_id, annotation_type=TOKEN_LABEL
+        ).exists():
+            recalculate_annotation_tokens_from_bboxes.delay(document_id=doc_id)
+
         # Find all corpuses this document belongs to via DocumentPath
         corpus_data = list(
             DocumentPath.objects.filter(

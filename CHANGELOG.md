@@ -17,23 +17,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Sidecar token recalculation when the parser pipeline runs**
+- **Annotation token recalculation against freshly-parsed PAWLs**
   (`opencontractserver/tasks/import_tasks.py`,
-  `opencontractserver/utils/pdf_token_extraction.py`). When a bulk-import zip
-  contains an annotation sidecar and `skip_pipeline` is **not** set, the
-  parser pipeline regenerates PAWLs for the document — invalidating the
-  sidecar's `tokensJsons` references which were keyed against the sidecar's
-  own (now-discarded) tokenization. Bounding boxes, however, remain spatially
-  valid. After applying the sidecar's annotations, `_apply_sidecar_annotations`
-  now schedules a deferred Celery task
-  (`recalculate_annotation_tokens_from_bboxes`) that waits for the pipeline
-  to reach `COMPLETED`, builds a per-page STRtree spatial index from the
-  freshly-parsed PAWLs (new helper `build_spatial_indices_from_pawls`), and
-  rebuilds each annotation's `tokensJsons` by intersecting its per-page
-  bounds with the new tokens via the existing `find_tokens_in_bbox` utility.
-  The task self-retries with bounded exponential backoff while the document
-  is still `PENDING`/`PROCESSING`, gives up gracefully on `FAILED`, and is a
-  no-op when `skip_pipeline=True`. Tests:
+  `opencontractserver/tasks/doc_tasks.py`,
+  `opencontractserver/utils/pdf_token_extraction.py`). When the parser
+  pipeline runs against a document that already has TOKEN_LABEL annotations
+  (e.g. a bulk-import zip whose sidecar was applied without `skip_pipeline`),
+  the regenerated PAWLs render the annotations' original `tokensJsons`
+  references stale — they were keyed against a tokenization that has since
+  been replaced. Bounding boxes are spatial and remain valid, so we
+  re-derive token references by intersecting each annotation's per-page
+  bounds with the new tokens via the existing `find_tokens_in_bbox` utility
+  (new helper `build_spatial_indices_from_pawls` constructs the per-page
+  STRtree from already-parsed PAWLs). Dispatch follows the existing
+  post-pipeline convention: `set_doc_lock_state` (the final task in the
+  ingest chain, already documented in `corpuses/signals.py` as the canonical
+  "doc is now ready" hook for `process_corpus_action` fan-out) now also
+  dispatches `recalculate_annotation_tokens_from_bboxes` whenever a
+  successfully-unlocked document carries TOKEN_LABEL annotations.
+  Recalculation is idempotent — annotations whose tokens already match
+  their bbox produce identical output. Tests:
   `opencontractserver/tests/test_recalculate_annotation_tokens.py`,
   `opencontractserver/tests/test_pdf_token_extraction.py::TestBuildSpatialIndicesFromPawls`.
 - **CAML README references in bulk-import zips** (`opencontractserver/utils/caml_rewrite.py`, `opencontractserver/utils/import_v2.py:285`, `opencontractserver/tasks/import_tasks_v2.py:357`). The corpus README (`md_description`) shipped inside a V2 import zip now supports `oc-import://document/<filename-in-zip>` and `oc-import://annotation/<id-in-data.json>` placeholder URLs that are rewritten to live `/d/<user-slug>/<corpus-slug>/<doc-slug>[?ann=<new-pk>]` URLs after all referenced objects have been created. Lets a zip author hand-write a README that links to bundled documents and annotations without knowing the destination deployment's primary keys or slugs. Document references key off the same filename used as the `annotated_docs` key in `data.json`; annotation references key off the export-time `"id"` already aggregated by the importer as `all_annot_id_maps`. Unresolved references are left intact and warned about (no silent stripping). Revision snapshots are intentionally not rewritten to preserve the existing checksum chain. New tests in `opencontractserver/tests/test_caml_rewrite.py`. Documented in `docs/upload_methods/corpus_export_import.md`.
