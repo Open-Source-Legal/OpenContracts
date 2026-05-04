@@ -18,10 +18,14 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
+
+if TYPE_CHECKING:
+    from opencontractserver.documents.models import Document
 
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
@@ -287,8 +291,8 @@ def import_md_description_revisions(
     revisions_data: list[DescriptionRevisionExport],
     corpus: Corpus,
     user_obj: User,
-    doc_filename_to_doc: dict | None = None,
-    annot_old_id_to_new_pk: dict | None = None,
+    doc_filename_to_doc: dict[str, Document] | None = None,
+    annot_old_id_to_new_pk: dict[str | int, int] | None = None,
 ) -> None:
     """
     Import markdown description and revision history.
@@ -318,6 +322,9 @@ def import_md_description_revisions(
         if md_description and (doc_filename_to_doc or annot_old_id_to_new_pk):
             from opencontractserver.utils.caml_rewrite import rewrite_oc_import_links
 
+            # Stats are already logged inside rewrite_oc_import_links and the
+            # import task has no caller to surface them to, so we discard the
+            # tuple's second element here.
             md_description, _stats = rewrite_oc_import_links(
                 content=md_description,
                 corpus=corpus,

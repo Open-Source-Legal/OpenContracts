@@ -108,14 +108,16 @@ def rewrite_oc_import_links(
     }
 
     # Pre-fetch every annotation that any reference might resolve to so we
-    # don't issue one query per regex match inside ``_replace``.
+    # don't issue one query per regex match inside ``_replace``.  Only
+    # ``document.slug`` is read off the joined row, so a single ``document``
+    # join is sufficient.
     referenced_pks = set(annot_str_map.values())
     annot_pk_to_obj: dict[int, Annotation] = (
         {
             a.pk: a
-            for a in Annotation.objects.select_related(
-                "document", "document__creator"
-            ).filter(pk__in=referenced_pks)
+            for a in Annotation.objects.select_related("document").filter(
+                pk__in=referenced_pks
+            )
         }
         if referenced_pks
         else {}
@@ -139,7 +141,12 @@ def rewrite_oc_import_links(
     }
 
     def _normalize_ref(ref: str) -> str:
-        """Strip a leading ``./`` so lookups are consistent."""
+        """Strip a single leading ``./`` so lookups are consistent.
+
+        Nested forms like ``././foo.pdf`` are not collapsed — bulk-import
+        zips have flat document paths and chained relative segments are not
+        a real-world concern.
+        """
         if ref.startswith("./"):
             ref = ref[2:]
         return ref
@@ -184,6 +191,13 @@ def rewrite_oc_import_links(
                 return match.group(0)
             doc = annot.document
             doc_slug = (doc.slug or "") if doc is not None else ""
+            if not doc_slug:
+                logger.warning(
+                    "CAML rewrite: annotation pk %s has no document slug "
+                    "(document=%r); rewritten URL will be malformed.",
+                    new_pk,
+                    getattr(doc, "pk", None),
+                )
             stats["annotations_resolved"] += 1
             return (
                 f"{label}({_doc_url(user_slug, corpus_slug, doc_slug)}"
