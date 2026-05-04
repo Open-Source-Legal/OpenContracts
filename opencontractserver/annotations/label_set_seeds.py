@@ -22,13 +22,26 @@ DEFAULT_LABELSET_DESCRIPTION = (
     "box. Owned by the install's first superuser; safe to edit."
 )
 
-# A small palette of generic labels suitable for any corpus. Picked to cover
-# the most common annotation patterns (highlight a key passage, flag a
-# question, mark a definition or reference) without being domain-specific.
-# label_type matches LABEL_TYPES in opencontractserver.annotations.models —
-# strings are used here so the migration runtime registry doesn't need to
+# A starter palette covering both generic research/review patterns
+# (Important, Question, Reference) and the most common corporate-contract
+# concepts (parties, dates, term, governing law, liability limits). Picked
+# to be useful out of the box for legal/compliance teams without being
+# overwhelming. Users can add, remove, or rename labels freely after
+# creation — these are seeds, not lock-ins.
+#
+# label_type is "TOKEN_LABEL" everywhere because all of these apply to text
+# spans rather than whole documents. Strings are used (instead of importing
+# the LABEL_TYPES enum) so the migration runtime registry doesn't need to
 # import the live module.
+#
+# Color palette: red for risk/exits, amber/orange for time pressure, blue
+# for definitional/structural concepts, green for effective/positive dates,
+# purple for actors, teal for cross-references, slate for jurisdictional
+# scaffolding. Icon names map to lucide-react in the frontend; unknown
+# names fall back to the default tag glyph, so non-existent icons just
+# degrade gracefully.
 DEFAULT_LABELS: list[dict[str, str]] = [
+    # --- General research / review ---
     {
         "text": "Important",
         "description": "A key passage worth highlighting.",
@@ -40,9 +53,17 @@ DEFAULT_LABELS: list[dict[str, str]] = [
         "text": "Question",
         "description": "A passage that raises a question or needs follow-up.",
         "color": "#f59e0b",
-        "icon": "question",
+        "icon": "help-circle",
         "label_type": "TOKEN_LABEL",
     },
+    {
+        "text": "Reference",
+        "description": "A cross-reference to another document, section, or source.",
+        "color": "#0f766e",
+        "icon": "link",
+        "label_type": "TOKEN_LABEL",
+    },
+    # --- Contract structure ---
     {
         "text": "Definition",
         "description": "A defined term or definitional clause.",
@@ -51,10 +72,61 @@ DEFAULT_LABELS: list[dict[str, str]] = [
         "label_type": "TOKEN_LABEL",
     },
     {
-        "text": "Reference",
-        "description": "A reference to another document, section, or source.",
-        "color": "#0f766e",
-        "icon": "link",
+        "text": "Party",
+        "description": "A named party, signatory, or counterparty to the agreement.",
+        "color": "#7c3aed",
+        "icon": "users",
+        "label_type": "TOKEN_LABEL",
+    },
+    {
+        "text": "Governing Law",
+        "description": "The jurisdiction or body of law that governs the agreement.",
+        "color": "#475569",
+        "icon": "scale",
+        "label_type": "TOKEN_LABEL",
+    },
+    # --- Dates & lifecycle ---
+    {
+        "text": "Effective Date",
+        "description": "The date the agreement becomes effective.",
+        "color": "#059669",
+        "icon": "calendar-check",
+        "label_type": "TOKEN_LABEL",
+    },
+    {
+        "text": "Termination Date",
+        "description": "A specific date on which the agreement terminates.",
+        "color": "#b91c1c",
+        "icon": "calendar-x",
+        "label_type": "TOKEN_LABEL",
+    },
+    {
+        "text": "Expiration",
+        "description": "Language describing how or when the agreement expires.",
+        "color": "#ea580c",
+        "icon": "clock",
+        "label_type": "TOKEN_LABEL",
+    },
+    {
+        "text": "Termination",
+        "description": "Termination rights, triggers, or termination-for-cause language.",
+        "color": "#dc2626",
+        "icon": "x-circle",
+        "label_type": "TOKEN_LABEL",
+    },
+    {
+        "text": "Renewal",
+        "description": "Auto-renewal, optional renewal, or extension language.",
+        "color": "#0284c7",
+        "icon": "repeat",
+        "label_type": "TOKEN_LABEL",
+    },
+    # --- Risk allocation ---
+    {
+        "text": "Limitation of Liability",
+        "description": "Caps, carve-outs, or other liability-limiting language.",
+        "color": "#ca8a04",
+        "icon": "shield-alert",
         "label_type": "TOKEN_LABEL",
     },
 ]
