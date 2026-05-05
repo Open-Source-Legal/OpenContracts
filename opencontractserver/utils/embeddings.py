@@ -38,7 +38,7 @@ def get_embedder(
         get_default_embedder,
     )
 
-    embedder_class = None
+    embedder_class: Optional[type[BaseEmbedder]] = None
 
     # Try to get the corpus's preferred embedder
     if embedder_path:

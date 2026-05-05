@@ -77,9 +77,10 @@ test.describe("ChatMessage — user vs assistant", () => {
     );
 
     await expect(page.locator("text=alice@example.com")).toBeVisible();
-    // User messages never render tool badges or processing indicators.
+    // User messages never render the in-flight ticker (it is the assistant's
+    // streaming surface only).
     await expect(
-      page.locator('[data-testid="processing-indicator"]')
+      page.locator('[data-testid="streaming-thought-ticker"]')
     ).not.toBeVisible();
   });
 });
@@ -509,12 +510,36 @@ test.describe("ChatMessage — timeline preview", () => {
     });
   });
 
-  test("streaming timeline (incomplete + timeline) hides the message bubble", async ({
+  test("streaming renders the latest-step ticker, not the bordered timeline panel", async ({
     mount,
     page,
   }) => {
-    const timeline: TimelineEntry[] = [
-      { type: "thought", text: "Still working" },
+    // While the assistant is still streaming, the old expanded TimelinePreview
+    // panel pushed the chat input off-screen on multi-step responses. The new
+    // contract: a single-line "now thinking" ticker (icon + latest step's
+    // title) replaces the panel, and the message bubble stays hidden until
+    // the response finalizes. Pin both halves of the contract here.
+    const streamingTimeline: TimelineEntry[] = [
+      { type: "thought", text: "Breaking down the query" },
+      {
+        type: "tool_call",
+        tool: "similarity_search",
+        args: { q: "a" },
+        text: "Calling similarity_search",
+      },
+      {
+        type: "tool_result",
+        tool: "similarity_search",
+        result: "Found 2",
+        text: "similarity_search Result",
+      },
+      { type: "thought", text: "Still thinking" },
+      {
+        type: "tool_call",
+        tool: "get_corpus_description",
+        args: { truncate_length: 500 },
+        text: "Calling tool get_corpus_description",
+      },
     ];
 
     await mount(
@@ -523,22 +548,74 @@ test.describe("ChatMessage — timeline preview", () => {
           {...ASSISTANT_BASE}
           content=""
           isComplete={false}
-          timeline={timeline}
+          timeline={streamingTimeline}
           hasTimeline={true}
         />
       </ChatMessageTestWrapper>
     );
 
-    // No message-content bubble is rendered while timeline-only state is active
+    // No message bubble while streaming — the bubble belongs to the finalized
+    // presentation only.
     await expect(
       page.locator('[data-testid="message-content"]')
     ).not.toBeVisible();
 
-    const timelineContainer = page.locator(
-      '[data-testid="timeline-container"]'
+    // The bordered TimelinePreview panel must NOT render during streaming.
+    await expect(
+      page.locator('[data-testid="timeline-container"]')
+    ).not.toBeVisible();
+
+    // The ticker IS rendered and shows the latest step's title.
+    const ticker = page.locator('[data-testid="streaming-thought-ticker"]');
+    await expect(ticker).toBeVisible({ timeout: 5000 });
+    await expect(
+      ticker.getByText("Calling get_corpus_description", { exact: false })
+    ).toBeVisible();
+
+    // Earlier steps must NOT all be on-screen as full rows — only one line
+    // is visible at a time. Asserting bounded height is the cheap
+    // independent check that catches a regression to the old panel.
+    const tickerHeight = await ticker.evaluate(
+      (el) => (el as HTMLElement).clientHeight
     );
-    await expect(timelineContainer).toBeVisible({ timeout: 5000 });
-    // The single step should be expanded (expandLatestOnly)
-    await expect(timelineContainer.locator("text=Thinking")).toBeVisible();
+    expect(tickerHeight).toBeLessThan(48);
+
+    // Earlier titles like "Calling similarity_search" must not be on-screen
+    // alongside the latest one.
+    await expect(
+      ticker.getByText("Calling similarity_search", { exact: false })
+    ).not.toBeVisible();
+  });
+
+  test("once the message is complete, the ticker disappears and the collapsible Timeline returns", async ({
+    mount,
+    page,
+  }) => {
+    // The streaming ticker is for in-flight responses only. After completion,
+    // the existing collapsible TimelinePreview inside the message bubble is
+    // the canonical surface for inspecting the full step chain.
+    await mount(
+      <ChatMessageTestWrapper>
+        <ChatMessage
+          {...ASSISTANT_BASE}
+          content="Final answer."
+          isComplete={true}
+          timeline={LONG_TIMELINE}
+          hasTimeline={true}
+        />
+      </ChatMessageTestWrapper>
+    );
+
+    // Bubble + collapsible Timeline header are visible.
+    await expect(page.locator('[data-testid="message-content"]')).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.locator('[data-testid="timeline-container"]')
+    ).toBeVisible();
+    // Ticker is gone.
+    await expect(
+      page.locator('[data-testid="streaming-thought-ticker"]')
+    ).not.toBeVisible();
   });
 });

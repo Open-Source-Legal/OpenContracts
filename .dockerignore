@@ -38,6 +38,12 @@ schema.graphql
 cloudflare-og-worker/
 tools/
 fixtures/
+# locale/ is safe to exclude: no .po/.mo files exist in the tree (only a
+# placeholder README.rst) and no entrypoint/start script invokes
+# `manage.py compilemessages`. Django translations are intentionally not
+# active today; if .po files are added later, drop this entry so the build
+# context picks them up (the runtime image keeps `gettext` available for
+# `compilemessages`).
 locale/
 model_preloaders/
 

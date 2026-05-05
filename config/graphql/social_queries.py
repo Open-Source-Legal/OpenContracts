@@ -3,7 +3,7 @@ GraphQL query mixin for badge, leaderboard, community, notification, and agent q
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import graphene
 from django.core.cache import cache
@@ -62,7 +62,7 @@ class SocialQueryMixin:
 
     def resolve_badge(self, info, **kwargs) -> Any:
         """Resolve a single badge by ID."""
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Badge.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     user_badges = DjangoFilterConnectionField(
@@ -94,7 +94,7 @@ class SocialQueryMixin:
         """
         from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
 
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
 
         has_permission, user_badge = BadgeQueryOptimizer.check_user_badge_visibility(
             info.context.user, django_pk
@@ -187,7 +187,7 @@ class SocialQueryMixin:
         """Resolve a single agent configuration by ID."""
         from opencontractserver.agents.models import AgentConfiguration
 
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return AgentConfiguration.objects.visible_to_user(info.context.user).get(
             id=django_pk
         )
@@ -270,7 +270,7 @@ class SocialQueryMixin:
         if not user or not user.is_authenticated:
             raise GraphQLError("Notification not found")
 
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
 
         # Use try/except to catch DoesNotExist and return same error
         # This prevents enumeration of valid notification IDs
@@ -365,7 +365,8 @@ class SocialQueryMixin:
         # Attach reputation score to user objects to avoid N+1 queries
         users = []
         for rep in top_reputations:
-            rep.user._reputation_global = rep.reputation_score
+            # Dynamic attribute consumed downstream by the userReputation resolver.
+            setattr(rep.user, "_reputation_global", rep.reputation_score)
             users.append(rep.user)
         return users
 
@@ -420,10 +421,10 @@ class SocialQueryMixin:
             cutoff_date = timezone.now() - timedelta(days=30)
 
         # Get corpus if specified
-        corpus_django_pk = None
+        corpus_django_pk: int | None = None
         if corpus_id:
             try:
-                _, corpus_django_pk = from_global_id(corpus_id)
+                corpus_django_pk = int(from_global_id(corpus_id)[1])
                 # Verify user has access to this corpus
                 Corpus.objects.visible_to_user(info.context.user).get(
                     id=corpus_django_pk
@@ -448,10 +449,16 @@ class SocialQueryMixin:
                     Q(corpus_id=corpus_django_pk) | Q(corpus__isnull=True)
                 )
 
-            user_badge_counts = (
-                badge_query.values("user")
-                .annotate(count=Count("id"))
-                .order_by("-count")[:limit]
+            # ``.values().annotate()`` returns dicts at runtime; django-stubs
+            # types the QuerySet as model instances, so cast to surface the
+            # actual shape to mypy.
+            user_badge_counts: list[dict[str, Any]] = list(
+                cast(
+                    "Any",
+                    badge_query.values("user")
+                    .annotate(count=Count("id"))
+                    .order_by("-count")[:limit],
+                )
             )
 
             for idx, item in enumerate(user_badge_counts, start=1):
@@ -485,10 +492,13 @@ class SocialQueryMixin:
                     conversation__chat_with_corpus_id=corpus_django_pk
                 )
 
-            user_message_counts = (
-                message_query.values("creator")
-                .annotate(count=Count("id"))
-                .order_by("-count")[:limit]
+            user_message_counts: list[dict[str, Any]] = list(
+                cast(
+                    "Any",
+                    message_query.values("creator")
+                    .annotate(count=Count("id"))
+                    .order_by("-count")[:limit],
+                )
             )
 
             for idx, item in enumerate(user_message_counts, start=1):
@@ -504,19 +514,22 @@ class SocialQueryMixin:
 
         elif metric == "threads":
             # Count threads created per user
-            thread_query = Conversation.objects.filter(
-                creator__in=users, conversation_type="thread"
-            ).visible_to_user(info.context.user)
+            thread_query = Conversation.objects.visible_to_user(
+                info.context.user
+            ).filter(creator__in=users, conversation_type="thread")
 
             if cutoff_date:
                 thread_query = thread_query.filter(created__gte=cutoff_date)
             if corpus_django_pk:
                 thread_query = thread_query.filter(chat_with_corpus_id=corpus_django_pk)
 
-            user_thread_counts = (
-                thread_query.values("creator")
-                .annotate(count=Count("id"))
-                .order_by("-count")[:limit]
+            user_thread_counts: list[dict[str, Any]] = list(
+                cast(
+                    "Any",
+                    thread_query.values("creator")
+                    .annotate(count=Count("id"))
+                    .order_by("-count")[:limit],
+                )
             )
 
             for idx, item in enumerate(user_thread_counts, start=1):
@@ -630,10 +643,10 @@ class SocialQueryMixin:
         user = info.context.user
 
         # Get corpus if specified
-        corpus_django_pk = None
+        corpus_django_pk: int | None = None
         if corpus_id:
             try:
-                _, corpus_django_pk = from_global_id(corpus_id)
+                corpus_django_pk = int(from_global_id(corpus_id)[1])
                 # Verify user has access to this corpus
                 Corpus.objects.visible_to_user(user).get(id=corpus_django_pk)
             except Corpus.DoesNotExist:
@@ -713,9 +726,9 @@ class SocialQueryMixin:
         )
 
         # Total threads
-        thread_query = Conversation.objects.filter(
+        thread_query = Conversation.objects.visible_to_user(user).filter(
             conversation_type="thread"
-        ).visible_to_user(user)
+        )
         if corpus_django_pk:
             thread_query = thread_query.filter(chat_with_corpus_id=corpus_django_pk)
         total_threads = thread_query.count()
@@ -738,13 +751,16 @@ class SocialQueryMixin:
 
         # Badge distribution - batch-load badges to avoid N+1
         badge_distribution = []
-        badge_stats = list(
-            badge_query.values("badge")
-            .annotate(
-                award_count=Count("id"),
-                unique_recipients=Count("user", distinct=True),
+        badge_stats: list[dict[str, Any]] = list(
+            cast(
+                "Any",
+                badge_query.values("badge")
+                .annotate(
+                    award_count=Count("id"),
+                    unique_recipients=Count("user", distinct=True),
+                )
+                .order_by("-award_count")[:10],
             )
-            .order_by("-award_count")[:10]
         )
 
         if badge_stats:
