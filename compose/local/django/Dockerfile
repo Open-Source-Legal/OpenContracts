@@ -1,4 +1,7 @@
-ARG PYTHON_VERSION=3.11-slim-bookworm
+# Pin to a specific patch (not the floating 3.11 alias) so rebuilds on
+# different dates do not silently pick up a new CPython point release.
+# Keep this in sync with compose/production/django/Dockerfile.
+ARG PYTHON_VERSION=3.11.15-slim-bookworm
 
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #
