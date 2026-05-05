@@ -57,7 +57,7 @@ pytesseract
 # new precedence semantics before widening this pin.
 pydantic-ai>=1.89.1,<2  # see issue #1451 before bumping the upper bound
 spacy
-pdfplumber>=0.10.0  # https://github.com/jsvine/pdfplumber - PDF token extraction
+pdfplumber>=0.11.9  # https://github.com/jsvine/pdfplumber - PDF token extraction
 shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection
 
 # Data Processing Tools
