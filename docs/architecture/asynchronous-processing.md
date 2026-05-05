@@ -77,13 +77,13 @@ The shift to at-least-once delivery exposes pre-existing tasks that create
 rows unconditionally. Until they are made idempotent, a worker death mid-task
 on these paths can produce duplicate database rows on retry:
 
-| Task | File / line | Risk |
-|------|-------------|------|
-| `process_corpus_action` (extract path) | `corpus_tasks.py` ~L251 | Duplicate `Datacell` rows |
-| `process_thread_corpus_action` | `corpus_tasks.py` ~L589 | Duplicate `CorpusActionExecution` |
-| `process_message_corpus_action` | `corpus_tasks.py` ~L681 | Duplicate `CorpusActionExecution` |
-| `generate_agent_response` | `agent_tasks.py` ~L148 | Duplicate `ChatMessage` |
-| Bulk import paths | `import_tasks.py` (raw `.create()` calls) | Duplicate imported objects |
+| Task | File | Risk |
+|------|------|------|
+| `process_corpus_action` (extract path) | `opencontractserver/tasks/corpus_tasks.py` | Duplicate `Datacell` rows |
+| `process_thread_corpus_action` | `opencontractserver/tasks/corpus_tasks.py` | Duplicate `CorpusActionExecution` |
+| `process_message_corpus_action` | `opencontractserver/tasks/corpus_tasks.py` | Duplicate `CorpusActionExecution` |
+| `generate_agent_response` | `opencontractserver/tasks/agent_tasks.py` | Duplicate `ChatMessage` |
+| Bulk import paths | `opencontractserver/tasks/import_tasks.py` (raw `.create()` calls) | Duplicate imported objects |
 
 In practice, real worker deaths during these tasks are rare and the duplicate
 rows are recoverable. Hardening these paths (typically by switching to

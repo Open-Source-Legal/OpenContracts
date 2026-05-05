@@ -32,7 +32,12 @@ from opencontractserver.constants import (
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.parser import BaseParser
-from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.types.dicts import (
+    OpenContractDocExport,
+    OpenContractsAnnotationPythonType,
+    OpenContractsRelationshipPythonType,
+    PawlsPagePythonType,
+)
 from opencontractserver.utils.pdf_splitting import (
     calculate_page_chunks,
     get_pdf_page_count,
@@ -160,6 +165,11 @@ class BaseChunkedParser(BaseParser):
         """
         document = Document.objects.get(pk=doc_id)
         doc_path = document.pdf_file.name
+        if doc_path is None:
+            raise DocumentParsingError(
+                f"Document {doc_id} has no PDF file associated",
+                is_transient=False,
+            )
 
         try:
             with default_storage.open(doc_path, "rb") as pdf_file:
@@ -486,9 +496,9 @@ def _reassemble_chunk_results(
 
     first = chunk_results[0]
 
-    combined_pawls: list[dict] = []
-    combined_annotations: list[dict] = []
-    combined_relationships: list[dict] = []
+    combined_pawls: list[PawlsPagePythonType] = []
+    combined_annotations: list[OpenContractsAnnotationPythonType] = []
+    combined_relationships: list[OpenContractsRelationshipPythonType] = []
     combined_content_parts: list[str] = []
     combined_doc_labels: list[str] = []
     total_pages = 0
@@ -557,7 +567,11 @@ def _reassemble_chunk_results(
     return result
 
 
-def _offset_annotation(annotation: dict, page_offset: int, id_prefix: str) -> None:
+def _offset_annotation(
+    annotation: OpenContractsAnnotationPythonType,
+    page_offset: int,
+    id_prefix: str,
+) -> None:
     """Mutate *annotation* in place: offset pages and prefix IDs."""
     # Offset the primary page field
     annotation["page"] = annotation.get("page", 0) + page_offset
@@ -580,7 +594,10 @@ def _offset_annotation(annotation: dict, page_offset: int, id_prefix: str) -> No
         )
 
 
-def _offset_relationship(relationship: dict, id_prefix: str) -> None:
+def _offset_relationship(
+    relationship: OpenContractsRelationshipPythonType,
+    id_prefix: str,
+) -> None:
     """Mutate *relationship* in place: prefix all IDs."""
     old_id = relationship.get("id")
     if old_id is not None:

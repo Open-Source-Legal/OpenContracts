@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import django
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
@@ -386,6 +386,17 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         The set of fields covered is derived from ``Document._meta`` so
         adding a new ``FileField`` extends coverage automatically.
 
+        Concurrency note: there is a small TOCTOU window between the
+        uniqueness check (``unique_blob_paths``, which reads sibling
+        rows) and the storage delete. If a concurrent ``add_document``
+        forks a new sibling that references the same blob immediately
+        after the check, the blob can be deleted while the new sibling
+        already references it. Callers in high-concurrency paths should
+        hold an appropriate row-level lock spanning all sibling rows
+        that could reference the blob — a ``select_for_update`` on the
+        single row being mutated (as in ``update_memory_content``) is
+        not sufficient on its own.
+
         Args:
             field_name: Name of a ``FileField`` on this Document.
             save: If True, persist the field clear to the database when
@@ -403,7 +414,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         """
         try:
             field = self._meta.get_field(field_name)
-        except Exception as exc:
+        except FieldDoesNotExist as exc:
             raise ValueError(
                 f"safe_delete_field_blob: {field_name!r} is not a field "
                 f"on {type(self).__name__}"
