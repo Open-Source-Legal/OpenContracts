@@ -32,6 +32,9 @@ from opencontractserver.constants.licenses import (
     LICENSE_LINK_MAX_LENGTH,
     LICENSE_SPDX_MAX_LENGTH,
 )
+from opencontractserver.constants.notifications import (
+    NOTIFICATION_BULK_CREATE_BATCH_SIZE,
+)
 from opencontractserver.corpuses.managers import CorpusActionExecutionManager
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.QuerySets import PermissionedTreeQuerySet
@@ -619,7 +622,10 @@ class Corpus(TreeNode):
                     # Cap each INSERT batch so a corpus with thousands of
                     # cross-owner documents does not blow up a single SQL
                     # statement.
-                    Notification.objects.bulk_create(notifications, batch_size=500)
+                    Notification.objects.bulk_create(
+                        notifications,
+                        batch_size=NOTIFICATION_BULK_CREATE_BATCH_SIZE,
+                    )
         else:
             # Corpus became private → revoke public only for documents
             # NOT in any other public corpus
