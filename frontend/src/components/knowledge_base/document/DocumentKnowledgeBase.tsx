@@ -45,6 +45,7 @@ import {
   getCachedPDFUrl,
 } from "../../annotator/api/cachedRest";
 import {
+  AnnotationLabelType,
   CorpusType,
   LabelType,
   DocumentType,
@@ -83,6 +84,7 @@ import {
   pdfAnnotationsAtom,
   structuralAnnotationsAtom,
   structuralAnnotationsLoadedAtom,
+  structuralRelationshipsAtom,
 } from "../../annotator/context/AnnotationAtoms";
 import {
   CorpusState,
@@ -207,6 +209,38 @@ interface DocumentKnowledgeBaseProps {
    */
   showSuccessMessage?: string;
 }
+
+/**
+ * Convert a GraphQL relationship payload into a `RelationGroup`. Both the
+ * structural-lazy-load path and the targeted-deep-link path map the same
+ * shape, so the construction lives in one place to keep the two callers in
+ * lockstep if `RelationGroup`'s constructor signature changes.
+ */
+const relationToGroup = (
+  rel: {
+    id: string;
+    structural?: boolean;
+    relationshipLabel: AnnotationLabelType;
+    sourceAnnotations: {
+      edges: Array<{ node?: { id: string } | null } | null>;
+    };
+    targetAnnotations: {
+      edges: Array<{ node?: { id: string } | null } | null>;
+    };
+  },
+  forceStructural?: boolean
+): RelationGroup =>
+  new RelationGroup(
+    rel.sourceAnnotations.edges
+      .map((edge) => edge?.node?.id)
+      .filter((id): id is string => id !== undefined),
+    rel.targetAnnotations.edges
+      .map((edge) => edge?.node?.id)
+      .filter((id): id is string => id !== undefined),
+    rel.relationshipLabel,
+    rel.id,
+    forceStructural ?? rel.structural ?? false
+  );
 
 const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   documentId,
@@ -447,6 +481,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
 
   const [pdfAnnotations, setPdfAnnotations] = useAtom(pdfAnnotationsAtom);
   const [, setStructuralAnnotations] = useAtom(structuralAnnotationsAtom);
+  const [, setStructuralRelationships] = useAtom(structuralRelationshipsAtom);
   const [structuralAnnotationsLoaded, setStructuralAnnotationsLoaded] = useAtom(
     structuralAnnotationsLoadedAtom
   );
@@ -608,6 +643,12 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
         setStructuralAnnotations(structuralAnns);
         setStructuralAnnotationsLoaded(true);
       }
+      if (data?.document?.allStructuralRelationships) {
+        const structuralRels = data.document.allStructuralRelationships.map(
+          (rel) => relationToGroup(rel, true)
+        );
+        setStructuralRelationships(structuralRels);
+      }
     },
   });
 
@@ -628,6 +669,19 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
           return newAnns.length > 0 ? [...prev, ...newAnns] : prev;
         });
       }
+      // Targeted fetch returns the document's full structural relationship
+      // set (the optimizer ignores annotation IDs for relationships) — merge
+      // by id so we don't drop already-loaded entries.
+      if (data?.document?.allStructuralRelationships) {
+        const structuralRels = data.document.allStructuralRelationships.map(
+          (rel) => relationToGroup(rel, true)
+        );
+        setStructuralRelationships((prev) => {
+          const existingIds = new Set(prev.map((r) => r.id));
+          const newRels = structuralRels.filter((r) => !existingIds.has(r.id));
+          return newRels.length > 0 ? [...prev, ...newRels] : prev;
+        });
+      }
     },
   });
 
@@ -635,7 +689,13 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   useEffect(() => {
     setStructuralAnnotationsLoaded(false);
     setStructuralAnnotations([]);
-  }, [documentId, setStructuralAnnotationsLoaded, setStructuralAnnotations]);
+    setStructuralRelationships([]);
+  }, [
+    documentId,
+    setStructuralAnnotationsLoaded,
+    setStructuralAnnotations,
+    setStructuralRelationships,
+  ]);
 
   // Fetch ALL structural annotations when the user toggles structural visibility
   useEffect(() => {

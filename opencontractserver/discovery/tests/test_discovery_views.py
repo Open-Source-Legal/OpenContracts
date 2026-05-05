@@ -3,13 +3,11 @@
 import json
 from xml.etree.ElementTree import fromstring
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 @override_settings(
@@ -68,6 +66,10 @@ class RobotsTxtTest(TestCase):
 )
 class LlmsTxtTest(TestCase):
     """Tests for the dynamic llms.txt endpoint."""
+
+    owner: User
+    public_corpus: Corpus
+    private_corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -152,6 +154,9 @@ class LlmsTxtTest(TestCase):
 class LlmsFullTxtTest(TestCase):
     """Tests for the dynamic llms-full.txt endpoint."""
 
+    owner: User
+    corpus: Corpus
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(
@@ -235,6 +240,10 @@ class LlmsFullTxtTest(TestCase):
 class SitemapXmlTest(TestCase):
     """Tests for the dynamic sitemap.xml endpoint."""
 
+    owner: User
+    public_corpus: Corpus
+    private_corpus: Corpus
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(
@@ -298,6 +307,9 @@ class SitemapXmlTest(TestCase):
 )
 class WellKnownMcpTest(TestCase):
     """Tests for the .well-known/mcp.json endpoint."""
+
+    owner: User
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -395,6 +407,12 @@ class DiscoveryNoCorpusesTest(TestCase):
 )
 class SearchApiTest(TestCase):
     """Tests for the public search API endpoint."""
+
+    owner: User
+    public_corpus: Corpus
+    private_corpus: Corpus
+    public_doc: Document
+    private_doc: Document
 
     @classmethod
     def setUpTestData(cls):

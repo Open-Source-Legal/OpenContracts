@@ -3,8 +3,8 @@ Tests for the visible_to_user() method implementation across model managers.
 
 This file tests the BaseVisibilityManager and its subclasses to ensure
 consistent permission-based filtering across all OpenContracts models.
-The visible_to_user() method replaces the deprecated resolve_oc_model_queryset
-function with a cleaner, more maintainable approach.
+The visible_to_user() method is the canonical entry point for
+permission-aware querysets across the codebase.
 """
 
 import logging

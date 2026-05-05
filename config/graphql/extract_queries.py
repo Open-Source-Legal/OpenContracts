@@ -129,7 +129,7 @@ class ExtractQueryMixin:
     fieldset = relay.Node.Field(FieldsetType)
 
     def resolve_fieldset(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Fieldset.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     fieldsets = DjangoFilterConnectionField(
@@ -142,7 +142,7 @@ class ExtractQueryMixin:
     column = relay.Node.Field(ColumnType)
 
     def resolve_column(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Column.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     columns = DjangoFilterConnectionField(ColumnType, filterset_class=ColumnFilter)
@@ -155,7 +155,7 @@ class ExtractQueryMixin:
     def resolve_extract(self, info, **kwargs) -> Any:
         from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
 
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         has_perm, extract = ExtractQueryOptimizer.check_extract_permission(
             info.context.user, int(django_pk)
         )
@@ -234,7 +234,7 @@ class ExtractQueryMixin:
     datacell = relay.Node.Field(DatacellType)
 
     def resolve_datacell(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Datacell.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     datacells = DjangoFilterConnectionField(
@@ -334,11 +334,10 @@ class ExtractQueryMixin:
         local_corpus_id = int(from_global_id(corpus_id)[1])
 
         # Convert global IDs to local IDs (single pass)
-        local_doc_ids = []
-        local_id_by_global = {}  # global_id -> local_id
+        local_doc_ids: list[int] = []
+        local_id_by_global: dict[str, int] = {}  # global_id -> local_id
         for global_id in document_ids:
-            _, local_id = from_global_id(global_id)
-            local_id_int = int(local_id)
+            local_id_int = int(from_global_id(global_id)[1])
             local_doc_ids.append(local_id_int)
             local_id_by_global[global_id] = local_id_int
 
@@ -356,14 +355,14 @@ class ExtractQueryMixin:
         # so we only include documents the user has permission to read
         results = []
         for global_id in document_ids:
-            local_id = local_id_by_global[global_id]
+            local_doc_id = local_id_by_global[global_id]
 
             # Only include documents that are in the result (user has permission)
-            if local_id in datacells_by_doc:
+            if local_doc_id in datacells_by_doc:
                 results.append(
                     {
                         "document_id": global_id,
-                        "datacells": datacells_by_doc[local_id],
+                        "datacells": datacells_by_doc[local_doc_id],
                     }
                 )
 
@@ -377,7 +376,7 @@ class ExtractQueryMixin:
         gremlin_engine = relay.Node.Field(GremlinEngineType_READ)
 
         def resolve_gremlin_engine(self, info, **kwargs) -> Any:
-            django_pk = from_global_id(kwargs.get("id", None))[1]
+            django_pk = int(from_global_id(kwargs["id"])[1])
             return GremlinEngine.objects.visible_to_user(info.context.user).get(
                 id=django_pk
             )
@@ -395,9 +394,9 @@ class ExtractQueryMixin:
         def resolve_analyzer(self, info, **kwargs) -> Any:
 
             if kwargs.get("id", None) is not None:
-                django_pk = from_global_id(kwargs.get("id", None))[1]
+                django_pk = from_global_id(kwargs["id"])[1]
             elif kwargs.get("analyzerId", None) is not None:
-                django_pk = kwargs.get("analyzerId", None)
+                django_pk = kwargs["analyzerId"]
             else:
                 return None
 
@@ -418,7 +417,7 @@ class ExtractQueryMixin:
                 AnalysisQueryOptimizer,
             )
 
-            django_pk = from_global_id(kwargs.get("id", None))[1]
+            django_pk = from_global_id(kwargs["id"])[1]
             has_perm, analysis = AnalysisQueryOptimizer.check_analysis_permission(
                 info.context.user, int(django_pk)
             )

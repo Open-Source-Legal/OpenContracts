@@ -392,13 +392,14 @@ export const ProcessingIndicator = styled(motion.div)`
 export const EnhancedChatInputContainer = styled(ChatInputContainer)<{
   $disabled?: boolean;
 }>`
-  padding: 1.25rem 1.5rem;
+  padding: 0.625rem 0.875rem;
   background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(20px);
   border-top: 1px solid rgba(0, 0, 0, 0.05);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.04);
   flex-direction: column;
   align-items: stretch;
+  gap: 0.5rem;
 
   /* When disabled (i.e. assistant is processing) */
   ${(props) =>
@@ -408,8 +409,8 @@ export const EnhancedChatInputContainer = styled(ChatInputContainer)<{
     `}
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    padding: 1rem;
-    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
   }
 `;
 
@@ -472,8 +473,8 @@ export const MessagesArea = styled.div<{ $isProcessing?: boolean }>`
 
 export const InputRow = styled.div`
   display: flex;
-  align-items: center;
-  gap: 0.875rem;
+  align-items: flex-end;
+  gap: 0.5rem;
   width: 100%;
 `;
 
@@ -481,11 +482,15 @@ export const EnhancedChatInput = styled(ChatInput)`
   background: ${OS_LEGAL_COLORS.surfaceHover};
   border: 2px solid ${OS_LEGAL_COLORS.border};
   border-radius: 12px;
-  padding: 0.875rem 1.25rem;
+  padding: 0.5rem 0.875rem;
   font-size: 0.9375rem;
-  transition: all 0.2s ease;
+  line-height: 1.4;
+  transition: border-color 0.15s ease, background 0.15s ease,
+    box-shadow 0.15s ease;
   flex: 1;
-  min-height: 48px;
+  min-height: 40px;
+  max-height: 140px;
+  overflow-y: auto;
 
   &:focus {
     background: white;
@@ -500,19 +505,22 @@ export const EnhancedChatInput = styled(ChatInput)`
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     font-size: 0.875rem;
-    padding: 0.75rem 1rem;
-    min-height: 44px;
+    padding: 0.5rem 0.75rem;
+    min-height: 38px;
+    max-height: 120px;
   }
 `;
 
 export const EnhancedSendButton = styled(SendButton)`
-  width: 48px;
-  height: 48px;
-  align-self: center; /* Override the flex-end from base component */
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  align-self: flex-end; /* Stay aligned to the bottom as input grows */
+  flex-shrink: 0;
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    width: 44px;
-    height: 44px;
+    width: 38px;
+    height: 38px;
   }
 `;
 

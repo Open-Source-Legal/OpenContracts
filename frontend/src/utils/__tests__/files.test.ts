@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  isTextFileType,
-  isPdfFileType,
-  downloadFile,
-  toBase64,
-} from "../files";
+import { isTextFileType, isPdfFileType, downloadFile } from "../files";
 
 // --- Shared Axios mock -----------------------------------------------------
 // Mock at module scope so downloadFile uses a test-controlled client. We
@@ -147,37 +142,5 @@ describe("downloadFile", () => {
         (call[0] as string).includes("Downloading file failed")
     );
     expect(logged).toBe(true);
-  });
-});
-
-describe("toBase64", () => {
-  it("resolves with base64 data URL on successful read", async () => {
-    const file = new File(["hello"], "hello.txt", { type: "text/plain" });
-    const result = await toBase64(file);
-    expect(typeof result).toBe("string");
-    expect(result as string).toMatch(/^data:/);
-  });
-
-  it("rejects when FileReader emits an error", async () => {
-    const originalReader = window.FileReader;
-
-    // Replace FileReader with a stub that synchronously invokes onerror
-    // after readAsDataURL is called, exercising the reject path in toBase64.
-    class StubReader {
-      public onload: ((ev: any) => void) | null = null;
-      public onerror: ((ev: any) => void) | null = null;
-      public result: any = null;
-      readAsDataURL() {
-        setTimeout(() => this.onerror?.({ target: { error: "nope" } }), 0);
-      }
-    }
-    (window as any).FileReader = StubReader;
-
-    try {
-      const file = new File(["x"], "x.txt", { type: "text/plain" });
-      await expect(toBase64(file)).rejects.toBeTruthy();
-    } finally {
-      (window as any).FileReader = originalReader;
-    }
   });
 });

@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, cast
 
 from django.core.files.storage import default_storage
 
@@ -23,7 +23,9 @@ from opencontractserver.types.dicts import (
     AnnotationLabelPythonType,
     OpenContractDocExport,
     OpenContractsAnnotationPythonType,
+    TextSpanData,
 )
+from opencontractserver.types.enums import LabelType
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +163,7 @@ class TxtParser(BaseParser):
         # Base envelope shared across strategies. Labels and annotations
         # are filled in as we iterate the chunkers.
         open_contracts_data: OpenContractDocExport = {
-            "title": document.title,
+            "title": document.title or "",
             "content": text_content,
             "description": document.description or "",
             "pawls_file_content": [],  # No PAWLS data for plain text
@@ -188,40 +190,52 @@ class TxtParser(BaseParser):
                 f"produced {chunks_produced} chunk(s)"
             )
 
-        open_contracts_data["text_labels"] = text_labels
+        # ``text_labels`` is not part of the OpenContractDocExport TypedDict
+        # surface but downstream pipelines tolerate (and historically read)
+        # the key off the per-doc payload, so we keep the assignment via a
+        # widened cast rather than dropping it.
+        cast(dict[str, Any], open_contracts_data)["text_labels"] = text_labels
         open_contracts_data["labelled_text"] = labelled_text
 
         return open_contracts_data
 
 
 def _make_label(label_name: str) -> AnnotationLabelPythonType:
-    """Build the ``AnnotationLabelPythonType`` stub used for a chunker's label."""
-    return {
+    """Build the ``AnnotationLabelPythonType`` stub used for a chunker's label.
+
+    The caller fills in ``id`` post-import; we cast through ``dict`` so the
+    placeholder ``None`` doesn't violate the strict type surface here.
+    """
+    label: dict[str, Any] = {
         "id": None,  # ID will be assigned when saved to the database
         "color": "grey",
         "description": f"Structural {label_name.lower()} chunk",
         "icon": "expand",
         "text": label_name,
-        "label_type": SPAN_LABEL,
+        "label_type": LabelType(SPAN_LABEL),
         "parent_id": None,
     }
+    return cast(AnnotationLabelPythonType, label)
 
 
 def _annotation_for_chunk(
     chunk: TextChunk, label_name: str
 ) -> OpenContractsAnnotationPythonType:
     """Convert a :class:`TextChunk` into an ``OpenContractsAnnotationPythonType``."""
-    return {
+    span: TextSpanData = {
+        "start": chunk.start,
+        "end": chunk.end,
+        "text": chunk.text,
+    }
+    annotation: OpenContractsAnnotationPythonType = {
         "id": None,
         "annotationLabel": label_name,
         "rawText": chunk.text,
         "page": 1,
-        "annotation_json": {
-            "start": chunk.start,
-            "end": chunk.end,
-        },
+        "annotation_json": span,
         "parent_id": None,
         "annotation_type": "SPAN_LABEL",
         "structural": True,
         "content_modalities": ["TEXT"],
     }
+    return annotation
