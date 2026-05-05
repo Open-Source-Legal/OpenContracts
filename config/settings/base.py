@@ -1065,6 +1065,17 @@ MAX_IMAGE_SIZE_BYTES = env.int(
 MAX_TOTAL_IMAGES_SIZE_BYTES = env.int(
     "MAX_TOTAL_IMAGES_SIZE_BYTES", default=100 * 1024 * 1024  # 100MB total per document
 )
+# DPI for rasterising PDF pages when an embedded image stream cannot be decoded
+# directly. Page-render RSS scales as ~DPI^2, so raising this trades worker
+# memory for sharper crops. Default of 150 keeps a US-letter page render
+# under ~10 MB.
+IMAGE_EXTRACTION_DPI = env.int("IMAGE_EXTRACTION_DPI", default=150)
+# Force a full ``gc.collect()`` after this many pages of image extraction.
+# Bounds peak RSS by reclaiming Poppler/PIL buffers proactively. Set to 0
+# to disable explicit collection (rely on CPython's threshold-based GC).
+IMAGE_EXTRACTION_GC_INTERVAL_PAGES = env.int(
+    "IMAGE_EXTRACTION_GC_INTERVAL_PAGES", default=1
+)
 
 # Thumbnail extraction tasks
 THUMBNAIL_TASKS = {
