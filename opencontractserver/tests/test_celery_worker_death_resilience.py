@@ -13,6 +13,8 @@ make the redelivery decision, so a future settings change cannot silently
 revert the resilience guarantee.
 """
 
+import typing
+
 from django.conf import settings
 from django.test import SimpleTestCase
 
@@ -77,10 +79,36 @@ class CeleryWorkerDeathResilienceSettingsTests(SimpleTestCase):
             "to an integer number of seconds to override Celery's 1-hour "
             "Redis default (Issue #1493).",
         )
-        assert isinstance(visibility, int)  # narrow for mypy
         self.assertGreater(
-            visibility,
+            typing.cast(int, visibility),
             3600,
             "visibility_timeout must exceed Celery's 1-hour default; "
+            "otherwise long-running tasks will be double-delivered.",
+        )
+
+    def test_celery_app_picks_up_visibility_timeout(self) -> None:
+        """The Celery app must inherit the Redis visibility timeout.
+
+        Pinning ``CELERY_BROKER_TRANSPORT_OPTIONS`` in Django settings is
+        only useful if the ``namespace='CELERY'`` wiring in
+        ``config/celery_app.py`` actually propagates it into
+        ``celery_app.conf.broker_transport_options``. Without this check,
+        a future refactor that broke that propagation specifically for the
+        transport options dict would silently revert the at-least-once
+        delivery guarantee.
+        """
+        transport_options = celery_app.conf.broker_transport_options or {}
+        visibility = transport_options.get("visibility_timeout")
+        self.assertIsInstance(
+            visibility,
+            int,
+            "Celery app config did not pick up broker_transport_options "
+            "from Django settings — the namespace='CELERY' wiring may be "
+            "broken.",
+        )
+        self.assertGreater(
+            typing.cast(int, visibility),
+            3600,
+            "Celery app's visibility_timeout must exceed the 1-hour default; "
             "otherwise long-running tasks will be double-delivered.",
         )
