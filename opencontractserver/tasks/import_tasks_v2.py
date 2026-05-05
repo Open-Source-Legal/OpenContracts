@@ -439,18 +439,19 @@ def _import_v2_relationships(
             logger.warning("Relationship label '%s' not found", label_text)
             continue
 
-        # Map annotation IDs (drop any None / missing ids before persisting).
+        # Map annotation IDs (drop any missing entries before persisting).
+        # ``dict.get`` returns ``None`` for unknown keys, so the ``is not None``
+        # check on the walrus result is sufficient — no separate membership
+        # test required.
         source_ids: list[int] = [
             new_id
             for old_id in rel_data.get("source_annotation_ids", [])
-            if str(old_id) in annot_id_map
-            and (new_id := annot_id_map.get(str(old_id))) is not None
+            if (new_id := annot_id_map.get(str(old_id))) is not None
         ]
         target_ids: list[int] = [
             new_id
             for old_id in rel_data.get("target_annotation_ids", [])
-            if str(old_id) in annot_id_map
-            and (new_id := annot_id_map.get(str(old_id))) is not None
+            if (new_id := annot_id_map.get(str(old_id))) is not None
         ]
 
         if source_ids and target_ids:

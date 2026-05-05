@@ -444,6 +444,13 @@ async def doc_extract_query_task(
                     prompt=prompt,
                     target_type=output_type,
                     framework=AgentFramework.PYDANTIC_AI,
+                    # ``get_structured_response_and_sources_from_document``
+                    # currently declares ``temperature: float``; we
+                    # intentionally pass ``None`` for Claude models so the
+                    # downstream ``temperature=0`` override in
+                    # ``_structured_response_raw`` engages. Widen the
+                    # accepted type upstream to ``Optional[float]`` and the
+                    # ignore comes off; tracked in #1381.
                     temperature=extract_temperature,  # type: ignore[arg-type]
                     similarity_top_k=similarity_top_k,
                     model=extract_model,

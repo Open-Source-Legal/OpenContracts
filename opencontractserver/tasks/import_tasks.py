@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from opencontractserver.annotations.models import AnnotationLabel
-    from opencontractserver.users.models import User as AbstractBaseUser
+    # Aliased to avoid colliding with the runtime ``User = get_user_model()``
+    # below; matches the pattern in ``import_tasks_v2.py``.
+    from opencontractserver.users.models import User as UserModel
     from opencontractserver.utils.metadata_file_parser import DocumentMetadata
 
 import filetype
@@ -440,7 +442,7 @@ def process_documents_zip(
 
 def create_relationships_from_parsed(
     corpus: Corpus,
-    user: AbstractBaseUser,
+    user: UserModel,
     document_path_map: dict[str, Document],
     parsed_relationships: list[Any],
     logger: logging.Logger,
@@ -694,7 +696,7 @@ def _apply_sidecar_annotations(
     sidecar_path: str | None,
     corpus_doc: Document,
     corpus_obj: Corpus,
-    user_obj: AbstractBaseUser,
+    user_obj: UserModel,
     label_lookup: dict[str, AnnotationLabel],
     doc_label_lookup: dict[str, AnnotationLabel],
     results: dict[str, Any],
