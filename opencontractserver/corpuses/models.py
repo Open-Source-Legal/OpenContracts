@@ -554,39 +554,43 @@ class Corpus(TreeNode):
             return
 
         if self.is_public:
-            # Identify documents that also live in a private corpus owned
-            # by someone OTHER than this corpus's creator. Publicizing
-            # those would expose material the actor never had authority
-            # to share, so they are excluded from propagation.
-            cross_owner_blocked_ids = set(
-                DocumentPath.objects.filter(
-                    document_id__in=doc_ids,
-                    corpus__is_public=False,
-                    is_current=True,
-                    is_deleted=False,
-                )
-                .exclude(corpus=self)
-                .exclude(corpus__creator=self.creator)
-                .values_list("document_id", flat=True)
-            )
-            if cross_owner_blocked_ids:
-                logger.warning(
-                    "Corpus %s public flip skipped %d documents that are "
-                    "also members of a private corpus owned by a different "
-                    "user.",
-                    self.pk,
-                    len(cross_owner_blocked_ids),
-                )
-
-            publicize_ids = [d for d in doc_ids if d not in cross_owner_blocked_ids]
-            if not publicize_ids:
-                return
-
-            # Wrap the snapshot + update + notification fan-out in a single
-            # transaction so a concurrent publicize cannot slip in between
-            # the snapshot and the update and cause a stale notification
-            # for a document that didn't actually transition in this call.
+            # Wrap the cross-owner snapshot + update + notification fan-out
+            # in a single transaction so a concurrent publicize cannot slip
+            # in between the snapshot and the update and cause a stale
+            # notification for a document that didn't actually transition
+            # in this call. Computing cross_owner_blocked_ids INSIDE the
+            # atomic block also closes the narrow race where a document is
+            # added to a new cross-owner private corpus between the
+            # membership check and the update.
             with transaction.atomic():
+                # Identify documents that also live in a private corpus
+                # owned by someone OTHER than this corpus's creator.
+                # Publicizing those would expose material the actor never
+                # had authority to share, so they are excluded.
+                cross_owner_blocked_ids = set(
+                    DocumentPath.objects.filter(
+                        document_id__in=doc_ids,
+                        corpus__is_public=False,
+                        is_current=True,
+                        is_deleted=False,
+                    )
+                    .exclude(corpus=self)
+                    .exclude(corpus__creator=self.creator)
+                    .values_list("document_id", flat=True)
+                )
+                if cross_owner_blocked_ids:
+                    logger.warning(
+                        "Corpus %s public flip skipped %d documents that "
+                        "are also members of a private corpus owned by a "
+                        "different user.",
+                        self.pk,
+                        len(cross_owner_blocked_ids),
+                    )
+
+                publicize_ids = [d for d in doc_ids if d not in cross_owner_blocked_ids]
+                if not publicize_ids:
+                    return
+
                 transitioning = list(
                     Document.objects.select_for_update()
                     .filter(id__in=publicize_ids, is_public=False)
@@ -612,7 +616,10 @@ class Corpus(TreeNode):
                     if row["creator_id"] and row["creator_id"] != self.creator_id
                 ]
                 if notifications:
-                    Notification.objects.bulk_create(notifications)
+                    # Cap each INSERT batch so a corpus with thousands of
+                    # cross-owner documents does not blow up a single SQL
+                    # statement.
+                    Notification.objects.bulk_create(notifications, batch_size=500)
         else:
             # Corpus became private → revoke public only for documents
             # NOT in any other public corpus

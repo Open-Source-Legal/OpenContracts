@@ -154,7 +154,7 @@ class AddAnnotationIDORTests(TestCase):
                 "documentId": to_global_id("DocumentType", self.victim_doc.pk),
                 "annotationLabelId": to_global_id("AnnotationLabelType", self.label.pk),
             },
-            context_value=_MutationContext(self.attacker),
+            context_value=_MutationContext(user),
         )
 
     def test_attacker_cannot_add_annotation_to_victim_document(self):

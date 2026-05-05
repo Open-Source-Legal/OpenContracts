@@ -352,6 +352,17 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
     # user_id has no READ permission on. This blocks the (T-7) class of
     # bug where a future caller forgets to check, and surfaces the misuse
     # via a SECURITY-tagged log line for auditability.
+    #
+    # Why READ (not UPDATE) here: ingest_doc is enqueued by upload/create
+    # mutations (UploadDocument, BulkDocumentUpload) where the caller has
+    # just produced the document row, so no UPDATE perm exists yet at the
+    # time of the check. The enqueueing mutation already gates on its own
+    # CRUD/CREATE rules; this worker-side gate only needs to prove the
+    # supplied user_id has *legitimate access* (READ) to the row, which
+    # is the minimum bar that catches a forgotten upstream check. The
+    # parallel retry_document_processing() path uses UPDATE because it is
+    # a user-initiated re-run on an existing doc and the stronger gate
+    # is appropriate there.
     User = get_user_model()
     try:
         user_obj = User.objects.get(pk=user_id)
@@ -838,8 +849,19 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     User = get_user_model()
     try:
         user_obj = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        logger.error(
+            f"[SECURITY] [retry_document_processing] user_id={user_id} does "
+            f"not exist; refusing to retry doc_id={doc_id}."
+        )
+        return {
+            "status": "error",
+            "doc_id": doc_id,
+            "message": "Invalid user for retry",
+        }
+    try:
         document_obj = Document.objects.get(pk=doc_id)
-    except (User.DoesNotExist, Document.DoesNotExist):
+    except Document.DoesNotExist:
         return {
             "status": "error",
             "doc_id": doc_id,

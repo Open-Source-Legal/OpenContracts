@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **STRIDE P0 follow-up review fixes** (issue #1466, follow-up to PR #1463).
+  - `_add_doc_type_annotation` test helper in
+    `opencontractserver/tests/test_add_annotation_idor.py:157` now passes the
+    `user` argument it accepts into `_MutationContext` instead of the
+    hard-coded `self.attacker`. The previous version made the helper appear
+    parameterised but always executed as the attacker, so any future caller
+    that passed `self.victim` would have silently re-run the attacker case
+    and could miss a regression.
+  - `_resolve_annotation_parents` in
+    `config/graphql/annotation_mutations.py:218` now imports `DocumentPath`
+    at module level alongside `Document` (no circular dependency exists),
+    removing the unexplained lazy import.
+  - `resolve_bulk_document_upload_status` in
+    `config/graphql/document_queries.py:215` now constructs the opaque
+    "not found" `BulkDocumentUploadStatusType` only inside the rejection
+    branch instead of allocating it unconditionally on every status query.
+  - `BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS` in
+    `opencontractserver/constants/zip_import.py:60` carries a comment
+    explaining why the 24-hour default is intentionally generous (a large
+    zip can take many hours and the user must remain able to poll progress
+    for the full lifetime of the job).
+  - `ingest_doc` in `opencontractserver/tasks/doc_tasks.py:350` carries a
+    comment explaining why the worker-side check uses `PermissionTypes.READ`
+    while the parallel `retry_document_processing` path uses
+    `PermissionTypes.UPDATE`.
+  - `retry_document_processing` in
+    `opencontractserver/tasks/doc_tasks.py:846` now emits a
+    `[SECURITY]`-tagged log line on the `User.DoesNotExist` early-exit and
+    returns the more accurate `"Invalid user for retry"` message instead
+    of the misleading `"Document not found"`. Audit symmetry with the
+    `ingest_doc` path is now preserved.
+  - `Corpus._propagate_public_status_to_documents` in
+    `opencontractserver/corpuses/models.py:522` moves the
+    `cross_owner_blocked_ids` query inside the `transaction.atomic()`
+    block, closing the narrow race where a document added to a new
+    cross-owner private corpus between the membership check and the
+    update could be incorrectly publicized. The same method now passes
+    `batch_size=500` to `Notification.objects.bulk_create` so a corpus
+    with thousands of cross-owner documents does not blow up a single
+    SQL statement.
 - **`PipelineSettings.get_parser_kwargs` now merges encrypted secrets** (`opencontractserver/documents/models.py:1260`, issue #1515). The runtime path that resolves parser configuration in `opencontractserver/tasks/doc_tasks.py:424` previously returned only `parser_kwargs[parser_class_path]` and silently dropped any secret stored under `encrypted_secrets[parser_class_path]`. Parsers like `LlamaParseParser` whose API key lives only in `encrypted_secrets` (the documented secure location) were invoked with an empty `api_key=""` placeholder and failed with `"LlamaParse API key not configured"`. Fix: `get_parser_kwargs` now overlays decrypted `encrypted_secrets[parser_class_path]` on top of `parser_kwargs[parser_class_path]`, with secrets winning on key collision. Operators may keep `parser_kwargs.api_key = ""` as a schema marker without clobbering the real secret. The merged dict is built fresh on every call so a long-lived `PipelineSettings` reference does not retain decrypted secrets in memory. Regression tests in `opencontractserver/tests/test_pipeline_settings.py` cover merge, secret-wins, secret-only, no-mutation, and log-redaction.
 - **`PipelineSettings.get_component_settings` now merges encrypted secrets** (`opencontractserver/documents/models.py:1297`, follow-up to #1515). The model-level component settings getter previously returned only the plaintext `component_settings[component_class_path]` entry, which would silently drop encrypted values for any direct caller that bypassed `get_full_component_settings`. The method now overlays decrypted `encrypted_secrets[component_class_path]` on top of the plaintext settings using the same precedence as `get_parser_kwargs` (secrets win on key collision; empty placeholders allowed; merged dict built per call so secrets are not retained on the model). New regression test `test_get_component_settings_merges_encrypted_secrets`.
 - **Discover search crash on null annotation/note documents** (`frontend/src/views/DiscoverSearchResults.tsx:467-469, 600-603` and `frontend/src/utils/navigationUtils.ts:326-342, 358-400`). Running a search on the Discover view could throw `TypeError: can't access property "slug", e is null` when the backend returned an annotation or note edge whose `document` field was null (e.g., document filtered out by visibility or recently soft-deleted). `getDocumentUrl` accessed `document.slug` directly, and the section render lists never filtered for the missing relation. Fix: filter edges with `node.document == null` out of the annotation and note lists, and widen `getDocumentUrl` / `getCorpusUrl` to accept nullable inputs and fall through to the existing `"#"` no-op return path instead of throwing.
