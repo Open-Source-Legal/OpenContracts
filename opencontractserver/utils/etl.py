@@ -5,12 +5,12 @@ import logging
 import os
 import traceback
 import uuid
+from typing import Any, cast
 
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
 from django.db.models import Q
 from pydantic import TypeAdapter, ValidationError, create_model
-from typing_extensions import TypedDict
 
 from opencontractserver.annotations.compact_json import (
     compact_annotation_json,
@@ -33,9 +33,10 @@ from opencontractserver.types.dicts import (
     BoundingBoxPythonType,
     LabelLookupPythonType,
     OpenContractDocExport,
+    OpenContractsAnnotationPythonType,
     PawlsPagePythonType,
 )
-from opencontractserver.types.enums import AnnotationFilterMode
+from opencontractserver.types.enums import AnnotationFilterMode, LabelType
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
 
 logger = logging.getLogger(__name__)
@@ -156,8 +157,8 @@ def build_label_lookups(
     # Pull the corresponding AnnotationLabel objects
     labels = AnnotationLabel.objects.filter(pk__in=all_label_ids)
 
-    text_labels = {}
-    doc_labels = {}
+    text_labels: dict[str | int, AnnotationLabelPythonType] = {}
+    doc_labels: dict[str | int, AnnotationLabelPythonType] = {}
 
     # Export all label types: TOKEN_LABEL, SPAN_LABEL, and RELATIONSHIP_LABEL
     # go into text_labels; DOC_TYPE_LABEL goes into doc_labels.
@@ -175,7 +176,7 @@ def build_label_lookups(
             "description": tl.description,
             "icon": tl.icon,
             "text": tl.text,
-            "label_type": tl.label_type,
+            "label_type": LabelType(tl.label_type),
         }
 
     for dl in doc_type_labels_queryset:
@@ -186,7 +187,7 @@ def build_label_lookups(
             "description": dl.description,
             "icon": dl.icon,
             "text": dl.text,
-            "label_type": DOC_TYPE_LABEL,
+            "label_type": LabelType.DOC_TYPE_LABEL,
         }
 
     return {
@@ -234,7 +235,9 @@ def build_document_export(
 
         doc = Document.objects.get(pk=doc_id)
         doc_name: str = (
-            os.path.basename(doc.pdf_file.name) if doc.pdf_file else "document"
+            os.path.basename(doc.pdf_file.name)
+            if doc.pdf_file and doc.pdf_file.name
+            else "document"
         )
 
         corpus = Corpus.objects.get(pk=corpus_id)
@@ -245,17 +248,26 @@ def build_document_export(
 
         extracted_document_content_json = ""
         try:
-            with default_storage.open(doc.txt_extract_file.name) as content_file:
-                extracted_document_content_json = content_file.read().decode("utf-8")
+            txt_extract_name = doc.txt_extract_file.name
+            if txt_extract_name:
+                with default_storage.open(txt_extract_name) as content_file:
+                    extracted_document_content_json = content_file.read().decode(
+                        "utf-8"
+                    )
         except Exception as e:
             logger.warning(f"Could not export doc text for doc {doc_id}: {e}")
 
         pawls_tokens: list[PawlsPagePythonType] = []
         try:
-            with default_storage.open(doc.pawls_parse_file.name) as pawls_file:
-                pawls_tokens = expand_pawls_pages(
-                    json.loads(pawls_file.read().decode("utf-8"))
-                )
+            pawls_parse_name = doc.pawls_parse_file.name
+            if pawls_parse_name:
+                with default_storage.open(pawls_parse_name) as pawls_file:
+                    pawls_tokens = cast(
+                        list[PawlsPagePythonType],
+                        expand_pawls_pages(
+                            json.loads(pawls_file.read().decode("utf-8"))
+                        ),
+                    )
         except Exception as e:
             logger.warning(f"Could not export pawls tokens for doc {doc_id}: {e}")
 
@@ -308,7 +320,7 @@ def build_document_export(
         doc_annotation_json: OpenContractDocExport = {
             "doc_labels": [],
             "labelled_text": [],
-            "title": doc.title,
+            "title": doc.title or "",
             "description": doc.description,
             "content": extracted_document_content_json,
             "pawls_file_content": pawls_tokens,
@@ -316,8 +328,8 @@ def build_document_export(
             "file_type": doc.file_type,
         }
 
-        page_highlights = {}
-        page_sizes = {}
+        page_highlights: dict[str, dict[int, list[dict[str, int | float]]]] = {}
+        page_sizes: dict[int, Any] = {}
 
         if pawls_tokens:
             page_sizes = {
@@ -377,7 +389,9 @@ def build_document_export(
                         }
 
         doc_annotation_json["doc_labels"] = labels_for_doc
-        doc_annotation_json["labelled_text"] = labelled_text
+        doc_annotation_json["labelled_text"] = cast(
+            list[OpenContractsAnnotationPythonType], labelled_text
+        )
 
         # PDF-specific processing: burn annotations into PDF
         base64_encoded_message = ""
@@ -401,8 +415,8 @@ def build_document_export(
                 logger.debug("Page_sizes: %s", page_sizes)
 
                 for i in range(0, total_page_count):
-                    page = pdf_input.pages[i]
-                    page_box = page.mediabox
+                    pdf_page = pdf_input.pages[i]
+                    page_box = pdf_page.mediabox
 
                     page_height = page_box.upper_left[1]
                     page_width = page_box.lower_right[0]
@@ -419,6 +433,12 @@ def build_document_export(
                             label = text_labels[f"{label_id}"]
 
                             for rect in page_highlights[f"{i + 1}"][label_id]:
+                                hex_color = label["color"].lstrip("#")
+                                color: tuple[float, float, float] = (
+                                    int(hex_color[0:2], 16) / 256,
+                                    int(hex_color[2:4], 16) / 256,
+                                    int(hex_color[4:6], 16) / 256,
+                                )
                                 highlight = createHighlight(
                                     round(x_scale * rect["left"]),
                                     round(float(page_height) - y_scale * rect["top"]),
@@ -427,16 +447,14 @@ def build_document_export(
                                         float(page_height) - y_scale * rect["bottom"]
                                     ),
                                     {"author": "Label:", "contents": label["text"]},
-                                    color=tuple(
-                                        int(label["color"].lstrip("#")[i : i + 2], 16)
-                                        / 256
-                                        for i in (0, 2, 4)
-                                    ),
+                                    color=color,
                                 )
 
-                                add_highlight_to_new_page(highlight, page, pdf_output)
+                                add_highlight_to_new_page(
+                                    highlight, pdf_page, pdf_output
+                                )
 
-                    pdf_output.add_page(page)
+                    pdf_output.add_page(pdf_page)
 
                 pdf_output.write(annotated_pdf_bytes)
                 base64_encoded_data = base64.b64encode(annotated_pdf_bytes.getvalue())
@@ -465,7 +483,7 @@ def build_document_export(
         return "", "", None, {}, {}
 
 
-def is_dict_instance_of_typed_dict(instance: dict, typed_dict: type[TypedDict]):
+def is_dict_instance_of_typed_dict(instance: dict, typed_dict: Any) -> bool:
     # validate with pydantic
     try:
         TypeAdapter(typed_dict).validate_python(instance)
@@ -523,7 +541,7 @@ def parse_model_or_primitive(value: str) -> type:
     elif ":" in value:
         logger.info("Value appears to be a model definition, attempting to parse...")
         try:
-            props = {}
+            props: dict[str, Any] = {}
             lines = value.split("\n")
             logger.debug(f"Split model definition into {len(lines)} lines")
 
