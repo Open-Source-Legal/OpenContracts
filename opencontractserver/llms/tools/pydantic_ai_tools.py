@@ -12,9 +12,6 @@ from opencontractserver.constants.context_guardrails import MAX_TOOL_OUTPUT_CHAR
 from opencontractserver.llms.context_guardrails import truncate_tool_output
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.tool_factory import CoreTool
-from opencontractserver.llms.vector_stores.core_vector_stores import (
-    CoreAnnotationVectorStore,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +197,10 @@ class PydanticAIDependencies(BaseModel):
     user_id: Optional[int] = Field(default=None, description="Current user ID")
     document_id: Optional[int] = Field(default=None, description="Current document ID")
     corpus_id: Optional[int] = Field(default=None, description="Current corpus ID")
-    vector_store: Optional[CoreAnnotationVectorStore] = Field(
+    # ``Any`` because callers may inject either a ``CoreAnnotationVectorStore``
+    # (e.g. tests) or its PydanticAI wrapper class which adapts the interface
+    # for tool calls. Both expose the search methods the agent uses at runtime.
+    vector_store: Optional[Any] = Field(
         default=None, description="Vector store instance"
     )
 

@@ -10,9 +10,10 @@ produces the exact same structure without having to duplicate
 book-keeping logic in each adapter implementation.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from .core_agents import FinalEvent, SourceEvent, ThoughtEvent
+from .timeline_schema import TimelineEntry
 
 __all__ = ["TimelineBuilder"]
 
@@ -111,9 +112,9 @@ class TimelineBuilder:
     # Accessors
     # ------------------------------------------------------------------
     @property
-    def timeline(self) -> list[dict[str, Any]]:
+    def timeline(self) -> list[TimelineEntry]:
         """Return the collected timeline list (read-only)."""
-        return self._timeline
+        return cast("list[TimelineEntry]", self._timeline)
 
     def reset(self) -> None:
         """Clear the internal buffer so the instance can be reused."""

@@ -146,7 +146,7 @@ class SimpleLLMClient:
             ]
 
             # Build request parameters
-            params = {
+            params: dict[str, Any] = {
                 "model": model,
                 "messages": openai_messages,
                 "temperature": temperature,
