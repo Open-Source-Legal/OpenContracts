@@ -4,6 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 
+from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.types.dicts import OpenContractsExportDataJsonPythonType
 from opencontractserver.utils.logging import redact_sensitive_kwargs
 
@@ -23,6 +24,7 @@ class BasePostProcessor(PipelineComponentBase, ABC):
     description: str = ""
     author: str = ""
     dependencies: list[str] = []
+    supported_file_types: list[FileTypeEnum] = []
     input_schema: Mapping = (
         {}
     )  # If you want user to provide inputs, define a jsonschema here
