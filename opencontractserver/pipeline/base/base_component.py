@@ -63,8 +63,8 @@ class PipelineComponentBase(ABC):
     title: str = ""
     description: str = ""
     author: str = ""
-    dependencies: list[str] = []
-    input_schema: Mapping = (
+    dependencies: ClassVar[list[str]] = []
+    input_schema: ClassVar[Mapping] = (
         {}
     )  # If you want user to provide inputs, define a jsonschema here
 
