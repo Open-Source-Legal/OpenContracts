@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.db import IntegrityError
@@ -319,9 +319,10 @@ class UserFeedbackManager(BaseVisibilityManager):
         return self.get_queryset().visible_to_user(user)
 
     def get_or_none(self, *args: Any, **kwargs: Any) -> Any | None:
+        model_cls: Any = cast(Any, self.model)
         try:
             return self.get(*args, **kwargs)
-        except cast(Any, self.model).DoesNotExist:
+        except model_cls.DoesNotExist:
             return None
 
     def approved(self) -> UserFeedbackQuerySet:
@@ -339,7 +340,7 @@ class UserFeedbackManager(BaseVisibilityManager):
     def with_comments(self) -> UserFeedbackQuerySet:
         return self.get_queryset().with_comments()
 
-    def by_creator(self, creator: AbstractBaseUser) -> "UserFeedbackQuerySet":
+    def by_creator(self, creator: AbstractBaseUser) -> UserFeedbackQuerySet:
         return self.get_queryset().by_creator(creator)
 
     def search(self, query: str) -> UserFeedbackQuerySet:

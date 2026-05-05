@@ -267,9 +267,13 @@ def doc_analyzer_task(
                                 span, label_text = span_label_pair
                                 # The TXT branch is only reachable for text
                                 # documents, which always carry a non-empty
-                                # ``txt_extract_file``; the assert narrows the
-                                # ``Optional[str]`` for mypy.
-                                assert pdf_text_extract is not None
+                                # ``txt_extract_file``; this guard narrows
+                                # ``Optional[str]`` for mypy and fast-fails if
+                                # the invariant is ever violated at runtime.
+                                if pdf_text_extract is None:
+                                    raise ValueError(
+                                        "txt_extract_file is required for text/plain documents"
+                                    )
                                 label_obj, _ = AnnotationLabel.objects.get_or_create(
                                     text=label_text,
                                     label_type=LabelType.SPAN_LABEL,
