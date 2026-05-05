@@ -46,12 +46,12 @@ def get_django_file_field_url(
 
 def install_labels_for_analyzer(
     analyzer_id: int | str,
-    creating_user_id: str,
+    creating_user_id: str | int,
     doc_labels: list[AnnotationLabelPythonType],
     text_labels: list[AnnotationLabelPythonType],
     label_set: OpenContractsLabelSetType,
     install_label_set: bool | None = None,
-) -> dict[str | int, str | int]:
+) -> dict[str, int]:
     """
     When an analysis is run, we need to have labels in the local OpenContracts database to link to
     the annotations. This utility will, given a Gremlin analyzers label metadata, check to see if they exist,
@@ -106,7 +106,7 @@ def install_labels_for_analyzer(
     combined_labels: list[AnnotationLabelPythonType] = [*doc_labels, *text_labels]
 
     # We need to be able to map the local label ids to the ids in the analyzer
-    label_id_map = {}
+    label_id_map: dict[str, int] = {}
 
     for label_data in combined_labels:
 
@@ -144,7 +144,7 @@ def install_labels_for_analyzer(
 
 def install_analyzers(
     gremlin_id: int, analyzer_manifests: list[AnalyzerManifest]
-) -> list[int]:
+) -> list[str]:
     """
     When setting up a new Gremlin Engine, this task will be used to ping the engine
     for a manifest of its installed analyzers and then create database entries for these
@@ -202,6 +202,10 @@ def run_analysis(
     analysis = Analysis.objects.get(id=analysis_id)
     analyzer = analysis.analyzer
     gremlin = analyzer.host_gremlin
+    if gremlin is None:
+        raise ValueError(
+            f"run_analysis() - analyzer {analyzer.id} has no host_gremlin configured"
+        )
 
     # If we're analyzing an entire corpus and we didn't override docs
     if analysis.analyzed_corpus and (
@@ -270,7 +274,7 @@ def run_analysis(
         logger.info(f"Post job to: {gremlin.url}/api/jobs/submit")
         logger.info(
             f"submit_corpus_documents_to_analyzer() - submission response {submission_response} "
-            f"{submission_response.content}"
+            f"{submission_response.content!r}"
         )
 
         with transaction.atomic():
@@ -324,9 +328,7 @@ def import_annotations_from_analysis(
 
         with transaction.atomic():
             analysis.import_log = (
-                analysis.import_log + "\n" + message
-                if (analysis and len(analysis.import_log) > 0)
-                else message
+                analysis.import_log + "\n" + message if analysis.import_log else message
             )
             analysis.save()
 
@@ -364,7 +366,7 @@ def import_annotations_from_analysis(
                 with transaction.atomic():
                     analysis.import_log = (
                         analysis.import_log + "\n" + message
-                        if len(analysis.import_log) > 0
+                        if analysis.import_log
                         else message
                     )
                     analysis.save()

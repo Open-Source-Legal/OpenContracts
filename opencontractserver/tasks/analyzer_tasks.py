@@ -74,7 +74,7 @@ def request_gremlin_manifest(gremlin_id: str | int) -> list[AnalyzerManifest]:
 def install_analyzer_task(
     analyzer_manifests: list[AnalyzerManifest],
     gremlin_id: int,
-) -> list[int]:
+) -> list[str]:
     # logger.info(f"install_analyzer_task() - analyzer_manifests: {analyzer_manifests}")
 
     gremlin = GremlinEngine.objects.get(id=gremlin_id)

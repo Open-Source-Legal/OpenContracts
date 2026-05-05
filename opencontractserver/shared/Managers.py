@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
@@ -24,6 +26,8 @@ from opencontractserver.types.protocols import (  # noqa: F401
 if TYPE_CHECKING:
     from django.contrib.auth import get_user_model
 
+    from opencontractserver.documents.models import Document
+
     User = get_user_model()
 else:
     from django.contrib.auth.models import AbstractUser as User
@@ -33,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def _apply_document_prefetches(
     queryset: QuerySet,
-    user: Optional[User],
+    user: User | None,
     lightweight: bool = False,
     with_doc_label_annotations: bool = False,
 ) -> QuerySet:
@@ -268,12 +272,12 @@ class PermissionManager(BaseVisibilityManager):
     Inherits from BaseVisibilityManager but overrides to use PermissionQuerySet's version.
     """
 
-    def get_queryset(self) -> "PermissionQuerySet":
+    def get_queryset(self) -> PermissionQuerySet:
         return PermissionQuerySet(self.model, using=self._db)
 
     def for_user(
-        self, user: User, perm: str, extra_conditions: Optional[Q] = None
-    ) -> "PermissionQuerySet":
+        self, user: User, perm: str, extra_conditions: Q | None = None
+    ) -> PermissionQuerySet:
         return self.get_queryset().for_user(user, perm, extra_conditions)
 
     def visible_to_user(self, user: Any) -> PermissionQuerySet:
@@ -286,38 +290,38 @@ class PermissionManager(BaseVisibilityManager):
 
 
 class UserFeedbackManager(BaseVisibilityManager):
-    def get_queryset(self) -> "UserFeedbackQuerySet":
+    def get_queryset(self) -> UserFeedbackQuerySet:
         return UserFeedbackQuerySet(self.model, using=self._db)
 
     def visible_to_user(self, user: User) -> QuerySet:
         """Delegate to the queryset's visible_to_user method"""
         return self.get_queryset().visible_to_user(user)
 
-    def get_or_none(self, *args: Any, **kwargs: Any) -> Optional[Any]:
+    def get_or_none(self, *args: Any, **kwargs: Any) -> Any | None:
         try:
             return self.get(*args, **kwargs)
         except self.model.DoesNotExist:
             return None
 
-    def approved(self) -> "UserFeedbackQuerySet":
+    def approved(self) -> UserFeedbackQuerySet:
         return self.get_queryset().approved()
 
-    def rejected(self) -> "UserFeedbackQuerySet":
+    def rejected(self) -> UserFeedbackQuerySet:
         return self.get_queryset().rejected()
 
-    def pending(self) -> "UserFeedbackQuerySet":
+    def pending(self) -> UserFeedbackQuerySet:
         return self.get_queryset().pending()
 
-    def recent(self, days: int = 30) -> "UserFeedbackQuerySet":
+    def recent(self, days: int = 30) -> UserFeedbackQuerySet:
         return self.get_queryset().recent(days)
 
-    def with_comments(self) -> "UserFeedbackQuerySet":
+    def with_comments(self) -> UserFeedbackQuerySet:
         return self.get_queryset().with_comments()
 
-    def by_creator(self, creator: User) -> "UserFeedbackQuerySet":
+    def by_creator(self, creator: User) -> UserFeedbackQuerySet:
         return self.get_queryset().by_creator(creator)
 
-    def search(self, query: str) -> "UserFeedbackQuerySet":
+    def search(self, query: str) -> UserFeedbackQuerySet:
         return self.get_queryset().filter(
             Q(comment__icontains=query) | Q(markdown__icontains=query)
         )
@@ -329,12 +333,12 @@ class DocumentManager(BaseVisibilityManager):
     that supports vector searching via the mixin.
     """
 
-    def get_queryset(self) -> "DocumentQuerySet":
+    def get_queryset(self) -> DocumentQuerySet:
         return DocumentQuerySet(self.model, using=self._db)
 
     def visible_to_user(
         self,
-        user: Optional[Any] = None,
+        user: Any | None = None,
         lightweight: bool = False,
         with_doc_label_annotations: bool = False,
     ) -> QuerySet:
@@ -370,7 +374,7 @@ class DocumentManager(BaseVisibilityManager):
             query_vector, embedder_path, top_k
         )
 
-    def unique_blob_paths(self, doc: Any) -> set[str]:
+    def unique_blob_paths(self, doc: Document) -> set[str]:
         """Return the subset of file-field blob paths on ``doc`` that
         are NOT referenced by any other Document row.
 
@@ -423,7 +427,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):
         return AnnotationQuerySet(self.model, using=self._db)
 
     def for_user(
-        self, user: User, perm: str, extra_conditions: Optional[Q] = None
+        self, user: User, perm: str, extra_conditions: Q | None = None
     ) -> AnnotationQuerySet:
         """
         Filters the queryset based on user permissions.
@@ -454,7 +458,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):
         return NoteQuerySet(self.model, using=self._db)
 
     def for_user(
-        self, user: User, perm: str, extra_conditions: Optional[Q] = None
+        self, user: User, perm: str, extra_conditions: Q | None = None
     ) -> NoteQuerySet:
         """
         Filters the queryset based on user permissions.
@@ -505,11 +509,11 @@ class EmbeddingManager(BaseVisibilityManager):
         dimension: int,
         vector: list[float],
         embedder_path: str,
-        document_id: Optional[int] = None,
-        annotation_id: Optional[int] = None,
-        note_id: Optional[int] = None,
-        conversation_id: Optional[int] = None,
-        message_id: Optional[int] = None,
+        document_id: int | None = None,
+        annotation_id: int | None = None,
+        note_id: int | None = None,
+        conversation_id: int | None = None,
+        message_id: int | None = None,
     ) -> Any:
         """
         Create or update an Embedding, referencing exactly one of:
