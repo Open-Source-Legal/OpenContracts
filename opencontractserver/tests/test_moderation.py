@@ -1535,17 +1535,32 @@ class ManagerVisibleToUserNoneTest(TestCase):
         self.assertIsNotNone(qs)
 
     def test_chat_message_manager_visible_to_user_none(self):
-        """ChatMessageManager.visible_to_user(user=None) returns only public messages."""
-        msg = ChatMessage.objects.create(
+        """ChatMessageManager.visible_to_user(user=None) returns only
+        messages whose parent conversation the anonymous caller can see.
+
+        Symmetric assertions confirm a public-conversation message IS
+        visible AND a private-conversation message is NOT visible — the
+        latter mirrors what test_conversation_manager_visible_to_user_none
+        pins for the conversation manager itself.
+        """
+        public_msg = ChatMessage.objects.create(
             conversation=self.public_conv,
             msg_type="HUMAN",
             content="Hello world",
             creator=self.owner,
         )
+        private_msg = ChatMessage.objects.create(
+            conversation=self.private_conv,
+            msg_type="HUMAN",
+            content="Secret",
+            creator=self.owner,
+        )
         qs = ChatMessage.objects.visible_to_user(user=None)
         pks = list(qs.values_list("pk", flat=True))
         # Public conversation's message is visible to anonymous
-        self.assertIn(msg.pk, pks)
+        self.assertIn(public_msg.pk, pks)
+        # Private conversation's message is NOT visible to anonymous
+        self.assertNotIn(private_msg.pk, pks)
 
     def test_chat_message_manager_visible_to_user_accepts_kwargs(self):
         """ChatMessageManager.visible_to_user accepts lightweight= and with_doc_label_annotations=."""
