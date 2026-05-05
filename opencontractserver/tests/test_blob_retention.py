@@ -196,6 +196,13 @@ class SafeDeleteFieldBlobTestCase(TransactionTestCase):
         source = self._make_doc_with_blobs()
         copy, _status, _path = self.corpus.add_document(document=source, user=self.user)
 
+        # Each iteration clears one field on ``copy`` (via
+        # ``safe_delete_field_blob`` below), so the in-memory
+        # ``source``/``copy`` instances diverge from the DB as the loop
+        # progresses. The ``refresh_from_db()`` calls at the top of the
+        # iteration restore both to the canonical row state, ensuring
+        # subsequent subTests see only the *current* field's sharing
+        # condition (the source row's blob is never touched).
         for field_name in DOCUMENT_FILE_FIELDS:
             with self.subTest(field=field_name):
                 source.refresh_from_db()
