@@ -1523,22 +1523,27 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                     the first ASYNC_CONTENT/ASYNC_THOUGHT), there's no in-flight
                     assistant message to host the per-message ticker — so we
                     render a standalone one here. Replaces the old standalone
-                    "AI Assistant is thinking..." pill. */}
+                    "AI Assistant is thinking..." pill.
+                    AnimatePresence is required for the exit animation to fire. */}
                 {(() => {
                   const last = combinedMessages[combinedMessages.length - 1];
                   const showWarmup = !!last && !last.isAssistant && wsReady;
-                  if (!showWarmup) return null;
                   return (
-                    <motion.div
-                      data-testid="streaming-warmup-ticker-wrapper"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.2 }}
-                      style={{ paddingLeft: "1rem", paddingTop: "0.5rem" }}
-                    >
-                      <StreamingThoughtTicker timeline={[]} />
-                    </motion.div>
+                    <AnimatePresence>
+                      {showWarmup && (
+                        <motion.div
+                          key="warmup-ticker"
+                          data-testid="streaming-warmup-ticker-wrapper"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -8 }}
+                          transition={{ duration: 0.2 }}
+                          style={{ paddingLeft: "1rem", paddingTop: "0.5rem" }}
+                        >
+                          <StreamingThoughtTicker timeline={[]} />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   );
                 })()}
               </motion.div>

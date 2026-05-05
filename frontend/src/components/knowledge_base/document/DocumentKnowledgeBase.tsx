@@ -209,6 +209,38 @@ interface DocumentKnowledgeBaseProps {
   showSuccessMessage?: string;
 }
 
+/**
+ * Convert a GraphQL relationship payload into a `RelationGroup`. Both the
+ * structural-lazy-load path and the targeted-deep-link path map the same
+ * shape, so the construction lives in one place to keep the two callers in
+ * lockstep if `RelationGroup`'s constructor signature changes.
+ */
+const relationToGroup = (
+  rel: {
+    id: string;
+    structural?: boolean;
+    relationshipLabel: any;
+    sourceAnnotations: {
+      edges: Array<{ node?: { id: string } | null } | null>;
+    };
+    targetAnnotations: {
+      edges: Array<{ node?: { id: string } | null } | null>;
+    };
+  },
+  forceStructural?: boolean
+): RelationGroup =>
+  new RelationGroup(
+    rel.sourceAnnotations.edges
+      .map((edge) => edge?.node?.id)
+      .filter((id): id is string => id !== undefined),
+    rel.targetAnnotations.edges
+      .map((edge) => edge?.node?.id)
+      .filter((id): id is string => id !== undefined),
+    rel.relationshipLabel,
+    rel.id,
+    forceStructural ?? rel.structural ?? false
+  );
+
 const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   documentId,
   corpusId,
@@ -612,18 +644,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
       }
       if (data?.document?.allStructuralRelationships) {
         const structuralRels = data.document.allStructuralRelationships.map(
-          (rel) =>
-            new RelationGroup(
-              rel.sourceAnnotations.edges
-                .map((edge) => edge?.node?.id)
-                .filter((id): id is string => id !== undefined),
-              rel.targetAnnotations.edges
-                .map((edge) => edge?.node?.id)
-                .filter((id): id is string => id !== undefined),
-              rel.relationshipLabel,
-              rel.id,
-              true // structural
-            )
+          (rel) => relationToGroup(rel, true)
         );
         setStructuralRelationships(structuralRels);
       }
@@ -652,18 +673,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
       // by id so we don't drop already-loaded entries.
       if (data?.document?.allStructuralRelationships) {
         const structuralRels = data.document.allStructuralRelationships.map(
-          (rel) =>
-            new RelationGroup(
-              rel.sourceAnnotations.edges
-                .map((edge) => edge?.node?.id)
-                .filter((id): id is string => id !== undefined),
-              rel.targetAnnotations.edges
-                .map((edge) => edge?.node?.id)
-                .filter((id): id is string => id !== undefined),
-              rel.relationshipLabel,
-              rel.id,
-              true // structural
-            )
+          (rel) => relationToGroup(rel, true)
         );
         setStructuralRelationships((prev) => {
           const existingIds = new Set(prev.map((r) => r.id));
