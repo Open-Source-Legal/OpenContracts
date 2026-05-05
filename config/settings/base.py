@@ -845,6 +845,7 @@ REST_FRAMEWORK = {
         "anon": "100/hour",  # Anonymous users (shouldn't hit authenticated endpoints)
         "user": "1000/hour",  # Authenticated users
         "annotation_images": "200/hour",  # Image retrieval endpoint (higher bandwidth)
+        "document_imports": "120/hour",  # Multipart document import endpoints
     },
 }
 

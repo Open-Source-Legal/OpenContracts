@@ -32,8 +32,10 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
+from config.rest_jwt_auth import GraphQLJWTAuthentication
 from opencontractserver.document_imports.serializers import (
     DocumentImportSerializer,
     DocumentsZipImportSerializer,
@@ -53,6 +55,20 @@ def _normalise_optional(value: str | None) -> str | None:
     if isinstance(value, str) and value.strip() == "":
         return None
     return value
+
+
+class DocumentImportThrottle(UserRateThrottle):
+    """
+    Per-endpoint throttle for document import requests.
+
+    Default global ``user`` rate (1000/hour) is far too permissive for an
+    upload endpoint where a single request can be hundreds of MB. The
+    ``document_imports`` scope rate is read from
+    ``REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']`` and is shared by both
+    the single-document and bulk-zip views.
+    """
+
+    scope = "document_imports"
 
 
 def _enforce_size_cap(uploaded: UploadedFile) -> Response | None:
@@ -81,7 +97,14 @@ def _enforce_size_cap(uploaded: UploadedFile) -> Response | None:
 class DocumentImportView(APIView):
     """Single-document multipart import endpoint."""
 
+    # Pinned explicitly: bearer JWT only. Inheriting the global tuple
+    # would also expose Session and Token auth on these endpoints, which
+    # widens the threat model (CSRF surface, credential types) without
+    # any caller actually needing it. The frontend ``importHttp.ts``
+    # always sends ``Authorization: Bearer <jwt>``.
+    authentication_classes = [GraphQLJWTAuthentication]
     permission_classes = [IsAuthenticated]
+    throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request: Request) -> Response:
@@ -140,7 +163,14 @@ class DocumentImportView(APIView):
 class DocumentsZipImportView(APIView):
     """Bulk zip-archive multipart import endpoint."""
 
+    # Pinned explicitly: bearer JWT only. Inheriting the global tuple
+    # would also expose Session and Token auth on these endpoints, which
+    # widens the threat model (CSRF surface, credential types) without
+    # any caller actually needing it. The frontend ``importHttp.ts``
+    # always sends ``Authorization: Bearer <jwt>``.
+    authentication_classes = [GraphQLJWTAuthentication]
     permission_classes = [IsAuthenticated]
+    throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request: Request) -> Response:

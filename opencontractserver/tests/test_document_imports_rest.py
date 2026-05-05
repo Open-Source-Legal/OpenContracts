@@ -20,6 +20,7 @@ import io
 import json
 import zipfile
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -515,3 +516,267 @@ class ImportServicesTests(TestCase):
         )
         self.assertIsNone(result.error)
         self.assertTrue(result.job_id)
+
+
+# ---------------------------------------------------------------------------
+# Security-focused tests
+#
+# The fixtures above lean on ``APIClient.force_authenticate``, which bypasses
+# every authentication class on the view. That means the tests above never
+# exercise the actual JWT validation path on these endpoints. The classes
+# below close that gap: they mint a real JWT and post via
+# ``Authorization: Bearer …`` so the pinned
+# ``GraphQLJWTAuthentication`` is genuinely on the call path.
+# ---------------------------------------------------------------------------
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+class DocumentImportRealJWTAuthTests(TestCase):
+    """End-to-end tests of the real bearer-JWT auth path on import views."""
+
+    client: APIClient
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="jwt_alice", password="pw", is_usage_capped=False
+        )
+        self.client = APIClient()
+
+    def _set_bearer(self, token: str) -> None:
+        """
+        Inject ``Authorization: Bearer <token>`` on every subsequent request
+        without using ``client.force_authenticate`` (which bypasses the auth
+        classes entirely and would defeat the purpose of these tests).
+        """
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _payload(self) -> dict:
+        return {
+            "file": SimpleUploadedFile(
+                "doc.pdf", PDF_BYTES, content_type="application/pdf"
+            ),
+            "title": "Real-JWT Doc",
+            "make_public": "false",
+        }
+
+    def test_real_jwt_authenticates_single_doc_upload(self):
+        """A valid JWT minted via graphql_jwt must authorise the upload."""
+        from graphql_jwt.shortcuts import get_token
+
+        self._set_bearer(get_token(self.user))
+        response = self.client.post(
+            SINGLE_URL,
+            self._payload(),
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        document = Document.objects.get(pk=body["document_id"])
+        self.assertEqual(document.creator, self.user)
+
+    def test_missing_authorization_header_is_rejected(self):
+        """No bearer header → IsAuthenticated → 401/403."""
+        response = self.client.post(
+            SINGLE_URL,
+            self._payload(),
+            format="multipart",
+        )
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_tampered_jwt_is_rejected(self):
+        """A token with a flipped signature byte must NOT authenticate."""
+        from graphql_jwt.shortcuts import get_token
+
+        token = get_token(self.user)
+        # Flip the final character (signature segment) to break the HS256 sig.
+        # Toggling between two valid base64url chars guarantees the resulting
+        # string is well-formed but the signature bytes change.
+        last = token[-1]
+        replacement = "A" if last != "A" else "B"
+        self._set_bearer(token[:-1] + replacement)
+        response = self.client.post(
+            SINGLE_URL,
+            self._payload(),
+            format="multipart",
+        )
+        self.assertIn(response.status_code, (401, 403))
+        # Document must NOT have been created.
+        self.assertFalse(
+            Document.objects.filter(creator=self.user, title="Real-JWT Doc").exists()
+        )
+
+    def test_expired_jwt_is_rejected(self):
+        """An expired bearer JWT must be rejected with 401/403."""
+        from datetime import timedelta
+
+        from graphql_jwt.shortcuts import get_token
+
+        # JWT_EXPIRATION_DELTA is read at import time; emit a token whose
+        # exp is firmly in the past by overriding the setting for this test.
+        with override_settings(
+            GRAPHQL_JWT=(
+                {
+                    **settings.GRAPHQL_JWT,
+                    "JWT_EXPIRATION_DELTA": timedelta(seconds=-1),
+                }
+                if hasattr(settings, "GRAPHQL_JWT")
+                else {}
+            )
+        ):
+            token = get_token(self.user)
+        self._set_bearer(token)
+        response = self.client.post(
+            SINGLE_URL,
+            self._payload(),
+            format="multipart",
+        )
+        self.assertIn(response.status_code, (401, 403))
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+class DocumentsZipNonZipRejectionTests(TestCase):
+    """The ZIP endpoint must reject anything that isn't a real ZIP archive."""
+
+    client: APIClient
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="zip_alice", password="pw", is_usage_capped=False
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_pdf_posted_to_zip_endpoint_is_rejected(self):
+        """A PDF must NOT be accepted by /api/imports/documents-zip/."""
+        response = self.client.post(
+            ZIP_URL,
+            {
+                "file": SimpleUploadedFile(
+                    "not-a-zip.pdf",
+                    PDF_BYTES,
+                    content_type="application/pdf",
+                ),
+                "make_public": "false",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertIn("ZIP", body["error"])
+
+    def test_random_garbage_posted_to_zip_endpoint_is_rejected(self):
+        """Bytes lacking the ZIP magic prefix must be rejected."""
+        response = self.client.post(
+            ZIP_URL,
+            {
+                "file": SimpleUploadedFile(
+                    "garbage.zip",
+                    b"\x00\x01\x02\x03not actually a zip archive",
+                    content_type="application/zip",
+                ),
+                "make_public": "false",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("ZIP", response.json()["error"])
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+class DocumentImportFolderIDORTests(TestCase):
+    """
+    Folder-membership IDOR contract: ``add_to_folder_id`` referencing a folder
+    in a corpus the caller does NOT own must collapse to the same generic
+    "Folder not found in the specified corpus" message — and crucially
+    must NOT cause the document to be created in the foreign corpus.
+    """
+
+    client: APIClient
+
+    def setUp(self):
+        self.alice = User.objects.create_user(
+            username="alice_idor", password="pw", is_usage_capped=False
+        )
+        self.bob = User.objects.create_user(
+            username="bob_idor", password="pw", is_usage_capped=False
+        )
+        self.alice_corpus = Corpus.objects.create(
+            title="Alice", creator=self.alice, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(
+            self.alice, self.alice_corpus, [PermissionTypes.CRUD]
+        )
+        self.bob_corpus = Corpus.objects.create(
+            title="Bob", creator=self.bob, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(
+            self.bob, self.bob_corpus, [PermissionTypes.CRUD]
+        )
+        self.bob_folder = CorpusFolder.objects.create(
+            corpus=self.bob_corpus, name="bob-secrets", creator=self.bob
+        )
+        self.client = APIClient()
+
+    def test_cross_user_folder_id_with_own_corpus_id_is_rejected(self):
+        """
+        Attacker case: alice owns ``alice_corpus`` and submits
+        ``add_to_corpus_id=alice_corpus.id`` (which she can edit) but
+        smuggles ``add_to_folder_id=bob_folder.id`` (which lives in
+        bob's corpus). The view must reject with the unified "Folder
+        not found in the specified corpus" message and NOT silently
+        succeed by ignoring the cross-corpus folder.
+        """
+        self.client.force_authenticate(user=self.alice)
+        response = self.client.post(
+            SINGLE_URL,
+            {
+                "file": SimpleUploadedFile(
+                    "doc.pdf", PDF_BYTES, content_type="application/pdf"
+                ),
+                "title": "IDOR attempt",
+                "add_to_corpus_id": str(self.alice_corpus.id),
+                "add_to_folder_id": str(self.bob_folder.id),
+                "make_public": "false",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Folder", response.json()["error"])
+        # No document should have been created.
+        self.assertFalse(
+            Document.objects.filter(creator=self.alice, title="IDOR attempt").exists()
+        )
+
+    def test_cross_user_folder_id_with_foreign_corpus_id_is_rejected(self):
+        """
+        Stricter attacker case: alice submits ``add_to_corpus_id=bob_corpus.id``
+        AND the matching ``add_to_folder_id``. The corpus visibility/EDIT
+        check must trip first and return the unified
+        ``CORPUS_NOT_FOUND_MSG`` — not the folder-specific message and
+        not a 201.
+        """
+        from opencontractserver.document_imports.services import (
+            CORPUS_NOT_FOUND_MSG,
+        )
+
+        self.client.force_authenticate(user=self.alice)
+        response = self.client.post(
+            SINGLE_URL,
+            {
+                "file": SimpleUploadedFile(
+                    "doc.pdf", PDF_BYTES, content_type="application/pdf"
+                ),
+                "title": "IDOR attempt 2",
+                "add_to_corpus_id": str(self.bob_corpus.id),
+                "add_to_folder_id": str(self.bob_folder.id),
+                "make_public": "false",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["error"], CORPUS_NOT_FOUND_MSG)
+        self.assertFalse(
+            Document.objects.filter(creator=self.alice, title="IDOR attempt 2").exists()
+        )
