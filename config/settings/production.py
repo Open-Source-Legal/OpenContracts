@@ -186,15 +186,6 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
-        # TEMPORARY DEBUG: capture [DIAGNOSTIC] node/event traces from the
-        # PydanticAI streaming agent so we can locate where CallToolsNode
-        # exits before tool execution. Revert to INFO once the empty-
-        # ASYNC_FINISH cause is identified.
-        "opencontractserver.llms.agents.pydantic_ai_agents": {
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
-        },
     },
 }
 

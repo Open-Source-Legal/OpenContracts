@@ -448,6 +448,30 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
+            // Delayed response — exposes the warm-up ticker window between
+            // ASYNC_START and the first ASYNC_CONTENT so a positive test can
+            // assert the standalone ticker is visible during that gap.
+            if (query === "warmup test") {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              setTimeout(() => {
+                emit({
+                  type: "ASYNC_CONTENT",
+                  content: "Warmup done.",
+                  data: { message_id: id },
+                });
+                emit({
+                  type: "ASYNC_FINISH",
+                  content: "Warmup done.",
+                  data: { message_id: id },
+                });
+              }, 200);
+              return;
+            }
+
             // Unknown message type (exercises default branch → warn)
             if (query.includes("mystery type")) {
               emit({
@@ -671,6 +695,50 @@ test.describe("CorpusChat", () => {
     await expect(
       page.getByText("AI Assistant is thinking...", { exact: true })
     ).toHaveCount(0);
+  });
+
+  test("warmup ticker appears after send and disappears when response arrives", async ({
+    mount,
+    page,
+  }) => {
+    // Positive companion to the legacy-pill regression guard above: the
+    // standalone warm-up ticker MUST be visible during the gap between
+    // user-send and the first ASYNC_CONTENT, then disappear once the
+    // assistant message takes over.
+    await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    // The "warmup test" query branches in the WebSocket stub to delay the
+    // ASYNC_CONTENT for 200ms, opening a visible warm-up window.
+    await input.fill("warmup test");
+    await page.keyboard.press("Enter");
+
+    // Ticker visible during the delay.
+    await expect(
+      page.locator('[data-testid="streaming-warmup-ticker-wrapper"]')
+    ).toBeVisible({ timeout: 5000 });
+
+    // The ticker exposes assistant-working state to assistive tech.
+    const ticker = page.locator('[data-testid="streaming-thought-ticker"]');
+    await expect(ticker).toBeVisible();
+    await expect(ticker).toHaveAttribute("role", "status");
+    await expect(ticker).toHaveAttribute("aria-live", "polite");
+
+    // Once the response arrives, the standalone warm-up ticker is gone.
+    await expect(page.getByText("Warmup done.", { exact: true })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.locator('[data-testid="streaming-warmup-ticker-wrapper"]')
+    ).not.toBeVisible();
   });
 
   test("ASYNC_ERROR shows error state with reconnect button", async ({

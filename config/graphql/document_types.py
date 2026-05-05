@@ -358,6 +358,10 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         try:
             user = getattr(info.context, "user", None)
+            # Bulk structural-toggle fetches reuse the per-request cache;
+            # targeted deep-link fetches (relationship_ids supplied) bypass
+            # it because the cached queryset is shaped for the bulk path
+            # and would mask the id-filter we apply below.
             qs = RelationshipQueryOptimizer.get_document_relationships(
                 document_id=self.id,
                 user=user,

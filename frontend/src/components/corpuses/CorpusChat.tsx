@@ -333,6 +333,16 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   // Combine serverMessages + local chat for final display
   const combinedMessages = [...serverMessages, ...chat];
 
+  // Warm-up ticker visibility: shown only during the gap between the user
+  // sending and the first assistant message arriving. Once an in-flight
+  // assistant message exists, its inline StreamingThoughtTicker takes over.
+  const lastCombinedMessage = combinedMessages[combinedMessages.length - 1];
+  const inFlightAssistantPresent =
+    !!lastCombinedMessage &&
+    !!lastCombinedMessage.isAssistant &&
+    lastCombinedMessage.isComplete !== true;
+  const showWarmupTicker = isProcessing && !inFlightAssistantPresent;
+
   // Scroll to bottom helper
   const scrollToBottom = useCallback(() => {
     if (messagesContainerRef.current) {
@@ -1113,11 +1123,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                         // onMessageSelect is intentionally skipped — navigation
                         // replaces the entire view, so local selection state
                         // and message callbacks are irrelevant.
-                        console.debug("[CorpusChat] Source chip clicked", {
-                          documentId: source.document_id,
-                          annotationId: source.annotation_id,
-                          hasOnSourceNavigate: !!onSourceNavigate,
-                        });
                         if (source.document_id && onSourceNavigate) {
                           onSourceNavigate(source);
                           return;
@@ -1199,25 +1204,18 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                     The pre-message warm-up beat (after the user sends, before
                     the assistant's message exists in `chat`) is bridged by a
                     standalone ticker so the user always has a visible cue. */}
-                {isProcessing &&
-                  (() => {
-                    const last = combinedMessages[combinedMessages.length - 1];
-                    const inFlightAssistantPresent =
-                      !!last && !!last.isAssistant && last.isComplete !== true;
-                    if (inFlightAssistantPresent) return null;
-                    return (
-                      <MessageWrapper
-                        data-testid="streaming-warmup-ticker-wrapper"
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.2 }}
-                        style={{ paddingLeft: "1rem" }}
-                      >
-                        <StreamingThoughtTicker timeline={[]} />
-                      </MessageWrapper>
-                    );
-                  })()}
+                {showWarmupTicker && (
+                  <MessageWrapper
+                    data-testid="streaming-warmup-ticker-wrapper"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.2 }}
+                    style={{ paddingLeft: "1rem" }}
+                  >
+                    <StreamingThoughtTicker timeline={[]} />
+                  </MessageWrapper>
+                )}
               </MessagesArea>
 
               {/* Compaction banner (visible while compaction is underway) */}

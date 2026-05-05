@@ -983,6 +983,14 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       setWsError("Authentication failed. Please log in again."),
   });
 
+  // Warm-up ticker visibility: shown only during the gap between the user
+  // sending and the first assistant message arriving. Once an in-flight
+  // assistant message exists, its inline StreamingThoughtTicker takes over.
+  const showWarmupTicker = useMemo(() => {
+    const last = combinedMessages[combinedMessages.length - 1];
+    return !!last && !last.isAssistant && wsReady;
+  }, [combinedMessages, wsReady]);
+
   /**
    * Load existing conversation by ID, clearing local state, then showing chat UI.
    * @param conversationId The ID of the chosen conversation
@@ -1525,27 +1533,21 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                     render a standalone one here. Replaces the old standalone
                     "AI Assistant is thinking..." pill.
                     AnimatePresence is required for the exit animation to fire. */}
-                {(() => {
-                  const last = combinedMessages[combinedMessages.length - 1];
-                  const showWarmup = !!last && !last.isAssistant && wsReady;
-                  return (
-                    <AnimatePresence>
-                      {showWarmup && (
-                        <motion.div
-                          key="warmup-ticker"
-                          data-testid="streaming-warmup-ticker-wrapper"
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -8 }}
-                          transition={{ duration: 0.2 }}
-                          style={{ paddingLeft: "1rem", paddingTop: "0.5rem" }}
-                        >
-                          <StreamingThoughtTicker timeline={[]} />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  );
-                })()}
+                <AnimatePresence>
+                  {showWarmupTicker && (
+                    <motion.div
+                      key="warmup-ticker"
+                      data-testid="streaming-warmup-ticker-wrapper"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2 }}
+                      style={{ paddingLeft: "1rem", paddingTop: "0.5rem" }}
+                    >
+                      <StreamingThoughtTicker timeline={[]} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
 
               {/* Compaction banner — visible during streaming when compaction fires */}

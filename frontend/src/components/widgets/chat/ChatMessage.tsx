@@ -1566,7 +1566,12 @@ export const StreamingThoughtTicker: React.FC<StreamingThoughtTickerProps> = ({
   const title = latest ? getTimelineTitle(latest) : "Thinking";
 
   return (
-    <StreamingThoughtTickerWrapper data-testid="streaming-thought-ticker">
+    <StreamingThoughtTickerWrapper
+      data-testid="streaming-thought-ticker"
+      role="status"
+      aria-live="polite"
+      aria-label="Assistant is processing your request"
+    >
       <StreamingThoughtIcon $type={displayType}>
         {getTimelineIcon(displayType)}
       </StreamingThoughtIcon>

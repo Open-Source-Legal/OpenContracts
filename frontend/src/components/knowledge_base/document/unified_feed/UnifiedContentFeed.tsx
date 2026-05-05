@@ -185,7 +185,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   const allAnnotations = useAllAnnotations();
   // Includes structural relations once they're lazily loaded so badge counts
   // and downstream UI reflect the full set, not just user-editable ones.
-  const allRelationships = useAllRelations();
+  const allRelations = useAllRelations();
 
   // Get display settings for structural filtering only (ignore showSelectedOnly)
   const { showStructural } = useAnnotationDisplay();
@@ -304,7 +304,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
 
     // Add relationships if enabled - apply structural filter only
     if (filters.contentTypes.has("relationship")) {
-      allRelationships.forEach((rel) => {
+      allRelations.forEach((rel) => {
         // Filter structural relationships based on showStructural setting
         if (rel.structural && !showStructural) {
           return;
@@ -390,7 +390,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   }, [
     notes,
     allAnnotations,
-    allRelationships,
+    allRelations,
     showStructural,
     spanLabelsToView,
     textSearchMatches,
@@ -482,7 +482,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
           const textLength = ann.rawText?.length || 0;
           const extraLines = Math.floor(textLength / 50);
           // Check if annotation participates in any relationships (adds badge rows)
-          const hasBadges = allRelationships.some(
+          const hasBadges = allRelations.some(
             (rel) =>
               rel.sourceIds.includes(ann.id) || rel.targetIds.includes(ann.id)
           );
@@ -499,7 +499,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
           return ESTIMATED_HEIGHTS.annotation;
       }
     },
-    [virtualItems, allRelationships]
+    [virtualItems, allRelations]
   );
 
   /* Custom DynamicRowHeight with per-type estimates and ResizeObserver.
@@ -803,7 +803,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
           open={showRelationshipModal}
           onClose={() => setShowRelationshipModal(false)}
           selectedAnnotationIds={selectedAnnotationIds}
-          existingRelationships={allRelationships}
+          existingRelationships={allRelations}
           corpusId={selectedCorpus.id}
           documentId={documentId || ""}
           annotations={allAnnotations}

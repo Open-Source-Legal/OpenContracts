@@ -970,8 +970,6 @@ class CoreAnnotationVectorStore:
         # — a sync Django ORM call. From an async tool path this raises
         # `SynchronousOnlyOperation`, which pydantic-ai swallows and turns
         # into an empty `ASYNC_FINISH`. Run the lookup in a thread.
-        from asgiref.sync import sync_to_async
-
         reranker = await sync_to_async(self._get_reranker, thread_sensitive=True)()
         fusion_top_k = self._effective_first_stage_top_k(
             query.similarity_top_k, reranker
@@ -1215,8 +1213,6 @@ class CoreAnnotationVectorStore:
         # See `async_hybrid_search` above — `_get_reranker` opens a sync DB
         # transaction via `PipelineSettings.get_instance()` and must be
         # awaited through `sync_to_async` from an async context.
-        from asgiref.sync import sync_to_async
-
         reranker = await sync_to_async(self._get_reranker, thread_sensitive=True)()
         first_stage_top_k = self._effective_first_stage_top_k(
             query.similarity_top_k, reranker
