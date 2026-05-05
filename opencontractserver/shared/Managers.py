@@ -32,16 +32,57 @@ logger = logging.getLogger(__name__)
 
 
 def _apply_document_prefetches(
-    queryset: QuerySet, user: Optional[User], lightweight: bool = False
+    queryset: QuerySet,
+    user: Optional[User],
+    lightweight: bool = False,
+    with_doc_label_annotations: bool = False,
 ) -> QuerySet:
     """
     Apply Document-specific select_related and prefetch_related optimizations.
 
     Shared by BaseVisibilityManager (for generic model dispatch) and
     DocumentManager (for custom permission filtering) to avoid duplication.
+
+    ``lightweight`` skips ONLY the heavy per-document fan-outs (full
+    doc_annotations, rows, source/target relationships, notes). Cheap JOINs
+    (creator, parent, user_lock) and user-scoped guardian permission prefetches
+    are applied unconditionally because the corresponding GraphQL fields
+    (``creator``, ``myPermissions``, version metadata) are commonly requested
+    even on list views — leaving them unprefetched produces an N+1 storm where
+    every list row issues 2-3 extra round trips. See
+    ``resolve_my_permissions`` in
+    ``config/graphql/permissioning/permission_annotator/mixins.py`` for the
+    consumer of ``_prefetched_user_perms``.
+
+    ``with_doc_label_annotations`` opts in to a focused prefetch of the
+    document's ``DOC_TYPE_LABEL`` annotations into
+    ``_prefetched_doc_annotations``. ``resolve_doc_annotations_optimized``
+    (config/graphql/custom_resolvers.py) prefers that attribute when present,
+    so this short-circuits the per-document
+    ``AnnotationQueryOptimizer.get_document_annotations`` call that the
+    list-view badge query (``GET_DOCUMENTS`` with ``annotateDocLabels: true``)
+    otherwise triggers per row. The flag is only consulted in lightweight
+    mode — the full prefetch path already loads every doc_annotation, so a
+    focused prefetch on top would be redundant work.
     """
+    queryset = queryset.select_related("creator", "user_lock", "parent")
+
+    if user and not user.is_anonymous and not user.is_superuser:
+        from opencontractserver.documents.models import DocumentUserObjectPermission
+
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "documentuserobjectpermission_set",
+                queryset=DocumentUserObjectPermission.objects.filter(
+                    user_id=user.id
+                ).select_related("permission"),
+                to_attr="_prefetched_user_perms",
+            ),
+            "documentgroupobjectpermission_set__permission",
+            "documentgroupobjectpermission_set__group",
+        )
+
     if not lightweight:
-        queryset = queryset.select_related("creator", "user_lock")
         from opencontractserver.annotations.models import Annotation
 
         queryset = queryset.prefetch_related(
@@ -57,23 +98,18 @@ def _apply_document_prefetches(
             "target_relationships",
             "notes",
         )
+    elif with_doc_label_annotations:
+        from opencontractserver.annotations.models import DOC_TYPE_LABEL, Annotation
 
-        if user and not user.is_anonymous and not user.is_superuser:
-            from opencontractserver.documents.models import (
-                DocumentUserObjectPermission,
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "doc_annotations",
+                queryset=Annotation.objects.filter(
+                    annotation_label__label_type=DOC_TYPE_LABEL
+                ).select_related("annotation_label", "corpus"),
+                to_attr="_prefetched_doc_annotations",
             )
-
-            queryset = queryset.prefetch_related(
-                Prefetch(
-                    "documentuserobjectpermission_set",
-                    queryset=DocumentUserObjectPermission.objects.filter(
-                        user_id=user.id
-                    ).select_related("permission"),
-                    to_attr="_prefetched_user_perms",
-                ),
-                "documentgroupobjectpermission_set__permission",
-                "documentgroupobjectpermission_set__group",
-            )
+        )
 
     return queryset
 
@@ -91,7 +127,12 @@ class BaseVisibilityManager(Manager):
     more specific permission requirements.
     """
 
-    def visible_to_user(self, user=None, lightweight=False) -> QuerySet:
+    def visible_to_user(
+        self,
+        user=None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ) -> QuerySet:
         """
         Returns queryset filtered to only objects visible to the user.
 
@@ -193,7 +234,12 @@ class BaseVisibilityManager(Manager):
                 # Document counts are now computed via DocumentPath subqueries
             elif model_name.upper() == "DOCUMENT":
                 logger.debug("Applying Document specific optimizations")
-                queryset = _apply_document_prefetches(queryset, user, lightweight)
+                queryset = _apply_document_prefetches(
+                    queryset,
+                    user,
+                    lightweight,
+                    with_doc_label_annotations=with_doc_label_annotations,
+                )
             # Add elif blocks here for other models needing specific optimizations
 
             # Apply distinct *after* optimizations only when necessary.
@@ -287,11 +333,17 @@ class DocumentManager(BaseVisibilityManager):
         return DocumentQuerySet(self.model, using=self._db)
 
     def visible_to_user(
-        self, user: Optional[Any] = None, lightweight: bool = False
+        self,
+        user: Optional[Any] = None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
     ) -> QuerySet:
         """
         Delegate permission filtering to DocumentQuerySet (which includes
         public-corpus logic) then apply the shared prefetch optimisations.
+
+        See ``_apply_document_prefetches`` for the meaning of
+        ``with_doc_label_annotations``.
         """
         from django.contrib.auth.models import AnonymousUser
 
@@ -299,7 +351,12 @@ class DocumentManager(BaseVisibilityManager):
             user = AnonymousUser()
 
         queryset = self.get_queryset().visible_to_user(user)
-        return _apply_document_prefetches(queryset, user, lightweight)
+        return _apply_document_prefetches(
+            queryset,
+            user,
+            lightweight,
+            with_doc_label_annotations=with_doc_label_annotations,
+        )
 
     def search_by_embedding(
         self, query_vector: list[float], embedder_path: str, top_k: int = 10

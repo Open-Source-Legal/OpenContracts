@@ -1259,24 +1259,59 @@ class PipelineSettings(django.db.models.Model):
 
     def get_parser_kwargs(self, parser_class_path: str) -> dict:
         """
-        Get configuration kwargs for a specific parser.
+        Get configuration kwargs for a specific parser, with encrypted
+        secrets merged on top of the plaintext kwargs.
 
-        Database is the single source of truth at runtime.
-        Initial values are populated from Django settings via get_instance().
+        Resolution order (later overrides earlier):
+            1. ``parser_kwargs[parser_class_path]`` — non-sensitive kwargs.
+            2. ``encrypted_secrets[parser_class_path]`` — decrypted secrets.
+
+        Secrets always win on key conflict. Operators may leave a
+        placeholder such as ``{"api_key": ""}`` in ``parser_kwargs`` as a
+        schema marker without clobbering the real secret.
+
+        A fresh dict is built on every call so decrypted secrets are not
+        retained on the model instance between calls (memory hygiene for
+        long-lived references).
+
+        Database is the single source of truth at runtime. Initial values
+        are populated from Django settings via get_instance().
 
         Args:
             parser_class_path: Full class path of the parser
 
         Returns:
-            Dict of kwargs for the parser.
+            Dict of kwargs (including decrypted secrets) for the parser.
         """
+        merged: dict = {}
         if self.parser_kwargs and parser_class_path in self.parser_kwargs:
-            return self.parser_kwargs[parser_class_path]
-        return {}
+            stored = self.parser_kwargs[parser_class_path]
+            if isinstance(stored, dict):
+                merged.update(stored)
+
+        secrets = (self.get_secrets() or {}).get(parser_class_path) or {}
+        if secrets:
+            merged.update(secrets)
+        return merged
 
     def get_component_settings(self, component_class_path: str) -> dict:
         """
-        Get settings overrides for a specific component from database.
+        Get settings overrides for a specific component, with encrypted
+        secrets merged on top of the plaintext settings.
+
+        Resolution order (later overrides earlier), mirrors
+        ``get_parser_kwargs`` so callers cannot accidentally read plaintext
+        settings without secrets:
+
+            1. ``component_settings[component_class_path]`` — non-sensitive.
+            2. ``encrypted_secrets[component_class_path]`` — decrypted.
+
+        Secrets always win on key conflict. Operators may leave a placeholder
+        such as ``{"api_key": ""}`` in ``component_settings`` as a schema
+        marker without clobbering the real secret.
+
+        A fresh dict is built on every call so decrypted secrets are not
+        retained on the model instance between calls.
 
         This method only returns database settings, not Django settings fallback.
         The Django settings fallback (with proper simple name vs full path
@@ -1286,14 +1321,19 @@ class PipelineSettings(django.db.models.Model):
             component_class_path: Full class path of the component
 
         Returns:
-            Dict of settings for the component from database, or empty dict.
+            Dict of settings (including decrypted secrets) for the component,
+            or empty dict if neither plaintext nor secret entries exist.
         """
-        # Only return database settings - no Django fallback here
-        # The fallback chain is handled by PipelineComponentBase
+        merged: dict = {}
         if self.component_settings and component_class_path in self.component_settings:
-            return self.component_settings[component_class_path]
+            stored = self.component_settings[component_class_path]
+            if isinstance(stored, dict):
+                merged.update(stored)
 
-        return {}
+        secrets = (self.get_secrets() or {}).get(component_class_path) or {}
+        if secrets:
+            merged.update(secrets)
+        return merged
 
     def get_default_embedder(self) -> str:
         """

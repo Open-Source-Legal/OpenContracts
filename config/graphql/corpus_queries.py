@@ -15,6 +15,7 @@ from config.graphql.base import OpenContractsNode
 from config.graphql.filters import CorpusCategoryFilter, CorpusFilter
 from config.graphql.graphene_types import (
     CorpusCategoryType,
+    CorpusFilterCountsType,
     CorpusFolderType,
     CorpusStatsType,
     CorpusType,
@@ -111,6 +112,55 @@ class CorpusQueryMixin:
         )
 
     corpus = OpenContractsNode.Field(CorpusType)  # relay.Node.Field(CorpusType)
+
+    corpus_filter_counts = graphene.Field(
+        CorpusFilterCountsType,
+        text_search=graphene.String(
+            required=False,
+            description=(
+                "Optional text search to apply alongside the tab counts so badges "
+                "match the result set the user actually sees when searching."
+            ),
+        ),
+        description=(
+            "Tab-filter totals for the corpus list view (all/mine/shared/public). "
+            "Each total respects the same visible_to_user permission filtering "
+            "used by the corpuses connection, so badges stay accurate without "
+            "paginating every page on the client."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_filter_counts(
+        self, info, text_search: str | None = None, **kwargs
+    ) -> dict[str, int]:
+        user = info.context.user
+        visible = Corpus.objects.visible_to_user(user)
+        if text_search:
+            visible = visible.filter(
+                Q(description__contains=text_search) | Q(title__contains=text_search)
+            )
+
+        # Single aggregation produces all four counts in one query plan
+        # rather than four separate COUNT(*) round-trips against the same
+        # (non-trivial, guardian-filtered) visible queryset.
+        is_authed = user is not None and user.is_authenticated
+        aggregations: dict[str, Any] = {
+            "all": Count("id"),
+            "public": Count("id", filter=Q(is_public=True)),
+        }
+        if is_authed:
+            aggregations["mine"] = Count("id", filter=Q(creator=user))
+            aggregations["shared"] = Count(
+                "id", filter=Q(is_public=False) & ~Q(creator=user)
+            )
+        counts = visible.aggregate(**aggregations)
+        return {
+            "all": counts["all"],
+            "mine": counts.get("mine", 0),
+            "shared": counts.get("shared", 0),
+            "public": counts["public"],
+        }
 
     # CORPUS CATEGORY RESOLVERS #####################################
     corpus_categories = DjangoFilterConnectionField(

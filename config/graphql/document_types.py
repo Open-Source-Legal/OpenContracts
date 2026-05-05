@@ -289,6 +289,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             analysis_id=analysis_pk,
             structural=is_structural,
             use_cache=True,
+            context=info.context,
         )
 
     # New field and resolver for all relationships
@@ -324,6 +325,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 corpus_id=corpus_pk,
                 analysis_id=analysis_pk,
                 use_cache=True,
+                context=info.context,
             )
         except Exception as e:
             logger.warning(

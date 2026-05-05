@@ -185,11 +185,13 @@ test.describe("CorpusListView", () => {
       />
     );
 
-    // Stats should show totals
+    // Stats should show totals — scope to stat blocks since the same number
+    // also appears in the filter tab badges.
+    const statValues = component.locator(".oc-stat-block__value");
     // 3 corpuses total
-    await expect(component.getByText("3")).toBeVisible();
+    await expect(statValues.filter({ hasText: /^3$/ })).toBeVisible();
     // Total documents: 5 + 0 + 10 = 15
-    await expect(component.getByText("15")).toBeVisible();
+    await expect(statValues.filter({ hasText: /^15$/ })).toBeVisible();
   });
 
   test("filter tabs display correct counts", async ({ mount }) => {

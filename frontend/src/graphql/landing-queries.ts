@@ -146,6 +146,7 @@ export const GET_RECENT_DISCUSSIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -270,6 +271,7 @@ export const GET_DISCOVERY_DATA = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }

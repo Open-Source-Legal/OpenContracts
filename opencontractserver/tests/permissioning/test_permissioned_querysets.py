@@ -547,6 +547,21 @@ class CorpusGetDocumentsAndCountTest(TestCase):
         self.assertEqual(self.corpus.document_count(), 0)
 
 
+def _prefetch_lookup_names(qs) -> set[str]:
+    """
+    Collect the lookup paths from a queryset's ``_prefetch_related_lookups``.
+
+    Entries can be raw strings (``"foo__bar"``) or ``Prefetch`` instances
+    (which expose the path as ``prefetch_through``); normalise to a set of
+    string paths so tests can assert membership without caring which form
+    a given prefetch was registered as.
+    """
+    return {
+        item if isinstance(item, str) else item.prefetch_through
+        for item in qs._prefetch_related_lookups
+    }
+
+
 class DocumentManagerVisibleToUserTest(TestCase):
     """Tests for DocumentManager.visible_to_user() with lightweight flag."""
 
@@ -567,13 +582,34 @@ class DocumentManagerVisibleToUserTest(TestCase):
         )
         self.doc, _, _ = self.corpus.add_document(document=source, user=self.owner)
 
-    def test_lightweight_skips_prefetch(self):
-        """lightweight=True skips select_related and prefetch_related."""
+    def test_lightweight_skips_heavy_prefetch_but_keeps_cheap_joins(self):
+        """
+        lightweight=True keeps cheap select_related JOINs (creator, parent,
+        user_lock) and the user-scoped guardian permission prefetches because
+        the GraphQL fields that consume them (``creator``, ``myPermissions``,
+        version metadata) are commonly requested even on list views — leaving
+        them unprefetched produces an N+1 storm.
+
+        It still skips the heavy per-document fan-outs: full doc_annotations
+        prefetch, ``rows``, source/target relationships, and ``notes``.
+        """
         qs = Document.objects.visible_to_user(self.viewer, lightweight=True)
-        # The queryset should still work and return results
         self.assertIn(self.doc.pk, qs.values_list("pk", flat=True))
-        # No select_related should have been added (Django uses False when empty)
-        self.assertFalse(qs.query.select_related)
+
+        # Cheap JOINs are present in lightweight mode.
+        self.assertIn("creator", qs.query.select_related)
+        self.assertIn("user_lock", qs.query.select_related)
+        self.assertIn("parent", qs.query.select_related)
+
+        prefetch_lookups = _prefetch_lookup_names(qs)
+        # Heavy fan-outs stay skipped under lightweight=True.
+        self.assertNotIn("rows", prefetch_lookups)
+        self.assertNotIn("source_relationships", prefetch_lookups)
+        self.assertNotIn("target_relationships", prefetch_lookups)
+        self.assertNotIn("notes", prefetch_lookups)
+        # User-scoped guardian prefetches are kept so resolve_my_permissions
+        # doesn't fire 2 queries per row (see mixins.py:272-291).
+        self.assertIn("documentuserobjectpermission_set", prefetch_lookups)
 
     def test_non_lightweight_adds_prefetch(self):
         """lightweight=False (default) adds select_related and prefetch_related."""
@@ -582,6 +618,23 @@ class DocumentManagerVisibleToUserTest(TestCase):
         # select_related should include "creator" and "user_lock"
         self.assertIn("creator", qs.query.select_related)
         self.assertIn("user_lock", qs.query.select_related)
+
+    def test_lightweight_with_doc_label_annotations_prefetches_focused_set(self):
+        """
+        ``with_doc_label_annotations=True`` in lightweight mode adds a focused
+        ``doc_annotations`` prefetch (DOC_TYPE_LABEL only) so that
+        ``resolve_doc_annotations_optimized`` can pick it up via
+        ``_prefetched_doc_annotations`` instead of falling through to a
+        per-document optimizer call.
+        """
+        qs = Document.objects.visible_to_user(
+            self.viewer, lightweight=True, with_doc_label_annotations=True
+        )
+        prefetch_lookups = _prefetch_lookup_names(qs)
+        self.assertIn("doc_annotations", prefetch_lookups)
+        # Heavy fan-outs are still skipped.
+        self.assertNotIn("rows", prefetch_lookups)
+        self.assertNotIn("notes", prefetch_lookups)
 
     def test_none_user_treated_as_anonymous(self):
         """Passing user=None returns same results as AnonymousUser."""

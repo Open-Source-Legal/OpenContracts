@@ -94,10 +94,21 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     all_source_node_in_relationship = graphene.List(lambda: RelationshipType)
 
     def resolve_feedback_count(self, info) -> int:
-        # If feedback_count was annotated on the queryset, use it
+        # If ``feedback_count`` was annotated on the queryset (legacy callers),
+        # honour it — but the optimizer no longer adds the annotation because
+        # it forced a LEFT JOIN + GROUP BY for every annotation in the result.
         if hasattr(self, "feedback_count"):
             return self.feedback_count
-        # Otherwise, count it (but this triggers N+1)
+        # Prefer the prefetched ``user_feedback`` list when the parent resolver
+        # populated it (see ``AnnotationQueryOptimizer.get_document_annotations``);
+        # ``QuerySet.count()`` always issues a fresh ``COUNT(*)`` and would
+        # produce one round-trip per annotation. ``_prefetched_objects_cache``
+        # is a Django internal — if it changes shape in a future release the
+        # ``self.user_feedback.count()`` fallback keeps correctness intact, only
+        # losing the per-row optimisation.
+        prefetched = getattr(self, "_prefetched_objects_cache", {})
+        if "user_feedback" in prefetched:
+            return len(prefetched["user_feedback"])
         return self.user_feedback.count()
 
     def resolve_all_source_node_in_relationship(self, info) -> QuerySet[Relationship]:

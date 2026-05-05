@@ -43,6 +43,14 @@ export interface RequestDocumentsOutputs {
   };
 }
 
+// NOTE: The shape of this query is matched by ``requests_doc_label_annotations``
+// in config/graphql/custom_resolvers.py (it walks the AST looking for
+// ``documents → edges → node → docAnnotations(annotationLabel_LabelType:
+// "DOC_TYPE_LABEL")``) so the resolver can opt into a focused doc-label
+// prefetch. Restructuring the connection (extra wrapping levels, renames, or
+// moving docAnnotations into a fragment at the top level) silently disables
+// that optimisation and returns the per-row N+1 — update the AST helper there
+// in lockstep with any structural change.
 export const GET_DOCUMENTS = gql`
   query (
     $inCorpusWithId: String
@@ -84,6 +92,7 @@ export const GET_DOCUMENTS = gql`
           isPublic
           myPermissions
           creator {
+            id
             slug
           }
           is_selected @client
@@ -377,6 +386,7 @@ export const SEARCH_DOCUMENTS = gql`
           isPublic
           myPermissions
           creator {
+            id
             slug
           }
           is_selected @client
@@ -596,6 +606,11 @@ export interface GetCorpusesInputs {
   usesLabelsetId?: string;
   cursor?: string;
   limit?: number;
+  // Tab filters for the Corpuses view. Server applies these on top of the
+  // user-visible queryset so pagination + badge counts stay correct.
+  mine?: boolean;
+  isPublic?: boolean;
+  sharedWithMe?: boolean;
 }
 
 export interface GetCorpusesOutputs {
@@ -611,10 +626,16 @@ export const GET_CORPUSES = gql`
     $usesLabelsetId: String
     $cursor: String
     $limit: Int
+    $mine: Boolean
+    $isPublic: Boolean
+    $sharedWithMe: Boolean
   ) {
     corpuses(
       textSearch: $textSearch
       usesLabelsetId: $usesLabelsetId
+      mine: $mine
+      isPublic: $isPublic
+      sharedWithMe: $sharedWithMe
       first: $limit
       after: $cursor
     ) {
@@ -631,6 +652,7 @@ export const GET_CORPUSES = gql`
           icon
           title
           creator {
+            id
             email
             slug
           }
@@ -663,6 +685,32 @@ export const GET_CORPUSES = gql`
           licenseLink
         }
       }
+    }
+  }
+`;
+
+export interface CorpusFilterCounts {
+  all: number;
+  mine: number;
+  shared: number;
+  public: number;
+}
+
+export interface GetCorpusFilterCountsInputs {
+  textSearch?: string;
+}
+
+export interface GetCorpusFilterCountsOutputs {
+  corpusFilterCounts: CorpusFilterCounts;
+}
+
+export const GET_CORPUS_FILTER_COUNTS = gql`
+  query CorpusFilterCounts($textSearch: String) {
+    corpusFilterCounts(textSearch: $textSearch) {
+      all
+      mine
+      shared
+      public
     }
   }
 `;
@@ -2038,6 +2086,7 @@ export const GET_EXTRACT_GRID_EMBED = gql`
         id
         slug
         creator {
+          id
           slug
         }
       }
@@ -2065,6 +2114,7 @@ export const GET_EXTRACT_GRID_EMBED = gql`
           title
           slug
           creator {
+            id
             slug
           }
         }
@@ -2595,6 +2645,7 @@ export const SEARCH_CORPUSES_FOR_MENTION = gql`
           slug
           title
           creator {
+            id
             slug
           }
         }
@@ -2656,6 +2707,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
           slug
           title
           creator {
+            id
             slug
           }
           pathRecords(first: 1) {
@@ -2666,6 +2718,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
                   slug
                   title
                   creator {
+                    id
                     slug
                   }
                 }
@@ -3584,6 +3637,7 @@ export const GET_CORPUS_CONVERSATIONS = gql`
             totalCount
           }
           creator {
+            id
             email
           }
         }
@@ -3611,6 +3665,7 @@ export const GET_CORPUS_CHAT_MESSAGES = gql`
           createdAt
           data
           creator {
+            id
             email
           }
         }
@@ -4355,6 +4410,7 @@ export const SEARCH_CONVERSATIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -4363,6 +4419,7 @@ export const SEARCH_CONVERSATIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -5058,6 +5115,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             icon
             slug
             creator {
+              id
               slug
             }
           }
@@ -5069,6 +5127,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             icon
             slug
             creator {
+              id
               slug
             }
           }
@@ -5082,6 +5141,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             id
             slug
             creator {
+              id
               slug
             }
           }
@@ -5151,6 +5211,7 @@ export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
           icon
           fileType
           creator {
+            id
             slug
           }
         }
@@ -5185,6 +5246,7 @@ export const GET_CORPUS_ARTICLE = gql`
           txtExtractFile
           modified
           creator {
+            id
             email
           }
         }
@@ -5207,6 +5269,7 @@ export interface GetCorpusArticleOutput {
         txtExtractFile: string | null;
         modified: string;
         creator: {
+          id: string;
           email: string;
         };
       };

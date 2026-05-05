@@ -84,10 +84,21 @@ class CountableConnection(graphene.relay.Connection):
     total_count = graphene.Int()
 
     def resolve_total_count(root, info, **kwargs) -> Any:
-        if isinstance(root.iterable, django.db.models.QuerySet):
-            return root.iterable.count()
-        else:
-            return len(root.iterable)
+        iterable = root.iterable
+        if isinstance(iterable, django.db.models.QuerySet):
+            # If the queryset is already evaluated — typically because the
+            # parent resolver pre-fetched this reverse relation — use the
+            # cached length rather than firing a fresh COUNT(*) query.
+            # ``QuerySet.count()`` does NOT consult ``_result_cache``, so on
+            # prefetched data the naive call produces N+1 ``SELECT COUNT(*)``
+            # round-trips (one per parent row). ``_result_cache`` is a
+            # Django internal — if its shape changes in a future release the
+            # ``iterable.count()`` fallback keeps correctness intact, only
+            # losing the per-row optimisation.
+            if iterable._result_cache is not None:
+                return len(iterable._result_cache)
+            return iterable.count()
+        return len(iterable)
 
 
 class DRFDeletion(graphene.Mutation):

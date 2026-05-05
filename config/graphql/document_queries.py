@@ -17,6 +17,7 @@ from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
+from config.graphql.custom_resolvers import requests_doc_label_annotations
 from config.graphql.document_types import INGESTION_SOURCE_GLOBAL_ID_TYPE
 from config.graphql.filters import DocumentFilter, DocumentRelationshipFilter
 from config.graphql.graphene_types import (
@@ -58,7 +59,16 @@ class DocumentQueryMixin:
         # Use lightweight mode to skip heavy prefetches (doc_annotations,
         # rows, relationships, notes) that are unnecessary for list/TOC
         # queries requesting only basic document fields.
-        return Document.objects.visible_to_user(info.context.user, lightweight=True)
+        # When the client asks for the ``doc_label_annotations`` alias
+        # (the corpus list view's DOC_TYPE_LABEL badge), opt in to a
+        # focused prefetch so the per-document
+        # AnnotationQueryOptimizer.get_document_annotations fall-through
+        # in resolve_doc_annotations_optimized doesn't fire N times.
+        return Document.objects.visible_to_user(
+            info.context.user,
+            lightweight=True,
+            with_doc_label_annotations=requests_doc_label_annotations(info),
+        )
 
     document = graphene.Field(DocumentType, id=graphene.ID())
 

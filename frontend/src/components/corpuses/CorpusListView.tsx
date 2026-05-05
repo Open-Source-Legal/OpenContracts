@@ -29,6 +29,7 @@ import {
 import { toast } from "react-toastify";
 
 import { CorpusType, PageInfo } from "../../types/graphql-api";
+import { CorpusFilterCounts } from "../../graphql/queries";
 import {
   editingCorpus,
   viewingCorpus,
@@ -313,6 +314,12 @@ function getLastUpdatedText(corpus: CorpusType): string {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface CorpusListViewProps {
+  /**
+   * Already filtered to the active tab on the server. The component does
+   * NOT apply additional client-side tab filtering — that would be
+   * incorrect once the server is the source of truth for which corpuses
+   * belong to each tab and pagination is filter-aware.
+   */
   corpuses: CorpusType[] | null;
   pageInfo: PageInfo | undefined;
   loading: boolean;
@@ -322,6 +329,9 @@ interface CorpusListViewProps {
   searchValue: string;
   onSearchChange: (value: string) => void;
   allowImport?: boolean;
+  activeFilter: string;
+  onFilterChange: (filter: string) => void;
+  filterCounts: CorpusFilterCounts;
 }
 
 export const CorpusListView: React.FC<CorpusListViewProps> = ({
@@ -334,6 +344,9 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
   searchValue,
   onSearchChange,
   allowImport = false,
+  activeFilter,
+  onFilterChange,
+  filterCounts,
 }) => {
   const navigate = useNavigate();
   const currentUser = useReactiveVar(userObj);
@@ -341,9 +354,6 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
   // Note: authToken can be out of sync with userObj in some edge cases
   const isAuthenticated = Boolean(currentUser);
   const currentUserEmail = currentUser?.email;
-
-  // Filter state
-  const [activeFilter, setActiveFilter] = useState("all");
 
   // Track which menu is open and its position
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -367,66 +377,43 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
     },
   });
 
-  // Filter corpuses based on active filter
-  const filteredCorpuses = useMemo(() => {
-    if (!corpuses) return [];
-
-    switch (activeFilter) {
-      case "my":
-        return corpuses.filter((c) => c.creator?.email === currentUserEmail);
-      case "shared":
-        return corpuses.filter(
-          (c) =>
-            !c.isPublic &&
-            c.creator?.email !== currentUserEmail &&
-            (c.myPermissions?.length || 0) > 0
-        );
-      case "public":
-        return corpuses.filter((c) => c.isPublic);
-      default:
-        return corpuses;
-    }
-  }, [corpuses, activeFilter, currentUserEmail]);
-
-  // Calculate counts for filter tabs
-  const filterCounts = useMemo(() => {
-    if (!corpuses) return { my: 0, shared: 0, public: 0 };
-
-    return {
-      my: corpuses.filter((c) => c.creator?.email === currentUserEmail).length,
-      shared: corpuses.filter(
-        (c) =>
-          !c.isPublic &&
-          c.creator?.email !== currentUserEmail &&
-          (c.myPermissions?.length || 0) > 0
-      ).length,
-      public: corpuses.filter((c) => c.isPublic).length,
-    };
-  }, [corpuses, currentUserEmail]);
+  // Server pre-filters by activeFilter, so the corpuses prop is the list to render.
+  const filteredCorpuses = corpuses ?? [];
 
   // Filter tabs configuration
   const filterItems: FilterTabItem[] = [
-    { id: "all", label: "All" },
-    { id: "my", label: "My Corpuses", count: String(filterCounts.my) },
+    { id: "all", label: "All", count: String(filterCounts.all) },
+    { id: "my", label: "My Corpuses", count: String(filterCounts.mine) },
     { id: "shared", label: "Shared", count: String(filterCounts.shared) },
     { id: "public", label: "Public", count: String(filterCounts.public) },
   ];
 
-  // Calculate stats
+  // Stat block totals. The corpus total is tab-scoped (matches the active
+  // filter and the visible list) so the stat block agrees with the tab badge
+  // the user just selected. Doc/annotation sums come from the currently
+  // loaded page(s) of the active filter — they're an approximation that
+  // grows as the user paginates. Shared count is always the global "shared
+  // with me" total from the server.
   const stats = useMemo(() => {
     const list = corpuses || [];
+    const tabKey =
+      activeFilter === "my"
+        ? "mine"
+        : activeFilter === "shared"
+        ? "shared"
+        : activeFilter === "public"
+        ? "public"
+        : "all";
     return {
-      totalCorpuses: list.length,
+      totalCorpuses: filterCounts[tabKey as keyof CorpusFilterCounts],
       totalDocuments: list.reduce((sum, c) => sum + (c.documentCount || 0), 0),
       totalAnnotations: list.reduce(
         (sum, c) => sum + (c.annotations?.totalCount || 0),
         0
       ),
-      sharedCount: list.filter(
-        (c) => !c.isPublic && c.creator?.email !== currentUserEmail
-      ).length,
+      sharedCount: filterCounts.shared,
     };
-  }, [corpuses, currentUserEmail]);
+  }, [corpuses, filterCounts, activeFilter]);
 
   // Handle infinite scroll
   const handleFetchMore = useCallback(() => {
@@ -524,7 +511,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
           <FilterTabs
             items={filterItems}
             value={activeFilter}
-            onChange={setActiveFilter}
+            onChange={onFilterChange}
           />
         </HeroSection>
 

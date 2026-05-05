@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from graphql.language import ast as gql_ast
 from graphql_relay import from_global_id
 
 from opencontractserver.constants.annotations import MANUAL_ANNOTATION_SENTINEL
@@ -99,6 +100,7 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
             "document_id": self.id,
             "user": getattr(info.context, "user", None),
             "use_cache": True,
+            "context": info.context,
         }
 
         structural = kwargs.get("structural")
@@ -122,6 +124,7 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
             "document_id": self.id,
             "user": getattr(info.context, "user", None),
             "use_cache": True,
+            "context": info.context,
         }
 
         structural = kwargs.get("structural")
@@ -272,3 +275,75 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
         annotations = annotations[-last:] if last else []
 
     return annotations
+
+
+def _argument_string_value(
+    argument: gql_ast.ArgumentNode, variables: dict
+) -> str | None:
+    """Return the resolved string value of a GraphQL argument node, or None."""
+    value_node = argument.value
+    if isinstance(value_node, gql_ast.StringValueNode):
+        return value_node.value
+    if isinstance(value_node, gql_ast.EnumValueNode):
+        return value_node.value
+    if isinstance(value_node, gql_ast.VariableNode):
+        return variables.get(value_node.name.value)
+    return None
+
+
+def _selection_set_iter(
+    selection: gql_ast.SelectionNode,
+    fragments: dict,
+):
+    """Yield Field selections directly under ``selection``, traversing fragments."""
+    selection_set = getattr(selection, "selection_set", None)
+    if selection_set is None:
+        return
+    for child in selection_set.selections:
+        if isinstance(child, gql_ast.FieldNode):
+            yield child
+        elif isinstance(child, gql_ast.InlineFragmentNode):
+            yield from _selection_set_iter(child, fragments)
+        elif isinstance(child, gql_ast.FragmentSpreadNode):
+            fragment = fragments.get(child.name.value)
+            if fragment is not None:
+                yield from _selection_set_iter(fragment, fragments)
+
+
+def requests_doc_label_annotations(info) -> bool:
+    """
+    Return True when the current GraphQL operation asks for the
+    ``docAnnotations`` field on each document edge with
+    ``annotationLabel_LabelType: "DOC_TYPE_LABEL"``.
+
+    Used by ``resolve_documents`` to opt the queryset into a focused
+    prefetch (see ``_apply_document_prefetches``) so the per-document
+    fall-through in ``resolve_doc_annotations_optimized`` does not fire
+    for the corpus list view's DOC_TYPE_LABEL badge.
+
+    The check matches the field name (``docAnnotations``) regardless of
+    GraphQL alias — the frontend uses ``doc_label_annotations: docAnnotations(...)``
+    and graphql-core preserves the underlying field name on FieldNode.name.
+    """
+    from opencontractserver.annotations.models import DOC_TYPE_LABEL
+
+    fragments = getattr(info, "fragments", {}) or {}
+    variables = getattr(info, "variable_values", {}) or {}
+
+    for field_node in info.field_nodes or ():
+        # Connection: documents → edges → node → docAnnotations
+        for edges in _selection_set_iter(field_node, fragments):
+            if edges.name.value != "edges":
+                continue
+            for node in _selection_set_iter(edges, fragments):
+                if node.name.value != "node":
+                    continue
+                for child in _selection_set_iter(node, fragments):
+                    if child.name.value != "docAnnotations":
+                        continue
+                    for arg in child.arguments or ():
+                        if arg.name.value != "annotationLabel_LabelType":
+                            continue
+                        if _argument_string_value(arg, variables) == DOC_TYPE_LABEL:
+                            return True
+    return False
