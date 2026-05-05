@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Graduated remaining `config.graphql.*` modules from the mypy baseline** (issue #1485, sub-issue of #1447). Removed the per-module `ignore_errors` blocks for the final 14 modules (`annotation_mutations`, `annotation_queries`, `base`, `conversation_queries`, `corpus_mutations`, `document_mutations`, `document_types`, `extract_mutations`, `extract_queries`, `label_mutations`, `permissioning.permission_annotator.{middleware,mixins,utils}`, `social_queries`) and pruned 174 corresponding lines from `docs/typing/mypy_baseline.txt`. The entire `config.graphql.*` surface is now type-checked. Notable code changes made in service of typing:
+  - `AnnotatePermissionsForReadMixin` declares `_meta` / `is_public` under `TYPE_CHECKING` so the mixin no longer trips `attr-defined` errors when combined with a `DjangoObjectType` (`config/graphql/permissioning/permission_annotator/mixins.py`).
+  - All `from_global_id(kwargs.get("id", None))[1]` Relay node resolver patterns rewritten to `from_global_id(kwargs["id"])[1]` (the `id` arg is required for relay, so the `.get(..., None)` was dead defensiveness that produced an `Any | None` mypy can't accept).
+  - Optimizer call-sites (`AnnotationQueryOptimizer.get_document_annotations`, `RelationshipQueryOptimizer.*`, `BadgeQueryOptimizer.check_user_badge_visibility`) now coerce the `from_global_id` string pk to `int` instead of relying on Django's lenient `pk` lookup.
+  - PEP 484 implicit-Optional defaults converted to explicit `T | None` in `corpus_mutations.CreateCorpusAction.mutate`, `corpus_mutations.UpdateCorpusAction.mutate`, and `document_mutations.StartCorpusExport.mutate`.
+  - Removed dead `language_model_id` parameter and assignment in `UpdateColumnMutation` — the `language_model` field was deleted from `Column` in migration `0012_auto_20240622_2225` and the parameter was unreachable from the mutation's `Arguments`.
+  - `timezone.timedelta(...)` (django-stubs no longer re-exports `timedelta`) replaced with a direct `from datetime import timedelta` in `conversation_queries.resolve_corpus_moderation_stats`.
+
 ### Fixed
 
 - **`PipelineSettings.get_parser_kwargs` now merges encrypted secrets** (`opencontractserver/documents/models.py:1260`, issue #1515). The runtime path that resolves parser configuration in `opencontractserver/tasks/doc_tasks.py:424` previously returned only `parser_kwargs[parser_class_path]` and silently dropped any secret stored under `encrypted_secrets[parser_class_path]`. Parsers like `LlamaParseParser` whose API key lives only in `encrypted_secrets` (the documented secure location) were invoked with an empty `api_key=""` placeholder and failed with `"LlamaParse API key not configured"`. Fix: `get_parser_kwargs` now overlays decrypted `encrypted_secrets[parser_class_path]` on top of `parser_kwargs[parser_class_path]`, with secrets winning on key collision. Operators may keep `parser_kwargs.api_key = ""` as a schema marker without clobbering the real secret. The merged dict is built fresh on every call so a long-lived `PipelineSettings` reference does not retain decrypted secrets in memory. Regression tests in `opencontractserver/tests/test_pipeline_settings.py` cover merge, secret-wins, secret-only, no-mutation, and log-redaction.

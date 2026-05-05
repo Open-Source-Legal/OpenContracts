@@ -4,6 +4,7 @@ GraphQL mutations for extract, fieldset, column, datacell, and metadata operatio
 
 import logging
 import uuid
+from collections.abc import Iterable
 from typing import Optional
 
 import graphene
@@ -374,7 +375,7 @@ class SetMetadataValue(graphene.Mutation):
                     local_column_id, local_corpus_id
                 )
             )
-            if not is_valid:
+            if not is_valid or column is None:
                 return SetMetadataValue(ok=False, message=error_msg)
 
             # Get document for foreign key
@@ -538,7 +539,6 @@ class UpdateColumnMutation(DRFMutation):
         instructions=None,
         task_name=None,
         extract_is_list=None,
-        language_model_id=None,
         must_contain_text=None,
     ) -> "UpdateColumnMutation":
 
@@ -552,9 +552,6 @@ class UpdateColumnMutation(DRFMutation):
 
             if task_name is not None:
                 obj.task_name = task_name
-
-            if language_model_id is not None:
-                obj.language_model_id = from_global_id(language_model_id)[1]
 
             if name is not None:
                 obj.name = name
@@ -927,7 +924,7 @@ class AddDocumentsToExtract(DRFMutation):
     def mutate(root, info, extract_id, document_ids) -> "AddDocumentsToExtract":
 
         ok = False
-        doc_objs = []
+        doc_objs: Iterable[Document] = []
 
         try:
             user = info.context.user
