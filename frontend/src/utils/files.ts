@@ -37,7 +37,10 @@ export const downloadFile = async (url: string): Promise<void> => {
     const res = await Axios.get(url, {
       responseType: "blob",
     });
-    const blob = new Blob([res.data], { type: res.headers["content-type"] });
+    const contentType = res.headers["content-type"];
+    const blob = new Blob([res.data], {
+      type: typeof contentType === "string" ? contentType : undefined,
+    });
     const link = document.createElement("a");
     link.href = window.URL.createObjectURL(blob);
     link.download = url.substring(url.lastIndexOf("/") + 1);

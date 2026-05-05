@@ -447,16 +447,22 @@ class TestExtractImagesFromPdf(TestCase):
         mock_pdf.pages = [mock_page]
         mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
 
-        # Mock PIL Image
+        # Mock PIL Image returned from rendering+cropping
         mock_pil_image = MagicMock()
         mock_pil_image.mode = "RGB"
         mock_pil_image.width = 200
         mock_pil_image.height = 200
+        mock_pil_image.save = lambda buf, format, quality=85: buf.write(b"fake")
 
-        # Mock _crop_pdf_region to return our mock image
+        # After issue #1498, extract_images_from_pdf renders the page once via
+        # _render_pdf_page and crops via _crop_region_from_rendered_page.
         with patch(
-            "opencontractserver.utils.pdf_token_extraction._crop_pdf_region"
+            "opencontractserver.utils.pdf_token_extraction._render_pdf_page"
+        ) as mock_render, patch(
+            "opencontractserver.utils.pdf_token_extraction"
+            "._crop_region_from_rendered_page"
         ) as mock_crop:
+            mock_render.return_value = mock_pil_image
             mock_crop.return_value = mock_pil_image
 
             images_by_page = extract_images_from_pdf(b"fake pdf bytes")
@@ -767,3 +773,698 @@ class TestImageHelperFunctions(TestCase):
         result = get_image_data_url(image_token)
 
         self.assertIsNone(result)
+
+
+class TestExtractImagesMemoryBound(TestCase):
+    """
+    Regression tests for issue #1498 — bound peak memory in PDF image
+    extraction so it does NOT scale linearly with page count.
+
+    The fix has three observable contracts that these tests pin down:
+
+      1. A page with N embedded images is rasterised at most ONCE per call.
+      2. Per-image PIL Image and BytesIO buffers are explicitly closed.
+      3. pdfplumber's per-page parse cache is flushed and gc.collect() is
+         invoked between pages.
+
+    Without (1), peak RSS scales with images-per-page; without (2), peak
+    RSS scales with pages-per-document; without (3), pdfplumber's lazy
+    caches accumulate across the iteration.
+    """
+
+    def _make_mock_image_info(self, x0=100, top=100, x1=300, bottom=300):
+        """Build a pdfplumber-style image info dict (no decodable stream)."""
+        return {"x0": x0, "top": top, "x1": x1, "bottom": bottom}
+
+    def _make_mock_pil_image(self, width=200, height=200):
+        """
+        Build a PIL-Image-shaped mock that can be saved, cropped, and closed.
+
+        Sets ``.size`` (used by ``_crop_region_from_rendered_page``) and
+        wires ``.crop`` to return a sibling mock so the production code's
+        crop path returns a usable image-like object.
+        """
+        mock = MagicMock()
+        mock.mode = "RGB"
+        mock.width = width
+        mock.height = height
+        mock.size = (width, height)
+
+        def _save(buf, format, quality=85):
+            buf.write(b"fake encoded bytes")
+
+        mock.save = _save
+
+        # ``crop`` on a real PIL image returns a new image. Producing a
+        # distinct mock per call lets tests assert per-crop close().
+        def _crop(_box):
+            child = MagicMock()
+            child.mode = "RGB"
+            child.width = width
+            child.height = height
+            child.size = (width, height)
+            child.save = _save
+            return child
+
+        mock.crop = MagicMock(side_effect=_crop)
+        return mock
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_page_rendered_only_once_per_page_with_multiple_images(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        A page with 5 images that all need cropping should rasterise the
+        page exactly once — not five times. Pre-fix this was 5x the work
+        and 5x the page-render RSS spike.
+        """
+        # 5 image infos on a single page, none with a decodable stream
+        mock_page = MagicMock()
+        mock_page.width = 612
+        mock_page.height = 792
+        mock_page.images = [self._make_mock_image_info() for _ in range(5)]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        # Render returns a fresh mock each call so we can count distinctly.
+        mock_render.side_effect = lambda *_a, **_kw: self._make_mock_pil_image()
+
+        extract_images_from_pdf(b"fake pdf bytes")
+
+        # The page must be rendered at most once even with 5 images.
+        self.assertEqual(
+            mock_render.call_count,
+            1,
+            "Expected page rendering to be cached across images on the "
+            "same page; got "
+            f"{mock_render.call_count} renders for 5 images on 1 page.",
+        )
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_render_count_equals_pages_not_images(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        Across 10 pages with 3 images each, _render_pdf_page must be called
+        at most 10 times — not 30. This is the headline memory fix.
+        """
+        pages = []
+        for _ in range(10):
+            p = MagicMock()
+            p.width = 612
+            p.height = 792
+            p.images = [self._make_mock_image_info() for _ in range(3)]
+            pages.append(p)
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = pages
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        mock_render.side_effect = lambda *_a, **_kw: self._make_mock_pil_image()
+
+        extract_images_from_pdf(b"fake pdf bytes")
+
+        # One render per page with images, regardless of images-per-page.
+        self.assertEqual(
+            mock_render.call_count,
+            10,
+            "Expected exactly one page render per page (10 pages * 1 render);"
+            f" got {mock_render.call_count}.",
+        )
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_rendered_page_is_closed_after_each_page(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        The rasterised page buffer is the largest single allocation in the
+        extraction loop. It must be ``close()``-d before moving to the next
+        page so peak RSS is bounded by one rendered page, not N.
+        """
+        # 3 pages, each with one image needing crop
+        pages = []
+        for _ in range(3):
+            p = MagicMock()
+            p.width = 612
+            p.height = 792
+            p.images = [self._make_mock_image_info()]
+            pages.append(p)
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = pages
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        rendered_pages = [self._make_mock_pil_image() for _ in range(3)]
+        mock_render.side_effect = rendered_pages
+
+        extract_images_from_pdf(b"fake pdf bytes")
+
+        # Every rendered page must have had close() called.
+        for idx, rp in enumerate(rendered_pages):
+            self.assertTrue(
+                rp.close.called,
+                f"Rendered page {idx} was not closed; rendered-page buffers "
+                "would accumulate as RSS across pages.",
+            )
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_pdfplumber_page_cache_flushed_between_pages(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        pdfplumber lazily caches per-page parse state when ``page.images`` is
+        accessed. Without ``page.flush_cache()``, that state lives until the
+        outer ``with`` block exits — i.e. RSS grows monotonically with page
+        count even after we extract their images.
+        """
+        pages = []
+        for _ in range(4):
+            p = MagicMock()
+            p.width = 612
+            p.height = 792
+            p.images = []  # No images, but cache must still flush
+            pages.append(p)
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = pages
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        extract_images_from_pdf(b"fake pdf bytes")
+
+        for idx, p in enumerate(pages):
+            self.assertTrue(
+                p.flush_cache.called,
+                f"page.flush_cache() not called for page {idx}; pdfplumber "
+                "per-page caches would accumulate across the iteration.",
+            )
+
+    @patch("opencontractserver.utils.pdf_token_extraction.gc.collect")
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_gc_collect_runs_between_pages(
+        self, mock_pdfplumber_open, mock_render, mock_gc
+    ):
+        """
+        Even with explicit ``close()`` calls, Poppler subprocess buffers and
+        PIL pixel buffers can sit in the heap until CPython's threshold-based
+        GC runs. Forcing collection between pages reclaims that memory
+        immediately and keeps peak RSS bounded.
+        """
+        pages = []
+        for _ in range(5):
+            p = MagicMock()
+            p.width = 612
+            p.height = 792
+            p.images = []
+            pages.append(p)
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = pages
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        extract_images_from_pdf(b"fake pdf bytes")
+
+        # With the default IMAGE_EXTRACTION_GC_INTERVAL_PAGES=1, gc.collect
+        # should run once per page.
+        self.assertGreaterEqual(
+            mock_gc.call_count,
+            5,
+            "gc.collect() not invoked at the configured page interval; peak "
+            "RSS may grow with page count under default CPython GC thresholds.",
+        )
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_per_image_buffers_closed_eagerly(self, mock_pdfplumber_open, mock_render):
+        """
+        Per-image PIL Image objects must be closed in the inner loop, not
+        left to refcount-rebind on the next iteration. Without this, the
+        decoded image bytes for image N stay live until image N+1 is fully
+        decoded, doubling per-image peak RSS.
+        """
+        # One page with two images
+        mock_page = MagicMock()
+        mock_page.width = 612
+        mock_page.height = 792
+        mock_page.images = [self._make_mock_image_info() for _ in range(2)]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        # Each crop returns a distinct mock so we can verify both are closed
+        cropped_images = [self._make_mock_pil_image() for _ in range(2)]
+        rendered = self._make_mock_pil_image()
+        rendered.crop = MagicMock(side_effect=cropped_images)
+        mock_render.return_value = rendered
+
+        extract_images_from_pdf(b"fake pdf bytes")
+
+        for idx, ci in enumerate(cropped_images):
+            self.assertTrue(
+                ci.close.called,
+                f"Per-image PIL buffer {idx} was not closed eagerly; "
+                "decoded image bytes would briefly double in RSS.",
+            )
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_extract_handles_synthetic_large_document(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        Smoke-test scaling: a synthetic 100-page document with 1 image per
+        page must produce 100 image tokens AND must not invoke the page
+        rasteriser more than 100 times. This is the regression guard for
+        the 127-page OOM in the issue report.
+        """
+        num_pages = 100
+        pages = []
+        for _ in range(num_pages):
+            p = MagicMock()
+            p.width = 612
+            p.height = 792
+            p.images = [self._make_mock_image_info()]
+            pages.append(p)
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = pages
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        mock_render.side_effect = lambda *_a, **_kw: self._make_mock_pil_image()
+
+        result = extract_images_from_pdf(b"fake pdf bytes")
+
+        # We get an image token per page
+        total_images = sum(len(v) for v in result.values())
+        self.assertEqual(
+            total_images,
+            num_pages,
+            f"Expected {num_pages} image tokens, got {total_images}.",
+        )
+        # And we rendered each page at most once
+        self.assertLessEqual(
+            mock_render.call_count,
+            num_pages,
+            "Page render count exceeded page count; per-image rasterisation "
+            "regressed.",
+        )
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_rgba_image_original_closed_before_rebind(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        When a cropped image is in RGBA mode and JPEG output is requested,
+        the production code calls pil_image.convert("RGB"), then closes the
+        original before rebinding pil_image to the converted copy.
+
+        Without the fix, the original reference is dropped without close(),
+        leaking the pre-conversion pixel buffer until the next GC cycle.
+        This test pins that the ORIGINAL image mock receives close() before
+        the finally block closes the converted copy.
+        """
+        mock_page = MagicMock()
+        mock_page.width = 612
+        mock_page.height = 792
+        mock_page.images = [self._make_mock_image_info()]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        # Original cropped image in RGBA mode
+        original_image = MagicMock()
+        original_image.mode = "RGBA"
+        original_image.width = 200
+        original_image.height = 200
+        original_image.size = (200, 200)
+
+        # The converted RGB image returned by .convert("RGB")
+        converted_image = MagicMock()
+        converted_image.mode = "RGB"
+        converted_image.width = 200
+        converted_image.height = 200
+        converted_image.size = (200, 200)
+
+        def _save(buf, format, quality=85):
+            buf.write(b"fake jpeg bytes")
+
+        converted_image.save = _save
+        original_image.convert = MagicMock(return_value=converted_image)
+
+        rendered_page = self._make_mock_pil_image()
+        rendered_page.crop = MagicMock(return_value=original_image)
+        mock_render.return_value = rendered_page
+
+        extract_images_from_pdf(b"fake pdf bytes", image_format="jpeg")
+
+        # convert("RGB") must have been called on the original
+        original_image.convert.assert_called_once_with("RGB")
+        # The ORIGINAL must be closed (not just the converted copy in finally)
+        original_image.close.assert_called()
+        # The converted image is closed by the finally block
+        converted_image.close.assert_called()
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_la_mode_image_original_closed_before_rebind(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        Same contract as the RGBA test but for LA (greyscale + alpha) mode,
+        which is the other common transparency variant that requires conversion
+        before JPEG encoding.
+        """
+        mock_page = MagicMock()
+        mock_page.width = 612
+        mock_page.height = 792
+        mock_page.images = [self._make_mock_image_info()]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        original_image = MagicMock()
+        original_image.mode = "LA"
+        original_image.width = 100
+        original_image.height = 100
+        original_image.size = (100, 100)
+
+        converted_image = MagicMock()
+        converted_image.mode = "RGB"
+        converted_image.width = 100
+        converted_image.height = 100
+        converted_image.size = (100, 100)
+        converted_image.save = lambda buf, format, quality=85: buf.write(b"la jpeg")
+        original_image.convert = MagicMock(return_value=converted_image)
+
+        rendered_page = self._make_mock_pil_image()
+        rendered_page.crop = MagicMock(return_value=original_image)
+        mock_render.return_value = rendered_page
+
+        extract_images_from_pdf(b"fake pdf bytes", image_format="jpeg")
+
+        original_image.convert.assert_called_once_with("RGB")
+        original_image.close.assert_called()
+        converted_image.close.assert_called()
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_p_mode_image_original_closed_before_rebind(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        Same contract for palette (P) mode images, which cannot be JPEG-encoded
+        directly and must first be converted to RGB.
+        """
+        mock_page = MagicMock()
+        mock_page.width = 612
+        mock_page.height = 792
+        mock_page.images = [self._make_mock_image_info()]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        original_image = MagicMock()
+        original_image.mode = "P"
+        original_image.width = 150
+        original_image.height = 150
+        original_image.size = (150, 150)
+
+        converted_image = MagicMock()
+        converted_image.mode = "RGB"
+        converted_image.width = 150
+        converted_image.height = 150
+        converted_image.size = (150, 150)
+        converted_image.save = lambda buf, format, quality=85: buf.write(b"p jpeg")
+        original_image.convert = MagicMock(return_value=converted_image)
+
+        rendered_page = self._make_mock_pil_image()
+        rendered_page.crop = MagicMock(return_value=original_image)
+        mock_render.return_value = rendered_page
+
+        extract_images_from_pdf(b"fake pdf bytes", image_format="jpeg")
+
+        original_image.convert.assert_called_once_with("RGB")
+        original_image.close.assert_called()
+        converted_image.close.assert_called()
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_rgb_image_skips_conversion_no_spurious_close(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        A native RGB image must NOT have convert() called on it; the
+        conversion guard is mode-conditional.  This test also verifies
+        the image is still closed (by the finally block) even when
+        no conversion is needed.
+        """
+        mock_page = MagicMock()
+        mock_page.width = 612
+        mock_page.height = 792
+        mock_page.images = [self._make_mock_image_info()]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        rgb_image = MagicMock()
+        rgb_image.mode = "RGB"
+        rgb_image.width = 200
+        rgb_image.height = 200
+        rgb_image.size = (200, 200)
+        rgb_image.save = lambda buf, format, quality=85: buf.write(b"rgb jpeg")
+
+        rendered_page = self._make_mock_pil_image()
+        rendered_page.crop = MagicMock(return_value=rgb_image)
+        mock_render.return_value = rendered_page
+
+        extract_images_from_pdf(b"fake pdf bytes", image_format="jpeg")
+
+        # No conversion for RGB
+        rgb_image.convert.assert_not_called()
+        # But the image must still be closed in the finally block
+        rgb_image.close.assert_called()
+
+    @patch("opencontractserver.utils.pdf_token_extraction._render_pdf_page")
+    @patch("pdfplumber.open")
+    def test_size_limit_stops_extraction_and_sets_flag(
+        self, mock_pdfplumber_open, mock_render
+    ):
+        """
+        When the running total of image bytes exceeds MAX_TOTAL_IMAGES_SIZE_BYTES,
+        the extraction loop must stop adding images for that page without crashing.
+
+        We patch MAX_TOTAL_IMAGES_SIZE_BYTES to a very small value so the
+        test does not need to write gigabytes of data.
+        """
+        mock_page = MagicMock()
+        mock_page.width = 612
+        mock_page.height = 792
+        # Three images; the limit should be triggered before the last one
+        mock_page.images = [self._make_mock_image_info() for _ in range(3)]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdfplumber_open.return_value.__enter__.return_value = mock_pdf
+
+        # Each image writes 100 bytes; we set the total limit to 150 so the
+        # first image fits but the second triggers the cap.
+        small_payload = b"X" * 100
+
+        def _make_small_image():
+            img = MagicMock()
+            img.mode = "RGB"
+            img.width = 200
+            img.height = 200
+            img.size = (200, 200)
+            img.save = lambda buf, format, quality=85: buf.write(small_payload)
+            return img
+
+        rendered_page = self._make_mock_pil_image()
+        rendered_page.crop = MagicMock(side_effect=lambda _: _make_small_image())
+        mock_render.return_value = rendered_page
+
+        patch_target = (
+            "opencontractserver.utils.pdf_token_extraction.MAX_TOTAL_IMAGES_SIZE_BYTES"
+        )
+        with patch(patch_target, 150):
+            result = extract_images_from_pdf(b"fake pdf bytes")
+
+        # Only 1 image fits under the 150-byte cap; the second triggers
+        # hit_size_limit which breaks the loop.
+        total = sum(len(v) for v in result.values())
+        self.assertEqual(
+            total,
+            1,
+            "Expected exactly 1 image before the size limit fires; " f"got {total}",
+        )
+
+
+class TestCloseQuietly(TestCase):
+    """Tests for the _close_quietly helper."""
+
+    def test_close_quietly_calls_close(self):
+        """Test that _close_quietly calls close() on objects that have it."""
+        from opencontractserver.utils.pdf_token_extraction import _close_quietly
+
+        mock_obj = MagicMock()
+        _close_quietly(mock_obj)
+        mock_obj.close.assert_called_once()
+
+    def test_close_quietly_handles_none(self):
+        """Test that _close_quietly silently handles None."""
+        from opencontractserver.utils.pdf_token_extraction import _close_quietly
+
+        # Should not raise
+        _close_quietly(None)
+
+    def test_close_quietly_handles_object_without_close(self):
+        """Test that _close_quietly handles objects without a close() method."""
+        from opencontractserver.utils.pdf_token_extraction import _close_quietly
+
+        # Should not raise
+        _close_quietly("not closeable")
+        _close_quietly(42)
+
+    def test_close_quietly_swallows_close_exceptions(self):
+        """Test that _close_quietly swallows exceptions raised by close()."""
+        from opencontractserver.utils.pdf_token_extraction import _close_quietly
+
+        mock_obj = MagicMock()
+        mock_obj.close.side_effect = RuntimeError("close failed")
+
+        # Should not raise
+        _close_quietly(mock_obj)
+        mock_obj.close.assert_called_once()
+
+
+class TestCropImageFromPdfModeConversion(TestCase):
+    """
+    Tests for the mode-conversion fix in crop_image_from_pdf.
+
+    The fix ensures that when a cropped PIL image in RGBA/LA/P mode is
+    converted to RGB for JPEG encoding, the ORIGINAL image is closed
+    before the reference is rebound to the converted copy.
+    """
+
+    @patch("opencontractserver.utils.pdf_token_extraction._crop_pdf_region")
+    def test_rgba_image_original_closed_in_crop_function(self, mock_crop_region):
+        """
+        crop_image_from_pdf must close the original RGBA image before
+        rebinding to the converted RGB image.
+        """
+        original_image = MagicMock()
+        original_image.mode = "RGBA"
+        original_image.width = 150
+        original_image.height = 100
+        original_image.size = (150, 100)
+
+        converted_image = MagicMock()
+        converted_image.mode = "RGB"
+        converted_image.width = 150
+        converted_image.height = 100
+        converted_image.size = (150, 100)
+        converted_image.save = lambda buf, format, quality=85: buf.write(b"rgba jpeg")
+        original_image.convert = MagicMock(return_value=converted_image)
+        mock_crop_region.return_value = original_image
+
+        bbox = {"left": 100, "top": 100, "right": 250, "bottom": 200}
+        result = crop_image_from_pdf(
+            b"fake pdf", 0, bbox, 612, 792, image_format="jpeg"
+        )
+
+        # The function must have converted the original
+        original_image.convert.assert_called_once_with("RGB")
+        # And the original must be closed explicitly
+        original_image.close.assert_called()
+        # The result is still a valid image token
+        self.assertIsNotNone(result)
+
+    @patch("opencontractserver.utils.pdf_token_extraction._crop_pdf_region")
+    def test_la_image_original_closed_in_crop_function(self, mock_crop_region):
+        """Same contract for LA-mode images in crop_image_from_pdf."""
+        original_image = MagicMock()
+        original_image.mode = "LA"
+        original_image.width = 100
+        original_image.height = 80
+        original_image.size = (100, 80)
+
+        converted_image = MagicMock()
+        converted_image.mode = "RGB"
+        converted_image.width = 100
+        converted_image.height = 80
+        converted_image.size = (100, 80)
+        converted_image.save = lambda buf, format, quality=85: buf.write(b"la jpeg")
+        original_image.convert = MagicMock(return_value=converted_image)
+        mock_crop_region.return_value = original_image
+
+        bbox = {"left": 50, "top": 50, "right": 150, "bottom": 130}
+        result = crop_image_from_pdf(
+            b"fake pdf", 0, bbox, 612, 792, image_format="jpeg"
+        )
+
+        original_image.convert.assert_called_once_with("RGB")
+        original_image.close.assert_called()
+        self.assertIsNotNone(result)
+
+    @patch("opencontractserver.utils.pdf_token_extraction._crop_pdf_region")
+    def test_p_mode_image_original_closed_in_crop_function(self, mock_crop_region):
+        """Same contract for P (palette) mode images in crop_image_from_pdf."""
+        original_image = MagicMock()
+        original_image.mode = "P"
+        original_image.width = 120
+        original_image.height = 90
+        original_image.size = (120, 90)
+
+        converted_image = MagicMock()
+        converted_image.mode = "RGB"
+        converted_image.width = 120
+        converted_image.height = 90
+        converted_image.size = (120, 90)
+        converted_image.save = lambda buf, format, quality=85: buf.write(b"p jpeg")
+        original_image.convert = MagicMock(return_value=converted_image)
+        mock_crop_region.return_value = original_image
+
+        bbox = {"left": 60, "top": 60, "right": 180, "bottom": 150}
+        result = crop_image_from_pdf(
+            b"fake pdf", 0, bbox, 612, 792, image_format="jpeg"
+        )
+
+        original_image.convert.assert_called_once_with("RGB")
+        original_image.close.assert_called()
+        self.assertIsNotNone(result)
+
+    @patch("opencontractserver.utils.pdf_token_extraction._crop_pdf_region")
+    def test_pil_image_closed_after_getvalue_in_crop_function(self, mock_crop_region):
+        """
+        crop_image_from_pdf must close the PIL image and BytesIO buffer
+        after reading the bytes, not leak them until the exception handler.
+        This test verifies the explicit close path added by the fix.
+        """
+        mock_pil = MagicMock()
+        mock_pil.mode = "RGB"
+        mock_pil.width = 100
+        mock_pil.height = 80
+        mock_pil.size = (100, 80)
+        mock_pil.save = lambda buf, format, quality=85: buf.write(b"rgb jpeg bytes")
+        mock_crop_region.return_value = mock_pil
+
+        bbox = {"left": 50, "top": 50, "right": 150, "bottom": 130}
+        result = crop_image_from_pdf(
+            b"fake pdf", 0, bbox, 612, 792, image_format="jpeg"
+        )
+
+        # The PIL image should be closed before the function returns
+        mock_pil.close.assert_called()
+        self.assertIsNotNone(result)

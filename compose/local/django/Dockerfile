@@ -1,4 +1,7 @@
-ARG PYTHON_VERSION=3.11-slim-bookworm
+# Pin to a specific patch (not the floating 3.11 alias) so rebuilds on
+# different dates do not silently pick up a new CPython point release.
+# Keep this in sync with compose/production/django/Dockerfile.
+ARG PYTHON_VERSION=3.11.15-slim-bookworm
 
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #
@@ -98,16 +101,24 @@ RUN pip install --upgrade pip \
 # Smoke test: `import cv2` must succeed (see production Dockerfile for context).
 RUN python -c "import cv2; print(f'cv2 {cv2.__version__} import OK')"
 
-# Download spacy models with retry logic. Using pip directly is more reliable
-# than the `spacy download` command in Docker.
-RUN pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl \
+# Download spacy models with retry logic and SHA-256 verification.
+# Hashes are for the pinned 3.8.0 release wheels from the explosion/spacy-models
+# GitHub releases page. Update hashes when bumping the model version.
+RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 5 \
+      -O /tmp/en_core_web_sm-3.8.0-py3-none-any.whl \
+      https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl \
+    && echo "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85  /tmp/en_core_web_sm-3.8.0-py3-none-any.whl" | sha256sum -c - \
+    && pip install /tmp/en_core_web_sm-3.8.0-py3-none-any.whl \
+    && rm /tmp/en_core_web_sm-3.8.0-py3-none-any.whl \
     && python -c "import spacy; spacy.load('en_core_web_sm')"
 
 # For the large model, use wget with retry to ensure the download completes.
 RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 5 \
+      -O /tmp/en_core_web_lg-3.8.0-py3-none-any.whl \
       https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl \
-    && pip install en_core_web_lg-3.8.0-py3-none-any.whl \
-    && rm en_core_web_lg-3.8.0-py3-none-any.whl \
+    && echo "293e9547a655b25499198ab15a525b05b9407a75f10255e405e8c3854329ab63  /tmp/en_core_web_lg-3.8.0-py3-none-any.whl" | sha256sum -c - \
+    && pip install /tmp/en_core_web_lg-3.8.0-py3-none-any.whl \
+    && rm /tmp/en_core_web_lg-3.8.0-py3-none-any.whl \
     && python -c "import spacy; spacy.load('en_core_web_lg')"
 
 COPY ./compose/production/django/entrypoint /entrypoint

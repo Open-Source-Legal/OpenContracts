@@ -12,7 +12,7 @@ pydantic==2.*
 typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests>=2.33.1,<3  # https://requests.readthedocs.io/en/latest/
 httpx>=0.28.1,<1  # https://github.com/encode/httpx - async HTTP for agent tools
-brotli>=1.1.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes)
+brotli>=1.1.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes). Floor is 1.1.0 because that is the current major-version line (released 2023-09) under active upstream maintenance; the underlying _brotli C-extension API httpx looks up has been stable since 1.0.x, so loosening the floor is safe if a transitive constraint demands it.
 
 
 # Django
