@@ -38,7 +38,7 @@ def get_embedder(
         get_default_embedder,
     )
 
-    embedder_class = None
+    embedder_class: Optional[type[BaseEmbedder]] = None
 
     # Try to get the corpus's preferred embedder
     if embedder_path:
@@ -129,7 +129,7 @@ def get_embedder(
         f"Return embedder class: {embedder_class}, embedder path: {embedder_path}"
     )
 
-    return embedder_class, embedder_path
+    return cast(Optional[type[BaseEmbedder]], embedder_class), embedder_path
 
 
 def generate_embeddings_from_text(

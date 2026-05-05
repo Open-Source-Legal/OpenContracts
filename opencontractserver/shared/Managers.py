@@ -140,7 +140,7 @@ class BaseVisibilityManager(Manager):
         """
         Returns queryset filtered to only objects visible to the user.
 
-        This implements the exact same logic as the fallback in old resolve_oc_model_queryset:
+        Visibility rules:
         - Superusers see everything
         - Anonymous users see only public objects
         - Authenticated users see: public objects, objects they created, or objects with explicit permissions
