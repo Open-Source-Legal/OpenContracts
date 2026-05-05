@@ -87,3 +87,30 @@ class IngestDocPermissionCheckTests(TestCase):
             any("[SECURITY]" in line for line in captured.output),
             msg=f"Expected a SECURITY-tagged log line; got: {captured.output}",
         )
+
+    def test_retry_document_processing_refuses_for_nonexistent_user(self):
+        """retry_document_processing must fail closed with [SECURITY] log when
+        the supplied user_id does not correspond to any User row.
+
+        This exercises the new User.DoesNotExist branch added in the T-7
+        follow-up review, which returns 'Invalid user for retry' (distinct from
+        'Document not found') and emits a [SECURITY]-tagged audit line.
+        """
+        Document.objects.filter(pk=self.doc.id).update(
+            processing_status=DocumentProcessingStatus.FAILED
+        )
+        with self.assertLogs(
+            "opencontractserver.tasks.doc_tasks", level=logging.ERROR
+        ) as captured:
+            result = retry_document_processing.apply(
+                kwargs={"user_id": 999_999_999, "doc_id": self.doc.id}
+            ).get()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["message"], "Invalid user for retry")
+        # The document must remain untouched.
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.processing_status, DocumentProcessingStatus.FAILED)
+        self.assertTrue(
+            any("[SECURITY]" in line for line in captured.output),
+            msg=f"Expected a SECURITY-tagged log line; got: {captured.output}",
+        )

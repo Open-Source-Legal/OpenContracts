@@ -851,8 +851,10 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
         user_obj = User.objects.get(pk=user_id)
     except User.DoesNotExist:
         logger.error(
-            f"[SECURITY] [retry_document_processing] user_id={user_id} does "
-            f"not exist; refusing to retry doc_id={doc_id}."
+            "[SECURITY] [retry_document_processing] user_id=%s does "
+            "not exist; refusing to retry doc_id=%s.",
+            user_id,
+            doc_id,
         )
         return {
             "status": "error",
