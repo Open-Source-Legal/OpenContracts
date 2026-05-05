@@ -3071,8 +3071,17 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         created
       }
 
-      # Annotation fields (structural annotations loaded lazily for performance)
-      allAnnotations(corpusId: $corpusId, analysisId: $analysisId) {
+      # Annotation fields — structural annotations and structural relationships
+      # are excluded here and loaded on demand via
+      # GET_DOCUMENT_STRUCTURAL_ANNOTATIONS when the user toggles the
+      # corresponding visibility flag. Documents can have thousands of
+      # structural annotations, so eagerly serialising them on every open
+      # was the dominant cost of this query.
+      allAnnotations(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         page
         analysis {
@@ -3103,7 +3112,11 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         structural
         contentModalities
       }
-      allRelationships(corpusId: $corpusId, analysisId: $analysisId) {
+      allRelationships(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         structural
         relationshipLabel {
@@ -3176,7 +3189,11 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
   ) {
     document(id: $documentId) {
       id
-      allAnnotations(corpusId: $corpusId, analysisId: $analysisId) {
+      allAnnotations(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         page
         analysis {
@@ -3207,7 +3224,11 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
         structural
         contentModalities
       }
-      allRelationships(corpusId: $corpusId, analysisId: $analysisId) {
+      allRelationships(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         structural
         relationshipLabel {
@@ -3243,8 +3264,16 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
  * Structural annotations are analysis-independent and only need to be
  * fetched once per document.
  *
+ * Also returns the document's structural relationships in the same
+ * round-trip — they connect structural annotations and are toggled by
+ * the same UI control, so loading them together avoids a second fetch
+ * when the user enables structural visibility.
+ *
  * Supports optional `annotationIds` filter to fetch only specific
- * structural annotations (used for deep-link navigation).
+ * structural annotations (used for deep-link navigation). Structural
+ * relationships are returned in full regardless of `annotationIds`
+ * because they're tiny compared to the annotation set and the deep-link
+ * path only needs them when navigating into structural data.
  */
 export interface GetDocumentStructuralAnnotationsInput {
   documentId: string;
@@ -3255,6 +3284,7 @@ export interface GetDocumentStructuralAnnotationsOutput {
   document: {
     id: string;
     allStructuralAnnotations: ServerAnnotationType[];
+    allStructuralRelationships: RelationshipType[];
   };
 }
 
@@ -3285,6 +3315,31 @@ export const GET_DOCUMENT_STRUCTURAL_ANNOTATIONS = gql`
         myPermissions
         structural
         contentModalities
+      }
+      allStructuralRelationships {
+        id
+        structural
+        relationshipLabel {
+          id
+          text
+          color
+          icon
+          description
+        }
+        sourceAnnotations {
+          edges {
+            node {
+              id
+            }
+          }
+        }
+        targetAnnotations {
+          edges {
+            node {
+              id
+            }
+          }
+        }
       }
     }
   }
