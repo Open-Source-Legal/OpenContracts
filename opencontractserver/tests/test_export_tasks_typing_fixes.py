@@ -49,9 +49,7 @@ class FinalizeExportTestCase(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="finalize_user", password="pw")
-        self.corpus = Corpus.objects.create(
-            title="FinalizeCorpus", creator=self.user
-        )
+        self.corpus = Corpus.objects.create(title="FinalizeCorpus", creator=self.user)
         self.export = UserExport.objects.create(
             name="finalize-test",
             creator=self.user,
@@ -62,9 +60,7 @@ class FinalizeExportTestCase(TestCase):
         """finalize_export saves the zip, clears backend_lock, and sets finished."""
         buf = _make_tiny_zip()
 
-        finalize_export(
-            self.export.id, "corpus_export.zip", buf, self.corpus.title
-        )
+        finalize_export(self.export.id, "corpus_export.zip", buf, self.corpus.title)
 
         self.export.refresh_from_db()
         self.assertFalse(self.export.backend_lock)
@@ -79,9 +75,7 @@ class FinalizeExportTestCase(TestCase):
         buf.read(5)
 
         # Should not raise even though the buffer position is non-zero.
-        finalize_export(
-            self.export.id, "corpus_export.zip", buf, self.corpus.title
-        )
+        finalize_export(self.export.id, "corpus_export.zip", buf, self.corpus.title)
 
         self.export.refresh_from_db()
         self.assertTrue(bool(self.export.file.name))
@@ -91,12 +85,8 @@ class OnDemandPostProcessorsTestCase(TestCase):
     """on_demand_post_processors: guard against missing export file."""
 
     def setUp(self):
-        self.user = User.objects.create_user(
-            username="postproc_user", password="pw"
-        )
-        self.corpus = Corpus.objects.create(
-            title="PPCorpus", creator=self.user
-        )
+        self.user = User.objects.create_user(username="postproc_user", password="pw")
+        self.corpus = Corpus.objects.create(title="PPCorpus", creator=self.user)
         self.export = UserExport.objects.create(
             name="postproc-test",
             creator=self.user,
@@ -112,7 +102,9 @@ class OnDemandPostProcessorsTestCase(TestCase):
         # Ensure there is no file saved (the factory default).
         self.assertFalse(bool(self.export.file.name))
 
-        with self.assertRaises(RuntimeError, msg="Expected RuntimeError for missing file"):
+        with self.assertRaises(
+            RuntimeError, msg="Expected RuntimeError for missing file"
+        ):
             on_demand_post_processors(self.export.id, self.corpus.id)
 
     def test_no_post_processors_is_a_noop(self):
@@ -134,12 +126,8 @@ class PackageFunsdExportsIntKeyTestCase(TestCase):
     """
 
     def setUp(self):
-        self.user = User.objects.create_user(
-            username="funsd_user", password="pw"
-        )
-        self.corpus = Corpus.objects.create(
-            title="FunsdCorpus", creator=self.user
-        )
+        self.user = User.objects.create_user(username="funsd_user", password="pw")
+        self.corpus = Corpus.objects.create(title="FunsdCorpus", creator=self.user)
         self.export = UserExport.objects.create(
             name="funsd-test",
             creator=self.user,
@@ -266,9 +254,7 @@ class PackageFunsdExportsIntKeyTestCase(TestCase):
         page_image_paths = []
         try:
             for _ in range(2):
-                tmp = tempfile.NamedTemporaryFile(
-                    suffix=".png", delete=False
-                )
+                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
                 tmp.write(b"\x89PNG\r\n\x1a\n")
                 tmp.close()
                 tmp_files.append(tmp.name)
@@ -305,9 +291,7 @@ class PackageCorpusExportV2ErrorsFieldTestCase(TestCase):
     """
 
     def setUp(self):
-        self.user = User.objects.create_user(
-            username="v2_err_user", password="pw"
-        )
+        self.user = User.objects.create_user(username="v2_err_user", password="pw")
         self.export = UserExport.objects.create(
             name="v2-err-test",
             creator=self.user,

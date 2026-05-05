@@ -164,17 +164,16 @@ def package_corpus_export_v2(
                 structural_annotation_sets[struct_set.content_hash] = struct_export
 
         # ===== PART 3: Export Corpus Metadata (V2 enhanced) =====
-        # ``v2_format=True`` guarantees a V2 dict; cast for mypy.
-        corpus_export = cast(
-            OpenContractCorpusV2Type,
-            package_corpus_for_export(corpus, v2_format=True),
-        )
+        # ``v2_format=True`` guarantees a V2 dict at runtime; check first,
+        # then cast so mypy can narrow the type.
+        _corpus_export = package_corpus_for_export(corpus, v2_format=True)
         label_set_export = package_label_set_for_export(corpus.label_set)
-        if corpus_export is None or label_set_export is None:
+        if _corpus_export is None or label_set_export is None:
             raise RuntimeError(
                 f"Failed to package corpus or label set for V2 export of corpus "
                 f"{corpus_pk}"
             )
+        corpus_export = cast(OpenContractCorpusV2Type, _corpus_export)
 
         # ===== PART 4: Export Folders =====
         folders_export = package_corpus_folders(corpus)
