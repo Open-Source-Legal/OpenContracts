@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any
 from celery import chain
 from django.apps import apps
 from django.conf import settings
-from django.db import transaction
+from django.db import connections, transaction
+from django.db.models import FileField
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import Signal
 from django.utils import timezone
@@ -168,6 +169,15 @@ def process_doc_on_document_path_create(
 
 DOC_DELETE_CAPTURE_SS_UID = "capture_structural_set_id_pre_delete"
 DOC_DELETE_GC_SS_UID = "gc_orphan_structural_set_post_delete"
+DOC_DELETE_CAPTURE_BLOBS_UID = "capture_blob_paths_pre_delete"
+DOC_DELETE_SCHEDULE_BLOB_GC_UID = "schedule_blob_gc_post_delete"
+
+# Per-DB-connection accumulator keys for batched blob cleanup. Both are
+# attributes set directly on the connection object so they share its
+# transactional lifetime (cleared automatically when the connection is
+# closed by the test runner between tests).
+_PENDING_BLOB_CLEANUP_KEY = "_oc_pending_blob_cleanup_paths"
+_BLOB_CLEANUP_SCHEDULED_KEY = "_oc_blob_cleanup_on_commit_registered"
 
 
 def _capture_structural_set_id(sender, instance, **kwargs):
@@ -177,6 +187,83 @@ def _capture_structural_set_id(sender, instance, **kwargs):
     deletion, so we have to record it pre_delete to inspect it post_delete.
     """
     instance._structural_set_id_at_delete = instance.structural_annotation_set_id
+
+
+def _capture_blob_paths_pre_delete(sender, instance, **kwargs):
+    """Capture every populated FileField blob path before the row is gone.
+
+    Issue #1492: when a Document is deleted we want to reclaim its file
+    blobs from storage — but only if no other Document still references
+    them (corpus-isolated copies created by ``Corpus.add_document`` share
+    blob paths by design, see issue #1464). We record the candidate
+    paths pre-delete and let the matching ``post_delete`` handler fold
+    them into a per-transaction set that fires a single Celery task on
+    commit.
+
+    The field list is derived from ``_meta`` so adding a new ``FileField``
+    on Document automatically extends coverage (parity with
+    ``Document.safe_delete_field_blob`` and
+    ``DocumentManager.unique_blob_paths``).
+    """
+    paths: list[str] = []
+    for field in instance._meta.get_fields():
+        if not isinstance(field, FileField):
+            continue
+        value = getattr(instance, field.name, None)
+        if value and value.name:
+            paths.append(value.name)
+    instance._captured_blob_paths = paths
+
+
+def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
+    """Schedule async cleanup of blobs that may have been orphaned.
+
+    Per-instance signals fire for both ``Model.delete()`` and
+    ``QuerySet.delete()`` once the model has signal listeners, so this
+    handler covers both deletion paths uniformly. To avoid spawning one
+    Celery task per Document on bulk delete, we accumulate paths into a
+    connection-level set and register a single ``transaction.on_commit``
+    callback per transaction that fires one task with all collected
+    paths.
+
+    Transaction safety: ``on_commit`` callbacks do not fire on rollback,
+    so a failed/rolled-back Document deletion never reaches the storage
+    layer.
+    """
+    paths = getattr(instance, "_captured_blob_paths", None)
+    if not paths:
+        return
+
+    connection = connections[using]
+
+    pending = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, None)
+    if pending is None:
+        pending = set()
+        setattr(connection, _PENDING_BLOB_CLEANUP_KEY, pending)
+    pending.update(paths)
+
+    if getattr(connection, _BLOB_CLEANUP_SCHEDULED_KEY, False):
+        # Another Document delete in this transaction already registered
+        # the on_commit hook — just contribute paths to the shared set.
+        return
+    setattr(connection, _BLOB_CLEANUP_SCHEDULED_KEY, True)
+
+    def _flush_blob_cleanup() -> None:
+        collected = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
+        # Reset state regardless of payload so a subsequent transaction
+        # starts from a clean slate even if dispatch raises.
+        setattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
+        setattr(connection, _BLOB_CLEANUP_SCHEDULED_KEY, False)
+        if not collected:
+            return
+        from opencontractserver.tasks.cleanup_tasks import (
+            cleanup_orphaned_document_blobs_task,
+        )
+        # ``sorted`` makes task arguments deterministic (helps tests +
+        # idempotent retries); ``list`` because Celery JSON-serialises.
+        cleanup_orphaned_document_blobs_task.delay(sorted(collected))
+
+    transaction.on_commit(_flush_blob_cleanup, using=using)
 
 
 def _gc_orphan_structural_set(sender, instance, **kwargs):
@@ -243,4 +330,17 @@ def connect_corpus_document_signals() -> None:
         _gc_orphan_structural_set,
         sender=Document,
         dispatch_uid=DOC_DELETE_GC_SS_UID,
+    )
+
+    # Document deletion (#1492): capture FileField blob paths pre_delete
+    # and schedule async storage cleanup post_delete via on_commit.
+    pre_delete.connect(
+        _capture_blob_paths_pre_delete,
+        sender=Document,
+        dispatch_uid=DOC_DELETE_CAPTURE_BLOBS_UID,
+    )
+    post_delete.connect(
+        _schedule_blob_cleanup_post_delete,
+        sender=Document,
+        dispatch_uid=DOC_DELETE_SCHEDULE_BLOB_GC_UID,
     )
