@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import django
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import AnonymousUser, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from guardian.shortcuts import assign_perm, remove_perm
@@ -15,6 +15,7 @@ from config.graphql.permissioning.permission_annotator.middleware import combine
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
+    from opencontractserver.corpuses.models import Corpus
     from opencontractserver.users.models import User as UserModel
 
 User = get_user_model()
@@ -600,3 +601,70 @@ def user_has_permission_for_obj(
         )
     else:
         return False
+
+
+def user_can_modify_corpus(
+    user_val: int | str | UserModel | AnonymousUser | None,
+    corpus: Corpus,
+    *,
+    include_group_permissions: bool = True,
+) -> bool:
+    """
+    Single-source-of-truth check for "can this user modify this corpus".
+
+    Canonical pattern, replacing inline
+    ``user.is_superuser or corpus.creator_id == user.id or
+    user_has_permission_for_obj(user, corpus, UPDATE, ...)`` checks
+    scattered across mutations. Centralizing keeps mutation paths
+    consistent as the permission model evolves (sharing, group
+    inheritance, MIN(doc, corpus)).
+
+    Returns True iff:
+        - user is a superuser, OR
+        - user is the corpus creator, OR
+        - user has explicit guardian UPDATE on the corpus (optionally
+          via group permissions).
+
+    Anonymous / unauthenticated users always get False. A non-existent
+    user id is also rejected with ``False`` (rather than raising) so
+    callers can hand-resolve dangling/external ids without a try/except.
+
+    Args:
+        user_val: A user id (int or string-encoded int), a User
+            instance, ``AnonymousUser``, or ``None``. ``None`` and
+            unauthenticated users are rejected.
+        corpus: The Corpus instance to check against.
+        include_group_permissions: Whether to consult group-level
+            guardian permissions in addition to user-level ones.
+            Defaults to True, matching the call sites this helper
+            replaces.
+    """
+    if user_val is None:
+        return False
+
+    if isinstance(user_val, AnonymousUser):
+        return False
+
+    if isinstance(user_val, (str, int)):
+        try:
+            user = User.objects.get(id=user_val)
+        except User.DoesNotExist:
+            return False
+    else:
+        user = user_val
+
+    if not getattr(user, "is_authenticated", False):
+        return False
+
+    if user.is_superuser:
+        return True
+
+    if getattr(corpus, "creator_id", None) == user.id:
+        return True
+
+    return user_has_permission_for_obj(
+        user,
+        corpus,
+        PermissionTypes.UPDATE,
+        include_group_permissions=include_group_permissions,
+    )
