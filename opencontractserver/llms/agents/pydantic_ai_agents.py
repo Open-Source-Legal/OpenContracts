@@ -1573,8 +1573,16 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
 
         pending = paused_msg.data.get("pending_tool_call") or {}
         # Schema invariant: when a message is awaiting approval the
-        # pending_tool_call payload always carries a "name" string.
+        # pending_tool_call payload always carries a "name" string. Warn if
+        # missing so malformed persistence state surfaces in logs instead of
+        # silently driving downstream lookups with an empty tool name.
         tool_name = str(pending.get("name") or "")
+        if not tool_name:
+            logger.warning(
+                "pending_tool_call missing 'name' for paused message %s; "
+                "downstream tool dispatch will fail",
+                paused_msg.id,
+            )
         tool_args_raw = pending.get("arguments", {})
 
         # Log the raw state for debugging

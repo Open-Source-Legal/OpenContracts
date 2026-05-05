@@ -13,6 +13,7 @@ from typing import (
     Protocol,
     TypeVar,
     Union,
+    cast,
     runtime_checkable,
 )
 
@@ -672,9 +673,8 @@ class CoreAgentBase(ABC):
         # Unreachable: declares this as an async generator at the type level so
         # mypy understands ``async for evt in self._stream_raw(...)`` consumes
         # an iterable rather than awaiting a coroutine.
-        from typing import cast as _cast
-
-        yield _cast(UnifiedStreamEvent, None)
+        if False:  # pragma: no cover
+            yield cast(UnifiedStreamEvent, None)
 
     async def _structured_response_raw(
         self,

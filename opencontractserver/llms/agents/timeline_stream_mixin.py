@@ -29,7 +29,7 @@ class TimelineStreamMixin:  # pylint: disable=too-few-public-methods
     # Adapters must override -------------------------------------------------
     async def _stream_core(  # noqa: D401
         self, message: str, **kwargs: Any
-    ) -> AsyncGenerator[UnifiedStreamEvent, None]:
+    ) -> AsyncGenerator[UnifiedStreamEvent]:
         """Yield events – to be implemented by concrete adapters."""
         raise NotImplementedError("_stream_core() must be implemented by adapter")
         # The unreachable yield turns this into an async generator so the
@@ -40,7 +40,7 @@ class TimelineStreamMixin:  # pylint: disable=too-few-public-methods
     # Public API -------------------------------------------------------------
     async def stream(
         self, message: str, **kwargs: Any
-    ) -> AsyncGenerator[UnifiedStreamEvent, None]:
+    ) -> AsyncGenerator[UnifiedStreamEvent]:
         """Wrapper that delegates to ``_stream_core`` and builds a timeline."""
 
         builder = TimelineBuilder()

@@ -196,7 +196,13 @@ class CoreAnnotationVectorStore:
             embedder_class, detected_embedder_path = get_embedder(
                 corpus_id=corpus_id,
             )
-        self.embedder_path = detected_embedder_path
+        if detected_embedder_path is None:
+            raise ValueError(
+                "get_embedder() resolved no embedder_path; vector search "
+                "cannot proceed without one. Check corpus.preferred_embedder "
+                "or the global default."
+            )
+        self.embedder_path: str = detected_embedder_path
         _logger.debug(f"Configured embedder path: {self.embedder_path}")
 
         # Validate or fallback dimension

@@ -159,6 +159,11 @@ class CoreConversationVectorStore:
                 corpus_id=corpus_id,
                 embedder_path=None,
             )
+            if detected_embedder_path is None:
+                raise ValueError(
+                    "get_embedder() resolved no embedder_path; conversation "
+                    "vector search cannot proceed without one."
+                )
             self.embedder_path = detected_embedder_path
             _logger.debug(f"Auto-detected embedder path: {self.embedder_path}")
 
@@ -385,6 +390,11 @@ class CoreChatMessageVectorStore:
                 corpus_id=corpus_id,
                 embedder_path=None,
             )
+            if detected_embedder_path is None:
+                raise ValueError(
+                    "get_embedder() resolved no embedder_path; conversation "
+                    "vector search cannot proceed without one."
+                )
             self.embedder_path = detected_embedder_path
             _logger.debug(f"Auto-detected embedder path: {self.embedder_path}")
 
