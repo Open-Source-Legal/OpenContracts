@@ -15,7 +15,6 @@
  */
 
 import React, {
-  SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -25,7 +24,7 @@ import React, {
 import { useLazyQuery, useQuery, useReactiveVar } from "@apollo/client";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, ArrowLeft, Send, Home } from "lucide-react";
-import { Button, Spinner } from "@os-legal/ui";
+import { Button } from "@os-legal/ui";
 import {
   CONVERSATION_TYPE,
   WS_ERROR_CONTEXT_EXHAUSTED,
@@ -57,6 +56,7 @@ import {
 import {
   ChatMessage,
   ChatMessageProps,
+  StreamingThoughtTicker,
   TimelineEntry,
 } from "../widgets/chat/ChatMessage";
 import { getUnifiedAgentWebSocket } from "../chat/get_websockets";
@@ -79,7 +79,6 @@ import {
   MessagesArea,
   MessageWrapper,
   LatestMessageIndicator,
-  ProcessingIndicator,
   ChatInputWrapper,
   EnhancedChatInputContainer,
   EnhancedChatInput,
@@ -120,6 +119,12 @@ interface CorpusChatProps {
    * that every source is effectively a cross-document navigation.
    */
   onSourceNavigate?: (source: ChatMessageSource) => void;
+  /**
+   * When true, the conversation-list view's filter-bar Back button is hidden.
+   * Use this when the parent already renders an outer navigation header with
+   * its own Back affordance — keeping both creates a duplicate-back UX bug.
+   */
+  hideListBackButton?: boolean;
 }
 
 /**
@@ -142,6 +147,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   onNavigateHome,
   onViewModeChange,
   onSourceNavigate,
+  hideListBackButton = false,
 }) => {
   // Chat state
   const [isNewChat, setIsNewChat] = useState(forceNewChat);
@@ -252,6 +258,28 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
 
   // messages container ref for scrolling
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // Textarea ref + auto-resize so the input starts at one row and grows up to
+  // its CSS max-height as the user types, then becomes scrollable. Mirrors the
+  // pattern used in ChatTray so document-chat and corpus-chat behave the same.
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustInputHeight = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    if (!newMessage) {
+      const el = inputRef.current;
+      if (el) {
+        // Reset to the CSS-defined initial height when the input is cleared.
+        el.style.height = "";
+      }
+    }
+  }, [newMessage]);
 
   /**
    * On server data load, map messages to local ChatMessageProps and store any 'sources' in chatSourcesAtom.
@@ -1085,9 +1113,23 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                         // onMessageSelect is intentionally skipped — navigation
                         // replaces the entire view, so local selection state
                         // and message callbacks are irrelevant.
+                        console.debug("[CorpusChat] Source chip clicked", {
+                          documentId: source.document_id,
+                          annotationId: source.annotation_id,
+                          hasOnSourceNavigate: !!onSourceNavigate,
+                        });
                         if (source.document_id && onSourceNavigate) {
                           onSourceNavigate(source);
                           return;
+                        }
+                        if (!source.document_id) {
+                          console.warn(
+                            "[CorpusChat] Source has no document_id; cannot deep-link. The backend should populate it for corpus-chat sources via SourceNode.metadata.document_id."
+                          );
+                        } else if (!onSourceNavigate) {
+                          console.warn(
+                            "[CorpusChat] onSourceNavigate not provided by parent; cross-document deep-link disabled in this mount path."
+                          );
                         }
 
                         // Same-document source: select locally
@@ -1149,40 +1191,33 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                   );
                 })}
 
-                {/* Show processing indicator as a message in the chat */}
-                {isProcessing && (
-                  <MessageWrapper
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.3 }}
-                    style={{
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      padding: "1rem 0",
-                    }}
-                  >
-                    <ProcessingIndicator
-                      initial={{ scale: 0.95 }}
-                      animate={{ scale: 1 }}
-                      transition={{
-                        duration: 2,
-                        repeat: Infinity,
-                        repeatType: "reverse",
-                        ease: "easeInOut",
-                      }}
-                    >
-                      <div className="pulse-dot" />
-                      <Spinner size="sm" />
-                      <span>AI Assistant is thinking...</span>
-                      <div
-                        className="pulse-dot"
-                        style={{ animationDelay: "0.5s" }}
-                      />
-                    </ProcessingIndicator>
-                  </MessageWrapper>
-                )}
+                {/* In-flight signal lives inline on the streaming assistant
+                    message via StreamingThoughtTicker — the old standalone
+                    "AI Assistant is thinking..." pill was removed in favor of
+                    the per-message animated ticker icon + breathing dot.
+
+                    The pre-message warm-up beat (after the user sends, before
+                    the assistant's message exists in `chat`) is bridged by a
+                    standalone ticker so the user always has a visible cue. */}
+                {isProcessing &&
+                  (() => {
+                    const last = combinedMessages[combinedMessages.length - 1];
+                    const inFlightAssistantPresent =
+                      !!last && !!last.isAssistant && last.isComplete !== true;
+                    if (inFlightAssistantPresent) return null;
+                    return (
+                      <MessageWrapper
+                        data-testid="streaming-warmup-ticker-wrapper"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.2 }}
+                        style={{ paddingLeft: "1rem" }}
+                      >
+                        <StreamingThoughtTicker timeline={[]} />
+                      </MessageWrapper>
+                    );
+                  })()}
               </MessagesArea>
 
               {/* Compaction banner (visible while compaction is underway) */}
@@ -1361,10 +1396,15 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                   </AnimatePresence>
                   <InputRow>
                     <EnhancedChatInput
+                      ref={inputRef}
+                      rows={1}
                       value={newMessage}
-                      onChange={(e: {
-                        target: { value: SetStateAction<string> };
-                      }) => setNewMessage(e.target.value)}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                        setNewMessage(e.target.value);
+                        // Defer measurement until after React commits the new
+                        // value so scrollHeight reflects the typed content.
+                        setTimeout(adjustInputHeight, 0);
+                      }}
                       placeholder={
                         wsReady
                           ? isProcessing
@@ -1373,8 +1413,14 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                           : "Waiting for connection..."
                       }
                       disabled={!wsReady || isProcessing || contextExhausted}
-                      onKeyDown={(e: { key: string }) => {
-                        if (e.key === "Enter") {
+                      onKeyDown={(
+                        e: React.KeyboardEvent<HTMLTextAreaElement>
+                      ) => {
+                        // Shift+Enter inserts a newline; bare Enter sends the
+                        // message — matches ChatTray and the user's expectation
+                        // for a multi-line auto-growing input.
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
                           sendMessageOverSocket();
                         }
                       }}
@@ -1411,7 +1457,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
               onCreatedAtGteChange={setCreatedAtGte}
               createdAtLte={createdAtLte}
               onCreatedAtLteChange={setCreatedAtLte}
-              onBack={onNavigateHome}
+              onBack={hideListBackButton ? undefined : onNavigateHome}
             />
           )}
         </AnimatePresence>

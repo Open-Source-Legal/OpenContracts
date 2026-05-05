@@ -21,7 +21,7 @@ import {
   Note,
 } from "./types";
 import { useAllAnnotations } from "../../../annotator/hooks/useAllAnnotations";
-import { usePdfAnnotations } from "../../../annotator/hooks/AnnotationHooks";
+import { useAllRelations } from "../../../annotator/hooks/useAllRelations";
 import { useAnnotationDisplay } from "../../../annotator/context/UISettingsAtom";
 import { useAnnotationControls } from "../../../annotator/context/UISettingsAtom";
 import {
@@ -183,8 +183,9 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
 }) => {
   /* Data sources - bypass showSelectedOnly filter for feed */
   const allAnnotations = useAllAnnotations();
-  const { pdfAnnotations } = usePdfAnnotations();
-  const allRelationships = pdfAnnotations?.relations ?? [];
+  // Includes structural relations once they're lazily loaded so badge counts
+  // and downstream UI reflect the full set, not just user-editable ones.
+  const allRelationships = useAllRelations();
 
   // Get display settings for structural filtering only (ignore showSelectedOnly)
   const { showStructural } = useAnnotationDisplay();

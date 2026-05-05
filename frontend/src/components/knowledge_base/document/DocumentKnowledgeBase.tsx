@@ -83,6 +83,7 @@ import {
   pdfAnnotationsAtom,
   structuralAnnotationsAtom,
   structuralAnnotationsLoadedAtom,
+  structuralRelationshipsAtom,
 } from "../../annotator/context/AnnotationAtoms";
 import {
   CorpusState,
@@ -447,6 +448,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
 
   const [pdfAnnotations, setPdfAnnotations] = useAtom(pdfAnnotationsAtom);
   const [, setStructuralAnnotations] = useAtom(structuralAnnotationsAtom);
+  const [, setStructuralRelationships] = useAtom(structuralRelationshipsAtom);
   const [structuralAnnotationsLoaded, setStructuralAnnotationsLoaded] = useAtom(
     structuralAnnotationsLoadedAtom
   );
@@ -608,6 +610,23 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
         setStructuralAnnotations(structuralAnns);
         setStructuralAnnotationsLoaded(true);
       }
+      if (data?.document?.allStructuralRelationships) {
+        const structuralRels = data.document.allStructuralRelationships.map(
+          (rel) =>
+            new RelationGroup(
+              rel.sourceAnnotations.edges
+                .map((edge) => edge?.node?.id)
+                .filter((id): id is string => id !== undefined),
+              rel.targetAnnotations.edges
+                .map((edge) => edge?.node?.id)
+                .filter((id): id is string => id !== undefined),
+              rel.relationshipLabel,
+              rel.id,
+              true // structural
+            )
+        );
+        setStructuralRelationships(structuralRels);
+      }
     },
   });
 
@@ -628,6 +647,30 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
           return newAnns.length > 0 ? [...prev, ...newAnns] : prev;
         });
       }
+      // Targeted fetch returns the document's full structural relationship
+      // set (the optimizer ignores annotation IDs for relationships) — merge
+      // by id so we don't drop already-loaded entries.
+      if (data?.document?.allStructuralRelationships) {
+        const structuralRels = data.document.allStructuralRelationships.map(
+          (rel) =>
+            new RelationGroup(
+              rel.sourceAnnotations.edges
+                .map((edge) => edge?.node?.id)
+                .filter((id): id is string => id !== undefined),
+              rel.targetAnnotations.edges
+                .map((edge) => edge?.node?.id)
+                .filter((id): id is string => id !== undefined),
+              rel.relationshipLabel,
+              rel.id,
+              true // structural
+            )
+        );
+        setStructuralRelationships((prev) => {
+          const existingIds = new Set(prev.map((r) => r.id));
+          const newRels = structuralRels.filter((r) => !existingIds.has(r.id));
+          return newRels.length > 0 ? [...prev, ...newRels] : prev;
+        });
+      }
     },
   });
 
@@ -635,7 +678,13 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   useEffect(() => {
     setStructuralAnnotationsLoaded(false);
     setStructuralAnnotations([]);
-  }, [documentId, setStructuralAnnotationsLoaded, setStructuralAnnotations]);
+    setStructuralRelationships([]);
+  }, [
+    documentId,
+    setStructuralAnnotationsLoaded,
+    setStructuralAnnotations,
+    setStructuralRelationships,
+  ]);
 
   // Fetch ALL structural annotations when the user toggles structural visibility
   useEffect(() => {
