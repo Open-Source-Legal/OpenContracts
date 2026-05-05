@@ -57,9 +57,15 @@ from opencontractserver.utils.permissioning import (
 )
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AnonymousUser
+
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
     from opencontractserver.documents.models import Document, DocumentPath
     from opencontractserver.users.models import User
+
+    # Public corpora are reachable to AnonymousUser, so service entry points
+    # that accept either kind of caller use this alias instead of bare ``User``.
+    UserOrAnonymous = User | AnonymousUser
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +118,7 @@ class DocumentFolderService:
     @classmethod
     def check_corpus_read_permission(
         cls,
-        user: User,
+        user: UserOrAnonymous,
         corpus: Corpus,
     ) -> bool:
         """
@@ -2784,7 +2790,7 @@ class DocumentFolderService:
     @classmethod
     def get_corpus_documents(
         cls,
-        user: User,
+        user: UserOrAnonymous,
         corpus: Corpus,
         include_deleted: bool = False,
     ) -> QuerySet[Document]:
