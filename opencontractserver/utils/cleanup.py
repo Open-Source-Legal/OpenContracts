@@ -31,7 +31,7 @@ def delete_analysis_and_annotations(analysis_pk: str | int = -1) -> bool:
         with transaction.atomic():
 
             # Bulk update actual annotations
-            Analysis.annotations.filter(analysis_id=analysis_pk).delete()
+            analysis.annotations.all().delete()
             analysis.delete()
 
     except Exception as e:

@@ -46,8 +46,8 @@ class MarkdownParser(BaseParser):
             raw = txt_file.read()
             text_content = raw.decode("utf-8") if isinstance(raw, bytes) else raw
 
-        return {
-            "title": document.title,
+        result: OpenContractDocExport = {
+            "title": document.title or "",
             "content": text_content,
             "description": document.description or "",
             "pawls_file_content": [],
@@ -55,3 +55,4 @@ class MarkdownParser(BaseParser):
             "doc_labels": [],
             "labelled_text": [],
         }
+        return result
