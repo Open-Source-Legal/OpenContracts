@@ -11,10 +11,10 @@ logger.setLevel(logging.DEBUG)
 
 
 def get_embedder(
-    corpus_id: int | str = None,
-    mimetype_or_enum: Union[str, FileTypeEnum] = None,
+    corpus_id: Optional[Union[int, str]] = None,
+    mimetype_or_enum: Optional[Union[str, FileTypeEnum]] = None,
     embedder_path: Optional[str] = None,
-) -> tuple[type[BaseEmbedder], str]:
+) -> tuple[Optional[type[BaseEmbedder]], Optional[str]]:
     """
     Get the appropriate embedder for a corpus.
 
@@ -168,9 +168,7 @@ def generate_embeddings_from_text(
             embedder_instance = embedder_class()
 
             logger.debug(f"Embedding text with {embedder_class.__name__}")
-            # ``embedder_class`` is dynamically loaded; mypy cannot resolve
-            # ``embed_text`` on the abstract base before the runtime check.
-            vector = embedder_instance.embed_text(text)  # type: ignore[attr-defined]
+            vector = embedder_instance.embed_text(text)
             return embedder_path, vector
         except Exception as e:
             logger.error(
@@ -199,10 +197,10 @@ def calculate_embedding_for_text(
 
 
 async def aget_embedder(
-    corpus_id: int | str | None = None,
-    mimetype_or_enum: Union[str, FileTypeEnum, None] = None,
+    corpus_id: Optional[Union[int, str]] = None,
+    mimetype_or_enum: Optional[Union[str, FileTypeEnum]] = None,
     embedder_path: Optional[str] = None,
-) -> tuple[type[BaseEmbedder], str]:
+) -> tuple[Optional[type[BaseEmbedder]], Optional[str]]:
     """
     Async version of `get_embedder`.
 

@@ -10,6 +10,9 @@ import environ
 from opencontractserver.constants.agent_memory import (
     MEMORY_CURATION_CHECK_INTERVAL_SECONDS,
 )
+from opencontractserver.constants.celery import (
+    CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS,
+)
 from opencontractserver.constants.document_processing import MAX_FILE_UPLOAD_SIZE_BYTES
 
 ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
@@ -711,7 +714,14 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 # than raising the timeout further; longer timeouts directly delay redelivery
 # after a real worker death.
 # https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html#visibility-timeout
-CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 12 * 60 * 60}
+#
+# If adding new transport options in environment-specific settings (e.g.
+# production SSL options), merge into this dict rather than reassigning it —
+# a bare ``CELERY_BROKER_TRANSPORT_OPTIONS = {...}`` would drop the
+# visibility timeout and silently regress at-least-once delivery.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "visibility_timeout": CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS,
+}
 
 # Celery task routing
 # -----------------------------------------------------------------------
