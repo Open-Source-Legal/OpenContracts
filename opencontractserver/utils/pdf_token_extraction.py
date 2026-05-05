@@ -762,9 +762,14 @@ def _extract_images_for_page(
                 # Convert to target format
                 img_bytes_io = io.BytesIO()
                 if image_format == "jpeg":
-                    # Convert to RGB for JPEG (no alpha channel)
+                    # Convert to RGB for JPEG (no alpha channel).
+                    # Close the original before rebinding so the pre-conversion
+                    # buffer is released and not leaked when pil_image is later
+                    # closed in the finally block below.
                     if pil_image.mode in ("RGBA", "LA", "P"):
-                        pil_image = pil_image.convert("RGB")
+                        converted = pil_image.convert("RGB")
+                        _close_quietly(pil_image)
+                        pil_image = converted
                     pil_image.save(img_bytes_io, format="JPEG", quality=jpeg_quality)
                 else:
                     pil_image.save(img_bytes_io, format="PNG")
@@ -1044,13 +1049,19 @@ def crop_image_from_pdf(
         # Convert to target format
         img_bytes_io = io.BytesIO()
         if image_format == "jpeg":
+            # Close the original before rebinding so the pre-conversion
+            # buffer is not leaked when the reference is rebound.
             if pil_image.mode in ("RGBA", "LA", "P"):
-                pil_image = pil_image.convert("RGB")
+                converted = pil_image.convert("RGB")
+                _close_quietly(pil_image)
+                pil_image = converted
             pil_image.save(img_bytes_io, format="JPEG", quality=jpeg_quality)
         else:
             pil_image.save(img_bytes_io, format="PNG")
+        _close_quietly(pil_image)
 
         image_bytes = img_bytes_io.getvalue()
+        _close_quietly(img_bytes_io)
 
         # Check image size limit
         if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
