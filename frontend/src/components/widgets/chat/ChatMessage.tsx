@@ -552,7 +552,7 @@ const TimelineContent = styled(motion.div)`
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   color: #4a5568;
-  max-height: 400px;
+  max-height: 220px;
   overflow-y: auto;
   scroll-behavior: smooth;
   position: relative;
@@ -628,6 +628,27 @@ const TimelineItem = styled.div<{ $type: TimelineEntry["type"] }>`
   }
 `;
 
+const typeColor = (type: TimelineEntry["type"]) => {
+  switch (type) {
+    case "thought":
+      return "#a855f7";
+    case "tool_call":
+      return OS_LEGAL_COLORS.primaryBlue;
+    case "tool_result":
+      return OS_LEGAL_COLORS.green;
+    case "content":
+      return "#f97316";
+    case "sources":
+      return "#5c7c9d";
+    case "status":
+      return OS_LEGAL_COLORS.textMuted;
+    case "compaction":
+      return OS_LEGAL_COLORS.primaryBlueHover;
+    default:
+      return OS_LEGAL_COLORS.textMuted;
+  }
+};
+
 const TimelineIcon = styled.div<{ $type: TimelineEntry["type"] }>`
   display: flex;
   align-items: center;
@@ -637,26 +658,7 @@ const TimelineIcon = styled.div<{ $type: TimelineEntry["type"] }>`
   border-radius: 50%;
   flex-shrink: 0;
   background: transparent;
-  color: ${(props) => {
-    switch (props.$type) {
-      case "thought":
-        return "#a855f7";
-      case "tool_call":
-        return OS_LEGAL_COLORS.primaryBlue;
-      case "tool_result":
-        return OS_LEGAL_COLORS.green;
-      case "content":
-        return "#f97316";
-      case "sources":
-        return "#5c7c9d";
-      case "status":
-        return OS_LEGAL_COLORS.textMuted;
-      case "compaction":
-        return OS_LEGAL_COLORS.primaryBlueHover;
-      default:
-        return OS_LEGAL_COLORS.textMuted;
-    }
-  }};
+  color: ${(props) => typeColor(props.$type)};
 
   svg {
     width: 0.875rem;
@@ -1367,11 +1369,6 @@ const ToolUsageIndicator: React.FC<{
 interface TimelinePreviewProps {
   timeline: TimelineEntry[];
   collapsed?: boolean;
-  /**
-   * When true, only the most recent entry will start expanded – previous ones start collapsed.
-   * This is useful while the assistant is still streaming and we want a concise view.
-   */
-  expandLatestOnly?: boolean;
   onToggle?: () => void;
 }
 
@@ -1432,10 +1429,171 @@ const CollapsibleTimelineItem: React.FC<CollapsibleTimelineItemProps> = ({
   );
 };
 
+/* ------------------------------------------------------------------ */
+/* StreamingThoughtTicker                                              */
+/* ------------------------------------------------------------------ */
+
+const StreamingThoughtTickerWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  min-height: 1.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  color: #6b7280;
+  position: relative;
+  overflow: hidden;
+`;
+
+/**
+ * Soft-pulse + glow halo around the typed step icon. Signals "still working"
+ * without changing the icon itself, so a tool_call still reads as a wrench,
+ * a thought still reads as a lightning bolt, etc. The halo is the same
+ * type-color the icon uses, faded down. Pure CSS keyframes (no JS timer).
+ */
+const StreamingThoughtIcon = styled.div<{ $type: TimelineEntry["type"] }>`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  color: ${(props) => typeColor(props.$type)};
+  position: relative;
+
+  svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    animation: streaming-icon-pulse 1.6s ease-in-out infinite;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -0.25rem;
+    border-radius: 50%;
+    background: ${(props) => typeColor(props.$type)};
+    opacity: 0.18;
+    filter: blur(3px);
+    animation: streaming-icon-halo 1.6s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes streaming-icon-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.08);
+    }
+  }
+  @keyframes streaming-icon-halo {
+    0%,
+    100% {
+      opacity: 0.12;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 0.28;
+      transform: scale(1.1);
+    }
+  }
+`;
+
+/**
+ * A small breathing dot at the right edge of the ticker — the second
+ * "still alive" cue that survives even when the icon pulse is subtle.
+ */
+const StreamingPulseDot = styled.span`
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: ${OS_LEGAL_COLORS.primaryBlue};
+  margin-left: 0.375rem;
+  animation: streaming-pulse-dot 1.4s ease-in-out infinite;
+
+  @keyframes streaming-pulse-dot {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.3);
+    }
+  }
+`;
+
+const StreamingThoughtText = styled(motion.span)`
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+`;
+
+interface StreamingThoughtTickerProps {
+  timeline: TimelineEntry[];
+}
+
+/**
+ * Single-line "now-thinking" ticker shown while the assistant is streaming.
+ * Renders only the most recent timeline entry (animated icon + truncated
+ * title) and fades the previous one out as a new step arrives. When no
+ * timeline entry has arrived yet (warm-up beat), renders a generic
+ * "Thinking…" placeholder so there is always a visible activity cue while
+ * the assistant is working — replaces the old standalone "AI Assistant is
+ * thinking…" pill that floated under the messages.
+ *
+ * The full step-by-step list is still available after the message finalizes
+ * via the existing collapsible TimelinePreview inside the message bubble.
+ */
+export const StreamingThoughtTicker: React.FC<StreamingThoughtTickerProps> = ({
+  timeline,
+}) => {
+  const hasEntry = timeline.length > 0;
+  const latest = hasEntry ? timeline[timeline.length - 1] : null;
+  // Use a generic "thought"-typed placeholder so the icon and color match the
+  // most common streaming state (sparkle/lightning) when no entry has landed.
+  const displayType: TimelineEntry["type"] = latest?.type ?? "thought";
+  const key = hasEntry
+    ? `${timeline.length - 1}-${latest!.type}-${latest!.tool ?? ""}`
+    : "warming-up";
+  const title = latest ? getTimelineTitle(latest) : "Thinking";
+
+  return (
+    <StreamingThoughtTickerWrapper
+      data-testid="streaming-thought-ticker"
+      role="status"
+      aria-live="polite"
+      aria-label="Assistant is processing your request"
+    >
+      <StreamingThoughtIcon $type={displayType}>
+        {getTimelineIcon(displayType)}
+      </StreamingThoughtIcon>
+      <AnimatePresence exitBeforeEnter initial={false}>
+        <StreamingThoughtText
+          key={key}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+        >
+          {title}
+        </StreamingThoughtText>
+      </AnimatePresence>
+      <StreamingPulseDot aria-hidden="true" />
+    </StreamingThoughtTickerWrapper>
+  );
+};
+
 const TimelinePreview: React.FC<TimelinePreviewProps> = ({
   timeline,
   collapsed = true,
-  expandLatestOnly = false,
   onToggle,
 }) => {
   const [isExpanded, setIsExpanded] = useState(!collapsed);
@@ -1444,10 +1602,7 @@ const TimelinePreview: React.FC<TimelinePreviewProps> = ({
   const prevTimelineLengthRef = useRef(timeline.length);
 
   /* Expansion state per entry ----------------------------------------- */
-  const buildInitialExpandedStates = () =>
-    timeline.map((_, idx) =>
-      expandLatestOnly ? idx === timeline.length - 1 : true
-    );
+  const buildInitialExpandedStates = () => timeline.map(() => true);
 
   const [expandedStates, setExpandedStates] = useState<boolean[]>(
     buildInitialExpandedStates()
@@ -1530,17 +1685,14 @@ const TimelinePreview: React.FC<TimelinePreviewProps> = ({
     setIsExpanded(!collapsed);
   }, [collapsed]);
 
-  // Maintain expandedStates length & default for newest entry while streaming
+  // Maintain expandedStates length when new entries arrive after the user has
+  // opened the timeline post-completion (rare but possible — e.g. late server
+  // backfill of source/timeline data).
   useEffect(() => {
     setExpandedStates((prev) => {
       if (timeline.length > prev.length) {
         const additional = timeline.length - prev.length;
-        const newStates = [...prev, ...Array(additional).fill(false)];
-
-        if (expandLatestOnly) {
-          newStates[newStates.length - 1] = true; // latest expanded
-        }
-        return newStates;
+        return [...prev, ...Array(additional).fill(true)];
       }
 
       if (timeline.length < prev.length) {
@@ -1549,7 +1701,7 @@ const TimelinePreview: React.FC<TimelinePreviewProps> = ({
 
       return prev;
     });
-  }, [timeline.length, expandLatestOnly]);
+  }, [timeline.length]);
 
   const handleHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -1588,7 +1740,6 @@ const TimelinePreview: React.FC<TimelinePreviewProps> = ({
                   key={index}
                   entry={entry}
                   initiallyExpanded={expandedStates[index]}
-                  // Re-sync when expandedStates updates
                 />
               ))}
             </TimelineList>
@@ -1764,87 +1915,6 @@ const Timestamp = styled.div`
   }
 `;
 
-// Processing text - extracted for i18n readiness
-const PROCESSING_TEXT = "Agent is thinking...";
-const PROCESSING_ARIA_LABEL = "Agent is processing your request";
-
-// Processing indicator for when agent is working but hasn't sent content yet
-const ProcessingContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1.25rem 1.5rem;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 2px 8px rgba(23, 25, 35, 0.04);
-  margin-bottom: 0.25rem;
-  /* Fade to subtle static state after 30s to reduce visual noise on long processing */
-  animation: processingFadeToSubtle 30s ease-out forwards;
-
-  @keyframes processingFadeToSubtle {
-    0%,
-    90% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0.6;
-    }
-  }
-`;
-
-const ProcessingDots = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-`;
-
-const ProcessingDot = styled.span<{ $delay: number }>`
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2185d0 0%, #1678c2 100%);
-  animation: processingBounce 1.4s ease-in-out infinite;
-  animation-delay: ${(props) => props.$delay}s;
-  will-change: transform, opacity;
-
-  @keyframes processingBounce {
-    0%,
-    80%,
-    100% {
-      transform: scale(0.6);
-      opacity: 0.4;
-    }
-    40% {
-      transform: scale(1);
-      opacity: 1;
-    }
-  }
-`;
-
-const ProcessingText = styled.span`
-  font-size: 0.9rem;
-  color: #5c7c9d;
-  font-weight: 500;
-`;
-
-const ProcessingIndicator: React.FC = () => (
-  <ProcessingContainer
-    role="status"
-    aria-live="polite"
-    aria-label={PROCESSING_ARIA_LABEL}
-    data-testid="processing-indicator"
-  >
-    <ProcessingDots aria-hidden="true">
-      <ProcessingDot $delay={0} />
-      <ProcessingDot $delay={0.2} />
-      <ProcessingDot $delay={0.4} />
-    </ProcessingDots>
-    <ProcessingText>{PROCESSING_TEXT}</ProcessingText>
-  </ProcessingContainer>
-);
-
 const MessageHeader = styled.div`
   display: flex;
   align-items: center;
@@ -1945,17 +2015,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     [timeline]
   );
 
+  // The streaming ticker is the in-flight cue while no actual content has
+  // arrived yet — it covers both the "warming up before any timeline entry"
+  // case (formerly handled by the standalone ProcessingIndicator pill) and
+  // the "streaming with timeline entries but no text yet" case. As soon as
+  // the assistant starts emitting content tokens, the bubble takes over so
+  // the user sees the response accumulate. The bordered TimelinePreview
+  // panel never renders mid-stream — it only appears post-completion as a
+  // collapsible summary inside the bubble.
   const showTimelineOnly =
-    isAssistant &&
-    effectiveHasTimeline &&
-    (!isComplete || content.trim().length === 0);
-
-  // Show processing indicator when assistant message is incomplete with no content and no timeline
-  const showProcessingIndicator =
-    isAssistant &&
-    !isComplete &&
-    content.trim().length === 0 &&
-    !effectiveHasTimeline;
+    isAssistant && !isComplete && content.trim().length === 0;
 
   // Local collapse state for timeline when message is COMPLETE.
   // For short timelines (<=2 steps) we default to expanded even after completion
@@ -2012,10 +2081,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             <ToolUsageIndicator timeline={timeline} />
           )}
         </MessageHeader>
-        {/* Processing indicator - shown when agent is working but no content/timeline yet */}
-        {showProcessingIndicator && <ProcessingIndicator />}
         {/* Standard message content bubble */}
-        {!showTimelineOnly && !showProcessingIndicator && (
+        {!showTimelineOnly && (
           <MessageContent
             $isAssistant={isAssistant}
             data-testid="message-content"
@@ -2027,8 +2094,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                 {getApprovalText(approvalStatus)}
               </div>
             )}
-            {/* Collapsible timeline once message is complete */}
-            {effectiveHasTimeline && (
+            {/* Collapsible timeline appears once the message is complete.
+                Mid-stream the bordered panel is suppressed — the inline
+                StreamingThoughtTicker handles the in-flight cue, and the
+                bubble shows the accumulating content. */}
+            {effectiveHasTimeline && isComplete && (
               <TimelinePreview
                 timeline={timeline}
                 collapsed={tlCollapsed}
@@ -2048,14 +2118,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             )}
           </MessageContent>
         )}
-        {/* Streaming timeline only (no bubble) */}
-        {showTimelineOnly && (
-          <TimelinePreview
-            timeline={timeline}
-            collapsed={false}
-            expandLatestOnly={true}
-          />
-        )}
+        {/* Streaming-only "now-thinking" ticker — shows the latest in-flight
+            step on a single line with a subtle fade/sweep on each new step.
+            Replaced the old expanded-while-streaming TimelinePreview panel,
+            which dominated the viewport on multi-step responses. The full
+            step list stays available once the message finalizes via the
+            collapsible TimelinePreview rendered inside the message bubble. */}
+        {showTimelineOnly && <StreamingThoughtTicker timeline={timeline} />}
         <Timestamp>{timestamp}</Timestamp>
       </ContentContainer>
     </MessageContainer>

@@ -160,6 +160,7 @@ LOCAL_APPS = [
     "opencontractserver.notifications",
     "opencontractserver.agents",
     "opencontractserver.worker_uploads",
+    "opencontractserver.document_imports",
     "opencontractserver.discovery",
     "opencontractserver.benchmarks",
 ]
@@ -769,6 +770,18 @@ MAX_WORKER_UPLOAD_SIZE_BYTES = int(
 # Minutes before a PROCESSING upload is considered stalled and reset to PENDING.
 WORKER_UPLOAD_STALE_MINUTES = int(env("WORKER_UPLOAD_STALE_MINUTES", default="15"))
 
+# Maximum file size (in bytes) accepted by the multipart REST import
+# endpoints under /api/imports/. Applied to both single-document and
+# bulk-zip imports. Default: same ceiling as DATA_UPLOAD_MAX_MEMORY_SIZE
+# (5 GB). Set to 0 to disable the per-endpoint check (Django's
+# DATA_UPLOAD_MAX_MEMORY_SIZE still applies to non-file form data).
+MAX_DOCUMENT_IMPORT_SIZE_BYTES = int(
+    env(
+        "MAX_DOCUMENT_IMPORT_SIZE_BYTES",
+        default=str(MAX_FILE_UPLOAD_SIZE_BYTES),
+    )
+)
+
 # Maximum metadata JSON size (in bytes) accepted by the worker upload endpoint.
 # Default: 500 MB. Set to 0 to disable the limit.
 MAX_WORKER_METADATA_SIZE_BYTES = int(
@@ -842,6 +855,7 @@ REST_FRAMEWORK = {
         "anon": "100/hour",  # Anonymous users (shouldn't hit authenticated endpoints)
         "user": "1000/hour",  # Authenticated users
         "annotation_images": "200/hour",  # Image retrieval endpoint (higher bandwidth)
+        "document_imports": "120/hour",  # Multipart document import endpoints
     },
 }
 

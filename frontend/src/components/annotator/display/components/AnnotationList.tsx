@@ -21,6 +21,7 @@ import { HighlightItem } from "../../sidebar/HighlightItem";
 import { FetchMoreOnVisible } from "../../../widgets/infinite_scroll/FetchMoreOnVisible";
 import { PlaceholderCard } from "../../../placeholders/PlaceholderCard";
 import { useVisibleAnnotations } from "../../hooks/useVisibleAnnotations";
+import { useAllRelations } from "../../hooks/useAllRelations";
 
 interface AnnotationListProps {
   /** read-only mode flag */
@@ -62,6 +63,10 @@ export const AnnotationList: React.FC<AnnotationListProps> = ({
 }) => {
   /* ------------ data -------------------------------------------------- */
   const { pdfAnnotations } = usePdfAnnotations();
+  // Includes structural relations once they're lazily loaded — needed by
+  // HighlightItem to render the input/output relation badges for structural
+  // annotations the user may have toggled on.
+  const allRelations = useAllRelations();
   const { selectedAnnotations, setSelectedAnnotations } =
     useAnnotationSelection();
   const { showStructural } = useAnnotationDisplay();
@@ -191,7 +196,7 @@ export const AnnotationList: React.FC<AnnotationListProps> = ({
       <li ref={ref} style={{ width: "100%" }}>
         <HighlightItem
           annotation={annotation}
-          relations={pdfAnnotations.relations}
+          relations={allRelations}
           read_only={read_only}
           onSelect={toggleSelection}
           onDelete={handleDeleteAnnotation}
