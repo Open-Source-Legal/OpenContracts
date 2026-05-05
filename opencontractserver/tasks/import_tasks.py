@@ -6,12 +6,12 @@ import json
 import logging
 import pathlib
 import zipfile
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
-
     from opencontractserver.annotations.models import AnnotationLabel
+    from opencontractserver.users.models import User as AbstractBaseUser
     from opencontractserver.utils.metadata_file_parser import DocumentMetadata
 
 import filetype
@@ -34,7 +34,6 @@ from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.dicts import (
-    OpenContractDocExport,
     OpenContractsAnnotatedDocumentImportType,
 )
 from opencontractserver.types.enums import PermissionTypes
@@ -604,8 +603,8 @@ _RELATIONSHIP_REQUIRED_KEYS = {
 
 
 def _validate_sidecar_schema(
-    doc_data: dict[str, Any],
-    sidecar_path: str,
+    doc_data: Mapping[str, Any],
+    sidecar_path: str | None,
 ) -> list[str]:
     """
     Validate the top-level structure and required fields of a sidecar JSON
@@ -691,8 +690,8 @@ def _validate_sidecar_schema(
 
 
 def _apply_sidecar_annotations(
-    doc_data: OpenContractDocExport,
-    sidecar_path: str,
+    doc_data: Mapping[str, Any],
+    sidecar_path: str | None,
     corpus_doc: Document,
     corpus_obj: Corpus,
     user_obj: AbstractBaseUser,

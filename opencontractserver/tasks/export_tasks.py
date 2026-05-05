@@ -9,6 +9,7 @@ import zipfile
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
@@ -87,7 +88,7 @@ def finalize_export(
     """
     output_bytes.seek(io.SEEK_SET)
     export = UserExport.objects.get(pk=export_id)
-    export.file.save(filename, output_bytes)
+    export.file.save(filename, ContentFile(output_bytes.read()))
     export.finished = timezone.now()
     export.backend_lock = False
     export.save()
@@ -116,7 +117,10 @@ def on_demand_post_processors(
         if export.post_processors:
 
             # Get the current zip bytes
-
+            if not export.file.name:
+                raise RuntimeError(
+                    f"Export {export_id} is missing its zip file; cannot post-process."
+                )
             with default_storage.open(export.file.name, "rb") as export_file:
                 current_zip_bytes = export_file.read()
 
@@ -153,8 +157,8 @@ def package_annotated_docs(
             str,
             str,
             OpenContractDocExport | None,
-            dict[str | int, AnnotationLabelPythonType],
-            dict[str | int, AnnotationLabelPythonType],
+            dict[str, AnnotationLabelPythonType],
+            dict[str, AnnotationLabelPythonType],
         ],
         ...,
     ],
@@ -175,8 +179,8 @@ def package_annotated_docs(
     logger.info(f"Package corpus for export {export_id}...")
 
     annotated_docs: dict[str, OpenContractDocExport] = {}
-    doc_labels: dict[str | int, AnnotationLabelPythonType] | None = None
-    text_labels: dict[str | int, AnnotationLabelPythonType] | None = None
+    doc_labels: dict[str, AnnotationLabelPythonType] | None = None
+    text_labels: dict[str, AnnotationLabelPythonType] | None = None
 
     corpus = Corpus.objects.get(id=corpus_pk)
 
@@ -211,12 +215,18 @@ def package_annotated_docs(
 
         annotated_docs[doc_name] = doc_export
 
+    corpus_pkg = package_corpus_for_export(corpus)
+    label_set_pkg = package_label_set_for_export(corpus.label_set)
+    if corpus_pkg is None or label_set_pkg is None:
+        raise RuntimeError(
+            f"Failed to package corpus or label set for export of corpus {corpus_pk}"
+        )
     export_file_data: OpenContractsExportDataJsonPythonType = {
         "annotated_docs": annotated_docs,
-        "corpus": package_corpus_for_export(corpus),
-        "label_set": package_label_set_for_export(corpus.label_set),
-        "doc_labels": doc_labels,
-        "text_labels": text_labels,
+        "corpus": corpus_pkg,
+        "label_set": label_set_pkg,
+        "doc_labels": doc_labels or {},
+        "text_labels": text_labels or {},
     }
 
     # Run any configured post-processors
@@ -298,25 +308,26 @@ def package_funsd_exports(
 
         doc_id, funsd_annotations, page_image_paths = doc_data
 
-        for index, page_data in enumerate(page_image_paths):
+        for index, page_meta in enumerate(page_image_paths):
 
-            doc_id, page_path, file_type = page_data
+            doc_id, page_path, file_type = page_meta
 
             # Load page image
             if settings.STORAGE_BACKEND == "AWS":
+                assert s3 is not None  # set above when STORAGE_BACKEND == "AWS"
                 page_obj = s3.get_object(
                     Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=page_path
                 )
-                page_data = page_obj["Body"].read()
+                page_bytes = page_obj["Body"].read()
             elif settings.STORAGE_BACKEND == "GCP":
                 blob = gcs_bucket.blob(page_path)
-                page_data = blob.download_as_bytes()
+                page_bytes = blob.download_as_bytes()
             else:
                 with open(page_path, "rb") as page_file:
-                    page_data = page_file.read()
+                    page_bytes = page_file.read()
 
             # Write page image
-            zip_file.writestr(f"images/doc_{doc_id}-pg_{index}.{file_type}", page_data)
+            zip_file.writestr(f"images/doc_{doc_id}-pg_{index}.{file_type}", page_bytes)
 
             # Load page funds annots
             if str(index) in funsd_annotations:

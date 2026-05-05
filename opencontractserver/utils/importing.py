@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from django.core.files.base import ContentFile, File
 from django.utils import timezone
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 def load_or_create_labels(
     user_id: int,
     labelset_obj,
-    label_data_dict: dict[str, dict],
+    label_data_dict: Mapping[str, Mapping[str, Any]],
     existing_labels: dict[str, AnnotationLabel] = {},
 ) -> dict[str, AnnotationLabel]:
     """
@@ -514,7 +515,7 @@ def create_document_from_export_data(
 
 
 def import_doc_annotations(
-    doc_data: dict,
+    doc_data: Mapping[str, Any],
     corpus_doc,
     corpus_obj,
     user_id: int,

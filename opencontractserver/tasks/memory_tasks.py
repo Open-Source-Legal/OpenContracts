@@ -98,7 +98,9 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
     # which would prevent re-evaluation if more messages are added later.
     messages = await database_sync_to_async(
         lambda: list(
-            conversation.chat_messages.filter(deleted_at__isnull=True)
+            conversation.chat_messages.filter(  # type: ignore[arg-type]
+                deleted_at__isnull=True
+            )
             .order_by("created_at")
             .values_list("msg_type", "content", named=True)
         )

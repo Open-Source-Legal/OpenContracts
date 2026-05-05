@@ -45,7 +45,7 @@ User = get_user_model()
 
 
 def build_label_lookups(
-    corpus_id: str,
+    corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: AnnotationFilterMode = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
 ) -> LabelLookupPythonType:
@@ -54,7 +54,7 @@ def build_label_lookups(
     out labels to only those found in certain analyses or combine with corpus label set.
 
     Args:
-        corpus_id (str): The primary key (UUID string) of the corpus.
+        corpus_id (int): The primary key of the corpus.
         analysis_ids (list[int] | None): Optional list of Analysis PKs.
         annotation_filter_mode (str): One of:
           - "CORPUS_LABELSET_ONLY"

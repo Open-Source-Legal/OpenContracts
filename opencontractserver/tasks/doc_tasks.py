@@ -4,7 +4,7 @@ import enum
 import json
 import logging
 import traceback
-from typing import Any
+from typing import Any, cast
 
 from celery import shared_task
 from celery.utils.log import get_task_logger
@@ -35,6 +35,7 @@ from opencontractserver.notifications.signals import (
     broadcast_notification_via_websocket,
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.pipeline.utils import (
     get_component_by_name,
@@ -42,6 +43,7 @@ from opencontractserver.pipeline.utils import (
 )
 from opencontractserver.types.dicts import (
     AnnotationLabelPythonType,
+    BoundingBoxPythonType,
     FunsdAnnotationType,
     FunsdTokenType,
     LabelLookupPythonType,
@@ -216,7 +218,9 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
 
         # Create document processing notifications (Issue #624)
         # Notify both document creator and corpus owners
-        _create_document_processed_notifications(document, corpus_data)
+        _create_document_processed_notifications(
+            document, [dict(row) for row in corpus_data]
+        )
 
         if not corpus_data:
             logger.debug(
@@ -238,7 +242,7 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
 
 
 def _create_document_processed_notifications(
-    document: Document, corpus_data: list[dict]
+    document: Document, corpus_data: list[dict[str, Any]]
 ) -> None:
     """
     Create notifications for document processing completion.
@@ -551,7 +555,7 @@ def convert_doc_to_funsd(
         pawls_ybottom = pawls_token["y"]
         pawls_ytop = pawls_xleft + pawls_token["width"]
         pawls_xright = pawls_ybottom + pawls_token["height"]
-        funsd_token = {
+        funsd_token: FunsdTokenType = {
             "text": pawls_token["text"],
             # In FUNSD, this must be serialzied to list but that's done by json.dumps and tuple has better typing
             # control (fixed length, positional datatypes, etc.)
@@ -561,7 +565,7 @@ def convert_doc_to_funsd(
 
     doc = Document.objects.get(id=doc_id)
 
-    annotation_map: dict[int, list[dict]] = {}
+    annotation_map: dict[int | str, list[dict[str, Any]]] = {}
 
     # Modify the annotation query to respect filter mode
     doc_annotations = Annotation.objects.filter(document_id=doc_id, corpus_id=corpus_id)
@@ -603,6 +607,8 @@ def convert_doc_to_funsd(
         annotation_label__label_type=TOKEN_LABEL,
     ).order_by("page")
 
+    if not doc.pawls_parse_file.name or not doc.pdf_file.name:
+        raise ValueError(f"Document {doc_id} is missing pawls_parse_file or pdf_file")
     file_object = default_storage.open(doc.pawls_parse_file.name)
     pawls_tokens = expand_pawls_pages(json.loads(file_object.read().decode("utf-8")))
 
@@ -690,16 +696,19 @@ def convert_doc_to_funsd(
                 "id": f"{base_id}-{page_data.page_index}",
                 "linking": [],  # Relationship linking is not yet wired into FUNSD export
                 "text": page_data.raw_text,
-                "box": pawls_bbox_to_funsd_box(page_data.bounds),
+                "box": pawls_bbox_to_funsd_box(
+                    cast(BoundingBoxPythonType, page_data.bounds)
+                ),
                 "label": f"{label.text}",
                 "words": expanded_tokens,
+                "parent_id": None,
             }
 
-            page = str(page_data.page_index)
+            page = page_data.page_index
             if page in annotation_map:
-                annotation_map[page].append(funsd_annotation)
+                annotation_map[page].append(dict(funsd_annotation))
             else:
-                annotation_map[page] = [funsd_annotation]
+                annotation_map[page] = [dict(funsd_annotation)]
 
     return doc_id, annotation_map, pdf_images_and_data
 
@@ -765,7 +774,12 @@ def extract_thumbnail(self, doc_id: int) -> None:
 
     if not thumbnailer_class:
         # Fall back to auto-discovered thumbnailers for the MIME type
-        components = get_components_by_mimetype(file_type)
+        try:
+            file_type_enum = FileTypeEnum(file_type)
+        except ValueError:
+            logger.error(f"Unsupported MIME type for thumbnail extraction: {file_type}")
+            return
+        components = get_components_by_mimetype(file_type_enum)
         thumbnailers = components.get("thumbnailers", [])
 
         if not thumbnailers:

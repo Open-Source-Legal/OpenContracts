@@ -1,6 +1,6 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, cast
 
 import requests
 from celery import shared_task
@@ -430,7 +430,10 @@ def calculate_embedding_for_annotation_text(
         corpus_id=int(effective_corpus_id) if effective_corpus_id else None,
         obj_type="annotation",
         obj_id=annotation.id,
-        embed_func=_create_embedding_for_annotation,
+        embed_func=cast(
+            "Callable[[HasEmbeddingMixin, BaseEmbedder, str], bool]",
+            _create_embedding_for_annotation,
+        ),
     )
 
 
@@ -711,7 +714,7 @@ def calculate_embeddings_for_annotation_batch(
     Returns:
         dict: Summary with counts of succeeded, failed, and skipped annotations
     """
-    result = {
+    result: dict[str, Any] = {
         "total": len(annotation_ids),
         "succeeded": 0,
         "failed": 0,
@@ -859,7 +862,10 @@ def calculate_embeddings_for_annotation_batch(
                     ),
                     obj_type="annotation",
                     obj_id=annotation.id,
-                    embed_func=_create_embedding_for_annotation,
+                    embed_func=cast(
+                        "Callable[[HasEmbeddingMixin, BaseEmbedder, str], bool]",
+                        _create_embedding_for_annotation,
+                    ),
                 )
                 result["succeeded"] += 1
             except Exception as e:
