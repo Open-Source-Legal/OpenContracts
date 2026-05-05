@@ -407,6 +407,14 @@ const CorpusQueryView = ({
   isPowerUserMode?: boolean;
 }) => {
   const [chatExpanded, setChatExpanded] = useState<boolean>(false);
+  // Mirrors CorpusChat's internal conversation/list view-mode. When the
+  // expanded chat is showing a conversation, the outer "Back / Chat" header is
+  // suppressed so the inner CorpusChat header is the single source of back
+  // navigation — clicking back in the conversation goes to the list, then the
+  // outer header reappears so a second click on the same screen position
+  // takes the user back to the search view.
+  const [chatExpandedInConversation, setChatExpandedInConversation] =
+    useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSearchMode, setIsSearchMode] = useState<boolean>(true);
   const show_query_view_state = useReactiveVar(showQueryViewState);
@@ -433,6 +441,10 @@ const CorpusQueryView = ({
     e.preventDefault();
     if (searchQuery.trim()) {
       setChatExpanded(true);
+      // forceNewChat=true mounts CorpusChat directly into the conversation
+      // view, so pre-set this so the outer header is suppressed on the first
+      // paint instead of flashing for one frame.
+      setChatExpandedInConversation(true);
       setIsSearchMode(false);
       // Ensure we stay in ASK mode rather than switching to VIEW
       showQueryViewState("ASK");
@@ -441,6 +453,7 @@ const CorpusQueryView = ({
 
   const resetToSearch = () => {
     setChatExpanded(false);
+    setChatExpandedInConversation(false);
     setIsSearchMode(true);
     setSearchQuery("");
     setTimeout(() => {
@@ -463,6 +476,14 @@ const CorpusQueryView = ({
     if (chatExpanded || show_query_view_state === "VIEW") {
       // On mobile, CorpusChat renders its own header, so skip rendering here
       if (!isDesktop) {
+        return null;
+      }
+
+      // When the chat-expanded CorpusChat is showing a conversation, its inner
+      // header already provides Back + Home, so suppress the outer one to keep
+      // a single back button on screen at any time. The outer header re-appears
+      // automatically once the user returns to the conversation list view.
+      if (chatExpanded && chatExpandedInConversation) {
         return null;
       }
 
@@ -545,6 +566,10 @@ const CorpusQueryView = ({
             forceNewChat={true}
             // forceNewChat=true means we came from the search bar — just reset back to it
             onNavigateHome={resetToSearch}
+            onViewModeChange={setChatExpandedInConversation}
+            // The outer header above renders only on desktop; on mobile the
+            // inner list-view Back stays visible as the sole navigation.
+            hideListBackButton={isDesktop}
           />
         </motion.div>
       );
@@ -588,6 +613,9 @@ const CorpusQueryView = ({
                 if (query.trim()) {
                   setSearchQuery(query);
                   setChatExpanded(true);
+                  // Pre-set so the outer "Back / Chat" header doesn't flash
+                  // before the inner CorpusChat header takes over.
+                  setChatExpandedInConversation(true);
                   setIsSearchMode(false);
                   showQueryViewState("ASK");
                 }
@@ -644,6 +672,10 @@ const CorpusQueryView = ({
               resetToSearch();
               showQueryViewState("ASK");
             }}
+            // VIEW state always renders the outer "Back to Dashboard /
+            // Conversation History" header on desktop; suppress the inner
+            // filter-bar Back there to avoid duplicate-back-button UX.
+            hideListBackButton={isDesktop}
           />
         </div>
       </motion.div>
@@ -1690,10 +1722,26 @@ export const Corpuses = () => {
    * Navigate to a source document with text block highlighting.
    * Called from CorpusChat when a user clicks a source citation.
    * Builds a deep link URL with ?tb= param and navigates to the document.
+   *
+   * Each silent-return path emits a console.warn so a user reporting "the
+   * source link doesn't work" can immediately see which guard is firing in
+   * DevTools instead of nothing happening on click.
    */
   const handleSourceNavigate = useCallback(
     (source: ChatMessageSource) => {
-      if (!source.document_id || !opened_corpus) return;
+      if (!source.document_id) {
+        console.warn(
+          "[handleSourceNavigate] No-op: source has no document_id; backend payload may be missing it.",
+          source
+        );
+        return;
+      }
+      if (!opened_corpus) {
+        console.warn(
+          "[handleSourceNavigate] No-op: opened_corpus is null; route resolution did not populate the openedCorpus reactive var."
+        );
+        return;
+      }
 
       // Validate corpus has slug data. This should always be present when
       // viewing a corpus (resolved from a slug-based URL by CentralRouteManager).
@@ -1701,13 +1749,17 @@ export const Corpuses = () => {
       // unresolvable URL like /d/user/Q29ycHVzVHlwZTo1/... that 404s.
       if (!opened_corpus.slug || !opened_corpus.creator?.slug) {
         console.warn(
-          "Cannot navigate to source: corpus missing slug data",
-          opened_corpus
+          "[handleSourceNavigate] No-op: corpus missing slug data; cannot build canonical /d/<user-slug>/<corpus-slug>/<doc> URL.",
+          {
+            corpusSlug: opened_corpus.slug,
+            creatorSlug: opened_corpus.creator?.slug,
+            corpusId: opened_corpus.id,
+          }
         );
         return;
       }
 
-      // Build the text block encoding from source data
+      // Build the text block encoding from source data.
       let textBlock: string | null = null;
       if (
         source.isTextBased &&
@@ -1726,21 +1778,67 @@ export const Corpuses = () => {
         );
       }
 
-      // Bail out if we couldn't build a text block reference —
-      // navigating without ?tb= would be a silent no-op.
-      if (!textBlock) return;
-
-      // We only have the document's raw database ID from the WebSocket source,
-      // not its slug, so we use a Relay global ID for the document segment.
-      // CentralRouteManager Phase 1 detects this as a GraphQL ID and resolves
-      // it via resolveDocumentById, then redirects to the canonical slug URL.
-      // The corpus segment uses validated slugs from the already-resolved corpus.
+      // Build the navigation URL. We only have the document's raw DB id from
+      // the WebSocket source, not its slug, so we use a Relay global ID for
+      // the document segment. CentralRouteManager Phase 1 detects this as a
+      // GraphQL ID and resolves it via resolveDocumentById, then redirects to
+      // the canonical slug URL. The corpus segment uses validated slugs from
+      // the already-resolved corpus.
       const docGraphQLId = toGlobalId("DocumentType", source.document_id);
-      const queryString = buildQueryParams({ textBlock });
 
-      navigate(
-        `/d/${opened_corpus.creator.slug}/${opened_corpus.slug}/${docGraphQLId}${queryString}`
-      );
+      // Prefer the precise text-block highlight when we have one. If the
+      // text-block could not be built (most often a PDF source whose multipage
+      // annotation_json has page keys but empty tokensJsons arrays — we have
+      // the annotation but not the per-token indices), fall back to selecting
+      // the annotation by its global ID via the existing ?ann= URL convention.
+      // Synthetic search-result annotations use negative IDs (see
+      // search.py); those are not real Annotation rows, so skip the ?ann=
+      // fallback and at least navigate to the document without a highlight
+      // rather than silently doing nothing.
+      const hasRealAnnotationId =
+        typeof source.annotation_id === "number" && source.annotation_id > 0;
+
+      let queryString: string;
+      if (textBlock) {
+        queryString = buildQueryParams({ textBlock });
+      } else if (hasRealAnnotationId) {
+        const annGlobalId = toGlobalId("AnnotationType", source.annotation_id);
+        queryString = buildQueryParams({ annotationIds: [annGlobalId] });
+        console.debug(
+          "[handleSourceNavigate] No text-block reference available; falling back to ?ann= deep-link.",
+          { annotationId: source.annotation_id, annGlobalId }
+        );
+      } else {
+        // Last-ditch: open the document with no highlight rather than no-op.
+        queryString = "";
+        console.warn(
+          "[handleSourceNavigate] No text-block AND no real annotation_id; navigating to document without a highlight.",
+          {
+            isTextBased: source.isTextBased,
+            startIndex: source.startIndex,
+            endIndex: source.endIndex,
+            tokensByPageCounts: source.tokensByPage
+              ? Object.fromEntries(
+                  Object.entries(source.tokensByPage).map(([page, tokens]) => [
+                    page,
+                    tokens.length,
+                  ])
+                )
+              : {},
+            annotationId: source.annotation_id,
+          }
+        );
+      }
+
+      const targetUrl = `/d/${opened_corpus.creator.slug}/${opened_corpus.slug}/${docGraphQLId}${queryString}`;
+
+      console.debug("[handleSourceNavigate] Navigating to source:", {
+        targetUrl,
+        documentId: source.document_id,
+        annotationId: source.annotation_id,
+      });
+
+      navigate(targetUrl);
     },
     [opened_corpus, navigate]
   );
@@ -2658,6 +2756,11 @@ export const Corpuses = () => {
                 setShowLoad={() => {}}
                 onViewModeChange={setChatInConversation}
                 onNavigateHome={() => setActiveTab(0)}
+                // The chats tab's TabNavigationHeader (rendered above when in
+                // list view) already provides Back navigation on every screen
+                // size, so suppress the inner filter-bar Back to avoid the
+                // duplicate-back-button UX bug.
+                hideListBackButton
               />
             </div>
           </div>

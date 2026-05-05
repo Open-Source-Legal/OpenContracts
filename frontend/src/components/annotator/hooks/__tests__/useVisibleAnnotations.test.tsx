@@ -22,23 +22,23 @@ vi.mock("../useAllAnnotations", () => ({
   useAllAnnotations: vi.fn(),
 }));
 
+vi.mock("../useAllRelations", () => ({
+  useAllRelations: vi.fn(),
+}));
+
 vi.mock("../../context/UISettingsAtom", () => ({
   useAnnotationDisplay: vi.fn(),
   useAnnotationControls: vi.fn(),
   useAnnotationSelection: vi.fn(),
 }));
 
-vi.mock("../AnnotationHooks", () => ({
-  usePdfAnnotations: vi.fn(),
-}));
-
 import { useAllAnnotations } from "../useAllAnnotations";
+import { useAllRelations } from "../useAllRelations";
 import {
   useAnnotationDisplay,
   useAnnotationControls,
   useAnnotationSelection,
 } from "../../context/UISettingsAtom";
-import { usePdfAnnotations } from "../AnnotationHooks";
 
 // ───────────────────────────────────────────────────────────────
 // Fixtures
@@ -125,22 +125,14 @@ function defaultState(overrides: Partial<State> = {}): State {
 
 function primeMocks(state: State): void {
   // NOTE: In production, `useAllAnnotations` returns a de-duplicated UNION of
-  // `pdfAnnotations.annotations` and the structural annotations atom, while
-  // `pdfAnnotations.annotations` holds only the PDF annotations. These tests
-  // pass the same fixture array to both because the hook under test consumes
-  // `useAllAnnotations` for the visibility predicate and `pdfAnnotations.relations`
-  // (not `pdfAnnotations.annotations`) for the relation-forced-visibility logic,
-  // so the two sources never interact in this test's reads. Collapsing them
-  // keeps fixtures simple; don't copy this conflation into tests that assert on
-  // dedup behavior.
+  // `pdfAnnotations.annotations` and the structural annotations atom, and
+  // `useAllRelations` returns the equivalent union for relations. The hook
+  // under test consumes those two unions, so we mock them directly with the
+  // fixture state. ``state.relations`` here represents the FULL relation set
+  // (regular + structural) — collapse cleanly because the hook doesn't
+  // distinguish source.
   (useAllAnnotations as any).mockReturnValue(state.annotations);
-  (usePdfAnnotations as any).mockReturnValue({
-    pdfAnnotations: {
-      annotations: state.annotations,
-      relations: state.relations,
-      docTypes: [],
-    },
-  });
+  (useAllRelations as any).mockReturnValue(state.relations);
   (useAnnotationDisplay as any).mockReturnValue(state.display);
   (useAnnotationControls as any).mockReturnValue(state.controls);
   (useAnnotationSelection as any).mockReturnValue(state.selection);
@@ -499,10 +491,15 @@ describe("useVisibleAnnotations", () => {
   });
 
   describe("null safety", () => {
-    it("handles missing pdfAnnotations gracefully (no relations)", () => {
+    it("handles empty relations array gracefully", () => {
+      // The hook now reads relations via ``useAllRelations`` (a derived
+      // atom returning RelationGroup[]). The ``pdfAnnotations.relations`` ??
+      // [] guard is gone; the contract is a non-null array. This test pins
+      // the empty-relations behavior so a regression to a null-returning
+      // upstream surfaces here.
       const a = makeAnnot({ id: "a" });
       (useAllAnnotations as any).mockReturnValue([a]);
-      (usePdfAnnotations as any).mockReturnValue({ pdfAnnotations: null });
+      (useAllRelations as any).mockReturnValue([]);
       (useAnnotationDisplay as any).mockReturnValue({
         showStructural: true,
         showStructuralRelationships: true,

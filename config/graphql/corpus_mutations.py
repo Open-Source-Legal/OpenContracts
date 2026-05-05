@@ -344,7 +344,7 @@ class DeleteCorpusMutation(DRFDeletion):
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(cls, root, info, *args, **kwargs) -> "DeleteCorpusMutation":
-        id = from_global_id(kwargs.get(cls.IOSettings.lookup_field, None))[1]
+        id = from_global_id(kwargs[cls.IOSettings.lookup_field])[1]
         obj = cls.IOSettings.model.objects.get(pk=id)
 
         if obj.is_personal:
@@ -800,17 +800,17 @@ class CreateCorpusAction(graphene.Mutation):
         info,
         corpus_id: str,
         trigger: str,
-        name: str = None,
-        fieldset_id: str = None,
-        analyzer_id: str = None,
-        task_instructions: str = None,
-        agent_config_id: str = None,
-        pre_authorized_tools: list = None,
+        name: str | None = None,
+        fieldset_id: str | None = None,
+        analyzer_id: str | None = None,
+        task_instructions: str | None = None,
+        agent_config_id: str | None = None,
+        pre_authorized_tools: list | None = None,
         create_agent_inline: bool = False,
-        inline_agent_name: str = None,
-        inline_agent_description: str = None,
-        inline_agent_instructions: str = None,
-        inline_agent_tools: list = None,
+        inline_agent_name: str | None = None,
+        inline_agent_description: str | None = None,
+        inline_agent_instructions: str | None = None,
+        inline_agent_tools: list | None = None,
         disabled: bool = False,
         run_on_all_corpuses: bool = False,
     ) -> "CreateCorpusAction":
@@ -971,6 +971,13 @@ class CreateCorpusAction(graphene.Mutation):
 
             # Create inline agent if requested (wrapped in transaction with action creation)
             if create_agent_inline:
+                # Validation above guarantees both are populated when reaching here,
+                # but use an explicit guard (not assert) so -O optimised builds are safe.
+                if inline_agent_name is None or inline_agent_instructions is None:
+                    raise ValueError(
+                        "inline_agent_name and inline_agent_instructions are required "
+                        "when create_agent_inline=True"
+                    )
                 with transaction.atomic():
                     agent_config = AgentConfiguration.objects.create(
                         name=inline_agent_name,
@@ -1105,15 +1112,15 @@ class UpdateCorpusAction(graphene.Mutation):
         root,
         info,
         id: str,
-        name: str = None,
-        trigger: str = None,
-        fieldset_id: str = None,
-        analyzer_id: str = None,
-        agent_config_id: str = None,
-        task_instructions: str = None,
-        pre_authorized_tools: list = None,
-        disabled: bool = None,
-        run_on_all_corpuses: bool = None,
+        name: str | None = None,
+        trigger: str | None = None,
+        fieldset_id: str | None = None,
+        analyzer_id: str | None = None,
+        agent_config_id: str | None = None,
+        task_instructions: str | None = None,
+        pre_authorized_tools: list | None = None,
+        disabled: bool | None = None,
+        run_on_all_corpuses: bool | None = None,
     ) -> "UpdateCorpusAction":
         from opencontractserver.agents.models import AgentConfiguration
 

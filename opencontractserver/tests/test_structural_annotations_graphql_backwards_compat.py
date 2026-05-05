@@ -947,3 +947,185 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TransactionTestCa
         self.assertEqual(len(target_annots), 1)
         self.assertEqual(source_annots[0].raw_text, "Chapter 1")
         self.assertEqual(target_annots[0].raw_text, "Section 1.1")
+
+    # =========================================================================
+    # TEST: GraphQL allRelationships filter — isStructural=False
+    # =========================================================================
+
+    def test_all_relationships_isStructural_false_excludes_structural(self):
+        """
+        ``Document.allRelationships(isStructural: false)`` excludes structural
+        relationships. This is the hot-path filter the frontend uses to keep
+        the initial document load lean (structural relationships are loaded
+        lazily via ``allStructuralRelationships``).
+        """
+        # Add a non-structural user relationship to verify the filter
+        # actually returns something rather than silently returning [].
+        user_relation_label = AnnotationLabel.objects.create(
+            text="UserRel",
+            label_type=LabelType.RELATIONSHIP_LABEL,
+            creator=self.user,
+        )
+        user_rel = Relationship.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            relationship_label=user_relation_label,
+            structural=False,
+            creator=self.user,
+        )
+        user_rel.source_annotations.add(self.parent_annot)
+        user_rel.target_annotations.add(self.child_annot)
+
+        doc_global_id = to_global_id("DocumentType", self.doc.id)
+        corpus_global_id = to_global_id("CorpusType", self.corpus.id)
+
+        query = """
+            query GetDocRelationships($id: ID!, $corpusId: ID!) {
+                document(id: $id) {
+                    allRelationships(corpusId: $corpusId, isStructural: false) {
+                        id
+                        structural
+                        relationshipLabel {
+                            text
+                        }
+                    }
+                }
+            }
+        """
+
+        result = self.client.execute(
+            query,
+            variables={"id": doc_global_id, "corpusId": corpus_global_id},
+            context_value=self._get_request_context(),
+        )
+        self.assertIsNone(
+            result.get("errors"), f"GraphQL errors: {result.get('errors')}"
+        )
+
+        rels = result["data"]["document"]["allRelationships"]
+        # Only the non-structural user relationship should come back.
+        self.assertEqual(len(rels), 1)
+        self.assertFalse(rels[0]["structural"])
+        self.assertEqual(rels[0]["relationshipLabel"]["text"], "UserRel")
+
+    def test_all_relationships_isStructural_true_returns_only_structural(self):
+        """
+        Symmetric coverage: ``isStructural: true`` returns ONLY structural
+        relationships, parallel to the existing ``allAnnotations`` filter.
+        """
+        doc_global_id = to_global_id("DocumentType", self.doc.id)
+        corpus_global_id = to_global_id("CorpusType", self.corpus.id)
+
+        query = """
+            query GetDocRelationships($id: ID!, $corpusId: ID!) {
+                document(id: $id) {
+                    allRelationships(corpusId: $corpusId, isStructural: true) {
+                        id
+                        structural
+                        relationshipLabel {
+                            text
+                        }
+                    }
+                }
+            }
+        """
+
+        result = self.client.execute(
+            query,
+            variables={"id": doc_global_id, "corpusId": corpus_global_id},
+            context_value=self._get_request_context(),
+        )
+        self.assertIsNone(
+            result.get("errors"), f"GraphQL errors: {result.get('errors')}"
+        )
+
+        rels = result["data"]["document"]["allRelationships"]
+        self.assertEqual(len(rels), 1)
+        self.assertTrue(rels[0]["structural"])
+        self.assertEqual(rels[0]["relationshipLabel"]["text"], "Contains")
+
+    # =========================================================================
+    # TEST: GraphQL allStructuralRelationships lazy field
+    # =========================================================================
+
+    def test_all_structural_relationships_lazy_field(self):
+        """
+        ``Document.allStructuralRelationships`` is the dedicated lazy field
+        the frontend uses (alongside ``allStructuralAnnotations``) when the
+        user toggles structural visibility on. Verifies it returns the
+        document's structural relationships pre- and post-migration.
+        """
+        doc_global_id = to_global_id("DocumentType", self.doc.id)
+
+        query = """
+            query GetDocStructuralRelationships($id: ID!) {
+                document(id: $id) {
+                    allStructuralRelationships {
+                        id
+                        structural
+                        relationshipLabel {
+                            text
+                        }
+                        sourceAnnotations {
+                            edges {
+                                node {
+                                    id
+                                    rawText
+                                }
+                            }
+                        }
+                        targetAnnotations {
+                            edges {
+                                node {
+                                    id
+                                    rawText
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        """
+
+        # Pre-migration: structural relationship has document FK set
+        pre_result = self.client.execute(
+            query,
+            variables={"id": doc_global_id},
+            context_value=self._get_request_context(),
+        )
+        self.assertIsNone(
+            pre_result.get("errors"), f"GraphQL errors: {pre_result.get('errors')}"
+        )
+        pre_rels = pre_result["data"]["document"]["allStructuralRelationships"]
+        self.assertEqual(len(pre_rels), 1)
+        self.assertTrue(pre_rels[0]["structural"])
+        self.assertEqual(pre_rels[0]["relationshipLabel"]["text"], "Contains")
+
+        # Source/target annotations exposed in the same response
+        pre_sources = [
+            e["node"]["rawText"] for e in pre_rels[0]["sourceAnnotations"]["edges"]
+        ]
+        pre_targets = [
+            e["node"]["rawText"] for e in pre_rels[0]["targetAnnotations"]["edges"]
+        ]
+        self.assertEqual(pre_sources, ["Chapter 1"])
+        self.assertEqual(pre_targets, ["Section 1.1"])
+
+        # Run migration → structural rel moves to structural_set
+        out = io.StringIO()
+        self._call_migrate(stdout=out)
+
+        post_result = self.client.execute(
+            query,
+            variables={"id": doc_global_id},
+            context_value=self._get_request_context(),
+        )
+        self.assertIsNone(
+            post_result.get("errors"),
+            f"GraphQL errors: {post_result.get('errors')}",
+        )
+        post_rels = post_result["data"]["document"]["allStructuralRelationships"]
+        # Same count before and after migration
+        self.assertEqual(len(post_rels), 1)
+        self.assertTrue(post_rels[0]["structural"])
+        self.assertEqual(post_rels[0]["relationshipLabel"]["text"], "Contains")

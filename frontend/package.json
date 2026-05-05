@@ -40,7 +40,7 @@
     "@uiw/react-color": "^2.3.2",
     "@uiw/react-json-view": "^2.0.0-alpha.30",
     "@vitejs/plugin-react-swc": "^3.9.0",
-    "axios": "^1.15.0",
+    "axios": "^1.15.2",
     "d3": "^7.9.0",
     "date-fns": "^4.1.0",
     "docxodus": "5.5.3",

@@ -1335,6 +1335,36 @@ test("SYNC_CONTENT message renders as a standalone assistant message", async ({
   ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
 });
 
+test("warmup ticker appears after send and disappears when response arrives", async ({
+  mount,
+  page,
+}) => {
+  const mocks = [createConversationsMock(mockConversations)];
+
+  await mountChatTray(mount, mocks);
+
+  await page.locator('[data-testid="new-chat-button"]').click();
+  const chatInput = page.locator('[data-testid="chat-input"]');
+  await expect(chatInput).toBeEnabled({ timeout: TIMEOUTS.MEDIUM });
+
+  // Send a query that the stub delays — creates a visible warmup window
+  await chatInput.fill("warmup test");
+  await page.keyboard.press("Enter");
+
+  // Ticker should appear while the stub is still "thinking"
+  await expect(
+    page.locator('[data-testid="streaming-warmup-ticker-wrapper"]')
+  ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+
+  // Once the stub delivers the response, the ticker should disappear
+  await expect(page.getByText("Warmup done.", { exact: true })).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  await expect(
+    page.locator('[data-testid="streaming-warmup-ticker-wrapper"]')
+  ).not.toBeVisible();
+});
+
 test("readOnly: hides history and chat input is still available for new chat", async ({
   mount,
   page,
@@ -1486,7 +1516,25 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
-            // 3. Generic assistant response - ensure it streams distinct parts
+            // 3. Delayed response — warmup ticker visible in the gap between
+            //    ASYNC_START and ASYNC_CONTENT.
+            if (query === "warmup test") {
+              setTimeout(() => {
+                emit({
+                  type: "ASYNC_CONTENT",
+                  content: "Warmup done.",
+                  data: { message_id: id },
+                });
+                emit({
+                  type: "ASYNC_FINISH",
+                  content: "Warmup done.",
+                  data: { message_id: id },
+                });
+              }, 200);
+              return;
+            }
+
+            // 4. Generic assistant response - ensure it streams distinct parts
             emit({
               type: "ASYNC_CONTENT",
               content: "Received: ",

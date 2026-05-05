@@ -38,7 +38,7 @@ def get_embedder(
         get_default_embedder,
     )
 
-    embedder_class = None
+    embedder_class: Optional[type[BaseEmbedder]] = None
 
     # Try to get the corpus's preferred embedder
     if embedder_path:
@@ -47,7 +47,9 @@ def get_embedder(
             logger.debug(
                 f"Attempting to load embedder class from path: {embedder_path}"
             )
-            embedder_class = get_component_by_name(embedder_path)
+            embedder_class = cast(
+                type[BaseEmbedder], get_component_by_name(embedder_path)
+            )
             logger.debug(
                 f"Successfully loaded embedder class: {embedder_class.__name__}"
             )
@@ -74,7 +76,10 @@ def get_embedder(
                     logger.debug(
                         f"Attempting to load corpus preferred embedder: {corpus.preferred_embedder}"
                     )
-                    embedder_class = get_component_by_name(corpus.preferred_embedder)
+                    embedder_class = cast(
+                        type[BaseEmbedder],
+                        get_component_by_name(corpus.preferred_embedder),
+                    )
                     embedder_path = corpus.preferred_embedder
                     logger.debug(
                         f"Successfully loaded corpus preferred embedder: {embedder_class.__name__}"
