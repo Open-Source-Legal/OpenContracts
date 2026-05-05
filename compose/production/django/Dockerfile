@@ -64,9 +64,11 @@ RUN (find ./requirements -mindepth 2 -type f -name "*.txt" -print; \
 RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 5 \
       -P /usr/src/app/wheels \
       https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl \
+    && echo "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85  /usr/src/app/wheels/en_core_web_sm-3.8.0-py3-none-any.whl" | sha256sum -c - \
     && wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 5 \
       -P /usr/src/app/wheels \
-      https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl
+      https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl \
+    && echo "293e9547a655b25499198ab15a525b05b9407a75f10255e405e8c3854329ab63  /usr/src/app/wheels/en_core_web_lg-3.8.0-py3-none-any.whl" | sha256sum -c -
 
 # ---------------------------------------------------------------------------- #
 # Runtime stage: slim base, runtime libs only.                                 #
