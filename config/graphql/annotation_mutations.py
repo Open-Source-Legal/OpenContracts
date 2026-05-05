@@ -216,7 +216,7 @@ _ANNOTATION_PARENT_NOT_FOUND_MSG = (
 
 
 def _resolve_annotation_parents(
-    user, corpus_pk: int, document_pk: int
+    user, corpus_pk: int | str, document_pk: int | str
 ) -> tuple["Document", "Corpus"] | None:
     """Resolve and validate the (document, corpus) parents for a new annotation.
 

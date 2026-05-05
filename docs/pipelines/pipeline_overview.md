@@ -235,6 +235,46 @@ graph TD
 
 5. **Graceful Degradation**: If multimodal embedding fails, falls back to text-only embedding
 
+### Image Extraction Memory Budget
+
+The `extract_images_from_pdf` step run after document reassembly is bounded
+to a small constant working set, **independent of total page count**. This
+is the post-#1498 behaviour and is what lets a single Celery worker handle
+30-page and 300-page documents with the same RSS profile.
+
+**Per-call peak working set:**
+
+```
+len(pdf_bytes) + 1 rendered page + 1 decoded image bytes
+```
+
+For a US-letter PDF at the default 150 DPI a rendered page is ~6-10 MB; a
+decoded image is capped at `MAX_IMAGE_SIZE_BYTES` (10 MB by default). With
+a 100 MB source PDF the step's overhead above the input is roughly **20 MB
+per concurrent extraction**, regardless of whether the document has 30 or
+300 pages. This is independent of pdf_bytes ownership: the caller owns
+those bytes; this step adds only the rendering/decoding overhead.
+
+**Concurrency planning:** with default Celery `worker_concurrency = N`, the
+worst-case incremental RSS for the image-extraction step is
+`N * (~20 MB + max_pdf_bytes)`. Documents larger than your worker's
+configured memory limit minus this overhead should be rejected at upload
+time, not silently OOM mid-ingest.
+
+**Tuning:**
+
+| Variable | Default | Effect |
+|---|---|---|
+| `IMAGE_EXTRACTION_DPI` | 150 | DPI for rasterising pages whose embedded image streams cannot be decoded directly. Page-render RSS scales as ~DPI². Raise to 300 for sharper crops (~4x the rendered-page RSS); drop to 100 to halve it. |
+| `IMAGE_EXTRACTION_GC_INTERVAL_PAGES` | 1 | Force a `gc.collect()` after this many pages. Lower values keep peak RSS tighter at the cost of CPU; set to `0` to disable explicit GC and rely on CPython thresholds. |
+| `MAX_IMAGE_SIZE_BYTES` | 10 MB | Skip individual images larger than this after encoding. Hard upper bound on a single decoded-image buffer. |
+| `MAX_TOTAL_IMAGES_SIZE_BYTES` | 100 MB | Stop image extraction once cumulative encoded image bytes for the document exceed this. Bounds storage usage per document. |
+
+The DoclingParser-specific `image_dpi` field on `PipelineSettings` overrides
+`IMAGE_EXTRACTION_DPI` for that parser's own per-figure crops; the global
+`IMAGE_EXTRACTION_DPI` env var governs the post-reassemble extraction step
+that runs for every PDF parser.
+
 **Embedding Task Flow** (`calculate_embedding_for_annotation_text`):
 1. Load annotation with `select_related("document")` to avoid N+1
 2. Get embedder based on corpus preference or explicit path
