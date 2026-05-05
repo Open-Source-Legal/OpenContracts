@@ -4,7 +4,7 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
-from django.db.models import FileField, Q
+from django.db.models import FileField
 
 from config import celery_app
 from opencontractserver.utils.cleanup import delete_analysis_and_annotations
@@ -68,28 +68,32 @@ def cleanup_orphaned_document_blobs_task(blob_paths: list[str]) -> int:
         if isinstance(field, FileField)
     ]
 
-    # OR across every FileField so a blob counts as "still referenced"
-    # even if the surviving Document points at it from a different field
-    # than the one the originally-deleted Document used.
+    # Deduplicate and drop empty entries up front; ``set`` keeps lookups
+    # cheap and the per-field ``__in`` queries below benefit from minimal
+    # parameter counts.
+    candidate_paths: set[str] = {p for p in blob_paths if p}
+    if not candidate_paths:
+        return 0
+
+    # ``2 * len(blob_fields)`` queries regardless of path-list size: one
+    # ``__in`` per FileField produces every still-referenced path. Set-
+    # difference yields the orphans without ``len(paths)`` round-trips.
+    still_referenced: set[str] = set()
+    for field_name in blob_fields:
+        still_referenced.update(
+            Document.objects.filter(
+                **{f"{field_name}__in": candidate_paths}
+            ).values_list(field_name, flat=True)
+        )
+    orphans = candidate_paths - still_referenced
+    for retained in candidate_paths & still_referenced:
+        logger.debug(
+            "Skipping orphan-cleanup for %s: still referenced by a Document row",
+            retained,
+        )
+
     deleted_count = 0
-    seen: set[str] = set()
-    for path in blob_paths:
-        if not path or path in seen:
-            continue
-        seen.add(path)
-
-        reference_q = Q()
-        for field_name in blob_fields:
-            reference_q |= Q(**{field_name: path})
-
-        if Document.objects.filter(reference_q).exists():
-            logger.debug(
-                "Skipping orphan-cleanup for %s: still referenced by a "
-                "Document row",
-                path,
-            )
-            continue
-
+    for path in orphans:
         try:
             if default_storage.exists(path):
                 default_storage.delete(path)

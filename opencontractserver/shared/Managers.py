@@ -1,5 +1,6 @@
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Optional, Union
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
@@ -435,9 +436,7 @@ class DocumentManager(BaseVisibilityManager):
             input Document is deleted. Empty/unset fields are omitted.
         """
         if isinstance(queryset_or_pks, QuerySet):
-            target_pks: list[Any] = list(
-                queryset_or_pks.values_list("pk", flat=True)
-            )
+            target_pks: list[Any] = list(queryset_or_pks.values_list("pk", flat=True))
         else:
             target_pks = [pk for pk in queryset_or_pks if pk is not None]
 

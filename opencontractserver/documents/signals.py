@@ -172,12 +172,18 @@ DOC_DELETE_GC_SS_UID = "gc_orphan_structural_set_post_delete"
 DOC_DELETE_CAPTURE_BLOBS_UID = "capture_blob_paths_pre_delete"
 DOC_DELETE_SCHEDULE_BLOB_GC_UID = "schedule_blob_gc_post_delete"
 
-# Per-DB-connection accumulator keys for batched blob cleanup. Both are
-# attributes set directly on the connection object so they share its
-# transactional lifetime (cleared automatically when the connection is
-# closed by the test runner between tests).
+# Per-DB-connection accumulator key for batched blob cleanup. Set directly
+# on the connection object so it shares the connection's lifetime; reset to
+# an empty set the first time an on_commit flush callback runs in any
+# transaction that touched it. We deliberately do NOT track a "scheduled"
+# bit: Django discards rolled-back ``on_commit`` callbacks but cannot reset
+# Python attributes we set on the connection wrapper, so a flag would leak
+# across rollbacks and silently drop later cleanups (issue raised in PR
+# review). Instead we register ``on_commit`` on every post_delete; the
+# first callback to fire snapshots the shared set and clears it, and any
+# additional callbacks in the same commit see an empty set and short-
+# circuit.
 _PENDING_BLOB_CLEANUP_KEY = "_oc_pending_blob_cleanup_paths"
-_BLOB_CLEANUP_SCHEDULED_KEY = "_oc_blob_cleanup_on_commit_registered"
 
 
 def _capture_structural_set_id(sender, instance, **kwargs):
@@ -242,26 +248,26 @@ def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
         setattr(connection, _PENDING_BLOB_CLEANUP_KEY, pending)
     pending.update(paths)
 
-    if getattr(connection, _BLOB_CLEANUP_SCHEDULED_KEY, False):
-        # Another Document delete in this transaction already registered
-        # the on_commit hook — just contribute paths to the shared set.
-        return
-    setattr(connection, _BLOB_CLEANUP_SCHEDULED_KEY, True)
-
     def _flush_blob_cleanup() -> None:
-        collected = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
-        # Reset state regardless of payload so a subsequent transaction
-        # starts from a clean slate even if dispatch raises.
-        setattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
-        setattr(connection, _BLOB_CLEANUP_SCHEDULED_KEY, False)
+        collected: set[str] = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
         if not collected:
+            # Another flush callback in this commit already drained the
+            # shared set — nothing to do.
             return
+        # Snapshot the set; other callbacks registered in this same
+        # commit will find it empty and short-circuit above.
+        snapshot = sorted(collected)
+        setattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
+        # Log before dispatch so an ops team can recover paths from logs
+        # if the broker is unavailable and ``delay()`` raises.
+        logger.info("Scheduling blob cleanup for %d paths: %s", len(snapshot), snapshot)
         from opencontractserver.tasks.cleanup_tasks import (
             cleanup_orphaned_document_blobs_task,
         )
+
         # ``sorted`` makes task arguments deterministic (helps tests +
         # idempotent retries); ``list`` because Celery JSON-serialises.
-        cleanup_orphaned_document_blobs_task.delay(sorted(collected))
+        cleanup_orphaned_document_blobs_task.delay(snapshot)
 
     transaction.on_commit(_flush_blob_cleanup, using=using)
 
