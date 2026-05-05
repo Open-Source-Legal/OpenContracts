@@ -269,7 +269,7 @@ def package_funsd_exports(
     funsd_data: tuple[
         tuple[
             int,
-            dict[int | str, list[dict[int | str, FunsdAnnotationType]]],
+            dict[int, list[FunsdAnnotationType]],
             list[tuple[int, str, str]],
         ]
     ],
@@ -330,8 +330,8 @@ def package_funsd_exports(
             zip_file.writestr(f"images/doc_{doc_id}-pg_{index}.{file_type}", page_bytes)
 
             # Load page funds annots
-            if str(index) in funsd_annotations:
-                annots = funsd_annotations[str(index)]
+            if index in funsd_annotations:
+                annots = funsd_annotations[index]
             else:
                 annots = []
 

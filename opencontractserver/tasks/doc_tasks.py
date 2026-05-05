@@ -36,6 +36,7 @@ from opencontractserver.notifications.signals import (
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.pipeline.utils import (
     get_component_by_name,
@@ -434,7 +435,7 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
 
     # Get the parser class using get_component_by_name
     try:
-        parser_class = get_component_by_name(parser_name)
+        parser_class = cast(type[BaseParser], get_component_by_name(parser_name))
         parser_instance = parser_class()
     except ValueError as e:
         error_msg = f"Failed to load parser '{parser_name}': {e}"
@@ -508,8 +509,8 @@ def burn_doc_annotations(
     str,
     str,
     OpenContractDocExport | None,
-    dict[str | int, AnnotationLabelPythonType],
-    dict[str | int, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
 ]:
     """
     Inspects a single Document (doc_id) in corpus (corpus_id) and selects the relevant
@@ -549,7 +550,7 @@ def convert_doc_to_funsd(
     corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = AnnotationFilterMode.CORPUS_LABELSET_ONLY.value,
-) -> tuple[int, dict[int | str, list[dict[str, Any]]], list[tuple[int, str, str]]]:
+) -> tuple[int, dict[int, list[FunsdAnnotationType]], list[tuple[int, str, str]]]:
     def pawls_token_to_funsd_token(pawls_token: PawlsTokenPythonType) -> FunsdTokenType:
         pawls_xleft = pawls_token["x"]
         pawls_ybottom = pawls_token["y"]
@@ -565,7 +566,7 @@ def convert_doc_to_funsd(
 
     doc = Document.objects.get(id=doc_id)
 
-    annotation_map: dict[int | str, list[dict[str, Any]]] = {}
+    annotation_map: dict[int, list[FunsdAnnotationType]] = {}
 
     # Modify the annotation query to respect filter mode
     doc_annotations = Annotation.objects.filter(document_id=doc_id, corpus_id=corpus_id)
@@ -706,9 +707,9 @@ def convert_doc_to_funsd(
 
             page = page_data.page_index
             if page in annotation_map:
-                annotation_map[page].append(dict(funsd_annotation))
+                annotation_map[page].append(funsd_annotation)
             else:
-                annotation_map[page] = [dict(funsd_annotation)]
+                annotation_map[page] = [funsd_annotation]
 
     return doc_id, annotation_map, pdf_images_and_data
 
@@ -757,12 +758,15 @@ def extract_thumbnail(self, doc_id: int) -> None:
     pipeline_settings = PipelineSettings.get_instance()
     preferred_thumbnailer = pipeline_settings.get_preferred_thumbnailer(file_type)
 
-    thumbnailer_class = None
+    thumbnailer_class: type[BaseThumbnailGenerator] | None = None
 
     if preferred_thumbnailer:
         # Try to load the preferred thumbnailer
         try:
-            thumbnailer_class = get_component_by_name(preferred_thumbnailer)
+            thumbnailer_class = cast(
+                type[BaseThumbnailGenerator],
+                get_component_by_name(preferred_thumbnailer),
+            )
             logger.info(
                 f"Using preferred thumbnailer '{preferred_thumbnailer}' for doc {doc_id}"
             )
@@ -787,7 +791,7 @@ def extract_thumbnail(self, doc_id: int) -> None:
             return
 
         # Use the first available thumbnailer
-        thumbnailer_class = thumbnailers[0]
+        thumbnailer_class = cast(type[BaseThumbnailGenerator], thumbnailers[0])
         logger.info(
             f"Using auto-discovered thumbnailer '{thumbnailer_class.__name__}' "
             f"for doc {doc_id}"

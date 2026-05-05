@@ -126,7 +126,7 @@ def _setup_corpus_and_labels(
     data_json: (
         OpenContractsExportDataJsonPythonType | OpenContractsExportDataJsonV2Type
     ),
-    user_obj: "UserModel",
+    user_obj: UserModel,
     seed_corpus_id: int | None,
 ) -> tuple[
     Corpus,
@@ -174,7 +174,7 @@ def _import_document_with_annotations(
     doc_filename: str,
     doc_data: dict[str, Any],
     import_zip: zipfile.ZipFile,
-    user_obj: "UserModel",
+    user_obj: UserModel,
     corpus_obj: Corpus,
     label_lookup: dict[str, AnnotationLabel],
     doc_label_lookup: dict[str, AnnotationLabel],
@@ -254,7 +254,7 @@ def _import_corpus(
         OpenContractsExportDataJsonPythonType | OpenContractsExportDataJsonV2Type
     ),
     import_zip: zipfile.ZipFile,
-    user_obj: "UserModel",
+    user_obj: UserModel,
     seed_corpus_id: int | None,
     version: str = "1.0",
 ) -> int | None:
@@ -420,7 +420,7 @@ def _import_v2_relationships(
     label_lookup: dict[
         tuple[str, str], AnnotationLabel
     ],  # key: (label_text, label_type)
-    user_obj: "UserModel",
+    user_obj: UserModel,
 ) -> None:
     """
     Import V2 corpus-level relationships, skipping structural ones (handled
@@ -472,7 +472,7 @@ def _import_v2_relationships(
 
 def _import_ingestion_sources(
     sources_data: list[IngestionSourceExport],
-    user_obj: "UserModel",
+    user_obj: UserModel,
 ) -> dict[str, IngestionSource]:
     """
     Import or get-or-create IngestionSource records from exported data.

@@ -157,8 +157,8 @@ def build_label_lookups(
     # Pull the corresponding AnnotationLabel objects
     labels = AnnotationLabel.objects.filter(pk__in=all_label_ids)
 
-    text_labels: dict[str | int, AnnotationLabelPythonType] = {}
-    doc_labels: dict[str | int, AnnotationLabelPythonType] = {}
+    text_labels: dict[str, AnnotationLabelPythonType] = {}
+    doc_labels: dict[str, AnnotationLabelPythonType] = {}
 
     # Export all label types: TOKEN_LABEL, SPAN_LABEL, and RELATIONSHIP_LABEL
     # go into text_labels; DOC_TYPE_LABEL goes into doc_labels.
@@ -206,8 +206,8 @@ def build_document_export(
     str,
     str,
     OpenContractDocExport | None,
-    dict[str | int, AnnotationLabelPythonType],
-    dict[str | int, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
 ]:
     """
     Build an export for a given corpus on a given doc. For PDF files, this will burn in annotations
