@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
-from django.db.models import FileField, Manager, Prefetch, Q, QuerySet
+from django.db.models import Manager, Prefetch, Q, QuerySet
 
 from opencontractserver.shared.QuerySets import (
     AnnotationQuerySet,
@@ -397,14 +397,8 @@ class DocumentManager(BaseVisibilityManager):
             *only* by ``doc``. Safe to delete from storage. Empty/
             unset fields are omitted.
         """
-        blob_fields: list[str] = [
-            field.name
-            for field in doc._meta.get_fields()
-            if isinstance(field, FileField)
-        ]
-
         unique: set[str] = set()
-        for field_name in blob_fields:
+        for field_name in type(doc).blob_field_names():
             file_field = getattr(doc, field_name)
             if not file_field:
                 continue
@@ -417,7 +411,7 @@ class DocumentManager(BaseVisibilityManager):
         return unique
 
     def unique_blob_paths_for_many(
-        self, queryset_or_pks: Union[QuerySet, Iterable[Any]]
+        self, queryset_or_pks: QuerySet | Iterable[Any]
     ) -> set[str]:
         """Batched complement to ``unique_blob_paths`` for bulk deletion.
 
@@ -447,14 +441,8 @@ class DocumentManager(BaseVisibilityManager):
         if not target_pks:
             return set()
 
-        blob_fields: list[str] = [
-            field.name
-            for field in self.model._meta.get_fields()
-            if isinstance(field, FileField)
-        ]
-
         unique: set[str] = set()
-        for field_name in blob_fields:
+        for field_name in self.model.blob_field_names():
             # Single round-trip per field: collect every distinct,
             # non-empty path used by the targets.
             target_paths: set[str] = {

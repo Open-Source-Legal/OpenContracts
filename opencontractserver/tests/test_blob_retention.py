@@ -24,7 +24,6 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
-from django.db.models import FileField
 from django.test import TransactionTestCase, override_settings
 
 from opencontractserver.agents.memory import (
@@ -36,11 +35,10 @@ from opencontractserver.documents.models import Document, DocumentPath
 
 User = get_user_model()
 
-# All FileField names on Document, derived from the model rather than
-# hard-coded so this list extends automatically when a field is added.
-DOCUMENT_FILE_FIELDS: list[str] = [
-    field.name for field in Document._meta.get_fields() if isinstance(field, FileField)
-]
+# Blob-field-name list lives on the model; using the helper here keeps
+# the test file in lock-step with whatever new ``FileField``s land on
+# Document without an additional edit here.
+DOCUMENT_FILE_FIELDS: list[str] = Document.blob_field_names()
 
 
 class UniqueBlobPathsTestCase(TransactionTestCase):
@@ -705,6 +703,63 @@ class DocumentDeleteOrphanReclaimTestCase(TransactionTestCase):
                     default_storage.exists(blob_name),
                     f"{field_name}: blob {blob_name!r} was reclaimed "
                     "despite transaction rollback",
+                )
+
+    def test_rollback_then_successful_delete_does_not_corrupt_cleanup(self) -> None:
+        """Cross-transaction bleed of the per-connection accumulator.
+
+        The accumulator that batches blob-cleanup paths between
+        ``post_delete`` and ``on_commit`` is a Python attribute on the
+        Django connection wrapper. ``transaction.on_commit`` skips the
+        flush callback on rollback, but Django does not reset attributes
+        on the wrapper, so a rolled-back delete leaves its captured paths
+        sitting in the accumulator. The next transaction merges its own
+        paths with the leftover ones and dispatches the cleanup task on
+        the union — the task's orphan re-check is what actually keeps
+        the rolled-back row's blobs alive.
+
+        This test pins that contract: after a rollback, the next real
+        delete must (a) actually free its own blobs and (b) not destroy
+        the rolled-back document's blobs.
+        """
+        rolled_back_doc, rolled_back_blobs = _make_doc_with_blobs(
+            self.user, self.uid, label="RolledBack"
+        )
+        committed_doc, committed_blobs = _make_doc_with_blobs(
+            self.user, self.uid, label="Committed"
+        )
+
+        # Transaction A: delete rolled_back_doc, then force a rollback.
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                DocumentPath.objects.filter(document=rolled_back_doc).delete()
+                rolled_back_doc.delete()
+                raise IntegrityError("simulated mid-delete failure")
+
+        # Transaction B: actually delete committed_doc.
+        DocumentPath.objects.filter(document=committed_doc).delete()
+        committed_doc.delete()
+
+        # Rolled-back blobs survive — the row was restored by rollback,
+        # so the orphan re-check skips its paths even though they bled
+        # into transaction B's accumulator.
+        for field_name, blob_name in rolled_back_blobs.items():
+            with self.subTest(rolled_back=field_name):
+                self.assertTrue(
+                    default_storage.exists(blob_name),
+                    f"{field_name}: rolled-back blob {blob_name!r} was "
+                    "reclaimed by a subsequent transaction",
+                )
+
+        # Committed-delete blobs ARE reclaimed — the next transaction's
+        # cleanup must still work after the rollback bleed.
+        for field_name, blob_name in committed_blobs.items():
+            with self.subTest(committed=field_name):
+                self.assertFalse(
+                    default_storage.exists(blob_name),
+                    f"{field_name}: committed-delete blob {blob_name!r} "
+                    "was NOT reclaimed (rollback poisoned the next "
+                    "transaction's cleanup)",
                 )
 
     def test_permanently_delete_corpus_copy_retains_blobs_via_source(self) -> None:

@@ -7,7 +7,6 @@ from celery import chain
 from django.apps import apps
 from django.conf import settings
 from django.db import connections, transaction
-from django.db.models import FileField
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import Signal
 from django.utils import timezone
@@ -212,10 +211,8 @@ def _capture_blob_paths_pre_delete(sender, instance, **kwargs):
     ``DocumentManager.unique_blob_paths``).
     """
     paths: list[str] = []
-    for field in instance._meta.get_fields():
-        if not isinstance(field, FileField):
-            continue
-        value = getattr(instance, field.name, None)
+    for field_name in type(instance).blob_field_names():
+        value = getattr(instance, field_name, None)
         if value and value.name:
             paths.append(value.name)
     instance._captured_blob_paths = paths
@@ -228,13 +225,22 @@ def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
     ``QuerySet.delete()`` once the model has signal listeners, so this
     handler covers both deletion paths uniformly. To avoid spawning one
     Celery task per Document on bulk delete, we accumulate paths into a
-    connection-level set and register a single ``transaction.on_commit``
-    callback per transaction that fires one task with all collected
-    paths.
+    connection-level set and register one ``transaction.on_commit``
+    callback per ``post_delete``; the first to fire snapshots the shared
+    set and clears it, so subsequent callbacks short-circuit on an empty
+    set. ``QuerySet.delete()`` therefore still produces ``O(N)``
+    callbacks but only one Celery dispatch.
 
     Transaction safety: ``on_commit`` callbacks do not fire on rollback,
-    so a failed/rolled-back Document deletion never reaches the storage
-    layer.
+    so a failed delete never reaches the storage layer with new paths.
+    The accumulator set itself is a Python attribute on the Django
+    connection wrapper, however — Django does not reset attributes set
+    on the wrapper when a transaction rolls back. Paths captured by a
+    rolled-back delete therefore "bleed" into the next transaction's
+    accumulator and are submitted to the cleanup task. The orphan
+    re-check inside ``cleanup_orphaned_document_blobs_task`` handles
+    this safely: rows restored by the rollback still reference the
+    blob, so the path fails the orphan test and is skipped.
     """
     paths = getattr(instance, "_captured_blob_paths", None)
     if not paths:

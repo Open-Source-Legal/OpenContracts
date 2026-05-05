@@ -4,7 +4,6 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
-from django.db.models import FileField
 
 from config import celery_app
 from opencontractserver.utils.cleanup import delete_analysis_and_annotations
@@ -62,11 +61,7 @@ def cleanup_orphaned_document_blobs_task(blob_paths: list[str]) -> int:
     # Imported here so the task module stays import-cheap at worker boot.
     from opencontractserver.documents.models import Document
 
-    blob_fields: list[str] = [
-        field.name
-        for field in Document._meta.get_fields()
-        if isinstance(field, FileField)
-    ]
+    blob_fields: list[str] = Document.blob_field_names()
 
     # Deduplicate and drop empty entries up front; ``set`` keeps lookups
     # cheap and the per-field ``__in`` queries below benefit from minimal
