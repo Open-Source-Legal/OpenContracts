@@ -26,6 +26,7 @@ from celery import chain
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from filetype import filetype
@@ -120,8 +121,15 @@ def _peek_zip_magic(zip_source: UploadedFile | bytes) -> bool:
         finally:
             try:
                 zip_source.seek(0)
-            except Exception:
-                pass
+            except Exception as exc:
+                # If the stream cannot be rewound, the subsequent storage
+                # write will be missing the first 4 magic bytes. Surface
+                # this clearly rather than silently truncating the archive.
+                logger.warning(
+                    "Failed to rewind upload stream after ZIP magic peek; "
+                    "subsequent write will be truncated: %s",
+                    exc,
+                )
     return any(head.startswith(prefix) for prefix in _ZIP_MAGIC_PREFIXES)
 
 
@@ -320,8 +328,6 @@ def import_documents_zip_for_user(
         with transaction.atomic():
             temporary_file = TemporaryFileHandle.objects.create()
             if isinstance(zip_source, (bytes, bytearray)):
-                from django.core.files.base import ContentFile
-
                 temporary_file.file = ContentFile(
                     bytes(zip_source), name=storage_filename
                 )
