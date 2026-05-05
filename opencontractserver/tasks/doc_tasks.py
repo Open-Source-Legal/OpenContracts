@@ -849,6 +849,7 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     User = get_user_model()
     try:
         user_obj = User.objects.get(pk=user_id)
+        document_obj = Document.objects.get(pk=doc_id)
     except User.DoesNotExist:
         logger.error(
             "[SECURITY] [retry_document_processing] user_id=%s does "
@@ -861,8 +862,6 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
             "doc_id": doc_id,
             "message": "Invalid user for retry",
         }
-    try:
-        document_obj = Document.objects.get(pk=doc_id)
     except Document.DoesNotExist:
         return {
             "status": "error",

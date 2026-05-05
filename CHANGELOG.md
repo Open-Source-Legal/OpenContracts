@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `config/graphql/document_queries.py:215` now constructs the opaque
     "not found" `BulkDocumentUploadStatusType` only inside the rejection
     branch instead of allocating it unconditionally on every status query.
+    (Code-quality cleanup, not a security fix — the previous code
+    allocated the response eagerly but only ever returned it on the
+    rejection path, so externally-observable behaviour is unchanged.)
   - `BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS` in
     `opencontractserver/constants/zip_import.py:60` carries a comment
     explaining why the 24-hour default is intentionally generous (a large

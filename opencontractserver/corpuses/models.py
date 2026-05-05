@@ -570,6 +570,19 @@ class Corpus(TreeNode):
                 # owned by someone OTHER than this corpus's creator.
                 # Publicizing those would expose material the actor never
                 # had authority to share, so they are excluded.
+                #
+                # NOTE: this SELECT is not protected by ``SELECT FOR
+                # UPDATE`` — a concurrent ``DocumentPath`` insert that
+                # links a document to a different cross-owner private
+                # corpus between this snapshot and the
+                # ``Document.objects.select_for_update()`` update below
+                # could in theory escape the block. Closing that window
+                # would require an explicit lock on the ``DocumentPath``
+                # rows as well; the residual window is negligible in
+                # practice (the publicize and the cross-owner-add must
+                # interleave on millisecond boundaries) and the read-
+                # committed snapshot still catches every membership
+                # established before the atomic block opens.
                 cross_owner_blocked_ids = set(
                     DocumentPath.objects.filter(
                         document_id__in=doc_ids,
