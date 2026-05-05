@@ -80,10 +80,14 @@ def package_structural_annotation_set(
         # Get structural annotations
         structural_annotations: list[OpenContractsAnnotationPythonType] = []
         for annot in structural_set.structural_annotations.all():
-            annotation_json = (
+            # CompactAnnotationJsonType requires both ``v`` and ``p``; an
+            # empty dict would be a structural lie. Emit the canonical
+            # empty-compact payload instead so downstream consumers that
+            # assume the schema cannot trip on missing keys.
+            annotation_json: CompactAnnotationJsonType = (
                 cast(CompactAnnotationJsonType, compact_annotation_json(annot.json))
                 if annot.json
-                else cast(CompactAnnotationJsonType, {})
+                else {"v": 2, "p": {}}
             )
             annot_data: OpenContractsAnnotationPythonType = {
                 "id": str(annot.id),
