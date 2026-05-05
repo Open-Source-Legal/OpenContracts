@@ -5,6 +5,7 @@ import pkgutil
 import threading
 from typing import Any, Optional, Union
 
+from opencontractserver.pipeline.base.base_component import PipelineComponentBase
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME, FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
@@ -108,10 +109,10 @@ def get_components_by_mimetype(
         Dict[str, List[Any]]: Dictionary with lists of compatible components
     """
     # Initialize component lists
-    parsers = []
-    embedders = []
-    thumbnailers = []
-    post_processors = []
+    parsers: list[Any] = []
+    embedders: list[Any] = []
+    thumbnailers: list[Any] = []
+    post_processors: list[Any] = []
 
     # Handle mimetype string case for backward compatibility
     if isinstance(file_type, str):
@@ -206,7 +207,9 @@ def get_components_by_mimetype(
     }
 
 
-def get_metadata_for_component(component_class: type) -> dict[str, Any]:
+def get_metadata_for_component(
+    component_class: type[PipelineComponentBase],
+) -> dict[str, Any]:
     """
     Given a component class, return its metadata.
 
@@ -218,7 +221,7 @@ def get_metadata_for_component(component_class: type) -> dict[str, Any]:
     """
 
     module_name = component_class.__module__.split(".")[-1]
-    metadata = {
+    metadata: dict[str, Any] = {
         "title": component_class.title,
         "module_name": module_name,
         "description": component_class.description,
@@ -256,7 +259,7 @@ def get_metadata_by_component_name(component_name: str) -> dict[str, Any]:
     return get_metadata_for_component(component_class)
 
 
-def get_component_by_name(component_name: str) -> type:
+def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
     """
     Given the script name or full path of a pipeline component, return the class itself.
 
@@ -491,6 +494,10 @@ def run_post_processors(
         try:
             logger.info(f"Loading post-processor: {path}")
             processor_class = get_component_by_name(path)
+            if not issubclass(processor_class, BasePostProcessor):
+                raise TypeError(
+                    f"Component '{path}' is not a BasePostProcessor subclass"
+                )
             logger.debug(f"Initializing post-processor {processor_class.__name__}")
             processor = processor_class()
             logger.info(f"Running post-processor: {processor.title}")

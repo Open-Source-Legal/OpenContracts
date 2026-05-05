@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 from channels.db import database_sync_to_async
 
@@ -11,10 +11,10 @@ logger.setLevel(logging.DEBUG)
 
 
 def get_embedder(
-    corpus_id: int | str = None,
-    mimetype_or_enum: Union[str, FileTypeEnum] = None,
+    corpus_id: Optional[Union[int, str]] = None,
+    mimetype_or_enum: Optional[Union[str, FileTypeEnum]] = None,
     embedder_path: Optional[str] = None,
-) -> tuple[type[BaseEmbedder], str]:
+) -> tuple[Optional[type[BaseEmbedder]], Optional[str]]:
     """
     Get the appropriate embedder for a corpus.
 
@@ -38,7 +38,7 @@ def get_embedder(
         get_default_embedder,
     )
 
-    embedder_class = None
+    embedder_class: Optional[type[BaseEmbedder]] = None
 
     # Try to get the corpus's preferred embedder
     if embedder_path:
@@ -47,7 +47,9 @@ def get_embedder(
             logger.debug(
                 f"Attempting to load embedder class from path: {embedder_path}"
             )
-            embedder_class = get_component_by_name(embedder_path)
+            embedder_class = cast(
+                type[BaseEmbedder], get_component_by_name(embedder_path)
+            )
             logger.debug(
                 f"Successfully loaded embedder class: {embedder_class.__name__}"
             )
@@ -74,7 +76,10 @@ def get_embedder(
                     logger.debug(
                         f"Attempting to load corpus preferred embedder: {corpus.preferred_embedder}"
                     )
-                    embedder_class = get_component_by_name(corpus.preferred_embedder)
+                    embedder_class = cast(
+                        type[BaseEmbedder],
+                        get_component_by_name(corpus.preferred_embedder),
+                    )
                     embedder_path = corpus.preferred_embedder
                     logger.debug(
                         f"Successfully loaded corpus preferred embedder: {embedder_class.__name__}"
@@ -124,7 +129,7 @@ def get_embedder(
         f"Return embedder class: {embedder_class}, embedder path: {embedder_path}"
     )
 
-    return embedder_class, embedder_path
+    return cast(Optional[type[BaseEmbedder]], embedder_class), embedder_path
 
 
 def generate_embeddings_from_text(
@@ -168,9 +173,7 @@ def generate_embeddings_from_text(
             embedder_instance = embedder_class()
 
             logger.debug(f"Embedding text with {embedder_class.__name__}")
-            # ``embedder_class`` is dynamically loaded; mypy cannot resolve
-            # ``embed_text`` on the abstract base before the runtime check.
-            vector = embedder_instance.embed_text(text)  # type: ignore[attr-defined]
+            vector = embedder_instance.embed_text(text)
             return embedder_path, vector
         except Exception as e:
             logger.error(
@@ -199,10 +202,10 @@ def calculate_embedding_for_text(
 
 
 async def aget_embedder(
-    corpus_id: int | str | None = None,
-    mimetype_or_enum: Union[str, FileTypeEnum, None] = None,
+    corpus_id: Optional[Union[int, str]] = None,
+    mimetype_or_enum: Optional[Union[str, FileTypeEnum]] = None,
     embedder_path: Optional[str] = None,
-) -> tuple[type[BaseEmbedder], str]:
+) -> tuple[Optional[type[BaseEmbedder]], Optional[str]]:
     """
     Async version of `get_embedder`.
 

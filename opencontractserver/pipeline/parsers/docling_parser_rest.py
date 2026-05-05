@@ -1,7 +1,7 @@
 import base64
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast
 
 import requests
 from requests.exceptions import ConnectionError, RequestException, Timeout
@@ -396,7 +396,7 @@ class DoclingParser(BaseChunkedParser):
                 f"Successfully processed document {doc_id} ({chunk_label}) "
                 "through Docling parser service"
             )
-            return normalized_result
+            return cast(OpenContractDocExport, normalized_result)
 
         except DocumentParsingError:
             # Re-raise our custom exceptions as-is
@@ -430,8 +430,13 @@ class DoclingParser(BaseChunkedParser):
         extract_images_flag = all_kwargs.get("extract_images", self.extract_images)
         if extract_images_flag:
             image_storage_path = f"documents/{doc_id}/images"
-            reassembled = self._add_images_to_result(
-                reassembled, pdf_bytes, storage_path=image_storage_path
+            reassembled = cast(
+                OpenContractDocExport,
+                self._add_images_to_result(
+                    cast(dict[str, Any], reassembled),
+                    pdf_bytes,
+                    storage_path=image_storage_path,
+                ),
             )
         return reassembled
 
@@ -498,7 +503,7 @@ class DoclingParser(BaseChunkedParser):
                 pdf_bytes,
                 min_width=self.min_image_width,
                 min_height=self.min_image_height,
-                image_format=self.image_format,
+                image_format=cast(Literal["jpeg", "png"], self.image_format),
                 jpeg_quality=self.image_quality,
                 storage_path=storage_path,
             )
@@ -535,7 +540,10 @@ class DoclingParser(BaseChunkedParser):
 
                     # Add image tokens to the tokens array
                     for img_token in page_images:
-                        # Convert to unified token format with required fields
+                        # Convert to unified token format with required fields.
+                        # Optional metadata is added only when present so we
+                        # don't violate the NotRequired-but-non-None contract
+                        # of PawlsTokenPythonType.
                         unified_token: PawlsTokenPythonType = {
                             "x": img_token["x"],
                             "y": img_token["y"],
@@ -544,11 +552,19 @@ class DoclingParser(BaseChunkedParser):
                             "text": "",  # Required field, empty for images
                             "is_image": True,
                             "format": img_token.get("format", "jpeg"),
-                            "content_hash": img_token.get("content_hash"),
-                            "original_width": img_token.get("original_width"),
-                            "original_height": img_token.get("original_height"),
-                            "image_type": img_token.get("image_type"),
                         }
+                        if img_token.get("content_hash") is not None:
+                            unified_token["content_hash"] = img_token["content_hash"]
+                        if img_token.get("original_width") is not None:
+                            unified_token["original_width"] = img_token[
+                                "original_width"
+                            ]
+                        if img_token.get("original_height") is not None:
+                            unified_token["original_height"] = img_token[
+                                "original_height"
+                            ]
+                        if img_token.get("image_type") is not None:
+                            unified_token["image_type"] = img_token["image_type"]
 
                         # Copy image path if present
                         if "image_path" in img_token:
@@ -652,7 +668,7 @@ class DoclingParser(BaseChunkedParser):
                 bounds,
                 page_width,
                 page_height,
-                image_format=self.image_format,
+                image_format=cast(Literal["jpeg", "png"], self.image_format),
                 jpeg_quality=self.image_quality,
                 dpi=self.image_dpi,
                 storage_path=storage_path,
@@ -662,7 +678,9 @@ class DoclingParser(BaseChunkedParser):
                 if "tokens" not in pawls_pages[page_idx]:
                     pawls_pages[page_idx]["tokens"] = []
 
-                # Convert cropped image to unified token format
+                # Convert cropped image to unified token format. Optional
+                # metadata is added only when present (see image-extraction
+                # branch above for the same pattern).
                 unified_token: PawlsTokenPythonType = {
                     "x": cropped_image["x"],
                     "y": cropped_image["y"],
@@ -671,11 +689,14 @@ class DoclingParser(BaseChunkedParser):
                     "text": "",  # Required field, empty for images
                     "is_image": True,
                     "format": cropped_image.get("format", "jpeg"),
-                    "content_hash": cropped_image.get("content_hash"),
-                    "original_width": cropped_image.get("original_width"),
-                    "original_height": cropped_image.get("original_height"),
                     "image_type": cropped_image.get("image_type", "cropped"),
                 }
+                if cropped_image.get("content_hash") is not None:
+                    unified_token["content_hash"] = cropped_image["content_hash"]
+                if cropped_image.get("original_width") is not None:
+                    unified_token["original_width"] = cropped_image["original_width"]
+                if cropped_image.get("original_height") is not None:
+                    unified_token["original_height"] = cropped_image["original_height"]
 
                 # Copy image path if present
                 if "image_path" in cropped_image:

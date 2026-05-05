@@ -1,11 +1,18 @@
-// Playwright Component Test for ChatMessage Processing Indicator
-// Tests the processing indicator feature added in issue #687
+// Playwright Component Test for ChatMessage in-flight signal.
+//
+// Originally these tests covered the "Agent is thinking..." pill
+// (`data-testid="processing-indicator"`) added in #687. That pill was
+// replaced by the inline `StreamingThoughtTicker` (icon + latest-step
+// title + breathing dot) so the in-flight cue lives on the assistant's
+// own message bubble instead of as a separate banner. The tests below
+// pin the new contract: ticker visible while assistant streams (with or
+// without timeline entries), gone once the message is complete, never
+// rendered for user messages, and the old pill is gone.
 import React from "react";
 import { test, expect } from "./utils/coverage";
 import { ChatMessage } from "../src/components/widgets/chat/ChatMessage";
 import { ChatMessageTestWrapper } from "./ChatMessageTestWrapper";
 
-// Mock props for different message states
 const baseAssistantMessage = {
   user: "Assistant",
   timestamp: new Date().toLocaleString(),
@@ -18,8 +25,8 @@ const baseUserMessage = {
   isAssistant: false,
 };
 
-test.describe("ChatMessage Processing Indicator", () => {
-  test("should show processing indicator when assistant message is incomplete with no content", async ({
+test.describe("ChatMessage in-flight ticker", () => {
+  test("shows streaming ticker when assistant message is incomplete with no content and no timeline", async ({
     mount,
     page,
   }) => {
@@ -34,75 +41,46 @@ test.describe("ChatMessage Processing Indicator", () => {
       </ChatMessageTestWrapper>
     );
 
-    // Processing indicator should be visible
-    await expect(
-      page.locator('[data-testid="processing-indicator"]')
-    ).toBeVisible({ timeout: 3000 });
+    const ticker = page.locator('[data-testid="streaming-thought-ticker"]');
+    await expect(ticker).toBeVisible({ timeout: 3000 });
 
-    // "Agent is thinking..." text should be visible
-    await expect(page.locator("text=Agent is thinking...")).toBeVisible();
+    // Generic "Thinking" placeholder text shows when no timeline entry has
+    // arrived yet — replaces the old "Agent is thinking..." pill copy.
+    await expect(ticker.locator("text=Thinking")).toBeVisible();
 
-    // Message content bubble should NOT be visible
+    // Message content bubble should NOT be visible mid-stream.
     await expect(
       page.locator('[data-testid="message-content"]')
     ).not.toBeVisible();
 
-    await component.unmount();
-  });
-
-  test("should have correct ARIA attributes for accessibility", async ({
-    mount,
-    page,
-  }) => {
-    const component = await mount(
-      <ChatMessageTestWrapper>
-        <ChatMessage
-          {...baseAssistantMessage}
-          content=""
-          isComplete={false}
-          timeline={[]}
-        />
-      </ChatMessageTestWrapper>
-    );
-
-    const indicator = page.locator('[data-testid="processing-indicator"]');
-    await expect(indicator).toBeVisible({ timeout: 3000 });
-
-    // Check ARIA attributes
-    await expect(indicator).toHaveAttribute("role", "status");
-    await expect(indicator).toHaveAttribute("aria-live", "polite");
-    await expect(indicator).toHaveAttribute(
-      "aria-label",
-      "Agent is processing your request"
-    );
-
-    await component.unmount();
-  });
-
-  test("should hide processing indicator when content arrives", async ({
-    mount,
-    page,
-  }) => {
-    // First mount with no content
-    const component = await mount(
-      <ChatMessageTestWrapper>
-        <ChatMessage
-          {...baseAssistantMessage}
-          content=""
-          isComplete={false}
-          timeline={[]}
-        />
-      </ChatMessageTestWrapper>
-    );
-
-    // Processing indicator should be visible initially
+    // The legacy pill is gone.
     await expect(
       page.locator('[data-testid="processing-indicator"]')
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("hides ticker when content arrives", async ({ mount, page }) => {
+    const component = await mount(
+      <ChatMessageTestWrapper>
+        <ChatMessage
+          {...baseAssistantMessage}
+          content=""
+          isComplete={false}
+          timeline={[]}
+        />
+      </ChatMessageTestWrapper>
+    );
+
+    await expect(
+      page.locator('[data-testid="streaming-thought-ticker"]')
     ).toBeVisible({ timeout: 3000 });
 
     await component.unmount();
 
-    // Now mount with content
+    // Re-mount with non-empty content (simulating ASYNC_CONTENT having
+    // arrived). The ticker drops out and the bubble takes over.
     const componentWithContent = await mount(
       <ChatMessageTestWrapper>
         <ChatMessage
@@ -114,12 +92,9 @@ test.describe("ChatMessage Processing Indicator", () => {
       </ChatMessageTestWrapper>
     );
 
-    // Processing indicator should NOT be visible
     await expect(
-      page.locator('[data-testid="processing-indicator"]')
+      page.locator('[data-testid="streaming-thought-ticker"]')
     ).not.toBeVisible();
-
-    // Message content should be visible
     await expect(
       page.locator("text=Hello, I can help you with that.")
     ).toBeVisible();
@@ -127,7 +102,7 @@ test.describe("ChatMessage Processing Indicator", () => {
     await componentWithContent.unmount();
   });
 
-  test("should show timeline instead of processing indicator when timeline arrives first", async ({
+  test("ticker shows latest timeline entry title when timeline arrives first", async ({
     mount,
     page,
   }) => {
@@ -150,28 +125,26 @@ test.describe("ChatMessage Processing Indicator", () => {
       </ChatMessageTestWrapper>
     );
 
-    // Processing indicator should NOT be visible
-    await expect(
-      page.locator('[data-testid="processing-indicator"]')
-    ).not.toBeVisible();
+    const ticker = page.locator('[data-testid="streaming-thought-ticker"]');
+    await expect(ticker).toBeVisible({ timeout: 3000 });
 
-    // Timeline should be visible
+    // Latest entry's title (resolved by getTimelineTitle) is rendered.
+    await expect(ticker.locator("text=Thinking")).toBeVisible();
+
+    // The bordered timeline panel must NOT render mid-stream.
     await expect(
       page.locator('[data-testid="timeline-container"]')
-    ).toBeVisible({
-      timeout: 3000,
-    });
+    ).not.toBeVisible();
 
-    // Timeline entry should show
-    await expect(page.locator("text=Thinking")).toBeVisible();
+    // Legacy pill is gone.
+    await expect(
+      page.locator('[data-testid="processing-indicator"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });
 
-  test("should NOT show processing indicator for user messages", async ({
-    mount,
-    page,
-  }) => {
+  test("does NOT show ticker for user messages", async ({ mount, page }) => {
     const component = await mount(
       <ChatMessageTestWrapper>
         <ChatMessage
@@ -183,15 +156,18 @@ test.describe("ChatMessage Processing Indicator", () => {
       </ChatMessageTestWrapper>
     );
 
-    // Processing indicator should NOT be visible for user messages
+    await expect(
+      page.locator('[data-testid="streaming-thought-ticker"]')
+    ).not.toBeVisible();
+    // And the legacy pill stays absent for user messages too.
     await expect(
       page.locator('[data-testid="processing-indicator"]')
-    ).not.toBeVisible();
+    ).toHaveCount(0);
 
     await component.unmount();
   });
 
-  test("should NOT show processing indicator when message is complete", async ({
+  test("does NOT show ticker when message is complete", async ({
     mount,
     page,
   }) => {
@@ -206,42 +182,10 @@ test.describe("ChatMessage Processing Indicator", () => {
       </ChatMessageTestWrapper>
     );
 
-    // Processing indicator should NOT be visible when message is complete
     await expect(
-      page.locator('[data-testid="processing-indicator"]')
+      page.locator('[data-testid="streaming-thought-ticker"]')
     ).not.toBeVisible();
-
-    // Message content should be visible
     await expect(page.locator("text=Here is my response.")).toBeVisible();
-
-    await component.unmount();
-  });
-
-  test("should show animated dots in processing indicator", async ({
-    mount,
-    page,
-  }) => {
-    const component = await mount(
-      <ChatMessageTestWrapper>
-        <ChatMessage
-          {...baseAssistantMessage}
-          content=""
-          isComplete={false}
-          timeline={[]}
-        />
-      </ChatMessageTestWrapper>
-    );
-
-    // Processing indicator should be visible
-    await expect(
-      page.locator('[data-testid="processing-indicator"]')
-    ).toBeVisible({ timeout: 3000 });
-
-    // Should have three animated dots (the dots are span elements with aria-hidden="true")
-    const dots = page.locator(
-      '[data-testid="processing-indicator"] [aria-hidden="true"] > span'
-    );
-    await expect(dots).toHaveCount(3);
 
     await component.unmount();
   });
