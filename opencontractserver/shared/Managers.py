@@ -173,7 +173,17 @@ class BaseVisibilityManager(Manager):
 
         try:
             # Get objects the user has read permission for via Guardian
-            model_name = self.model._meta.model_name or ""
+            #
+            # ``Options.model_name`` is typed Optional[str] but is only None
+            # for abstract models, which never reach a concrete manager
+            # instance. Asserting non-None here gives mypy the narrow type
+            # AND surfaces an immediate AssertionError if the invariant is
+            # ever violated, instead of letting an empty string propagate
+            # silently into the permission-table lookup below.
+            model_name = self.model._meta.model_name
+            assert (
+                model_name is not None
+            ), f"Concrete manager invoked on abstract model {self.model}"
             app_label = self.model._meta.app_label
 
             # Fallback to legacy logic with security warning

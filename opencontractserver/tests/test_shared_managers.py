@@ -135,8 +135,16 @@ class UserFeedbackManagerGetOrNoneTest(TestCase):
         self.assertEqual(result.pk, self.feedback.pk)
 
     def test_get_or_none_returns_none_on_miss(self) -> None:
-        # Use a pk that is extremely unlikely to exist
-        result = UserFeedback.objects.get_or_none(pk=999999999)
+        # Compute a pk strictly larger than any existing row so the lookup
+        # is guaranteed to miss without baking in a magic constant
+        # (CLAUDE.md §4: no magic numbers).
+        max_existing_pk = (
+            UserFeedback.objects.order_by("-pk")
+            .values_list("pk", flat=True)
+            .first()
+            or 0
+        )
+        result = UserFeedback.objects.get_or_none(pk=max_existing_pk + 1)
         self.assertIsNone(result)
 
     def test_get_or_none_returns_none_for_wrong_lookup(self) -> None:
