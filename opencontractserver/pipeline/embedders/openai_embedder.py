@@ -70,7 +70,7 @@ class OpenAIEmbedder(BaseEmbedder):
     OPENAI_CLIENT_MAX_RETRIES = 8
 
     @property
-    def vector_size(self) -> int:
+    def vector_size(self) -> int:  # type: ignore[override]
         """Derive vector size from effective settings so it reflects runtime config."""
         s = self._effective_settings
         model = s.openai_embedding_model
@@ -267,7 +267,7 @@ class OpenAIEmbedder(BaseEmbedder):
     # at OPENAI_EMBEDDING_API_MAX_BATCH (2048 per OpenAI's published limits)
     # as a defensive backstop.
 
-    def embed_texts_batch(  # type: ignore[override]
+    def embed_texts_batch(
         self, texts: list[str], **direct_kwargs
     ) -> Optional[list[Optional[list[float]]]]:
         """Embed a list of texts in a single OpenAI API call.
