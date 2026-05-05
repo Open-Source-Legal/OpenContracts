@@ -4,7 +4,6 @@ GraphQL mutations for extract, fieldset, column, datacell, and metadata operatio
 
 import logging
 import uuid
-from collections.abc import Iterable
 from typing import Optional
 
 import graphene
@@ -924,7 +923,7 @@ class AddDocumentsToExtract(DRFMutation):
     def mutate(root, info, extract_id, document_ids) -> "AddDocumentsToExtract":
 
         ok = False
-        doc_objs: Iterable[Document] = []
+        doc_objs: list[Document] = []
 
         try:
             user = info.context.user
@@ -942,8 +941,10 @@ class AddDocumentsToExtract(DRFMutation):
             doc_pks = list(
                 map(lambda graphene_id: from_global_id(graphene_id)[1], document_ids)
             )
-            doc_objs = Document.objects.filter(
-                Q(pk__in=doc_pks) & (Q(creator=user) | Q(is_public=True))
+            doc_objs = list(
+                Document.objects.filter(
+                    Q(pk__in=doc_pks) & (Q(creator=user) | Q(is_public=True))
+                )
             )
             # print(f"Add documents to extract {extract}: {doc_objs}")
             extract.documents.add(*doc_objs)

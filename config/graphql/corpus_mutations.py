@@ -971,9 +971,13 @@ class CreateCorpusAction(graphene.Mutation):
 
             # Create inline agent if requested (wrapped in transaction with action creation)
             if create_agent_inline:
-                # Validation above guarantees both are populated when reaching here.
-                assert inline_agent_name is not None
-                assert inline_agent_instructions is not None
+                # Validation above guarantees both are populated when reaching here,
+                # but use an explicit guard (not assert) so -O optimised builds are safe.
+                if inline_agent_name is None or inline_agent_instructions is None:
+                    raise ValueError(
+                        "inline_agent_name and inline_agent_instructions are required "
+                        "when create_agent_inline=True"
+                    )
                 with transaction.atomic():
                     agent_config = AgentConfiguration.objects.create(
                         name=inline_agent_name,

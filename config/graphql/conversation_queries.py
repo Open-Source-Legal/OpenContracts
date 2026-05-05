@@ -3,10 +3,12 @@ GraphQL query mixin for conversation, message, and moderation queries.
 """
 
 import logging
+from datetime import timedelta
 from typing import Any, Optional
 
 import graphene
 from django.db.models import Count, Prefetch, Q
+from django.utils import timezone
 from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
 from graphql_jwt.decorators import login_required
@@ -532,8 +534,6 @@ class ConversationQueryMixin:
         Returns:
             ModerationMetricsType with counts, rates, and threshold warnings
         """
-        from django.utils import timezone
-
         user = info.context.user
         corpus_pk = from_global_id(corpus_id)[1]
 
@@ -548,8 +548,6 @@ class ConversationQueryMixin:
             is_moderator = corpus.moderators.filter(user=user).exists()
             if not is_owner and not is_moderator:
                 return None
-
-        from datetime import timedelta
 
         end_time = timezone.now()
         start_time = end_time - timedelta(hours=time_range_hours)

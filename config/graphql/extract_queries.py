@@ -129,7 +129,7 @@ class ExtractQueryMixin:
     fieldset = relay.Node.Field(FieldsetType)
 
     def resolve_fieldset(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs["id"])[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Fieldset.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     fieldsets = DjangoFilterConnectionField(
@@ -142,7 +142,7 @@ class ExtractQueryMixin:
     column = relay.Node.Field(ColumnType)
 
     def resolve_column(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs["id"])[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Column.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     columns = DjangoFilterConnectionField(ColumnType, filterset_class=ColumnFilter)
@@ -234,7 +234,7 @@ class ExtractQueryMixin:
     datacell = relay.Node.Field(DatacellType)
 
     def resolve_datacell(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs["id"])[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Datacell.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     datacells = DjangoFilterConnectionField(
@@ -376,7 +376,7 @@ class ExtractQueryMixin:
         gremlin_engine = relay.Node.Field(GremlinEngineType_READ)
 
         def resolve_gremlin_engine(self, info, **kwargs) -> Any:
-            django_pk = from_global_id(kwargs["id"])[1]
+            django_pk = int(from_global_id(kwargs["id"])[1])
             return GremlinEngine.objects.visible_to_user(info.context.user).get(
                 id=django_pk
             )

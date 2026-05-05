@@ -417,7 +417,7 @@ class AnnotationQueryMixin:
         self, info, document_id, corpus_id=None, **kwargs
     ) -> Any:
 
-        doc_django_pk = from_global_id(document_id)[1]
+        doc_django_pk = int(from_global_id(document_id)[1])
 
         # Fetch the document (consider select_related if creator/etc. are used elsewhere)
         # Using get_object_or_404 for better error handling if document not found/accessible

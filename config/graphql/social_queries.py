@@ -62,7 +62,7 @@ class SocialQueryMixin:
 
     def resolve_badge(self, info, **kwargs) -> Any:
         """Resolve a single badge by ID."""
-        django_pk = from_global_id(kwargs["id"])[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return Badge.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     user_badges = DjangoFilterConnectionField(
@@ -187,7 +187,7 @@ class SocialQueryMixin:
         """Resolve a single agent configuration by ID."""
         from opencontractserver.agents.models import AgentConfiguration
 
-        django_pk = from_global_id(kwargs["id"])[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
         return AgentConfiguration.objects.visible_to_user(info.context.user).get(
             id=django_pk
         )
@@ -270,7 +270,7 @@ class SocialQueryMixin:
         if not user or not user.is_authenticated:
             raise GraphQLError("Notification not found")
 
-        django_pk = from_global_id(kwargs["id"])[1]
+        django_pk = int(from_global_id(kwargs["id"])[1])
 
         # Use try/except to catch DoesNotExist and return same error
         # This prevents enumeration of valid notification IDs
