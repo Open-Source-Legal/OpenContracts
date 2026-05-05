@@ -189,35 +189,6 @@ config/websocket/consumers/unified_agent_conversation.py:699: error: Argument "m
 config/websocket/consumers/unified_agent_conversation.py:710: error: Argument "msg_type" to "_send_safe" of "UnifiedAgentConsumer" has incompatible type "Literal['ASYNC_RESUME']"; expected "Literal['ASYNC_START', 'ASYNC_CONTENT', 'ASYNC_FINISH', 'SYNC_CONTENT']"  [arg-type]
 config/websocket/consumers/unified_agent_conversation.py:717: error: Argument "msg_type" to "_send_safe" of "UnifiedAgentConsumer" has incompatible type "Literal['ASYNC_ERROR']"; expected "Literal['ASYNC_START', 'ASYNC_CONTENT', 'ASYNC_FINISH', 'SYNC_CONTENT']"  [arg-type]
 config/websocket/consumers/unified_agent_conversation.py:814: error: "Coroutine[Any, Any, UnifiedChatResponse | AsyncGenerator[ThoughtEvent | ContentEvent | SourceEvent | ApprovalNeededEvent | ApprovalResultEvent | ResumeEvent | FinalEvent | ErrorEvent, None]]" has no attribute "__aiter__" (not async iterable)  [attr-defined]
-opencontractserver/conversations/models.py:1116: error: Cannot override class variable (previously declared on base class "BaseOCModel") with instance variable  [misc]
-opencontractserver/conversations/models.py:1604: error: Item "None" of "ChatMessage | None" has no attribute "pk"  [union-attr]
-opencontractserver/conversations/models.py:166: error: Incompatible types in assignment (expression has type "AnonymousUser", variable has type "AbstractBaseUser | None")  [assignment]
-opencontractserver/conversations/models.py:172: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_superuser"  [union-attr]
-opencontractserver/conversations/models.py:177: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_anonymous"  [union-attr]
-opencontractserver/conversations/models.py:229: error: Item "AbstractBaseUser" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:229: error: Item "None" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:236: error: Item "AbstractBaseUser" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:236: error: Item "None" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:368: error: Incompatible types in assignment (expression has type "AnonymousUser", variable has type "AbstractBaseUser | None")  [assignment]
-opencontractserver/conversations/models.py:374: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_superuser"  [union-attr]
-opencontractserver/conversations/models.py:378: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_anonymous"  [union-attr]
-opencontractserver/conversations/models.py:421: error: Incompatible type for lookup 'creator': (got "AbstractBaseUser | None", expected "User | int | None")  [misc]
-opencontractserver/conversations/models.py:498: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/conversations/models.py:498: note:          def visible_to_user(self, user: Any = ...) -> Any
-opencontractserver/conversations/models.py:498: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/conversations/models.py:498: note:      Subclass:
-opencontractserver/conversations/models.py:498: note:      Superclass:
-opencontractserver/conversations/models.py:517: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/conversations/models.py:517: note:          def visible_to_user(self, user: Any = ...) -> Any
-opencontractserver/conversations/models.py:517: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/conversations/models.py:517: note:      Subclass:
-opencontractserver/conversations/models.py:517: note:      Superclass:
-opencontractserver/conversations/models.py:542: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/conversations/models.py:542: note:          def visible_to_user(self, user: Any = ...) -> Any
-opencontractserver/conversations/models.py:542: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/conversations/models.py:542: note:      Subclass:
-opencontractserver/conversations/models.py:542: note:      Superclass:
-opencontractserver/conversations/models.py:724: error: Cannot override class variable (previously declared on base class "BaseOCModel") with instance variable  [misc]
 opencontractserver/discovery/tests/test_discovery_views.py:121: error: "LlmsTxtTest" has no attribute "public_corpus"  [attr-defined]
 opencontractserver/discovery/tests/test_discovery_views.py:157: error: "type[LlmsFullTxtTest]" has no attribute "owner"  [attr-defined]
 opencontractserver/discovery/tests/test_discovery_views.py:161: error: "type[LlmsFullTxtTest]" has no attribute "corpus"  [attr-defined]
