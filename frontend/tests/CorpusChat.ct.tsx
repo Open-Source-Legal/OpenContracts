@@ -448,6 +448,30 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
+            // Delayed response — exposes the warm-up ticker window between
+            // ASYNC_START and the first ASYNC_CONTENT so a positive test can
+            // assert the standalone ticker is visible during that gap.
+            if (query === "warmup test") {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              setTimeout(() => {
+                emit({
+                  type: "ASYNC_CONTENT",
+                  content: "Warmup done.",
+                  data: { message_id: id },
+                });
+                emit({
+                  type: "ASYNC_FINISH",
+                  content: "Warmup done.",
+                  data: { message_id: id },
+                });
+              }, 200);
+              return;
+            }
+
             // Unknown message type (exercises default branch → warn)
             if (query.includes("mystery type")) {
               emit({
@@ -635,6 +659,86 @@ test.describe("CorpusChat", () => {
     await expect(page.getByTestId("context-meter-percentage")).toBeVisible();
 
     await component.unmount();
+  });
+
+  test("the legacy 'AI Assistant is thinking…' pill is gone after a send", async ({
+    mount,
+    page,
+  }) => {
+    // Regression guard: the standalone "AI Assistant is thinking..." pill
+    // (with pulse-dots + spinner) used to render as a separate banner under
+    // the messages whenever isProcessing was true. It was replaced by the
+    // inline StreamingThoughtTicker on the assistant message itself, plus a
+    // standalone warm-up ticker for the brief beat between user-send and
+    // first ASYNC_CONTENT/ASYNC_THOUGHT. Pin both halves.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+    await input.fill("hello world");
+    await page.keyboard.press("Enter");
+
+    // Final response lands.
+    await expect(
+      page.getByText("Echo: hello world", { exact: true })
+    ).toBeVisible({ timeout: 10000 });
+
+    // The legacy pill text must be gone for good — it has no source in the
+    // codebase anymore, so this acts as a "no-regression" assertion against
+    // anyone re-introducing it.
+    await expect(
+      page.getByText("AI Assistant is thinking...", { exact: true })
+    ).toHaveCount(0);
+  });
+
+  test("warmup ticker appears after send and disappears when response arrives", async ({
+    mount,
+    page,
+  }) => {
+    // Positive companion to the legacy-pill regression guard above: the
+    // standalone warm-up ticker MUST be visible during the gap between
+    // user-send and the first ASYNC_CONTENT, then disappear once the
+    // assistant message takes over.
+    await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    // The "warmup test" query branches in the WebSocket stub to delay the
+    // ASYNC_CONTENT for 200ms, opening a visible warm-up window.
+    await input.fill("warmup test");
+    await page.keyboard.press("Enter");
+
+    // Ticker visible during the delay.
+    await expect(
+      page.locator('[data-testid="streaming-warmup-ticker-wrapper"]')
+    ).toBeVisible({ timeout: 5000 });
+
+    // The ticker exposes assistant-working state to assistive tech.
+    const ticker = page.locator('[data-testid="streaming-thought-ticker"]');
+    await expect(ticker).toBeVisible();
+    await expect(ticker).toHaveAttribute("role", "status");
+    await expect(ticker).toHaveAttribute("aria-live", "polite");
+
+    // Once the response arrives, the standalone warm-up ticker is gone.
+    await expect(page.getByText("Warmup done.", { exact: true })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.locator('[data-testid="streaming-warmup-ticker-wrapper"]')
+    ).not.toBeVisible();
   });
 
   test("ASYNC_ERROR shows error state with reconnect button", async ({
@@ -1140,6 +1244,212 @@ test.describe("CorpusChat", () => {
     });
     // And conversation content is no longer shown
     await expect(page.getByText("Server question")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("hideListBackButton hides the filter-bar Back in the conversation list", async ({
+    mount,
+    page,
+  }) => {
+    // Regression guard for the duplicate-back-button bug on the
+    // "Conversation History" / chats-tab list views: when the parent renders
+    // its own outer Back affordance, the inner filter-bar Back must
+    // disappear so a single Back is visible at any time.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[conversationsWithDataMock, conversationsWithDataMock]}
+        corpusId={TEST_CORPUS_ID}
+        onNavigateHome={() => {}}
+        hideListBackButton
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+
+    // The filter-bar Back lives next to the "+ New Chat" button. With
+    // hideListBackButton=true the filter-bar contains no Back-labeled
+    // button at all.
+    const filterBack = page.locator('button[aria-label="Back"]');
+    await expect(filterBack).toHaveCount(0);
+
+    // Sanity: with the prop omitted, the filter-bar Back is rendered.
+    await component.unmount();
+    await mount(
+      <CorpusChatTestWrapper
+        mocks={[conversationsWithDataMock, conversationsWithDataMock]}
+        corpusId={TEST_CORPUS_ID}
+        onNavigateHome={() => {}}
+      />
+    );
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(page.locator('button[aria-label="Back"]')).toBeVisible();
+  });
+
+  test("conversation view shows exactly one Back button (not two stacked)", async ({
+    mount,
+    page,
+  }) => {
+    // Regression guard for the duplicate-header bug: the inner CorpusChat
+    // header should be the single source of back navigation while in a
+    // conversation. Mounting CorpusChat in isolation lets us prove there is
+    // exactly one Back affordance inside the component itself; the parent
+    // (Corpuses.tsx) is responsible for suppressing its own outer header.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.getByText("First Conversation").click();
+
+    await expect(page.getByText("Server question")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Single back affordance: only one element with a "Back…" aria-label.
+    const backButtons = page.locator(
+      '[aria-label^="Back"], [aria-label^="back"]'
+    );
+    await expect(backButtons).toHaveCount(1);
+    await expect(backButtons.first()).toHaveAttribute(
+      "aria-label",
+      "Back to conversation list"
+    );
+  });
+
+  test("onViewModeChange notifies parent when entering / leaving conversation", async ({
+    mount,
+    page,
+  }) => {
+    // Pins the contract that lets Corpuses.tsx suppress its outer "Back / Chat"
+    // header while the inner CorpusChat header owns navigation. Without this
+    // callback firing on mode flips, the parent flashes a duplicate Back
+    // button (the original UX bug we're guarding against).
+    const modes: boolean[] = [];
+
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+        onViewModeChange={(isInConversation) => {
+          modes.push(isInConversation);
+        }}
+      />
+    );
+
+    // Initial render is the list view → false
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await expect.poll(() => modes[0]).toBe(false);
+
+    // Enter the conversation → flips to true
+    await page.getByText("First Conversation").click();
+    await expect(page.getByText("Server question")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect.poll(() => modes.includes(true), { timeout: 5000 }).toBe(true);
+
+    // Back to list → flips to false again
+    await page.getByLabel("Back to conversation list").click();
+    await expect(page.getByText("Second Conversation")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect
+      .poll(
+        () => {
+          // The most recent mode emission should be `false` (back in list view).
+          return modes[modes.length - 1];
+        },
+        { timeout: 5000 }
+      )
+      .toBe(false);
+
+    await component.unmount();
+  });
+
+  test("chat input starts compact and grows with multi-line content", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    // Compact resting state — capture for the redesign docs.
+    const initialHeight = await input.evaluate(
+      (el) => (el as HTMLTextAreaElement).clientHeight
+    );
+    expect(initialHeight).toBeLessThan(60);
+    await docScreenshot(page, "corpus--chat--input-compact");
+
+    // Type a long, multi-line message and verify the textarea expanded.
+    const longText = Array.from(
+      { length: 6 },
+      (_, i) =>
+        `Line ${
+          i + 1
+        }: this should make the chat input grow vertically up to its CSS max-height before scrolling.`
+    ).join("\n");
+    await input.fill(longText);
+
+    await expect
+      .poll(
+        async () =>
+          input.evaluate((el) => (el as HTMLTextAreaElement).clientHeight),
+        { timeout: 5000 }
+      )
+      .toBeGreaterThan(initialHeight + 20);
+
+    // …but bounded — the textarea must not grow unbounded with content. The
+    // CSS max-height is 140px (content-box), plus padding clientHeight tops
+    // out around ~160px. Anything substantially above that means the cap is
+    // not in force.
+    const grownHeight = await input.evaluate(
+      (el) => (el as HTMLTextAreaElement).clientHeight
+    );
+    expect(grownHeight).toBeLessThanOrEqual(170);
+
+    await docScreenshot(page, "corpus--chat--input-expanded");
+
+    // Clearing the message snaps it back near the compact resting size.
+    // Tolerate ~one-line slack — the reset-on-clear effect drops the inline
+    // height, but the natural textarea height re-renders against the new
+    // padding/min-height which may include a small amount of vertical room
+    // for the next character. The contract under test is that the textarea
+    // does NOT remain stuck at its multi-line expanded size after clear.
+    await input.fill("");
+    await expect
+      .poll(
+        async () =>
+          input.evaluate((el) => (el as HTMLTextAreaElement).clientHeight),
+        { timeout: 5000 }
+      )
+      .toBeLessThan(grownHeight - 40);
 
     await component.unmount();
   });

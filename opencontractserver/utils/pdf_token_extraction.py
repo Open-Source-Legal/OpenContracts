@@ -11,6 +11,7 @@ Image extraction capabilities added for LLM image annotation support.
 """
 
 import base64
+import gc
 import hashlib
 import io
 import json
@@ -45,6 +46,33 @@ MAX_IMAGE_SIZE_BYTES = getattr(settings, "MAX_IMAGE_SIZE_BYTES", 10 * 1024 * 102
 MAX_TOTAL_IMAGES_SIZE_BYTES = getattr(
     settings, "MAX_TOTAL_IMAGES_SIZE_BYTES", 100 * 1024 * 1024
 )
+
+# Default DPI for rasterising PDF pages when an embedded image stream cannot be
+# decoded directly. Higher values produce sharper crops but proportionally
+# larger in-memory page buffers (peak page-render RSS scales as ~DPI^2).
+DEFAULT_IMAGE_EXTRACTION_DPI = getattr(settings, "IMAGE_EXTRACTION_DPI", 150)
+
+# After processing this many pages during image extraction, force a full
+# garbage collection. This keeps peak RSS bounded by a small constant
+# (one rendered page + one decoded image) regardless of document length,
+# even when the underlying CPython refcounting doesn't reclaim Poppler /
+# PIL buffers promptly. See ``extract_images_from_pdf``.
+IMAGE_EXTRACTION_GC_INTERVAL_PAGES = getattr(
+    settings, "IMAGE_EXTRACTION_GC_INTERVAL_PAGES", 1
+)
+
+
+def _close_quietly(obj: Any) -> None:
+    """Best-effort ``close()`` on PIL Images / BytesIO buffers. Errors swallowed."""
+    if obj is None:
+        return
+    closer = getattr(obj, "close", None)
+    if closer is None:
+        return
+    try:
+        closer()
+    except Exception:
+        pass
 
 
 def load_pawls_data(document: "Document") -> Optional[list[dict[str, Any]]]:
@@ -506,6 +534,7 @@ def extract_images_from_pdf(
     image_format: Literal["jpeg", "png"] = "jpeg",
     jpeg_quality: int = 85,
     storage_path: Optional[str] = None,
+    dpi: int = DEFAULT_IMAGE_EXTRACTION_DPI,
 ) -> dict[int, list[PawlsTokenPythonType]]:
     """
     Extract embedded images from a PDF as unified image tokens.
@@ -518,6 +547,22 @@ def extract_images_from_pdf(
     allowing them to be stored alongside text tokens in the PAWLs format and
     referenced using the same TokenIdPythonType.
 
+    Memory bound (issue #1498):
+        Pages are processed one at a time. When a page contains embedded images
+        whose streams cannot be decoded directly, the page is rasterised at most
+        ONCE per call (regardless of how many images live on it) and the
+        rendered buffer is closed before moving to the next page. PIL Image and
+        BytesIO buffers are explicitly closed; pdfplumber's per-page parse cache
+        is flushed; and ``gc.collect()`` runs every
+        ``IMAGE_EXTRACTION_GC_INTERVAL_PAGES`` pages.
+
+        Peak working set per call is therefore ::
+
+            len(pdf_bytes) + 1 rendered page + 1 decoded image bytes
+
+        and is independent of total page count, so a 30-page document and a
+        300-page document of similar shape have the same RSS profile.
+
     Args:
         pdf_bytes: The raw bytes of the PDF file.
         min_width: Minimum image width in pixels to include (default: 50).
@@ -528,6 +573,8 @@ def extract_images_from_pdf(
         storage_path: Base path for storing images (e.g., "user_123/doc_456/images").
                      If provided, images are saved to storage and referenced by path.
                      If None, images are embedded as base64 (not recommended for large docs).
+        dpi: Resolution for rasterising pages whose embedded image streams
+             cannot be decoded directly. Page-render RSS scales as ~DPI^2.
 
     Returns:
         Dict mapping 0-based page index to list of PawlsTokenPythonType (image tokens).
@@ -535,7 +582,7 @@ def extract_images_from_pdf(
     """
     try:
         import pdfplumber
-        from PIL import Image
+        from PIL import Image  # noqa: F401 - imported to verify PIL is installed
     except ImportError as e:
         logger.error(f"Required library not installed: {e}")
         return {}
@@ -545,170 +592,60 @@ def extract_images_from_pdf(
     # Track total size across all images for document-level limit
     total_images_size = 0
     size_limit_reached = False
+    num_pages_processed = 0
 
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            for page_idx, page in enumerate(pdf.pages):
+            num_pages = len(pdf.pages)
+            for page_idx in range(num_pages):
                 # Check if we've hit the document-level size limit
                 if size_limit_reached:
                     images_by_page[page_idx] = []
                     continue
-                page_images: list[PawlsTokenPythonType] = []
-                page_width = float(page.width)
-                page_height = float(page.height)
 
-                # Get embedded images from the page
-                if not hasattr(page, "images") or not page.images:
-                    images_by_page[page_idx] = []
-                    continue
-
-                for img_idx, img_info in enumerate(page.images[:max_images_per_page]):
-                    try:
-                        # pdfplumber image info contains: x0, top, x1, bottom, etc.
-                        x0 = float(img_info.get("x0", 0))
-                        top = float(img_info.get("top", 0))
-                        x1 = float(img_info.get("x1", page_width))
-                        bottom = float(img_info.get("bottom", page_height))
-
-                        # Calculate dimensions
-                        width = x1 - x0
-                        height = bottom - top
-
-                        # Skip images that are too small
-                        if width < min_width or height < min_height:
-                            logger.debug(
-                                f"Skipping small image on page {page_idx}: "
-                                f"{width}x{height}"
-                            )
-                            continue
-
-                        # Try to extract the actual image data
-                        # pdfplumber may provide a 'stream' or we need to crop
-                        pil_image = None
-
-                        # Method 1: Try to get image stream directly
-                        if "stream" in img_info:
-                            stream = img_info["stream"]
-                            if hasattr(stream, "get_data"):
-                                try:
-                                    raw_data = stream.get_data()
-                                    pil_image = Image.open(io.BytesIO(raw_data))
-                                except Exception:
-                                    pass
-
-                        # Method 2: Crop the region from rendered page
-                        if pil_image is None:
-                            pil_image = _crop_pdf_region(
-                                pdf_bytes,
-                                page_idx,
-                                x0,
-                                top,
-                                x1,
-                                bottom,
-                                page_width,
-                                page_height,
-                            )
-
-                        if pil_image is None:
-                            logger.debug(
-                                f"Could not extract image {img_idx} on page {page_idx}"
-                            )
-                            continue
-
-                        # Convert to target format
-                        img_bytes_io = io.BytesIO()
-                        if image_format == "jpeg":
-                            # Convert to RGB for JPEG (no alpha channel)
-                            if pil_image.mode in ("RGBA", "LA", "P"):
-                                pil_image = pil_image.convert("RGB")
-                            pil_image.save(
-                                img_bytes_io, format="JPEG", quality=jpeg_quality
-                            )
-                        else:
-                            pil_image.save(img_bytes_io, format="PNG")
-
-                        image_bytes = img_bytes_io.getvalue()
-                        image_size = len(image_bytes)
-
-                        # Check individual image size limit
-                        if image_size > MAX_IMAGE_SIZE_BYTES:
-                            logger.warning(
-                                f"Skipping oversized image on page {page_idx}: "
-                                f"{image_size} bytes exceeds {MAX_IMAGE_SIZE_BYTES} limit"
-                            )
-                            continue
-
-                        # Check document-level total size limit
-                        if total_images_size + image_size > MAX_TOTAL_IMAGES_SIZE_BYTES:
-                            logger.warning(
-                                f"Document image size limit reached "
-                                f"({MAX_TOTAL_IMAGES_SIZE_BYTES} bytes), "
-                                f"stopping extraction at page {page_idx}"
-                            )
-                            size_limit_reached = True
-                            break
-
-                        total_images_size += image_size
-
-                        # Calculate content hash for deduplication
-                        content_hash = hashlib.sha256(image_bytes).hexdigest()
-
-                        # Create unified image token with is_image=True and text=""
-                        # This allows image tokens to be stored alongside text tokens
-                        # in the PAWLs format and referenced using TokenIdPythonType
-                        image_token: PawlsTokenPythonType = {
-                            "x": x0,
-                            "y": top,
-                            "width": width,
-                            "height": height,
-                            "text": "",  # Required field, empty for images
-                            "is_image": True,  # Identifies this as an image token
-                            "format": image_format,
-                            "original_width": pil_image.width,
-                            "original_height": pil_image.height,
-                            "content_hash": content_hash,
-                            "image_type": "embedded",
-                        }
-
-                        # Save to storage if path provided, otherwise embed base64
-                        if storage_path:
-                            saved_path = _save_image_to_storage(
-                                image_bytes,
-                                storage_path,
-                                page_idx,
-                                img_idx,
-                                image_format,
-                            )
-                            if saved_path:
-                                image_token["image_path"] = saved_path
-                            else:
-                                # Fallback to base64 if storage fails
-                                image_token["base64_data"] = base64.b64encode(
-                                    image_bytes
-                                ).decode("utf-8")
-                        else:
-                            # No storage path - embed as base64 (not recommended)
-                            image_token["base64_data"] = base64.b64encode(
-                                image_bytes
-                            ).decode("utf-8")
-
-                        page_images.append(image_token)
-                        logger.debug(
-                            f"Extracted image {img_idx} on page {page_idx}: "
-                            f"{pil_image.width}x{pil_image.height}"
-                        )
-
-                    except Exception as img_error:
-                        logger.warning(
-                            f"Error extracting image {img_idx} on page {page_idx}: "
-                            f"{img_error}"
-                        )
-                        continue
+                page = pdf.pages[page_idx]
+                page_images, page_size_added, hit_size_limit = _extract_images_for_page(
+                    page=page,
+                    page_idx=page_idx,
+                    pdf_bytes=pdf_bytes,
+                    min_width=min_width,
+                    min_height=min_height,
+                    max_images_per_page=max_images_per_page,
+                    image_format=image_format,
+                    jpeg_quality=jpeg_quality,
+                    storage_path=storage_path,
+                    dpi=dpi,
+                    running_total_size=total_images_size,
+                )
 
                 images_by_page[page_idx] = page_images
+                total_images_size += page_size_added
+                if hit_size_limit:
+                    size_limit_reached = True
+
+                # Release pdfplumber's per-page parse cache (text/image lookup
+                # tables) so cumulative RSS doesn't grow as we iterate.
+                if hasattr(page, "flush_cache"):
+                    try:
+                        page.flush_cache()
+                    except Exception:
+                        pass
+                # Drop the local reference so refcounting can reclaim it
+                # before the next iteration.
+                del page
+
+                num_pages_processed += 1
+                # Force a collection so Poppler subprocess buffers and PIL
+                # image buffers get reclaimed before the next page render,
+                # keeping peak RSS bounded.
+                if (
+                    IMAGE_EXTRACTION_GC_INTERVAL_PAGES > 0
+                    and num_pages_processed % IMAGE_EXTRACTION_GC_INTERVAL_PAGES == 0
+                ):
+                    gc.collect()
 
         logger.info(
-            f"Extracted images from {len(pdf.pages)} pages: "
+            f"Extracted images from {num_pages_processed} pages: "
             f"{sum(len(imgs) for imgs in images_by_page.values())} total images"
         )
 
@@ -718,54 +655,267 @@ def extract_images_from_pdf(
     return images_by_page
 
 
-def _crop_pdf_region(
-    pdf_bytes: bytes,
+def _extract_images_for_page(
+    page: Any,
     page_idx: int,
-    x0: float,
-    y0: float,
-    x1: float,
-    y1: float,
-    page_width: float,
-    page_height: float,
-    dpi: int = 150,
-) -> Optional["PILImage.Image"]:
+    pdf_bytes: bytes,
+    min_width: int,
+    min_height: int,
+    max_images_per_page: int,
+    image_format: Literal["jpeg", "png"],
+    jpeg_quality: int,
+    storage_path: Optional[str],
+    dpi: int,
+    running_total_size: int,
+) -> tuple[list[PawlsTokenPythonType], int, bool]:
     """
-    Crop a specific region from a PDF page by rendering it first.
+    Extract images from a single PDF page with bounded peak memory.
 
-    This is a fallback method when embedded image streams cannot be extracted
-    directly from the PDF.
+    Memory contract: at most ONE rendered page image and ONE decoded image
+    buffer are alive at any moment within this function. The page is
+    rasterised lazily — only when at least one image on the page can't be
+    decoded directly from its embedded stream — and is closed before this
+    function returns.
 
     Args:
-        pdf_bytes: The raw bytes of the PDF file.
+        page: pdfplumber Page object.
         page_idx: 0-based page index.
-        x0, y0, x1, y1: Bounding box coordinates in PDF points.
-        page_width, page_height: Full page dimensions in PDF points.
-        dpi: Resolution for rendering (default: 150).
+        pdf_bytes: Raw PDF bytes (used only if rasterisation is needed).
+        min_width / min_height / max_images_per_page / image_format /
+        jpeg_quality / storage_path / dpi: forwarded from
+        ``extract_images_from_pdf``.
+        running_total_size: total image bytes accumulated across previous
+            pages, used to enforce ``MAX_TOTAL_IMAGES_SIZE_BYTES``.
 
     Returns:
-        PIL Image of the cropped region, or None on failure.
+        Tuple of (page_images, bytes_added, hit_size_limit).
+    """
+    from PIL import Image
+
+    page_images: list[PawlsTokenPythonType] = []
+    bytes_added = 0
+    hit_size_limit = False
+    rendered_page: Optional["PILImage.Image"] = None
+
+    try:
+        page_width = float(page.width)
+        page_height = float(page.height)
+
+        if not hasattr(page, "images") or not page.images:
+            return page_images, bytes_added, hit_size_limit
+
+        for img_idx, img_info in enumerate(page.images[:max_images_per_page]):
+            pil_image: Optional["PILImage.Image"] = None
+            img_bytes_io: Optional[io.BytesIO] = None
+            try:
+                # pdfplumber image info contains: x0, top, x1, bottom, etc.
+                x0 = float(img_info.get("x0", 0))
+                top = float(img_info.get("top", 0))
+                x1 = float(img_info.get("x1", page_width))
+                bottom = float(img_info.get("bottom", page_height))
+
+                # Calculate dimensions
+                width = x1 - x0
+                height = bottom - top
+
+                # Skip images that are too small
+                if width < min_width or height < min_height:
+                    logger.debug(
+                        f"Skipping small image on page {page_idx}: " f"{width}x{height}"
+                    )
+                    continue
+
+                # Method 1: Try to get image stream directly
+                if "stream" in img_info:
+                    stream = img_info["stream"]
+                    if hasattr(stream, "get_data"):
+                        try:
+                            raw_data = stream.get_data()
+                            pil_image = Image.open(io.BytesIO(raw_data))
+                        except Exception:
+                            pil_image = None
+
+                # Method 2: Crop from a rendered page. Render the page lazily
+                # and ONCE; reuse the rendered buffer for every remaining
+                # image on this page so we don't pay an O(images) rendering
+                # cost or memory spike.
+                if pil_image is None:
+                    if rendered_page is None:
+                        rendered_page = _render_pdf_page(pdf_bytes, page_idx, dpi)
+                    if rendered_page is not None:
+                        pil_image = _crop_region_from_rendered_page(
+                            rendered_page,
+                            x0,
+                            top,
+                            x1,
+                            bottom,
+                            page_width,
+                            page_height,
+                        )
+
+                if pil_image is None:
+                    logger.debug(
+                        f"Could not extract image {img_idx} on page {page_idx}"
+                    )
+                    continue
+
+                # Convert to target format
+                img_bytes_io = io.BytesIO()
+                if image_format == "jpeg":
+                    # Convert to RGB for JPEG (no alpha channel).
+                    # Close the original before rebinding so the pre-conversion
+                    # buffer is released and not leaked when pil_image is later
+                    # closed in the finally block below.
+                    if pil_image.mode in ("RGBA", "LA", "P"):
+                        converted = pil_image.convert("RGB")
+                        _close_quietly(pil_image)
+                        pil_image = converted
+                    pil_image.save(img_bytes_io, format="JPEG", quality=jpeg_quality)
+                else:
+                    pil_image.save(img_bytes_io, format="PNG")
+
+                image_bytes = img_bytes_io.getvalue()
+                image_size = len(image_bytes)
+
+                # Check individual image size limit
+                if image_size > MAX_IMAGE_SIZE_BYTES:
+                    logger.warning(
+                        f"Skipping oversized image on page {page_idx}: "
+                        f"{image_size} bytes exceeds {MAX_IMAGE_SIZE_BYTES} limit"
+                    )
+                    continue
+
+                # Check document-level total size limit
+                if (
+                    running_total_size + bytes_added + image_size
+                    > MAX_TOTAL_IMAGES_SIZE_BYTES
+                ):
+                    logger.warning(
+                        f"Document image size limit reached "
+                        f"({MAX_TOTAL_IMAGES_SIZE_BYTES} bytes), "
+                        f"stopping extraction at page {page_idx}"
+                    )
+                    hit_size_limit = True
+                    break
+
+                bytes_added += image_size
+
+                # Calculate content hash for deduplication
+                content_hash = hashlib.sha256(image_bytes).hexdigest()
+
+                # Create unified image token with is_image=True and text=""
+                image_token: PawlsTokenPythonType = {
+                    "x": x0,
+                    "y": top,
+                    "width": width,
+                    "height": height,
+                    "text": "",  # Required field, empty for images
+                    "is_image": True,  # Identifies this as an image token
+                    "format": image_format,
+                    "original_width": pil_image.width,
+                    "original_height": pil_image.height,
+                    "content_hash": content_hash,
+                    "image_type": "embedded",
+                }
+
+                # Save to storage if path provided, otherwise embed base64
+                if storage_path:
+                    saved_path = _save_image_to_storage(
+                        image_bytes,
+                        storage_path,
+                        page_idx,
+                        img_idx,
+                        image_format,
+                    )
+                    if saved_path:
+                        image_token["image_path"] = saved_path
+                    else:
+                        # Fallback to base64 if storage fails
+                        image_token["base64_data"] = base64.b64encode(
+                            image_bytes
+                        ).decode("utf-8")
+                else:
+                    # No storage path - embed as base64 (not recommended)
+                    image_token["base64_data"] = base64.b64encode(image_bytes).decode(
+                        "utf-8"
+                    )
+
+                page_images.append(image_token)
+                logger.debug(
+                    f"Extracted image {img_idx} on page {page_idx}: "
+                    f"{pil_image.width}x{pil_image.height}"
+                )
+
+            except Exception as img_error:
+                logger.warning(
+                    f"Error extracting image {img_idx} on page {page_idx}: "
+                    f"{img_error}"
+                )
+                continue
+            finally:
+                # Release per-image buffers eagerly. Without this, the largest
+                # images (10MB+ encoded, larger decoded) live until the next
+                # iteration's `pil_image = ...` rebind, doubling peak RSS.
+                _close_quietly(pil_image)
+                _close_quietly(img_bytes_io)
+    finally:
+        # Close the rendered page once we've processed every image on it.
+        # The rendered buffer is the largest single allocation in this loop
+        # (~6-10MB at 150 DPI for US letter, quadratic in DPI), so freeing
+        # it before returning is what keeps cross-page peak RSS bounded.
+        _close_quietly(rendered_page)
+
+    return page_images, bytes_added, hit_size_limit
+
+
+def _render_pdf_page(
+    pdf_bytes: bytes,
+    page_idx: int,
+    dpi: int = DEFAULT_IMAGE_EXTRACTION_DPI,
+) -> Optional["PILImage.Image"]:
+    """
+    Rasterise a single PDF page to a PIL Image at ``dpi``.
+
+    Separated from cropping so that callers iterating over many image bounds on
+    the same page render the page exactly once and reuse the buffer. Returning
+    a PIL Image transfers ownership: the caller is responsible for ``close()``.
     """
     try:
         from pdf2image import convert_from_bytes
         from PIL import Image  # noqa: F401 - imported to verify PIL is installed
     except ImportError:
-        logger.warning("pdf2image or PIL not installed for region cropping")
+        logger.warning("pdf2image or PIL not installed for page rendering")
         return None
 
     try:
-        # Render the specific page
         images = convert_from_bytes(
             pdf_bytes,
             first_page=page_idx + 1,  # pdf2image uses 1-based indexing
             last_page=page_idx + 1,
             dpi=dpi,
         )
+        return images[0] if images else None
+    except Exception as e:
+        logger.warning(f"Error rendering PDF page {page_idx}: {e}")
+        return None
 
-        if not images:
-            return None
 
-        page_image = images[0]
-        img_width, img_height = page_image.size
+def _crop_region_from_rendered_page(
+    rendered_page: "PILImage.Image",
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    page_width: float,
+    page_height: float,
+) -> Optional["PILImage.Image"]:
+    """
+    Crop a region from an already-rendered PDF page, scaling PDF points to
+    pixel coordinates. Caller retains ownership of ``rendered_page``; the
+    returned crop is a new image the caller must close.
+    """
+    try:
+        img_width, img_height = rendered_page.size
 
         # Calculate scale factors
         scale_x = img_width / page_width
@@ -783,13 +933,53 @@ def _crop_pdf_region(
         px_x1 = max(px_x0 + 1, min(px_x1, img_width))
         px_y1 = max(px_y0 + 1, min(px_y1, img_height))
 
-        # Crop the region
-        cropped = page_image.crop((px_x0, px_y0, px_x1, px_y1))
-        return cropped
-
+        return rendered_page.crop((px_x0, px_y0, px_x1, px_y1))
     except Exception as e:
-        logger.warning(f"Error cropping PDF region: {e}")
+        logger.warning(f"Error cropping rendered PDF page: {e}")
         return None
+
+
+def _crop_pdf_region(
+    pdf_bytes: bytes,
+    page_idx: int,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    page_width: float,
+    page_height: float,
+    dpi: int = DEFAULT_IMAGE_EXTRACTION_DPI,
+) -> Optional["PILImage.Image"]:
+    """
+    Crop a specific region from a PDF page by rendering it first.
+
+    This is a fallback method when embedded image streams cannot be extracted
+    directly from the PDF. Each call rasterises the page; callers that need
+    multiple crops from the same page should instead call ``_render_pdf_page``
+    once and ``_crop_region_from_rendered_page`` per crop.
+
+    Args:
+        pdf_bytes: The raw bytes of the PDF file.
+        page_idx: 0-based page index.
+        x0, y0, x1, y1: Bounding box coordinates in PDF points.
+        page_width, page_height: Full page dimensions in PDF points.
+        dpi: Resolution for rendering (default: ``DEFAULT_IMAGE_EXTRACTION_DPI``).
+
+    Returns:
+        PIL Image of the cropped region, or None on failure.
+    """
+    rendered_page = _render_pdf_page(pdf_bytes, page_idx, dpi)
+    if rendered_page is None:
+        return None
+    try:
+        return _crop_region_from_rendered_page(
+            rendered_page, x0, y0, x1, y1, page_width, page_height
+        )
+    finally:
+        # The rendered page buffer is large (~6-10MB at 150 DPI for US letter,
+        # quadratic in DPI). Release it as soon as the crop is taken so the
+        # caller's working set doesn't accumulate one rendered page per crop.
+        _close_quietly(rendered_page)
 
 
 def crop_image_from_pdf(
@@ -859,13 +1049,19 @@ def crop_image_from_pdf(
         # Convert to target format
         img_bytes_io = io.BytesIO()
         if image_format == "jpeg":
+            # Close the original before rebinding so the pre-conversion
+            # buffer is not leaked when the reference is rebound.
             if pil_image.mode in ("RGBA", "LA", "P"):
-                pil_image = pil_image.convert("RGB")
+                converted = pil_image.convert("RGB")
+                _close_quietly(pil_image)
+                pil_image = converted
             pil_image.save(img_bytes_io, format="JPEG", quality=jpeg_quality)
         else:
             pil_image.save(img_bytes_io, format="PNG")
+        _close_quietly(pil_image)
 
         image_bytes = img_bytes_io.getvalue()
+        _close_quietly(img_bytes_io)
 
         # Check image size limit
         if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:

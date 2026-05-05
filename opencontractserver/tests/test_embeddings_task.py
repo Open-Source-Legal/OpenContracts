@@ -1430,5 +1430,52 @@ class TestArrayFormatHandling(unittest.TestCase):
         self.assertEqual(api_key, "")
 
 
+class TestGetEmbedderExplicitPath(unittest.TestCase):
+    """
+    Cover the ``embedder_path`` short-circuit branch of ``get_embedder``,
+    where the caller supplies a fully-qualified component path and the
+    helper should load it via ``get_component_by_name`` and cast to
+    ``type[BaseEmbedder]`` without consulting the corpus or fallbacks.
+    """
+
+    @patch("opencontractserver.pipeline.utils.get_component_by_name")
+    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_explicit_path_loads_via_get_component_by_name(
+        self, mock_get_default, mock_find, mock_get_component
+    ):
+        mock_get_component.return_value = TestEmbedder
+
+        embedder_class, embedder_path = get_embedder(
+            embedder_path="path.to.TestEmbedder"
+        )
+
+        mock_get_component.assert_called_once_with("path.to.TestEmbedder")
+        # Explicit path short-circuits both fallback paths.
+        mock_find.assert_not_called()
+        mock_get_default.assert_not_called()
+        self.assertIs(embedder_class, TestEmbedder)
+        self.assertEqual(embedder_path, "path.to.TestEmbedder")
+
+    @patch("opencontractserver.pipeline.utils.get_component_by_name")
+    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_explicit_path_falls_through_on_load_failure(
+        self, mock_get_default, mock_find, mock_get_component
+    ):
+        """If loading the explicit path raises, the helper logs and
+        falls through to the default-embedder branch."""
+        mock_get_component.side_effect = ImportError("nope")
+        mock_find.return_value = None
+        mock_get_default.return_value = TestEmbedder
+
+        embedder_class, embedder_path = get_embedder(embedder_path="bogus.module.Bogus")
+
+        self.assertIs(embedder_class, TestEmbedder)
+        self.assertEqual(
+            embedder_path, f"{TestEmbedder.__module__}.{TestEmbedder.__name__}"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

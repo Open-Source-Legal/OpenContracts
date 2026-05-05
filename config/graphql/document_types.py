@@ -276,11 +276,11 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
         user = getattr(info.context, "user", None)
-        corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
-        analysis_pk = None
+        corpus_pk: int | None = int(from_global_id(corpus_id)[1]) if corpus_id else None
+        analysis_pk: int | None = None
         if analysis_id:
             analysis_pk = (
-                0 if analysis_id == "__none__" else from_global_id(analysis_id)[1]
+                0 if analysis_id == "__none__" else int(from_global_id(analysis_id)[1])
             )
         return AnnotationQueryOptimizer.get_document_annotations(
             document_id=self.id,
@@ -297,22 +297,25 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         RelationshipType,
         corpus_id=graphene.ID(),
         analysis_id=graphene.ID(),
+        is_structural=graphene.Boolean(),
     )
 
-    def resolve_all_relationships(self, info, corpus_id=None, analysis_id=None) -> Any:
+    def resolve_all_relationships(
+        self, info, corpus_id=None, analysis_id=None, is_structural=None
+    ) -> Any:
         """Resolve all relationships using the optimizer."""
         from opencontractserver.annotations.query_optimizer import (
             RelationshipQueryOptimizer,
         )
 
         try:
-            corpus_pk = None
-            analysis_pk = None
+            corpus_pk: int | None = None
+            analysis_pk: int | None = None
 
             if corpus_id:
-                _, corpus_pk = from_global_id(corpus_id)
+                corpus_pk = int(from_global_id(corpus_id)[1])
             if analysis_id and analysis_id != "__none__":
-                _, analysis_pk = from_global_id(analysis_id)
+                analysis_pk = int(from_global_id(analysis_id)[1])
             elif analysis_id == "__none__":
                 analysis_pk = 0  # Special case for user relationships
 
@@ -324,6 +327,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 user=user,
                 corpus_id=corpus_pk,
                 analysis_id=analysis_pk,
+                structural=is_structural,
                 use_cache=True,
                 context=info.context,
             )
@@ -331,6 +335,48 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             logger.warning(
                 f"Failed resolving relationships query for document {self.id} with input: corpus_id={corpus_id}, "
                 f"analysis_id={analysis_id}. Error: {e}"
+            )
+            return []
+
+    all_structural_relationships = graphene.List(
+        RelationshipType,
+        relationship_ids=graphene.List(graphene.NonNull(graphene.ID)),
+    )
+
+    def resolve_all_structural_relationships(self, info, relationship_ids=None) -> Any:
+        """
+        Resolve structural relationships for this document.
+
+        Mirrors ``all_structural_annotations``: returns the document's
+        shared structural relationships (corpus-independent), so the
+        frontend can lazy-load them alongside structural annotations
+        instead of hauling them down on every initial document open.
+        """
+        from opencontractserver.annotations.query_optimizer import (
+            RelationshipQueryOptimizer,
+        )
+
+        try:
+            user = getattr(info.context, "user", None)
+            # Bulk structural-toggle fetches reuse the per-request cache;
+            # targeted deep-link fetches (relationship_ids supplied) bypass
+            # it because the cached queryset is shaped for the bulk path
+            # and would mask the id-filter we apply below.
+            qs = RelationshipQueryOptimizer.get_document_relationships(
+                document_id=self.id,
+                user=user,
+                structural=True,
+                use_cache=relationship_ids is None,
+                context=info.context,
+            )
+            if relationship_ids:
+                django_pks = [from_global_id(gid)[1] for gid in relationship_ids]
+                qs = qs.filter(pk__in=django_pks)
+            return qs
+        except Exception as e:
+            logger.warning(
+                "Failed resolving structural relationships query for "
+                f"document {self.id}. Error: {e}"
             )
             return []
 
@@ -749,10 +795,8 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         # Subquery: only documents in this version tree the user can see.
         visible_version_docs = (
-            Document.objects.filter(
-                version_tree_id=self.version_tree_id,
-            )
-            .visible_to_user(info.context.user)
+            Document.objects.visible_to_user(info.context.user)
+            .filter(version_tree_id=self.version_tree_id)
             .only("pk")
         )
 
@@ -946,13 +990,13 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             AnnotationQueryOptimizer,
         )
 
-        _, corpus_pk = from_global_id(corpus_id)
-        analysis_pk = None
+        corpus_pk = int(from_global_id(corpus_id)[1])
+        analysis_pk: int | None = None
         if analysis_id:
-            _, analysis_pk = from_global_id(analysis_id)
-        extract_pk = None
+            analysis_pk = int(from_global_id(analysis_id)[1])
+        extract_pk: int | None = None
         if extract_id:
-            _, extract_pk = from_global_id(extract_id)
+            extract_pk = int(from_global_id(extract_id)[1])
 
         user = self._assert_user_can_read(info)
 
@@ -994,16 +1038,16 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             RelationshipQueryOptimizer,
         )
 
-        _, corpus_pk = from_global_id(corpus_id)
-        analysis_pk = None
+        corpus_pk = int(from_global_id(corpus_id)[1])
+        analysis_pk: int | None = None
         if analysis_id:
             if analysis_id == "__none__":
                 analysis_pk = 0  # Special case for user annotations
             else:
-                _, analysis_pk = from_global_id(analysis_id)
-        extract_pk = None
+                analysis_pk = int(from_global_id(analysis_id)[1])
+        extract_pk: int | None = None
         if extract_id:
-            _, extract_pk = from_global_id(extract_id)
+            extract_pk = int(from_global_id(extract_id)[1])
 
         user = self._assert_user_can_read(info)
 
@@ -1039,7 +1083,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         user = self._assert_user_can_read(info)
 
-        _, corpus_pk = from_global_id(corpus_id)
+        corpus_pk = int(from_global_id(corpus_id)[1])
         summary = RelationshipQueryOptimizer.get_relationship_summary(
             document_id=self.id, corpus_id=corpus_pk, user=user
         )
@@ -1052,7 +1096,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
         user = self._assert_user_can_read(info)
-        _, extract_pk = from_global_id(extract_id)
+        extract_pk = int(from_global_id(extract_id)[1])
 
         return AnnotationQueryOptimizer.get_extract_annotation_summary(
             document_id=self.id, extract_id=extract_pk, user=user, use_cache=True

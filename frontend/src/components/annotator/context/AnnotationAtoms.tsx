@@ -20,6 +20,16 @@ export const pdfAnnotationsAtom = atom<PdfAnnotations>(
 export const structuralAnnotationsAtom = atom<ServerTokenAnnotation[]>([]);
 
 /**
+ * Atom to manage structural relationships. Loaded by the same lazy query
+ * that loads structural annotations — they describe the connections between
+ * structural annotations (e.g. headers ↔ paragraphs) and are toggled by the
+ * same UI control. Kept separate from ``pdfAnnotationsAtom.relations`` so
+ * user-editable relation CRUD operations don't have to reason about
+ * structural items.
+ */
+export const structuralRelationshipsAtom = atom<RelationGroup[]>([]);
+
+/**
  * Tracks whether structural annotations have been fetched for the current document.
  * Reset to false when navigating to a new document. Prevents redundant re-fetching
  * when the user toggles structural visibility multiple times.
@@ -67,6 +77,27 @@ export const allAnnotationsAtom = atom<
     if (seen.has(a.id)) continue; // skip duplicates
     seen.add(a.id);
     out.push(a);
+  }
+  return out;
+});
+
+/**
+ * Canonical, de-duplicated list of ALL relations (regular + structural).
+ * Mirrors ``allAnnotationsAtom`` for relations: read this whenever a
+ * consumer needs to reason about the full set, not just the user-editable
+ * subset that lives in ``pdfAnnotationsAtom.relations``.
+ */
+export const allRelationsAtom = atom<RelationGroup[]>((get) => {
+  const { relations } = get(pdfAnnotationsAtom);
+  const structural = get(structuralRelationshipsAtom);
+
+  const seen = new Set<string>();
+  const out: RelationGroup[] = [];
+
+  for (const r of [...relations, ...structural]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(r);
   }
   return out;
 });
