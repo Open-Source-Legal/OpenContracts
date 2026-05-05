@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import django
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import AnonymousUser, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from guardian.shortcuts import assign_perm, remove_perm
@@ -15,6 +15,7 @@ from config.graphql.permissioning.permission_annotator.middleware import combine
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
+    from opencontractserver.corpuses.models import Corpus
     from opencontractserver.users.models import User as UserModel
 
 User = get_user_model()
@@ -603,8 +604,8 @@ def user_has_permission_for_obj(
 
 
 def user_can_modify_corpus(
-    user_val: int | str | UserModel | None,
-    corpus: django.db.models.Model,
+    user_val: int | str | UserModel | AnonymousUser | None,
+    corpus: Corpus,
     *,
     include_group_permissions: bool = True,
 ) -> bool:
@@ -624,10 +625,13 @@ def user_can_modify_corpus(
         - user has explicit guardian UPDATE on the corpus (optionally
           via group permissions).
 
-    Anonymous / unauthenticated users always get False.
+    Anonymous / unauthenticated users always get False. A non-existent
+    user id is also rejected with ``False`` (rather than raising) so
+    callers can hand-resolve dangling/external ids without a try/except.
 
     Args:
-        user_val: A user id, username, or User instance. ``None`` and
+        user_val: A user id (int or string-encoded int), a User
+            instance, ``AnonymousUser``, or ``None``. ``None`` and
             unauthenticated users are rejected.
         corpus: The Corpus instance to check against.
         include_group_permissions: Whether to consult group-level
@@ -638,8 +642,14 @@ def user_can_modify_corpus(
     if user_val is None:
         return False
 
+    if isinstance(user_val, AnonymousUser):
+        return False
+
     if isinstance(user_val, (str, int)):
-        user = User.objects.get(id=user_val)
+        try:
+            user = User.objects.get(id=user_val)
+        except User.DoesNotExist:
+            return False
     else:
         user = user_val
 

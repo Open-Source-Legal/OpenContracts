@@ -13,6 +13,7 @@ no-access / anonymous denial branches.
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Group
 from django.test import TestCase
+from guardian.shortcuts import assign_perm
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
@@ -48,8 +49,6 @@ class UserCanModifyCorpusTests(TestCase):
         # Grant a group UPDATE on the corpus, and put group_member in it.
         # Use the existing django-guardian helpers to avoid coupling the
         # test to internal grant code paths.
-        from guardian.shortcuts import assign_perm
-
         self.update_group = Group.objects.create(name="corpus-editors")
         self.group_member.groups.add(self.update_group)
         assign_perm("update_corpus", self.update_group, self.corpus)
@@ -88,3 +87,11 @@ class UserCanModifyCorpusTests(TestCase):
         self.assertTrue(user_can_modify_corpus(self.owner.id, self.corpus))
         self.assertTrue(user_can_modify_corpus(str(self.owner.id), self.corpus))
         self.assertFalse(user_can_modify_corpus(self.outsider.id, self.corpus))
+
+    def test_dangling_id_returns_false(self) -> None:
+        """Non-existent user ids must return False, not raise DoesNotExist."""
+        # Pick a high id unlikely to exist; assert it really doesn't.
+        dangling_id = 99_999_999
+        self.assertFalse(User.objects.filter(id=dangling_id).exists())
+        self.assertFalse(user_can_modify_corpus(dangling_id, self.corpus))
+        self.assertFalse(user_can_modify_corpus(str(dangling_id), self.corpus))
