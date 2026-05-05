@@ -6705,58 +6705,6 @@ opencontractserver/tests/websocket/test_unified_agent_consumer.py:752: error: Ca
 opencontractserver/tests/websocket/test_unified_agent_consumer.py:785: error: Cannot assign to a method  [method-assign]
 opencontractserver/tests/websocket/test_unified_agent_consumer.py:790: error: Cannot assign to a method  [method-assign]
 opencontractserver/users/tasks.py:5: error: Library stubs not installed for "requests"  [import-untyped]
-opencontractserver/utils/analysis.py:44: error: Argument 2 to "set_permissions_for_obj_to_user" has incompatible type "Analysis"; expected "type[Model]"  [arg-type]
-opencontractserver/utils/analyzer.py:134: error: Argument 2 to "set_permissions_for_obj_to_user" has incompatible type "AnnotationLabel"; expected "type[Model]"  [arg-type]
-opencontractserver/utils/analyzer.py:142: error: Incompatible return value type (got "dict[str, int]", expected "dict[str | int, str | int]")  [return-value]
-opencontractserver/utils/analyzer.py:142: note: Perhaps you need a type annotation for "label_id_map"? Suggestion: "dict[str | int, str | int]"
-opencontractserver/utils/analyzer.py:178: error: Argument "creating_user_id" to "install_labels_for_analyzer" has incompatible type "int"; expected "str"  [arg-type]
-opencontractserver/utils/analyzer.py:186: error: Incompatible return value type (got "list[str]", expected "list[int]")  [return-value]
-opencontractserver/utils/analyzer.py:267: error: Item "None" of "GremlinEngine | None" has no attribute "url"  [union-attr]
-opencontractserver/utils/analyzer.py:270: error: Item "None" of "GremlinEngine | None" has no attribute "url"  [union-attr]
-opencontractserver/utils/analyzer.py:280: error: Item "None" of "GremlinEngine | None" has no attribute "url"  [union-attr]
-opencontractserver/utils/analyzer.py:310: error: Argument "creating_user_id" to "install_labels_for_analyzer" has incompatible type "str | int"; expected "str"  [arg-type]
-opencontractserver/utils/analyzer.py:327: error: Unsupported left operand type for + ("None")  [operator]
-opencontractserver/utils/analyzer.py:327: note: Left operand is of type "str | None"
-opencontractserver/utils/analyzer.py:328: error: Argument 1 to "len" has incompatible type "str | None"; expected "Sized"  [arg-type]
-opencontractserver/utils/analyzer.py:366: error: Unsupported left operand type for + ("None")  [operator]
-opencontractserver/utils/analyzer.py:366: note: Left operand is of type "str | None"
-opencontractserver/utils/analyzer.py:367: error: Argument 1 to "len" has incompatible type "str | None"; expected "Sized"  [arg-type]
-opencontractserver/utils/analyzer.py:6: error: Library stubs not installed for "requests"  [import-untyped]
-opencontractserver/utils/analyzer.py:93: error: Argument 2 to "set_permissions_for_obj_to_user" has incompatible type "LabelSet"; expected "type[Model]"  [arg-type]
-opencontractserver/utils/cleanup.py:34: error: "ReverseManyToOneDescriptor[Annotation]" has no attribute "filter"  [attr-defined]
-opencontractserver/utils/corpus_forking.py:12: error: Variable "opencontractserver.utils.corpus_forking.User" is not valid as a type  [valid-type]
-opencontractserver/utils/corpus_forking.py:12: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/corpus_forking.py:59: error: User? has no attribute "id"  [attr-defined]
-opencontractserver/utils/embeddings.py:127: error: Incompatible return value type (got "tuple[type | None, str | None]", expected "tuple[type[BaseEmbedder], str]")  [return-value]
-opencontractserver/utils/embeddings.py:14: error: Incompatible default for parameter "corpus_id" (default has type "None", parameter has type "int | str")  [assignment]
-opencontractserver/utils/embeddings.py:14: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-opencontractserver/utils/embeddings.py:14: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-opencontractserver/utils/embeddings.py:158: error: Argument "mimetype_or_enum" to "get_embedder" has incompatible type "str | FileTypeEnum | None"; expected "str | FileTypeEnum"  [arg-type]
-opencontractserver/utils/embeddings.py:158: error: Argument 1 to "get_embedder" has incompatible type "int | None"; expected "int | str"  [arg-type]
-opencontractserver/utils/embeddings.py:15: error: Incompatible default for parameter "mimetype_or_enum" (default has type "None", parameter has type "str | FileTypeEnum")  [assignment]
-opencontractserver/utils/embeddings.py:15: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-opencontractserver/utils/embeddings.py:15: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-opencontractserver/utils/embeddings.py:171: error: Unused "type: ignore" comment  [unused-ignore]
-opencontractserver/utils/etl.py:193: error: Incompatible types (expression has type "dict[str, dict[str, Any | str]]", TypedDict item "text_labels" has type "dict[str | int, AnnotationLabelPythonType]")  [typeddict-item]
-opencontractserver/utils/etl.py:194: error: Incompatible types (expression has type "dict[str, dict[str, Any | str]]", TypedDict item "doc_labels" has type "dict[str | int, AnnotationLabelPythonType]")  [typeddict-item]
-opencontractserver/utils/etl.py:231: error: Incompatible types in assignment (expression has type "str | None", variable has type "str")  [assignment]
-opencontractserver/utils/etl.py:231: error: Value of type variable "AnyOrLiteralStr" of "basename" cannot be "str | None"  [type-var]
-opencontractserver/utils/etl.py:242: error: Argument 1 to "open" of "Storage" has incompatible type "str | None"; expected "str"  [arg-type]
-opencontractserver/utils/etl.py:249: error: Argument 1 to "open" of "Storage" has incompatible type "str | None"; expected "str"  [arg-type]
-opencontractserver/utils/etl.py:250: error: Incompatible types in assignment (expression has type "list[dict[str, Any]]", variable has type "list[PawlsPagePythonType]")  [assignment]
-opencontractserver/utils/etl.py:305: error: Incompatible types (expression has type "str | None", TypedDict item "title" has type "str")  [typeddict-item]
-opencontractserver/utils/etl.py:313: error: Need type annotation for "page_highlights" (hint: "page_highlights: dict[<type>, <type>] = ...")  [var-annotated]
-opencontractserver/utils/etl.py:374: error: Value of "labelled_text" has incompatible type "list[dict[str, Any]]"; expected "list[OpenContractsAnnotationPythonType]"  [typeddict-item]
-opencontractserver/utils/etl.py:398: error: Incompatible types in assignment (expression has type "PageObject", variable has type "PageAnnotationData")  [assignment]
-opencontractserver/utils/etl.py:399: error: "PageAnnotationData" has no attribute "mediabox"  [attr-defined]
-opencontractserver/utils/etl.py:424: error: Argument "color" to "createHighlight" has incompatible type "tuple[float, ...]"; expected "tuple[float, float, float]"  [arg-type]
-opencontractserver/utils/etl.py:433: error: Argument 1 to "add_page" of "PdfWriter" has incompatible type "PageAnnotationData"; expected "PageObject"  [arg-type]
-opencontractserver/utils/etl.py:462: error: Variable "typing.TypedDict" is not valid as a type  [valid-type]
-opencontractserver/utils/etl.py:462: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/etl.py:587: error: No overload variant of "create_model" matches argument types "str", "dict[str, tuple[type, EllipsisType]]"  [call-overload]
-opencontractserver/utils/etl.py:587: note:     def [ModelT: BaseModel] create_model(str, /, *, __config__: ConfigDict | None = ..., __doc__: str | None = ..., __base__: type[ModelT] | tuple[type[ModelT], ...], __module__: str = ..., __validators__: dict[str, Callable[..., Any]] | None = ..., __cls_kwargs__: dict[str, Any] | None = ..., __qualname__: str | None = ..., **field_definitions: Any | tuple[Any, Any]) -> type[ModelT]
-opencontractserver/utils/etl.py:587: note:     def create_model(str, /, *, __config__: ConfigDict | None = ..., __doc__: str | None = ..., __base__: None = ..., __module__: str = ..., __validators__: dict[str, Callable[..., Any]] | None = ..., __cls_kwargs__: dict[str, Any] | None = ..., __qualname__: str | None = ..., **field_definitions: Any | tuple[Any, Any]) -> type[BaseModel]
-opencontractserver/utils/etl.py:587: note: Possible overload variants:
 opencontractserver/utils/export_v2.py:112: error: Incompatible return value type (got "dict[str, Any]", expected "StructuralAnnotationSetExport | None")  [return-value]
 opencontractserver/utils/export_v2.py:184: error: Incompatible return value type (got "list[dict[str, Any]]", expected "list[CorpusFolderExport]")  [return-value]
 opencontractserver/utils/export_v2.py:229: error: Incompatible types in assignment (expression has type "str | None", variable has type "str")  [assignment]
