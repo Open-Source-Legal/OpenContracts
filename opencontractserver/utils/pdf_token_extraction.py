@@ -583,8 +583,12 @@ def extract_images_from_pdf(
                             continue
 
                         # Try to extract the actual image data
-                        # pdfplumber may provide a 'stream' or we need to crop
-                        pil_image = None
+                        # pdfplumber may provide a 'stream' or we need to crop.
+                        # PIL exposes both ``Image.Image`` (returned by
+                        # ``convert`` / ``_crop_pdf_region``) and the
+                        # ``ImageFile`` subclass (returned by ``Image.open``);
+                        # widen the type so both fit.
+                        pil_image: Optional[Image.Image] = None
 
                         # Method 1: Try to get image stream directly
                         if "stream" in img_info:

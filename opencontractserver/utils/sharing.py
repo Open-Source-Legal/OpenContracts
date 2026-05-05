@@ -50,6 +50,11 @@ def make_analysis_public(analysis_id: int | str) -> MakePublicReturnType:
             analysis.save()
 
         corpus = analysis.analyzed_corpus
+        if corpus is None:
+            return {
+                "message": "ERROR - Analysis has no analyzed_corpus",
+                "ok": False,
+            }
 
         # Bulk update the analyzers labels
         labels = AnnotationLabel.objects.filter(analyzer=analysis.analyzer)

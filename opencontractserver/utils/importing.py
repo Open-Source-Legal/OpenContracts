@@ -77,7 +77,7 @@ def import_annotations(
     annotations_data: list[OpenContractsAnnotationPythonType],
     label_lookup: dict[str, AnnotationLabel],
     label_type: str = TOKEN_LABEL,
-    pawls_data: list[dict] = None,
+    pawls_data: list[dict] | None = None,
 ) -> dict[str | int, int]:
     """
     Import annotations, handling parent relationships, and return a mapping of old IDs
