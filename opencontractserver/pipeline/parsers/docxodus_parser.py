@@ -1,7 +1,7 @@
 import base64
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import requests
 from django.core.files.storage import default_storage
@@ -203,7 +203,7 @@ class DocxodusServiceParser(BaseParser):
         logger.info(
             f"Successfully processed DOCX document {doc_id} through Docxodus service"
         )
-        return normalized
+        return cast(OpenContractDocExport, normalized)
 
     @staticmethod
     def _normalize_response(response_data: dict[str, Any]) -> dict[str, Any]:

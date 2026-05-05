@@ -305,12 +305,7 @@ class ConversationQuerySet(SoftDeleteQuerySet):
             raise ValueError(f"Unsupported embedding dimension: {dimension}")
         vector_field = f"{self.EMBEDDING_RELATED_NAME}__{field_name}"
 
-        # Filter for embeddings with matching embedder_path, annotate with the
-        # cosine distance, and slice the top_k results. Using a separate
-        # ``annotated_qs`` variable rather than reassigning ``base_qs`` avoids
-        # the django-stubs ``ConversationQuerySet[Model, Model]`` vs
-        # ``ConversationQuerySet[_Model, _Row]`` generic mismatch on the
-        # rebind (``annotate`` widens the row TypeVar).
+        # Separate local avoids django-stubs generic mismatch on annotate() rebind.
         base_qs = self.filter(
             **{
                 f"{self.EMBEDDING_RELATED_NAME}__embedder_path": embedder_path,
@@ -460,12 +455,7 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
             raise ValueError(f"Unsupported embedding dimension: {dimension}")
         vector_field = f"{self.EMBEDDING_RELATED_NAME}__{field_name}"
 
-        # Filter for embeddings with matching embedder_path, annotate with the
-        # cosine distance, and slice the top_k results. Using a separate
-        # ``annotated_qs`` variable rather than reassigning ``base_qs`` avoids
-        # the django-stubs ``ChatMessageQuerySet[Model, Model]`` vs
-        # ``ChatMessageQuerySet[_Model, _Row]`` generic mismatch on the
-        # rebind (``annotate`` widens the row TypeVar).
+        # Separate local avoids django-stubs generic mismatch on annotate() rebind.
         base_qs = self.filter(
             **{
                 f"{self.EMBEDDING_RELATED_NAME}__embedder_path": embedder_path,
@@ -1631,13 +1621,13 @@ class ModerationAction(BaseOCModel):
     def __str__(self) -> str:
         if self.conversation:
             target = f"conversation {self.conversation.pk}"
-        else:
-            # Every ModerationAction is created with either a conversation or
-            # a message attached (see ChatMessage.soft_delete_message and
-            # Conversation.lock/pin/unpin/etc.); when conversation is None,
-            # message is guaranteed to be set.
-            assert self.message is not None
+        elif self.message is not None:
+            # Every ModerationAction is created with either conversation or message set;
+            # this branch is the normal path when only a message is moderated.
             target = f"message {self.message.pk}"
+        else:
+            # Should never happen given construction invariants, but guard defensively.
+            target = "unknown target"
         moderator_name = self.moderator.username if self.moderator else "Unknown"
         return f"{self.action_type} on {target} by {moderator_name}"
 
