@@ -261,6 +261,65 @@ describe("useUploadMutations.uploadFiles", () => {
     expect(onFileStatusChange).toHaveBeenCalledWith(2, "success");
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
+
+  it("continues after a thrown error inside the upload loop", async () => {
+    // Distinct from the ok:false branch above — exercises the catch
+    // block (network failure mid-batch must not abort remaining files).
+    const onFileStatusChange = vi.fn();
+    const client = makeClient();
+    let call = 0;
+    mockedUploadDoc.mockImplementation(async () => {
+      call += 1;
+      if (call === 2) {
+        throw new Error("network down");
+      }
+      return { ok: true, document_id: call, status: "created" };
+    });
+
+    const { result } = renderHook(
+      () =>
+        useUploadMutations({
+          corpusId: null,
+          folderId: null,
+          onFileStatusChange,
+        }),
+      { wrapper: makeWrapper(client) }
+    );
+
+    await result.current.uploadFiles([
+      makePkg(makeFile("a.pdf")),
+      makePkg(makeFile("b.pdf")),
+      makePkg(makeFile("c.pdf")),
+    ]);
+
+    expect(onFileStatusChange).toHaveBeenCalledWith(0, "success");
+    expect(onFileStatusChange).toHaveBeenCalledWith(1, "failed");
+    expect(onFileStatusChange).toHaveBeenCalledWith(2, "success");
+  });
+
+  it("falls back to a generic toast message when the thrown error is not an Error", async () => {
+    const onFileStatusChange = vi.fn();
+    const client = makeClient();
+    mockedUploadDoc.mockImplementation(async () => {
+      // Non-Error thrown — exercises the ``error instanceof Error`` ternary's
+      // false branch in the catch handler.
+      throw "string-not-error"; // eslint-disable-line no-throw-literal
+    });
+
+    const { result } = renderHook(
+      () =>
+        useUploadMutations({
+          corpusId: null,
+          folderId: null,
+          onFileStatusChange,
+        }),
+      { wrapper: makeWrapper(client) }
+    );
+
+    await result.current.uploadFiles([makePkg(makeFile("a.pdf"))]);
+
+    expect(onFileStatusChange).toHaveBeenCalledWith(0, "failed");
+  });
 });
 
 describe("useUploadMutations.uploadZipFile", () => {

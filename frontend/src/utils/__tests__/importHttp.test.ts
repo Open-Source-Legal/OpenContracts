@@ -168,6 +168,64 @@ describe("importHttp.importDocumentMultipart", () => {
       expect(result.error).toMatch(/HTTP 500/);
     }
   });
+
+  it("surfaces DRF field validation errors from the response body", async () => {
+    // Django REST framework wraps field-validation failures as
+    // ``{ field_name: ["...message..."] }``; parseErrorMessage walks the
+    // first array-of-string entry it finds.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse(
+          { title: ["This field is required."] },
+          { status: 400 }
+        )
+      );
+    setMockFetch(fetchMock);
+
+    const file = new File(["x"], "x.pdf", { type: "application/pdf" });
+    const result = await importDocumentMultipart({ file, title: "" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe("This field is required.");
+    }
+  });
+
+  it("appends custom_meta as JSON when non-empty", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeJsonResponse({ ok: true, document_id: 1 }));
+    setMockFetch(fetchMock);
+
+    const file = new File(["x"], "x.pdf", { type: "application/pdf" });
+    await importDocumentMultipart({
+      file,
+      title: "T",
+      customMeta: { source: "manual" },
+    });
+
+    const fd = fetchMock.mock.calls[0][1].body as FormData;
+    expect(fd.get("custom_meta")).toBe(JSON.stringify({ source: "manual" }));
+  });
+
+  it("returns ok:false when a 2xx body advertises ok:false", async () => {
+    // 200 response, but the server's JSON payload says the import failed.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse({ ok: false, error: "logical fail", document_id: 0 })
+      );
+    setMockFetch(fetchMock);
+
+    const file = new File(["x"], "x.pdf", { type: "application/pdf" });
+    const result = await importDocumentMultipart({ file, title: "T" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe("logical fail");
+    }
+  });
 });
 
 describe("importHttp.importDocumentsZipMultipart", () => {
@@ -250,5 +308,24 @@ describe("importHttp.importDocumentsZipMultipart", () => {
       makePublic: false,
     });
     expect(result.ok).toBe(false);
+  });
+
+  it("appends custom_meta on the zip path when non-empty", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeJsonResponse({ ok: true, job_id: "j1" }));
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1])], "bundle.zip", {
+      type: "application/zip",
+    });
+    await importDocumentsZipMultipart({
+      file,
+      makePublic: false,
+      customMeta: { source: "bulk-tool" },
+    });
+
+    const fd = fetchMock.mock.calls[0][1].body as FormData;
+    expect(fd.get("custom_meta")).toBe(JSON.stringify({ source: "bulk-tool" }));
   });
 });

@@ -518,6 +518,207 @@ class ImportServicesTests(TestCase):
         self.assertTrue(result.job_id)
 
 
+class ServiceHelperUnitTests(TestCase):
+    """Unit-level coverage of the small pure helpers in services.py."""
+
+    def test_resolve_pk_none_returns_none(self):
+        from opencontractserver.document_imports.services import _resolve_pk
+
+        self.assertIsNone(_resolve_pk(None))
+
+    def test_resolve_pk_raw_string_pk_passes_through(self):
+        from opencontractserver.document_imports.services import _resolve_pk
+
+        # Non-base64 input — ``from_global_id`` decodes to empty type/id
+        # and the helper should fall back to the raw string.
+        self.assertEqual(_resolve_pk("42"), "42")
+
+    def test_resolve_pk_global_id_decodes_to_pk(self):
+        from opencontractserver.document_imports.services import _resolve_pk
+
+        # Round-trip a Relay global id; helper should return just the pk.
+        self.assertEqual(_resolve_pk(to_global_id("CorpusType", "7")), "7")
+
+    def test_resolve_pk_malformed_input_falls_back_to_raw(self):
+        from opencontractserver.document_imports.services import _resolve_pk
+
+        # Bytes payload that triggers ``from_global_id`` to raise; the
+        # helper logs and returns the stringified raw input.
+        result = _resolve_pk("\udcff-bad")
+        self.assertEqual(result, "\udcff-bad")
+
+    def test_detect_mime_type_markdown_extension_for_plaintext(self):
+        from opencontractserver.document_imports.services import detect_mime_type
+
+        # ``filetype.guess`` returns ``None`` for plain text, then we
+        # promote ``.md`` / ``.markdown`` / ``.caml`` filenames to
+        # ``text/markdown``.
+        self.assertEqual(detect_mime_type(b"# heading", "notes.md"), "text/markdown")
+        self.assertEqual(
+            detect_mime_type(b"# heading", "doc.markdown"), "text/markdown"
+        )
+        self.assertEqual(detect_mime_type(b"# heading", "x.caml"), "text/markdown")
+        self.assertEqual(detect_mime_type(b"hello", "x.txt"), "text/plain")
+
+    def test_peek_zip_magic_logs_warning_when_seek_fails(self):
+        """A non-seekable stream surfaces a warning instead of silently
+        truncating the archive on the subsequent storage write."""
+        import io
+        import logging
+
+        from opencontractserver.document_imports.services import _peek_zip_magic
+
+        class _NoSeek(io.BytesIO):
+            def seek(self, *a, **k):
+                raise OSError("non-seekable stream")
+
+        zip_bytes = _make_zip({"a.pdf": PDF_BYTES})
+        # ``_peek_zip_magic`` only invokes the file-like branch for
+        # non-bytes inputs, so wrap in a SimpleUploadedFile-like shim.
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        uploaded = SimpleUploadedFile("z.zip", zip_bytes)
+        # Patch the underlying file with our non-seekable wrapper.
+        uploaded.file = _NoSeek(zip_bytes)
+
+        with self.assertLogs(
+            "opencontractserver.document_imports.services", level=logging.WARNING
+        ) as cm:
+            self.assertTrue(_peek_zip_magic(uploaded))
+        self.assertTrue(
+            any("Failed to rewind upload stream" in m for m in cm.output),
+            cm.output,
+        )
+
+    def test_normalise_optional_blank_string_becomes_none(self):
+        from opencontractserver.document_imports.views import _normalise_optional
+
+        self.assertIsNone(_normalise_optional(""))
+        self.assertIsNone(_normalise_optional("   "))
+        self.assertIsNone(_normalise_optional(None))
+        self.assertEqual(_normalise_optional("kept"), "kept")
+
+    def test_resolve_pk_swallows_decode_errors(self):
+        """``from_global_id`` may raise on invalid base64; the helper
+        must log and fall back to the raw input rather than propagating."""
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports.services import _resolve_pk
+
+        with patch(
+            "opencontractserver.document_imports.services.from_global_id",
+            side_effect=ValueError("invalid b64"),
+        ):
+            self.assertEqual(_resolve_pk("anything"), "anything")
+
+    def test_import_document_for_user_rejects_disallowed_filetype(self):
+        """Branch where ``filetype.guess`` returns a recognised mime that
+        is *not* on the upload allowlist."""
+        user = User.objects.create_user(
+            username="svc_filetype", password="pw", is_usage_capped=False
+        )
+        from opencontractserver.document_imports.services import (
+            import_document_for_user,
+        )
+
+        # ``filetype`` recognises ELF binaries; not an allowed upload type.
+        elf_bytes = b"\x7fELF" + b"\x00" * 100
+        result = import_document_for_user(
+            user=user,
+            file_bytes=elf_bytes,
+            filename="not-a-doc.bin",
+            title="X",
+            description="d",
+            make_public=False,
+        )
+        self.assertIsNotNone(result.error)
+        self.assertIn("Unallowed filetype", result.error or "")
+
+    def test_import_document_for_user_wraps_storage_failure(self):
+        """When ``corpus.import_content`` raises, the service surfaces a
+        user-safe error message instead of propagating the exception."""
+        from unittest.mock import patch
+
+        user = User.objects.create_user(
+            username="svc_storage_fail", password="pw", is_usage_capped=False
+        )
+        from opencontractserver.document_imports.services import (
+            import_document_for_user,
+        )
+
+        with patch(
+            "opencontractserver.corpuses.models.Corpus.import_content",
+            side_effect=RuntimeError("disk on fire"),
+        ):
+            result = import_document_for_user(
+                user=user,
+                file_bytes=PDF_BYTES,
+                filename="x.pdf",
+                title="X",
+                description="d",
+                make_public=False,
+            )
+        self.assertIsNone(result.document)
+        self.assertIn("Import failed due to error", result.error or "")
+        self.assertIn("disk on fire", result.error or "")
+
+    def test_import_documents_zip_for_user_wraps_staging_failure(self):
+        """An exception raised while staging the ZIP into the
+        TemporaryFileHandle returns an explicit error rather than
+        bubbling up."""
+        from unittest.mock import patch
+
+        user = User.objects.create_user(
+            username="svc_zip_stage_fail", password="pw", is_usage_capped=False
+        )
+        from opencontractserver.document_imports.services import (
+            import_documents_zip_for_user,
+        )
+
+        zip_bytes = _make_zip({"a.pdf": PDF_BYTES})
+        with patch(
+            "opencontractserver.document_imports.services."
+            "TemporaryFileHandle.objects.create",
+            side_effect=RuntimeError("staging boom"),
+        ):
+            result = import_documents_zip_for_user(
+                user=user,
+                zip_source=zip_bytes,
+                make_public=False,
+            )
+        self.assertIsNone(result.job_id)
+        self.assertIn("Failed to stage zip", result.error or "")
+        self.assertIn("staging boom", result.error or "")
+
+    @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
+    def test_import_documents_zip_for_user_eager_dispatch_path(self):
+        """Eager mode should dispatch the chain synchronously rather
+        than wiring through ``transaction.on_commit``."""
+        from unittest.mock import patch
+
+        user = User.objects.create_user(
+            username="svc_zip_eager", password="pw", is_usage_capped=False
+        )
+        from opencontractserver.document_imports.services import (
+            import_documents_zip_for_user,
+        )
+
+        zip_bytes = _make_zip({"a.pdf": PDF_BYTES})
+        # Patch ``apply_async`` to short-circuit actual task execution while
+        # confirming the eager dispatch branch runs.
+        with patch(
+            "celery.canvas._chain.apply_async", return_value=None
+        ) as mocked_apply:
+            result = import_documents_zip_for_user(
+                user=user,
+                zip_source=zip_bytes,
+                make_public=False,
+            )
+        self.assertIsNone(result.error)
+        self.assertTrue(result.job_id)
+        self.assertTrue(mocked_apply.called)
+
+
 # ---------------------------------------------------------------------------
 # Security-focused tests
 #
