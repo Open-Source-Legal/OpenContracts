@@ -3,10 +3,12 @@ GraphQL query mixin for conversation, message, and moderation queries.
 """
 
 import logging
+from datetime import timedelta
 from typing import Any, Optional
 
 import graphene
 from django.db.models import Count, Prefetch, Q
+from django.utils import timezone
 from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
 from graphql_jwt.decorators import login_required
@@ -252,7 +254,7 @@ class ConversationQueryMixin:
     def resolve_chat_messages(
         self,
         info: graphene.ResolveInfo,
-        conversation_id: Optional[str],
+        conversation_id: str,
         order_by: Optional[str] = None,
         **kwargs,
     ) -> Any:
@@ -372,7 +374,7 @@ class ConversationQueryMixin:
         Raises:
             ChatMessage.DoesNotExist: If the object doesn't exist or is inaccessible.
         """
-        django_pk = from_global_id(kwargs.get("id"))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         return ChatMessage.objects.visible_to_user(info.context.user).get(pk=django_pk)
 
     # MODERATION QUERIES ##################################################
@@ -436,7 +438,7 @@ class ConversationQueryMixin:
 
         # Apply optional filters
         if corpus_id:
-            corpus_pk = from_global_id(corpus_id)[1]
+            corpus_pk = int(from_global_id(corpus_id)[1])
             qs = qs.filter(conversation__chat_with_corpus_id=corpus_pk)
 
         if thread_id:
@@ -444,7 +446,7 @@ class ConversationQueryMixin:
             qs = qs.filter(conversation_id=thread_pk)
 
         if moderator_id:
-            moderator_pk = from_global_id(moderator_id)[1]
+            moderator_pk = int(from_global_id(moderator_id)[1])
             qs = qs.filter(moderator_id=moderator_pk)
 
         if action_types:
@@ -532,8 +534,6 @@ class ConversationQueryMixin:
         Returns:
             ModerationMetricsType with counts, rates, and threshold warnings
         """
-        from django.utils import timezone
-
         user = info.context.user
         corpus_pk = from_global_id(corpus_id)[1]
 
@@ -550,7 +550,7 @@ class ConversationQueryMixin:
                 return None
 
         end_time = timezone.now()
-        start_time = end_time - timezone.timedelta(hours=time_range_hours)
+        start_time = end_time - timedelta(hours=time_range_hours)
 
         # Get actions in time range
         actions = ModerationAction.objects.filter(

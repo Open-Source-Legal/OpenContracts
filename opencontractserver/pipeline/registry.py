@@ -93,7 +93,7 @@ class PipelineComponentDefinition:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for GraphQL response."""
-        result = {
+        result: dict[str, Any] = {
             "name": self.name,
             "class_name": self.class_name,
             "component_type": self.component_type.value,
@@ -581,7 +581,7 @@ def get_supported_mime_types() -> tuple[SupportedMimeTypeEntry, ...]:
         - stage_coverage: dict of stage -> bool indicating availability
     """
     registry = get_registry()
-    result = []
+    result: list[SupportedMimeTypeEntry] = []
 
     for ft_enum in FileTypeEnum:
         ft_value = ft_enum.value
@@ -598,7 +598,7 @@ def get_supported_mime_types() -> tuple[SupportedMimeTypeEntry, ...]:
         has_any_embedder = len(registry.embedders) > 0
         has_thumbnailer = len(registry.get_thumbnailers_for_filetype(ft_value)) > 0
 
-        stage_coverage = {
+        stage_coverage: StageCoverage = {
             "parser": has_parser,
             "embedder": has_any_embedder,
             "thumbnailer": has_thumbnailer,
