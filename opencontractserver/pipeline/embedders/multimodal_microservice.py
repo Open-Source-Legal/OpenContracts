@@ -74,6 +74,12 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
     # Multimodal support - text and images in same vector space
     supported_modalities = {ContentModality.TEXT, ContentModality.IMAGE}
 
+    # Name of the environment variable / Settings field that drives this
+    # microservice's URL. Surfaced in error messages when no URL is
+    # configured. Subclasses override with a concrete name (e.g.
+    # "EMBEDDINGS_MICROSERVICE_URL").
+    url_setting_name: str = ""
+
     def __init__(self, **kwargs):
         """Initialize the multimodal embedder."""
         super().__init__(**kwargs)
@@ -284,7 +290,7 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
 
     def embed_texts_batch(
         self, texts: list[str], **direct_kwargs
-    ) -> Optional[list[list[float]]]:
+    ) -> Optional[list[Optional[list[float]]]]:
         """
         Generate embeddings for multiple texts in one request.
 
@@ -293,7 +299,10 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
             **direct_kwargs: Additional keyword arguments.
 
         Returns:
-            List of embedding vectors, or None on error.
+            List of embedding vectors, or None on error. Per-element
+            ``None`` is supported by the base contract but never produced
+            by this implementation — partial-batch failures surface as a
+            single ``None`` return.
         """
         if len(texts) > 100:
             logger.warning(f"Batch size {len(texts)} exceeds max 100. Truncating.")

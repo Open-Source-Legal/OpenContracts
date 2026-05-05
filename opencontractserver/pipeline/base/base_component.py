@@ -1,6 +1,7 @@
 import dataclasses
 import logging
 from abc import ABC
+from collections.abc import Mapping
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
@@ -54,6 +55,18 @@ class PipelineComponentBase(ABC):
 
     # Subclasses should override this with their Settings dataclass
     Settings: ClassVar[Optional[type[Any]]] = None
+
+    # Component metadata declared at the class level. Concrete subclasses
+    # (BaseParser, BaseEmbedder, BaseThumbnailGenerator, BasePostProcessor,
+    # BaseReranker) override the defaults; declaring them here gives mypy
+    # a single source of truth for ``type[PipelineComponentBase]`` lookups.
+    title: str = ""
+    description: str = ""
+    author: str = ""
+    dependencies: list[str] = []
+    input_schema: Mapping = (
+        {}
+    )  # If you want user to provide inputs, define a jsonschema here
 
     def __init__(self, **kwargs):
         """
