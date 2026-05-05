@@ -2,11 +2,13 @@
 Tests for opencontractserver.shared.Managers (closes #1477).
 
 Covers the branches introduced or modified during the mypy graduation:
-  - BaseVisibilityManager.visible_to_user(user=None)  → AnonymousUser path
-  - PermissionManager.visible_to_user(user=None)      → AnonymousUser path
-  - UserFeedbackManager.visible_to_user(user=None)    → AnonymousUser path
-  - UserFeedbackManager.get_or_none()                 → hit and miss paths
-  - DocumentManager.unique_blob_paths()               → blob sharing logic
+  - BaseVisibilityManager.visible_to_user(user=None)    → AnonymousUser path
+  - BaseVisibilityManager.visible_to_user(superuser)    → all-objects path
+  - PermissionManager.visible_to_user(user=None)        → AnonymousUser path
+  - PermissionManager.visible_to_user(superuser)        → all-objects path
+  - UserFeedbackManager.visible_to_user(user=None)      → AnonymousUser path
+  - UserFeedbackManager.get_or_none()                   → hit and miss paths
+  - DocumentManager.unique_blob_paths()                 → blob sharing logic
 """
 
 from django.contrib.auth import get_user_model
@@ -152,3 +154,89 @@ class UserFeedbackManagerGetOrNoneTest(TestCase):
             pk=self.feedback.pk, comment="wrong-comment"
         )
         self.assertIsNone(result)
+
+
+class BaseVisibilityManagerSuperuserTest(TestCase):
+    """
+    BaseVisibilityManager.visible_to_user(superuser) must return ALL objects
+    (the model_cls.objects.all().order_by("created") branch).
+    """
+
+    def setUp(self) -> None:
+        self.owner = User.objects.create_user(
+            username="bvm_owner",
+            email="bvm_owner@example.com",
+        )
+        self.superuser = User.objects.create_superuser(
+            username="bvm_super",
+            email="bvm_super@example.com",
+            password="s3cur3",
+        )
+        self.public_corpus = Corpus.objects.create(
+            title="Public BVM Corpus",
+            creator=self.owner,
+            is_public=True,
+        )
+        self.private_corpus = Corpus.objects.create(
+            title="Private BVM Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+
+    def test_superuser_sees_all_corpora(self) -> None:
+        """Superuser must see both public and private corpora."""
+        qs = Corpus.objects.visible_to_user(user=self.superuser)
+        ids = list(qs.values_list("pk", flat=True))
+        self.assertIn(self.public_corpus.pk, ids)
+        self.assertIn(self.private_corpus.pk, ids)
+
+    def test_regular_user_only_sees_own_and_public_corpora(self) -> None:
+        """Non-superuser only sees public corpora and those they own."""
+        other = User.objects.create_user(
+            username="bvm_other",
+            email="bvm_other@example.com",
+        )
+        qs = Corpus.objects.visible_to_user(user=other)
+        ids = list(qs.values_list("pk", flat=True))
+        # Public should be visible
+        self.assertIn(self.public_corpus.pk, ids)
+        # Private owned by someone else should not be visible
+        self.assertNotIn(self.private_corpus.pk, ids)
+
+
+class PermissionManagerSuperuserTest(TestCase):
+    """
+    PermissionManager.visible_to_user(superuser) should return ALL objects,
+    including private ones owned by other users.
+
+    Corpus uses PermissionManager (via BaseVisibilityManager), making it a
+    convenient model to verify the superuser branch (model_cls.objects.all()).
+    """
+
+    def setUp(self) -> None:
+        self.owner = User.objects.create_user(
+            username="pm_super_owner",
+            email="pm_super_owner@example.com",
+        )
+        self.superuser = User.objects.create_superuser(
+            username="pm_superuser",
+            email="pm_superuser@example.com",
+            password="s3cur3",
+        )
+        self.public_corpus = Corpus.objects.create(
+            title="PM Public Corpus",
+            creator=self.owner,
+            is_public=True,
+        )
+        self.private_corpus = Corpus.objects.create(
+            title="PM Private Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+
+    def test_superuser_sees_all_corpora_including_private(self) -> None:
+        """Superuser must see both public and private corpora via visible_to_user."""
+        qs = Corpus.objects.visible_to_user(user=self.superuser)
+        ids = list(qs.values_list("pk", flat=True))
+        self.assertIn(self.public_corpus.pk, ids)
+        self.assertIn(self.private_corpus.pk, ids)
