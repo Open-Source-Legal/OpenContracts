@@ -417,7 +417,7 @@ class AnnotationQueryMixin:
         self, info, document_id, corpus_id=None, **kwargs
     ) -> Any:
 
-        doc_django_pk = from_global_id(document_id)[1]
+        doc_django_pk = int(from_global_id(document_id)[1])
 
         # Fetch the document (consider select_related if creator/etc. are used elsewhere)
         # Using get_object_or_404 for better error handling if document not found/accessible
@@ -492,9 +492,8 @@ class AnnotationQueryMixin:
             "page_containing_annotation_with_id", None
         )
         page_number_list = kwargs.get("page_number_list", None)
-        pages = []  # Default empty; populated if page_number_list is valid
         current_page = 1  # Default to page 1 (1-indexed)
-        pages = []  # Parsed page list from page_number_list (1-indexed)
+        pages: list[int] = []  # Parsed page list from page_number_list (1-indexed)
 
         # Always parse page_number_list when provided so `pages` is available
         # for the filtering step below, regardless of which branch sets current_page.
@@ -507,7 +506,7 @@ class AnnotationQueryMixin:
                 )
 
         if kwargs.get("current_page", None) is not None:
-            current_page = kwargs.get("current_page")
+            current_page = int(kwargs["current_page"])
             logger.info(
                 f"resolve_page_annotations - Using provided current_page: {current_page}"
             )
@@ -585,7 +584,7 @@ class AnnotationQueryMixin:
     annotation = relay.Node.Field(AnnotationType)
 
     def resolve_annotation(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         queryset = Annotation.objects.visible_to_user(info.context.user)
         queryset = queryset.select_related(
             "annotation_label",
@@ -617,7 +616,7 @@ class AnnotationQueryMixin:
     relationship = relay.Node.Field(RelationshipType)
 
     def resolve_relationship(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         queryset = Relationship.objects.visible_to_user(info.context.user)
         queryset = queryset.select_related(
             "relationship_label",
@@ -643,7 +642,7 @@ class AnnotationQueryMixin:
     annotation_label = relay.Node.Field(AnnotationLabelType)
 
     def resolve_annotation_label(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         return AnnotationLabel.objects.visible_to_user(info.context.user).get(
             id=django_pk
         )
@@ -661,7 +660,7 @@ class AnnotationQueryMixin:
     labelset = relay.Node.Field(LabelSetType)
 
     def resolve_labelset(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         return LabelSet.objects.visible_to_user(info.context.user).get(id=django_pk)
 
     default_labelset = graphene.Field(
@@ -738,5 +737,5 @@ class AnnotationQueryMixin:
 
     @login_required
     def resolve_note(self, info, **kwargs) -> Any:
-        django_pk = from_global_id(kwargs.get("id", None))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         return Note.objects.visible_to_user(info.context.user).get(id=django_pk)

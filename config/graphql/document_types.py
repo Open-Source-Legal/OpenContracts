@@ -276,11 +276,11 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
         user = getattr(info.context, "user", None)
-        corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
-        analysis_pk = None
+        corpus_pk: int | None = int(from_global_id(corpus_id)[1]) if corpus_id else None
+        analysis_pk: int | None = None
         if analysis_id:
             analysis_pk = (
-                0 if analysis_id == "__none__" else from_global_id(analysis_id)[1]
+                0 if analysis_id == "__none__" else int(from_global_id(analysis_id)[1])
             )
         return AnnotationQueryOptimizer.get_document_annotations(
             document_id=self.id,
@@ -306,13 +306,13 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
         try:
-            corpus_pk = None
-            analysis_pk = None
+            corpus_pk: int | None = None
+            analysis_pk: int | None = None
 
             if corpus_id:
-                _, corpus_pk = from_global_id(corpus_id)
+                corpus_pk = int(from_global_id(corpus_id)[1])
             if analysis_id and analysis_id != "__none__":
-                _, analysis_pk = from_global_id(analysis_id)
+                analysis_pk = int(from_global_id(analysis_id)[1])
             elif analysis_id == "__none__":
                 analysis_pk = 0  # Special case for user relationships
 
@@ -749,10 +749,8 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         # Subquery: only documents in this version tree the user can see.
         visible_version_docs = (
-            Document.objects.filter(
-                version_tree_id=self.version_tree_id,
-            )
-            .visible_to_user(info.context.user)
+            Document.objects.visible_to_user(info.context.user)
+            .filter(version_tree_id=self.version_tree_id)
             .only("pk")
         )
 
@@ -946,13 +944,13 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             AnnotationQueryOptimizer,
         )
 
-        _, corpus_pk = from_global_id(corpus_id)
-        analysis_pk = None
+        corpus_pk = int(from_global_id(corpus_id)[1])
+        analysis_pk: int | None = None
         if analysis_id:
-            _, analysis_pk = from_global_id(analysis_id)
-        extract_pk = None
+            analysis_pk = int(from_global_id(analysis_id)[1])
+        extract_pk: int | None = None
         if extract_id:
-            _, extract_pk = from_global_id(extract_id)
+            extract_pk = int(from_global_id(extract_id)[1])
 
         user = self._assert_user_can_read(info)
 
@@ -994,16 +992,16 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             RelationshipQueryOptimizer,
         )
 
-        _, corpus_pk = from_global_id(corpus_id)
-        analysis_pk = None
+        corpus_pk = int(from_global_id(corpus_id)[1])
+        analysis_pk: int | None = None
         if analysis_id:
             if analysis_id == "__none__":
                 analysis_pk = 0  # Special case for user annotations
             else:
-                _, analysis_pk = from_global_id(analysis_id)
-        extract_pk = None
+                analysis_pk = int(from_global_id(analysis_id)[1])
+        extract_pk: int | None = None
         if extract_id:
-            _, extract_pk = from_global_id(extract_id)
+            extract_pk = int(from_global_id(extract_id)[1])
 
         user = self._assert_user_can_read(info)
 
@@ -1039,7 +1037,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         user = self._assert_user_can_read(info)
 
-        _, corpus_pk = from_global_id(corpus_id)
+        corpus_pk = int(from_global_id(corpus_id)[1])
         summary = RelationshipQueryOptimizer.get_relationship_summary(
             document_id=self.id, corpus_id=corpus_pk, user=user
         )
@@ -1052,7 +1050,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
         user = self._assert_user_can_read(info)
-        _, extract_pk = from_global_id(extract_id)
+        extract_pk = int(from_global_id(extract_id)[1])
 
         return AnnotationQueryOptimizer.get_extract_annotation_summary(
             document_id=self.id, extract_id=extract_pk, user=user, use_cache=True
