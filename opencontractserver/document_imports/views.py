@@ -63,10 +63,10 @@ def _enforce_size_cap(uploaded: UploadedFile) -> Response | None:
     Django's ``DATA_UPLOAD_MAX_MEMORY_SIZE`` excludes file-upload data
     from its accounting, so it does not bound the size of a multipart
     file. ``MAX_DOCUMENT_IMPORT_SIZE_BYTES`` is the per-endpoint cap;
-    leaving it unset (``None``) disables the check.
+    set it to 0 to disable the check.
     """
-    limit = getattr(settings, "MAX_DOCUMENT_IMPORT_SIZE_BYTES", None)
-    if limit and uploaded.size is not None and uploaded.size > limit:
+    limit = getattr(settings, "MAX_DOCUMENT_IMPORT_SIZE_BYTES", 0)
+    if limit > 0 and uploaded.size is not None and uploaded.size > limit:
         return Response(
             {
                 "ok": False,

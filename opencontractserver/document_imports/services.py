@@ -93,6 +93,7 @@ def _resolve_pk(global_or_pk_id: Any) -> str | None:
     try:
         type_name, pk = from_global_id(raw)
     except Exception:
+        logger.debug("[IMPORT] _resolve_pk: malformed global id %r — using raw", raw)
         return raw
     if not type_name or not pk:
         return raw

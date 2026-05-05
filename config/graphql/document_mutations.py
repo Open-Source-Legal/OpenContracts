@@ -36,6 +36,11 @@ from config.graphql.serializers import DocumentSerializer
 from config.telemetry import record_event
 from opencontractserver.constants.zip_import import ZIP_MAX_TOTAL_SIZE_BYTES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
+from opencontractserver.document_imports.services import (
+    check_usage_cap,
+    import_document_for_user,
+    import_documents_zip_for_user,
+)
 from opencontractserver.documents.models import Document, DocumentPath, IngestionSource
 from opencontractserver.extracts.models import Extract
 from opencontractserver.tasks import (
@@ -137,11 +142,6 @@ class UploadDocument(graphene.Mutation):
         external_id=None,
         ingestion_metadata=None,
     ) -> "UploadDocument":
-        from opencontractserver.document_imports.services import (
-            check_usage_cap,
-            import_document_for_user,
-        )
-
         if add_to_corpus_id is not None and add_to_extract_id is not None:
             return UploadDocument(
                 message="Cannot simultaneously add document to both corpus and extract",
@@ -154,6 +154,9 @@ class UploadDocument(graphene.Mutation):
         # Run the usage-cap check before any transport-specific resolution
         # so a capped user with an invalid ingestion_source_id still sees
         # the cap error (not a misleading "Ingestion source not found").
+        # The shared service re-checks it for transports (e.g. REST) that
+        # have nothing to resolve up front; the redundant call here is
+        # cheap and keeps the cap error precedence on the GraphQL path.
         check_usage_cap(user)
 
         # Resolve ingestion source up front (GraphQL-only feature) so we
@@ -462,10 +465,6 @@ class UploadDocumentsZip(graphene.Mutation):
         custom_meta=None,
         add_to_corpus_id=None,
     ) -> "UploadDocumentsZip":
-        from opencontractserver.document_imports.services import (
-            import_documents_zip_for_user,
-        )
-
         user = info.context.user
         logger.info("UploadDocumentsZip.mutate() - Received zip upload request...")
 
