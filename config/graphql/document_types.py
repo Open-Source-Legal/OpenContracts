@@ -343,9 +343,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         relationship_ids=graphene.List(graphene.NonNull(graphene.ID)),
     )
 
-    def resolve_all_structural_relationships(
-        self, info, relationship_ids=None
-    ) -> Any:
+    def resolve_all_structural_relationships(self, info, relationship_ids=None) -> Any:
         """
         Resolve structural relationships for this document.
 

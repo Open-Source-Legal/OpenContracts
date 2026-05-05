@@ -1103,12 +1103,10 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TransactionTestCa
 
         # Source/target annotations exposed in the same response
         pre_sources = [
-            e["node"]["rawText"]
-            for e in pre_rels[0]["sourceAnnotations"]["edges"]
+            e["node"]["rawText"] for e in pre_rels[0]["sourceAnnotations"]["edges"]
         ]
         pre_targets = [
-            e["node"]["rawText"]
-            for e in pre_rels[0]["targetAnnotations"]["edges"]
+            e["node"]["rawText"] for e in pre_rels[0]["targetAnnotations"]["edges"]
         ]
         self.assertEqual(pre_sources, ["Chapter 1"])
         self.assertEqual(pre_targets, ["Section 1.1"])

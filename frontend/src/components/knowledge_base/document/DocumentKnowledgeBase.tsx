@@ -45,6 +45,7 @@ import {
   getCachedPDFUrl,
 } from "../../annotator/api/cachedRest";
 import {
+  AnnotationLabelType,
   CorpusType,
   LabelType,
   DocumentType,
@@ -219,7 +220,7 @@ const relationToGroup = (
   rel: {
     id: string;
     structural?: boolean;
-    relationshipLabel: any;
+    relationshipLabel: AnnotationLabelType;
     sourceAnnotations: {
       edges: Array<{ node?: { id: string } | null } | null>;
     };
