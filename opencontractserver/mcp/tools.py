@@ -7,7 +7,7 @@ Supports both global mode (all public corpuses) and corpus-scoped mode
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Union
+from typing import TYPE_CHECKING, Any, Callable
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Q
@@ -22,11 +22,15 @@ from .formatters import (
 )
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
-
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.users.models import User
 
-    UserOrAnonymous = Union[AbstractBaseUser, AnonymousUser]
+    # Mirrors the alias in ``opencontractserver.corpuses.folder_service`` so
+    # the MCP tool signatures use the same concrete-User-or-anonymous shape
+    # the service entry points expose. Centralising further would mean a
+    # shared module just for one alias; not worth it until a third call site
+    # surfaces.
+    UserOrAnonymous = User | AnonymousUser
 
 
 def list_public_corpuses(limit: int = 20, offset: int = 0, search: str = "") -> dict:
