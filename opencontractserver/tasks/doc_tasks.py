@@ -35,7 +35,6 @@ from opencontractserver.notifications.signals import (
     broadcast_notification_via_websocket,
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
-from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.pipeline.utils import (
@@ -777,13 +776,14 @@ def extract_thumbnail(self, doc_id: int) -> None:
             )
 
     if not thumbnailer_class:
-        # Fall back to auto-discovered thumbnailers for the MIME type
-        try:
-            file_type_enum = FileTypeEnum(file_type)
-        except ValueError:
-            logger.error(f"Unsupported MIME type for thumbnail extraction: {file_type}")
-            return
-        components = get_components_by_mimetype(file_type_enum)
+        # Fall back to auto-discovered thumbnailers for the MIME type.
+        # ``get_components_by_mimetype`` accepts either a ``FileTypeEnum`` or a
+        # raw MIME string (and resolves the latter via
+        # ``FileTypeEnum.from_mimetype`` internally), so passing ``file_type``
+        # directly is correct — wrapping with ``FileTypeEnum(file_type)``
+        # would raise ``ValueError`` because the enum members are short
+        # labels (``"pdf"``, ``"txt"``), not MIME strings.
+        components = get_components_by_mimetype(file_type)  # type: ignore[arg-type]
         thumbnailers = components.get("thumbnailers", [])
 
         if not thumbnailers:

@@ -11,6 +11,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from opencontractserver.annotations.models import LabelSet
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.tasks.export_tasks import package_annotated_docs
 from opencontractserver.users.models import UserExport
@@ -47,10 +48,23 @@ class PackageAnnotatedDocsSkipTestCase(TestCase):
 
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="bob", password="12345678")
+        # ``package_annotated_docs`` now raises if either
+        # ``package_corpus_for_export`` or ``package_label_set_for_export``
+        # returns ``None`` (PR #1482 typing graduation made the None case a
+        # hard error instead of silently writing a None into
+        # ``OpenContractsExportDataJsonPythonType``). LabelSet is required
+        # for ``package_label_set_for_export`` to succeed, so we attach one
+        # in the test fixture.
+        self.label_set = LabelSet.objects.create(
+            title="Test LabelSet",
+            description="For package_annotated_docs tests",
+            creator=self.user,
+        )
         self.corpus = Corpus.objects.create(
             title="Test Corpus",
             description="For package_annotated_docs tests",
             creator=self.user,
+            label_set=self.label_set,
         )
         self.export = UserExport.objects.create(
             name="test-export",

@@ -300,20 +300,22 @@ class PackageCorpusExportV2ErrorsFieldTestCase(TestCase):
 
     def test_errors_field_populated_on_failure(self):
         """
-        When the export pipeline raises an unexpected error,
-        export.errors must be set to a non-empty string and
-        backend_lock must be cleared.
+        When the export pipeline raises an unexpected error, the task records
+        the failure on the export (``errors`` set to a non-empty string,
+        ``backend_lock`` cleared) and *re-raises* so Celery marks the task
+        FAILURE. The PR-1482 typing fix was about the recording side
+        (``export.errors``, not the non-existent ``export.error``); the
+        propagation is unchanged.
         """
         # Use a corpus_pk that doesn't exist to trigger an exception inside
         # package_corpus_export_v2 before it saves anything.
         nonexistent_corpus_pk = 999_999_999
 
-        # The task catches the exception internally and records it on the
-        # export, so it should NOT raise here.
-        package_corpus_export_v2(
-            export_id=self.export.id,
-            corpus_pk=nonexistent_corpus_pk,
-        )
+        with self.assertRaises(Corpus.DoesNotExist):
+            package_corpus_export_v2(
+                export_id=self.export.id,
+                corpus_pk=nonexistent_corpus_pk,
+            )
 
         self.export.refresh_from_db()
         self.assertFalse(

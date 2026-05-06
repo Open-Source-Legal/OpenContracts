@@ -185,8 +185,7 @@ def process_corpus_action(
 
     summary = {"actions_processed": 0, "executions_queued": 0}
 
-    # Coerce ids that may have arrived as strings (Celery JSON serialisation
-    # widens ``int`` to ``str``) so downstream APIs that expect ``int`` work.
+    # Celery JSON serialisation may widen int → str.
     int_document_ids: list[int] = [int(d) for d in document_ids]
     int_user_id: int = int(user_id)
 
