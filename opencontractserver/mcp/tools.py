@@ -7,7 +7,7 @@ Supports both global mode (all public corpuses) and corpus-scoped mode
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Q
@@ -20,6 +20,10 @@ from .formatters import (
     format_message_with_replies,
     format_thread_summary,
 )
+
+if TYPE_CHECKING:
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.users.types import UserOrAnonymous
 
 
 def list_public_corpuses(limit: int = 20, offset: int = 0, search: str = "") -> dict:
@@ -224,7 +228,9 @@ def search_corpus(corpus_slug: str, query: str, limit: int = 10) -> dict:
             doc_results = list(
                 Document.objects.visible_to_user(anonymous)
                 .filter(id__in=corpus_doc_ids)
-                .search_by_embedding(query_vector, embedder_path, top_k=limit)
+                .search_by_embedding(  # type: ignore[attr-defined]
+                    query_vector, embedder_path, top_k=limit
+                )
             )
 
             results = []
@@ -252,7 +258,9 @@ def search_corpus(corpus_slug: str, query: str, limit: int = 10) -> dict:
     return _text_search_fallback(corpus, query, limit, anonymous)
 
 
-def _text_search_fallback(corpus, query: str, limit: int, user) -> dict:
+def _text_search_fallback(
+    corpus: Corpus, query: str, limit: int, user: UserOrAnonymous
+) -> dict:
     """Fallback to text search when embeddings are unavailable."""
     from opencontractserver.documents.models import Document
 
