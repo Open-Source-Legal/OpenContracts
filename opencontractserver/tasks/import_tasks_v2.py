@@ -143,7 +143,13 @@ def _setup_corpus_and_labels(
     label_set_data = {**data_json["label_set"]}
     label_set_data.pop("id", None)
 
-    labelset_obj = unpack_label_set_from_export(label_set_data, user_obj)  # type: ignore[arg-type]
+    # The {**data_json["label_set"]} spread widens to dict[str, Any], which
+    # is structurally compatible with the OpenContractsLabelSetType TypedDict
+    # the unpacker declares but mypy can't bridge dict <-> TypedDict at the
+    # callsite. Tracked under the same typing-graduation umbrella (#1482)
+    # — fix is to widen the unpacker signature to Mapping[str, Any] when
+    # those modules graduate next.
+    labelset_obj = unpack_label_set_from_export(label_set_data, user_obj)  # type: ignore[arg-type]  # TODO(#1482)
     if labelset_obj is None:
         raise RuntimeError("Failed to unpack label set from export")
     logger.info("LabelSet created: %s", labelset_obj)
@@ -152,7 +158,7 @@ def _setup_corpus_and_labels(
     corpus_data.pop("id", None)
 
     corpus_obj = unpack_corpus_from_export(
-        data=corpus_data,  # type: ignore[arg-type]
+        data=corpus_data,  # type: ignore[arg-type]  # TODO(#1482) — see label_set_data note above
         user=user_obj,
         label_set_id=labelset_obj.id,
         corpus_id=seed_corpus_id if seed_corpus_id else None,
@@ -161,8 +167,11 @@ def _setup_corpus_and_labels(
         raise RuntimeError("Failed to unpack corpus from export")
     logger.info("Created corpus: %s", corpus_obj)
 
+    # ``data_json`` is dict[str, Any] from json.loads, but
+    # ``prepare_import_labels`` expects ``OpenContractsExportDataJsonPythonType``.
+    # See the label_set_data note above and TODO(#1482).
     label_lookup, doc_label_lookup = prepare_import_labels(
-        data_json,  # type: ignore[arg-type]
+        data_json,  # type: ignore[arg-type]  # TODO(#1482)
         user_obj.id,
         labelset_obj,
     )

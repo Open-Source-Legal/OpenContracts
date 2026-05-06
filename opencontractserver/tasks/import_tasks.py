@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from opencontractserver.annotations.models import AnnotationLabel
+
     # Aliased to avoid colliding with the runtime ``User = get_user_model()``
     # below; matches the pattern in ``import_tasks_v2.py``.
     from opencontractserver.users.models import User as UserModel

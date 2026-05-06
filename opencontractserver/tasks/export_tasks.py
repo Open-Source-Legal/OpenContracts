@@ -314,7 +314,16 @@ def package_funsd_exports(
 
             # Load page image
             if settings.STORAGE_BACKEND == "AWS":
-                assert s3 is not None  # set above when STORAGE_BACKEND == "AWS"
+                # ``assert`` would be stripped under ``python -O`` so use a
+                # real RuntimeError. ``s3`` is set in the AWS branch above;
+                # this branch only runs when the same condition holds, so
+                # the guard is a defensive belt-and-suspenders for a code
+                # path that production Celery does run with optimisations.
+                if s3 is None:
+                    raise RuntimeError(
+                        "S3 client is None despite STORAGE_BACKEND='AWS'; "
+                        "the boto3 client construction above did not run."
+                    )
                 page_obj = s3.get_object(
                     Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=page_path
                 )
