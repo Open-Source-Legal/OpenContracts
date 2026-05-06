@@ -364,13 +364,14 @@ def user_has_permission_for_obj(
         user = user_val
 
     model_name = instance._meta.model_name
-    logger.info(
-        f"get_users_permissions_for_obj() - Starting check for {user.username} with model type {model_name} for"
-        f"permission {permission}"
-    )
-
     app_label = instance._meta.app_label
-    logger.info(f"get_users_permissions_for_obj - App name: {app_label}")
+    logger.debug(
+        "user_has_permission_for_obj() - check %s on %s.%s for %s",
+        permission,
+        app_label,
+        model_name,
+        user.username,
+    )
 
     # Special handling for annotations with privacy fields
     if model_name == "annotation" and app_label == "annotations":
