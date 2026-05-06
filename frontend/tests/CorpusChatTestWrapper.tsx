@@ -44,6 +44,10 @@ interface Props {
   initialQuery?: string;
   onNavigateHome?: () => void;
   onMessageSelect?: (id: string) => void;
+  /** Notified when the inner conversation/list view-mode toggles. */
+  onViewModeChange?: (isInConversation: boolean) => void;
+  /** Hide the filter-bar Back button in the conversation-list view. */
+  hideListBackButton?: boolean;
 }
 
 export const CorpusChatTestWrapper: React.FC<Props> = ({
@@ -53,6 +57,8 @@ export const CorpusChatTestWrapper: React.FC<Props> = ({
   initialQuery,
   onNavigateHome,
   onMessageSelect = () => {},
+  onViewModeChange,
+  hideListBackButton,
 }) => {
   return (
     <MemoryRouter initialEntries={["/"]}>
@@ -67,6 +73,8 @@ export const CorpusChatTestWrapper: React.FC<Props> = ({
               forceNewChat={forceNewChat}
               initialQuery={initialQuery}
               onNavigateHome={onNavigateHome}
+              onViewModeChange={onViewModeChange}
+              hideListBackButton={hideListBackButton}
             />
           </div>
         </MockedProvider>

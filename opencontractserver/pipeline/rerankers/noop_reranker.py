@@ -22,7 +22,7 @@ class NoopReranker(BaseReranker):
         "Used as a safe default and as a control condition in benchmarks."
     )
     author = "OpenContracts"
-    dependencies: list[str] = []
+    dependencies = []
     # File-type support is informational for rerankers (they operate on text
     # extracted from any document type).
     supported_file_types = [FileTypeEnum.PDF, FileTypeEnum.TXT, FileTypeEnum.DOCX]

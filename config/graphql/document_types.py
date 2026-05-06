@@ -297,9 +297,12 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         RelationshipType,
         corpus_id=graphene.ID(),
         analysis_id=graphene.ID(),
+        is_structural=graphene.Boolean(),
     )
 
-    def resolve_all_relationships(self, info, corpus_id=None, analysis_id=None) -> Any:
+    def resolve_all_relationships(
+        self, info, corpus_id=None, analysis_id=None, is_structural=None
+    ) -> Any:
         """Resolve all relationships using the optimizer."""
         from opencontractserver.annotations.query_optimizer import (
             RelationshipQueryOptimizer,
@@ -324,6 +327,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 user=user,
                 corpus_id=corpus_pk,
                 analysis_id=analysis_pk,
+                structural=is_structural,
                 use_cache=True,
                 context=info.context,
             )
@@ -331,6 +335,48 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             logger.warning(
                 f"Failed resolving relationships query for document {self.id} with input: corpus_id={corpus_id}, "
                 f"analysis_id={analysis_id}. Error: {e}"
+            )
+            return []
+
+    all_structural_relationships = graphene.List(
+        RelationshipType,
+        relationship_ids=graphene.List(graphene.NonNull(graphene.ID)),
+    )
+
+    def resolve_all_structural_relationships(self, info, relationship_ids=None) -> Any:
+        """
+        Resolve structural relationships for this document.
+
+        Mirrors ``all_structural_annotations``: returns the document's
+        shared structural relationships (corpus-independent), so the
+        frontend can lazy-load them alongside structural annotations
+        instead of hauling them down on every initial document open.
+        """
+        from opencontractserver.annotations.query_optimizer import (
+            RelationshipQueryOptimizer,
+        )
+
+        try:
+            user = getattr(info.context, "user", None)
+            # Bulk structural-toggle fetches reuse the per-request cache;
+            # targeted deep-link fetches (relationship_ids supplied) bypass
+            # it because the cached queryset is shaped for the bulk path
+            # and would mask the id-filter we apply below.
+            qs = RelationshipQueryOptimizer.get_document_relationships(
+                document_id=self.id,
+                user=user,
+                structural=True,
+                use_cache=relationship_ids is None,
+                context=info.context,
+            )
+            if relationship_ids:
+                django_pks = [from_global_id(gid)[1] for gid in relationship_ids]
+                qs = qs.filter(pk__in=django_pks)
+            return qs
+        except Exception as e:
+            logger.warning(
+                "Failed resolving structural relationships query for "
+                f"document {self.id}. Error: {e}"
             )
             return []
 

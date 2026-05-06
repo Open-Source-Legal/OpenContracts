@@ -10,12 +10,10 @@ import uuid
 import graphene
 from celery import chain, chord, group
 from django.conf import settings
-from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Max, Q
 from django.utils import timezone
-from filetype import filetype
 from graphene.types.generic import GenericScalar
 from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
@@ -36,22 +34,21 @@ from config.graphql.ratelimits import (
 )
 from config.graphql.serializers import DocumentSerializer
 from config.telemetry import record_event
-from opencontractserver.constants.zip_import import (
-    BULK_UPLOAD_OWNER_CACHE_PREFIX,
-    BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
-    ZIP_MAX_TOTAL_SIZE_BYTES,
-)
+from opencontractserver.constants.zip_import import ZIP_MAX_TOTAL_SIZE_BYTES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
+from opencontractserver.document_imports.services import (
+    check_usage_cap,
+    import_document_for_user,
+    import_documents_zip_for_user,
+)
 from opencontractserver.documents.models import Document, DocumentPath, IngestionSource
 from opencontractserver.extracts.models import Extract
-from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.tasks import (
     build_label_lookups_task,
     burn_doc_annotations,
     import_corpus,
     import_document_to_corpus,
     package_annotated_docs,
-    process_documents_zip,
 )
 from opencontractserver.tasks.doc_tasks import convert_doc_to_funsd
 from opencontractserver.tasks.export_tasks import (
@@ -67,7 +64,6 @@ from opencontractserver.types.enums import (
 )
 from opencontractserver.users.models import UserExport
 from opencontractserver.utils.etl import is_dict_instance_of_typed_dict
-from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
     user_can_modify_corpus,
@@ -154,171 +150,85 @@ class UploadDocument(graphene.Mutation):
                 document=None,
             )
 
-        ok = False
-        document = None
+        user = info.context.user
 
-        # Was going to user a user_passes_test decorator, but I wanted a custom error message
-        # that could be easily reflected to user in the GUI.
-        if (
-            info.context.user.is_usage_capped
-            and info.context.user.document_set.count()
-            > settings.USAGE_CAPPED_USER_DOC_CAP_COUNT - 1
-        ):
-            raise PermissionError(
-                f"Your usage is capped at {settings.USAGE_CAPPED_USER_DOC_CAP_COUNT} documents. "
-                f"Try deleting an existing document first or contact the admin for a higher limit."
+        # Run the usage-cap check before any transport-specific resolution
+        # so a capped user with an invalid ingestion_source_id still sees
+        # the cap error (not a misleading "Ingestion source not found").
+        # The shared service re-checks it for transports (e.g. REST) that
+        # have nothing to resolve up front; the redundant call here is
+        # cheap and keeps the cap error precedence on the GraphQL path.
+        check_usage_cap(user)
+
+        # Resolve ingestion source up front (GraphQL-only feature) so we
+        # can hand a fully-built lineage dict to the shared service.
+        lineage_kwargs: dict = {}
+        if ingestion_source_id is not None:
+            try:
+                type_name, source_pk = from_global_id(ingestion_source_id)
+                if type_name != INGESTION_SOURCE_GLOBAL_ID_TYPE:
+                    raise IngestionSource.DoesNotExist
+                ingestion_source = IngestionSource.objects.get(
+                    pk=source_pk, creator=user
+                )
+                lineage_kwargs["ingestion_source"] = ingestion_source
+            except (IngestionSource.DoesNotExist, ValueError, TypeError):
+                return UploadDocument(
+                    message="Ingestion source not found", ok=False, document=None
+                )
+        if external_id is not None:
+            lineage_kwargs["external_id"] = external_id
+        if ingestion_metadata is not None:
+            lineage_kwargs["ingestion_metadata"] = ingestion_metadata
+
+        try:
+            file_bytes = base64.b64decode(base64_file_string)
+        except Exception as e:
+            return UploadDocument(
+                message=f"Error on upload: {e}", ok=False, document=None
             )
 
         try:
-            message = "Success"
+            result = import_document_for_user(
+                user=user,
+                file_bytes=file_bytes,
+                filename=filename,
+                title=title,
+                description=description,
+                custom_meta=custom_meta,
+                make_public=make_public,
+                add_to_corpus_id=add_to_corpus_id,
+                add_to_folder_id=add_to_folder_id,
+                slug=slug,
+                lineage_kwargs=lineage_kwargs,
+            )
+        except PermissionError:
+            # Surface usage-cap as an exception, matching legacy contract
+            raise
 
-            file_bytes = base64.b64decode(base64_file_string)
+        if result.error or result.document is None:
+            return UploadDocument(
+                message=result.error or "Upload failed", ok=False, document=None
+            )
 
-            # Check file type
-            kind = filetype.guess(file_bytes)
-            if kind is None:
+        document = result.document
+        message = "Success"
 
-                if is_plaintext_content(file_bytes):
-                    # Detect markdown/CAML files by extension
-                    if filename and filename.lower().endswith(
-                        (".caml", ".md", ".markdown")
-                    ):
-                        kind = "text/markdown"
-                    else:
-                        kind = "text/plain"
-                else:
-                    return UploadDocument(
-                        message="Unable to determine file type", ok=False, document=None
-                    )
-            else:
-                kind = kind.mime
-
-            if kind not in get_allowed_mime_types():
-                return UploadDocument(
-                    message=f"Unallowed filetype: {kind}", ok=False, document=None
-                )
-
-            user = info.context.user
-
-            # Determine target corpus and folder
-            if add_to_corpus_id is not None:
-                # Unified message prevents enumeration of corpus IDs the caller cannot see
-                corpus_not_found_msg = (
-                    "Corpus not found or you do not have permission to add "
-                    "documents to it"
-                )
-                try:
-                    corpus = Corpus.objects.visible_to_user(user).get(
-                        id=from_global_id(add_to_corpus_id)[1]
-                    )
-                except Corpus.DoesNotExist:
-                    return UploadDocument(
-                        message=corpus_not_found_msg,
-                        ok=False,
-                        document=None,
-                    )
-
-                # ``visible_to_user`` only enforces READ; we still need an EDIT
-                # check to gate writes. A user with READ-but-not-EDIT collapses
-                # into the same unified message as no-access at all (intentional
-                # IDOR posture).
-                if not user_has_permission_for_obj(user, corpus, PermissionTypes.EDIT):
-                    return UploadDocument(
-                        message=corpus_not_found_msg,
-                        ok=False,
-                        document=None,
-                    )
-
-                folder = None
-                if add_to_folder_id is not None:
-                    try:
-                        folder_pk = from_global_id(add_to_folder_id)[1]
-                        folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
-                    except CorpusFolder.DoesNotExist:
-                        return UploadDocument(
-                            message="Folder not found in the specified corpus",
-                            ok=False,
-                            document=None,
-                        )
-            else:
-                corpus = Corpus.get_or_create_personal_corpus(user)
-                folder = None
-
-            # Resolve ingestion source if provided
-            ingestion_source = None
-            if ingestion_source_id is not None:
-                try:
-                    type_name, source_pk = from_global_id(ingestion_source_id)
-                    if type_name != INGESTION_SOURCE_GLOBAL_ID_TYPE:
-                        raise IngestionSource.DoesNotExist
-                    ingestion_source = IngestionSource.objects.get(
-                        pk=source_pk, creator=user
-                    )
-                except (IngestionSource.DoesNotExist, ValueError, TypeError):
-                    return UploadDocument(
-                        message="Ingestion source not found",
-                        ok=False,
-                        document=None,
-                    )
-
-            # Build lineage kwargs for DocumentPath
-            lineage_kwargs = {}
-            if ingestion_source is not None:
-                lineage_kwargs["ingestion_source"] = ingestion_source
-            if external_id is not None:
-                lineage_kwargs["external_id"] = external_id
-            if ingestion_metadata is not None:
-                lineage_kwargs["ingestion_metadata"] = ingestion_metadata
-
-            # Import document - import_content handles path generation
-            # from filename and routes based on file_type
+        # Handle linking to extract (mutually exclusive with corpus). This
+        # is GraphQL-only; the REST endpoint does not expose extract linking.
+        if add_to_extract_id is not None:
             try:
-                document, status, path_record = corpus.import_content(
-                    content=file_bytes,
-                    user=user,
-                    filename=filename,
-                    folder=folder,
-                    file_type=kind,
-                    title=title,
-                    description=description,
-                    custom_meta=custom_meta,
-                    backend_lock=True,
-                    is_public=make_public,
-                    slug=slug,
-                    **lineage_kwargs,
+                extract = Extract.objects.get(
+                    Q(pk=from_global_id(add_to_extract_id)[1])
+                    & (Q(creator=user) | Q(is_public=True))
                 )
-
-                set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
-
-                logger.info(
-                    f"[UPLOAD] Document {document.id} ({status}) "
-                    f"uploaded to corpus {corpus.id}"
-                )
-
+                if extract.finished is not None:
+                    raise ValueError("Cannot add document to a finished extract")
+                transaction.on_commit(lambda: extract.documents.add(document))
             except Exception as e:
-                logger.error(f"[UPLOAD] Error importing document: {e}")
-                message = f"Upload failed due to error: {e}"
-                return UploadDocument(message=message, ok=False, document=None)
+                message = f"Adding to extract failed due to error: {e}"
 
-            # Handle linking to extract (mutually exclusive with corpus)
-            if add_to_extract_id is not None:
-                try:
-                    extract = Extract.objects.get(
-                        Q(pk=from_global_id(add_to_extract_id)[1])
-                        & (Q(creator=user) | Q(is_public=True))
-                    )
-                    if extract.finished is not None:
-                        raise ValueError("Cannot add document to a finished extract")
-                    transaction.on_commit(lambda: extract.documents.add(document))
-                except Exception as e:
-                    message = f"Adding to extract failed due to error: {e}"
-
-            ok = True
-
-        except Exception as e:
-            message = f"Error on upload: {e}"
-
-        return UploadDocument(message=message, ok=ok, document=document)
+        return UploadDocument(message=message, ok=True, document=document)
 
 
 class UpdateDocument(DRFMutation):
@@ -551,120 +461,37 @@ class UploadDocumentsZip(graphene.Mutation):
         add_to_corpus_id=None,
     ) -> "UploadDocumentsZip":
         user = info.context.user
-        # Was going to user a user_passes_test decorator, but I wanted a custom error message
-        # that could be easily reflected to user in the GUI.
-        if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
-            raise PermissionError(
-                "By default, usage-capped users cannot bulk upload documents. "
-                "Please contact the admin to authorize your account."
-            )
+        logger.info("UploadDocumentsZip.mutate() - Received zip upload request...")
 
         try:
-            logger.info("UploadDocumentsZip.mutate() - Received zip upload request...")
-
-            # Store zip in a temporary file
-            base64_img_bytes = base64_file_string.encode("utf-8")
-            decoded_file_data = base64.decodebytes(base64_img_bytes)
-
-            job_id = str(uuid.uuid4())
-
-            # IDOR protection: bind this job_id to the requesting user so the
-            # status resolver can refuse cross-user reads. Cache miss in the
-            # status resolver fails closed.
-            cache.set(
-                f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
-                info.context.user.id,
-                BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+            decoded_file_data = base64.decodebytes(base64_file_string.encode("utf-8"))
+        except Exception as e:
+            return UploadDocumentsZip(
+                message=f"Could not decode base64 zip: {e}", ok=False, job_id=None
             )
 
-            with transaction.atomic():
-                temporary_file = TemporaryFileHandle.objects.create()
-                temporary_file.file = ContentFile(
-                    decoded_file_data,
-                    name=f"documents_zip_import_{job_id}.zip",
-                )
-                temporary_file.save()
-                logger.info("UploadDocumentsZip.mutate() - temporary file created.")
+        result = import_documents_zip_for_user(
+            user=user,
+            zip_source=decoded_file_data,
+            title_prefix=title_prefix,
+            description=description,
+            custom_meta=custom_meta,
+            make_public=make_public,
+            add_to_corpus_id=add_to_corpus_id,
+        )
 
-                # Check if we need to link to a corpus
-                corpus_id = None
-                if add_to_corpus_id is not None:
-                    # Unified error message prevents enumeration of inaccessible corpora
-                    corpus_not_found_msg = (
-                        "Corpus not found or you do not have permission to "
-                        "add documents to it"
-                    )
-                    try:
-                        corpus = Corpus.objects.visible_to_user(user).get(
-                            id=from_global_id(add_to_corpus_id)[1]
-                        )
-                        # Check if user has permission on this corpus
-                        if not user_has_permission_for_obj(
-                            user, corpus, PermissionTypes.EDIT
-                        ):
-                            raise PermissionError(corpus_not_found_msg)
-                        corpus_id = corpus.id
-                    except Corpus.DoesNotExist:
-                        return UploadDocumentsZip(
-                            message=corpus_not_found_msg,
-                            ok=False,
-                            job_id=job_id,
-                        )
-                    except PermissionError:
-                        return UploadDocumentsZip(
-                            message=corpus_not_found_msg,
-                            ok=False,
-                            job_id=job_id,
-                        )
-                    except Exception as e:
-                        logger.error(f"Error validating corpus: {e}")
-                        return UploadDocumentsZip(
-                            message=f"Error validating corpus: {e}",
-                            ok=False,
-                            job_id=job_id,
-                        )
+        if result.error or result.job_id is None:
+            return UploadDocumentsZip(
+                message=result.error or "Upload failed",
+                ok=False,
+                job_id=result.job_id,
+            )
 
-            # Launch async task to process the zip file
-            if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-                chain(
-                    process_documents_zip.s(
-                        temporary_file.id,
-                        user.id,
-                        job_id,
-                        title_prefix,
-                        description,
-                        custom_meta,
-                        make_public,
-                        corpus_id,
-                    )
-                ).apply_async()
-            else:
-                transaction.on_commit(
-                    lambda: chain(
-                        process_documents_zip.s(
-                            temporary_file.id,
-                            info.context.user.id,
-                            job_id,
-                            title_prefix,
-                            description,
-                            custom_meta,
-                            make_public,
-                            corpus_id,
-                        )
-                    ).apply_async()
-                )
-            logger.info("UploadDocumentsZip.mutate() - Async task launched...")
-
-            ok = True
-            message = f"Upload started. Job ID: {job_id}"
-
-        except Exception as e:
-            ok = False
-            message = f"Could not start document upload job due to error: {e}"
-            job_id = None
-            logger.error(message)
-
-        return UploadDocumentsZip(message=message, ok=ok, job_id=job_id)
+        return UploadDocumentsZip(
+            message=f"Upload started. Job ID: {result.job_id}",
+            ok=True,
+            job_id=result.job_id,
+        )
 
 
 class RetryDocumentProcessing(graphene.Mutation):
