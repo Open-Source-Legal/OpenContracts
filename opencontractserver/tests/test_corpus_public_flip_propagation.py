@@ -226,3 +226,14 @@ class PublicFlipCascadeTests(TransactionTestCase):
             ).exists(),
             msg="Notification was sent for a document that was not actually publicized.",
         )
+        # The publisher (corpus owner) should also receive no spurious
+        # DOCUMENT_PUBLICIZED notification — the early-return inside the
+        # atomic block exits before the fan-out runs.
+        self.assertFalse(
+            Notification.objects.filter(
+                recipient=sole_publisher,
+                notification_type=NotificationTypeChoices.DOCUMENT_PUBLICIZED,
+            ).exists(),
+            msg="Publisher received a spurious DOCUMENT_PUBLICIZED notification "
+            "even though no documents were actually publicized.",
+        )

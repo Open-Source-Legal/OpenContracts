@@ -863,6 +863,16 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
             "message": "Invalid user for retry",
         }
     except Document.DoesNotExist:
+        # Log at WARNING (not ERROR): a missing document on retry is more
+        # likely a benign race (admin deleted it between mutation enqueue
+        # and worker pickup) than an attack. Logging it gives ops visibility
+        # if a sequential-id probe ever shows up in the wild.
+        logger.warning(
+            "[retry_document_processing] doc_id=%s does not exist; "
+            "refusing to retry on behalf of user_id=%s.",
+            doc_id,
+            user_id,
+        )
         return {
             "status": "error",
             "doc_id": doc_id,

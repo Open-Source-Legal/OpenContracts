@@ -114,3 +114,31 @@ class IngestDocPermissionCheckTests(TestCase):
             any("[SECURITY]" in line for line in captured.output),
             msg=f"Expected a SECURITY-tagged log line; got: {captured.output}",
         )
+
+    def test_retry_document_processing_refuses_for_nonexistent_document(self):
+        """retry_document_processing must fail closed with a WARNING audit
+        log when the supplied doc_id does not correspond to any Document row.
+
+        Pins the Document.DoesNotExist branch contract: returns
+        'Document not found' (status=error) and emits a log line at
+        WARNING level so ops can spot sequential-id probing if it ever
+        shows up in the wild. Distinct from User.DoesNotExist (which is
+        ERROR + [SECURITY] tagged because a missing user is a stronger
+        signal of misuse than a missing document).
+        """
+        nonexistent_doc_id = 999_999_999
+        # Ensure no Document with this id exists.
+        self.assertFalse(Document.objects.filter(pk=nonexistent_doc_id).exists())
+        with self.assertLogs(
+            "opencontractserver.tasks.doc_tasks", level=logging.WARNING
+        ) as captured:
+            result = retry_document_processing.apply(
+                kwargs={"user_id": self.user.id, "doc_id": nonexistent_doc_id}
+            ).get()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["message"], "Document not found")
+        self.assertEqual(result["doc_id"], nonexistent_doc_id)
+        self.assertTrue(
+            any("does not exist" in line for line in captured.output),
+            msg=f"Expected a doc_id-not-found audit log; got: {captured.output}",
+        )
