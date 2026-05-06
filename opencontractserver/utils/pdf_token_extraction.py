@@ -1184,7 +1184,7 @@ def get_image_data_url(
 def find_image_tokens_in_bounds(
     bounds: BoundingBoxPythonType,
     page_idx: int,
-    image_tokens: list[dict[str, Any]],
+    image_tokens: list[PawlsTokenPythonType],
     token_offset: int = 0,
 ) -> list[TokenIdPythonType]:
     """
@@ -1197,9 +1197,9 @@ def find_image_tokens_in_bounds(
     Args:
         bounds: The annotation bounding box {left, top, right, bottom}.
         page_idx: 0-based page index.
-        image_tokens: List of image token dicts with x, y, width, height fields.
-                     These can be either raw image dicts from extract_images_from_pdf
-                     or PawlsTokenPythonType with is_image=True.
+        image_tokens: List of :class:`PawlsTokenPythonType` image tokens with
+                     ``x``, ``y``, ``width``, ``height`` fields and
+                     ``is_image=True``.
         token_offset: The starting token index for image tokens in the unified
                      tokens array. Images are typically appended after text tokens,
                      so this offset accounts for the text token count.
