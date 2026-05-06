@@ -153,7 +153,13 @@ class CoreConversationVectorStore:
                 # If embedder resolution fails (e.g., test mock), use default dimension
                 embedder_class = None
         else:
-            assert corpus_id is not None  # nosec B101 — invariant from above
+            # Explicit check (not `assert`) so the guard survives `python -O`.
+            if corpus_id is None:
+                raise RuntimeError(
+                    "internal invariant violated: corpus_id is None in "
+                    "auto-detect branch (the `else` should only be reached "
+                    "when corpus_id is set)"
+                )
             # Auto-detect embedder from corpus
             embedder_class, detected_embedder_path = get_embedder(
                 corpus_id=corpus_id,
@@ -384,7 +390,13 @@ class CoreChatMessageVectorStore:
                 # If embedder resolution fails (e.g., test mock), use default dimension
                 embedder_class = None
         else:
-            assert corpus_id is not None  # nosec B101 — invariant from above
+            # Explicit check (not `assert`) so the guard survives `python -O`.
+            if corpus_id is None:
+                raise RuntimeError(
+                    "internal invariant violated: corpus_id is None in "
+                    "auto-detect branch (the `else` should only be reached "
+                    "when corpus_id is set)"
+                )
             # Auto-detect embedder from corpus
             embedder_class, detected_embedder_path = get_embedder(
                 corpus_id=corpus_id,

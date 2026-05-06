@@ -192,7 +192,13 @@ class CoreAnnotationVectorStore:
                 embedder_path=embedder_path,
             )
         else:
-            assert corpus_id is not None  # nosec B101 — invariant from above
+            # Explicit check (not `assert`) so the guard survives `python -O`.
+            if corpus_id is None:
+                raise RuntimeError(
+                    "internal invariant violated: corpus_id is None in the "
+                    "embedder-path-absent branch (constructor requires at "
+                    "least one of corpus_id / embedder_path)"
+                )
             embedder_class, detected_embedder_path = get_embedder(
                 corpus_id=corpus_id,
             )

@@ -3,7 +3,7 @@
 import inspect
 import logging
 from collections.abc import Awaitable
-from typing import Any, Callable, Optional, get_type_hints
+from typing import Any, Callable, Optional, Protocol, get_type_hints, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.tools import RunContext
@@ -14,6 +14,24 @@ from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.tool_factory import CoreTool
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class _AgentVectorStoreProto(Protocol):
+    """Minimal protocol describing the vector-store handle PydanticAI agents need.
+
+    Both ``CoreAnnotationVectorStore`` (used in some tests) and
+    ``PydanticAIAnnotationVectorStore`` (the production wrapper) implement
+    ``similarity_search``; that is the only attribute consumers of this
+    handle reach for. Declaring a Protocol — instead of widening the field
+    to ``Any`` — keeps callers honest and catches obvious misuses
+    (e.g. passing a raw ``Document``) at type-check time, without forcing
+    a circular import on the concrete vector-store classes.
+    """
+
+    async def similarity_search(
+        self, query: str, *, k: int = ..., **kwargs: Any
+    ) -> Any: ...
 
 
 async def _check_user_permissions(
@@ -197,10 +215,12 @@ class PydanticAIDependencies(BaseModel):
     user_id: Optional[int] = Field(default=None, description="Current user ID")
     document_id: Optional[int] = Field(default=None, description="Current document ID")
     corpus_id: Optional[int] = Field(default=None, description="Current corpus ID")
-    # ``Any`` because callers may inject either a ``CoreAnnotationVectorStore``
-    # (e.g. tests) or its PydanticAI wrapper class which adapts the interface
-    # for tool calls. Both expose the search methods the agent uses at runtime.
-    vector_store: Optional[Any] = Field(
+    # Typed as a Protocol (not the concrete classes) to avoid the circular
+    # import between ``opencontractserver.llms.tools.pydantic_ai_tools`` and
+    # ``opencontractserver.llms.vector_stores.pydantic_ai_vector_stores``.
+    # The Protocol still surfaces real type errors if callers inject the
+    # wrong object — see ``_AgentVectorStoreProto`` above.
+    vector_store: Optional[_AgentVectorStoreProto] = Field(
         default=None, description="Vector store instance"
     )
 

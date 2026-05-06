@@ -347,6 +347,16 @@ class CorpusAgentContext:
         Note: This is a separate async method instead of __post_init__ because
         dataclass __post_init__ is called synchronously, and we need async
         initialization to load documents from the database.
+
+        Reload semantics: an empty ``documents`` list is treated as "not
+        pre-loaded" and triggers a corpus fetch. Callers that want to
+        explicitly state "no documents — skip loading" should not invoke
+        ``initialize()`` (or should pass a sentinel container if that ever
+        becomes a real use case). This matches the pre-typing behaviour:
+        the field used to default to ``None`` and was checked with
+        ``is None``; promoting the default to ``[]`` while keeping the
+        same control flow means the truthy / falsy check is the
+        load-trigger now.
         """
         if not self.documents:
             # Use DocumentPath-based method to get active documents
@@ -1201,7 +1211,11 @@ class CoreConversationManager:
             conversation = config.conversation
         elif conversation_id or config.conversation_id:
             cid = conversation_id or config.conversation_id
-            assert cid is not None  # nosec B101 — guarded by the elif above
+            if cid is None:
+                raise RuntimeError(
+                    "internal invariant violated: conversation_id resolved to None "
+                    "after truthy `conversation_id or config.conversation_id` check"
+                )
             try:
                 conversation = await Conversation.objects.aget(id=cid)
             except Conversation.DoesNotExist:
@@ -1271,7 +1285,11 @@ class CoreConversationManager:
             conversation = config.conversation
         elif conversation_id or config.conversation_id:
             cid = conversation_id or config.conversation_id
-            assert cid is not None  # nosec B101 — guarded by the elif above
+            if cid is None:
+                raise RuntimeError(
+                    "internal invariant violated: conversation_id resolved to None "
+                    "after truthy `conversation_id or config.conversation_id` check"
+                )
             try:
                 conversation = await Conversation.objects.aget(id=cid)
             except Conversation.DoesNotExist:
@@ -1387,8 +1405,13 @@ class CoreConversationManager:
         )
 
         # When persistence is enabled the factory always pairs a conversation
-        # with a non-anonymous user, so user_id must be set here.
-        assert self.user_id is not None  # nosec B101 — factory invariant
+        # with a non-anonymous user, so user_id must be set here. We use an
+        # explicit raise (not `assert`) so the guard survives `python -O` and
+        # never silently falls through to a `creator_id=None` ORM call.
+        if self.user_id is None:
+            raise RuntimeError(
+                "factory invariant violated: user_id must be set when persistence is enabled"
+            )
         message = await ChatMessage.objects.acreate(
             conversation=self.conversation,
             content="",
@@ -1538,8 +1561,13 @@ class CoreConversationManager:
             return msg_id
 
         # When persistence is enabled the factory always pairs a conversation
-        # with a non-anonymous user, so user_id must be set here.
-        assert self.user_id is not None  # nosec B101 — factory invariant
+        # with a non-anonymous user, so user_id must be set here. We use an
+        # explicit raise (not `assert`) so the guard survives `python -O` and
+        # never silently falls through to a `creator_id=None` ORM call.
+        if self.user_id is None:
+            raise RuntimeError(
+                "factory invariant violated: user_id must be set when persistence is enabled"
+            )
         message = await ChatMessage.objects.acreate(
             conversation=self.conversation,
             content=content,
@@ -1589,8 +1617,13 @@ class CoreConversationManager:
             data.update(metadata)
 
         # When persistence is enabled the factory always pairs a conversation
-        # with a non-anonymous user, so user_id must be set here.
-        assert self.user_id is not None  # nosec B101 — factory invariant
+        # with a non-anonymous user, so user_id must be set here. We use an
+        # explicit raise (not `assert`) so the guard survives `python -O` and
+        # never silently falls through to a `creator_id=None` ORM call.
+        if self.user_id is None:
+            raise RuntimeError(
+                "factory invariant violated: user_id must be set when persistence is enabled"
+            )
         message = await ChatMessage.objects.acreate(
             conversation=self.conversation,
             content=content,

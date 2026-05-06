@@ -647,8 +647,17 @@ class VectorStoreAPI:
             # Pydantic AI vector store
             store = vector_stores.create("pydantic_ai", document_id=456)
         """
-        # Resolve default framework if caller did not specify one
-        resolved_framework = _resolve_framework(framework)
+        # Resolve default framework if caller did not specify one. Vector
+        # stores have their own dedicated setting — the document-agent
+        # default would have been a leaky abstraction that surprised
+        # operators who wanted to tune the two independently. When the
+        # setting is absent ``_resolve_framework`` falls through to
+        # ``AgentFramework.PYDANTIC_AI``, the same default the agent paths
+        # use, so existing deployments continue to work without a settings
+        # change.
+        resolved_framework = _resolve_framework(
+            framework, setting_name="LLMS_VECTOR_STORE_FRAMEWORK"
+        )
 
         return UnifiedVectorStoreFactory.create_vector_store(
             framework=resolved_framework,

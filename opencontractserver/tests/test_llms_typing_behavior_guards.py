@@ -19,10 +19,18 @@ production call site without requiring a full pydantic-ai invocation.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from django.test import TestCase
 
 from opencontractserver.llms.api import _resolve_framework
 from opencontractserver.llms.types import AgentFramework
+
+# Project root resolved from this file's location so the source-grep tests
+# below work regardless of the test runner's working directory. The file
+# lives at ``opencontractserver/tests/test_llms_typing_behavior_guards.py``
+# so ``parents[2]`` is the repository root.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestResolveFrameworkInvalidValue(TestCase):
@@ -88,25 +96,30 @@ class TestPermissionGuardsOnAnnotationTools(TestCase):
     and friends to assert they are NOT called when the guard fires.
     """
 
-    def test_aadd_document_note_is_not_called_when_user_id_is_none(self) -> None:
-        """Pin the guard's contract: the tool body raises before
-        ``aadd_document_note`` is invoked, so a malformed call cannot
-        bypass the user-id check by going straight to the DB layer."""
+    def test_aadd_document_note_is_importable(self) -> None:
+        """Sanity check: the underlying ORM-write function the guard is
+        protecting must remain importable from
+        ``pydantic_ai_agents``. This is *not* a test of the guard itself
+        — the guard lives inside a closure built by
+        ``PydanticAIAgent._build_*_toolset_*`` which we cannot construct
+        without a full Agent. The behaviour-level pin lives in
+        ``test_permission_error_message_format`` below, which asserts
+        the guard's exact error wording is present in the source three
+        times (one per protected tool). Renamed from the original
+        misleading ``..._is_not_called_when_user_id_is_none`` so future
+        readers don't expect a behaviour assertion that isn't there."""
         from opencontractserver.llms.agents import pydantic_ai_agents as paa
 
-        # The function under test is a closure inside
-        # ``PydanticAIAgent._build_*_toolset_*`` — we can't construct it
-        # without a full Agent. The next-best assertion is that the
-        # imported aadd_document_note is the one with the right signature
-        # so a future refactor can't drop the guard upstream of it.
         self.assertTrue(callable(paa.aadd_document_note))
 
-    def test_aduplicate_annotations_with_label_callable(self) -> None:
+    def test_aduplicate_annotations_with_label_is_importable(self) -> None:
+        """See ``test_aadd_document_note_is_importable``."""
         from opencontractserver.llms.agents import pydantic_ai_agents as paa
 
         self.assertTrue(callable(paa.aduplicate_annotations_with_label))
 
-    def test_aadd_annotations_from_exact_strings_callable(self) -> None:
+    def test_aadd_annotations_from_exact_strings_is_importable(self) -> None:
+        """See ``test_aadd_document_note_is_importable``."""
         from opencontractserver.llms.agents import pydantic_ai_agents as paa
 
         self.assertTrue(callable(paa.aadd_annotations_from_exact_strings))
@@ -154,18 +167,14 @@ class TestSyncToAsyncListEvaluation(TestCase):
         not appear in the touched modules — every list-collection call
         must go through a ``lambda`` so queryset evaluation happens in
         the worker thread."""
-        from pathlib import Path
-
         modules = [
-            Path("opencontractserver/llms/agents/pydantic_ai_agents.py"),
-            Path("opencontractserver/llms/vector_stores/core_vector_stores.py"),
-            Path(
-                "opencontractserver/llms/vector_stores/"
-                "core_conversation_vector_stores.py"
-            ),
-            Path(
-                "opencontractserver/llms/vector_stores/" "pydantic_ai_vector_stores.py"
-            ),
+            _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py",
+            _PROJECT_ROOT
+            / "opencontractserver/llms/vector_stores/core_vector_stores.py",
+            _PROJECT_ROOT
+            / "opencontractserver/llms/vector_stores/core_conversation_vector_stores.py",
+            _PROJECT_ROOT
+            / "opencontractserver/llms/vector_stores/pydantic_ai_vector_stores.py",
         ]
         offenders = []
         for module in modules:
@@ -196,9 +205,9 @@ class TestDataclassesAsdictUsageGuard(TestCase):
     the guard so a future refactor can't strip it."""
 
     def test_pydantic_ai_agents_keeps_isinstance_guard(self) -> None:
-        from pathlib import Path
-
-        text = Path("opencontractserver/llms/agents/pydantic_ai_agents.py").read_text()
+        text = (
+            _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
+        ).read_text()
         # The pattern: dataclasses.is_dataclass(...) and
         # not isinstance(..., type). Search loosely enough to tolerate
         # variable renames but tight enough to catch removal.
@@ -226,9 +235,9 @@ class TestIsinstanceEventDispatchKeepsTypeSafety(TestCase):
     not re-introduced."""
 
     def test_no_string_compare_event_dispatch(self) -> None:
-        from pathlib import Path
-
-        text = Path("opencontractserver/llms/agents/pydantic_ai_agents.py").read_text()
+        text = (
+            _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
+        ).read_text()
         # The regression form would be:
         #   getattr(ev, "type", "") == "thought"
         # or any variant comparing a string-typed attribute to a literal
@@ -251,9 +260,9 @@ class TestIsinstanceEventDispatchKeepsTypeSafety(TestCase):
 
     def test_isinstance_dispatch_present(self) -> None:
         """Sanity: the typed dispatch form remains."""
-        from pathlib import Path
-
-        text = Path("opencontractserver/llms/agents/pydantic_ai_agents.py").read_text()
+        text = (
+            _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
+        ).read_text()
         self.assertIn("isinstance(", text)
 
 
@@ -264,9 +273,9 @@ class TestStreamCorePersistenceGuard(TestCase):
     exist."""
 
     def test_persistence_guard_present_in_source(self) -> None:
-        from pathlib import Path
-
-        text = Path("opencontractserver/llms/agents/pydantic_ai_agents.py").read_text()
+        text = (
+            _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
+        ).read_text()
         # The guard: ``if llm_msg_id is not None`` somewhere near
         # ``complete_message`` invocations. The exact spelling matters
         # less than the presence of the None check before any call that

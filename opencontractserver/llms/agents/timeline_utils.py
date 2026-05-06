@@ -31,6 +31,13 @@ class TimelineBuilder:
     """
 
     def __init__(self) -> None:
+        # Accumulated as ``list[dict[str, Any]]`` (not ``list[TimelineEntry]``)
+        # because the dict-passthrough branch in ``add()`` accepts dicts from
+        # external callers we cannot statically guarantee are TypedDict-shaped,
+        # and because the helper ``entry`` builders mutate dicts (e.g.
+        # ``entry["result"] = ...``) which mypy refuses for closed TypedDicts.
+        # The single ``cast`` in the ``timeline`` property is the boundary
+        # where we promise the schema is honoured; ``add()`` is the gatekeeper.
         self._timeline: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
