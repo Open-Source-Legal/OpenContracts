@@ -928,6 +928,57 @@ class DocumentDeleteOrphanReclaimTestCase(TransactionTestCase):
                     "removed before path cleanup",
                 )
 
+    def test_broker_dispatch_failure_is_logged_and_swallowed(self) -> None:
+        """Issue #1492 follow-up: when the Celery broker is unavailable
+        ``cleanup_orphaned_document_blobs_task.delay`` raises out of the
+        ``on_commit`` callback. The signal handler must not crash the
+        delete (which has already committed), but it MUST log the path
+        list at ERROR level so ops can recover.
+
+        Verifies the dispatch wrapper around ``.delay()`` in
+        ``opencontractserver.documents.signals``.
+        """
+        from unittest.mock import patch
+
+        doc, blobs = _make_doc_with_blobs(self.user, self.uid, label="DispatchFailure")
+
+        broker_error = RuntimeError("broker unreachable")
+        with patch(
+            "opencontractserver.tasks.cleanup_tasks."
+            "cleanup_orphaned_document_blobs_task.delay",
+            side_effect=broker_error,
+        ) as mocked_delay, self.assertLogs(
+            "opencontractserver.documents.signals", level="ERROR"
+        ) as log_ctx:
+            # Delete must not raise even though the broker is down.
+            doc.delete()
+
+        mocked_delay.assert_called_once()
+        # The error log must include the orphaned paths so ops can
+        # reconcile manually or via the future management command.
+        joined = "\n".join(log_ctx.output)
+        self.assertIn("Blob cleanup task dispatch failed", joined)
+        for blob_name in blobs.values():
+            self.assertIn(blob_name, joined)
+
+        # Document row is gone (delete committed before the on_commit
+        # callback fired) but blobs are still in storage because dispatch
+        # failed — exactly the orphan condition the log warns about.
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+        for field_name, blob_name in blobs.items():
+            with self.subTest(field=field_name):
+                self.assertTrue(
+                    default_storage.exists(blob_name),
+                    f"{field_name}: blob {blob_name!r} should still be "
+                    "in storage when the dispatch failed",
+                )
+
+        # Cleanup: remove the now-orphaned blobs ourselves so the test
+        # leaves storage in a clean state.
+        for blob_name in blobs.values():
+            if default_storage.exists(blob_name):
+                default_storage.delete(blob_name)
+
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
 class UniqueBlobPathsForManyTestCase(TransactionTestCase):

@@ -273,7 +273,17 @@ def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
 
         # ``sorted`` makes task arguments deterministic (helps tests +
         # idempotent retries); ``list`` because Celery JSON-serialises.
-        cleanup_orphaned_document_blobs_task.delay(snapshot)
+        try:
+            cleanup_orphaned_document_blobs_task.delay(snapshot)
+        except Exception:
+            # Broker unavailable / dispatch error: blobs may be orphaned in
+            # storage. Log at ERROR with the full path list so ops can
+            # reconcile via the future management command (issue #1492).
+            logger.exception(
+                "Blob cleanup task dispatch failed; %d paths may be orphaned: %s",
+                len(snapshot),
+                snapshot,
+            )
 
     transaction.on_commit(_flush_blob_cleanup, using=using)
 
