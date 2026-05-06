@@ -1,7 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
-from typing import Optional
+from typing import ClassVar, Optional
 
 import requests
 
@@ -31,19 +30,12 @@ class BaseEmbedder(PipelineComponentBase, ABC):
     are derived from `supported_modalities`.
     """
 
-    title: str = ""
-    description: str = ""
-    author: str = ""
-    dependencies: list[str] = []
     vector_size: int = 0  # Provide the data shape of the returned embeddings.
-    supported_file_types: list[FileTypeEnum] = []
-    input_schema: Mapping = (
-        {}
-    )  # If you want user to provide inputs, define a jsonschema here
+    supported_file_types: ClassVar[list[FileTypeEnum]] = []
 
     # Single source of truth for modality support
     # Override in subclasses to add multimodal support
-    supported_modalities: set[ContentModality] = {ContentModality.TEXT}
+    supported_modalities: ClassVar[set[ContentModality]] = {ContentModality.TEXT}
 
     # ------------------------------------------------------------------ #
     # Batch-embedding tunables (override per subclass)

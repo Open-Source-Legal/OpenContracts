@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
 from dataclasses import dataclass
 
 from asgiref.sync import sync_to_async
@@ -78,12 +77,6 @@ class BaseReranker(PipelineComponentBase, ABC):
     native async I/O (e.g. ``httpx.AsyncClient``) should override
     ``_arerank_impl``.
     """
-
-    title: str = ""
-    description: str = ""
-    author: str = ""
-    dependencies: list[str] = []
-    input_schema: Mapping = {}
 
     # Hard upper bound on candidates per call. Cross-encoders quadratic in
     # this number (per-pair scoring), so keep it reasonable. Shares a single
