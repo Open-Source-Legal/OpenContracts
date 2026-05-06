@@ -862,6 +862,18 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                                 logger.debug(
                                     "[DIAGNOSTIC] Entered tool_stream context - starting iteration"
                                 )
+                                # ``[assignment]`` ignore — both this loop and
+                                # the model_stream loop above reuse the name
+                                # ``event``, but pydantic-ai infers different
+                                # element types for the two streams. Removing
+                                # the ignore would either require renaming the
+                                # loop var (~30 reference sites in this branch)
+                                # or a ``cast(Any, ...)`` that silently widens
+                                # downstream usages of ``event.part`` /
+                                # ``event.result`` and surfaces unrelated
+                                # mypy errors. Kept narrow ([assignment] only)
+                                # so the runtime kind-dispatch below is the
+                                # type contract.
                                 async for event in tool_stream:  # type: ignore[assignment]
                                     tool_event_count += 1
                                     logger.debug(
