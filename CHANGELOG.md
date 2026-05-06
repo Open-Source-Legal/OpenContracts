@@ -96,6 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reduced chatty permissioning INFO logs** (`opencontractserver/utils/permissioning.py:365-373`, issue #1436). `user_has_permission_for_obj` previously emitted two `INFO` log lines on every call ("Starting check for ..." and "App name: ..."), which fired on essentially every authenticated request and dominated Django pod logs in production. The two lines are now collapsed into a single `logger.debug(...)` call using lazy `%`-formatting, so the strings are not built unless DEBUG logging is enabled. Permission denial logs (structural-write denial, analysis/extract privacy denials) remain at `INFO`, and all `WARNING`/`ERROR` paths are unchanged.
 - **`supportedMimeTypes` GraphQL query is now accessible to anonymous users** (`config/graphql/pipeline_queries.py:205`). Removed the `@login_required` decorator from `resolve_supported_mime_types` so that uploaders, landing pages, and other unauthenticated UI surfaces can advertise the accepted file formats without forcing a login. The data returned is derived purely from the pipeline registry and exposes no user-specific information. Test updated: `opencontractserver/tests/test_pipeline_component_queries.py::test_supported_mime_types_allows_anonymous`.
 
 ### Added
