@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, MutableMapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -317,7 +317,7 @@ async def arecord_mcp_request(
     return await arecord_event("mcp_request", properties)
 
 
-def get_user_agent_from_scope(scope: dict[str, Any]) -> str | None:
+def get_user_agent_from_scope(scope: MutableMapping[str, Any]) -> str | None:
     """Extract User-Agent header from an ASGI scope.
 
     MCP clients and AI agents typically identify themselves via User-Agent

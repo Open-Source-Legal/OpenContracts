@@ -14,6 +14,7 @@ import functools
 import json
 import logging
 import time
+from collections.abc import MutableMapping
 from typing import Any, Callable
 
 from django.conf import settings
@@ -369,7 +370,7 @@ MCP_TOOL_RATE_MAP: dict[str, str] = {
 
 
 async def check_mcp_rate_limit(
-    scope: dict[str, Any],
+    scope: MutableMapping[str, Any],
     tool_name: str | None = None,
     *,
     skip_global: bool = False,
