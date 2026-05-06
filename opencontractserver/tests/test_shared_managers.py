@@ -139,9 +139,7 @@ class UserFeedbackManagerGetOrNoneTest(TestCase):
         # is guaranteed to miss without baking in a magic constant
         # (CLAUDE.md §4: no magic numbers).
         max_existing_pk = (
-            UserFeedback.objects.order_by("-pk")
-            .values_list("pk", flat=True)
-            .first()
+            UserFeedback.objects.order_by("-pk").values_list("pk", flat=True).first()
             or 0
         )
         result = UserFeedback.objects.get_or_none(pk=max_existing_pk + 1)

@@ -672,6 +672,7 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
         span_annotation = annotations.filter(annotation_type=SPAN_LABEL).first()
         self.assertEqual(span_annotation.raw_text, "Async Span!")
         self.assertDictEqual(span_annotation.json, {"start": 0, "end": 12})
+        self.assertEqual(span_annotation.annotation_label.text, "TEXT_SPAN_ASYNC")
 
     def test_async_doc_analyzer_task_txt_no_extract_file_raises(self) -> None:
         """Mirror of the sync ``DocAnalyzerTaskTestCase``
