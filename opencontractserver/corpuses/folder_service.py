@@ -57,15 +57,10 @@ from opencontractserver.utils.permissioning import (
 )
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AnonymousUser
-
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
     from opencontractserver.documents.models import Document, DocumentPath
     from opencontractserver.users.models import User
-
-    # Public corpora are reachable to AnonymousUser, so service entry points
-    # that accept either kind of caller use this alias instead of bare ``User``.
-    UserOrAnonymous = User | AnonymousUser
+    from opencontractserver.users.types import UserOrAnonymous
 
 logger = logging.getLogger(__name__)
 

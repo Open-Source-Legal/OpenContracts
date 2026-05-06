@@ -23,14 +23,7 @@ from .formatters import (
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.users.models import User
-
-    # Mirrors the alias in ``opencontractserver.corpuses.folder_service`` so
-    # the MCP tool signatures use the same concrete-User-or-anonymous shape
-    # the service entry points expose. Centralising further would mean a
-    # shared module just for one alias; not worth it until a third call site
-    # surfaces.
-    UserOrAnonymous = User | AnonymousUser
+    from opencontractserver.users.types import UserOrAnonymous
 
 
 def list_public_corpuses(limit: int = 20, offset: int = 0, search: str = "") -> dict:
