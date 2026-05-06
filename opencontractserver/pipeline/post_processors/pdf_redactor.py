@@ -2,7 +2,6 @@ import io
 import json
 import logging
 import zipfile
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -39,8 +38,8 @@ class PDFRedactor(BasePostProcessor):
     title: str = "PDF Redactor"
     description: str = "Redacts PDFs by overlaying black rectangles and removing text"
     author: str = "OpenContracts"
-    dependencies: list[str] = ["pikepdf>=8.2.2", "reportlab"]
-    input_schema: Mapping = {
+    dependencies = ["pikepdf>=8.2.2", "reportlab"]
+    input_schema = {
         "labels_to_redact": {
             "type": "array",
             "items": {"type": "string"},
