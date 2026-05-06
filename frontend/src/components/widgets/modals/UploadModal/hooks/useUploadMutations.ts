@@ -1,55 +1,13 @@
-import { useCallback } from "react";
-import { useMutation, useApolloClient } from "@apollo/client";
-import { gql } from "@apollo/client";
+import { useCallback, useState } from "react";
+import { useApolloClient } from "@apollo/client";
 import { toast } from "react-toastify";
-import {
-  UPLOAD_DOCUMENT,
-  UploadDocumentInputProps,
-  UploadDocumentOutputProps,
-} from "../../../../../graphql/mutations";
 import { GET_DOCUMENTS } from "../../../../../graphql/queries";
 import { GET_CORPUS_FOLDERS } from "../../../../../graphql/queries/folders";
-import { toBase64 } from "../../../../../utils/files";
+import {
+  importDocumentMultipart,
+  importDocumentsZipMultipart,
+} from "../../../../../utils/importHttp";
 import { FileUploadPackage, UploadStatus } from "./useUploadState";
-
-// Bulk upload mutation
-const UPLOAD_DOCUMENTS_ZIP = gql`
-  mutation UploadDocumentsZip(
-    $base64FileString: String!
-    $makePublic: Boolean!
-    $addToCorpusId: ID
-    $titlePrefix: String
-    $description: String
-  ) {
-    uploadDocumentsZip(
-      base64FileString: $base64FileString
-      makePublic: $makePublic
-      addToCorpusId: $addToCorpusId
-      titlePrefix: $titlePrefix
-      description: $description
-    ) {
-      ok
-      message
-      jobId
-    }
-  }
-`;
-
-interface UploadDocumentsZipVars {
-  base64FileString: string;
-  makePublic: boolean;
-  addToCorpusId?: string | null;
-  titlePrefix?: string;
-  description?: string;
-}
-
-interface UploadDocumentsZipOutput {
-  uploadDocumentsZip: {
-    ok: boolean;
-    message: string;
-    jobId?: string;
-  };
-}
 
 interface UseUploadMutationsProps {
   corpusId?: string | null;
@@ -78,8 +36,10 @@ interface UseUploadMutationsReturn {
 }
 
 /**
- * Hook that wraps upload mutations for single documents and ZIP files.
- * Handles file conversion, mutation execution, and error handling.
+ * Wraps the multipart REST upload endpoints for single documents and
+ * bulk ZIP archives. Files are streamed via FormData rather than
+ * base64-encoded into a GraphQL variable, which avoids Apollo's
+ * "Payload allocation size overflow" invariant for large files.
  */
 export function useUploadMutations({
   corpusId,
@@ -90,15 +50,9 @@ export function useUploadMutations({
 }: UseUploadMutationsProps): UseUploadMutationsReturn {
   const client = useApolloClient();
 
-  const [uploadDocumentMutation, { loading: uploadingDocument }] =
-    useMutation<UploadDocumentOutputProps>(UPLOAD_DOCUMENT);
-
-  const [uploadZipMutation, { loading: uploadingZip }] = useMutation<
-    UploadDocumentsZipOutput,
-    UploadDocumentsZipVars
-  >(UPLOAD_DOCUMENTS_ZIP);
-
-  const isUploading = uploadingDocument || uploadingZip;
+  const [singleInFlight, setSingleInFlight] = useState(false);
+  const [zipInFlight, setZipInFlight] = useState(false);
+  const isUploading = singleInFlight || zipInFlight;
 
   /**
    * Upload a single file with its metadata.
@@ -111,40 +65,27 @@ export function useUploadMutations({
       index: number
     ): Promise<boolean> => {
       onFileStatusChange(index, "uploading");
-
+      setSingleInFlight(true);
       try {
-        const base64String = await toBase64(file);
-
-        if (typeof base64String !== "string") {
-          throw new Error("Failed to convert file to base64");
-        }
-
-        const variables: UploadDocumentInputProps = {
-          base64FileString: base64String.split(",")[1],
-          filename: file.name,
-          customMeta: {},
-          description: formData.description || "",
+        const result = await importDocumentMultipart({
+          file,
           title: formData.title || file.name,
+          description: formData.description || "",
           slug: formData.slug || undefined,
-          addToCorpusId: corpusId || undefined,
-          addToFolderId: folderId || undefined,
+          filename: file.name,
+          addToCorpusId: corpusId ?? null,
+          addToFolderId: folderId ?? null,
           makePublic,
-        };
+        });
 
-        const result = await uploadDocumentMutation({ variables });
-
-        if (result.data?.uploadDocument?.ok) {
+        if (result.ok) {
           onFileStatusChange(index, "success");
           return true;
-        } else {
-          console.error(
-            "[UPLOAD] Upload failed:",
-            result.data?.uploadDocument?.message
-          );
-          onFileStatusChange(index, "failed");
-          toast.error(result.data?.uploadDocument?.message || "Upload failed");
-          return false;
         }
+        console.error("[UPLOAD] Upload failed:", result.error);
+        onFileStatusChange(index, "failed");
+        toast.error(result.error || "Upload failed");
+        return false;
       } catch (error: unknown) {
         console.error("[UPLOAD] Upload error:", error);
         onFileStatusChange(index, "failed");
@@ -152,9 +93,11 @@ export function useUploadMutations({
           error instanceof Error ? error.message : "Upload failed";
         toast.error(message);
         return false;
+      } finally {
+        setSingleInFlight(false);
       }
     },
-    [corpusId, folderId, makePublic, uploadDocumentMutation, onFileStatusChange]
+    [corpusId, folderId, makePublic, onFileStatusChange]
   );
 
   /**
@@ -169,51 +112,39 @@ export function useUploadMutations({
       toast.info("Starting upload...");
 
       const effectiveCorpusId = selectedCorpusId || corpusId;
+      setSingleInFlight(true);
+      try {
+        for (const [index, pkg] of files.entries()) {
+          onFileStatusChange(index, "uploading");
+          try {
+            const result = await importDocumentMultipart({
+              file: pkg.file,
+              title: pkg.formData?.title || pkg.file.name,
+              description: pkg.formData?.description || "",
+              slug: pkg.formData?.slug || undefined,
+              filename: pkg.file.name,
+              addToCorpusId: effectiveCorpusId ?? null,
+              addToFolderId: folderId ?? null,
+              makePublic,
+            });
 
-      // Upload files sequentially to avoid overwhelming the server
-      for (const [index, pkg] of files.entries()) {
-        onFileStatusChange(index, "uploading");
-
-        try {
-          const base64String = await toBase64(pkg.file);
-
-          if (typeof base64String !== "string") {
-            throw new Error("Failed to convert file to base64");
-          }
-
-          const variables: UploadDocumentInputProps = {
-            base64FileString: base64String.split(",")[1],
-            filename: pkg.file.name,
-            customMeta: {},
-            description: pkg.formData?.description || "",
-            title: pkg.formData?.title || pkg.file.name,
-            slug: pkg.formData?.slug || undefined,
-            addToCorpusId: effectiveCorpusId || undefined,
-            addToFolderId: folderId || undefined,
-            makePublic,
-          };
-
-          const result = await uploadDocumentMutation({ variables });
-
-          if (result.data?.uploadDocument?.ok) {
-            onFileStatusChange(index, "success");
-          } else {
-            console.error(
-              "[UPLOAD] Upload failed:",
-              result.data?.uploadDocument?.message
-            );
+            if (result.ok) {
+              onFileStatusChange(index, "success");
+            } else {
+              console.error("[UPLOAD] Upload failed:", result.error);
+              onFileStatusChange(index, "failed");
+              toast.error(result.error || "Upload failed");
+            }
+          } catch (error: unknown) {
+            console.error("[UPLOAD] Upload error:", error);
             onFileStatusChange(index, "failed");
-            toast.error(
-              result.data?.uploadDocument?.message || "Upload failed"
-            );
+            const message =
+              error instanceof Error ? error.message : "Upload failed";
+            toast.error(message);
           }
-        } catch (error: unknown) {
-          console.error("[UPLOAD] Upload error:", error);
-          onFileStatusChange(index, "failed");
-          const message =
-            error instanceof Error ? error.message : "Upload failed";
-          toast.error(message);
         }
+      } finally {
+        setSingleInFlight(false);
       }
 
       // Refetch documents and folders after all uploads
@@ -223,15 +154,7 @@ export function useUploadMutations({
 
       onComplete?.();
     },
-    [
-      corpusId,
-      folderId,
-      makePublic,
-      uploadDocumentMutation,
-      client,
-      onFileStatusChange,
-      onComplete,
-    ]
+    [corpusId, folderId, makePublic, client, onFileStatusChange, onComplete]
   );
 
   /**
@@ -241,54 +164,34 @@ export function useUploadMutations({
    */
   const uploadZipFile = useCallback(
     async (zipFile: File, targetCorpusId?: string | null): Promise<boolean> => {
+      setZipInFlight(true);
       try {
-        // Convert to base64 using shared utility for consistency
-        const base64Result = await toBase64(zipFile);
-
-        if (typeof base64Result !== "string") {
-          throw new Error("Failed to convert file to base64");
-        }
-
-        // Remove data:mime/type;base64, prefix
-        const base64String = base64Result.split(",")[1];
-
-        const result = await uploadZipMutation({
-          variables: {
-            base64FileString: base64String,
-            makePublic,
-            addToCorpusId: targetCorpusId || null,
-          },
+        const result = await importDocumentsZipMultipart({
+          file: zipFile,
+          addToCorpusId: targetCorpusId ?? null,
+          makePublic,
         });
 
-        if (result.data?.uploadDocumentsZip.ok) {
-          toast.success(
-            `Upload job started! Job ID: ${result.data.uploadDocumentsZip.jobId}`
-          );
+        if (result.ok) {
+          toast.success(`Upload job started! Job ID: ${result.job_id}`);
           return true;
-        } else {
-          throw new Error(
-            result.data?.uploadDocumentsZip.message || "Upload failed"
-          );
         }
-      } catch (error: unknown) {
-        console.error("[UPLOAD] ZIP upload error:", error);
-        // Handle GraphQL errors and standard errors
-        let errorMessage = "An unexpected error occurred";
-        if (error instanceof Error) {
-          // Check for Apollo GraphQL error structure
-          const apolloError = error as Error & {
-            graphQLErrors?: Array<{ message: string }>;
-          };
-          errorMessage =
-            apolloError.graphQLErrors?.[0]?.message ||
-            error.message ||
-            errorMessage;
-        }
+        const errorMessage = result.error || "Upload failed";
         toast.error(`Upload failed: ${errorMessage}`);
         return false;
+      } catch (error: unknown) {
+        console.error("[UPLOAD] ZIP upload error:", error);
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred";
+        toast.error(`Upload failed: ${errorMessage}`);
+        return false;
+      } finally {
+        setZipInFlight(false);
       }
     },
-    [makePublic, uploadZipMutation]
+    [makePublic]
   );
 
   return {

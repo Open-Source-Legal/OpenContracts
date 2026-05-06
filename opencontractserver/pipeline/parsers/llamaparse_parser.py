@@ -611,14 +611,11 @@ class LlamaParseParser(BaseParser):
                     existing_image_refs = find_image_tokens_in_bounds(
                         bounds,
                         page_idx,
-                        cast(
-                            list[dict[str, Any]],
-                            images_by_page.get(page_idx, []),
-                        ),
+                        images_by_page.get(page_idx, []),
                         image_token_offsets.get(page_idx, 0),
                     )
 
-                    image_token_refs: list[TokenIdPythonType] = []
+                    image_token_refs = []  # list[TokenIdPythonType]
 
                     if existing_image_refs:
                         # Use existing embedded image token
@@ -745,16 +742,13 @@ class LlamaParseParser(BaseParser):
                 )
 
                 # For figure/image types, find matching image tokens or crop the region
-                image_token_refs = []
+                image_token_refs = []  # list[TokenIdPythonType]
                 if is_image_type and pdf_bytes and extract_images:
                     # Find image tokens in the tokens array that overlap with bounds
                     image_token_refs = find_image_tokens_in_bounds(
                         bounds,
                         page_idx,
-                        cast(
-                            list[dict[str, Any]],
-                            images_by_page.get(page_idx, []),
-                        ),
+                        images_by_page.get(page_idx, []),
                         image_token_offsets.get(page_idx, 0),
                     )
                     # If no embedded image found, crop the region
@@ -852,16 +846,13 @@ class LlamaParseParser(BaseParser):
                     )
 
                     # For figure/image types, find matching image tokens or crop region
-                    image_token_refs = []
+                    image_token_refs = []  # list[TokenIdPythonType]
                     if is_image_type and pdf_bytes and extract_images:
                         # Find image tokens in the tokens array that overlap with bounds
                         image_token_refs = find_image_tokens_in_bounds(
                             bounds,
                             page_idx,
-                            cast(
-                                list[dict[str, Any]],
-                                images_by_page.get(page_idx, []),
-                            ),
+                            images_by_page.get(page_idx, []),
                             image_token_offsets.get(page_idx, 0),
                         )
                         # If no embedded image found, crop the region
@@ -1198,26 +1189,25 @@ class LlamaParseParser(BaseParser):
         ``NotRequired``-but-non-``None`` contract of
         :class:`PawlsTokenPythonType`.
         """
-        src = cast(dict[str, Any], source)
         token: PawlsTokenPythonType = {
-            "x": src["x"],
-            "y": src["y"],
-            "width": src["width"],
-            "height": src["height"],
+            "x": source["x"],
+            "y": source["y"],
+            "width": source["width"],
+            "height": source["height"],
             "text": "",
             "is_image": True,
-            "format": src.get("format", "jpeg"),
+            "format": source.get("format", "jpeg"),
         }
-        if src.get("image_path") is not None:
-            token["image_path"] = src["image_path"]
-        if src.get("content_hash") is not None:
-            token["content_hash"] = src["content_hash"]
-        if src.get("original_width") is not None:
-            token["original_width"] = src["original_width"]
-        if src.get("original_height") is not None:
-            token["original_height"] = src["original_height"]
-        if src.get("image_type") is not None:
-            token["image_type"] = src["image_type"]
+        if source.get("image_path") is not None:
+            token["image_path"] = source["image_path"]
+        if source.get("content_hash") is not None:
+            token["content_hash"] = source["content_hash"]
+        if source.get("original_width") is not None:
+            token["original_width"] = source["original_width"]
+        if source.get("original_height") is not None:
+            token["original_height"] = source["original_height"]
+        if source.get("image_type") is not None:
+            token["image_type"] = source["image_type"]
         return token
 
     def _create_annotation(
