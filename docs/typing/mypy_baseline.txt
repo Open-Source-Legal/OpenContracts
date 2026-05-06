@@ -236,12 +236,6 @@ opencontractserver/llms/vector_stores/pydantic_ai_vector_stores.py:314: error: F
 opencontractserver/llms/vector_stores/pydantic_ai_vector_stores.py:314: note: Perhaps you meant "typing.Callable" instead of "callable"?
 opencontractserver/llms/vector_stores/pydantic_ai_vector_stores.py:374: error: Function "builtins.callable" is not valid as a type  [valid-type]
 opencontractserver/llms/vector_stores/pydantic_ai_vector_stores.py:374: note: Perhaps you meant "typing.Callable" instead of "callable"?
-opencontractserver/mcp/server.py:623: error: Need type annotation for "resources" (hint: "resources: list[<type>] = ...")  [var-annotated]
-opencontractserver/mcp/server.py:634: error: Argument "uri" to "Resource" has incompatible type "str"; expected "AnyUrl"  [arg-type]
-opencontractserver/mcp/server.py:648: error: Argument "uri" to "Resource" has incompatible type "str"; expected "AnyUrl"  [arg-type]
-opencontractserver/mcp/server.py:667: error: Argument "uri" to "Resource" has incompatible type "str"; expected "AnyUrl"  [arg-type]
-opencontractserver/mcp/server.py:985: error: Incompatible types in assignment (expression has type "_AsyncGeneratorContextManager[None, None]", variable has type "None")  [assignment]
-opencontractserver/mcp/server.py:986: error: "None" has no attribute "__aenter__"  [attr-defined]
 opencontractserver/mcp/tests/test_mcp.py:1001: error: "MCPResourcesDocumentTest" has no attribute "corpus"  [attr-defined]
 opencontractserver/mcp/tests/test_mcp.py:1001: error: "MCPResourcesDocumentTest" has no attribute "document"  [attr-defined]
 opencontractserver/mcp/tests/test_mcp.py:1004: error: "MCPResourcesDocumentTest" has no attribute "document"  [attr-defined]
@@ -561,7 +555,6 @@ opencontractserver/mcp/tests/test_mcp.py:983: error: "type[MCPResourcesDocumentT
 opencontractserver/mcp/tests/test_mcp.py:988: error: "type[MCPResourcesDocumentTest]" has no attribute "document"  [attr-defined]
 opencontractserver/mcp/tests/test_mcp.py:989: error: "type[MCPResourcesDocumentTest]" has no attribute "corpus"  [attr-defined]
 opencontractserver/mcp/tests/test_mcp.py:994: error: "type[MCPResourcesDocumentTest]" has no attribute "owner"  [attr-defined]
-opencontractserver/mcp/tools.py:225: error: "QuerySet[Any, Any]" has no attribute "search_by_embedding"  [attr-defined]
 opencontractserver/shared/Managers.py:136: error: "type[_T]" has no attribute "objects"  [attr-defined]
 opencontractserver/shared/Managers.py:140: error: "type[_T]" has no attribute "objects"  [attr-defined]
 opencontractserver/shared/Managers.py:143: error: "type[_T]" has no attribute "objects"  [attr-defined]
