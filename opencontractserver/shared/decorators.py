@@ -632,6 +632,23 @@ def async_doc_analyzer_task(
 
                         elif doc.file_type in ["application/txt", "text/plain"]:
                             span, label_text = span_label_pair
+                            # Mirrors the sync wrapper's invariant: TXT
+                            # processing requires a non-empty
+                            # ``txt_extract_file``. ``span["text"]`` is the
+                            # actual ``raw_text`` source here (the async
+                            # path doesn't slice into ``pdf_text_extract``
+                            # like the sync path), but the analyzer
+                            # function was invoked with
+                            # ``pdf_text_extract=None`` upstream, which
+                            # likely produced no usable spans — failing
+                            # fast here makes that contract violation
+                            # obvious instead of silently saving an
+                            # annotation built from a span whose
+                            # coordinates the analyzer couldn't compute.
+                            if pdf_text_extract is None:
+                                raise ValueError(
+                                    "txt_extract_file is required for text/plain documents"
+                                )
                             logger.info(
                                 f"[ASYNC] TXT Annotation data: {label_text} / {span}"
                             )

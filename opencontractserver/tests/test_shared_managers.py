@@ -165,51 +165,83 @@ class UserFeedbackManagerGetOrNoneTest(TestCase):
 
 
 class BaseVisibilityManagerSuperuserTest(TestCase):
-    """
-    BaseVisibilityManager.visible_to_user(superuser) must return ALL objects
-    (the model_cls.objects.all().order_by("created") branch).
+    """Exercises ``BaseVisibilityManager.visible_to_user`` directly via the
+    ``Embedding`` model — it uses ``EmbeddingManager(BaseVisibilityManager)``
+    which does NOT override ``visible_to_user``, so the call lands in the
+    base manager's superuser / anonymous / authenticated branches.
+
+    (``Corpus.objects`` is a ``PermissionManager`` that overrides
+    ``visible_to_user`` to delegate to ``PermissionQuerySet`` — using
+    Corpus here would miss the base-manager code paths entirely. See
+    ``PermissionManagerSuperuserTest`` below for the PermissionQuerySet
+    superuser branch.)
     """
 
     def setUp(self) -> None:
+        from opencontractserver.annotations.models import Embedding
+        from opencontractserver.documents.models import Document
+
+        self.Embedding = Embedding
+
         self.owner = User.objects.create_user(
             username="bvm_owner",
             email="bvm_owner@example.com",
+        )
+        self.other = User.objects.create_user(
+            username="bvm_other",
+            email="bvm_other@example.com",
         )
         self.superuser = User.objects.create_superuser(
             username="bvm_super",
             email="bvm_super@example.com",
             password="s3cur3",
         )
-        self.public_corpus = Corpus.objects.create(
-            title="Public BVM Corpus",
+        self.public_doc = Document.objects.create(
+            title="Public BVM Doc", creator=self.owner, is_public=True
+        )
+        self.private_doc = Document.objects.create(
+            title="Private BVM Doc", creator=self.owner, is_public=False
+        )
+        self.public_embedding = Embedding.objects.create(
+            document=self.public_doc,
+            embedder_path="bvm.embedder.public",
+            vector_384=[0.1] * 384,
             creator=self.owner,
             is_public=True,
         )
-        self.private_corpus = Corpus.objects.create(
-            title="Private BVM Corpus",
+        self.private_embedding = Embedding.objects.create(
+            document=self.private_doc,
+            embedder_path="bvm.embedder.private",
+            vector_384=[0.2] * 384,
             creator=self.owner,
             is_public=False,
         )
 
-    def test_superuser_sees_all_corpora(self) -> None:
-        """Superuser must see both public and private corpora."""
-        qs = Corpus.objects.visible_to_user(user=self.superuser)
+    def test_superuser_sees_all_embeddings(self) -> None:
+        """Superuser must hit the early-return ``queryset.order_by("created")``
+        branch in BaseVisibilityManager and receive every embedding row."""
+        qs = self.Embedding.objects.visible_to_user(user=self.superuser)
         ids = list(qs.values_list("pk", flat=True))
-        self.assertIn(self.public_corpus.pk, ids)
-        self.assertIn(self.private_corpus.pk, ids)
+        self.assertIn(self.public_embedding.pk, ids)
+        self.assertIn(self.private_embedding.pk, ids)
 
-    def test_regular_user_only_sees_own_and_public_corpora(self) -> None:
-        """Non-superuser only sees public corpora and those they own."""
-        other = User.objects.create_user(
-            username="bvm_other",
-            email="bvm_other@example.com",
-        )
-        qs = Corpus.objects.visible_to_user(user=other)
-        ids = list(qs.values_list("pk", flat=True))
-        # Public should be visible
-        self.assertIn(self.public_corpus.pk, ids)
-        # Private owned by someone else should not be visible
-        self.assertNotIn(self.private_corpus.pk, ids)
+    def test_anonymous_user_sees_only_public_embeddings(self) -> None:
+        """Passing ``user=None`` is coerced to ``AnonymousUser`` and must
+        filter to ``is_public=True`` only — the second branch in
+        BaseVisibilityManager.visible_to_user."""
+        qs = self.Embedding.objects.visible_to_user(user=None)
+        ids = set(qs.values_list("pk", flat=True))
+        self.assertIn(self.public_embedding.pk, ids)
+        self.assertNotIn(self.private_embedding.pk, ids)
+
+    def test_unrelated_user_only_sees_public_embeddings(self) -> None:
+        """A non-superuser, non-owner must hit the guardian-fallback path
+        and end up with public objects only (no creator match, no
+        guardian rows for ``self.other``)."""
+        qs = self.Embedding.objects.visible_to_user(user=self.other)
+        ids = set(qs.values_list("pk", flat=True))
+        self.assertIn(self.public_embedding.pk, ids)
+        self.assertNotIn(self.private_embedding.pk, ids)
 
 
 class PermissionManagerSuperuserTest(TestCase):
