@@ -24,6 +24,6 @@ requests>=2.33.1,<3 # not directly required, pinned by Snyk to avoid a vulnerabi
 setuptools>=82.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
-urllib3>=2.2.2 # not directly required, pinned by Snyk to avoid a vulnerability
+urllib3>=2.6.3 # not directly required, pinned by Snyk to avoid a vulnerability
 zipp>=3.23.1 # not directly required, pinned by Snyk to avoid a vulnerability
 pillow>=12.2.0 # not directly required, pinned by Snyk to avoid a vulnerability
