@@ -170,15 +170,21 @@ def unpack_corpus_from_export(
 
         # V2-only fields live on OpenContractCorpusV2Type. Detect the V2
         # variant via duck-typing on a representative key so the typed dict
-        # accessors below stay narrowed.
+        # accessors below stay narrowed. Although the TypedDict declares
+        # ``preferred_embedder``/``corpus_agent_instructions``/
+        # ``document_agent_instructions``/``allow_comments`` as required keys,
+        # we keep ``in v2_data`` guards on each one so legacy V2 exports that
+        # predate one of those fields (e.g. produced before
+        # ``allow_comments`` was added) still import cleanly.
         v2_data: OpenContractCorpusV2Type | None = (
             cast(OpenContractCorpusV2Type, data) if "post_processors" in data else None
         )
 
         v2_fields: dict[str, object] = {}
         if v2_data is not None:
-            if "post_processors" in v2_data:
-                v2_fields["post_processors"] = v2_data["post_processors"]
+            # ``post_processors`` is the V2 discriminator above so it is
+            # guaranteed present here — copy it without a redundant guard.
+            v2_fields["post_processors"] = v2_data["post_processors"]
             if "preferred_embedder" in v2_data:
                 v2_fields["preferred_embedder"] = v2_data["preferred_embedder"]
             if "corpus_agent_instructions" in v2_data:

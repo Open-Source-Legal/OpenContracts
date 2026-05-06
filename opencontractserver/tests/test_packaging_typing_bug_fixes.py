@@ -1,6 +1,6 @@
 """Targeted regression tests for the three latent bugs uncovered while
 graduating ``opencontractserver.utils.{packaging,sharing}`` from the
-mypy baseline (PR #1531):
+mypy baseline (issue #1481, umbrella #1447):
 
 1. ``unpack_label_set_from_export`` previously had an inverted
    ``isinstance(user, str)`` check on a parameter typed
@@ -154,11 +154,19 @@ class MakeAnalysisPublicMissingCorpusTests(TestCase):
         )
 
     def test_returns_error_when_analyzed_corpus_is_none(self) -> None:
+        # Capture pre-call state so we can confirm the early-return path
+        # leaves the analysis untouched (no ``is_public`` flip, no
+        # ``backend_lock`` toggle). The previous version of this guard ran
+        # AFTER ``analysis.save()`` so ``is_public`` ended up True even on
+        # the failure path — a silent state inconsistency.
+        was_public_before = self.analysis.is_public
+        was_locked_before = self.analysis.backend_lock
+
         result = make_analysis_public(self.analysis.id)
 
         self.assertFalse(result["ok"])
         self.assertIn("analyzed_corpus", result["message"])
-        # The analysis was still flipped public + then the function
-        # returned — verify the call didn't raise.
+
         self.analysis.refresh_from_db()
-        self.assertTrue(self.analysis.is_public)
+        self.assertEqual(self.analysis.is_public, was_public_before)
+        self.assertEqual(self.analysis.backend_lock, was_locked_before)
