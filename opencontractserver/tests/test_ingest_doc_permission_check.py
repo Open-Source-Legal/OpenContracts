@@ -132,8 +132,12 @@ class IngestDocPermissionCheckTests(TestCase):
         with self.assertLogs(
             "opencontractserver.tasks.doc_tasks", level=logging.WARNING
         ) as captured:
+            # Use ``self.attacker`` here — any valid user is fine for this
+            # test, the contract under inspection is the ``Document.DoesNotExist``
+            # branch. The class fixture defines ``self.owner`` and
+            # ``self.attacker``; there is no ``self.user``.
             result = retry_document_processing.apply(
-                kwargs={"user_id": self.user.id, "doc_id": nonexistent_doc_id}
+                kwargs={"user_id": self.attacker.id, "doc_id": nonexistent_doc_id}
             ).get()
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["message"], "Document not found")
