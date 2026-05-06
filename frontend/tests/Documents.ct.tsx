@@ -1,15 +1,11 @@
 // Playwright Component Test for Documents View
 import React from "react";
 import { test, expect } from "./utils/coverage";
-import { MockedProvider, MockedResponse } from "@apollo/client/testing";
+import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { Provider as JotaiProvider } from "jotai";
 import { Documents } from "../src/views/Documents";
-import { GET_DOCUMENTS } from "../src/graphql/queries";
-import {
-  DELETE_MULTIPLE_DOCUMENTS,
-  UPDATE_DOCUMENT,
-} from "../src/graphql/mutations";
+import { GET_DOCUMENTS_FOR_LIST } from "../src/graphql/queries";
 import {
   authToken,
   userObj,
@@ -17,54 +13,51 @@ import {
   documentSearchTerm,
   selectedDocumentIds,
 } from "../src/graphql/cache";
-import { GraphQLError } from "graphql";
-
-// Mock document data
+// Mock document data — fields match GET_DOCUMENTS_FOR_LIST's selection set.
+// The slim query intentionally omits ``description``, ``pdfFile``,
+// ``isPublic``, ``modified``, ``myPermissions`` (and the rest of the kitchen
+// sink the original GET_DOCUMENTS asked for) — see queries.ts.
 const mockDocument1 = {
   id: "RG9jdW1lbnRUeXBlOjE=",
+  slug: "test-document-1",
   title: "Test Document 1.pdf",
-  description: "A test document",
-  icon: null,
-  pdfFile: "https://example.com/doc1.pdf",
   fileType: "pdf",
-  pageCount: 10,
   backendLock: false,
-  isPublic: false,
+  pageCount: 10,
+  icon: null,
   created: "2024-01-15T10:30:00Z",
-  modified: "2024-01-15T10:30:00Z",
   creator: {
     id: "VXNlclR5cGU6MQ==",
+    slug: "test-user",
     email: "test@example.com",
   },
-  myPermissions: ["read", "update", "delete"],
 };
 
 const mockDocument2 = {
   id: "RG9jdW1lbnRUeXBlOjI=",
+  slug: "test-document-2",
   title: "Test Document 2.docx",
-  description: "Another test document",
-  icon: null,
-  pdfFile: "https://example.com/doc2.pdf",
   fileType: "docx",
-  pageCount: 5,
   backendLock: true, // Processing
-  isPublic: false,
+  pageCount: 5,
+  icon: null,
   created: "2024-01-14T10:30:00Z",
-  modified: "2024-01-14T10:30:00Z",
   creator: {
     id: "VXNlclR5cGU6MQ==",
+    slug: "admin-user",
     email: "admin@example.com",
   },
-  myPermissions: ["read", "update", "delete"],
 };
 
-// Base mock for GET_DOCUMENTS query
+// Base mock for GET_DOCUMENTS_FOR_LIST query. Variables match what the
+// component sends on initial mount: ``{ limit: DOCUMENTS_PAGE_SIZE }`` with no
+// search/filter set. (DOCUMENTS_PAGE_SIZE = 20 — kept inline here so test
+// failures point at the wrong variable shape rather than a constant import.)
 const getDocumentsMock = {
   request: {
-    query: GET_DOCUMENTS,
+    query: GET_DOCUMENTS_FOR_LIST,
     variables: {
-      includeMetadata: true,
-      annotateDocLabels: false,
+      limit: 20,
     },
   },
   result: {
@@ -73,6 +66,8 @@ const getDocumentsMock = {
         edges: [{ node: mockDocument1 }, { node: mockDocument2 }],
         pageInfo: {
           hasNextPage: false,
+          hasPreviousPage: false,
+          startCursor: null,
           endCursor: null,
         },
       },
@@ -83,10 +78,9 @@ const getDocumentsMock = {
 // Empty documents mock
 const emptyDocumentsMock = {
   request: {
-    query: GET_DOCUMENTS,
+    query: GET_DOCUMENTS_FOR_LIST,
     variables: {
-      includeMetadata: true,
-      annotateDocLabels: false,
+      limit: 20,
     },
   },
   result: {
@@ -95,6 +89,8 @@ const emptyDocumentsMock = {
         edges: [],
         pageInfo: {
           hasNextPage: false,
+          hasPreviousPage: false,
+          startCursor: null,
           endCursor: null,
         },
       },
@@ -549,3 +545,29 @@ test.describe("Documents View - Selection", () => {
     await component.unmount();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression notes:
+//
+// The Documents view previously fired ~7 GET_DOCUMENTS requests on every
+// mount — one from the ``useQuery`` itself plus six redundant
+// ``useEffect(refetchDocuments)`` hooks. Combined with
+// ``nextFetchPolicy: "network-only"`` every refetch bypassed the cache.
+//
+// Catching the storm BEHAVIORALLY is not viable in this MockedProvider
+// environment: Apollo's built-in query deduplication merges concurrent
+// in-flight queries with the same key, so all six mount-time refetches
+// collapse into the single initial network request before reaching MockLink.
+// A counter on MockLink can't see them.
+//
+// The structural fix is therefore pinned by a Vitest source-level test in
+// ``frontend/src/views/Documents.refetch-shape.test.ts`` that asserts:
+//   - no ``nextFetchPolicy: "network-only"`` in the source,
+//   - no ``useEffect`` block ending with a bare ``refetchDocuments()`` call,
+//   - the slim ``GET_DOCUMENTS_FOR_LIST`` query is the imported one.
+//
+// The CT mocks above already pin the on-the-wire variable shape — they use
+// strict ``{ limit: 20 }`` matching, so any drift in the request variables
+// would surface as a "document doesn't render" failure in the existing
+// tests.
+// ─────────────────────────────────────────────────────────────────────────────

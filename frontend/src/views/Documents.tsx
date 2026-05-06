@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import _ from "lodash";
 import styled from "styled-components";
@@ -48,9 +48,9 @@ import {
   DELETE_MULTIPLE_DOCUMENTS,
 } from "../graphql/mutations";
 import {
-  RequestDocumentsInputs,
-  RequestDocumentsOutputs,
-  GET_DOCUMENTS,
+  RequestDocumentsForListInputs,
+  RequestDocumentsForListOutputs,
+  GET_DOCUMENTS_FOR_LIST,
 } from "../graphql/queries";
 import {
   documentSearchTerm,
@@ -92,17 +92,15 @@ import {
 } from "../assets/configurations/constants";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TYPES
+// CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface DocumentQueryVariables {
-  includeMetadata: boolean;
-  annotateDocLabels: boolean;
-  textSearch?: string;
-  hasLabelWithId?: string;
-  inCorpusWithId?: string;
-  includeCaml?: boolean;
-}
+// Initial page size for the list view. Subsequent pages are also 20 (see
+// handleFetchMore below). Keeping the first page small means first paint pays
+// for ~20 fully-resolved DocumentType rows instead of the connection's default
+// cap (RELAY_CONNECTION_MAX_LIMIT = 100), which is the cost the slow render
+// was actually charged.
+const DOCUMENTS_PAGE_SIZE = 20;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLED COMPONENTS - Following CorpusListView/DiscoveryLanding patterns
@@ -862,20 +860,23 @@ export const Documents = () => {
 
   const filterPopupRef = useRef<HTMLDivElement>(null);
 
-  const location = useLocation();
   const navigate = useNavigate();
 
-  // Build query variables with proper typing
-  const documentVariables: DocumentQueryVariables = {
-    includeMetadata: true,
-    annotateDocLabels: Boolean(filtered_to_corpus || filtered_to_labelset_id),
-    ...(document_search_term && { textSearch: document_search_term }),
-    ...(filtered_to_label_id && { hasLabelWithId: filtered_to_label_id }),
-    ...(filtered_to_corpus && {
-      inCorpusWithId: filtered_to_corpus.id,
-      includeCaml: true,
+  // Build query variables. Memoized on the underlying primitives so Apollo's
+  // ``useQuery`` only re-fetches when something the user actually changed (a
+  // search term, a filter, the active corpus). Previously six separate
+  // ``useEffect(refetch)`` hooks fired on the same dep set in addition to the
+  // ``useQuery`` call itself, producing ~7 redundant network requests on first
+  // mount.
+  const documentVariables: RequestDocumentsForListInputs = useMemo(
+    () => ({
+      limit: DOCUMENTS_PAGE_SIZE,
+      ...(document_search_term && { textSearch: document_search_term }),
+      ...(filtered_to_label_id && { hasLabelWithId: filtered_to_label_id }),
+      ...(filtered_to_corpus && { inCorpusWithId: filtered_to_corpus.id }),
     }),
-  };
+    [document_search_term, filtered_to_label_id, filtered_to_corpus]
+  );
 
   const {
     refetch: refetchDocuments,
@@ -883,18 +884,31 @@ export const Documents = () => {
     error: documents_error,
     data: documents_data,
     fetchMore: fetchMoreDocuments,
-  } = useQuery<RequestDocumentsOutputs, RequestDocumentsInputs>(GET_DOCUMENTS, {
-    variables: documentVariables,
-    nextFetchPolicy: "network-only",
-    notifyOnNetworkStatusChange: true,
-  });
+  } = useQuery<RequestDocumentsForListOutputs, RequestDocumentsForListInputs>(
+    GET_DOCUMENTS_FOR_LIST,
+    {
+      variables: documentVariables,
+      // No ``nextFetchPolicy`` override — let Apollo's default cache-first
+      // behavior do its job. The previous ``"network-only"`` setting forced
+      // every refetch (including the six redundant ones) to skip the cache,
+      // which combined with the refetch storm hammered the backend on every
+      // re-render of any parent reactive var.
+      notifyOnNetworkStatusChange: true,
+    }
+  );
 
-  const document_nodes = documents_data?.documents?.edges
-    ? documents_data.documents.edges
-    : [];
-  const document_items = document_nodes
-    .map((edge) => (edge?.node ? edge.node : undefined))
-    .filter((item): item is DocumentType => !!item);
+  // ``document_items`` was previously rebuilt on every render via
+  // ``.map().filter()``, producing a fresh array reference each time. That
+  // churned the ``useMemo`` deps below (``filteredDocuments``, ``stats``,
+  // ``statusFilterItems``) and was also the same shape of bug that triggered
+  // the production reload loop fixed in PR #1512 / #1517. Memoizing on the
+  // stable Apollo ``edges`` reference breaks the cycle.
+  const document_items = useMemo<DocumentType[]>(() => {
+    const edges = documents_data?.documents?.edges ?? [];
+    return edges
+      .map((edge) => (edge?.node ? edge.node : undefined))
+      .filter((item): item is DocumentType => !!item);
+  }, [documents_data?.documents?.edges]);
 
   // Filter by status
   const filteredDocuments = useMemo(() => {
@@ -954,32 +968,18 @@ export const Documents = () => {
     [document_items.length, stats.processedCount, stats.processingCount]
   );
 
-  // Refetch effects
-  useEffect(() => {
-    if (current_user) {
-      refetchDocuments();
-    }
-  }, [current_user]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [location]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [document_search_term]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [filtered_to_label_id]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [filtered_to_labelset_id]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [filtered_to_corpus]);
+  // Apollo's ``useQuery`` automatically refetches when ``variables`` change
+  // (deep-compared), so we no longer need the six separate ``useEffect`` hooks
+  // that previously called ``refetchDocuments()`` on each reactive-var change.
+  // Each of those effects fired on mount in addition to the initial
+  // ``useQuery`` call, producing ~7 network requests for the same data on
+  // every visit to /documents. Anything the user can change that should drive
+  // a refetch is now a member of ``documentVariables``; anything that
+  // shouldn't (``location`` re-renders, ``current_user`` settling, the
+  // unrelated ``filtered_to_labelset_id`` reactive var) no longer triggers
+  // one. ``filtered_to_labelset_id`` is intentionally NOT a query variable —
+  // it's only used by the labelset filter UI to scope label-picker options;
+  // the previous refetch on its change was a no-op against the backend.
 
   // Debounced search with consolidated cleanup to prevent memory leaks.
   // The ref ensures stable reference across renders, and the cleanup
@@ -1043,7 +1043,7 @@ export const Documents = () => {
     ) {
       fetchMoreDocuments({
         variables: {
-          limit: 20,
+          limit: DOCUMENTS_PAGE_SIZE,
           cursor: documents_data.documents.pageInfo.endCursor,
         },
       });
