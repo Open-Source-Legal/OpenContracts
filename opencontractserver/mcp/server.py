@@ -19,6 +19,8 @@ import logging
 import re
 import time
 from collections import OrderedDict
+from collections.abc import Awaitable, MutableMapping
+from contextlib import AbstractAsyncContextManager
 from contextvars import ContextVar
 from typing import Any, Callable
 
@@ -28,7 +30,9 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import Resource, ResourceTemplate, TextContent, Tool
+from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
@@ -65,7 +69,7 @@ logger = logging.getLogger(__name__)
 # ContextVar to thread the ASGI scope into tool handlers for per-tool rate limiting.
 # Set at the ASGI app level before dispatching to the MCP session manager.
 # Default is None (not an empty dict) to avoid sharing a mutable default across contexts.
-_mcp_asgi_scope: ContextVar[dict[str, Any] | None] = ContextVar(
+_mcp_asgi_scope: ContextVar[MutableMapping[str, Any] | None] = ContextVar(
     "mcp_asgi_scope", default=None
 )
 
@@ -620,7 +624,7 @@ def get_scoped_resource_definitions(
     from opencontractserver.corpuses.folder_service import DocumentFolderService
     from opencontractserver.corpuses.models import Corpus
 
-    resources = []
+    resources: list[Resource] = []
     anonymous = AnonymousUser()
 
     try:
@@ -631,7 +635,7 @@ def get_scoped_resource_definitions(
     # Add corpus resource
     resources.append(
         Resource(
-            uri=f"corpus://{corpus_slug}",
+            uri=AnyUrl(f"corpus://{corpus_slug}"),
             name="Corpus",
             description=f"Access the '{corpus_slug}' corpus metadata and contents",
             mimeType="application/json",
@@ -645,7 +649,7 @@ def get_scoped_resource_definitions(
     for doc in documents:
         resources.append(
             Resource(
-                uri=f"document://{corpus_slug}/{doc.slug}",
+                uri=AnyUrl(f"document://{corpus_slug}/{doc.slug}"),
                 name=f"Document: {doc.title or doc.slug}",
                 description=doc.description[:100] if doc.description else "Document",
                 mimeType="application/json",
@@ -664,7 +668,7 @@ def get_scoped_resource_definitions(
     for thread in threads:
         resources.append(
             Resource(
-                uri=f"thread://{corpus_slug}/threads/{thread.id}",
+                uri=AnyUrl(f"thread://{corpus_slug}/threads/{thread.id}"),
                 name=f"Thread: {thread.title or f'Thread {thread.id}'}",
                 description=(
                     thread.description[:100]
@@ -863,7 +867,7 @@ class TTLLRUCache:
         maxsize: int = 100,
         ttl_seconds: float = 3600,  # 1 hour default
         cleanup_callback: Callable[[str, Any], None] | None = None,
-    ):
+    ) -> None:
         self._maxsize = maxsize
         self._ttl_seconds = ttl_seconds
         self._cleanup_callback = cleanup_callback
@@ -966,10 +970,10 @@ class ScopedMCPLifespanManager:
     Handles proper startup and shutdown of async contexts.
     """
 
-    def __init__(self, corpus_slug: str):
+    def __init__(self, corpus_slug: str) -> None:
         self.corpus_slug = corpus_slug
         self._started = False
-        self._run_context = None
+        self._run_context: AbstractAsyncContextManager[None] | None = None
         self._lock = asyncio.Lock()
 
     async def ensure_started(self) -> StreamableHTTPSessionManager:
@@ -1058,7 +1062,7 @@ async def validate_corpus_slug(corpus_slug: str) -> bool:
 
     from opencontractserver.corpuses.models import Corpus
 
-    def _check():
+    def _check() -> bool:
         anonymous = AnonymousUser()
         return (
             Corpus.objects.visible_to_user(anonymous).filter(slug=corpus_slug).exists()
@@ -1095,12 +1099,12 @@ class MCPLifespanManager:
     we manage the session manager's run() context lazily on first request.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._started = False
-        self._run_context = None
+        self._run_context: AbstractAsyncContextManager[None] | None = None
         self._lock = asyncio.Lock()
 
-    async def ensure_started(self):
+    async def ensure_started(self) -> None:
         """Ensure the session manager is running."""
         async with self._lock:
             if not self._started:
@@ -1119,7 +1123,7 @@ lifespan_manager = MCPLifespanManager()
 sse_transport = SseServerTransport("/sse/messages/")
 
 
-async def handle_sse_connection(request):
+async def handle_sse_connection(request: Request) -> Response:
     """
     Handle SSE connection for deprecated SSE transport.
 
@@ -1147,7 +1151,14 @@ sse_starlette_app = Starlette(
 )
 
 
-def create_mcp_asgi_app():
+ASGIScope = MutableMapping[str, Any]
+ASGIMessage = MutableMapping[str, Any]
+ASGIReceive = Callable[[], Awaitable[ASGIMessage]]
+ASGISend = Callable[[ASGIMessage], Awaitable[None]]
+ASGIApp = Callable[[ASGIScope, ASGIReceive, ASGISend], Awaitable[None]]
+
+
+def create_mcp_asgi_app() -> ASGIApp:
     """
     Create an ASGI application that handles MCP requests.
 
@@ -1163,7 +1174,7 @@ def create_mcp_asgi_app():
     # Reuses URIParser.SLUG_PATTERN to ensure consistency
     corpus_path_pattern = re.compile(rf"^/mcp/corpus/({URIParser.SLUG_PATTERN})/?$")
 
-    async def app(scope, receive, send):
+    async def app(scope: ASGIScope, receive: ASGIReceive, send: ASGISend) -> None:
         if scope["type"] != "http":
             return
 
@@ -1178,7 +1189,9 @@ def create_mcp_asgi_app():
         finally:
             _mcp_asgi_scope.reset(_scope_token)
 
-    async def _handle_mcp_request(scope, receive, send):
+    async def _handle_mcp_request(
+        scope: ASGIScope, receive: ASGIReceive, send: ASGISend
+    ) -> None:
         # Rate limiting check (global cap, before any path processing)
         is_limited, error_msg, retry_after = await check_mcp_rate_limit(scope)
         if is_limited:
@@ -1437,7 +1450,7 @@ def create_mcp_asgi_app():
 mcp_asgi_app = create_mcp_asgi_app()
 
 
-async def main():
+async def main() -> None:
     """Run MCP server with stdio transport (for CLI usage)."""
     # Set telemetry context for stdio transport (no client IP available)
     set_request_context(client_ip=None, transport="stdio")
