@@ -15,35 +15,6 @@ config/websocket/consumers/unified_agent_conversation.py:699: error: Argument "m
 config/websocket/consumers/unified_agent_conversation.py:710: error: Argument "msg_type" to "_send_safe" of "UnifiedAgentConsumer" has incompatible type "Literal['ASYNC_RESUME']"; expected "Literal['ASYNC_START', 'ASYNC_CONTENT', 'ASYNC_FINISH', 'SYNC_CONTENT']"  [arg-type]
 config/websocket/consumers/unified_agent_conversation.py:717: error: Argument "msg_type" to "_send_safe" of "UnifiedAgentConsumer" has incompatible type "Literal['ASYNC_ERROR']"; expected "Literal['ASYNC_START', 'ASYNC_CONTENT', 'ASYNC_FINISH', 'SYNC_CONTENT']"  [arg-type]
 config/websocket/consumers/unified_agent_conversation.py:814: error: "Coroutine[Any, Any, UnifiedChatResponse | AsyncGenerator[ThoughtEvent | ContentEvent | SourceEvent | ApprovalNeededEvent | ApprovalResultEvent | ResumeEvent | FinalEvent | ErrorEvent, None]]" has no attribute "__aiter__" (not async iterable)  [attr-defined]
-opencontractserver/conversations/models.py:1116: error: Cannot override class variable (previously declared on base class "BaseOCModel") with instance variable  [misc]
-opencontractserver/conversations/models.py:1604: error: Item "None" of "ChatMessage | None" has no attribute "pk"  [union-attr]
-opencontractserver/conversations/models.py:166: error: Incompatible types in assignment (expression has type "AnonymousUser", variable has type "AbstractBaseUser | None")  [assignment]
-opencontractserver/conversations/models.py:172: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_superuser"  [union-attr]
-opencontractserver/conversations/models.py:177: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_anonymous"  [union-attr]
-opencontractserver/conversations/models.py:229: error: Item "AbstractBaseUser" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:229: error: Item "None" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:236: error: Item "AbstractBaseUser" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:236: error: Item "None" of "AbstractBaseUser | None" has no attribute "id"  [union-attr]
-opencontractserver/conversations/models.py:368: error: Incompatible types in assignment (expression has type "AnonymousUser", variable has type "AbstractBaseUser | None")  [assignment]
-opencontractserver/conversations/models.py:374: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_superuser"  [union-attr]
-opencontractserver/conversations/models.py:378: error: Item "None" of "AbstractBaseUser | None" has no attribute "is_anonymous"  [union-attr]
-opencontractserver/conversations/models.py:421: error: Incompatible type for lookup 'creator': (got "AbstractBaseUser | None", expected "User | int | None")  [misc]
-opencontractserver/conversations/models.py:498: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/conversations/models.py:498: note:          def visible_to_user(self, user: Any = ...) -> Any
-opencontractserver/conversations/models.py:498: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/conversations/models.py:498: note:      Subclass:
-opencontractserver/conversations/models.py:498: note:      Superclass:
-opencontractserver/conversations/models.py:517: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/conversations/models.py:517: note:          def visible_to_user(self, user: Any = ...) -> Any
-opencontractserver/conversations/models.py:517: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/conversations/models.py:517: note:      Subclass:
-opencontractserver/conversations/models.py:517: note:      Superclass:
-opencontractserver/conversations/models.py:542: error: Signature of "visible_to_user" incompatible with supertype "opencontractserver.shared.Managers.BaseVisibilityManager"  [override]
-opencontractserver/conversations/models.py:542: note:          def visible_to_user(self, user: Any = ...) -> Any
-opencontractserver/conversations/models.py:542: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/conversations/models.py:542: note:      Subclass:
-opencontractserver/conversations/models.py:542: note:      Superclass:
-opencontractserver/conversations/models.py:724: error: Cannot override class variable (previously declared on base class "BaseOCModel") with instance variable  [misc]
 opencontractserver/discovery/views.py:769: error: "QuerySet[Document, Document]" has no attribute "search_by_embedding"  [attr-defined]
 opencontractserver/examples/structured_response_example.py:244: error: Need type annotation for "all_parties" (hint: "all_parties: set[<type>] = ...")  [var-annotated]
 opencontractserver/feedback/models.py:13: error: Cannot override class variable (previously declared on base class "BaseOCModel") with instance variable  [misc]
@@ -6188,57 +6159,3 @@ opencontractserver/tests/websocket/test_unified_agent_consumer.py:752: error: Ca
 opencontractserver/tests/websocket/test_unified_agent_consumer.py:785: error: Cannot assign to a method  [method-assign]
 opencontractserver/tests/websocket/test_unified_agent_consumer.py:790: error: Cannot assign to a method  [method-assign]
 opencontractserver/users/tasks.py:5: error: Library stubs not installed for "requests"  [import-untyped]
-opencontractserver/utils/export_v2.py:112: error: Incompatible return value type (got "dict[str, Any]", expected "StructuralAnnotationSetExport | None")  [return-value]
-opencontractserver/utils/export_v2.py:184: error: Incompatible return value type (got "list[dict[str, Any]]", expected "list[CorpusFolderExport]")  [return-value]
-opencontractserver/utils/export_v2.py:229: error: Incompatible types in assignment (expression has type "str | None", variable has type "str")  [assignment]
-opencontractserver/utils/export_v2.py:229: error: Value of type variable "AnyOrLiteralStr" of "basename" cannot be "str | None"  [type-var]
-opencontractserver/utils/export_v2.py:246: error: Item "None" of "IngestionSource | None" has no attribute "name"  [union-attr]
-opencontractserver/utils/export_v2.py:341: error: Incompatible return value type (got "list[dict[str, object]]", expected "list[OpenContractsRelationshipPythonType]")  [return-value]
-opencontractserver/utils/export_v2.py:406: error: Incompatible return value type (got "tuple[Any | None, list[dict[str, object]]]", expected "tuple[str | None, list[DescriptionRevisionExport]]")  [return-value]
-opencontractserver/utils/files.py:135: error: Incompatible types in assignment (expression has type "str", variable has type "Literal['PNG', 'JPEG']")  [assignment]
-opencontractserver/utils/files.py:327: error: Incompatible types in assignment (expression has type "FreeTypeFont | ImageFont", variable has type "FreeTypeFont")  [assignment]
-opencontractserver/utils/import_v2.py:184: error: Argument 1 to "set" of "ManyRelatedManager" has incompatible type "list[Any | None]"; expected "QuerySet[Annotation, Annotation] | Iterable[Annotation | int]"  [arg-type]
-opencontractserver/utils/import_v2.py:185: error: Argument 1 to "set" of "ManyRelatedManager" has incompatible type "list[Any | None]"; expected "QuerySet[Annotation, Annotation] | Iterable[Annotation | int]"  [arg-type]
-opencontractserver/utils/import_v2.py:198: error: Variable "opencontractserver.utils.import_v2.User" is not valid as a type  [valid-type]
-opencontractserver/utils/import_v2.py:198: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/import_v2.py:216: error: Need type annotation for "folder_map" (hint: "folder_map: dict[<type>, <type>] = ...")  [var-annotated]
-opencontractserver/utils/import_v2.py:249: error: Item "None" of "CorpusFolder | None" has no attribute "get_path"  [union-attr]
-opencontractserver/utils/import_v2.py:254: error: Incompatible return value type (got "dict[str, CorpusFolder | None]", expected "dict[str, CorpusFolder]")  [return-value]
-opencontractserver/utils/import_v2.py:289: error: Variable "opencontractserver.utils.import_v2.User" is not valid as a type  [valid-type]
-opencontractserver/utils/import_v2.py:289: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/import_v2.py:345: error: Variable "opencontractserver.utils.import_v2.User" is not valid as a type  [valid-type]
-opencontractserver/utils/import_v2.py:345: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/import_v2.py:462: error: Incompatible types in assignment (expression has type "ChatMessage | None", variable has type "ChatMessage")  [assignment]
-opencontractserver/utils/import_v2.py:473: error: Incompatible types in assignment (expression has type "ChatMessage | None", variable has type "ChatMessage")  [assignment]
-opencontractserver/utils/import_v2.py:56: error: Variable "opencontractserver.utils.import_v2.User" is not valid as a type  [valid-type]
-opencontractserver/utils/import_v2.py:56: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/importing.py:219: error: Argument 2 to "set_permissions_for_obj_to_user" has incompatible type "Relationship"; expected "type[Model]"  [arg-type]
-opencontractserver/utils/importing.py:78: error: Incompatible default for parameter "pawls_data" (default has type "None", parameter has type "list[dict[Any, Any]]")  [assignment]
-opencontractserver/utils/importing.py:78: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-opencontractserver/utils/importing.py:78: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-opencontractserver/utils/logging.py:51: error: Incompatible types in assignment (expression has type "dict[str, Any]", target has type "str")  [assignment]
-opencontractserver/utils/logging.py:53: error: Incompatible types in assignment (expression has type "list[dict[str, Any] | Any]", target has type "str")  [assignment]
-opencontractserver/utils/mention_parser.py:57: error: Need type annotation for "mentioned"  [var-annotated]
-opencontractserver/utils/multimodal_embeddings.py:221: error: Argument 1 to "get_image_as_base64" has incompatible type "dict[Any, Any]"; expected "PawlsTokenPythonType"  [arg-type]
-opencontractserver/utils/multimodal_embeddings.py:381: error: Argument 1 to "get_image_as_base64" has incompatible type "dict[Any, Any]"; expected "PawlsTokenPythonType"  [arg-type]
-opencontractserver/utils/packaging.py:105: error: Argument "base64_string" to "turn_base64_encoded_file_to_django_content_file" has incompatible type "str | None"; expected "str"  [arg-type]
-opencontractserver/utils/packaging.py:116: error: Incompatible type for "creator" of "LabelSet" (got "int", expected "User | Combinable")  [misc]
-opencontractserver/utils/packaging.py:122: error: Argument 2 to "set_permissions_for_obj_to_user" has incompatible type "LabelSet"; expected "type[Model]"  [arg-type]
-opencontractserver/utils/packaging.py:134: error: Variable "opencontractserver.utils.packaging.User" is not valid as a type  [valid-type]
-opencontractserver/utils/packaging.py:134: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/packaging.py:146: error: Item "None" of "str | None" has no attribute "encode"  [union-attr]
-opencontractserver/utils/packaging.py:153: error: TypedDict "OpenContractCorpusType" has no key "post_processors"  [typeddict-item]
-opencontractserver/utils/packaging.py:155: error: TypedDict "OpenContractCorpusType" has no key "preferred_embedder"  [typeddict-item]
-opencontractserver/utils/packaging.py:157: error: TypedDict "OpenContractCorpusType" has no key "corpus_agent_instructions"  [typeddict-item]
-opencontractserver/utils/packaging.py:160: error: TypedDict "OpenContractCorpusType" has no key "document_agent_instructions"  [typeddict-item]
-opencontractserver/utils/packaging.py:163: error: TypedDict "OpenContractCorpusType" has no key "allow_comments"  [typeddict-item]
-opencontractserver/utils/packaging.py:39: error: Argument 1 to "Path" has incompatible type "str | None"; expected "str | PathLike[str]"  [arg-type]
-opencontractserver/utils/packaging.py:58: error: Incompatible return value type (got "dict[str, Any]", expected "OpenContractCorpusType | OpenContractCorpusV2Type | None")  [return-value]
-opencontractserver/utils/packaging.py:75: error: Incompatible return value type (got "dict[str, object]", expected "OpenContractsLabelSetType | None")  [return-value]
-opencontractserver/utils/packaging.py:79: error: Argument 1 to "Path" has incompatible type "str | None"; expected "str | PathLike[str]"  [arg-type]
-opencontractserver/utils/packaging.py:99: error: Variable "opencontractserver.utils.packaging.User" is not valid as a type  [valid-type]
-opencontractserver/utils/packaging.py:99: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/utils/pdf_token_extraction.py:601: error: Incompatible types in assignment (expression has type "Image | None", variable has type "ImageFile | None")  [assignment]
-opencontractserver/utils/pdf_token_extraction.py:623: error: Incompatible types in assignment (expression has type "Image", variable has type "ImageFile | None")  [assignment]
-opencontractserver/utils/sharing.py:61: error: Item "None" of "Corpus | None" has no attribute "annotations"  [union-attr]
-opencontractserver/utils/storages.py:9: error: Name "GoogleCloudStorage" already defined (possibly by an import)  [no-redef]
