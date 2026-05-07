@@ -219,10 +219,16 @@ export const AnnotationImagePreview: React.FC<AnnotationImagePreviewProps> = ({
     );
   }
 
+  // Pre-fetch state (effect hasn't run yet): render nothing so we don't flash
+  // the "No thumbnail" placeholder before the loading spinner appears.
+  if (images === null) {
+    return null;
+  }
+
   // Fetch succeeded but no thumbnail available — show a neutral placeholder so
   // the card still indicates this is an image annotation rather than rendering
   // nothing (or worse, the old "Failed" state from issue #1560).
-  if (hasFetchedEmpty || !images || images.length === 0) {
+  if (hasFetchedEmpty || images.length === 0) {
     return (
       <PreviewContainer $compact={compact}>
         <NoThumbnailState

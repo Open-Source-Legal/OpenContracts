@@ -29,14 +29,23 @@ interface UseAnnotationImagesResult {
 // Simple in-memory cache for annotation images
 const imageCache = new Map<string, ImageData[]>();
 
-// HTTP statuses that mean "no image available" rather than "request failed".
+// HTTP statuses where the *absence* of a thumbnail is permanent for this
+// annotation — safe to memoize as "empty" so we don't re-hit the endpoint.
+//
+// 404: no thumbnail row exists for this annotation; further fetches will
+//      keep returning 404 until something writes an image, which would
+//      invalidate the cache via a fresh page load anyway.
+const CACHE_AS_EMPTY_STATUSES = new Set<number>([404]);
+
+// HTTP statuses that should surface as "no thumbnail" without poisoning the
+// cache: the next render with a different auth token (401/403) or after the
+// throttle window (429) may legitimately succeed.
+//
 // 401/403: viewer lacks permission (or anonymous) — backend returns the same
-//   empty-payload as missing/unauthorized for IDOR protection, but only when
-//   IsAuthenticated allows the request through. For unauthenticated callers we
-//   surface the gap as "no thumbnail" instead of a scary "Failed".
-// 404: annotation has no thumbnail row.
-// 429: throttled — the next request will likely succeed; treat as no-data.
-const TREATED_AS_EMPTY_STATUSES = new Set<number>([401, 403, 404, 429]);
+//   empty-payload as missing/unauthorized for IDOR protection. Caching here
+//   would prevent the re-fetch that should happen once the JWT loads.
+// 429: throttled — the next request will likely succeed; never cache.
+const TREAT_AS_EMPTY_NO_CACHE = new Set<number>([401, 403, 429]);
 
 /**
  * Hook to fetch image data for an annotation from REST endpoint.
@@ -123,10 +132,17 @@ export const useAnnotationImages = (
         const response = await fetch(url, { headers });
 
         if (!response.ok) {
-          if (TREATED_AS_EMPTY_STATUSES.has(response.status)) {
-            // Treat "no access / not found / throttled" as no-thumbnail rather
-            // than a fetch failure — the card will show a graceful placeholder.
+          if (CACHE_AS_EMPTY_STATUSES.has(response.status)) {
+            // Permanent "no thumbnail" — safe to memoize.
             imageCache.set(numericId, []);
+            setImages([]);
+            setHasFetchedEmpty(true);
+            return;
+          }
+          if (TREAT_AS_EMPTY_NO_CACHE.has(response.status)) {
+            // Auth state may change or throttle may expire — show the
+            // graceful placeholder but allow a retry on the next render.
+            fetchedRef.current = null;
             setImages([]);
             setHasFetchedEmpty(true);
             return;

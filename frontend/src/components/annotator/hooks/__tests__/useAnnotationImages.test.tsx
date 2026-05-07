@@ -104,6 +104,64 @@ describe("useAnnotationImages", () => {
     expect(result.current.images).toEqual([]);
   });
 
+  it("does not cache a 401 response so a later fetch can succeed", async () => {
+    // Cache-poisoning regression guard: a 401 (no JWT yet) followed by a
+    // 200 (token resolved) must hit the network twice for the same id.
+    const { relay, numeric } = nextRelayId();
+
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          annotation_id: String(numeric),
+          images: [
+            {
+              base64_data: "AAA",
+              format: "jpeg",
+              data_url: "data:image/jpeg;base64,AAA",
+              page_index: 0,
+              token_index: 1,
+            },
+          ],
+          count: 1,
+        }),
+      });
+
+    const first = renderHook(() => useAnnotationImages(relay, ["IMAGE"]));
+    await flush();
+    expect(first.result.current.hasFetchedEmpty).toBe(true);
+
+    // Mounting a fresh hook instance with the same id must re-fetch (the
+    // 401 response was *not* memoized as "permanently empty").
+    const second = renderHook(() => useAnnotationImages(relay, ["IMAGE"]));
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(second.result.current.images).toHaveLength(1);
+    expect(second.result.current.hasFetchedEmpty).toBe(false);
+  });
+
+  it("caches a 404 response so subsequent renders skip the network", async () => {
+    // The mirror of the 401 test: 404 means "no thumbnail row exists" and
+    // is permanent, so the second mount must NOT re-fetch.
+    const { relay } = nextRelayId();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    });
+
+    renderHook(() => useAnnotationImages(relay, ["IMAGE"]));
+    await flush();
+
+    renderHook(() => useAnnotationImages(relay, ["IMAGE"]));
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("treats 404 the same as an empty response", async () => {
     const { relay } = nextRelayId();
     fetchMock.mockResolvedValueOnce({
