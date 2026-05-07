@@ -403,10 +403,7 @@ const DocumentsListContainer = styled.section`
   min-height: 200px;
 `;
 
-// Footer-pinned spinner shown beneath the grid while a `fetchMore` request is
-// in flight. Replaces the previous full-cover dark `LoadingOverlay` that was
-// shown for any `documents_loading === true` (including pagination), which
-// painted a near-black band over the entire grid mid-scroll. See issue #1559.
+// Footer-pinned spinner shown beneath the grid while a `fetchMore` is in flight.
 const FetchMoreFooter = styled.div`
   display: flex;
   align-items: center;
@@ -1336,12 +1333,7 @@ export const Documents = () => {
 
         {/* Documents Section */}
         <DocumentsListContainer>
-          {/*
-            Only blanket-cover the grid on the *initial* load (no data yet).
-            During `fetchMore` and refetches the existing rows stay visible
-            and a small footer spinner indicates additional pages are loading.
-            See issue #1559.
-          */}
+          {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
             active={documents_loading && filteredDocuments.length === 0}
             size="large"

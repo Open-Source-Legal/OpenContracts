@@ -7,11 +7,7 @@ interface FetchMoreOnVisibleProps {
   triggerOnce?: boolean;
   fetchWithoutMotion?: boolean;
   threshold?: number;
-  /**
-   * IntersectionObserver `rootMargin`. Defaults to `200px 0px` so the sentinel
-   * fires before the user reaches the absolute bottom of the list and gives
-   * the next page time to load while the user is still scrolling.
-   */
+  // Prefetch buffer for the IntersectionObserver sentinel.
   rootMargin?: string;
   style?: Record<any, any>;
 }
@@ -28,13 +24,7 @@ export const FetchMoreOnVisible = ({
   fetchWithoutMotion,
   style,
 }: FetchMoreOnVisibleProps) => {
-  // Hold the latest callbacks in refs so the effect below never invokes a
-  // stale closure. Parent components routinely re-create these handlers via
-  // `useCallback` whenever their loading/data deps change (e.g. Apollo's
-  // `loading` toggling true→false during `fetchMore`); without the refs the
-  // observer effect — whose deps deliberately don't include the callbacks —
-  // would call whichever closure was captured the first time `inView` flipped,
-  // which can hold an outdated `loading` flag or cursor and silently no-op.
+  // Refs hold the latest callbacks so the effect never invokes a stale closure.
   const fetchNextRef = useRef(fetchNextPage);
   const fetchPrevRef = useRef(fetchPreviousPage);
   fetchNextRef.current = fetchNextPage;

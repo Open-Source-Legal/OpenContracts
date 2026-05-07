@@ -3,11 +3,10 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
 import { MockedProvider } from "@apollo/client/testing";
-import { InMemoryCache } from "@apollo/client";
-import { relayStylePagination } from "@apollo/client/utilities";
 import { MemoryRouter } from "react-router-dom";
 import { Provider as JotaiProvider } from "jotai";
 import { Documents } from "../src/views/Documents";
+import { DocumentsTestWrapper } from "./DocumentsTestWrapper";
 import {
   GET_DOCUMENTS_FOR_LIST,
   GET_DOCUMENT_STATS,
@@ -19,10 +18,6 @@ import {
   documentSearchTerm,
   selectedDocumentIds,
 } from "../src/graphql/cache";
-// Mock document data — fields match GET_DOCUMENTS_FOR_LIST's selection set.
-// The slim query intentionally omits ``description``, ``pdfFile``,
-// ``isPublic``, ``modified``, ``myPermissions`` (and the rest of the kitchen
-// sink the original GET_DOCUMENTS asked for) — see queries.ts.
 const mockDocument1 = {
   id: "RG9jdW1lbnRUeXBlOjE=",
   slug: "test-document-1",
@@ -55,10 +50,6 @@ const mockDocument2 = {
   },
 };
 
-// Base mock for GET_DOCUMENTS_FOR_LIST query. Variables match what the
-// component sends on initial mount: ``{ limit: DOCUMENTS_PAGE_SIZE }`` with no
-// search/filter set. (DOCUMENTS_PAGE_SIZE = 20 — kept inline here so test
-// failures point at the wrong variable shape rather than a constant import.)
 const getDocumentsMock = {
   request: {
     query: GET_DOCUMENTS_FOR_LIST,
@@ -81,10 +72,6 @@ const getDocumentsMock = {
   },
 };
 
-// Aggregate stats mock — the Documents view fires GET_DOCUMENT_STATS in
-// parallel with the list query so the tile counters reflect the user's full
-// permission scope. The component sends ``{}`` when no filters are active
-// (search term empty, no corpus, no label), so the mock matches that shape.
 const getDocumentStatsMock = {
   request: {
     query: GET_DOCUMENT_STATS,
@@ -651,10 +638,7 @@ test.describe("Documents View - Stat Tiles", () => {
     documentSearchTerm("");
     selectedDocumentIds([]);
 
-    // Stats mock asserts a different shape than the list mock: 47 totalDocs
-    // even though only 2 edges are loaded. This is exactly the bug the PR
-    // fixes — the old client-side reduce would have shown "2", the new
-    // backend aggregate shows "47".
+    // Tile counters reflect the backend aggregate (47), not the loaded edges (2).
     const populatedStatsMock = {
       request: {
         query: GET_DOCUMENT_STATS,
@@ -690,8 +674,6 @@ test.describe("Documents View - Stat Tiles", () => {
       </MockedProvider>
     );
 
-    // Wait for the list query to settle so the page is fully painted before
-    // we read the tile values.
     await expect(page.locator("text=Test Document 1.pdf")).toBeVisible({
       timeout: 5000,
     });
@@ -706,15 +688,10 @@ test.describe("Documents View - Stat Tiles", () => {
     await expect(tiles.nth(2)).toHaveText("40");
     await expect(tiles.nth(3)).toHaveText("7");
 
-    // The "All Documents" filter tab badge must match the Documents tile —
-    // before the fix it tracked ``document_items.length`` (here: 2) and
-    // diverged from the tile counter sitting next to it.
+    // The "All Documents" tab badge must match the Documents tile (47, not 2).
     const allDocsTab = page.locator('text="All Documents"').first();
     await expect(allDocsTab.locator("..").locator("text=47")).toBeVisible();
 
-    // Capture the populated stats hero for the docs site so reviewers can
-    // see the tile-counter contract this PR fixes (full visible count, not
-    // the paginated subset).
     await docScreenshot(page, "documents--stat-tiles--with-data");
 
     authToken(null);
@@ -724,29 +701,6 @@ test.describe("Documents View - Stat Tiles", () => {
     await component.unmount();
   });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Infinite-scroll regression — issue #1559
-//
-// Reproduces the scenario where the user scrolls to the bottom of the first
-// page and the FetchMoreOnVisible sentinel must trigger a second
-// GET_DOCUMENTS_FOR_LIST request with the cursor returned by page 1.
-//
-// Before the fix:
-//   1. ``handleFetchMore``'s identity changed every time ``documents_loading``
-//      toggled true→false during ``fetchMore``, but FetchMoreOnVisible's
-//      effect had ``[entry, vertical, inView]`` as deps and never rebound to
-//      the new callback — so subsequent intersection events called a stale
-//      closure that no-op'd or invoked an Apollo handle that had been
-//      replaced.
-//   2. The IntersectionObserver had no ``rootMargin``, so the sentinel only
-//      fired when the user reached the absolute bottom — making the bug
-//      indistinguishable from "infinite scroll never works."
-//
-// This test fails on the old code because the second-page mock is never
-// consumed (MockedProvider raises "No more mocked responses" or the new
-// document title never appears).
-// ─────────────────────────────────────────────────────────────────────────────
 
 test.describe("Documents View - Infinite Scroll (issue #1559)", () => {
   test("loads a second page when the sentinel scrolls into view", async ({
@@ -768,8 +722,6 @@ test.describe("Documents View - Infinite Scroll (issue #1559)", () => {
     documentSearchTerm("");
     selectedDocumentIds([]);
 
-    // First page: 20 docs (DOCUMENTS_PAGE_SIZE), hasNextPage=true so the
-    // sentinel is rendered and a fetchMore is wired up.
     const firstPageDocs = Array.from({ length: 20 }, (_, i) => ({
       id: `RG9jdW1lbnRUeXBlOlBhZ2UxXyR7aX0=_p1_${i}`,
       slug: `page-1-doc-${i}`,
@@ -806,9 +758,6 @@ test.describe("Documents View - Infinite Scroll (issue #1559)", () => {
       },
     };
 
-    // Second page: a single distinctively-named doc so we can assert it
-    // appears only after the fetchMore fires. Variables match what
-    // handleFetchMore sends: { limit, cursor: <endCursor of page 1> }.
     const secondPageDoc = {
       id: "RG9jdW1lbnRUeXBlOlBhZ2UyXzE=",
       slug: "page-2-doc-1",
@@ -848,63 +797,30 @@ test.describe("Documents View - Infinite Scroll (issue #1559)", () => {
       },
     };
 
-    // Build the cache inline (per the project rule about keeping
-    // ``InMemoryCache`` definitions inside the test/wrapper, not at module
-    // top level — see CLAUDE.md "Cache serialization crashes"). The
-    // ``documents`` field policy mirrors ``frontend/src/graphql/cache.ts``
-    // so ``fetchMore`` merges the second page into the existing connection.
-    const cache = new InMemoryCache({
-      typePolicies: {
-        Query: {
-          fields: {
-            documents: relayStylePagination([
-              "inCorpusWithId",
-              "inFolderId",
-              "textSearch",
-              "hasLabelWithId",
-              "hasAnnotationsWithIds",
-              "includeCaml",
-              "title",
-            ]),
-          },
-        },
-      },
-      addTypename: false,
-    });
-
     const component = await mount(
-      <MockedProvider
+      <DocumentsTestWrapper
         mocks={[
           firstPageMock,
           getDocumentStatsMock,
           getDocumentStatsMock,
           secondPageMock,
         ]}
-        cache={cache}
-        addTypename={false}
-      >
-        <MemoryRouter>
-          <JotaiProvider>
-            <Documents />
-          </JotaiProvider>
-        </MemoryRouter>
-      </MockedProvider>
+        withRelayCache
+      />
     );
 
-    // Page 1 rendered.
     await expect(page.locator("text=Page 1 Document 1.pdf")).toBeVisible({
       timeout: 5000,
     });
 
-    // Bring the sentinel into view to force the IntersectionObserver to fire.
     const sentinel = page.locator(".FetchMoreOnVisible");
     await sentinel.first().scrollIntoViewIfNeeded({ timeout: 5000 });
+    // Allow the IntersectionObserver + Apollo cache merge to settle.
+    await page.waitForTimeout(500);
 
-    // Page 2 must now appear. If the stale-closure bug regressed, the second
-    // mock would never be consumed and this assertion would time out.
-    await expect(
-      page.locator("text=Page 2 Sentinel Document.pdf")
-    ).toBeVisible({ timeout: 8000 });
+    await expect(page.locator("text=Page 2 Sentinel Document.pdf")).toBeVisible(
+      { timeout: 8000 }
+    );
 
     authToken(null);
     userObj(null);
@@ -914,28 +830,4 @@ test.describe("Documents View - Infinite Scroll (issue #1559)", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Regression notes:
-//
-// The Documents view previously fired ~7 GET_DOCUMENTS requests on every
-// mount — one from the ``useQuery`` itself plus six redundant
-// ``useEffect(refetchDocuments)`` hooks. Combined with
-// ``nextFetchPolicy: "network-only"`` every refetch bypassed the cache.
-//
-// Catching the storm BEHAVIORALLY is not viable in this MockedProvider
-// environment: Apollo's built-in query deduplication merges concurrent
-// in-flight queries with the same key, so all six mount-time refetches
-// collapse into the single initial network request before reaching MockLink.
-// A counter on MockLink can't see them.
-//
-// The structural fix is therefore pinned by a Vitest source-level test in
-// ``frontend/src/views/Documents.refetch-shape.test.ts`` that asserts:
-//   - no ``nextFetchPolicy: "network-only"`` in the source,
-//   - no ``useEffect`` block ending with a bare ``refetchDocuments()`` call,
-//   - the slim ``GET_DOCUMENTS_FOR_LIST`` query is the imported one.
-//
-// The CT mocks above already pin the on-the-wire variable shape — they use
-// strict ``{ limit: 20 }`` matching, so any drift in the request variables
-// would surface as a "document doesn't render" failure in the existing
-// tests.
-// ─────────────────────────────────────────────────────────────────────────────
+// Refetch-storm regression is pinned by Documents.refetch-shape.test.ts (Vitest).
