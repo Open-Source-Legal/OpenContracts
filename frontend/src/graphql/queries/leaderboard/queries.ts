@@ -36,7 +36,7 @@ export const GET_LEADERBOARD = gql`
         isRisingStar
         user {
           id
-          username
+          displayName
           email
           slug
           isProfilePublic

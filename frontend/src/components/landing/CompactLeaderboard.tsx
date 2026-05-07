@@ -288,18 +288,27 @@ const EmptyText = styled.p`
 `;
 
 /**
- * Gets initials from username for avatar display
+ * Gets initials from a friendly display name for avatar display.
+ *
+ * Issue #1557: ``displayName`` from the backend is already redacted, so we
+ * no longer need to inspect raw OAuth ``provider|sub`` formats — but we still
+ * defend against the legacy shape just in case it shows up.
  */
-function getInitials(username?: string): string {
-  if (!username) return "?";
-  // Handle OAuth usernames (e.g., "google-oauth2|123456")
-  if (username.includes("|")) {
-    const provider = username.split("|")[0];
+function getInitials(name?: string): string {
+  if (!name) return "?";
+  if (name.includes("|")) {
+    const provider = name.split("|")[0];
     if (provider.includes("google")) return "G";
     if (provider.includes("github")) return "GH";
     return "U";
   }
-  return username.substring(0, 2).toUpperCase();
+  // Pull the first letter of up to two whitespace-separated tokens
+  // (e.g. "Jane Doe" → "JD"), then fall back to the first two characters.
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length >= 2) {
+    return (tokens[0][0] + tokens[1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
 }
 
 /**
@@ -389,13 +398,13 @@ export const CompactLeaderboard: React.FC<CompactLeaderboardProps> = ({
               <UserInfo>
                 <Avatar
                   size="sm"
-                  fallback={getInitials(contributor.username)}
+                  fallback={getInitials(contributor.displayName)}
                   style={{
                     backgroundColor: getAvatarColor(contributor.id),
                     color: "white",
                   }}
                 />
-                <Username>{contributor.username || "Anonymous"}</Username>
+                <Username>{contributor.displayName || "Anonymous"}</Username>
               </UserInfo>
 
               {badges.length > 0 && (

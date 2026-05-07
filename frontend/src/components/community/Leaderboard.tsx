@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery } from "@apollo/client";
 import { Dropdown, StatBlock, StatGrid, Table } from "@os-legal/ui";
 import styled from "styled-components";
@@ -345,10 +345,16 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
   );
   const [limit, setLimit] = useState(25);
 
+  // Issue #1557B: previously these queries polled every 60s/120s on a fixed
+  // clock regardless of whether the page was even visible, which re-rendered
+  // rows and reset in-flight UI state. We now serve cached data instantly
+  // and refresh once on mount / on filter change. Hidden tabs do not refetch
+  // — a manual refresh runs once when the tab becomes visible again.
   const {
     loading: leaderboardLoading,
     error: leaderboardError,
     data: leaderboardData,
+    refetch: refetchLeaderboard,
   } = useQuery<{ leaderboard: LeaderboardType }>(GET_LEADERBOARD, {
     variables: {
       metric,
@@ -356,15 +362,37 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
       corpusId,
       limit,
     },
-    pollInterval: 60000, // Refresh every minute
+    fetchPolicy: "cache-and-network",
+    nextFetchPolicy: "cache-first",
+    notifyOnNetworkStatusChange: false,
   });
 
-  const { data: statsData } = useQuery<{
+  const { data: statsData, refetch: refetchStats } = useQuery<{
     communityStats: CommunityStatsType;
   }>(GET_COMMUNITY_STATS, {
     variables: { corpusId },
-    pollInterval: 120000, // Refresh every 2 minutes
+    fetchPolicy: "cache-and-network",
+    nextFetchPolicy: "cache-first",
+    notifyOnNetworkStatusChange: false,
   });
+
+  // Refresh once whenever the user returns to the tab. No timer-based polling.
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refetchLeaderboard().catch(() => {
+          /* swallow — Apollo will surface the error via the query state */
+        });
+        refetchStats().catch(() => {
+          /* swallow — Apollo will surface the error via the query state */
+        });
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [refetchLeaderboard, refetchStats]);
 
   const metricOptions = [
     { value: LeaderboardMetric.BADGES, label: "Top Badge Earners" },
@@ -567,7 +595,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
                           </Table.Cell>
                           <Table.Cell>
                             <UsernameCell>
-                              <strong>{entry.user.username}</strong>
+                              <strong>{entry.user.displayName}</strong>
                               {entry.isRisingStar && (
                                 <RisingStarTag>
                                   <TrendingUp size={12} />

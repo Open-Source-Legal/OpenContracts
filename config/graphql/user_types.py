@@ -18,6 +18,18 @@ User = get_user_model()
 
 
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    # Friendly display name (Issue #1557)
+    display_name = graphene.String(
+        description=(
+            "A safe, friendly display name for this user. Resolved in order from "
+            "``name`` → ``given_name`` + ``family_name`` → ``first_name`` + "
+            "``last_name`` → ``username`` (only when it is not an OAuth "
+            "``provider|sub`` identifier) → redacted ``user_<suffix>`` fallback. "
+            "Never returns the raw OAuth ``sub`` used as the Django ``username`` "
+            "for social-login users."
+        )
+    )
+
     # Reputation fields (Epic #565)
     reputation_global = graphene.Int(
         description="Global reputation score across all corpuses"
@@ -56,6 +68,65 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
             return False
         return True
+
+    def resolve_display_name(self, info) -> str:
+        """
+        Resolve a privacy-preserving display name for this user.
+
+        Priority (first non-empty wins):
+        1. ``name`` — full name claim from Auth0 profile.
+        2. ``given_name`` + ``family_name`` — Auth0 split-name claims.
+        3. ``first_name`` + ``last_name`` — legacy Django profile fields.
+        4. ``username`` — only when it does not look like a raw OAuth
+           ``provider|sub`` identifier (no ``|`` separator).
+        5. ``user_<last 6 chars of username>`` — redacted fallback that
+           still uniquely distinguishes users in the UI without leaking
+           the upstream OAuth ``sub``.
+
+        Issue: #1557 — Raw OAuth provider IDs were leaking into the
+        leaderboard USER column because resolvers rendered ``username``
+        directly. ``username`` is set to the Auth0 ``sub`` for social
+        users (see ``jwt_get_username_from_payload_handler``), so the
+        raw value must never be surfaced in any UI.
+        """
+
+        def _stripped(value: object) -> str:
+            return value.strip() if isinstance(value, str) else ""
+
+        name = _stripped(getattr(self, "name", ""))
+        if name:
+            return name
+
+        given_family = " ".join(
+            part
+            for part in (
+                _stripped(getattr(self, "given_name", "")),
+                _stripped(getattr(self, "family_name", "")),
+            )
+            if part
+        )
+        if given_family:
+            return given_family
+
+        first_last = " ".join(
+            part
+            for part in (
+                _stripped(getattr(self, "first_name", "")),
+                _stripped(getattr(self, "last_name", "")),
+            )
+            if part
+        )
+        if first_last:
+            return first_last
+
+        username = _stripped(getattr(self, "username", ""))
+        if username and "|" not in username:
+            return username
+
+        if username:
+            return f"user_{username[-6:]}"
+
+        return "user"
 
     def resolve_reputation_global(self, info) -> Any:
         """

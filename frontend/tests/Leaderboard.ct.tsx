@@ -271,7 +271,7 @@ test.describe("Leaderboard", () => {
                 isRisingStar: false,
                 user: {
                   id: "user-only",
-                  username: "only_user",
+                  displayName: "only_user",
                   email: "only@example.com",
                   slug: "only-user",
                   isProfilePublic: true,
@@ -548,7 +548,7 @@ test.describe("Leaderboard", () => {
               isRisingStar: false,
               user: {
                 id: `user-${rank}`,
-                username: `user_${rank}`,
+                displayName: `user_${rank}`,
                 email: `u${rank}@example.com`,
                 slug: `user-${rank}`,
                 isProfilePublic: true,
@@ -645,7 +645,7 @@ test.describe("Leaderboard", () => {
                 isRisingStar: false,
                 user: {
                   id: "user-msg",
-                  username: "chatty_user",
+                  displayName: "chatty_user",
                   email: "chat@example.com",
                   slug: "chatty-user",
                   isProfilePublic: true,
@@ -750,7 +750,7 @@ test.describe("Leaderboard", () => {
                 isRisingStar: false,
                 user: {
                   id: "user-week",
-                  username: "weekly_winner",
+                  displayName: "weekly_winner",
                   email: "week@example.com",
                   slug: "weekly-winner",
                   isProfilePublic: true,
@@ -848,7 +848,7 @@ test.describe("Leaderboard", () => {
                 isRisingStar: false,
                 user: {
                   id: "user-10",
-                  username: "top_ten_only",
+                  displayName: "top_ten_only",
                   email: "ten@example.com",
                   slug: "top-ten-only",
                   isProfilePublic: true,
