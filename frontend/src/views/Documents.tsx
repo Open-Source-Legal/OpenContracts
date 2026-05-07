@@ -403,6 +403,30 @@ const DocumentsListContainer = styled.section`
   min-height: 200px;
 `;
 
+// Footer-pinned spinner shown beneath the grid while a `fetchMore` request is
+// in flight. Replaces the previous full-cover dark `LoadingOverlay` that was
+// shown for any `documents_loading === true` (including pagination), which
+// painted a near-black band over the entire grid mid-scroll. See issue #1559.
+const FetchMoreFooter = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 0 24px;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  font-size: 0.875rem;
+
+  svg {
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+`;
+
 const EmptyStateWrapper = styled.div`
   padding: 48px 24px;
   background: white;
@@ -1312,9 +1336,14 @@ export const Documents = () => {
 
         {/* Documents Section */}
         <DocumentsListContainer>
+          {/*
+            Only blanket-cover the grid on the *initial* load (no data yet).
+            During `fetchMore` and refetches the existing rows stay visible
+            and a small footer spinner indicates additional pages are loading.
+            See issue #1559.
+          */}
           <LoadingOverlay
-            active={documents_loading}
-            inverted
+            active={documents_loading && filteredDocuments.length === 0}
             size="large"
             content="Loading documents..."
           />
@@ -1658,6 +1687,17 @@ export const Documents = () => {
               )}
 
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+              {documents_loading &&
+                documents_data?.documents?.pageInfo?.hasNextPage && (
+                  <FetchMoreFooter
+                    role="status"
+                    aria-live="polite"
+                    data-testid="documents-fetch-more-spinner"
+                  >
+                    <Loader2 size={16} aria-hidden="true" />
+                    <span>Loading more documents…</span>
+                  </FetchMoreFooter>
+                )}
             </>
           ) : documents_error ? (
             <EmptyStateWrapper>

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useInView } from "react-cool-inview";
 
 interface FetchMoreOnVisibleProps {
@@ -7,6 +7,12 @@ interface FetchMoreOnVisibleProps {
   triggerOnce?: boolean;
   fetchWithoutMotion?: boolean;
   threshold?: number;
+  /**
+   * IntersectionObserver `rootMargin`. Defaults to `200px 0px` so the sentinel
+   * fires before the user reaches the absolute bottom of the list and gives
+   * the next page time to load while the user is still scrolling.
+   */
+  rootMargin?: string;
   style?: Record<any, any>;
 }
 
@@ -18,17 +24,30 @@ export const FetchMoreOnVisible = ({
   fetchPreviousPage,
   triggerOnce,
   threshold = 0.25,
+  rootMargin = "200px 0px",
   fetchWithoutMotion,
   style,
 }: FetchMoreOnVisibleProps) => {
+  // Hold the latest callbacks in refs so the effect below never invokes a
+  // stale closure. Parent components routinely re-create these handlers via
+  // `useCallback` whenever their loading/data deps change (e.g. Apollo's
+  // `loading` toggling true→false during `fetchMore`); without the refs the
+  // observer effect — whose deps deliberately don't include the callbacks —
+  // would call whichever closure was captured the first time `inView` flipped,
+  // which can hold an outdated `loading` flag or cursor and silently no-op.
+  const fetchNextRef = useRef(fetchNextPage);
+  const fetchPrevRef = useRef(fetchPreviousPage);
+  fetchNextRef.current = fetchNextPage;
+  fetchPrevRef.current = fetchPreviousPage;
+
   const {
     observe,
-    unobserve,
     inView,
     scrollDirection: { vertical },
     entry,
   } = useInView({
-    threshold, // Default is 0
+    threshold,
+    rootMargin,
     unobserveOnEnter: triggerOnce,
   });
 
@@ -38,20 +57,21 @@ export const FetchMoreOnVisible = ({
   // because the canvas itself is moving from top to bottom of screen.
 
   useEffect(() => {
-    if (inView && vertical === undefined && fetchWithoutMotion) {
-      if (fetchNextPage !== undefined) {
-        fetchNextPage();
-      } else if (fetchPreviousPage !== undefined) {
-        fetchPreviousPage();
+    if (!inView) return;
+    if (vertical === undefined && fetchWithoutMotion) {
+      if (fetchNextRef.current !== undefined) {
+        fetchNextRef.current();
+      } else if (fetchPrevRef.current !== undefined) {
+        fetchPrevRef.current();
       }
-    } else if (inView && vertical !== undefined) {
-      if (vertical === "up" && fetchNextPage !== undefined) {
-        fetchNextPage();
-      } else if (vertical === "down" && fetchPreviousPage !== undefined) {
-        fetchPreviousPage();
+    } else if (vertical !== undefined) {
+      if (vertical === "up" && fetchNextRef.current !== undefined) {
+        fetchNextRef.current();
+      } else if (vertical === "down" && fetchPrevRef.current !== undefined) {
+        fetchPrevRef.current();
       }
     }
-  }, [entry, vertical, inView]);
+  }, [entry, vertical, inView, fetchWithoutMotion]);
 
   return (
     <div

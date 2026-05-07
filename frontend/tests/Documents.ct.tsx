@@ -3,6 +3,8 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
 import { MockedProvider } from "@apollo/client/testing";
+import { InMemoryCache } from "@apollo/client";
+import { relayStylePagination } from "@apollo/client/utilities";
 import { MemoryRouter } from "react-router-dom";
 import { Provider as JotaiProvider } from "jotai";
 import { Documents } from "../src/views/Documents";
@@ -714,6 +716,195 @@ test.describe("Documents View - Stat Tiles", () => {
     // see the tile-counter contract this PR fixes (full visible count, not
     // the paginated subset).
     await docScreenshot(page, "documents--stat-tiles--with-data");
+
+    authToken(null);
+    userObj(null);
+    backendUserObj(null);
+
+    await component.unmount();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Infinite-scroll regression — issue #1559
+//
+// Reproduces the scenario where the user scrolls to the bottom of the first
+// page and the FetchMoreOnVisible sentinel must trigger a second
+// GET_DOCUMENTS_FOR_LIST request with the cursor returned by page 1.
+//
+// Before the fix:
+//   1. ``handleFetchMore``'s identity changed every time ``documents_loading``
+//      toggled true→false during ``fetchMore``, but FetchMoreOnVisible's
+//      effect had ``[entry, vertical, inView]`` as deps and never rebound to
+//      the new callback — so subsequent intersection events called a stale
+//      closure that no-op'd or invoked an Apollo handle that had been
+//      replaced.
+//   2. The IntersectionObserver had no ``rootMargin``, so the sentinel only
+//      fired when the user reached the absolute bottom — making the bug
+//      indistinguishable from "infinite scroll never works."
+//
+// This test fails on the old code because the second-page mock is never
+// consumed (MockedProvider raises "No more mocked responses" or the new
+// document title never appears).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe("Documents View - Infinite Scroll (issue #1559)", () => {
+  test("loads a second page when the sentinel scrolls into view", async ({
+    mount,
+    page,
+  }) => {
+    authToken("test-auth-token");
+    userObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+    } as any);
+    backendUserObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+      isUsageCapped: false,
+    } as any);
+    documentSearchTerm("");
+    selectedDocumentIds([]);
+
+    // First page: 20 docs (DOCUMENTS_PAGE_SIZE), hasNextPage=true so the
+    // sentinel is rendered and a fetchMore is wired up.
+    const firstPageDocs = Array.from({ length: 20 }, (_, i) => ({
+      id: `RG9jdW1lbnRUeXBlOlBhZ2UxXyR7aX0=_p1_${i}`,
+      slug: `page-1-doc-${i}`,
+      title: `Page 1 Document ${i + 1}.pdf`,
+      fileType: "pdf",
+      backendLock: false,
+      pageCount: 5,
+      icon: null,
+      created: "2024-01-15T10:30:00Z",
+      creator: {
+        id: "VXNlclR5cGU6MQ==",
+        slug: "test-user",
+        email: "test@example.com",
+      },
+    }));
+
+    const firstPageMock = {
+      request: {
+        query: GET_DOCUMENTS_FOR_LIST,
+        variables: { limit: 20 },
+      },
+      result: {
+        data: {
+          documents: {
+            edges: firstPageDocs.map((node) => ({ node })),
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: "cursor-page-1-start",
+              endCursor: "cursor-page-1-end",
+            },
+          },
+        },
+      },
+    };
+
+    // Second page: a single distinctively-named doc so we can assert it
+    // appears only after the fetchMore fires. Variables match what
+    // handleFetchMore sends: { limit, cursor: <endCursor of page 1> }.
+    const secondPageDoc = {
+      id: "RG9jdW1lbnRUeXBlOlBhZ2UyXzE=",
+      slug: "page-2-doc-1",
+      title: "Page 2 Sentinel Document.pdf",
+      fileType: "pdf",
+      backendLock: false,
+      pageCount: 7,
+      icon: null,
+      created: "2024-01-16T10:30:00Z",
+      creator: {
+        id: "VXNlclR5cGU6MQ==",
+        slug: "test-user",
+        email: "test@example.com",
+      },
+    };
+
+    const secondPageMock = {
+      request: {
+        query: GET_DOCUMENTS_FOR_LIST,
+        variables: {
+          limit: 20,
+          cursor: "cursor-page-1-end",
+        },
+      },
+      result: {
+        data: {
+          documents: {
+            edges: [{ node: secondPageDoc }],
+            pageInfo: {
+              hasNextPage: false,
+              hasPreviousPage: true,
+              startCursor: "cursor-page-2-start",
+              endCursor: "cursor-page-2-end",
+            },
+          },
+        },
+      },
+    };
+
+    // Build the cache inline (per the project rule about keeping
+    // ``InMemoryCache`` definitions inside the test/wrapper, not at module
+    // top level — see CLAUDE.md "Cache serialization crashes"). The
+    // ``documents`` field policy mirrors ``frontend/src/graphql/cache.ts``
+    // so ``fetchMore`` merges the second page into the existing connection.
+    const cache = new InMemoryCache({
+      typePolicies: {
+        Query: {
+          fields: {
+            documents: relayStylePagination([
+              "inCorpusWithId",
+              "inFolderId",
+              "textSearch",
+              "hasLabelWithId",
+              "hasAnnotationsWithIds",
+              "includeCaml",
+              "title",
+            ]),
+          },
+        },
+      },
+      addTypename: false,
+    });
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          firstPageMock,
+          getDocumentStatsMock,
+          getDocumentStatsMock,
+          secondPageMock,
+        ]}
+        cache={cache}
+        addTypename={false}
+      >
+        <MemoryRouter>
+          <JotaiProvider>
+            <Documents />
+          </JotaiProvider>
+        </MemoryRouter>
+      </MockedProvider>
+    );
+
+    // Page 1 rendered.
+    await expect(page.locator("text=Page 1 Document 1.pdf")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Bring the sentinel into view to force the IntersectionObserver to fire.
+    const sentinel = page.locator(".FetchMoreOnVisible");
+    await sentinel.first().scrollIntoViewIfNeeded({ timeout: 5000 });
+
+    // Page 2 must now appear. If the stale-closure bug regressed, the second
+    // mock would never be consumed and this assertion would time out.
+    await expect(
+      page.locator("text=Page 2 Sentinel Document.pdf")
+    ).toBeVisible({ timeout: 8000 });
 
     authToken(null);
     userObj(null);
