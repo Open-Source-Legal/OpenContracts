@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo, useState } from "react";
+import { useTabVisibilityRefresh } from "../../hooks/useTabVisibilityRefresh";
 import { useQuery } from "@apollo/client";
 import { Dropdown, StatBlock, StatGrid, Table } from "@os-legal/ui";
 import styled from "styled-components";
@@ -377,22 +378,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
   });
 
   // Refresh once whenever the user returns to the tab. No timer-based polling.
-  useEffect(() => {
-    if (typeof document === "undefined") return undefined;
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        refetchLeaderboard().catch(() => {
-          /* swallow — Apollo will surface the error via the query state */
-        });
-        refetchStats().catch(() => {
-          /* swallow — Apollo will surface the error via the query state */
-        });
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [refetchLeaderboard, refetchStats]);
+  const visibilityRefreshFns = useMemo(
+    () => [refetchLeaderboard, refetchStats],
+    [refetchLeaderboard, refetchStats]
+  );
+  useTabVisibilityRefresh(visibilityRefreshFns);
 
   const metricOptions = [
     { value: LeaderboardMetric.BADGES, label: "Top Badge Earners" },

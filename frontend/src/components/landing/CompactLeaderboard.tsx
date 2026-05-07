@@ -15,6 +15,10 @@ import { ArrowRight, Trophy } from "lucide-react";
 import { LeaderboardEntry } from "../../graphql/landing-queries";
 import { color } from "../../theme/colors";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  getLeaderboardAvatarColor as getAvatarColor,
+  getLeaderboardInitials as getInitials,
+} from "../../utils/leaderboardAvatar";
 
 interface CompactLeaderboardProps {
   contributors: LeaderboardEntry[] | null;
@@ -286,47 +290,6 @@ const EmptyText = styled.p`
   font-size: 0.9375rem;
   margin: 0;
 `;
-
-/**
- * Gets initials from a friendly display name for avatar display.
- *
- * Issue #1557: ``displayName`` from the backend is already redacted, so we
- * no longer need to inspect raw OAuth ``provider|sub`` formats — but we still
- * defend against the legacy shape just in case it shows up.
- */
-function getInitials(name?: string): string {
-  if (!name) return "?";
-  if (name.includes("|")) {
-    const provider = name.split("|")[0];
-    if (provider.includes("google")) return "G";
-    if (provider.includes("github")) return "GH";
-    return "U";
-  }
-  // Pull the first letter of up to two whitespace-separated tokens
-  // (e.g. "Jane Doe" → "JD"), then fall back to the first two characters.
-  const tokens = name.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length >= 2) {
-    return (tokens[0][0] + tokens[1][0]).toUpperCase();
-  }
-  return name.substring(0, 2).toUpperCase();
-}
-
-/**
- * Gets consistent avatar color for a user based on their ID
- */
-function getAvatarColor(userId?: string): string {
-  const colors = [
-    OS_LEGAL_COLORS.primaryBlue,
-    OS_LEGAL_COLORS.greenMedium,
-    OS_LEGAL_COLORS.folderIcon,
-    OS_LEGAL_COLORS.dangerBorderHover,
-    "#8B5CF6",
-    "#EC4899",
-  ];
-  if (!userId) return colors[0];
-  const hash = userId.split("").reduce((a, b) => a + b.charCodeAt(0), 0);
-  return colors[hash % colors.length];
-}
 
 export const CompactLeaderboard: React.FC<CompactLeaderboardProps> = ({
   contributors,

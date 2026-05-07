@@ -1,0 +1,98 @@
+import { renderHook } from "@testing-library/react-hooks";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { useTabVisibilityRefresh } from "../useTabVisibilityRefresh";
+
+describe("useTabVisibilityRefresh", () => {
+  let originalVisibility: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    originalVisibility = Object.getOwnPropertyDescriptor(
+      document,
+      "visibilityState"
+    );
+    Object.defineProperty(document, "visibilityState", {
+      value: "hidden",
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    if (originalVisibility) {
+      Object.defineProperty(document, "visibilityState", originalVisibility);
+    }
+  });
+
+  const fireVisibility = (state: "visible" | "hidden") => {
+    Object.defineProperty(document, "visibilityState", {
+      value: state,
+      writable: true,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+
+  it("invokes each refresh fn when the page becomes visible", () => {
+    const a = vi.fn().mockResolvedValue(undefined);
+    const b = vi.fn().mockResolvedValue(undefined);
+
+    renderHook(() => useTabVisibilityRefresh([a, b]));
+
+    fireVisibility("visible");
+
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not invoke refresh fns when the page goes hidden", () => {
+    const fn = vi.fn();
+    renderHook(() => useTabVisibilityRefresh([fn]));
+
+    fireVisibility("hidden");
+
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("swallows promise rejections from refresh fns", async () => {
+    const failing = vi.fn().mockRejectedValue(new Error("boom"));
+    renderHook(() => useTabVisibilityRefresh([failing]));
+
+    fireVisibility("visible");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(failing).toHaveBeenCalledTimes(1);
+  });
+
+  it("swallows synchronous exceptions from refresh fns", () => {
+    const synchronousThrower = vi.fn(() => {
+      throw new Error("sync boom");
+    });
+    const followup = vi.fn();
+    renderHook(() => useTabVisibilityRefresh([synchronousThrower, followup]));
+
+    fireVisibility("visible");
+
+    expect(synchronousThrower).toHaveBeenCalledTimes(1);
+    expect(followup).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes the listener on unmount", () => {
+    const fn = vi.fn();
+    const { unmount } = renderHook(() => useTabVisibilityRefresh([fn]));
+
+    unmount();
+    fireVisibility("visible");
+
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("supports synchronous refresh fns (non-Promise return)", () => {
+    const sync = vi.fn(() => 42);
+    renderHook(() => useTabVisibilityRefresh([sync]));
+
+    fireVisibility("visible");
+
+    expect(sync).toHaveBeenCalledTimes(1);
+  });
+});
