@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Cookie consent dialog redesign** (`frontend/src/components/cookies/CookieConsent.tsx`). Two-column data grid for the "Data we collect" and "Data you agree to share" sections, semantic HTML (`<section>`, `<aside>`, `<ul>`), responsive collapse to a single column below 720px, and an icon badge in the header. Adds tokens to `frontend/src/assets/configurations/osLegalStyles.ts` (`OS_LEGAL_SPACING.modalMaxWidth`, `modalSideGutter`, `borderRadiusListItem`, `borderAccentWidth`, `iconBadgeDesktop`, `iconBadgeMobile`; `OS_LEGAL_SHADOWS.modalOverlay`) and `COOKIE_CONSENT_GRID_BREAKPOINT` in `frontend/src/assets/configurations/constants.ts` so the modal no longer relies on inline magic numbers. Disclaimer text is held at 0.75rem (12px) to meet the WCAG-recommended legal-text minimum, and `DataListItem` text colour was raised to `textSecondary` for AA contrast on `surfaceLight`.
+
 ### Fixed
 
 - **Documents view (`/documents`) infinite scroll never fires; dim overlay obscures grid during load** (issue #1559). Two cooperating bugs prevented the second-and-later pages from loading and made the page look broken on the first paint:
