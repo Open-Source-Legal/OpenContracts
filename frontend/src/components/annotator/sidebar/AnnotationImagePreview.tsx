@@ -103,6 +103,15 @@ const ErrorState = styled(LoadingState)`
   font-size: 0.75rem;
 `;
 
+const NoThumbnailState = styled(LoadingState)`
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+  border-style: dashed;
+`;
+
 const ImageCount = styled.span`
   position: absolute;
   bottom: 6px;
@@ -128,6 +137,11 @@ interface AnnotationImagePreviewProps {
   images: ImageData[] | null;
   loading: boolean;
   error: boolean;
+  /**
+   * True when the request completed successfully but no thumbnail is available.
+   * Renders a neutral placeholder instead of the alarming "Failed" error state.
+   */
+  hasFetchedEmpty?: boolean;
   compact?: boolean;
   onImageClick?: (image: ImageData) => void;
 }
@@ -180,6 +194,7 @@ export const AnnotationImagePreview: React.FC<AnnotationImagePreviewProps> = ({
   images,
   loading,
   error,
+  hasFetchedEmpty = false,
   compact = false,
   onImageClick,
 }) => {
@@ -204,8 +219,21 @@ export const AnnotationImagePreview: React.FC<AnnotationImagePreviewProps> = ({
     );
   }
 
-  if (!images || images.length === 0) {
-    return null;
+  // Fetch succeeded but no thumbnail available — show a neutral placeholder so
+  // the card still indicates this is an image annotation rather than rendering
+  // nothing (or worse, the old "Failed" state from issue #1560).
+  if (hasFetchedEmpty || !images || images.length === 0) {
+    return (
+      <PreviewContainer $compact={compact}>
+        <NoThumbnailState
+          $compact={compact}
+          title="No thumbnail generated for this annotation"
+        >
+          <ImageIcon size={compact ? 16 : 20} />
+          {!compact && <span>No thumbnail</span>}
+        </NoThumbnailState>
+      </PreviewContainer>
+    );
   }
 
   // For featured mode (non-compact), show first image large with count badge
