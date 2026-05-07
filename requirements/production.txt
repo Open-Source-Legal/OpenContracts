@@ -17,7 +17,7 @@ google-auth==2.50.0
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # Duplicated accross requirements files due to Snyk not understanding requirements inheritance
 # ------------------------------------------------------------------------------
-django==5.2.13  # https://www.djangoproject.com/
+django==5.2.14  # https://www.djangoproject.com/
 twisted>=26.4.0rc2 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=9.13.0 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.33.1,<3 # not directly required, pinned by Snyk to avoid a vulnerability

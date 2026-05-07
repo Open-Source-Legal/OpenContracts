@@ -292,12 +292,6 @@ class DocumentQueryMixin:
         # same opaque "not found" response so attackers cannot distinguish
         # missing-job from another-user's-job.
         owner_id = cache.get(f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}")
-        not_found_response = BulkDocumentUploadStatusType(
-            job_id=job_id,
-            success=False,
-            completed=False,
-            errors=["Bulk upload job not found."],
-        )
         # Coerce to int defensively: some Django cache backends (e.g. Redis
         # with a custom serializer) deserialize integers as strings, which
         # would silently break the legitimate-owner equality check.
@@ -306,7 +300,12 @@ class DocumentQueryMixin:
         except (TypeError, ValueError):
             owner_id_int = None
         if owner_id_int is None or owner_id_int != info.context.user.id:
-            return not_found_response
+            return BulkDocumentUploadStatusType(
+                job_id=job_id,
+                success=False,
+                completed=False,
+                errors=["Bulk upload job not found."],
+            )
 
         try:
             # Try to get the task result from Celery
