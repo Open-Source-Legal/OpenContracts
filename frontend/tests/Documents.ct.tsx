@@ -1,6 +1,7 @@
 // Playwright Component Test for Documents View
 import React from "react";
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { Provider as JotaiProvider } from "jotai";
@@ -619,6 +620,100 @@ test.describe("Documents View - Selection", () => {
     // Verify list header has the select all checkbox
     const listHeader = page.locator('[role="rowgroup"]');
     await expect(listHeader.locator('input[type="checkbox"]')).toBeVisible();
+
+    authToken(null);
+    userObj(null);
+    backendUserObj(null);
+
+    await component.unmount();
+  });
+});
+
+test.describe("Documents View - Stat Tiles", () => {
+  test("renders permission-scoped stats from GET_DOCUMENT_STATS, not the loaded edges", async ({
+    mount,
+    page,
+  }) => {
+    authToken("test-auth-token");
+    userObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+    } as any);
+    backendUserObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+      isUsageCapped: false,
+    } as any);
+    documentSearchTerm("");
+    selectedDocumentIds([]);
+
+    // Stats mock asserts a different shape than the list mock: 47 totalDocs
+    // even though only 2 edges are loaded. This is exactly the bug the PR
+    // fixes — the old client-side reduce would have shown "2", the new
+    // backend aggregate shows "47".
+    const populatedStatsMock = {
+      request: {
+        query: GET_DOCUMENT_STATS,
+        variables: {},
+      },
+      result: {
+        data: {
+          documentStats: {
+            totalDocs: 47,
+            totalPages: 1234,
+            processedCount: 40,
+            processingCount: 7,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          getDocumentsMock,
+          getDocumentsMock,
+          populatedStatsMock,
+          populatedStatsMock,
+        ]}
+        addTypename={false}
+      >
+        <MemoryRouter>
+          <JotaiProvider>
+            <Documents />
+          </JotaiProvider>
+        </MemoryRouter>
+      </MockedProvider>
+    );
+
+    // Wait for the list query to settle so the page is fully painted before
+    // we read the tile values.
+    await expect(page.locator("text=Test Document 1.pdf")).toBeVisible({
+      timeout: 5000,
+    });
+
+    const tiles = page.locator(".oc-stat-block .oc-stat-block__value");
+    await expect(tiles).toHaveCount(4, { timeout: 5000 });
+    // Order matches Documents.tsx: Documents, Pages, Processed, Processing.
+    await expect(tiles.nth(0)).toHaveText("47");
+    // toLocaleString() on 1234 yields "1,234" in en-US — the test runs in a
+    // jsdom-backed Chromium where en-US is the default locale.
+    await expect(tiles.nth(1)).toHaveText("1,234");
+    await expect(tiles.nth(2)).toHaveText("40");
+    await expect(tiles.nth(3)).toHaveText("7");
+
+    // The "All Documents" filter tab badge must match the Documents tile —
+    // before the fix it tracked ``document_items.length`` (here: 2) and
+    // diverged from the tile counter sitting next to it.
+    const allDocsTab = page.locator('text="All Documents"').first();
+    await expect(allDocsTab.locator("..").locator("text=47")).toBeVisible();
+
+    // Capture the populated stats hero for the docs site so reviewers can
+    // see the tile-counter contract this PR fixes (full visible count, not
+    // the paginated subset).
+    await docScreenshot(page, "documents--stat-tiles--with-data");
 
     authToken(null);
     userObj(null);
