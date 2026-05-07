@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from graphene.test import Client
 from graphql_relay import to_global_id
 
@@ -793,9 +795,7 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
             doc = Document.objects.create(
                 title=f"Prefetch Doc {i}", creator=self.owner, is_public=False
             )
-            set_permissions_for_obj_to_user(
-                self.viewer, doc, [PermissionTypes.READ]
-            )
+            set_permissions_for_obj_to_user(self.viewer, doc, [PermissionTypes.READ])
             self.docs.append(doc)
 
         # Group-based UPDATE on the first document so the group-perm prefetch
@@ -806,10 +806,15 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
 
     def test_prefetched_attrs_use_user_id_suffix(self):
         """``_apply_document_prefetches`` writes user-id-suffixed attributes."""
+        from opencontractserver.shared.prefetch_attrs import (
+            user_group_perm_attr,
+            user_perm_attr,
+        )
+
         qs = Document.objects.visible_to_user(self.viewer, lightweight=True)
         docs = list(qs)
-        attr = f"_prefetched_user_perms_uid_{self.viewer.id}"
-        group_attr = f"_prefetched_user_group_perms_uid_{self.viewer.id}"
+        attr = user_perm_attr(self.viewer.id)
+        group_attr = user_group_perm_attr(self.viewer.id)
         for d in docs:
             self.assertTrue(
                 hasattr(d, attr),
@@ -839,9 +844,7 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         with self.assertNumQueries(0):
             for d in docs:
                 self.assertTrue(
-                    user_has_permission_for_obj(
-                        self.viewer, d, PermissionTypes.READ
-                    )
+                    user_has_permission_for_obj(self.viewer, d, PermissionTypes.READ)
                 )
 
         # Same for include_group_permissions=True — group perms come from the
@@ -849,11 +852,13 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         # groups at prefetch time.
         with self.assertNumQueries(0):
             for d in docs:
-                user_has_permission_for_obj(
-                    self.viewer,
-                    d,
-                    PermissionTypes.READ,
-                    include_group_permissions=True,
+                self.assertTrue(
+                    user_has_permission_for_obj(
+                        self.viewer,
+                        d,
+                        PermissionTypes.READ,
+                        include_group_permissions=True,
+                    )
                 )
 
         # Doc[0] has UPDATE via group membership — group prefetch path must
@@ -875,6 +880,50 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
             )
         )
 
+    def test_is_public_grants_read_on_prefetched_path(self):
+        """
+        The fast path must add ``read_{model_name}`` when the instance is
+        public — a public document is readable by anyone, regardless of
+        explicit guardian rows.
+        """
+        from opencontractserver.utils.permissioning import (
+            get_users_permissions_for_obj,
+        )
+
+        # Promote one of the documents to public; reload via the manager so
+        # the user-scoped prefetches are attached.
+        Document.objects.filter(pk=self.docs[0].pk).update(is_public=True)
+        qs = Document.objects.visible_to_user(self.viewer, lightweight=True)
+        public_doc = next(d for d in qs if d.pk == self.docs[0].pk)
+
+        perms = get_users_permissions_for_obj(self.viewer, public_doc)
+        self.assertIn("read_document", perms)
+
+    def test_partial_prefetch_falls_back_for_group_perms_only(self):
+        """
+        If only the user-perm prefetch is attached (and not the group-perm
+        prefetch), ``include_group_permissions=True`` must fall back to a
+        guardian query for groups while still consuming the prefetched user
+        perms. This is the documented contract for non-Document models that
+        opt into only the user prefetch.
+        """
+        from opencontractserver.shared.prefetch_attrs import user_group_perm_attr
+        from opencontractserver.utils.permissioning import (
+            get_users_permissions_for_obj,
+        )
+
+        docs = list(Document.objects.visible_to_user(self.viewer, lightweight=True))
+        # Strip the group-perm prefetch so we exercise the partial path.
+        for d in docs:
+            delattr(d, user_group_perm_attr(self.viewer.id))
+
+        perms = get_users_permissions_for_obj(
+            self.viewer, docs[0], include_group_permissions=True
+        )
+        # docs[0] has UPDATE via group membership; READ via direct user perm.
+        self.assertIn("read_document", perms)
+        self.assertIn("update_document", perms)
+
     def test_falls_back_when_instance_loaded_without_prefetch(self):
         """
         If the document was loaded via a queryset that didn't go through
@@ -885,9 +934,7 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         doc = Document.objects.get(pk=self.docs[0].pk)
-        self.assertFalse(
-            hasattr(doc, f"_prefetched_user_perms_uid_{self.viewer.id}")
-        )
+        self.assertFalse(hasattr(doc, f"_prefetched_user_perms_uid_{self.viewer.id}"))
         self.assertTrue(
             user_has_permission_for_obj(self.viewer, doc, PermissionTypes.READ)
         )
@@ -898,16 +945,25 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         mismatched user: a queryset prefetched for user A must not return
         user A's perms when asked about user B. Without the suffix, we'd
         be reading the wrong list.
+
+        Asserting the per-row query count > 0 is what proves the fallback
+        path was actually taken — a silently-cached attribute would still
+        produce ``False`` for ``other_user`` but would issue zero queries.
         """
         from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         docs = list(Document.objects.visible_to_user(self.viewer, lightweight=True))
         # ``other_user`` has no perms on any of these docs; the prefetch is
         # filtered by viewer.id so its presence must not cause us to
-        # short-circuit and report viewer.id's perms for other_user.
-        for d in docs:
-            self.assertFalse(
-                user_has_permission_for_obj(
-                    self.other_user, d, PermissionTypes.READ
+        # short-circuit and report viewer.id's perms for other_user. The
+        # legacy guardian path issues queries per row — we assert the count
+        # is at least ``len(docs)`` to prove the fallback was taken (rather
+        # than silently reusing the viewer's prefetched list).
+        with CaptureQueriesContext(connection) as ctx:
+            for d in docs:
+                self.assertFalse(
+                    user_has_permission_for_obj(
+                        self.other_user, d, PermissionTypes.READ
+                    )
                 )
-            )
+        self.assertGreaterEqual(len(ctx.captured_queries), len(docs))

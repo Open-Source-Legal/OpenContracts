@@ -7,6 +7,10 @@ from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.db.models import FileField, Manager, Prefetch, Q, QuerySet
 
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 from opencontractserver.shared.QuerySets import (
     AnnotationQuerySet,
     DocumentQuerySet,
@@ -95,14 +99,14 @@ def _apply_document_prefetches(
                 queryset=DocumentUserObjectPermission.objects.filter(
                     user_id=user.id
                 ).select_related("permission"),
-                to_attr=f"_prefetched_user_perms_uid_{user.id}",
+                to_attr=user_perm_attr(user.id),
             ),
             Prefetch(
                 "documentgroupobjectpermission_set",
                 queryset=DocumentGroupObjectPermission.objects.filter(
                     group_id__in=user_group_ids
                 ).select_related("permission"),
-                to_attr=f"_prefetched_user_group_perms_uid_{user.id}",
+                to_attr=user_group_perm_attr(user.id),
             ),
         )
 

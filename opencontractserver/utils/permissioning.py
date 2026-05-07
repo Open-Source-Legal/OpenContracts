@@ -12,6 +12,10 @@ from django.db import transaction
 from guardian.shortcuts import assign_perm, remove_perm
 
 from config.graphql.permissioning.permission_annotator.middleware import combine
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
@@ -298,9 +302,7 @@ def get_users_permissions_for_obj(
     # guardian path. An empty list means "user has no rows for this object" —
     # also correct.
     # ------------------------------------------------------------------
-    prefetched_user_perms = getattr(
-        instance, f"_prefetched_user_perms_uid_{user.id}", None
-    )
+    prefetched_user_perms = getattr(instance, user_perm_attr(user.id), None)
     if prefetched_user_perms is not None:
         model_permissions_for_user = {
             perm.permission.codename for perm in prefetched_user_perms
@@ -310,7 +312,7 @@ def get_users_permissions_for_obj(
 
         if include_group_permissions:
             prefetched_group_perms = getattr(
-                instance, f"_prefetched_user_group_perms_uid_{user.id}", None
+                instance, user_group_perm_attr(user.id), None
             )
             if prefetched_group_perms is not None:
                 for perm in prefetched_group_perms:
