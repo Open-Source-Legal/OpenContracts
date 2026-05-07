@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from asgiref.sync import async_to_sync
 from celery import shared_task
@@ -172,8 +172,8 @@ def generate_agent_response(
 
         # 4. Generate response with streaming
         accumulated_content = ""
-        sources_data = []
-        timeline_data = []
+        sources_data: list[dict[str, Any]] = []
+        timeline_data: list[dict[str, Any]] = []
 
         async def run_agent():
             nonlocal accumulated_content
@@ -202,7 +202,7 @@ def generate_agent_response(
             # Stream the agent response
             # Pass store_messages=False since we handle message persistence ourselves
             # (we already created response_message above with parent_message set)
-            async for event in agent.stream(user_message, store_messages=False):
+            async for event in await agent.stream(user_message, store_messages=False):
                 if isinstance(event, ContentEvent):
                     # Token/content chunk
                     token = event.content
@@ -497,7 +497,7 @@ def run_agent_corpus_action(
 
         # Update result record with failure before retrying
         try:
-            result, _ = AgentActionResult.objects.get_or_create(
+            failure_record, _ = AgentActionResult.objects.get_or_create(
                 corpus_action_id=corpus_action_id,
                 document_id=document_id,
                 defaults={
@@ -506,10 +506,14 @@ def run_agent_corpus_action(
                     "started_at": timezone.now(),
                 },
             )
-            result.status = AgentActionResult.Status.FAILED
-            result.error_message = str(exc)[:1000]  # Truncate to prevent DB bloat
-            result.completed_at = timezone.now()
-            result.save(update_fields=["status", "error_message", "completed_at"])
+            failure_record.status = AgentActionResult.Status.FAILED
+            failure_record.error_message = str(exc)[
+                :1000
+            ]  # Truncate to prevent DB bloat
+            failure_record.completed_at = timezone.now()
+            failure_record.save(
+                update_fields=["status", "error_message", "completed_at"]
+            )
         except Exception as e:
             logger.error(f"[AgentCorpusAction] Failed to mark result as failed: {e}")
 
@@ -867,12 +871,14 @@ async def _run_agent_corpus_action_async(
         # Create agent with pre-authorization (skip approval gate).
         # restrict_tool_names limits the agent to ONLY the resolved tool
         # set, preventing tool overload from the ~17 default tools.
+        # ``tools`` is a ``list[str]``; the API accepts any ToolType
+        # (str | CoreTool | callable) but ``list`` is invariant, so cast.
         agent = await agents.for_document(
             document=document,
             corpus=action.corpus,
             user_id=user_id,
             system_prompt=system_prompt,
-            tools=tools,
+            tools=cast("list[Any]", tools),
             streaming=False,
             skip_approval_gate=True,
             restrict_tool_names=tools,
@@ -1168,7 +1174,7 @@ async def _run_agent_thread_action_async(
             corpus=action.corpus,
             user_id=user_id,
             system_prompt=system_prompt,
-            tools=tools,
+            tools=cast("list[Any]", tools),
             streaming=False,
             skip_approval_gate=True,
         )

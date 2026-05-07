@@ -1,9 +1,14 @@
 import styled, { css } from "styled-components";
 import {
   OS_LEGAL_COLORS,
+  OS_LEGAL_SHADOWS,
   OS_LEGAL_SPACING,
   OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
+import {
+  COOKIE_CONSENT_GRID_BREAKPOINT,
+  MOBILE_VIEW_BREAKPOINT,
+} from "../../assets/configurations/constants";
 import {
   modalFooterBorder,
   modalFooterMobile,
@@ -47,69 +52,127 @@ const sansFont = css`
   font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
 `;
 
-const ModalHeaderTitle = styled.span`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+const serifFont = css`
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
 `;
 
 const StyledModalWrapper = styled.div`
   .oc-modal-overlay {
     z-index: 2000;
+    backdrop-filter: blur(4px);
   }
 
   .oc-modal {
-    max-width: ${OS_LEGAL_SPACING.subtitleMaxWidth};
+    max-width: ${OS_LEGAL_SPACING.modalMaxWidth};
+    width: calc(100vw - ${OS_LEGAL_SPACING.modalSideGutter});
+    border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
+    box-shadow: ${OS_LEGAL_SHADOWS.modalOverlay};
+
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      width: 100%;
+      max-width: 100%;
+      max-height: 100vh;
+      border-radius: 0;
+    }
   }
 
   .oc-modal-header {
     border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
+    padding: 1.5rem 1.75rem;
+
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      padding: 1.25rem;
+    }
+  }
+
+  .oc-modal-header__title {
+    ${serifFont}
+    font-size: 1.5rem;
+    font-weight: 400;
+    line-height: 1.2;
+    color: ${OS_LEGAL_COLORS.textPrimary};
+
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      font-size: 1.25rem;
+    }
   }
 
   .oc-modal-body {
-    padding: 1.25rem 1.5rem;
+    padding: 1.5rem 1.75rem 1.25rem;
     max-height: 70vh;
     overflow-y: auto;
+
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      padding: 1.25rem;
+      max-height: calc(100vh - 180px);
+    }
   }
 
   .oc-modal-footer {
     ${modalFooterBorder}
     ${modalFooterMobile}
+    padding: 1rem 1.75rem;
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
+
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      padding-left: 1.25rem;
+      padding-right: 1.25rem;
+    }
+  }
+`;
+
+const HeaderTitleRow = styled.span`
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  min-width: 0;
+`;
+
+const IconBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: ${OS_LEGAL_SPACING.iconBadgeDesktop};
+  height: ${OS_LEGAL_SPACING.iconBadgeDesktop};
+  border-radius: 50%;
+  background: ${OS_LEGAL_COLORS.accentSurface};
+  color: ${OS_LEGAL_COLORS.accent};
+  flex-shrink: 0;
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    width: ${OS_LEGAL_SPACING.iconBadgeMobile};
+    height: ${OS_LEGAL_SPACING.iconBadgeMobile};
   }
 `;
 
 const DemoBanner = styled.div`
   display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.75rem 1rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
   background: ${OS_LEGAL_COLORS.warningSurface};
   border: 1px solid ${OS_LEGAL_COLORS.warningBorder};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
 
-  svg {
+  > svg {
     flex-shrink: 0;
     color: ${OS_LEGAL_COLORS.warningText};
+    margin-top: 1px;
   }
 `;
 
 const DemoBannerText = styled.p`
   margin: 0;
   font-size: 0.8125rem;
-  line-height: 1.45;
+  line-height: 1.5;
   color: ${OS_LEGAL_COLORS.warningText};
   ${sansFont}
 `;
 
-const Section = styled.div`
-  margin-bottom: 1rem;
-
-  &:last-child {
-    margin-bottom: 0;
-  }
+const LeadSection = styled.section`
+  margin: 0 0 1.25rem;
 `;
 
 const SectionLabel = styled.h4`
@@ -117,10 +180,10 @@ const SectionLabel = styled.h4`
   align-items: center;
   gap: 0.5rem;
   margin: 0 0 0.5rem;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
   color: ${OS_LEGAL_COLORS.textTertiary};
   ${sansFont}
 
@@ -130,10 +193,44 @@ const SectionLabel = styled.h4`
   }
 `;
 
-const SectionBody = styled.p`
+const LeadBody = styled.p`
   margin: 0;
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  ${sansFont}
+`;
+
+const TwoColumnGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+
+  @media (max-width: ${COOKIE_CONSENT_GRID_BREAKPOINT}px) {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+`;
+
+const DataCard = styled.section`
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 1rem 1.125rem 1.125rem;
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
+
+  &.cookie-consent__analytics {
+    margin-bottom: 1.25rem;
+  }
+`;
+
+const DataCardLead = styled.p`
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
   color: ${OS_LEGAL_COLORS.textSecondary};
   ${sansFont}
 `;
@@ -141,42 +238,54 @@ const SectionBody = styled.p`
 const DataList = styled.ul`
   list-style: none;
   padding: 0;
-  margin: 0.375rem 0 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.375rem;
 `;
 
 const DataListItem = styled.li`
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  padding: 0.375rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.8125rem;
+  line-height: 1.4;
+  // textSecondary used over textTertiary so prose meets WCAG AA on surfaceLight.
   color: ${OS_LEGAL_COLORS.textSecondary};
   background: ${OS_LEGAL_COLORS.surfaceLight};
-  border-radius: 6px;
+  border-radius: ${OS_LEGAL_SPACING.borderRadiusListItem};
   ${sansFont}
 
   svg {
     flex-shrink: 0;
-    color: ${OS_LEGAL_COLORS.textMuted};
+    color: ${OS_LEGAL_COLORS.accent};
   }
+`;
+
+const AnalyticsNote = styled.p`
+  margin: 0.125rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  ${sansFont}
+`;
+
+const DisclaimerBlock = styled.aside`
+  padding: 0.75rem 0.875rem;
+  background: ${OS_LEGAL_COLORS.surfaceLight};
+  border-left: ${OS_LEGAL_SPACING.borderAccentWidth} solid
+    ${OS_LEGAL_COLORS.borderHover};
+  border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
 `;
 
 const Disclaimer = styled.p`
   margin: 0;
+  // 0.75rem (12px) keeps legal disclaimer text at the WCAG-recommended minimum.
   font-size: 0.75rem;
-  line-height: 1.5;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  ${sansFont}
-`;
-
-const AnalyticsNote = styled.p`
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: ${OS_LEGAL_COLORS.textSecondary};
+  line-height: 1.55;
+  letter-spacing: 0.01em;
+  color: ${OS_LEGAL_COLORS.textMuted};
   ${sansFont}
 `;
 
@@ -232,10 +341,12 @@ export const CookieConsentDialog = () => {
       <Modal open onClose={() => {}}>
         <ModalHeader
           title={
-            <ModalHeaderTitle>
-              <Cookie size={20} style={{ color: OS_LEGAL_COLORS.accent }} />
+            <HeaderTitleRow>
+              <IconBadge>
+                <Cookie size={20} />
+              </IconBadge>
               Cookie Policy &amp; Terms
-            </ModalHeaderTitle>
+            </HeaderTitleRow>
           }
         />
         <ModalBody>
@@ -247,68 +358,70 @@ export const CookieConsentDialog = () => {
             </DemoBannerText>
           </DemoBanner>
 
-          <Section>
+          <LeadSection>
             <SectionLabel>
               <Shield size={14} />
               Cookie Usage
             </SectionLabel>
-            <SectionBody>
+            <LeadBody>
               This site uses cookies to enhance your experience and help us
               improve OpenContracts. We do not sell or share user information.
-            </SectionBody>
-          </Section>
+            </LeadBody>
+          </LeadSection>
 
-          <Section>
-            <SectionLabel>
-              <FileText size={14} />
-              Data We Collect
-            </SectionLabel>
-            <DataList>
-              <DataListItem>
-                <Users size={14} />
-                User information (email, name, IP)
-              </DataListItem>
-              <DataListItem>
-                <Settings size={14} />
-                Usage information
-              </DataListItem>
-              <DataListItem>
-                <Monitor size={14} />
-                System information
-              </DataListItem>
-            </DataList>
-          </Section>
+          <TwoColumnGrid>
+            <DataCard>
+              <SectionLabel>
+                <FileText size={14} />
+                Data We Collect
+              </SectionLabel>
+              <DataList>
+                <DataListItem>
+                  <Users size={14} />
+                  User information (email, name, IP)
+                </DataListItem>
+                <DataListItem>
+                  <Settings size={14} />
+                  Usage information
+                </DataListItem>
+                <DataListItem>
+                  <Monitor size={14} />
+                  System information
+                </DataListItem>
+              </DataList>
+            </DataCard>
 
-          <Section>
-            <SectionLabel>
-              <Share2 size={14} />
-              Data You Agree to Share
-            </SectionLabel>
-            <SectionBody>
-              By using this demo, you agree to share the following under a CC0
-              1.0 Universal license:
-            </SectionBody>
-            <DataList>
-              <DataListItem>
-                <Users size={14} />
-                Labelsets &amp; labels
-              </DataListItem>
-              <DataListItem>
-                <Monitor size={14} />
-                Configured data extractors
-              </DataListItem>
-            </DataList>
-          </Section>
+            <DataCard>
+              <SectionLabel>
+                <Share2 size={14} />
+                Data You Agree to Share
+              </SectionLabel>
+              <DataCardLead>
+                By using this demo, you agree to share the following under a CC0
+                1.0 Universal license:
+              </DataCardLead>
+              <DataList>
+                <DataListItem>
+                  <Users size={14} />
+                  Labelsets &amp; labels
+                </DataListItem>
+                <DataListItem>
+                  <Monitor size={14} />
+                  Configured data extractors
+                </DataListItem>
+              </DataList>
+            </DataCard>
+          </TwoColumnGrid>
 
           {analyticsEnabled && (
-            <Section>
+            <DataCard className="cookie-consent__analytics">
               <SectionLabel>
                 <BarChart3 size={14} />
                 Analytics
               </SectionLabel>
-              <SectionBody>
+              <DataCardLead>
                 We use PostHog to collect anonymous usage analytics:
-              </SectionBody>
+              </DataCardLead>
               <DataList>
                 <DataListItem>
                   <BarChart3 size={14} />
@@ -328,19 +441,21 @@ export const CookieConsentDialog = () => {
                 never sold or shared with third parties. You can opt out at any
                 time through your browser settings or by using Do Not Track.
               </AnalyticsNote>
-            </Section>
+            </DataCard>
           )}
 
-          <Disclaimer>
-            THE SOFTWARE IS PROVIDED &ldquo;AS IS&rdquo;, WITHOUT WARRANTY OF
-            ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
-            WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-            NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-            BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-            ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-            CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-            SOFTWARE.
-          </Disclaimer>
+          <DisclaimerBlock>
+            <Disclaimer>
+              THE SOFTWARE IS PROVIDED &ldquo;AS IS&rdquo;, WITHOUT WARRANTY OF
+              ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+              WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE
+              AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+              HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+              WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+              OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+              DEALINGS IN THE SOFTWARE.
+            </Disclaimer>
+          </DisclaimerBlock>
         </ModalBody>
         <ModalFooter>
           <Button

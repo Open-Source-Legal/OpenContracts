@@ -307,6 +307,21 @@ export const OS_LEGAL_SPACING = {
 
   /** Standard gap between heading and its subtitle. */
   headingBottomGap: "1rem",
+
+  /** Maximum width for centred modal dialogs (cookie consent, settings). */
+  modalMaxWidth: "760px",
+  /** Side margin around full-bleed modals on smaller viewports. */
+  modalSideGutter: "2rem",
+
+  /** Border radius for inset list items inside cards. */
+  borderRadiusListItem: "6px",
+  /** Border-left thickness for callout / disclaimer blocks. */
+  borderAccentWidth: "3px",
+
+  /** Square dimension for circular icon badges (desktop). */
+  iconBadgeDesktop: "40px",
+  /** Square dimension for circular icon badges (mobile). */
+  iconBadgeMobile: "34px",
 } as const;
 
 /**
@@ -347,4 +362,6 @@ export const OS_LEGAL_SHADOWS = {
   card: "0 4px 12px rgba(0, 0, 0, 0.04)",
   /** Hover card shadow - more prominent elevation. */
   cardHover: "0 8px 24px rgba(0, 0, 0, 0.08)",
+  /** Drop shadow for centred modal overlays. */
+  modalOverlay: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
 } as const;
