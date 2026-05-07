@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useTabVisibilityRefresh } from "../../hooks/useTabVisibilityRefresh";
 import { useQuery } from "@apollo/client";
 import { Dropdown, StatBlock, StatGrid, Table } from "@os-legal/ui";
@@ -346,11 +346,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
   );
   const [limit, setLimit] = useState(25);
 
-  // Issue #1557B: previously these queries polled every 60s/120s on a fixed
-  // clock regardless of whether the page was even visible, which re-rendered
-  // rows and reset in-flight UI state. We now serve cached data instantly
-  // and refresh once on mount / on filter change. Hidden tabs do not refetch
-  // — a manual refresh runs once when the tab becomes visible again.
+  // Cache-first reads with one-shot refresh on mount/filter change. Hidden
+  // tabs do not pay for refetches; ``useTabVisibilityRefresh`` below runs
+  // a single refresh when the tab becomes visible again.
   const {
     loading: leaderboardLoading,
     error: leaderboardError,
@@ -378,11 +376,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
   });
 
   // Refresh once whenever the user returns to the tab. No timer-based polling.
-  const visibilityRefreshFns = useMemo(
-    () => [refetchLeaderboard, refetchStats],
-    [refetchLeaderboard, refetchStats]
-  );
-  useTabVisibilityRefresh(visibilityRefreshFns);
+  useTabVisibilityRefresh([refetchLeaderboard, refetchStats]);
 
   const metricOptions = [
     { value: LeaderboardMetric.BADGES, label: "Top Badge Earners" },

@@ -1,20 +1,26 @@
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 
+// Leaderboard-specific avatar palette. Two final entries are violet/pink
+// accents not present in OS_LEGAL_COLORS — kept in this file so the palette
+// stays a single, audit-able list.
+const AVATAR_VIOLET = "#8B5CF6";
+const AVATAR_PINK = "#EC4899";
+
 const AVATAR_COLOR_PALETTE = [
   OS_LEGAL_COLORS.primaryBlue,
   OS_LEGAL_COLORS.greenMedium,
   OS_LEGAL_COLORS.folderIcon,
   OS_LEGAL_COLORS.dangerBorderHover,
-  "#8B5CF6",
-  "#EC4899",
+  AVATAR_VIOLET,
+  AVATAR_PINK,
 ] as const;
 
 /**
  * Gets initials from a friendly display name for avatar display.
  *
- * Issue #1557: ``displayName`` from the backend is already redacted, so we
- * no longer need to inspect raw OAuth ``provider|sub`` formats — but we still
- * defend against the legacy shape just in case it shows up.
+ * The backend ``displayName`` resolver redacts raw OAuth ``provider|sub``
+ * shapes, so this only needs to handle plain names. The ``|`` branch is
+ * a defensive fallback for legacy cached values.
  */
 export function getLeaderboardInitials(name?: string): string {
   if (!name) return "?";

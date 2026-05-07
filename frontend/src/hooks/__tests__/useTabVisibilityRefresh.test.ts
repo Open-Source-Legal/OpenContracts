@@ -1,6 +1,6 @@
-import { renderHook } from "@testing-library/react-hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { cleanup, renderHook } from "../../test-utils/renderHook";
 import { useTabVisibilityRefresh } from "../useTabVisibilityRefresh";
 
 describe("useTabVisibilityRefresh", () => {
@@ -19,6 +19,7 @@ describe("useTabVisibilityRefresh", () => {
   });
 
   afterEach(() => {
+    cleanup();
     if (originalVisibility) {
       Object.defineProperty(document, "visibilityState", originalVisibility);
     }
@@ -94,5 +95,21 @@ describe("useTabVisibilityRefresh", () => {
     fireVisibility("visible");
 
     expect(sync).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls the latest refresh fns even when the caller passes inline arrays", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+
+    const { rerender } = renderHook(
+      ({ fns }: { fns: Array<() => void> }) => useTabVisibilityRefresh(fns),
+      { fns: [first] }
+    );
+
+    rerender({ fns: [second] });
+    fireVisibility("visible");
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 });

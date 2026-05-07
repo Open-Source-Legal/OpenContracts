@@ -19,7 +19,6 @@ User = get_user_model()
 
 
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    # Friendly display name (Issue #1557)
     display_name = graphene.String(
         description=(
             "A safe, friendly display name for this user. Resolved in order from "
@@ -80,15 +79,16 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         3. ``first_name`` + ``last_name`` — legacy Django profile fields.
         4. ``username`` — only when it does not look like a raw OAuth
            ``provider|sub`` identifier (no ``|`` separator).
-        5. ``user_<last 6 chars of username>`` — redacted fallback that
-           still uniquely distinguishes users in the UI without leaking
-           the upstream OAuth ``sub``.
+        5. ``user_<last N chars of OAuth sub>`` — redacted fallback. The
+           bare ``"user"`` final fallback only triggers if ``username`` is
+           empty (Django enforces non-empty so this is unreachable in
+           practice) and is intentionally not a unique identifier.
 
-        Issue: #1557 — Raw OAuth provider IDs were leaking into the
-        leaderboard USER column because resolvers rendered ``username``
-        directly. ``username`` is set to the Auth0 ``sub`` for social
-        users (see ``jwt_get_username_from_payload_handler``), so the
-        raw value must never be surfaced in any UI.
+        ``username`` is set to the Auth0 ``sub`` for social users (see
+        ``jwt_get_username_from_payload_handler``), so the raw value must
+        never be surfaced in any UI. The expected profile fields (``name``,
+        ``given_name``, ``family_name``, ``first_name``, ``last_name``)
+        are all model columns on ``opencontractserver.users.models.User``.
         """
 
         def _stripped(value: object) -> str:

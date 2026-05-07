@@ -83,11 +83,12 @@ class DisplayNameResolverTestCase(TestCase):
         self.assertNotIn(username, display)
 
     def test_redacts_short_oauth_sub(self):
-        """Even short ``sub`` strings should not leak in full."""
+        """Even short ``sub`` strings should not leak the provider/separator."""
         username = "auth0|abcde"
         user = User.objects.create_user(username=username)
         display = _resolve(user)
-        self.assertTrue(display.startswith("user_"))
+        # sub == "abcde" (5 chars), [-6:] returns the whole sub.
+        self.assertEqual(display, "user_abcde")
         self.assertNotIn("|", display)
 
     def test_whitespace_only_name_is_skipped(self):
@@ -99,6 +100,17 @@ class DisplayNameResolverTestCase(TestCase):
             family_name="Lovelace",
         )
         self.assertEqual(_resolve(user), "Ada Lovelace")
+
+    def test_whitespace_only_given_and_family_are_skipped(self):
+        """Whitespace-only ``given_name``/``family_name`` must not satisfy the chain."""
+        user = User.objects.create_user(
+            username="auth0|abcdef0123456789",
+            given_name="   ",
+            family_name="\t\n",
+            first_name="Grace",
+            last_name="Hopper",
+        )
+        self.assertEqual(_resolve(user), "Grace Hopper")
 
     def test_partial_split_name_does_not_leave_stray_whitespace(self):
         """Only ``family_name`` set — rendered output should be trimmed."""
