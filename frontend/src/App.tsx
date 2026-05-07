@@ -58,6 +58,12 @@ import { Annotations } from "./views/Annotations";
 
 import { ThemeProvider } from "./theme/ThemeProvider";
 
+import {
+  APP_CONTAINER_STYLE,
+  APP_SHELL_FLEX_SHELL_STYLE,
+  APP_SHELL_FOOTER_WRAPPER_STYLE,
+  APP_SHELL_OUTER_STYLE,
+} from "./styles/appShellLayout";
 import "./App.css";
 import "react-toastify/dist/ReactToastify.css";
 import useWindowDimensions from "./components/hooks/WindowDimensionHook";
@@ -297,13 +303,7 @@ export const App = () => {
   }, []);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100vh",
-      }}
-    >
+    <div style={APP_SHELL_OUTER_STYLE}>
       <ToastContainer />
       {show_export_modal ? (
         <ExportModal
@@ -339,30 +339,9 @@ export const App = () => {
         />
       )}
       <ThemeProvider>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-            flex: 1,
-            minHeight: 0,
-          }}
-        >
+        <div style={APP_SHELL_FLEX_SHELL_STYLE}>
           <NavMenu />
-          <div
-            id="AppContainer"
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "flex-start",
-              width: "100%",
-              margin: "0px",
-              padding: "0px",
-              minWidth: "100vw",
-              minHeight: 0,
-            }}
-          >
+          <div id="AppContainer" style={APP_CONTAINER_STYLE}>
             {opened_corpus && (
               <SelectAnalyzerOrFieldsetModal
                 open={show_corpus_analyzer_fieldset_modal}
@@ -543,12 +522,7 @@ export const App = () => {
             </AuthGate>
           </div>
           {!opened_corpus && (
-            <div
-              style={{
-                flexShrink: 0,
-                position: "relative",
-              }}
-            >
+            <div style={APP_SHELL_FOOTER_WRAPPER_STYLE}>
               <Footer />
             </div>
           )}
