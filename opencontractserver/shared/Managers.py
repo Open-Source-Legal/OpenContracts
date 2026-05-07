@@ -53,10 +53,17 @@ def _apply_document_prefetches(
     are applied unconditionally because the corresponding GraphQL fields
     (``creator``, ``myPermissions``, version metadata) are commonly requested
     even on list views — leaving them unprefetched produces an N+1 storm where
-    every list row issues 2-3 extra round trips. See
-    ``resolve_my_permissions`` in
-    ``config/graphql/permissioning/permission_annotator/mixins.py`` for the
-    consumer of ``_prefetched_user_perms``.
+    every list row issues 2-3 extra round trips.
+
+    User-scoped permission prefetches land on each Document instance as
+    ``_prefetched_user_perms_uid_<user.id>`` and
+    ``_prefetched_user_group_perms_uid_<user.id>`` (both pre-joined to the
+    underlying ``Permission`` row via ``select_related("permission")``). The
+    user id suffix is what makes the cache safe to consume from
+    ``user_has_permission_for_obj``: a different user lookup simply finds no
+    attribute and falls through to a guardian query. Consumers:
+    ``resolve_my_permissions`` (mixins.py) and ``get_users_permissions_for_obj``
+    (utils/permissioning.py).
 
     ``with_doc_label_annotations`` opts in to a focused prefetch of the
     document's ``DOC_TYPE_LABEL`` annotations into
@@ -72,7 +79,15 @@ def _apply_document_prefetches(
     queryset = queryset.select_related("creator", "user_lock", "parent")
 
     if user and not user.is_anonymous and not user.is_superuser:
-        from opencontractserver.documents.models import DocumentUserObjectPermission
+        from opencontractserver.documents.models import (
+            DocumentGroupObjectPermission,
+            DocumentUserObjectPermission,
+        )
+
+        # Pre-resolve the user's group ids once so the group-perm prefetch
+        # can filter at the SQL layer. ``.filter(group_id__in=[])`` is
+        # evaluated as ``WHERE FALSE`` which still avoids per-row queries.
+        user_group_ids = list(user.groups.values_list("id", flat=True))
 
         queryset = queryset.prefetch_related(
             Prefetch(
@@ -80,10 +95,15 @@ def _apply_document_prefetches(
                 queryset=DocumentUserObjectPermission.objects.filter(
                     user_id=user.id
                 ).select_related("permission"),
-                to_attr="_prefetched_user_perms",
+                to_attr=f"_prefetched_user_perms_uid_{user.id}",
             ),
-            "documentgroupobjectpermission_set__permission",
-            "documentgroupobjectpermission_set__group",
+            Prefetch(
+                "documentgroupobjectpermission_set",
+                queryset=DocumentGroupObjectPermission.objects.filter(
+                    group_id__in=user_group_ids
+                ).select_related("permission"),
+                to_attr=f"_prefetched_user_group_perms_uid_{user.id}",
+            ),
         )
 
     if not lightweight:

@@ -281,6 +281,56 @@ def get_users_permissions_for_obj(
             f"permission_{model_name}",
         }
 
+    # ------------------------------------------------------------------
+    # Fast path: user-scoped prefetched permissions.
+    #
+    # ``_apply_document_prefetches`` (and any future manager following the
+    # same convention) attaches the requesting user's
+    # ``DocumentUserObjectPermission`` rows as
+    # ``_prefetched_user_perms_uid_<user.id>`` and the user's
+    # ``DocumentGroupObjectPermission`` rows as
+    # ``_prefetched_user_group_perms_uid_<user.id>`` — both pre-joined to
+    # ``permission`` via ``select_related`` so codenames are a memory access.
+    #
+    # The user-id-suffixed attribute names are what make this safe under a
+    # mismatched lookup: if the caller asks about a user the queryset wasn't
+    # prefetched for, ``getattr`` returns ``None`` and we fall through to the
+    # guardian path. An empty list means "user has no rows for this object" —
+    # also correct.
+    # ------------------------------------------------------------------
+    prefetched_user_perms = getattr(
+        instance, f"_prefetched_user_perms_uid_{user.id}", None
+    )
+    if prefetched_user_perms is not None:
+        model_permissions_for_user = {
+            perm.permission.codename for perm in prefetched_user_perms
+        }
+        if hasattr(instance, "is_public") and instance.is_public:
+            model_permissions_for_user.add(f"read_{model_name}")
+
+        if include_group_permissions:
+            prefetched_group_perms = getattr(
+                instance, f"_prefetched_user_group_perms_uid_{user.id}", None
+            )
+            if prefetched_group_perms is not None:
+                for perm in prefetched_group_perms:
+                    model_permissions_for_user.add(perm.permission.codename)
+            else:
+                # User perms were prefetched but group perms weren't (e.g.,
+                # a non-Document model that only opted into the user prefetch);
+                # fall back to the guardian query for groups only.
+                permission_id_to_name_map = get_permission_id_to_name_map_for_model(
+                    instance=instance
+                )
+                this_users_group_perms = getattr(
+                    instance, f"{model_name}groupobjectpermission_set"
+                ).filter(group_id__in=get_users_group_ids(user_instance=user))
+                for perm in this_users_group_perms:
+                    model_permissions_for_user.add(
+                        permission_id_to_name_map[perm.permission_id]
+                    )
+        return model_permissions_for_user
+
     this_user_perms = getattr(instance, f"{model_name}userobjectpermission_set")
 
     logger.debug(f"get_users_permissions_for_obj - this_user_perms: {this_user_perms}")
