@@ -630,9 +630,37 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return self.parent is not None
 
     def resolve_version_count(self, info) -> Any:
-        """Count total versions in this document's version tree."""
-        # Count all documents with same version_tree_id
-        return Document.objects.filter(version_tree_id=self.version_tree_id).count()
+        """
+        Return the count of visible documents sharing this version tree.
+
+        Performance: uses ``DocumentVersionQueryOptimizer.get_version_counts_by_tree``
+        so the first call computes counts for every version tree the user can
+        see in a single aggregated SQL query, caching the result on
+        ``info.context``. Subsequent resolvers in the same GraphQL request
+        resolve in O(1) — eliminating the N+1 ``.count()`` storm that occurred
+        when this field was requested for a paginated documents connection.
+
+        Security: the aggregation is scoped to ``visible_to_user`` so the
+        badge cannot leak the existence of versions hidden from this user.
+        Falls back to 1 because the resolver is only reachable on a document
+        the user can already see (the parent resolver applies the same
+        visibility filter).
+        """
+        from opencontractserver.documents.query_optimizer import (
+            DocumentVersionQueryOptimizer,
+        )
+
+        try:
+            counts = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
+                user=info.context.user,
+                context=info.context,
+            )
+            return counts.get(self.version_tree_id, 1)
+        except Exception as e:
+            logger.warning(
+                f"Failed resolving version_count for document {self.id}. Error: {e}"
+            )
+            return 1
 
     def resolve_is_latest_version(self, info) -> Any:
         """Check if this is the current version."""
