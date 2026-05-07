@@ -96,6 +96,10 @@ def mark_extract_complete(extract_id):
 def run_extract(extract_id: Optional[str | int], user_id: str | int):
     logger.info(f"Run extract for extract {extract_id}")
 
+    if extract_id is None:
+        logger.error("run_extract called without an extract_id — aborting")
+        return
+
     logger.info(f"Fetching extract with ID: {extract_id}")
     extract = Extract.objects.get(pk=extract_id)
     logger.info(f"Found extract: {extract.name} (ID: {extract.id})")
@@ -187,7 +191,7 @@ def run_extract(extract_id: Optional[str | int], user_id: str | int):
                 ):
                     task_kwargs["model_override"] = extract_model_override
 
-                tasks.append(task_func.si(cell.pk, **task_kwargs))
+                tasks.append(task_func.si(cell.pk, **task_kwargs))  # type: ignore[attr-defined]
 
     # Execute the tasks
     if tasks:

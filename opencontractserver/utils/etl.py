@@ -46,7 +46,7 @@ User = get_user_model()
 
 
 def build_label_lookups(
-    corpus_id: str,
+    corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: AnnotationFilterMode = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
 ) -> LabelLookupPythonType:
@@ -55,7 +55,7 @@ def build_label_lookups(
     out labels to only those found in certain analyses or combine with corpus label set.
 
     Args:
-        corpus_id (str): The primary key (UUID string) of the corpus.
+        corpus_id (int): The primary key of the corpus.
         analysis_ids (list[int] | None): Optional list of Analysis PKs.
         annotation_filter_mode (str): One of:
           - "CORPUS_LABELSET_ONLY"
@@ -157,8 +157,8 @@ def build_label_lookups(
     # Pull the corresponding AnnotationLabel objects
     labels = AnnotationLabel.objects.filter(pk__in=all_label_ids)
 
-    text_labels: dict[str | int, AnnotationLabelPythonType] = {}
-    doc_labels: dict[str | int, AnnotationLabelPythonType] = {}
+    text_labels: dict[str, AnnotationLabelPythonType] = {}
+    doc_labels: dict[str, AnnotationLabelPythonType] = {}
 
     # Export all label types: TOKEN_LABEL, SPAN_LABEL, and RELATIONSHIP_LABEL
     # go into text_labels; DOC_TYPE_LABEL goes into doc_labels.
@@ -206,8 +206,8 @@ def build_document_export(
     str,
     str,
     OpenContractDocExport | None,
-    dict[str | int, AnnotationLabelPythonType],
-    dict[str | int, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
 ]:
     """
     Build an export for a given corpus on a given doc. For PDF files, this will burn in annotations
