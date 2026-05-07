@@ -1,10 +1,14 @@
 import styled, { css } from "styled-components";
 import {
   OS_LEGAL_COLORS,
+  OS_LEGAL_SHADOWS,
   OS_LEGAL_SPACING,
   OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
-import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
+import {
+  COOKIE_CONSENT_GRID_BREAKPOINT,
+  MOBILE_VIEW_BREAKPOINT,
+} from "../../assets/configurations/constants";
 import {
   modalFooterBorder,
   modalFooterMobile,
@@ -52,11 +56,6 @@ const serifFont = css`
   font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
 `;
 
-// Collapse the two-column data grid before the modal feels cramped on
-// narrow tablets / split-screen windows. Slightly wider than
-// MOBILE_VIEW_BREAKPOINT so the layout breaks before the modal does.
-const GRID_BREAKPOINT = 720;
-
 const StyledModalWrapper = styled.div`
   .oc-modal-overlay {
     z-index: 2000;
@@ -64,10 +63,10 @@ const StyledModalWrapper = styled.div`
   }
 
   .oc-modal {
-    max-width: 760px;
-    width: calc(100vw - 2rem);
+    max-width: ${OS_LEGAL_SPACING.modalMaxWidth};
+    width: calc(100vw - ${OS_LEGAL_SPACING.modalSideGutter});
     border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
-    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+    box-shadow: ${OS_LEGAL_SHADOWS.modalOverlay};
 
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
       width: 100%;
@@ -134,16 +133,16 @@ const IconBadge = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: ${OS_LEGAL_SPACING.iconBadgeDesktop};
+  height: ${OS_LEGAL_SPACING.iconBadgeDesktop};
   border-radius: 50%;
   background: ${OS_LEGAL_COLORS.accentSurface};
   color: ${OS_LEGAL_COLORS.accent};
   flex-shrink: 0;
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    width: 34px;
-    height: 34px;
+    width: ${OS_LEGAL_SPACING.iconBadgeMobile};
+    height: ${OS_LEGAL_SPACING.iconBadgeMobile};
   }
 `;
 
@@ -208,7 +207,7 @@ const TwoColumnGrid = styled.div`
   gap: 1rem;
   margin-bottom: 1.25rem;
 
-  @media (max-width: ${GRID_BREAKPOINT}px) {
+  @media (max-width: ${COOKIE_CONSENT_GRID_BREAKPOINT}px) {
     grid-template-columns: 1fr;
     gap: 0.75rem;
   }
@@ -222,10 +221,10 @@ const DataCard = styled.section`
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
-`;
 
-const AnalyticsCard = styled(DataCard)`
-  margin-bottom: 1.25rem;
+  &.cookie-consent__analytics {
+    margin-bottom: 1.25rem;
+  }
 `;
 
 const DataCardLead = styled.p`
@@ -252,9 +251,10 @@ const DataListItem = styled.li`
   padding: 0.5rem 0.75rem;
   font-size: 0.8125rem;
   line-height: 1.4;
-  color: ${OS_LEGAL_COLORS.textTertiary};
+  // textSecondary used over textTertiary so prose meets WCAG AA on surfaceLight.
+  color: ${OS_LEGAL_COLORS.textSecondary};
   background: ${OS_LEGAL_COLORS.surfaceLight};
-  border-radius: 6px;
+  border-radius: ${OS_LEGAL_SPACING.borderRadiusListItem};
   ${sansFont}
 
   svg {
@@ -274,13 +274,15 @@ const AnalyticsNote = styled.p`
 const DisclaimerBlock = styled.aside`
   padding: 0.75rem 0.875rem;
   background: ${OS_LEGAL_COLORS.surfaceLight};
-  border-left: 3px solid ${OS_LEGAL_COLORS.borderHover};
+  border-left: ${OS_LEGAL_SPACING.borderAccentWidth} solid
+    ${OS_LEGAL_COLORS.borderHover};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
 `;
 
 const Disclaimer = styled.p`
   margin: 0;
-  font-size: 0.6875rem;
+  // 0.75rem (12px) keeps legal disclaimer text at the WCAG-recommended minimum.
+  font-size: 0.75rem;
   line-height: 1.55;
   letter-spacing: 0.01em;
   color: ${OS_LEGAL_COLORS.textMuted};
@@ -395,8 +397,8 @@ export const CookieConsentDialog = () => {
                 Data You Agree to Share
               </SectionLabel>
               <DataCardLead>
-                By using this demo, you agree to share the following under a
-                CC0 1.0 Universal license:
+                By using this demo, you agree to share the following under a CC0
+                1.0 Universal license:
               </DataCardLead>
               <DataList>
                 <DataListItem>
@@ -412,7 +414,7 @@ export const CookieConsentDialog = () => {
           </TwoColumnGrid>
 
           {analyticsEnabled && (
-            <AnalyticsCard>
+            <DataCard className="cookie-consent__analytics">
               <SectionLabel>
                 <BarChart3 size={14} />
                 Analytics
@@ -439,7 +441,7 @@ export const CookieConsentDialog = () => {
                 never sold or shared with third parties. You can opt out at any
                 time through your browser settings or by using Do Not Track.
               </AnalyticsNote>
-            </AnalyticsCard>
+            </DataCard>
           )}
 
           <DisclaimerBlock>
@@ -449,9 +451,9 @@ export const CookieConsentDialog = () => {
               WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE
               AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
               HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-              WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-              FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-              OTHER DEALINGS IN THE SOFTWARE.
+              WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+              OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+              DEALINGS IN THE SOFTWARE.
             </Disclaimer>
           </DisclaimerBlock>
         </ModalBody>
