@@ -1155,6 +1155,21 @@ class DocumentTypeConnection(CountableConnection):
         node = DocumentType
 
 
+class DocumentStatsType(graphene.ObjectType):
+    """Aggregate stats over the documents visible to the requesting user.
+
+    Counts respect the same ``Document.objects.visible_to_user`` filtering as
+    the ``documents`` connection, so the totals shown on the Documents view
+    match the user's permission scope rather than the paginated subset that
+    happens to be loaded in Apollo's cache.
+    """
+
+    total_docs = graphene.Int(required=True)
+    total_pages = graphene.Int(required=True)
+    processed_count = graphene.Int(required=True)
+    processing_count = graphene.Int(required=True)
+
+
 class DocumentAnalysisRowType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = DocumentAnalysisRow

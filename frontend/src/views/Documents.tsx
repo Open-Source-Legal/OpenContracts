@@ -51,6 +51,9 @@ import {
   RequestDocumentsInputs,
   RequestDocumentsOutputs,
   GET_DOCUMENTS,
+  RequestDocumentStatsInputs,
+  RequestDocumentStatsOutputs,
+  GET_DOCUMENT_STATS,
 } from "../graphql/queries";
 import {
   documentSearchTerm,
@@ -909,36 +912,48 @@ export const Documents = () => {
     return document_items;
   }, [document_items, activeStatusFilter]);
 
-  // Calculate stats with single pass through array
-  const stats = useMemo(() => {
-    const result = document_items.reduce(
-      (acc, doc) => {
-        acc.totalPages += doc.pageCount || 0;
-        if (doc.backendLock) {
-          acc.processingCount += 1;
-        } else {
-          acc.processedCount += 1;
-        }
-        return acc;
-      },
-      { totalPages: 0, processedCount: 0, processingCount: 0 }
-    );
+  // Stats are computed by a single backend ``aggregate()`` over
+  // ``Document.objects.visible_to_user`` so the tile counters reflect the
+  // user's full permission scope rather than the paginated edges that
+  // happen to be loaded into Apollo's cache. The previous client-side
+  // reduce over ``document_items`` was bounded by the page size and
+  // additionally over-counted whenever filter changes leaked stale
+  // edges into the cache (the documents connection has no keyArgs).
+  const documentStatsVariables: RequestDocumentStatsInputs = useMemo(
+    () => ({
+      ...(document_search_term && { textSearch: document_search_term }),
+      ...(filtered_to_label_id && { hasLabelWithId: filtered_to_label_id }),
+      ...(filtered_to_corpus && {
+        inCorpusWithId: filtered_to_corpus.id,
+        includeCaml: true,
+      }),
+    }),
+    [document_search_term, filtered_to_label_id, filtered_to_corpus]
+  );
 
-    return {
-      totalDocs: document_items.length,
-      totalPages: result.totalPages,
-      processedCount: result.processedCount,
-      processingCount: result.processingCount,
-    };
-  }, [document_items]);
+  const { data: stats_data } = useQuery<
+    RequestDocumentStatsOutputs,
+    RequestDocumentStatsInputs
+  >(GET_DOCUMENT_STATS, {
+    variables: documentStatsVariables,
+  });
 
-  // Filter tabs configuration
+  const stats = stats_data?.documentStats ?? {
+    totalDocs: 0,
+    totalPages: 0,
+    processedCount: 0,
+    processingCount: 0,
+  };
+
+  // Filter tabs configuration — ``All Documents`` reflects the full
+  // permission-filtered total, NOT the paginated subset, so the badge
+  // matches the tile counter to the right of it.
   const statusFilterItems: FilterTabItem[] = useMemo(
     () => [
       {
         id: STATUS_FILTERS.ALL,
         label: "All Documents",
-        count: String(document_items.length),
+        count: String(stats.totalDocs),
       },
       {
         id: STATUS_FILTERS.PROCESSED,
@@ -951,7 +966,7 @@ export const Documents = () => {
         count: String(stats.processingCount),
       },
     ],
-    [document_items.length, stats.processedCount, stats.processingCount]
+    [stats.totalDocs, stats.processedCount, stats.processingCount]
   );
 
   // Refetch effects
