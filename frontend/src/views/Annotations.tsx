@@ -452,8 +452,17 @@ export const Annotations = () => {
   }, [isSemanticSearchActive, semanticSearchResults]);
 
   // Calculate stats
+  // NOTE: total comes from the server-side totalCount and is accurate.
+  // The breakdown counts (docLabels/textLabels/humanAnnotated) are derived
+  // from the items currently loaded into the client (initial page +
+  // anything fetched via infinite scroll). With totals in the tens of
+  // thousands these are necessarily partial; the labels below disclose
+  // this so the tiles aren't misread as "0 doc labels exist" when they
+  // really mean "0 in the loaded batch" (issue #1560).
   const stats = useMemo(() => {
     const total = annotation_data?.annotations?.totalCount ?? rawItems.length;
+    const loadedCount = rawItems.length;
+    const isPartial = total > loadedCount;
     const docLabels = rawItems.filter(
       (item) => getAnnotationLabelType(item) === "doc"
     ).length;
@@ -464,8 +473,20 @@ export const Annotations = () => {
       (item) => getAnnotationSource(item) === "human"
     ).length;
 
-    return { total, docLabels, textLabels, humanAnnotated };
+    return {
+      total,
+      loadedCount,
+      isPartial,
+      docLabels,
+      textLabels,
+      humanAnnotated,
+    };
   }, [rawItems, annotation_data?.annotations?.totalCount]);
+
+  const partialBreakdownTooltip = stats.isPartial
+    ? `Counted from ${stats.loadedCount.toLocaleString()} of ${stats.total.toLocaleString()} loaded so far. Scroll to load more.`
+    : undefined;
+  const partialBreakdownSuffix = stats.isPartial ? " (in view)" : "";
 
   // Execute semantic search with current filters
   const performSemanticSearch = useCallback(
@@ -639,33 +660,33 @@ export const Annotations = () => {
               </StatContent>
             </StatItem>
             <StatDivider />
-            <StatItem>
+            <StatItem title={partialBreakdownTooltip}>
               <StatIcon>
                 <FileText size={20} />
               </StatIcon>
               <StatContent>
                 <StatValue>{stats.docLabels}</StatValue>
-                <StatLabel>Doc Labels</StatLabel>
+                <StatLabel>Doc Labels{partialBreakdownSuffix}</StatLabel>
               </StatContent>
             </StatItem>
             <StatDivider />
-            <StatItem>
+            <StatItem title={partialBreakdownTooltip}>
               <StatIcon>
                 <AlignLeft size={20} />
               </StatIcon>
               <StatContent>
                 <StatValue>{stats.textLabels}</StatValue>
-                <StatLabel>Text Labels</StatLabel>
+                <StatLabel>Text Labels{partialBreakdownSuffix}</StatLabel>
               </StatContent>
             </StatItem>
             <StatDivider />
-            <StatItem>
+            <StatItem title={partialBreakdownTooltip}>
               <StatIcon>
                 <User size={20} />
               </StatIcon>
               <StatContent>
                 <StatValue>{stats.humanAnnotated}</StatValue>
-                <StatLabel>Human Annotated</StatLabel>
+                <StatLabel>Human Annotated{partialBreakdownSuffix}</StatLabel>
               </StatContent>
             </StatItem>
           </StatsRow>
@@ -724,11 +745,6 @@ export const Annotations = () => {
               isSemanticSearchActive
                 ? semanticSearchLoading
                 : annotation_loading
-            }
-            loadingMessage={
-              isSemanticSearchActive
-                ? "Searching annotations..."
-                : "Loading Annotations..."
             }
             pageInfo={annotation_data?.annotations?.pageInfo}
             typeFilter={typeFilter}
