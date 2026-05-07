@@ -3,7 +3,7 @@
 -r base.txt
 
 psycopg2==2.9.12  # https://github.com/psycopg/psycopg2
-gunicorn==25.3.0  # https://github.com/benoitc/gunicorn
+gunicorn==26.0.0  # https://github.com/benoitc/gunicorn
 collectfasta==3.3.3  # https://github.com/jasongi/collectfasta (maintained fork of Collectfast)
 
 # Django

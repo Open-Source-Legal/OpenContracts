@@ -6,6 +6,8 @@ export const MOBILE_VIEW_BREAKPOINT = 600;
 export const TABLET_BREAKPOINT = 768;
 // Desktop breakpoint - minimum width for desktop-only features (TABLET_BREAKPOINT + 1)
 export const DESKTOP_BREAKPOINT = 769;
+// Cookie consent modal collapses its two-column data grid below this width.
+export const COOKIE_CONSENT_GRID_BREAKPOINT = 720;
 
 // Icon defaults
 /** Default pixel size for DynamicIcon width and height */
