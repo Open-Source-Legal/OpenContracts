@@ -375,7 +375,7 @@ async def doc_extract_query_task(
         if column.extract_is_list:
             # If it's not already a List type, wrap it
             if get_origin(output_type) is not list:
-                output_type = list[output_type]
+                output_type = list[output_type]  # type: ignore[valid-type]
 
         # 3. Build the prompt
         prompt = column.query if column.query else column.match_text
@@ -444,7 +444,14 @@ async def doc_extract_query_task(
                     prompt=prompt,
                     target_type=output_type,
                     framework=AgentFramework.PYDANTIC_AI,
-                    temperature=extract_temperature,
+                    # ``get_structured_response_and_sources_from_document``
+                    # currently declares ``temperature: float``; we
+                    # intentionally pass ``None`` for Claude models so the
+                    # downstream ``temperature=0`` override in
+                    # ``_structured_response_raw`` engages. Widen the
+                    # accepted type upstream to ``Optional[float]`` and the
+                    # ignore comes off; tracked in #1381.
+                    temperature=extract_temperature,  # type: ignore[arg-type]
                     similarity_top_k=similarity_top_k,
                     model=extract_model,
                     user_id=datacell.creator.id,
@@ -716,7 +723,7 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
 
             # Attempt to parse it as a TextSpanData
             try:
-                span_data: TextSpanData = TextSpanData(**anno_json)
+                span_data: TextSpanData = TextSpanData(**anno_json)  # type: ignore[typeddict-item]
             except Exception:
                 return "Error: Annotation.json could not be parsed as TextSpanData for text/* document."
 
@@ -822,7 +829,7 @@ def annotation_window(document_id: int, annotation_id: str, window_size: str) ->
             for page_obj in pawls_pages:
                 try:
                     pg_ind = page_obj["page"]["index"]
-                    pawls_by_index[pg_ind] = PawlsPagePythonType(**page_obj)
+                    pawls_by_index[pg_ind] = PawlsPagePythonType(**page_obj)  # type: ignore[typeddict-item]
                 except Exception:
                     continue
 

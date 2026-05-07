@@ -4,7 +4,7 @@ import enum
 import json
 import logging
 import traceback
-from typing import Any
+from typing import Any, cast
 
 from celery import shared_task
 from celery.utils.log import get_task_logger
@@ -35,6 +35,7 @@ from opencontractserver.notifications.signals import (
     broadcast_notification_via_websocket,
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.pipeline.utils import (
     get_component_by_name,
@@ -42,6 +43,7 @@ from opencontractserver.pipeline.utils import (
 )
 from opencontractserver.types.dicts import (
     AnnotationLabelPythonType,
+    BoundingBoxPythonType,
     FunsdAnnotationType,
     FunsdTokenType,
     LabelLookupPythonType,
@@ -216,7 +218,9 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
 
         # Create document processing notifications (Issue #624)
         # Notify both document creator and corpus owners
-        _create_document_processed_notifications(document, corpus_data)
+        _create_document_processed_notifications(
+            document, [dict(row) for row in corpus_data]
+        )
 
         if not corpus_data:
             logger.debug(
@@ -238,7 +242,7 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
 
 
 def _create_document_processed_notifications(
-    document: Document, corpus_data: list[dict]
+    document: Document, corpus_data: list[dict[str, Any]]
 ) -> None:
     """
     Create notifications for document processing completion.
@@ -441,7 +445,7 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
 
     # Get the parser class using get_component_by_name
     try:
-        parser_class = get_component_by_name(parser_name)
+        parser_class = cast(type[BaseParser], get_component_by_name(parser_name))
         parser_instance = parser_class()
     except ValueError as e:
         error_msg = f"Failed to load parser '{parser_name}': {e}"
@@ -515,8 +519,8 @@ def burn_doc_annotations(
     str,
     str,
     OpenContractDocExport | None,
-    dict[str | int, AnnotationLabelPythonType],
-    dict[str | int, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
+    dict[str, AnnotationLabelPythonType],
 ]:
     """
     Inspects a single Document (doc_id) in corpus (corpus_id) and selects the relevant
@@ -556,13 +560,13 @@ def convert_doc_to_funsd(
     corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = AnnotationFilterMode.CORPUS_LABELSET_ONLY.value,
-) -> tuple[int, dict[int | str, list[dict[str, Any]]], list[tuple[int, str, str]]]:
+) -> tuple[int, dict[int, list[FunsdAnnotationType]], list[tuple[int, str, str]]]:
     def pawls_token_to_funsd_token(pawls_token: PawlsTokenPythonType) -> FunsdTokenType:
         pawls_xleft = pawls_token["x"]
         pawls_ybottom = pawls_token["y"]
         pawls_ytop = pawls_xleft + pawls_token["width"]
         pawls_xright = pawls_ybottom + pawls_token["height"]
-        funsd_token = {
+        funsd_token: FunsdTokenType = {
             "text": pawls_token["text"],
             # In FUNSD, this must be serialzied to list but that's done by json.dumps and tuple has better typing
             # control (fixed length, positional datatypes, etc.)
@@ -572,7 +576,7 @@ def convert_doc_to_funsd(
 
     doc = Document.objects.get(id=doc_id)
 
-    annotation_map: dict[int, list[dict]] = {}
+    annotation_map: dict[int, list[FunsdAnnotationType]] = {}
 
     # Modify the annotation query to respect filter mode
     doc_annotations = Annotation.objects.filter(document_id=doc_id, corpus_id=corpus_id)
@@ -614,6 +618,8 @@ def convert_doc_to_funsd(
         annotation_label__label_type=TOKEN_LABEL,
     ).order_by("page")
 
+    if not doc.pawls_parse_file.name or not doc.pdf_file.name:
+        raise ValueError(f"Document {doc_id} is missing pawls_parse_file or pdf_file")
     file_object = default_storage.open(doc.pawls_parse_file.name)
     pawls_tokens = expand_pawls_pages(json.loads(file_object.read().decode("utf-8")))
 
@@ -701,12 +707,15 @@ def convert_doc_to_funsd(
                 "id": f"{base_id}-{page_data.page_index}",
                 "linking": [],  # Relationship linking is not yet wired into FUNSD export
                 "text": page_data.raw_text,
-                "box": pawls_bbox_to_funsd_box(page_data.bounds),
+                "box": pawls_bbox_to_funsd_box(
+                    cast(BoundingBoxPythonType, page_data.bounds)
+                ),
                 "label": f"{label.text}",
                 "words": expanded_tokens,
+                "parent_id": None,
             }
 
-            page = str(page_data.page_index)
+            page = page_data.page_index
             if page in annotation_map:
                 annotation_map[page].append(funsd_annotation)
             else:
@@ -759,12 +768,15 @@ def extract_thumbnail(self, doc_id: int) -> None:
     pipeline_settings = PipelineSettings.get_instance()
     preferred_thumbnailer = pipeline_settings.get_preferred_thumbnailer(file_type)
 
-    thumbnailer_class = None
+    thumbnailer_class: type[BaseThumbnailGenerator] | None = None
 
     if preferred_thumbnailer:
         # Try to load the preferred thumbnailer
         try:
-            thumbnailer_class = get_component_by_name(preferred_thumbnailer)
+            thumbnailer_class = cast(
+                type[BaseThumbnailGenerator],
+                get_component_by_name(preferred_thumbnailer),
+            )
             logger.info(
                 f"Using preferred thumbnailer '{preferred_thumbnailer}' for doc {doc_id}"
             )
@@ -775,8 +787,14 @@ def extract_thumbnail(self, doc_id: int) -> None:
             )
 
     if not thumbnailer_class:
-        # Fall back to auto-discovered thumbnailers for the MIME type
-        components = get_components_by_mimetype(file_type)
+        # Fall back to auto-discovered thumbnailers for the MIME type.
+        # ``get_components_by_mimetype`` accepts either a ``FileTypeEnum`` or a
+        # raw MIME string (and resolves the latter via
+        # ``FileTypeEnum.from_mimetype`` internally), so passing ``file_type``
+        # directly is correct — wrapping with ``FileTypeEnum(file_type)``
+        # would raise ``ValueError`` because the enum members are short
+        # labels (``"pdf"``, ``"txt"``), not MIME strings.
+        components = get_components_by_mimetype(file_type)  # type: ignore[arg-type]
         thumbnailers = components.get("thumbnailers", [])
 
         if not thumbnailers:
@@ -784,7 +802,7 @@ def extract_thumbnail(self, doc_id: int) -> None:
             return
 
         # Use the first available thumbnailer
-        thumbnailer_class = thumbnailers[0]
+        thumbnailer_class = cast(type[BaseThumbnailGenerator], thumbnailers[0])
         logger.info(
             f"Using auto-discovered thumbnailer '{thumbnailer_class.__name__}' "
             f"for doc {doc_id}"

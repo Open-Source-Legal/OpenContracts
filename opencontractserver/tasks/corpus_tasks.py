@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from typing import Any
 
 from celery import chord, group, shared_task
 from django.db import transaction
@@ -77,7 +78,7 @@ def run_task_name_analyzer(
         lambda: chord(
             group(
                 [
-                    task_func.s(
+                    task_func.s(  # type: ignore[attr-defined]
                         doc_id=doc_id,
                         analysis_id=analysis.id,
                         corpus_id=(
@@ -103,8 +104,11 @@ def process_analyzer(
     analysis_input_data: dict | None = None,
 ) -> Analysis:
 
+    if analyzer is None:
+        raise ValueError("process_analyzer requires a non-null analyzer")
+
     logger.info(
-        f"process_analyzer called - user_id: {user_id}, analyzer: {analyzer.id if analyzer else None}"
+        f"process_analyzer called - user_id: {user_id}, analyzer: {analyzer.id}"
     )
     logger.info(f"corpus_id: {corpus_id}, document_ids: {document_ids}")
     logger.info(f"analysis_input_data: {analysis_input_data}")
@@ -149,7 +153,7 @@ def process_corpus_action(
     document_ids: list[str | int],
     user_id: str | int,
     trigger: str | None = None,
-):
+) -> None:
     """
     Process corpus actions for given documents with execution tracking.
 
@@ -181,6 +185,10 @@ def process_corpus_action(
 
     summary = {"actions_processed": 0, "executions_queued": 0}
 
+    # Celery JSON serialisation may widen int → str.
+    int_document_ids: list[int] = [int(d) for d in document_ids]
+    int_user_id: int = int(user_id)
+
     for action in actions:
         # Create execution records for tracking
         # Use trigger or default to add_document for backwards compatibility
@@ -191,9 +199,9 @@ def process_corpus_action(
         with transaction.atomic():
             executions = CorpusActionExecution.bulk_queue(
                 corpus_action=action,
-                document_ids=document_ids,
+                document_ids=int_document_ids,
                 trigger=execution_trigger,
-                user_id=user_id,
+                user_id=int_user_id,
             )
         execution_map = {ex.document_id: ex for ex in executions}
 
@@ -209,7 +217,7 @@ def process_corpus_action(
                     corpus=action.corpus,
                     name=f"Action {action.name} for {action.corpus.title}",
                     fieldset=action.fieldset,
-                    creator_id=user_id,
+                    creator_id=int_user_id,
                     corpus_action=action,
                 )
                 extract.started = timezone.now()
@@ -235,8 +243,8 @@ def process_corpus_action(
 
             fieldset = action.fieldset
 
-            for document_id in document_ids:
-                execution = execution_map.get(document_id)
+            for document_id in int_document_ids:
+                doc_execution = execution_map.get(document_id)
 
                 with transaction.atomic():
                     row_results = DocumentAnalysisRow(
@@ -252,19 +260,19 @@ def process_corpus_action(
                             extract=extract,
                             column=column,
                             data_definition=column.output_type,
-                            creator_id=user_id,
+                            creator_id=int_user_id,
                             document_id=document_id,
                         )
                         set_permissions_for_obj_to_user(
-                            user_id, cell, [PermissionTypes.CRUD]
+                            int_user_id, cell, [PermissionTypes.CRUD]
                         )
 
                         # Add data cell to tracking
                         row_results.data.add(cell)
 
                         # Track affected datacell in execution record
-                        if execution:
-                            execution.add_affected_object(
+                        if doc_execution:
+                            doc_execution.add_affected_object(
                                 "datacell", cell.id, column_name=column.name
                             )
 
@@ -277,11 +285,11 @@ def process_corpus_action(
                             continue
 
                         # Add the task to the group
-                        tasks.append(task_func.si(cell.pk))
+                        tasks.append(task_func.si(cell.pk))  # type: ignore[attr-defined]
 
                 # Save updated affected_objects for this execution
-                if execution:
-                    execution.save(update_fields=["affected_objects"])
+                if doc_execution:
+                    doc_execution.save(update_fields=["affected_objects"])
 
             # Capture extract_id and execution_ids for the lambda closure
             extract_id_for_closure = extract.id
@@ -332,13 +340,13 @@ def process_corpus_action(
             )
 
             # Pass execution_id to agent task for tracking
-            for document_id in document_ids:
-                execution = execution_map.get(document_id)
+            for document_id in int_document_ids:
+                doc_execution = execution_map.get(document_id)
                 run_agent_corpus_action.delay(
                     corpus_action_id=action.id,
                     document_id=document_id,
-                    user_id=user_id,
-                    execution_id=execution.id if execution else None,
+                    user_id=int_user_id,
+                    execution_id=doc_execution.id if doc_execution else None,
                 )
 
         else:
@@ -351,8 +359,6 @@ def process_corpus_action(
         f"process_corpus_action() completed - {summary['actions_processed']} actions, "
         f"{summary['executions_queued']} executions queued"
     )
-
-    return summary
 
 
 # --------------------------------------------------------------------------- #
@@ -510,7 +516,7 @@ def update_all_corpus_engagement_metrics():
     # Queue individual update tasks
     for corpus_id in corpus_ids:
         transaction.on_commit(
-            lambda cid=corpus_id: update_corpus_engagement_metrics.apply_async(
+            lambda cid=corpus_id: update_corpus_engagement_metrics.apply_async(  # type: ignore[misc]
                 args=[cid]
             )
         )
@@ -750,7 +756,7 @@ def ensure_embeddings_for_corpus(
         f"corpus={corpus_id}"
     )
 
-    result = {
+    result: dict[str, Any] = {
         "structural_set_id": structural_set_id,
         "corpus_id": corpus_id,
         "embedders_checked": [],
@@ -916,7 +922,7 @@ def reembed_corpus(
         f"reembed_corpus() - corpus={corpus_id}, new_embedder={new_embedder_path}"
     )
 
-    result = {
+    result: dict[str, Any] = {
         "corpus_id": corpus_id,
         "new_embedder_path": new_embedder_path,
         "total_annotations": 0,

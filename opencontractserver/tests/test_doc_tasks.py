@@ -276,6 +276,83 @@ class DocParserTestCase(TestCase):
         self.assertIsInstance(result[1], dict)
         self.assertIsInstance(result[2], list)
 
+    def test_convert_doc_to_funsd_annotation_map_uses_int_keys(self) -> None:
+        """
+        Regression test: convert_doc_to_funsd must return int-keyed annotation_map.
+
+        Prior to the fix, the PR changed the key type from str to int but
+        export_tasks.py still looked up via str(index), silently omitting all
+        FUNSD annotations. This test verifies that when an annotation exists on
+        page 0, the annotation_map returned as result[1] contains the integer key 0
+        (not the string '0').
+        """
+        label = AnnotationLabel.objects.create(
+            text="FunsdLabel", creator=self.user, label_type="TOKEN_LABEL"
+        )
+        Annotation.objects.create(
+            raw_text="FUNSD annotation",
+            annotation_label=label,
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.user,
+            json={
+                "0": {
+                    "tokensJsons": [0],
+                    "rawText": "FUNSD annotation",
+                    "bounds": {"x": 10, "y": 20, "width": 100, "height": 30},
+                }
+            },
+        )
+
+        result = convert_doc_to_funsd.apply(
+            args=(self.user.id, self.doc.id, self.corpus.id)
+        ).get()
+
+        annotation_map = result[1]
+        self.assertIsInstance(annotation_map, dict)
+        # Keys must be int, not str
+        for key in annotation_map:
+            self.assertIsInstance(
+                key,
+                int,
+                f"annotation_map key {key!r} is {type(key).__name__}, expected int",
+            )
+
+    def test_convert_doc_to_funsd_empty_doc_returns_empty_map(self) -> None:
+        """
+        A document with no annotations produces an empty annotation_map and an
+        empty list of page images.
+        """
+        result = convert_doc_to_funsd.apply(
+            args=(self.user.id, self.doc.id, self.corpus.id)
+        ).get()
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], self.doc.id)
+        self.assertEqual(result[1], {})
+        self.assertIsInstance(result[2], list)
+
+    def test_convert_doc_to_funsd_raises_when_files_missing(self) -> None:
+        """
+        ``convert_doc_to_funsd`` must raise ``ValueError`` when the document
+        is missing ``pawls_parse_file`` or ``pdf_file`` (PR #1482 added the
+        explicit guard so the failure is immediate and informative rather than
+        a deeper ``AttributeError`` from default_storage).
+        """
+        # Create a document with no pawls/pdf files attached.
+        bare_doc = Document.objects.create(
+            creator=self.user,
+            title="Bare Doc",
+            description="No files attached",
+            backend_lock=False,
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            convert_doc_to_funsd.apply(
+                args=(self.user.id, bare_doc.id, self.corpus.id), throw=True
+            ).get()
+        self.assertIn("missing", str(cm.exception))
+
 
 class MarkDocumentFailedTestCase(TestCase):
     """Tests for _mark_document_failed and related notification functions."""

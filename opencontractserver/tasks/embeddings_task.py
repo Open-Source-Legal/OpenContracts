@@ -1,6 +1,6 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, cast
 
 import requests
 from celery import shared_task
@@ -252,7 +252,10 @@ def _apply_dual_embedding_strategy(
                     f"using {corpus_embedder_path} (corpus {corpus.id})"
                 )
                 try:
-                    corpus_embedder_class = get_component_by_name(corpus_embedder_path)
+                    corpus_embedder_class = cast(
+                        type[BaseEmbedder],
+                        get_component_by_name(corpus_embedder_path),
+                    )
                     corpus_embedder = corpus_embedder_class()
                     corpus_succeeded = embed_func(
                         obj, corpus_embedder, corpus_embedder_path
@@ -400,7 +403,9 @@ def calculate_embedding_for_annotation_text(
             f"Using explicit embedder_path {embedder_path} for annotation {annotation_id}"
         )
         try:
-            embedder_class = get_component_by_name(embedder_path)
+            embedder_class = cast(
+                type[BaseEmbedder], get_component_by_name(embedder_path)
+            )
             embedder = embedder_class()
             succeeded = _create_embedding_for_annotation(
                 annotation, embedder, embedder_path
@@ -430,7 +435,10 @@ def calculate_embedding_for_annotation_text(
         corpus_id=int(effective_corpus_id) if effective_corpus_id else None,
         obj_type="annotation",
         obj_id=annotation.id,
-        embed_func=_create_embedding_for_annotation,
+        embed_func=cast(
+            "Callable[[HasEmbeddingMixin, BaseEmbedder, str], bool]",
+            _create_embedding_for_annotation,
+        ),
     )
 
 
@@ -711,7 +719,7 @@ def calculate_embeddings_for_annotation_batch(
     Returns:
         dict: Summary with counts of succeeded, failed, and skipped annotations
     """
-    result = {
+    result: dict[str, Any] = {
         "total": len(annotation_ids),
         "succeeded": 0,
         "failed": 0,
@@ -728,10 +736,12 @@ def calculate_embeddings_for_annotation_batch(
     )
 
     # Get embedder instance once for the batch
-    embedder = None
+    embedder: BaseEmbedder | None = None
     if embedder_path:
         try:
-            embedder_class = get_component_by_name(embedder_path)
+            embedder_class = cast(
+                type[BaseEmbedder], get_component_by_name(embedder_path)
+            )
             embedder = embedder_class()
         except Exception as e:
             logger.error(f"Failed to load embedder {embedder_path}: {e}")
@@ -859,7 +869,10 @@ def calculate_embeddings_for_annotation_batch(
                     ),
                     obj_type="annotation",
                     obj_id=annotation.id,
-                    embed_func=_create_embedding_for_annotation,
+                    embed_func=cast(
+                        "Callable[[HasEmbeddingMixin, BaseEmbedder, str], bool]",
+                        _create_embedding_for_annotation,
+                    ),
                 )
                 result["succeeded"] += 1
             except Exception as e:
