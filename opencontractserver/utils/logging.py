@@ -43,7 +43,7 @@ def redact_sensitive_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         >>> redact_sensitive_kwargs({"config": {"api_key": "sk-123"}})
         {"config": {"api_key": "***"}}
     """
-    result = {}
+    result: dict[str, Any] = {}
     for k, v in kwargs.items():
         if any(pattern in k.lower() for pattern in SENSITIVE_KEY_PATTERNS):
             result[k] = "***"
