@@ -404,30 +404,22 @@ describe("AnnotationsPanel", () => {
   });
 
   describe("Loading State", () => {
-    it("shows loading overlay when loading=true", () => {
-      render(
+    it("renders skeleton cards on initial load instead of a dark overlay", () => {
+      // Issue #1560: the previous inverted LoadingOverlay painted a tall
+      // near-black band over a flex container whose height was undefined.
+      // The skeletons match the eventual ModernAnnotationCard layout and
+      // give the grid a predictable height while data is fetched.
+      const { container } = render(
         <TestWrapper>
-          <AnnotationsPanel {...defaultProps} loading={true} />
+          <AnnotationsPanel {...defaultProps} items={[]} loading={true} />
         </TestWrapper>
       );
 
-      expect(screen.getByText("Loading annotations...")).toBeInTheDocument();
-    });
-
-    it("shows custom loading message when provided", () => {
-      render(
-        <TestWrapper>
-          <AnnotationsPanel
-            {...defaultProps}
-            loading={true}
-            loadingMessage="Fetching corpus annotations..."
-          />
-        </TestWrapper>
-      );
-
+      const skeletons = container.querySelectorAll('[aria-hidden="true"]');
+      expect(skeletons.length).toBeGreaterThan(0);
       expect(
-        screen.getByText("Fetching corpus annotations...")
-      ).toBeInTheDocument();
+        screen.queryByText("Loading annotations...")
+      ).not.toBeInTheDocument();
     });
 
     it("does not show empty state while loading", () => {
