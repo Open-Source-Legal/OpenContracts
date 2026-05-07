@@ -63,6 +63,7 @@ from config.graphql.document_types import (  # noqa: F401
     DocumentCorpusActionsType,
     DocumentPathType,
     DocumentRelationshipType,
+    DocumentStatsType,
     DocumentSummaryRevisionType,
     DocumentType,
     DocumentTypeConnection,

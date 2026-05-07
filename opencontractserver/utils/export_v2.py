@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from typing import cast
 
 from django.contrib.auth import get_user_model
 from django.db.models import Q
@@ -29,11 +30,14 @@ from opencontractserver.corpuses.models import (
 from opencontractserver.documents.models import DocumentPath, IngestionSource
 from opencontractserver.types.dicts import (
     AgentConfigExport,
+    CompactAnnotationJsonType,
     CorpusFolderExport,
     DescriptionRevisionExport,
     DocumentPathExport,
     IngestionSourceExport,
+    OpenContractsAnnotationPythonType,
     OpenContractsRelationshipPythonType,
+    PawlsPagePythonType,
     StructuralAnnotationSetExport,
 )
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
@@ -57,11 +61,15 @@ def package_structural_annotation_set(
         StructuralAnnotationSetExport dict or None if error
     """
     try:
-        # Read PAWLS file content
-        pawls_content = []
+        # Read PAWLS file content. ``expand_pawls_pages`` is a permissive
+        # normaliser typed as ``list[dict[str, Any]]``; cast so the
+        # TypedDict assignment below stays narrow.
+        pawls_content: list[PawlsPagePythonType] = []
         if structural_set.pawls_parse_file:
             with structural_set.pawls_parse_file.open("r") as f:
-                pawls_content = expand_pawls_pages(json.load(f))
+                pawls_content = cast(
+                    list[PawlsPagePythonType], expand_pawls_pages(json.load(f))
+                )
 
         # Read text extract
         txt_content = ""
@@ -70,18 +78,25 @@ def package_structural_annotation_set(
                 txt_content = f.read()
 
         # Get structural annotations
-        structural_annotations = []
+        structural_annotations: list[OpenContractsAnnotationPythonType] = []
         for annot in structural_set.structural_annotations.all():
-            annot_data = {
+            # CompactAnnotationJsonType requires both ``v`` and ``p``; an
+            # empty dict would be a structural lie. Emit the canonical
+            # empty-compact payload instead so downstream consumers that
+            # assume the schema cannot trip on missing keys.
+            annotation_json: CompactAnnotationJsonType = (
+                cast(CompactAnnotationJsonType, compact_annotation_json(annot.json))
+                if annot.json
+                else {"v": 2, "p": {}}
+            )
+            annot_data: OpenContractsAnnotationPythonType = {
                 "id": str(annot.id),
                 "annotationLabel": (
                     annot.annotation_label.text if annot.annotation_label else ""
                 ),
                 "rawText": annot.raw_text or "",
                 "page": annot.page or 0,
-                "annotation_json": (
-                    compact_annotation_json(annot.json) if annot.json else {}
-                ),
+                "annotation_json": annotation_json,
                 "parent_id": str(annot.parent_id) if annot.parent_id else None,
                 "annotation_type": annot.annotation_type or "",
                 "structural": True,
@@ -91,7 +106,7 @@ def package_structural_annotation_set(
             structural_annotations.append(annot_data)
 
         # Get structural relationships
-        structural_relationships = []
+        structural_relationships: list[OpenContractsRelationshipPythonType] = []
         for rel in structural_set.structural_relationships.all():
             structural_relationships.append(
                 {
@@ -109,7 +124,7 @@ def package_structural_annotation_set(
                 }
             )
 
-        return {
+        result: StructuralAnnotationSetExport = {
             "content_hash": structural_set.content_hash,
             "parser_name": structural_set.parser_name,
             "parser_version": structural_set.parser_version,
@@ -120,6 +135,7 @@ def package_structural_annotation_set(
             "structural_annotations": structural_annotations,
             "structural_relationships": structural_relationships,
         }
+        return result
 
     except Exception as e:
         logger.error(
@@ -142,14 +158,14 @@ def package_corpus_folders(corpus: Corpus) -> list[CorpusFolderExport]:
     Returns:
         List of CorpusFolderExport dicts
     """
-    folders_export = []
+    folders_export: list[CorpusFolderExport] = []
 
     try:
         # Get all folders for this corpus, ordered by ID (parents before children)
         folders = corpus.folders.all().order_by("id")
 
         # Build export ID mapping (db_id -> export_id)
-        folder_id_map = {}
+        folder_id_map: dict[int, str] = {}
 
         for folder in folders:
             # Use DB ID as export ID (simpler than generating new IDs)
@@ -160,7 +176,7 @@ def package_corpus_folders(corpus: Corpus) -> list[CorpusFolderExport]:
             path = folder.get_path()
 
             # Get parent export ID
-            parent_export_id = None
+            parent_export_id: str | None = None
             if folder.parent_id:
                 parent_export_id = folder_id_map.get(folder.parent_id)
 
@@ -223,9 +239,10 @@ def package_document_paths(corpus: Corpus) -> list[DocumentPathExport]:
             # Fall back to the filename (basename of pdf_file), which matches
             # the key used in annotated_docs and is available on both the
             # export and import sides.
+            document_ref: str
             if doc_path.document.pdf_file_hash:
                 document_ref = doc_path.document.pdf_file_hash
-            elif doc_path.document.pdf_file:
+            elif doc_path.document.pdf_file and doc_path.document.pdf_file.name:
                 document_ref = os.path.basename(doc_path.document.pdf_file.name)
             else:
                 document_ref = str(doc_path.document.id)
@@ -242,7 +259,7 @@ def package_document_paths(corpus: Corpus) -> list[DocumentPathExport]:
             }
 
             # Include ingestion lineage fields when present.
-            if doc_path.ingestion_source_id:
+            if doc_path.ingestion_source_id and doc_path.ingestion_source is not None:
                 entry["ingestion_source_name"] = doc_path.ingestion_source.name
             if doc_path.external_id:
                 entry["external_id"] = doc_path.external_id
@@ -309,7 +326,7 @@ def package_relationships(
     Returns:
         List of relationship dicts
     """
-    relationships_export = []
+    relationships_export: list[OpenContractsRelationshipPythonType] = []
 
     try:
         # Get relationships for documents in this corpus
@@ -369,8 +386,8 @@ def package_md_description_revisions(
     Returns:
         Tuple of (current_md_description, list of revisions)
     """
-    current_description = None
-    revisions_export = []
+    current_description: str | None = None
+    revisions_export: list[DescriptionRevisionExport] = []
 
     try:
         # Get current markdown description
