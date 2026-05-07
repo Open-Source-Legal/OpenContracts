@@ -117,14 +117,7 @@ class DocumentQueryMixin:
     def resolve_document_stats(
         self, info: graphene.ResolveInfo, **kwargs: Any
     ) -> dict[str, int]:
-        """Single-aggregation resolver mirroring ``corpus_filter_counts``.
-
-        Reuses ``DocumentFilter`` for the in_corpus / has_label / text_search
-        / include_caml plumbing so stats and the list query can never drift
-        out of sync. The base queryset is the user-visible queryset from the
-        canonical ``Document.objects.visible_to_user`` manager method, so all
-        guardian / public / creator filtering applies before aggregation.
-        """
+        """Aggregate counts mirroring the ``documents`` list resolver."""
         user = info.context.user
 
         # Strip absent filter args so DocumentFilter doesn't apply them.

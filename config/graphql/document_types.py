@@ -1156,13 +1156,7 @@ class DocumentTypeConnection(CountableConnection):
 
 
 class DocumentStatsType(graphene.ObjectType):
-    """Aggregate stats over the documents visible to the requesting user.
-
-    Counts respect the same ``Document.objects.visible_to_user`` filtering as
-    the ``documents`` connection, so the totals shown on the Documents view
-    match the user's permission scope rather than the paginated subset that
-    happens to be loaded in Apollo's cache.
-    """
+    """Permission-scoped aggregate counts for the Documents view tile counters."""
 
     total_docs = graphene.Int(required=True)
     total_pages = graphene.Int(required=True)

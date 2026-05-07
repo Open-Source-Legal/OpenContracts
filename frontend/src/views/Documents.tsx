@@ -944,12 +944,29 @@ export const Documents = () => {
     [document_search_term, filtered_to_label_id, filtered_to_corpus]
   );
 
-  const { data: stats_data } = useQuery<
+  // ``cache-and-network`` so the tiles update when the user revisits the
+  // view (e.g. after a document finishes processing and ``backendLock`` flips
+  // from true to false in another session). Without it, the default
+  // ``cache-first`` policy would never refetch as long as the variables
+  // remained stable, leaving processed/processing counters stuck at the
+  // values from the first visit.
+  const { data: stats_data, error: stats_error } = useQuery<
     RequestDocumentStatsOutputs,
     RequestDocumentStatsInputs
   >(GET_DOCUMENT_STATS, {
     variables: documentStatsVariables,
+    fetchPolicy: "cache-and-network",
   });
+
+  // Surface stats failures in the console so they don't silently render as
+  // zero counts (the same shape as the loading state). UI-side, we keep the
+  // zero fallback rather than a dash because the rest of the view stays
+  // usable; this is a complementary signal, not a hard error.
+  useEffect(() => {
+    if (stats_error) {
+      console.error("Documents view: GET_DOCUMENT_STATS failed", stats_error);
+    }
+  }, [stats_error]);
 
   const stats = stats_data?.documentStats ?? {
     totalDocs: 0,

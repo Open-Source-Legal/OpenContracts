@@ -20,7 +20,8 @@ from graphene_django.utils.testing import GraphQLTestCase
 from graphql_relay import to_global_id
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
-from opencontractserver.documents.models import Document
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -33,10 +34,14 @@ STATS_QUERY = """
     query DocumentStats(
         $textSearch: String
         $hasLabelWithId: String
+        $inCorpusWithId: String
+        $includeCaml: Boolean
     ) {
         documentStats(
             textSearch: $textSearch
             hasLabelWithId: $hasLabelWithId
+            inCorpusWithId: $inCorpusWithId
+            includeCaml: $includeCaml
         ) {
             totalDocs
             totalPages
@@ -173,14 +178,80 @@ class DocumentStatsTestCase(GraphQLTestCase):
         )
 
     def test_text_search_narrows_counts(self) -> None:
-        # ``DocumentFilter.naive_text_search`` uses ``description__contains``;
-        # both Alice fixtures share the prefix in their description, but only
-        # one has "Public" in the title — DocumentFilter doesn't search title
-        # so we narrow via a description-prefix substring instead.
-        response = self.query(STATS_QUERY, variables={"textSearch": f"{PREFIX}"})
-        # Same 5 results as the unfiltered case — sanity check that
-        # text_search with the broad prefix matches everything.
-        self.assertEqual(self._stats(response)["totalDocs"], 5)
+        # ``DocumentFilter.naive_text_search`` matches on ``description``.
+        # Re-tag a single Alice doc with a unique substring so the search
+        # matches exactly that one document — otherwise this test would be
+        # a duplicate of ``test_authenticated_user_sees_own_plus_shared_plus_public``
+        # (the prefix matches every fixture).
+        narrow_token = f"{PREFIX}NEEDLE"
+        self.alice_public_processed.description = narrow_token
+        self.alice_public_processed.save(update_fields=["description"])
+
+        response = self.query(STATS_QUERY, variables={"textSearch": narrow_token})
+        # Only the re-tagged doc matches — 20 pages, processed.
+        self.assertEqual(
+            self._stats(response),
+            {
+                "totalDocs": 1,
+                "totalPages": 20,
+                "processedCount": 1,
+                "processingCount": 0,
+            },
+        )
+
+    def test_in_corpus_filter_narrows_counts(self) -> None:
+        """``inCorpusWithId`` (frontend forces ``includeCaml=True``) narrows
+        the aggregate to documents in the selected corpus.
+
+        Mirrors the corpus-filter path the Documents view exercises when the
+        user picks a corpus — the resolver must honour the same
+        ``DocumentFilter`` plumbing the list query uses, including the
+        ``include_caml`` flag's effect on which related documents appear.
+        """
+        # A corpus owned by Alice that holds two of her docs (private +
+        # public). The third Alice doc and all Bob docs are NOT in it.
+        # ``DocumentFilter.in_corpus`` looks up membership via
+        # ``DocumentPath`` (corpus_id + is_current + not is_deleted), so
+        # the test directly seeds those rows rather than going through the
+        # heavier ``DocumentFolderService.add_document_to_corpus`` flow,
+        # which clones the document into a corpus-isolated copy.
+        corpus = Corpus.objects.create(
+            title=f"{PREFIX}corpus",
+            description=PREFIX,
+            creator=self.alice,
+            is_public=False,
+        )
+        for doc in (self.alice_private_processed, self.alice_public_processed):
+            DocumentPath.objects.create(
+                document=doc,
+                corpus=corpus,
+                creator=self.alice,
+                path=f"/{doc.title}",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+            )
+
+        response = self.query(
+            STATS_QUERY,
+            variables={
+                "textSearch": PREFIX,
+                "inCorpusWithId": to_global_id("CorpusType", corpus.id),
+                # Frontend hard-codes ``includeCaml=True`` whenever a corpus
+                # is selected; mirror that here so the resolver path under
+                # test matches what the UI actually sends.
+                "includeCaml": True,
+            },
+        )
+        self.assertEqual(
+            self._stats(response),
+            {
+                "totalDocs": 2,
+                "totalPages": 30,
+                "processedCount": 2,
+                "processingCount": 0,
+            },
+        )
 
     def test_has_label_filter_does_not_inflate_counts(self) -> None:
         """Regression guard for the ``has_label_with_id`` join.
