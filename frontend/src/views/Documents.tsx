@@ -55,6 +55,7 @@ import {
   RequestDocumentStatsOutputs,
   GET_DOCUMENT_STATS,
 } from "../graphql/queries";
+import { buildDocumentStatsVariables } from "./documentStatsVariables";
 import {
   documentSearchTerm,
   editingDocument,
@@ -934,14 +935,12 @@ export const Documents = () => {
   // additionally over-counted whenever filter changes leaked stale
   // edges into the cache (the documents connection has no keyArgs).
   const documentStatsVariables: RequestDocumentStatsInputs = useMemo(
-    () => ({
-      ...(document_search_term && { textSearch: document_search_term }),
-      ...(filtered_to_label_id && { hasLabelWithId: filtered_to_label_id }),
-      ...(filtered_to_corpus && {
-        inCorpusWithId: filtered_to_corpus.id,
-        includeCaml: true,
+    () =>
+      buildDocumentStatsVariables({
+        searchTerm: document_search_term,
+        labelId: filtered_to_label_id,
+        corpus: filtered_to_corpus,
       }),
-    }),
     [document_search_term, filtered_to_label_id, filtered_to_corpus]
   );
 
