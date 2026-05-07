@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -58,7 +58,7 @@ from opencontractserver.utils.packaging import (
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
+    from opencontractserver.users.models import User as UserModel
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -126,7 +126,7 @@ def _setup_corpus_and_labels(
     data_json: (
         OpenContractsExportDataJsonPythonType | OpenContractsExportDataJsonV2Type
     ),
-    user_obj: AbstractBaseUser,
+    user_obj: UserModel,
     seed_corpus_id: int | None,
 ) -> tuple[
     Corpus,
@@ -143,22 +143,37 @@ def _setup_corpus_and_labels(
     label_set_data = {**data_json["label_set"]}
     label_set_data.pop("id", None)
 
-    labelset_obj = unpack_label_set_from_export(label_set_data, user_obj)
+    # The {**data_json["label_set"]} spread widens to dict[str, Any], which
+    # is structurally compatible with the OpenContractsLabelSetType TypedDict
+    # the unpacker declares but mypy can't bridge dict <-> TypedDict at the
+    # callsite. Tracked under the broader typing-graduation umbrella (#1447)
+    # — fix is to widen the unpacker signature to Mapping[str, Any] when
+    # ``utils.importing`` graduates from the baseline.
+    labelset_obj = unpack_label_set_from_export(label_set_data, user_obj)  # type: ignore[arg-type]  # TODO(#1447)
+    if labelset_obj is None:
+        raise RuntimeError("Failed to unpack label set from export")
     logger.info("LabelSet created: %s", labelset_obj)
 
     corpus_data = {**data_json["corpus"]}
     corpus_data.pop("id", None)
 
     corpus_obj = unpack_corpus_from_export(
-        data=corpus_data,
+        data=corpus_data,  # type: ignore[arg-type]  # TODO(#1447) — see label_set_data note above
         user=user_obj,
         label_set_id=labelset_obj.id,
         corpus_id=seed_corpus_id if seed_corpus_id else None,
     )
+    if corpus_obj is None:
+        raise RuntimeError("Failed to unpack corpus from export")
     logger.info("Created corpus: %s", corpus_obj)
 
+    # ``data_json`` is dict[str, Any] from json.loads, but
+    # ``prepare_import_labels`` expects ``OpenContractsExportDataJsonPythonType``.
+    # See the label_set_data note above and TODO(#1447).
     label_lookup, doc_label_lookup = prepare_import_labels(
-        data_json, user_obj.id, labelset_obj
+        data_json,  # type: ignore[arg-type]  # TODO(#1447)
+        user_obj.id,
+        labelset_obj,
     )
 
     return corpus_obj, labelset_obj, label_lookup, doc_label_lookup
@@ -168,12 +183,12 @@ def _import_document_with_annotations(
     doc_filename: str,
     doc_data: dict[str, Any],
     import_zip: zipfile.ZipFile,
-    user_obj: AbstractBaseUser,
+    user_obj: UserModel,
     corpus_obj: Corpus,
     label_lookup: dict[str, AnnotationLabel],
     doc_label_lookup: dict[str, AnnotationLabel],
     structural_sets: dict[str, StructuralAnnotationSet] | None = None,
-) -> tuple[Document | None, dict[str, int]]:
+) -> tuple[Document | None, dict[str | int, int]]:
     """
     Import a single document into a corpus, handling:
     - Document creation (standalone) via shared create_document_from_export_data
@@ -248,7 +263,7 @@ def _import_corpus(
         OpenContractsExportDataJsonPythonType | OpenContractsExportDataJsonV2Type
     ),
     import_zip: zipfile.ZipFile,
-    user_obj: AbstractBaseUser,
+    user_obj: UserModel,
     seed_corpus_id: int | None,
     version: str = "1.0",
 ) -> int | None:
@@ -279,7 +294,8 @@ def _import_corpus(
         # ===== V2 only: Import structural annotation sets =====
         structural_sets: dict[str, StructuralAnnotationSet] = {}
         if is_v2:
-            struct_sets_data = data_json.get("structural_annotation_sets", {})
+            v2_struct_data = cast(OpenContractsExportDataJsonV2Type, data_json)
+            struct_sets_data = v2_struct_data.get("structural_annotation_sets", {})
             for content_hash, struct_data in struct_sets_data.items():
                 struct_set = import_structural_annotation_set(
                     struct_data, label_lookup_by_text, user_obj
@@ -289,7 +305,9 @@ def _import_corpus(
             logger.info("Imported %s structural annotation sets", len(structural_sets))
 
         # ===== Shared: Import documents =====
-        all_annot_id_maps: dict[str, int] = {}  # aggregated old_id -> new_id
+        # Aggregated old_id -> new_id; ``import_doc_annotations`` returns
+        # ``dict[str | int, int]`` so the aggregator widens to match.
+        all_annot_id_maps: dict[str | int, int] = {}
         # Track doc_hash -> corpus_doc for DocumentPath reconstruction
         doc_hash_to_corpus_doc: dict[str, Document] = {}
         # Strict filename -> corpus_doc map (no hash keys mixed in).  Used
@@ -301,7 +319,7 @@ def _import_corpus(
             logger.info("Importing document: %s", doc_filename)
             corpus_doc, annot_id_map = _import_document_with_annotations(
                 doc_filename=doc_filename,
-                doc_data=doc_data,
+                doc_data=cast("dict[str, Any]", doc_data),
                 import_zip=import_zip,
                 user_obj=user_obj,
                 corpus_obj=corpus_obj,
@@ -323,17 +341,22 @@ def _import_corpus(
 
         # ===== V2 only: Import additional features =====
         if is_v2:
+            # ``is_v2`` guarantees the V2 export schema; narrow for mypy so
+            # ``.get()`` returns the correctly typed lists/dicts instead of
+            # the V1∩V2 ``object`` lower-bound.
+            v2_data = cast(OpenContractsExportDataJsonV2Type, data_json)
+
             # Import folders
-            folders_data = data_json.get("folders", [])
+            folders_data = v2_data.get("folders", [])
             import_corpus_folders(folders_data, corpus_obj, user_obj)
 
             # Import ingestion sources and reconstruct DocumentPaths
-            ingestion_sources_data = data_json.get("ingestion_sources", [])
+            ingestion_sources_data = v2_data.get("ingestion_sources", [])
             source_name_map = _import_ingestion_sources(
                 ingestion_sources_data, user_obj
             )
 
-            document_paths_data = data_json.get("document_paths", [])
+            document_paths_data = v2_data.get("document_paths", [])
             if document_paths_data:
                 _reconstruct_document_paths(
                     document_paths_data,
@@ -343,7 +366,7 @@ def _import_corpus(
                 )
 
             # Import relationships (corpus-level, non-structural)
-            relationships_data = data_json.get("relationships", [])
+            relationships_data = v2_data.get("relationships", [])
             if relationships_data:
                 _import_v2_relationships(
                     relationships_data,
@@ -354,7 +377,7 @@ def _import_corpus(
                 )
 
             # Import agent config
-            agent_config = data_json.get("agent_config", {})
+            agent_config = v2_data.get("agent_config")
             if agent_config:
                 import_agent_config(agent_config, corpus_obj)
 
@@ -363,8 +386,8 @@ def _import_corpus(
             # ``oc-import://`` placeholder links written in the README by
             # the zip author are rewritten to live URLs after all referenced
             # objects have been created.  See utils/caml_rewrite.py.
-            md_description = data_json.get("md_description")
-            md_revisions = data_json.get("md_description_revisions", [])
+            md_description = v2_data.get("md_description")
+            md_revisions = v2_data.get("md_description_revisions", [])
             if md_description or md_revisions:
                 import_md_description_revisions(
                     md_description,
@@ -372,14 +395,16 @@ def _import_corpus(
                     corpus_obj,
                     user_obj,
                     doc_filename_to_doc=doc_filename_to_corpus_doc,
-                    annot_old_id_to_new_pk=all_annot_id_maps,
+                    annot_old_id_to_new_pk=cast(
+                        "dict[str | int, int] | None", all_annot_id_maps
+                    ),
                 )
 
             # Import conversations (if present)
-            if "conversations" in data_json:
-                conversations = data_json.get("conversations", [])
-                messages = data_json.get("messages", [])
-                votes = data_json.get("message_votes", [])
+            if "conversations" in v2_data:
+                conversations = v2_data.get("conversations", [])
+                messages = v2_data.get("messages", [])
+                votes = v2_data.get("message_votes", [])
                 import_conversations(
                     conversations,
                     messages,
@@ -400,11 +425,11 @@ def _import_corpus(
 def _import_v2_relationships(
     relationships_data: list[OpenContractsRelationshipPythonType],
     corpus_obj: Corpus,
-    annot_id_map: dict[str, int],
+    annot_id_map: dict[str | int, int],
     label_lookup: dict[
         tuple[str, str], AnnotationLabel
     ],  # key: (label_text, label_type)
-    user_obj: AbstractBaseUser,
+    user_obj: UserModel,
 ) -> None:
     """
     Import V2 corpus-level relationships, skipping structural ones (handled
@@ -423,16 +448,19 @@ def _import_v2_relationships(
             logger.warning("Relationship label '%s' not found", label_text)
             continue
 
-        # Map annotation IDs
-        source_ids = [
-            annot_id_map.get(str(old_id))
+        # Map annotation IDs (drop any missing entries before persisting).
+        # ``dict.get`` returns ``None`` for unknown keys, so the ``is not None``
+        # check on the walrus result is sufficient — no separate membership
+        # test required.
+        source_ids: list[int] = [
+            new_id
             for old_id in rel_data.get("source_annotation_ids", [])
-            if str(old_id) in annot_id_map
+            if (new_id := annot_id_map.get(str(old_id))) is not None
         ]
-        target_ids = [
-            annot_id_map.get(str(old_id))
+        target_ids: list[int] = [
+            new_id
             for old_id in rel_data.get("target_annotation_ids", [])
-            if str(old_id) in annot_id_map
+            if (new_id := annot_id_map.get(str(old_id))) is not None
         ]
 
         if source_ids and target_ids:
@@ -454,7 +482,7 @@ def _import_v2_relationships(
 
 def _import_ingestion_sources(
     sources_data: list[IngestionSourceExport],
-    user_obj: AbstractBaseUser,
+    user_obj: UserModel,
 ) -> dict[str, IngestionSource]:
     """
     Import or get-or-create IngestionSource records from exported data.

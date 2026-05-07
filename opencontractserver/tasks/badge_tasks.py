@@ -5,16 +5,13 @@ Celery tasks for badge auto-awarding and management.
 import logging
 from typing import Optional
 
-from django.contrib.auth import get_user_model
-
 from config import celery_app
 from opencontractserver.badges.models import Badge, BadgeTypeChoices, UserBadge
 from opencontractserver.conversations.models import ChatMessage
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
-
-User = get_user_model()
 
 
 class BadgeCriteriaType:
