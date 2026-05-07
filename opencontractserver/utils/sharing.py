@@ -42,14 +42,23 @@ def make_analysis_public(analysis_id: int | str) -> MakePublicReturnType:
 
         analysis = Analysis.objects.get(id=analysis_id)
 
+        # Validate prerequisites BEFORE mutating any state. Without this guard,
+        # an analysis with no ``analyzed_corpus`` would be persisted as
+        # ``is_public=True`` on the early-return path below, leaving the row
+        # mutated while the caller sees ``ok=False`` — a silent inconsistency.
+        corpus = analysis.analyzed_corpus
+        if corpus is None:
+            return {
+                "message": "ERROR - Analysis has no analyzed_corpus",
+                "ok": False,
+            }
+
         # Lock the analysis as this can take a long time depending on the number of
         # documents and annotations to change permissions for.
         with transaction.atomic():
             analysis.is_public = True
             analysis.backend_lock = True
             analysis.save()
-
-        corpus = analysis.analyzed_corpus
 
         # Bulk update the analyzers labels
         labels = AnnotationLabel.objects.filter(analyzer=analysis.analyzer)

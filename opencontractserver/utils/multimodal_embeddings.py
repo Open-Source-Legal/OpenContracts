@@ -11,16 +11,18 @@ combined via weighted average with configurable weights (default: 30% text,
 """
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union, cast
 
 import numpy as np
 from django.conf import settings
+from typing_extensions import NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from opencontractserver.annotations.models import Annotation
     from opencontractserver.pipeline.base.embedder import BaseEmbedder
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
+from opencontractserver.types.dicts import PawlsTokenPythonType
 from opencontractserver.types.enums import ContentModality
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.pdf_token_extraction import (
@@ -29,6 +31,31 @@ from opencontractserver.utils.pdf_token_extraction import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _ImageContentToken(TypedDict):
+    """Narrow shape for tokens loaded from ``annotation.image_content_file``.
+
+    Distinct from ``PawlsTokenPythonType``: the cached file persists only the
+    image fields needed downstream, so x/y/text are absent and the base64
+    payload is keyed as ``image_data`` rather than ``base64_data``. Defining
+    this explicitly documents the on-disk contract and avoids a misleading
+    cast to ``PawlsTokenPythonType``.
+    """
+
+    is_image: bool
+    image_data: NotRequired[Optional[str]]
+    format: NotRequired[str]
+    width: NotRequired[Optional[int]]
+    height: NotRequired[Optional[int]]
+
+
+# Image tokens reach ``embed_images_average`` from two sources:
+# - Fast path: ``load_images_from_annotation_file`` → ``_ImageContentToken``
+# - Slow path: PAWLs traversal → ``PawlsTokenPythonType`` (with is_image=True)
+# The union captures both without misrepresenting either; callers dispatch
+# on whichever fields are present.
+ImageTokenLike = Union[PawlsTokenPythonType, _ImageContentToken]
 
 
 def get_multimodal_weights() -> tuple[float, float]:
@@ -103,7 +130,7 @@ def weighted_average_embeddings(
 def get_annotation_image_tokens(
     annotation: "Annotation",
     pawls_data: Optional[list[dict]] = None,
-) -> list[dict]:
+) -> list[ImageTokenLike]:
     """
     Extract image tokens referenced by an annotation.
 
@@ -126,7 +153,9 @@ def get_annotation_image_tokens(
                 f"Annotation {annotation.pk} loaded {len(images)} images from "
                 f"image_content_file (fast path)"
             )
-            return images
+            # ``list`` is invariant; widen explicitly to the union the
+            # function declares.
+            return list(images)
         # Fall through to PAWLs if file load failed
 
     try:
@@ -171,7 +200,7 @@ def get_annotation_image_tokens(
             return []
 
         # Get token references from annotation json (handles v1 and v2 formats)
-        image_tokens = []
+        image_tokens: list[ImageTokenLike] = []
 
         for page in iter_page_annotations(
             annotation.json or {}, raw_text=annotation.raw_text or ""
@@ -187,7 +216,7 @@ def get_annotation_image_tokens(
                     if token_idx < len(tokens):
                         token = tokens[token_idx]
                         if isinstance(token, dict) and token.get("is_image"):
-                            image_tokens.append(token)
+                            image_tokens.append(cast(PawlsTokenPythonType, token))
 
         return image_tokens
     except Exception as e:
@@ -199,7 +228,7 @@ def get_annotation_image_tokens(
 
 def embed_images_average(
     embedder: "BaseEmbedder",
-    image_tokens: list[dict],
+    image_tokens: list[ImageTokenLike],
 ) -> Optional[list[float]]:
     """
     Embed all image tokens and return their average embedding.
@@ -217,8 +246,12 @@ def embed_images_average(
     embeddings = []
 
     for token in image_tokens:
-        # Get base64 image data
-        base64_data = get_image_as_base64(token)
+        # Get base64 image data. ``get_image_as_base64`` looks up
+        # ``base64_data`` / ``image_path`` on full PAWLs tokens; on the
+        # narrower ``_ImageContentToken`` it returns None and the token is
+        # skipped (matches the prior behavior — the cached file path is
+        # exercised through the slow path in practice).
+        base64_data = get_image_as_base64(cast(PawlsTokenPythonType, token))
         if not base64_data:
             logger.debug("Could not get base64 data for image token")
             continue
@@ -378,7 +411,9 @@ def extract_and_store_annotation_images(
                         token = tokens[token_idx]
                         if isinstance(token, dict) and token.get("is_image"):
                             # Extract image data
-                            base64_data = get_image_as_base64(token)
+                            base64_data = get_image_as_base64(
+                                cast(PawlsTokenPythonType, token)
+                            )
                             if base64_data:
                                 extracted_images.append(
                                     {
@@ -415,7 +450,9 @@ def extract_and_store_annotation_images(
         return False
 
 
-def load_images_from_annotation_file(annotation: "Annotation") -> list[dict]:
+def load_images_from_annotation_file(
+    annotation: "Annotation",
+) -> list[_ImageContentToken]:
     """
     Load pre-extracted image data from annotation.image_content_file.
 
@@ -435,15 +472,15 @@ def load_images_from_annotation_file(annotation: "Annotation") -> list[dict]:
         try:
             data = json.load(annotation.image_content_file)
             images = data.get("images", [])
-            # Convert to token-like format expected by embed_images_average
+            # Build ``_ImageContentToken``s — distinct from full PAWLs tokens.
             return [
-                {
-                    "is_image": True,
-                    "image_data": img.get("base64"),
-                    "format": img.get("format", "jpeg"),
-                    "width": img.get("width"),
-                    "height": img.get("height"),
-                }
+                _ImageContentToken(
+                    is_image=True,
+                    image_data=img.get("base64"),
+                    format=img.get("format", "jpeg"),
+                    width=img.get("width"),
+                    height=img.get("height"),
+                )
                 for img in images
             ]
         finally:

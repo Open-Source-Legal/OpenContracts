@@ -132,6 +132,116 @@ export const GET_DOCUMENTS = gql`
   }
 `;
 
+// Aggregate stats for the Documents view tile counters. Computed by a single
+// backend ``aggregate()`` over ``Document.objects.visible_to_user`` so the
+// numbers reflect the user's full permission scope rather than the paginated
+// edges currently sitting in Apollo's cache.
+export interface RequestDocumentStatsInputs {
+  textSearch?: string;
+  hasLabelWithId?: string;
+  inCorpusWithId?: string;
+  includeCaml?: boolean;
+}
+
+export interface RequestDocumentStatsOutputs {
+  documentStats: {
+    totalDocs: number;
+    totalPages: number;
+    processedCount: number;
+    processingCount: number;
+  };
+}
+
+export const GET_DOCUMENT_STATS = gql`
+  query GetDocumentStats(
+    $textSearch: String
+    $hasLabelWithId: String
+    $inCorpusWithId: String
+    $includeCaml: Boolean
+  ) {
+    documentStats(
+      textSearch: $textSearch
+      hasLabelWithId: $hasLabelWithId
+      inCorpusWithId: $inCorpusWithId
+      includeCaml: $includeCaml
+    ) {
+      totalDocs
+      totalPages
+      processedCount
+      processingCount
+    }
+  }
+`;
+
+// Slim list-view query for the top-level Documents view (frontend/src/views/Documents.tsx).
+//
+// GET_DOCUMENTS is shared by many surfaces (modals, corpus tabs, upload flow,
+// metadata workflow tests) and selects a kitchen-sink of fields — including
+// expensive per-row resolvers like ``versionCount`` (an N+1 ``.count()`` per
+// document on the backend), ``canViewHistory`` / ``canRetry`` (per-row
+// ``user_has_permission_for_obj`` checks), and four file-URL fields the list
+// view never renders. The Documents view only paints id / title / fileType /
+// backendLock / pageCount / icon / created / creator initials, with creator
+// slugs needed for ``navigateToDocument``. Keeping a focused query here lets
+// the list view skip the heavy fan-out without disturbing the other consumers
+// of GET_DOCUMENTS.
+export interface RequestDocumentsForListInputs {
+  textSearch?: string;
+  inCorpusWithId?: string;
+  hasLabelWithId?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface RequestDocumentsForListOutputs {
+  documents: {
+    edges: DocumentTypeEdge[];
+    pageInfo: PageInfo;
+  };
+}
+
+export const GET_DOCUMENTS_FOR_LIST = gql`
+  query GetDocumentsForList(
+    $inCorpusWithId: String
+    $textSearch: String
+    $hasLabelWithId: String
+    $cursor: String
+    $limit: Int
+  ) {
+    documents(
+      inCorpusWithId: $inCorpusWithId
+      textSearch: $textSearch
+      hasLabelWithId: $hasLabelWithId
+      first: $limit
+      after: $cursor
+    ) {
+      edges {
+        node {
+          id
+          slug
+          title
+          fileType
+          backendLock
+          pageCount
+          icon
+          created
+          creator {
+            id
+            slug
+            email
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
+
 // Lazy fetch of a single document's relationships (used by hover popups in the
 // document list). Kept separate from GET_DOCUMENTS so the list view can
 // resolve hundreds of documents without paying the per-doc relationship cost.

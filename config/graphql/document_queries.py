@@ -10,7 +10,8 @@ from typing import Any
 import graphene
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import QuerySet
+from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models.functions import Coalesce
 from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
 from graphql import GraphQLError
@@ -23,6 +24,7 @@ from config.graphql.filters import DocumentFilter, DocumentRelationshipFilter
 from config.graphql.graphene_types import (
     BulkDocumentUploadStatusType,
     DocumentRelationshipType,
+    DocumentStatsType,
     DocumentType,
     IngestionSourceType,
 )
@@ -93,6 +95,61 @@ class DocumentQueryMixin:
 
         doc_cache[document_id] = document
         return document
+
+    # DOCUMENT STATS RESOLVER ##############################################
+
+    document_stats = graphene.Field(
+        DocumentStatsType,
+        in_corpus_with_id=graphene.String(required=False),
+        has_label_with_id=graphene.String(required=False),
+        text_search=graphene.String(required=False),
+        include_caml=graphene.Boolean(required=False),
+        description=(
+            "Aggregate counts (total docs, total pages, processed, processing) "
+            "over documents visible to the requesting user. Accepts the same "
+            "filter args as the ``documents`` connection so the stat tiles on "
+            "the Documents view stay accurate regardless of how many pages "
+            "have been loaded into Apollo's cache."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_document_stats(
+        self, info: graphene.ResolveInfo, **kwargs: Any
+    ) -> dict[str, int]:
+        """Aggregate counts mirroring the ``documents`` list resolver."""
+        user = info.context.user
+
+        # Strip absent filter args so DocumentFilter doesn't apply them.
+        filter_data = {
+            key: value
+            for key, value in kwargs.items()
+            if value is not None and value != ""
+        }
+
+        # ``lightweight=True`` skips prefetches we don't need for an
+        # aggregation; counts read scalar columns and don't traverse
+        # relations, so paying for prefetches here would be pure waste.
+        visible = Document.objects.visible_to_user(user, lightweight=True)
+        filtered = DocumentFilter(data=filter_data, queryset=visible).qs
+
+        # ``DocumentFilter.has_label_id`` joins ``doc_annotation`` (one row
+        # per matching annotation), which would inflate ``Count`` and — more
+        # importantly — ``Sum(page_count)`` because ``Sum(distinct=True)``
+        # sums distinct *values*, not distinct *rows*. Re-base the aggregate
+        # on an ``id__in`` subquery so each Document is counted exactly once.
+        counts = Document.objects.filter(id__in=filtered.values("id")).aggregate(
+            total_docs=Count("id"),
+            total_pages=Coalesce(Sum("page_count"), 0),
+            processed_count=Count("id", filter=Q(backend_lock=False)),
+            processing_count=Count("id", filter=Q(backend_lock=True)),
+        )
+        return {
+            "total_docs": counts["total_docs"],
+            "total_pages": counts["total_pages"],
+            "processed_count": counts["processed_count"],
+            "processing_count": counts["processing_count"],
+        }
 
     # DOCUMENT RELATIONSHIP RESOLVERS #####################################
     document_relationships = DjangoFilterConnectionField(
