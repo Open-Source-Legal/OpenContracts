@@ -26,6 +26,7 @@ from django.utils import timezone
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
+    from opencontractserver.users.models import User as UserModel
 
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
@@ -57,7 +58,7 @@ User = get_user_model()
 def import_structural_annotation_set(
     struct_data: StructuralAnnotationSetExport,
     label_lookup: dict,
-    user_obj: User,
+    user_obj: UserModel,
 ) -> StructuralAnnotationSet | None:
     """
     Import or retrieve existing StructuralAnnotationSet.
@@ -166,14 +167,16 @@ def import_structural_annotation_set(
                 logger.warning(f"Relationship label '{label_text}' not found, skipping")
                 continue
 
-            # Map old annotation IDs to new ones
-            source_ids = [
-                annot_id_map.get(str(old_id))
+            # Map old annotation IDs to new ones. The membership check above
+            # guarantees the lookups resolve, so narrow ``int | None`` to
+            # ``int`` for the downstream ``.set(...)`` calls.
+            source_ids: list[int] = [
+                annot_id_map[str(old_id)]
                 for old_id in rel_data.get("source_annotation_ids", [])
                 if str(old_id) in annot_id_map
             ]
-            target_ids = [
-                annot_id_map.get(str(old_id))
+            target_ids: list[int] = [
+                annot_id_map[str(old_id)]
                 for old_id in rel_data.get("target_annotation_ids", [])
                 if str(old_id) in annot_id_map
             ]
@@ -199,7 +202,7 @@ def import_structural_annotation_set(
 def import_corpus_folders(
     folders_data: list[CorpusFolderExport],
     corpus: Corpus,
-    user_obj: User,
+    user_obj: UserModel,
 ) -> dict[str, CorpusFolder]:
     """
     Import corpus folder hierarchy.
@@ -217,7 +220,7 @@ def import_corpus_folders(
     """
     from opencontractserver.corpuses.folder_service import DocumentFolderService
 
-    folder_map = {}
+    folder_map: dict[str, CorpusFolder] = {}
 
     try:
         # Sort folders by path depth (ensures parents created before children)
@@ -245,7 +248,7 @@ def import_corpus_folders(
                 is_public=folder_data.get("is_public", False),
             )
 
-            if error:
+            if error or folder is None:
                 logger.error(f"Error creating folder {folder_data['name']}: {error}")
                 continue
 
@@ -290,7 +293,7 @@ def import_md_description_revisions(
     md_description: str | None,
     revisions_data: list[DescriptionRevisionExport],
     corpus: Corpus,
-    user_obj: User,
+    user_obj: UserModel,
     doc_filename_to_doc: dict[str, Document] | None = None,
     annot_old_id_to_new_pk: dict[str | int, int] | None = None,
 ) -> None:
@@ -376,7 +379,7 @@ def import_conversations(
     messages_data: list,
     votes_data: list,
     corpus: Corpus,
-    user_obj: User,
+    user_obj: UserModel,
     doc_hash_to_doc: dict | None = None,
 ) -> None:
     """
@@ -493,27 +496,27 @@ def import_conversations(
         for msg_data in messages_data:
             parent_id = msg_data.get("parent_message_id")
             if parent_id:
-                message = msg_map.get(msg_data["id"])
+                child_message = msg_map.get(msg_data["id"])
                 parent = msg_map.get(parent_id)
-                if message and parent:
-                    message.parent_message = parent
-                    messages_to_update.append(message)
+                if child_message and parent:
+                    child_message.parent_message = parent
+                    messages_to_update.append(child_message)
         if messages_to_update:
             ChatMessage.objects.bulk_update(messages_to_update, ["parent_message"])
 
         # Import votes
         for vote_data in votes_data:
             msg_export_id = vote_data.get("message_id")
-            message = msg_map.get(msg_export_id)
+            vote_message = msg_map.get(msg_export_id)
 
-            if not message:
+            if not vote_message:
                 continue
 
             creator_email = vote_data.get("creator_email", "")
             creator = User.objects.filter(email=creator_email).first() or user_obj
 
             vote = MessageVote.objects.create(
-                message=message,
+                message=vote_message,
                 vote_type=vote_data.get("vote_type", "upvote"),
                 creator=creator,
             )

@@ -1155,6 +1155,15 @@ class DocumentTypeConnection(CountableConnection):
         node = DocumentType
 
 
+class DocumentStatsType(graphene.ObjectType):
+    """Permission-scoped aggregate counts for the Documents view tile counters."""
+
+    total_docs = graphene.Int(required=True)
+    total_pages = graphene.Int(required=True)
+    processed_count = graphene.Int(required=True)
+    processing_count = graphene.Int(required=True)
+
+
 class DocumentAnalysisRowType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = DocumentAnalysisRow
