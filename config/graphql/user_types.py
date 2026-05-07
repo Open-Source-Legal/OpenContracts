@@ -12,6 +12,7 @@ from config.graphql.base import CountableConnection
 from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
 )
+from opencontractserver.constants.auth import OAUTH_SUB_DISPLAY_SUFFIX_LENGTH
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 User = get_user_model()
@@ -124,8 +125,14 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return username
 
         if username:
-            return f"user_{username[-6:]}"
+            # Take the suffix from the OAuth sub (the part after the last "|")
+            # so the redacted display never carries the provider prefix or the
+            # separator itself, even when the sub is short (e.g. "auth0|abc").
+            sub = username.rsplit("|", 1)[-1]
+            return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
 
+        # Django enforces non-empty username, so this branch is effectively
+        # unreachable; the bare "user" sentinel is intentionally not unique.
         return "user"
 
     def resolve_reputation_global(self, info) -> Any:
