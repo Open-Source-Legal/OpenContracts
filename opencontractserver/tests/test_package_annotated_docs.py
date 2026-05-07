@@ -164,3 +164,52 @@ class PackageAnnotatedDocsSkipTestCase(TestCase):
 
         data = json.loads(zf.read("data.json").decode("utf-8"))
         self.assertEqual(data["annotated_docs"], {})
+
+    def test_raises_when_corpus_export_packager_returns_none(self) -> None:
+        """
+        PR #1482 added an explicit ``RuntimeError`` when
+        ``package_corpus_for_export`` returns ``None`` (previously the result
+        was silently written into ``OpenContractsExportDataJsonPythonType``).
+        """
+        good_doc = (
+            "good.pdf",
+            self.fake_pdf_b64,
+            _make_doc_export("Good"),
+            self.text_labels,
+            self.doc_labels,
+        )
+
+        with patch(
+            "opencontractserver.tasks.export_tasks.package_corpus_for_export",
+            return_value=None,
+        ), self.assertRaises(RuntimeError) as cm:
+            package_annotated_docs(
+                burned_docs=(good_doc,),
+                export_id=self.export.id,
+                corpus_pk=self.corpus.id,
+            )
+        self.assertIn("corpus", str(cm.exception).lower())
+
+    def test_raises_when_label_set_packager_returns_none(self) -> None:
+        """
+        PR #1482 added an explicit ``RuntimeError`` when
+        ``package_label_set_for_export`` returns ``None``.
+        """
+        good_doc = (
+            "good.pdf",
+            self.fake_pdf_b64,
+            _make_doc_export("Good"),
+            self.text_labels,
+            self.doc_labels,
+        )
+
+        with patch(
+            "opencontractserver.tasks.export_tasks.package_label_set_for_export",
+            return_value=None,
+        ), self.assertRaises(RuntimeError) as cm:
+            package_annotated_docs(
+                burned_docs=(good_doc,),
+                export_id=self.export.id,
+                corpus_pk=self.corpus.id,
+            )
+        self.assertIn("label set", str(cm.exception).lower())

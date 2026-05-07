@@ -332,6 +332,27 @@ class DocParserTestCase(TestCase):
         self.assertEqual(result[1], {})
         self.assertIsInstance(result[2], list)
 
+    def test_convert_doc_to_funsd_raises_when_files_missing(self) -> None:
+        """
+        ``convert_doc_to_funsd`` must raise ``ValueError`` when the document
+        is missing ``pawls_parse_file`` or ``pdf_file`` (PR #1482 added the
+        explicit guard so the failure is immediate and informative rather than
+        a deeper ``AttributeError`` from default_storage).
+        """
+        # Create a document with no pawls/pdf files attached.
+        bare_doc = Document.objects.create(
+            creator=self.user,
+            title="Bare Doc",
+            description="No files attached",
+            backend_lock=False,
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            convert_doc_to_funsd.apply(
+                args=(self.user.id, bare_doc.id, self.corpus.id), throw=True
+            ).get()
+        self.assertIn("missing", str(cm.exception))
+
 
 class MarkDocumentFailedTestCase(TestCase):
     """Tests for _mark_document_failed and related notification functions."""

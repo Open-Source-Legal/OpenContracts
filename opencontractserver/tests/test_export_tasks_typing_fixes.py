@@ -15,7 +15,7 @@ import json
 import os
 import tempfile
 import zipfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -228,6 +228,110 @@ class PackageFunsdExportsIntKeyTestCase(TestCase):
         page_data = json.loads(zf.read(annot_file).decode("utf-8"))
         self.assertEqual(page_data, {"form": []})
 
+    def test_aws_storage_reads_page_via_s3_get_object(self):
+        """
+        AWS storage branch: ``s3.get_object`` returns the page bytes which are
+        then written into the zip. Patches ``boto3.client`` so no real AWS
+        call is made.
+        """
+        annotation: FunsdAnnotationType = {
+            "box": (0.0, 0.0, 5.0, 5.0),
+            "text": "aws-page",
+            "label": "L",
+            "words": [],
+            "linking": [],
+            "id": "ann-aws",
+            "parent_id": None,
+        }
+        funsd_annotations = {0: [annotation]}
+        page_image_paths = [(7, "s3/key/path.png", "png")]
+
+        # Build a mock s3 client whose get_object returns a Body with .read().
+        body = io.BytesIO(b"\x89PNG\r\n\x1a\n")
+        fake_s3 = MagicMock()
+        fake_s3.get_object.return_value = {"Body": body}
+
+        captured: dict = {}
+
+        def _capture(export_id, filename, output_bytes, corpus_title):
+            output_bytes.seek(0)
+            captured["bytes"] = output_bytes.getvalue()
+
+        with self.settings(
+            STORAGE_BACKEND="AWS",
+            AWS_STORAGE_BUCKET_NAME="bucket-x",
+        ), patch("boto3.client", return_value=fake_s3), patch(
+            "opencontractserver.tasks.export_tasks.finalize_export",
+            side_effect=_capture,
+        ):
+            package_funsd_exports(
+                funsd_data=((7, funsd_annotations, page_image_paths),),
+                export_id=self.export.id,
+                corpus_pk=self.corpus.id,
+            )
+
+        fake_s3.get_object.assert_called_once_with(
+            Bucket="bucket-x", Key="s3/key/path.png"
+        )
+        self.assertIn("bytes", captured)
+        zf = zipfile.ZipFile(io.BytesIO(captured["bytes"]))
+        self.assertIn("images/doc_7-pg_0.png", zf.namelist())
+
+    def test_gcp_storage_reads_page_via_blob_download(self):
+        """
+        GCP storage branch: ``gcs_bucket.blob().download_as_bytes()`` returns
+        the page bytes which are then written into the zip. The package_funsd
+        helper resolves ``gcs_bucket`` lazily from the AWS/GCP gating block at
+        the top of the function, so we patch the storage-client construction.
+        """
+        annotation: FunsdAnnotationType = {
+            "box": (0.0, 0.0, 5.0, 5.0),
+            "text": "gcp-page",
+            "label": "L",
+            "words": [],
+            "linking": [],
+            "id": "ann-gcp",
+            "parent_id": None,
+        }
+        funsd_annotations = {0: [annotation]}
+        page_image_paths = [(9, "gcs/key/path.png", "png")]
+
+        fake_blob = MagicMock()
+        fake_blob.download_as_bytes.return_value = b"\x89PNG\r\n\x1a\n"
+        fake_bucket = MagicMock()
+        fake_bucket.blob.return_value = fake_blob
+        fake_storage_client = MagicMock()
+        fake_storage_client.bucket.return_value = fake_bucket
+
+        captured: dict = {}
+
+        def _capture(export_id, filename, output_bytes, corpus_title):
+            output_bytes.seek(0)
+            captured["bytes"] = output_bytes.getvalue()
+
+        with self.settings(
+            STORAGE_BACKEND="GCP",
+            GS_BUCKET_NAME="gcs-bucket",
+            GS_PROJECT_ID="gcp-test-project",
+        ), patch(
+            "google.cloud.storage.Client",
+            return_value=fake_storage_client,
+            create=True,
+        ), patch(
+            "opencontractserver.tasks.export_tasks.finalize_export",
+            side_effect=_capture,
+        ):
+            package_funsd_exports(
+                funsd_data=((9, funsd_annotations, page_image_paths),),
+                export_id=self.export.id,
+                corpus_pk=self.corpus.id,
+            )
+
+        fake_blob.download_as_bytes.assert_called_once()
+        self.assertIn("bytes", captured)
+        zf = zipfile.ZipFile(io.BytesIO(captured["bytes"]))
+        self.assertIn("images/doc_9-pg_0.png", zf.namelist())
+
     def test_multiple_pages_multiple_annotations(self):
         """Annotations on multiple pages are stored in separate files."""
         annotation_p0: FunsdAnnotationType = {
@@ -297,6 +401,32 @@ class PackageCorpusExportV2ErrorsFieldTestCase(TestCase):
             creator=self.user,
             backend_lock=True,
         )
+
+    def test_runtime_error_when_corpus_packager_returns_none(self):
+        """
+        PR #1482 added a hard ``RuntimeError`` when
+        ``package_corpus_for_export`` returns ``None`` for V2 exports.  Verify
+        the failure flows through the except-handler that records the error
+        on the export and re-raises so Celery sees the failure.
+        """
+        # Create a corpus that the task can fetch.
+        corpus = Corpus.objects.create(title="Empty V2 Corpus", creator=self.user)
+
+        # Stub out the V2 corpus packager so it returns None mid-way through
+        # the task. Patch path matches the import at the top of
+        # ``export_tasks_v2``.
+        with patch(
+            "opencontractserver.tasks.export_tasks_v2.package_corpus_for_export",
+            return_value=None,
+        ), self.assertRaises(RuntimeError):
+            package_corpus_export_v2(
+                export_id=self.export.id,
+                corpus_pk=corpus.id,
+            )
+
+        self.export.refresh_from_db()
+        self.assertFalse(self.export.backend_lock)
+        self.assertTrue(bool(self.export.errors))
 
     def test_errors_field_populated_on_failure(self):
         """
