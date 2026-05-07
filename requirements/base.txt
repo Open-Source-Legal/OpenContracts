@@ -17,7 +17,7 @@ brotli>=1.2.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI A
 
 # Django
 # ------------------------------------------------------------------------------
-django==5.2.13  # https://www.djangoproject.com/
+django==5.2.14  # https://www.djangoproject.com/
 django-environ==0.13.0  # https://github.com/joke2k/django-environ
 django-model-utils==5.0.0  # https://github.com/jazzband/django-model-utils
 django-redis==6.0.0  # https://github.com/jazzband/django-redis

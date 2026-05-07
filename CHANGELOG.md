@@ -27,6 +27,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Typing: graduate `opencontractserver.conversations.models` from mypy baseline** (refs Issue #1447, closes #1478): removed the last remaining `[mypy-opencontractserver.conversations.models]` `ignore_errors` block from `mypy.ini` and pruned 29 baseline error lines from `docs/typing/mypy_baseline.txt`. Per-file fixes in `opencontractserver/conversations/models.py`:
+  - Replaced the `Optional["AbstractBaseUser"]` parameter on `ConversationQuerySet.visible_to_user` and `ChatMessageQuerySet.visible_to_user` with `"UserModel | AnonymousUser | None"` (forward-referenced via `TYPE_CHECKING` import of `opencontractserver.users.models.User as UserModel`). Cleared the 2× `AnonymousUser → AbstractBaseUser | None` assignment errors at the `if user is None: user = AnonymousUser()` reassignment, the 6× `[union-attr]` errors on `.is_superuser` / `.is_anonymous` / `.id`, and the `Incompatible type for lookup 'creator'` error on `Document.objects.filter(creator=user)` (after narrowing past the `is_anonymous` early-return, mypy resolves user to `User`).
+  - Aligned `SoftDeleteManager.visible_to_user`, `ConversationManager.visible_to_user`, and `ChatMessageManager.visible_to_user` signatures with `BaseVisibilityManager.visible_to_user` (added `lightweight: bool = False` and `with_doc_label_annotations: bool = False` kwargs forwarded to `super()` for parity), eliminating the 3× `Signature of "visible_to_user" incompatible with supertype` `[override]` errors without resorting to `# type: ignore[override]`.
+  - Stopped reassigning `base_qs` after `.annotate(...)` in `ConversationQuerySet.search_by_embedding` and `ChatMessageQuerySet.search_by_embedding`; the reassignment surfaced a `ConversationQuerySet[Model, Model]` vs `ConversationQuerySet[_Model, _Row]` (and the `ChatMessageQuerySet` equivalent) generic mismatch from django-stubs because `.annotate` widens the row TypeVar. The function now uses a separate `annotated_qs` local for the post-annotate pipeline.
+  - Scoped `# type: ignore[misc]` on the `objects = ConversationManager()` and `objects = ChatMessageManager()` class-variable overrides (django-stubs flags re-declaring `BaseOCModel.objects`; the manager substitution is the documented mechanism for plugging in custom QuerySets).
+  - Replaced narrowing `assert self.message is not None` in `ModerationAction.__str__` with a defensive `if/else` guard so the fallback path is exercised under `python -O` and covered by tests.
+  - Lifted `from django.contrib.auth.models import AnonymousUser` from three local function imports to a module-level import so the type annotation does not need a `TYPE_CHECKING` indirection.
+
+  Verified locally with `mypy --config-file mypy.ini opencontractserver config` reporting "Success: no issues found in 1032 source files".
+
+- **Typing: graduated 11 `opencontractserver.utils.*` modules out of the mypy baseline** (chunk 2 of issue #1481, follow-up to #1331/#1447). Modules graduated and `ignore_errors` removed from `mypy.ini`: `export_v2`, `files`, `import_v2`, `importing`, `logging`, `mention_parser`, `multimodal_embeddings`, `packaging`, `pdf_token_extraction`, `sharing`, `storages`. 54 baseline error entries pruned from `docs/typing/mypy_baseline.txt`. Highlights:
+  - V2 export builders now emit narrowly typed `TypedDict` payloads (`StructuralAnnotationSetExport`, `CorpusFolderExport`, `OpenContractsRelationshipPythonType`, `DescriptionRevisionExport`).
+  - `packaging.unpack_corpus_from_export` discriminates V1 vs V2 input via the `OpenContractCorpusV2Type` overlay; the V1/V2 detection key is the presence of `post_processors` (legacy V1 exports never carry it).
+  - `multimodal_embeddings` propagates `PawlsTokenPythonType` through the image-token pipeline.
+  - `import_v2` and `packaging` use `TYPE_CHECKING` `User` aliases so `User = get_user_model()` is no longer used as a runtime annotation.
+  - `sharing.make_analysis_public` now guards against analyses with no `analyzed_corpus` and returns a graceful error response instead of crashing on `AttributeError`.
+  - `files.split_pdf_into_images` preserves its `Literal["PNG", "JPEG"]` parameter narrowing across the case-normalisation step.
+  - **Latent bug fix uncovered by typing**: `packaging.unpack_label_set_from_export` and `unpack_corpus_from_export` had inverted `isinstance(user, str)` checks on parameters typed `int | UserModel`; the `int` branch was unreachable. Pinned by `opencontractserver/tests/test_packaging_typing_bug_fixes.py`.
+  - Pre-commit `mypy` continues to run clean on the full project surface (`opencontractserver` + `config`).
+
 - **typing: graduate `opencontractserver.mcp.server` and `opencontractserver.mcp.tools` from the mypy baseline** (issue #1486, sub-issue of #1447). Both modules pass `mypy` cleanly and their `[mypy-...]` blocks are removed from `mypy.ini`; the corresponding 7 entries are pruned from `docs/typing/mypy_baseline.txt`. Real-typing changes (no `# type: ignore` shortcuts where a proper annotation would do):
   - `opencontractserver/mcp/server.py` — `resources` now annotated as `list[Resource]`; resource `uri` strings wrapped in `pydantic.AnyUrl(...)` to match `Resource.uri`'s `Annotated[AnyUrl, ...]` field; `MCPLifespanManager._run_context` and `ScopedMCPLifespanManager._run_context` typed as `AbstractAsyncContextManager[None] | None` instead of bare `None`, fixing the `__aenter__` / assignment errors; ASGI `app(scope, receive, send)` and the inner `_handle_mcp_request` now use a shared `MutableMapping[str, Any]`-based `ASGIScope`/`ASGISend`/`ASGIReceive` alias compatible with Starlette and `StreamableHTTPSessionManager.handle_request`; `handle_sse_connection` annotated as `(request: Request) -> Response`; `__init__` and `main` get explicit `-> None` returns.
   - `opencontractserver/mcp/tools.py` — single `# type: ignore[attr-defined]` on `.search_by_embedding(...)` (mirrors the existing pattern in `opencontractserver/discovery/views.py`); django-stubs cannot model the custom `DocumentQuerySet.search_by_embedding` through the `from_queryset(...)` manager. `_text_search_fallback` parameters typed (`corpus: Corpus`, `user: User | AnonymousUser`).
@@ -68,6 +88,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Pruned 52 corresponding lines from `docs/typing/mypy_baseline.txt`.
 
 ### Fixed
+
+- **STRIDE P0 follow-up review fixes** (issue #1466, follow-up to PR #1463).
+  - `_add_doc_type_annotation` test helper in
+    `opencontractserver/tests/test_add_annotation_idor.py:157` now passes the
+    `user` argument it accepts into `_MutationContext` instead of the
+    hard-coded `self.attacker`. The previous version made the helper appear
+    parameterised but always executed as the attacker, so any future caller
+    that passed `self.victim` would have silently re-run the attacker case
+    and could miss a regression.
+  - `_resolve_annotation_parents` in
+    `config/graphql/annotation_mutations.py:218` now imports `DocumentPath`
+    at module level alongside `Document` (no circular dependency exists),
+    removing the unexplained lazy import.
+  - `resolve_bulk_document_upload_status` in
+    `config/graphql/document_queries.py:215` now constructs the opaque
+    "not found" `BulkDocumentUploadStatusType` only inside the rejection
+    branch instead of allocating it unconditionally on every status query.
+    (Code-quality cleanup, not a security fix — the previous code
+    allocated the response eagerly but only ever returned it on the
+    rejection path, so externally-observable behaviour is unchanged.)
+  - `BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS` in
+    `opencontractserver/constants/zip_import.py:60` carries a comment
+    explaining why the 24-hour default is intentionally generous (a large
+    zip can take many hours and the user must remain able to poll progress
+    for the full lifetime of the job).
+  - `ingest_doc` in `opencontractserver/tasks/doc_tasks.py:350` carries a
+    comment explaining why the worker-side check uses `PermissionTypes.READ`
+    while the parallel `retry_document_processing` path uses
+    `PermissionTypes.UPDATE`.
+  - `retry_document_processing` in
+    `opencontractserver/tasks/doc_tasks.py:846` now emits a
+    `[SECURITY]`-tagged log line on the `User.DoesNotExist` early-exit and
+    returns the more accurate `"Invalid user for retry"` message instead
+    of the misleading `"Document not found"`. Audit symmetry with the
+    `ingest_doc` path is now preserved.
+  - `Corpus._propagate_public_status_to_documents` in
+    `opencontractserver/corpuses/models.py:522` moves the
+    `cross_owner_blocked_ids` query inside the `transaction.atomic()`
+    block, closing the narrow race where a document added to a new
+    cross-owner private corpus between the membership check and the
+    update could be incorrectly publicized. The same method now passes
+    `batch_size=500` to `Notification.objects.bulk_create` so a corpus
+    with thousands of cross-owner documents does not blow up a single
+    SQL statement.
 
 - **Bulk and single document import no longer crash with Apollo "Payload allocation size overflow"** before the network request fires. The previous transport base64-encoded the entire file (PDF or zip) into a single GraphQL `String` variable; Apollo then `JSON.stringify`'d the request body, which V8 cannot allocate as a contiguous string for large files (~33% inflation pushes a moderately sized zip past the V8 string limit / heap fragmentation ceiling). The frontend now streams uploads as `multipart/form-data` via `fetch` to two new REST endpoints, so the binary bytes never become a JS string. Files affected:
   - `frontend/src/components/widgets/modals/UploadModal/hooks/useUploadMutations.ts` — replaces the `UPLOAD_DOCUMENT` and `UPLOAD_DOCUMENTS_ZIP` Apollo mutations with `fetch` calls.

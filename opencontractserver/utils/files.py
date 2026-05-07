@@ -131,12 +131,15 @@ def split_pdf_into_images(
         logger.debug(f"Target format before uppercase conversion: {target_format}")
         logger.debug(f"Force local storage: {force_local}")
 
-        # Ensure target_format is uppercase
-        target_format = target_format.upper()
-        logger.debug(f"Target format after uppercase conversion: {target_format}")
-        if target_format not in ["PNG", "JPEG"]:
-            logger.error(f"Unsupported target format: {target_format}")
-            raise ValueError(f"Unsupported target format: {target_format}")
+        # Ensure target_format is uppercase. Use a separate variable so the
+        # narrowed Literal type from the parameter is preserved while we
+        # validate user-supplied case variants.
+        normalized_format = target_format.upper()
+        logger.debug(f"Target format after uppercase conversion: {normalized_format}")
+        if normalized_format not in ("PNG", "JPEG"):
+            logger.error(f"Unsupported target format: {normalized_format}")
+            raise ValueError(f"Unsupported target format: {normalized_format}")
+        target_format = typing.cast(typing.Literal["PNG", "JPEG"], normalized_format)
 
         # Resolution (754x1000) is chosen to match PAWLS coordinate system expectations
         logger.debug("Converting PDF to images at PAWLS-compatible resolution 754x1000")
@@ -320,6 +323,7 @@ def create_text_thumbnail(
     draw = ImageDraw.Draw(img)
 
     # Load a font
+    font: typing.Union[ImageFont.FreeTypeFont, ImageFont.ImageFont]
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
         logger.debug("Using Arial font")
