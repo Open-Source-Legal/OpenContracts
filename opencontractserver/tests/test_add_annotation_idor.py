@@ -154,7 +154,7 @@ class AddAnnotationIDORTests(TestCase):
                 "documentId": to_global_id("DocumentType", self.victim_doc.pk),
                 "annotationLabelId": to_global_id("AnnotationLabelType", self.label.pk),
             },
-            context_value=_MutationContext(self.attacker),
+            context_value=_MutationContext(user),
         )
 
     def test_attacker_cannot_add_annotation_to_victim_document(self):
@@ -190,6 +190,25 @@ class AddAnnotationIDORTests(TestCase):
         payload = result["data"]["addAnnotation"]
         self.assertTrue(payload["ok"], msg=payload.get("message"))
         self.assertIsNotNone(payload["annotation"])
+
+    def test_owner_can_add_doc_type_annotation(self):
+        """Regression for the _add_doc_type_annotation helper bug.
+
+        Before the fix, _add_doc_type_annotation always executed as
+        self.attacker regardless of the user argument. This test pins that
+        calling the helper with self.victim actually runs as the victim (owner)
+        and succeeds, proving the context_value now uses the supplied user.
+        """
+        before = Annotation.objects.filter(document=self.victim_doc).count()
+        result = self._add_doc_type_annotation(self.victim)
+        self.assertNotIn("errors", result, msg=result.get("errors"))
+        payload = result["data"]["addDocTypeAnnotation"]
+        self.assertTrue(payload["ok"], msg=payload.get("message"))
+        self.assertIsNotNone(payload["annotation"])
+        # Exactly one new annotation must have been written.
+        self.assertEqual(
+            Annotation.objects.filter(document=self.victim_doc).count(), before + 1
+        )
 
     def test_read_only_collaborator_cannot_add_annotation(self):
         """READ-only access on the parents must not unlock CREATE on the child."""
