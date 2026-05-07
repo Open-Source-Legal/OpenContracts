@@ -54,7 +54,7 @@ def parse_mentions_from_content(markdown_content: str) -> dict[str, set[str]]:
         >>> parse_mentions_from_content(md)
         {'users': {'john-doe'}, 'documents': set(), 'annotations': set(), 'corpuses': {'my-corpus'}, 'agents': set()}
     """
-    mentioned = {
+    mentioned: dict[str, set[str]] = {
         "users": set(),
         "documents": set(),
         "annotations": set(),
