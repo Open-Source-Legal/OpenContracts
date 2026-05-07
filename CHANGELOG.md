@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agent tools for step-by-step CAML article citation review**
+  (`opencontractserver/llms/tools/core_tools/caml_article.py`,
+  registered in `opencontractserver/llms/tools/tool_registry.py`). Three new
+  async tools compose into a "find a candidate → verify the match → ask the
+  user → replace one location" loop the agent can run against the corpus's
+  `Readme.CAML` article:
+  - `read_corpus_caml_article` (read-only, `requires_corpus`) loads the
+    article via `Document.objects.visible_to_user(user)` and returns it as
+    blank-line-delimited blocks with each block's existing `{{@cite ...}}`
+    directives plus a `needs_citation_candidate` heuristic that flags prose
+    blocks lacking a citation. Headings, lists, code fences, blockquotes,
+    table rows, and `[component:…]` markers are excluded so the candidate
+    list stays focused on text the user would actually want to cite.
+  - `propose_caml_citation_match` (read-only, `requires_corpus`) runs the
+    same `CoreAnnotationVectorStore.async_search` path the renderer's
+    `useCiteHandler` uses, scoped to the invoking user's `user_id` so
+    `Annotation` visibility is honoured. Returns ranked
+    `{annotation_id, raw_text, label_text, label_color, document_id,
+    document_title, corpus_id, page, similarity_score}` candidates capped at
+    25 entries.
+  - `apply_caml_article_edit` (`requires_approval=True`,
+    `requires_write_permission=True`, `requires_corpus`) replaces a single
+    occurrence of `target_text` inside `Readme.CAML` with `replacement_text`.
+    Fails closed if the substring matches zero or more than one location, and
+    layers a defense-in-depth UPDATE check (`is_superuser` /
+    `creator_id == user.id` / `user_has_permission_for_obj(... UPDATE)`) on
+    top of the wrapper's READ check on `deps.corpus_id`. The edit rewrites
+    `Document.txt_extract_file` in place via `FieldFile.save`, so the
+    existing Document row is preserved and frontend deep-links to
+    `Readme.CAML` continue to resolve. The `rationale` argument is surfaced
+    in the approval modal so the user can see why each replacement was
+    proposed.
+  - Agent flow is one approval prompt per replacement, matching the issue
+    request to "step through changes with the user — one citation at a
+    time". The directive registry on the frontend is already extensible
+    (`frontend/src/components/corpuses/caml/directiveRegistry.ts`), so the
+    inserted `{{@cite scope}}` markers are resolved at render time by the
+    existing `useCiteHandler` semantic search; no frontend changes needed.
+  - Tests in `opencontractserver/tests/test_caml_review_tools.py` cover
+    block parsing, candidate heuristics, IDOR-safe error messages, the
+    single-occurrence rule, the creator/superuser/UPDATE check matrix, and
+    registry resolution including the `requires_approval` /
+    `requires_write_permission` / `requires_corpus` flags.
+
+### Fixed
+
+- **`get_embedder` redundant tuple cast** (`opencontractserver/utils/embeddings.py:132`). The follow-up patch in commit 85496ad re-introduced a `cast(tuple[Optional[type[BaseEmbedder]], Optional[str]], ...)` on the return statement that mypy now flags as redundant -- the function's declared return type already matches what mypy infers, so the cast trips `warn_redundant_casts = True`. This was the only mypy error on the branch and was blocking pre-commit (and therefore Backend CI's lint step) for any new commit. Reverted to the bare `return embedder_class, embedder_path` from PR #1545, which both satisfies mypy and matches the function's declared return type.
+
 ### Changed
 
 - **Docker image hardening follow-ups to PR #1500** (issue #1505). Six review observations on the slim-production-image PR are addressed without altering the deployed runtime semantics:
