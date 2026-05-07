@@ -88,10 +88,13 @@ def _apply_document_prefetches(
             DocumentUserObjectPermission,
         )
 
-        # Pre-resolve the user's group ids once so the group-perm prefetch
-        # can filter at the SQL layer. ``.filter(group_id__in=[])`` is
-        # evaluated as ``WHERE FALSE`` which still avoids per-row queries.
-        user_group_ids = list(user.groups.values_list("id", flat=True))
+        # Use the user's group-id queryset directly as a subquery so this
+        # works in async ORM contexts: ``list(...)`` would evaluate eagerly
+        # and trigger SynchronousOnlyOperation when called from async code
+        # (e.g. async vector store search). Passing the queryset to
+        # ``__in`` makes Django emit an SQL subquery, which is evaluated
+        # lazily as part of the outer prefetch.
+        user_group_ids = user.groups.values_list("id", flat=True)
 
         queryset = queryset.prefetch_related(
             Prefetch(
