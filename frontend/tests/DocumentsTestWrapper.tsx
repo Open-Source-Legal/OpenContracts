@@ -1,5 +1,5 @@
 import React from "react";
-import { MockedProvider } from "@apollo/client/testing";
+import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { relayStylePagination } from "@apollo/client/utilities";
 import { MemoryRouter } from "react-router-dom";
@@ -7,7 +7,7 @@ import { Provider as JotaiProvider } from "jotai";
 import { Documents } from "../src/views/Documents";
 
 interface DocumentsTestWrapperProps {
-  mocks: any[];
+  mocks: MockedResponse[];
   withRelayCache?: boolean;
 }
 

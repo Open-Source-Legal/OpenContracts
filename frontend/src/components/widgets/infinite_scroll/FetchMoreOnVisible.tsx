@@ -12,9 +12,6 @@ interface FetchMoreOnVisibleProps {
   style?: Record<any, any>;
 }
 
-// Suggest this library for directionality:
-// https://github.com/wellyshen/react-cool-inview
-
 export const FetchMoreOnVisible = ({
   fetchNextPage,
   fetchPreviousPage,
@@ -41,10 +38,7 @@ export const FetchMoreOnVisible = ({
     unobserveOnEnter: triggerOnce,
   });
 
-  // NOTE - react-cool-inview's definition of vertical scroll direction - e.g. up or down -
-  // is the opposite of what I'd use. When you're scrolling "up" the document - e.g. from higher
-  // numbered pages to lower numbered pages, that is defined as "down". I guess that makes sense
-  // because the canvas itself is moving from top to bottom of screen.
+  // react-cool-inview reports element movement, so vertical "up" means the user scrolled down.
 
   useEffect(() => {
     if (!inView) return;
