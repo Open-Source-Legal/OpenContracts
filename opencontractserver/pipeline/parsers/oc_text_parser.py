@@ -57,7 +57,7 @@ class TxtParser(BaseParser):
     # but that dependency is only loaded when the sentence strategy is
     # actually used; leaving the base parser's dependency list empty keeps
     # non-sentence pipelines (paragraph / sliding-window) dependency-free.
-    dependencies: list[str] = []
+    dependencies = []
     supported_file_types = [FileTypeEnum.TXT]
 
     @dataclass

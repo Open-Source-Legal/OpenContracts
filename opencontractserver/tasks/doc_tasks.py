@@ -352,6 +352,17 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
     # user_id has no READ permission on. This blocks the (T-7) class of
     # bug where a future caller forgets to check, and surfaces the misuse
     # via a SECURITY-tagged log line for auditability.
+    #
+    # Why READ (not UPDATE) here: ingest_doc is enqueued by upload/create
+    # mutations (UploadDocument, BulkDocumentUpload) where the caller has
+    # just produced the document row, so no UPDATE perm exists yet at the
+    # time of the check. The enqueueing mutation already gates on its own
+    # CRUD/CREATE rules; this worker-side gate only needs to prove the
+    # supplied user_id has *legitimate access* (READ) to the row, which
+    # is the minimum bar that catches a forgotten upstream check. The
+    # parallel retry_document_processing() path uses UPDATE because it is
+    # a user-initiated re-run on an existing doc and the stronger gate
+    # is appropriate there.
     User = get_user_model()
     try:
         user_obj = User.objects.get(pk=user_id)
@@ -839,7 +850,29 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     try:
         user_obj = User.objects.get(pk=user_id)
         document_obj = Document.objects.get(pk=doc_id)
-    except (User.DoesNotExist, Document.DoesNotExist):
+    except User.DoesNotExist:
+        logger.error(
+            "[SECURITY] [retry_document_processing] user_id=%s does "
+            "not exist; refusing to retry doc_id=%s.",
+            user_id,
+            doc_id,
+        )
+        return {
+            "status": "error",
+            "doc_id": doc_id,
+            "message": "Invalid user for retry",
+        }
+    except Document.DoesNotExist:
+        # Log at WARNING (not ERROR): a missing document on retry is more
+        # likely a benign race (admin deleted it between mutation enqueue
+        # and worker pickup) than an attack. Logging it gives ops visibility
+        # if a sequential-id probe ever shows up in the wild.
+        logger.warning(
+            "[retry_document_processing] doc_id=%s does not exist; "
+            "refusing to retry on behalf of user_id=%s.",
+            doc_id,
+            user_id,
+        )
         return {
             "status": "error",
             "doc_id": doc_id,

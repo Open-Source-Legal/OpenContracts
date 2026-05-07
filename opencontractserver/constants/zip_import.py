@@ -60,7 +60,11 @@ ZIP_DOCUMENT_BATCH_SIZE = getattr(settings, "ZIP_DOCUMENT_BATCH_SIZE", 50)
 # IDOR protection: bulk-upload job-id ↔ owner mapping in cache.
 # At enqueue time we cache the (job_id → user_id) pair; the status
 # resolver refuses to return progress for jobs the requester didn't
-# enqueue. TTL is generous so long-running imports remain queryable.
+# enqueue. The 24-hour default is intentionally generous: a large
+# zip can take many hours to process and the user must remain able
+# to poll progress for the full lifetime of the job. Shortening this
+# would silently turn legitimate "still processing" polls into
+# opaque "not found" responses once the cache entry expired.
 BULK_UPLOAD_OWNER_CACHE_PREFIX = "bulk_upload_owner:"
 BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS = getattr(
     settings, "BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS", 24 * 60 * 60
