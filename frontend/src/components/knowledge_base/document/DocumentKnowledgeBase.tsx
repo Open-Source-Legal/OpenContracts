@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useQuery, useLazyQuery, useReactiveVar } from "@apollo/client";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useReactiveVar } from "@apollo/client";
 import { unstable_batchedUpdates } from "react-dom";
 import { Button, Modal, ModalBody, ModalFooter } from "@os-legal/ui";
 import {
@@ -7,149 +7,65 @@ import {
   InfoMessage,
   SuccessMessage,
 } from "../../widgets/feedback";
-import { User, Calendar, FileType, ArrowLeft, Plus } from "lucide-react";
-import {
-  GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS,
-  GetDocumentKnowledgeAndAnnotationsInput,
-  GetDocumentKnowledgeAndAnnotationsOutput,
-  GET_DOCUMENT_WITH_STRUCTURE,
-  GetDocumentWithStructureInput,
-  GetDocumentWithStructureOutput,
-  GET_DOCUMENT_ANNOTATIONS_ONLY,
-  GetDocumentAnnotationsOnlyInput,
-  GetDocumentAnnotationsOnlyOutput,
-  GET_DOCUMENT_STRUCTURAL_ANNOTATIONS,
-  GetDocumentStructuralAnnotationsInput,
-  GetDocumentStructuralAnnotationsOutput,
-  GET_CONVERSATIONS,
-  GetConversationsInputs,
-  GetConversationsOutputs,
-} from "../../../graphql/queries";
 import { useFeatureAvailability } from "../../../hooks/useFeatureAvailability";
-import {
-  getDocumentRawText,
-  getDocxBytes,
-  getPawlsLayer,
-  getCachedPDFUrl,
-} from "../../annotator/api/cachedRest";
-import {
-  AnnotationLabelType,
-  CorpusType,
-  LabelType,
-  DocumentType,
-} from "../../../types/graphql-api";
 import { AnimatePresence } from "framer-motion";
-import { PDFDocumentLoadingTask } from "pdfjs-dist";
+import { GlobalWorkerOptions } from "pdfjs-dist";
+import workerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { useUISettings } from "../../annotator/hooks/useUISettings";
 import useWindowDimensions from "../../hooks/WindowDimensionHook";
-import { PDFPageInfo } from "../../annotator/types/pdf";
 import { ViewState } from "../../types";
 import { toast } from "react-toastify";
 import {
   useDocText,
-  useDocumentPermissions,
-  useDocumentState,
-  useDocumentType,
-  usePages,
-  usePageTokenTextMaps,
-  usePdfDoc,
   useSearchText,
   useTextSearchState,
 } from "../../annotator/context/DocumentAtom";
-import { createTokenStringSearch } from "../../annotator/utils";
-import {
-  convertToDocTypeAnnotations,
-  convertToServerAnnotation,
-  getPermissions,
-  resolvePageTokens,
-} from "../../../utils/transform";
-import {
-  PdfAnnotations,
-  RelationGroup,
-} from "../../annotator/types/annotations";
-import {
-  pdfAnnotationsAtom,
-  structuralAnnotationsAtom,
-  structuralAnnotationsLoadedAtom,
-  structuralRelationshipsAtom,
-} from "../../annotator/context/AnnotationAtoms";
-import {
-  CorpusState,
-  useCorpusState,
-} from "../../annotator/context/CorpusAtom";
+import { useDocumentPermissions } from "../../annotator/context/DocumentAtom";
 import { useAtom, useSetAtom } from "jotai";
-import { useInitialAnnotations } from "../../annotator/hooks/AnnotationHooks";
-import { EnhancedLabelSelector } from "../../annotator/labels/EnhancedLabelSelector";
+import { useAnnotationSelection } from "../../annotator/context/UISettingsAtom";
+import { useChatSourceState } from "../../annotator/context/ChatSourceAtom";
+import { useCreateAnnotation } from "../../annotator/hooks/AnnotationHooks";
 import {
-  useAnnotationControls,
   selectedRelationsAtom,
   initialZoomSetAtom,
+  useAnnotationControls,
+  useChatPanelWidth,
 } from "../../annotator/context/UISettingsAtom";
+import { useCorpusState } from "../../annotator/context/CorpusAtom";
+import { pdfAnnotationsAtom } from "../../annotator/context/AnnotationAtoms";
 import { useNavigate, useLocation } from "react-router-dom";
 import { updateAnnotationSelectionParams } from "../../../utils/navigationUtils";
 import { routingLogger } from "../../../utils/routingLogger";
 import { canEditAnnotationsInCorpus } from "../../../utils/annotationPermissions";
-
-import {
-  ContentArea,
-  HeaderContainer,
-  MainContentArea,
-  MetadataRow,
-  SlidingPanel,
-  ResizeHandle,
-} from "./StyledContainers";
-
+import { selectedNoteId, selectedThreadId } from "../../../graphql/cache";
+import { useAuthReady } from "../../../hooks/useAuthReady";
+import { useCorpusMdDescription } from "../../../hooks/useCorpusMdDescription";
 import { useTextSearch } from "../../annotator/hooks/useTextSearch";
 import {
   useAnalysisManager,
   useAnalysisSelection,
 } from "../../annotator/hooks/AnalysisHooks";
 
+import {
+  ContentArea,
+  MainContentArea,
+  SlidingPanel,
+  ResizeHandle,
+} from "./StyledContainers";
 import { FullScreenModal } from "./LayoutComponents";
 import { SafeMarkdown } from "../markdown/SafeMarkdown";
-import { useAnnotationSelection } from "../../annotator/context/UISettingsAtom";
-import { useChatSourceState } from "../../annotator/context/ChatSourceAtom";
-import {
-  isTextFileType,
-  isPdfFileType,
-  isDocxFileType,
-} from "../../../utils/files";
-import { useCreateAnnotation } from "../../annotator/hooks/AnnotationHooks";
-import {
-  useDocxBytes,
-  useScrollContainerRef,
-} from "../../annotator/context/DocumentAtom";
-import { useChatPanelWidth } from "../../annotator/context/UISettingsAtom";
+import { EnhancedLabelSelector } from "../../annotator/labels/EnhancedLabelSelector";
 import { FloatingSummaryPreview } from "./floating_summary_preview/FloatingSummaryPreview";
 import { ZoomControls } from "./ZoomControls";
-
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
-import workerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
-import {
-  selectedAnnotationIds,
-  selectedNoteId,
-  selectedThreadId,
-  showStructuralAnnotations,
-} from "../../../graphql/cache";
-import { useAuthReady } from "../../../hooks/useAuthReady";
-import { useCorpusMdDescription } from "../../../hooks/useCorpusMdDescription";
-
-// New imports for unified feed
 import { ContentFilters, SortOption, SidebarViewMode } from "./unified_feed";
 import { FloatingDocumentControls } from "./FloatingDocumentControls";
 import { FloatingDocumentInput } from "./FloatingDocumentInput";
 import { FloatingAnalysesPanel } from "./FloatingAnalysesPanel";
 import { FloatingExtractsPanel } from "./FloatingExtractsPanel";
 import UnifiedKnowledgeLayer from "./layers/UnifiedKnowledgeLayer";
-import { DocumentVersionSelector } from "../../documents/DocumentVersionSelector";
 
 // Sub-components extracted from DocumentKnowledgeBase
-import {
-  HeaderButtonGroup,
-  HeaderButton,
-  FloatingInputWrapper,
-  ZoomIndicator,
-} from "./document_kb/styles";
+import { FloatingInputWrapper, ZoomIndicator } from "./document_kb/styles";
 import { useZoomManager } from "./document_kb/useZoomManager";
 import { RightPanelContent } from "./document_kb/RightPanelContent";
 import { DocumentModals } from "./document_kb/DocumentModals";
@@ -161,6 +77,10 @@ import {
 import { DocumentViewer } from "./document_kb/DocumentViewer";
 import { useResizeHandle } from "./document_kb/useResizeHandle";
 import { useDocumentMarkdown } from "./document_kb/useDocumentMarkdown";
+import { useStructuralAnnotations } from "./document_kb/useStructuralAnnotations";
+import { useDocumentLoader } from "./document_kb/useDocumentLoader";
+import { useContainerWidth } from "./document_kb/useContainerWidth";
+import { HeaderBar } from "./document_kb/HeaderBar";
 
 // Setting worker path to worker bundle.
 GlobalWorkerOptions.workerSrc = workerSrc;
@@ -194,38 +114,6 @@ interface DocumentKnowledgeBaseProps {
   showSuccessMessage?: string;
 }
 
-/**
- * Convert a GraphQL relationship payload into a `RelationGroup`. Both the
- * structural-lazy-load path and the targeted-deep-link path map the same
- * shape, so the construction lives in one place to keep the two callers in
- * lockstep if `RelationGroup`'s constructor signature changes.
- */
-const relationToGroup = (
-  rel: {
-    id: string;
-    structural?: boolean;
-    relationshipLabel: AnnotationLabelType;
-    sourceAnnotations: {
-      edges: Array<{ node?: { id: string } | null } | null>;
-    };
-    targetAnnotations: {
-      edges: Array<{ node?: { id: string } | null } | null>;
-    };
-  },
-  forceStructural?: boolean
-): RelationGroup =>
-  new RelationGroup(
-    rel.sourceAnnotations.edges
-      .map((edge) => edge?.node?.id)
-      .filter((id): id is string => id !== undefined),
-    rel.targetAnnotations.edges
-      .map((edge) => edge?.node?.id)
-      .filter((id): id is string => id !== undefined),
-    rel.relationshipLabel,
-    rel.id,
-    forceStructural ?? rel.structural ?? false
-  );
-
 const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   documentId,
   corpusId,
@@ -249,7 +137,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
 
   // Memoize UI settings config to prevent creating new object reference on every render
   const uiSettingsConfig = React.useMemo(() => ({ width }), [width]);
-  const { setProgress, zoomLevel, setShiftDown, setZoomLevel } =
+  const { setProgress, zoomLevel, setZoomLevel } =
     useUISettings(uiSettingsConfig);
 
   // Reset initial zoom flag when navigating to a different document so the
@@ -405,7 +293,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   });
   const [isMinimized, setIsMinimized] = useState(false);
   const documentAreaRef = useRef<HTMLDivElement>(null);
-  const docxLoadCancelRef = useRef<() => void>(() => {});
 
   const [showGraph, setShowGraph] = useState(false);
 
@@ -414,7 +301,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     "document"
   );
 
-  const [viewState, setViewState] = useState<ViewState>(ViewState.LOADING);
   const [showRightPanel, setShowRightPanel] = useState(false);
 
   // Calculate floating controls offset and visibility - MEMOIZED to prevent new object on every render
@@ -455,40 +341,16 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     getPanelWidthPercentage,
   });
 
-  const { setDocumentType } = useDocumentType();
-  const { setDocument } = useDocumentState();
-  const { setDocText } = useDocText();
-  const { setDocxBytes } = useDocxBytes();
-  const {
-    pageTokenTextMaps: pageTextMaps,
-    setPageTokenTextMaps: setPageTextMaps,
-  } = usePageTokenTextMaps();
-  const { setPages } = usePages();
+  // pdfAnnotations is read-only here (the loader hook owns updates).
+  // We need the value for the AnalysisExtractContextBar's annotation count.
+  const [pdfAnnotations] = useAtom(pdfAnnotationsAtom);
 
-  const [pdfAnnotations, setPdfAnnotations] = useAtom(pdfAnnotationsAtom);
-  const [, setStructuralAnnotations] = useAtom(structuralAnnotationsAtom);
-  const [, setStructuralRelationships] = useAtom(structuralRelationshipsAtom);
-  const [structuralAnnotationsLoaded, setStructuralAnnotationsLoaded] = useAtom(
-    structuralAnnotationsLoadedAtom
-  );
-
-  // Track showStructural reactive var for lazy loading structural annotations
-  const showStructural = useReactiveVar(showStructuralAnnotations);
-
-  const {
-    setCorpus,
-    canUpdateCorpus,
-    myPermissions: corpusPermissions,
-  } = useCorpusState();
-
-  const { setInitialAnnotations, setInitialRelations } =
-    useInitialAnnotations();
+  const { canUpdateCorpus } = useCorpusState();
   const { searchText, setSearchText } = useSearchText();
-  const { setPermissions, permissions } = useDocumentPermissions();
+  const { permissions } = useDocumentPermissions();
   const { setTextSearchState } = useTextSearchState();
   const { activeSpanLabel, setActiveSpanLabel } = useAnnotationControls();
   const { setChatSourceState } = useChatSourceState();
-  const { setPdfDoc } = usePdfDoc();
 
   // Determine if user can edit based on permissions and corpus context
   const canEdit = React.useMemo(
@@ -604,904 +466,39 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     }
   }, [selectedAnalysis]);
 
-  // --- Lazy loading for structural annotations ---
-  // Structural annotations (headers, sections, paragraphs) can number in the
-  // thousands for large documents but are hidden by default. We defer fetching
-  // them until the user toggles structural visibility on.
-  // Deep-links fetch ONLY the specific referenced annotations (lightweight).
-  // Two separate lazy queries avoid a shared-ref race condition between the
-  // full-load (toggle) and targeted (deep-link) paths.
-  const deepLinkedAnnotationIds = useReactiveVar(selectedAnnotationIds);
+  // Lazy-load structural annotations (headers/sections/paragraphs) — keep
+  // them out of the main payload since large documents have thousands and
+  // they're hidden by default.
+  useStructuralAnnotations(documentId);
 
-  const [fetchAllStructural] = useLazyQuery<
-    GetDocumentStructuralAnnotationsOutput,
-    GetDocumentStructuralAnnotationsInput
-  >(GET_DOCUMENT_STRUCTURAL_ANNOTATIONS, {
-    fetchPolicy: "cache-and-network",
-    onCompleted: (data) => {
-      if (data?.document?.allStructuralAnnotations) {
-        const structuralAnns = data.document.allStructuralAnnotations.map(
-          (ann) => convertToServerAnnotation(ann)
-        );
-        setStructuralAnnotations(structuralAnns);
-        setStructuralAnnotationsLoaded(true);
-      }
-      if (data?.document?.allStructuralRelationships) {
-        const structuralRels = data.document.allStructuralRelationships.map(
-          (rel) => relationToGroup(rel, true)
-        );
-        setStructuralRelationships(structuralRels);
-      }
-    },
-  });
+  // Container width tracking for fit-to-width zoom.
+  const { containerWidth, containerRefCallback } = useContainerWidth();
 
-  const [fetchTargetedStructural] = useLazyQuery<
-    GetDocumentStructuralAnnotationsOutput,
-    GetDocumentStructuralAnnotationsInput
-  >(GET_DOCUMENT_STRUCTURAL_ANNOTATIONS, {
-    fetchPolicy: "cache-and-network",
-    onCompleted: (data) => {
-      if (data?.document?.allStructuralAnnotations) {
-        const structuralAnns = data.document.allStructuralAnnotations.map(
-          (ann) => convertToServerAnnotation(ann)
-        );
-        // Merge with existing (don't replace — this is a targeted fetch)
-        setStructuralAnnotations((prev) => {
-          const existingIds = new Set(prev.map((a) => a.id));
-          const newAnns = structuralAnns.filter((a) => !existingIds.has(a.id));
-          return newAnns.length > 0 ? [...prev, ...newAnns] : prev;
-        });
-      }
-      // Targeted fetch returns the document's full structural relationship
-      // set (the optimizer ignores annotation IDs for relationships) — merge
-      // by id so we don't drop already-loaded entries.
-      if (data?.document?.allStructuralRelationships) {
-        const structuralRels = data.document.allStructuralRelationships.map(
-          (rel) => relationToGroup(rel, true)
-        );
-        setStructuralRelationships((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id));
-          const newRels = structuralRels.filter((r) => !existingIds.has(r.id));
-          return newRels.length > 0 ? [...prev, ...newRels] : prev;
-        });
-      }
-    },
-  });
-
-  // Reset structural annotations loaded flag when document changes
-  useEffect(() => {
-    setStructuralAnnotationsLoaded(false);
-    setStructuralAnnotations([]);
-    setStructuralRelationships([]);
-  }, [
-    documentId,
-    setStructuralAnnotationsLoaded,
-    setStructuralAnnotations,
-    setStructuralRelationships,
-  ]);
-
-  // Fetch ALL structural annotations when the user toggles structural visibility
-  useEffect(() => {
-    if (showStructural && !structuralAnnotationsLoaded && documentId) {
-      fetchAllStructural({ variables: { documentId } });
-    }
-  }, [
-    showStructural,
-    structuralAnnotationsLoaded,
-    documentId,
-    fetchAllStructural,
-  ]);
-
-  // Fetch ONLY the deep-linked annotations when navigating via URL.
-  // Skip if all structural annotations are already loaded (superset).
-  // Note: selectedAnnotationIds may contain non-structural IDs (e.g. corpus
-  // annotations from URL deep-links). In that case the backend returns an empty
-  // list, which is harmless — accepted trade-off to avoid needing annotation
-  // type metadata before the fetch.
-  useEffect(() => {
-    if (
-      deepLinkedAnnotationIds.length > 0 &&
-      documentId &&
-      !structuralAnnotationsLoaded
-    ) {
-      fetchTargetedStructural({
-        variables: { documentId, annotationIds: deepLinkedAnnotationIds },
-      });
-    }
-  }, [
-    deepLinkedAnnotationIds,
-    documentId,
-    structuralAnnotationsLoaded,
-    fetchTargetedStructural,
-  ]);
-
-  /**
-   * processAnnotationsData
-   *
-   * Processes annotation data for the current document, updating state atoms
-   * and corpus label sets. Accepts GetDocumentKnowledgeAndAnnotationsOutput,
-   * which is what's returned from
-   * the GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS query.
-   *
-   * @param data - The query result containing document + corpus info
-   */
-  const processAnnotationsData = (
-    data: GetDocumentKnowledgeAndAnnotationsOutput
-  ) => {
-    if (data?.document) {
-      // Backend now filters out analysis annotations when analysisId is not provided
-      const processedAnnotations =
-        data.document.allAnnotations?.map((annotation) =>
-          convertToServerAnnotation(annotation)
-        ) ?? [];
-
-      const processedDocTypeAnnotations = convertToDocTypeAnnotations(
-        data.document.allAnnotations?.filter(
-          (ann) => ann.annotationLabel.labelType === LabelType.DocTypeLabel
-        ) ?? []
-      );
-
-      // Update pdfAnnotations atom with ONLY non-structural annotations
-      // Structural annotations are loaded lazily via GET_DOCUMENT_STRUCTURAL_ANNOTATIONS
-      // when the user toggles structural visibility on (see useLazyQuery above)
-      setPdfAnnotations(
-        (prev) =>
-          new PdfAnnotations(
-            processedAnnotations,
-            prev.relations,
-            processedDocTypeAnnotations,
-            true
-          )
-      );
-
-      // **Store the initial annotations**
-      setInitialAnnotations(processedAnnotations);
-
-      // Process relationships - backend now filters out analysis relationships
-      const processedRelationships = data.document.allRelationships?.map(
-        (rel) =>
-          new RelationGroup(
-            rel.sourceAnnotations.edges
-              .map((edge) => edge?.node?.id)
-              .filter((id): id is string => id !== undefined),
-            rel.targetAnnotations.edges
-              .map((edge) => edge?.node?.id)
-              .filter((id): id is string => id !== undefined),
-            rel.relationshipLabel,
-            rel.id,
-            rel.structural
-          )
-      );
-
-      // Store the initial relations
-      setInitialRelations(processedRelationships || []);
-
-      setPdfAnnotations(
-        (prev) =>
-          new PdfAnnotations(
-            prev.annotations,
-            processedRelationships || [],
-            prev.docTypes,
-            true
-          )
-      );
-
-      // Prepare the update payload for the corpus state atom
-      let corpusUpdatePayload: Partial<CorpusState> = {}; // Initialize as Partial<CorpusState>
-
-      // Process corpus permissions if available
-      if (data.corpus?.myPermissions) {
-        corpusUpdatePayload.myPermissions = getPermissions(
-          data.corpus.myPermissions
-        );
-      }
-
-      // Process labels if labelSet is available
-      if (data.corpus?.labelSet) {
-        const allLabels = data.corpus.labelSet.allAnnotationLabels ?? [];
-        // Filter labels by type
-        corpusUpdatePayload.spanLabels = allLabels.filter(
-          (label) => label.labelType === LabelType.SpanLabel
-        );
-        corpusUpdatePayload.humanSpanLabels = corpusUpdatePayload.spanLabels; // Assuming they are the same initially
-        corpusUpdatePayload.relationLabels = allLabels.filter(
-          (label) => label.labelType === LabelType.RelationshipLabel
-        );
-        corpusUpdatePayload.docTypeLabels = allLabels.filter(
-          (label) => label.labelType === LabelType.DocTypeLabel
-        );
-        corpusUpdatePayload.humanTokenLabels = allLabels.filter(
-          (label) => label.labelType === LabelType.TokenLabel
-        );
-      }
-
-      // *** ADD THE ACTUAL CORPUS OBJECT TO THE PAYLOAD ***
-      if (data.corpus) {
-        // Don't transform permissions here - let consuming components handle it
-        corpusUpdatePayload.selectedCorpus = data.corpus as CorpusType; // Pass raw corpus
-      }
-
-      // Update corpus state using the constructed payload
-      if (Object.keys(corpusUpdatePayload).length > 0) {
-        setCorpus(corpusUpdatePayload); // Pass the complete payload
-      }
-
-      // Note: openedDocument and openedCorpus are managed by CentralRouteManager
-      // Components should only READ these reactive vars, not SET them
-      setPermissions(getPermissions(data.document.myPermissions));
-    }
-  };
-
-  /**
-   * Load DOCX document bytes and extracted text in parallel.
-   * Shared by both corpus-context and document-only onCompleted handlers
-   * to avoid duplicating the same fetch/state-update logic.
-   */
-  const loadDocxDocument = useCallback(
-    (doc: {
-      id: string;
-      pdfFile?: string;
-      pdfFileHash?: string | null;
-      txtExtractFile?: string | null;
-    }) => {
-      if (!doc.pdfFile) return;
-
-      // Cancel any in-flight DOCX load to prevent stale state updates
-      docxLoadCancelRef.current();
-      let cancelled = false;
-      docxLoadCancelRef.current = () => {
-        cancelled = true;
-      };
-
-      setViewState(ViewState.LOADING);
-      setDocxBytes(null);
-
-      const docxPromise = getDocxBytes(doc.pdfFile);
-      const textPromise = doc.txtExtractFile
-        ? getDocumentRawText(
-            doc.txtExtractFile,
-            doc.id,
-            doc.pdfFileHash ?? undefined
-          )
-        : Promise.resolve("");
-
-      Promise.all([docxPromise, textPromise])
-        .then(([bytes, txt]) => {
-          if (cancelled) return;
-          routingLogger.debug(
-            "[DOCX Load] Batching DOCX completion state updates"
-          );
-          unstable_batchedUpdates(() => {
-            setDocxBytes(bytes);
-            setDocText(txt);
-            setViewState(ViewState.LOADED);
-          });
-          routingLogger.debug("=== DOCUMENT LOAD COMPLETE ===");
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setViewState(ViewState.ERROR);
-          routingLogger.debug("=== DOCUMENT LOAD FAILED ===");
-          toast.error(
-            `Error loading DOCX content: ${
-              err instanceof Error ? err.message : String(err)
-            }`
-          );
-        });
-    },
-    [setViewState, setDocxBytes, setDocText]
-  );
-
-  // We'll store the measured containerWidth here
-  const [containerWidth, setContainerWidth] = useState<number | null>(null);
-
-  /**
-   * 1. store container width (existing behaviour)
-   * 2. publish the same element to scrollContainerRefAtom
-   */
-  const { setScrollContainerRef } = useScrollContainerRef();
-  const pdfContainerRef = useRef<HTMLDivElement | null>(null);
-
-  const containerRefCallback = useCallback(
-    (node: HTMLDivElement | null) => {
-      pdfContainerRef.current = node;
-
-      if (node) {
-        // ① width for initial zoom calc
-        setContainerWidth(node.getBoundingClientRect().width);
-        // ② virtual-window needs this ref
-        setScrollContainerRef(pdfContainerRef);
-      } else {
-        setScrollContainerRef(null);
-      }
-    },
-    [setContainerWidth, setScrollContainerRef]
-  );
-
-  // Watch for width changes when sidebar opens/closes
-  useEffect(() => {
-    const node = pdfContainerRef.current;
-    if (!node) return;
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const newWidth = entry.contentRect.width;
-        setContainerWidth(newWidth);
-      }
-    });
-
-    resizeObserver.observe(node);
-    return () => resizeObserver.disconnect();
-  }, [setContainerWidth]);
-
-  /* clear on unmount so stale refs are never used */
-  useEffect(() => () => setScrollContainerRef(null), [setScrollContainerRef]);
-
-  /* Reset DOCX bytes on unmount to avoid stale WASM data when navigating away */
-  useEffect(() => {
-    return () => {
-      docxLoadCancelRef.current();
-      setDocxBytes(null);
-    };
-  }, [setDocxBytes]);
-
-  const handleKeyUpPress = useCallback(
-    (event: { keyCode: any }) => {
-      const { keyCode } = event;
-      if (keyCode === 16) {
-        setShiftDown(false);
-      }
-    },
-    [setShiftDown]
-  );
-
-  const handleKeyDownPress = useCallback(
-    (event: { keyCode: any }) => {
-      const { keyCode } = event;
-      if (keyCode === 16) {
-        setShiftDown(true);
-      }
-    },
-    [setShiftDown]
-  );
-
-  // Fetch document data - either with corpus context or without
+  // Document data + body loading + thread count + analysis/extract refetch.
   const authReady = useAuthReady();
-
-  // Query for document with corpus
   const {
-    data: corpusData,
-    loading: corpusLoading,
-    error: corpusError,
-    refetch: refetchWithCorpus,
-  } = useQuery<
-    GetDocumentKnowledgeAndAnnotationsOutput,
-    GetDocumentKnowledgeAndAnnotationsInput
-  >(GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS, {
-    skip: !authReady || !documentId || !corpusId,
-    variables: {
-      documentId,
-      corpusId: corpusId!,
-      analysisId: undefined,
-    },
-    onCompleted: (data) => {
-      if (!data?.document) {
-        console.error("onCompleted: No document data received.");
-        setViewState(ViewState.ERROR);
-        toast.error("Failed to load document details.");
-        return;
-      }
-
-      // Batch initial state updates to prevent cascading re-renders
-      routingLogger.debug("[onCompleted] 🔄 Batching initial state updates");
-      unstable_batchedUpdates(() => {
-        setDocumentType(data.document.fileType ?? "");
-        let processedDocData = {
-          ...data.document,
-          // Keep permissions as raw strings for consistency
-          myPermissions: data.document.myPermissions ?? [],
-        };
-        setDocument(processedDocData as any);
-        setPermissions(getPermissions(data.document.myPermissions));
-        processAnnotationsData(data);
-      });
-
-      if (isPdfFileType(data.document.fileType) && data.document.pdfFile) {
-        routingLogger.debug("\n=== DOCUMENT LOAD START ===");
-        routingLogger.debug("Type: PDF");
-        routingLogger.debug("Document ID:", data.document.id);
-        routingLogger.debug("Hash:", data.document.pdfFileHash || "no hash");
-        setViewState(ViewState.LOADING); // Set loading state
-
-        const pawlsPath = data.document.pawlsParseFile || "";
-        const pdfHash = data.document.pdfFileHash || "";
-        const docId = data.document.id;
-
-        // First get the cached or fresh PDF URL
-        getCachedPDFUrl(data.document.pdfFile, docId, pdfHash)
-          .then((pdfUrl) => {
-            const loadingTask: PDFDocumentLoadingTask = getDocument(pdfUrl);
-            loadingTask.onProgress = (p: { loaded: number; total: number }) => {
-              setProgress(Math.round((p.loaded / p.total) * 100));
-            };
-
-            return Promise.all([
-              loadingTask.promise,
-              getPawlsLayer(pawlsPath, docId), // Fetches PAWLS via REST with caching
-            ]);
-          })
-          .then(([pdfDocProxy, pawlsData]) => {
-            // --- DETAILED LOGGING FOR PAWLS DATA ---
-            if (!pawlsData) {
-              console.error(
-                "onCompleted: PAWLS data received is null or undefined!"
-              );
-            }
-            // --- END DETAILED LOGGING ---
-
-            if (!pdfDocProxy) {
-              throw new Error("PDF document proxy is null or undefined.");
-            }
-            setPdfDoc(pdfDocProxy);
-
-            const loadPagesPromises: Promise<PDFPageInfo>[] = [];
-            for (let i = 1; i <= pdfDocProxy.numPages; i++) {
-              const pageNum = i; // Capture page number for logging
-              loadPagesPromises.push(
-                pdfDocProxy.getPage(pageNum).then((p) => {
-                  const viewport = p.getViewport({ scale: 1 });
-                  const pageTokens = resolvePageTokens(
-                    pawlsData,
-                    p.pageNumber - 1,
-                    viewport.width,
-                    viewport.height,
-                    pageNum
-                  );
-                  return new PDFPageInfo(p, pageTokens, zoomLevel);
-                }) as unknown as Promise<PDFPageInfo>
-              );
-            }
-            return Promise.all(loadPagesPromises);
-          })
-          .then((loadedPages) => {
-            // Batch PDF completion state updates to prevent cascading re-renders
-            routingLogger.debug(
-              "[PDF Load] 🔄 Batching PDF completion state updates"
-            );
-            unstable_batchedUpdates(() => {
-              setPages(loadedPages);
-              const { doc_text, string_index_token_map } =
-                createTokenStringSearch(loadedPages);
-              setPageTextMaps({
-                ...string_index_token_map,
-                ...pageTextMaps,
-              });
-              setDocText(doc_text);
-              setDocxBytes(null);
-              setViewState(ViewState.LOADED); // Set loaded state only after everything is done
-            });
-            routingLogger.debug("=== DOCUMENT LOAD COMPLETE ===");
-          })
-          .catch((err) => {
-            // Log the specific error causing the catch
-            console.error("Error during PDF/PAWLS loading Promise.all:", err);
-            routingLogger.debug("=== DOCUMENT LOAD FAILED ===");
-            setViewState(ViewState.ERROR);
-            toast.error(
-              `Error loading PDF details: ${
-                err instanceof Error ? err.message : String(err)
-              }`
-            );
-          });
-      } else if (
-        isTextFileType(data.document.fileType) &&
-        data.document.txtExtractFile
-      ) {
-        routingLogger.debug("\n=== DOCUMENT LOAD START ===");
-        routingLogger.debug("Type: TEXT");
-        routingLogger.debug("Document ID:", data.document.id);
-        routingLogger.debug("Hash:", data.document.pdfFileHash || "no hash");
-        routingLogger.debug("File URL:", data.document.txtExtractFile);
-        setViewState(ViewState.LOADING); // Set loading state
-        const docId = data.document.id;
-        const textHash = data.document.pdfFileHash; // Can use same hash field for text files
-        getDocumentRawText(
-          data.document.txtExtractFile,
-          docId,
-          textHash ?? undefined
-        )
-          .then((txt) => {
-            // Batch text file completion state updates
-            routingLogger.debug(
-              "[Text Load] Batching text completion state updates"
-            );
-            unstable_batchedUpdates(() => {
-              setDocText(txt);
-              setDocxBytes(null);
-              setViewState(ViewState.LOADED);
-            });
-            routingLogger.debug("=== DOCUMENT LOAD COMPLETE ===");
-          })
-          .catch((err) => {
-            setViewState(ViewState.ERROR);
-            routingLogger.debug("=== DOCUMENT LOAD FAILED ===");
-            toast.error(
-              `Error loading text content: ${
-                err instanceof Error ? err.message : String(err)
-              }`
-            );
-          });
-      } else if (
-        isDocxFileType(data.document.fileType) &&
-        data.document.pdfFile
-      ) {
-        routingLogger.debug("\n=== DOCUMENT LOAD START ===");
-        routingLogger.debug("Type: DOCX");
-        routingLogger.debug("Document ID:", data.document.id);
-        routingLogger.debug("Hash:", data.document.pdfFileHash || "no hash");
-        routingLogger.debug("DOCX URL:", data.document.pdfFile);
-        loadDocxDocument(data.document);
-      } else {
-        console.warn(
-          "onCompleted: Unsupported file type or missing file path.",
-          data.document.fileType
-        );
-        setViewState(ViewState.ERROR); // Treat unsupported as error
-      }
-    },
-    onError: (error) => {
-      // If the backend hasn\'t yet indexed/authorised this doc the first
-      // request may come back with "Document matching query does not exist.".
-      // We silently ignore this **once** and keep the loader visible; a
-      // follow-up refetch (triggered when Apollo receives the updated auth
-      // headers) will succeed and onCompleted will take over.
-      const benign404 =
-        error?.graphQLErrors?.length === 1 &&
-        error.graphQLErrors[0].message.includes(
-          "Document matching query does not exist"
-        );
-
-      if (benign404) {
-        console.warn("Initial 404 for document – will retry automatically");
-        return; // keep LOADING state
-      }
-
-      // Otherwise treat as real error
-      console.error("GraphQL Query Error fetching document data:", error);
-      toast.error(`Failed to load document details: ${error.message}`);
-      setViewState(ViewState.ERROR);
-    },
-    fetchPolicy: "network-only",
-    nextFetchPolicy: "no-cache",
+    corpusData,
+    documentOnlyData,
+    combinedData,
+    loading,
+    queryError,
+    refetch,
+    viewState,
+    threadCount,
+  } = useDocumentLoader({
+    documentId,
+    corpusId,
+    authReady,
+    zoomLevel,
+    setProgress,
+    selectedAnalysisId: selectedAnalysis?.id ?? null,
+    selectedExtractId: selectedExtract?.id ?? null,
   });
-
-  // Query for document with structure but without corpus
-  routingLogger.debug(
-    "[GraphQL] 🔵 DocumentKnowledgeBase: GET_DOCUMENT_WITH_STRUCTURE query state",
-    {
-      skip: !authReady || !documentId || Boolean(corpusId),
-      authReady,
-      documentId,
-      corpusId,
-    }
-  );
-
-  const {
-    data: documentOnlyData,
-    loading: documentLoading,
-    error: documentError,
-    refetch: refetchDocumentOnly,
-  } = useQuery<GetDocumentWithStructureOutput, GetDocumentWithStructureInput>(
-    GET_DOCUMENT_WITH_STRUCTURE,
-    {
-      skip: !authReady || !documentId || Boolean(corpusId),
-      variables: {
-        documentId,
-      },
-      onCompleted: (data) => {
-        routingLogger.debug(
-          "[GraphQL] ✅ DocumentKnowledgeBase: GET_DOCUMENT_WITH_STRUCTURE completed",
-          {
-            documentId,
-            hasDocument: !!data?.document,
-          }
-        );
-        if (!data?.document) {
-          console.error("onCompleted: No document data received.");
-          setViewState(ViewState.ERROR);
-          toast.error("Failed to load document details.");
-          return;
-        }
-
-        // Batch initial state updates to prevent cascading re-renders
-        routingLogger.debug(
-          "[onCompleted] 🔄 Batching initial state updates (document-only)"
-        );
-        unstable_batchedUpdates(() => {
-          setDocumentType(data.document.fileType ?? "");
-          let processedDocData = {
-            ...data.document,
-            // Keep permissions as raw strings for consistency
-            myPermissions: data.document.myPermissions ?? [],
-          };
-          setDocument(processedDocData as any);
-          setPermissions(getPermissions(data.document.myPermissions));
-        });
-
-        // Load PDF/TXT content
-        if (isPdfFileType(data.document.fileType) && data.document.pdfFile) {
-          setViewState(ViewState.LOADING);
-          const loadingTask: PDFDocumentLoadingTask = getDocument(
-            data.document.pdfFile
-          );
-          loadingTask.onProgress = (p: { loaded: number; total: number }) => {
-            setProgress(Math.round((p.loaded / p.total) * 100));
-          };
-
-          const pawlsPath = data.document.pawlsParseFile || "";
-
-          Promise.all([loadingTask.promise, getPawlsLayer(pawlsPath)])
-            .then(([pdfDocProxy, pawlsData]) => {
-              if (!pawlsData) {
-                console.error(
-                  "onCompleted: PAWLS data received is null or undefined!"
-                );
-              }
-
-              if (!pdfDocProxy) {
-                throw new Error("PDF document proxy is null or undefined.");
-              }
-              setPdfDoc(pdfDocProxy);
-
-              const loadPagesPromises: Promise<PDFPageInfo>[] = [];
-              for (let i = 1; i <= pdfDocProxy.numPages; i++) {
-                const pageNum = i;
-                loadPagesPromises.push(
-                  pdfDocProxy.getPage(pageNum).then((p) => {
-                    const viewport = p.getViewport({ scale: 1 });
-                    const pageTokens = resolvePageTokens(
-                      pawlsData,
-                      p.pageNumber - 1,
-                      viewport.width,
-                      viewport.height,
-                      pageNum
-                    );
-                    return new PDFPageInfo(p, pageTokens, zoomLevel);
-                  }) as unknown as Promise<PDFPageInfo>
-                );
-              }
-              return Promise.all(loadPagesPromises);
-            })
-            .then((loadedPages) => {
-              // Batch PDF completion state updates (document-only)
-              routingLogger.debug(
-                "[PDF Load] 🔄 Batching PDF completion state updates (document-only)"
-              );
-              unstable_batchedUpdates(() => {
-                setPages(loadedPages);
-                const { doc_text, string_index_token_map } =
-                  createTokenStringSearch(loadedPages);
-                setPageTextMaps({
-                  ...string_index_token_map,
-                  ...pageTextMaps,
-                });
-                setDocText(doc_text);
-                setDocxBytes(null);
-                setViewState(ViewState.LOADED);
-              });
-            })
-            .catch((err) => {
-              console.error("Error during PDF/PAWLS loading Promise.all:", err);
-              routingLogger.debug("=== DOCUMENT LOAD FAILED ===");
-              setViewState(ViewState.ERROR);
-              toast.error(
-                `Error loading PDF details: ${
-                  err instanceof Error ? err.message : String(err)
-                }`
-              );
-            });
-        } else if (
-          (data.document.fileType === "application/txt" ||
-            data.document.fileType === "text/plain") &&
-          data.document.txtExtractFile
-        ) {
-          routingLogger.debug("\n=== DOCUMENT LOAD START ===");
-          routingLogger.debug("Type: TEXT");
-          routingLogger.debug("Document ID:", data.document.id);
-          routingLogger.debug("Hash:", data.document.pdfFileHash || "no hash");
-          routingLogger.debug("File URL:", data.document.txtExtractFile);
-          setViewState(ViewState.LOADING);
-          getDocumentRawText(data.document.txtExtractFile)
-            .then((txt) => {
-              // Batch text file completion state updates (document-only)
-              routingLogger.debug(
-                "[Text Load] Batching text completion state updates (document-only)"
-              );
-              unstable_batchedUpdates(() => {
-                setDocText(txt);
-                setDocxBytes(null);
-                setViewState(ViewState.LOADED);
-              });
-              routingLogger.debug("=== DOCUMENT LOAD COMPLETE ===");
-            })
-            .catch((err) => {
-              setViewState(ViewState.ERROR);
-              routingLogger.debug("=== DOCUMENT LOAD FAILED ===");
-              toast.error(
-                `Error loading text content: ${
-                  err instanceof Error ? err.message : String(err)
-                }`
-              );
-            });
-        } else if (
-          isDocxFileType(data.document.fileType) &&
-          data.document.pdfFile
-        ) {
-          routingLogger.debug("\n=== DOCUMENT LOAD START ===");
-          routingLogger.debug("Type: DOCX (document-only)");
-          routingLogger.debug("Document ID:", data.document.id);
-          loadDocxDocument(data.document);
-        } else {
-          console.warn(
-            "onCompleted: Unsupported file type or missing file path.",
-            data.document.fileType
-          );
-          setViewState(ViewState.ERROR);
-        }
-
-        // Note: openedDocument is managed by CentralRouteManager, not set here
-
-        // Structural annotations are loaded lazily (see useLazyQuery above).
-        // In the no-corpus path, there are no regular annotations to process.
-        // Relationships are loaded eagerly since they're few in number.
-        const processedRelationships =
-          data.document.allRelationships?.map(
-            (rel) =>
-              new RelationGroup(
-                rel.sourceAnnotations.edges
-                  .map((edge) => edge?.node?.id)
-                  .filter((id): id is string => id !== undefined),
-                rel.targetAnnotations.edges
-                  .map((edge) => edge?.node?.id)
-                  .filter((id): id is string => id !== undefined),
-                rel.relationshipLabel,
-                rel.id,
-                rel.structural
-              )
-          ) ?? [];
-
-        unstable_batchedUpdates(() => {
-          setPdfAnnotations(
-            new PdfAnnotations([], processedRelationships, [], true)
-          );
-        });
-      },
-      onError: (error) => {
-        console.error("GraphQL Query Error fetching document data:", error);
-        toast.error(`Failed to load document details: ${error.message}`);
-        setViewState(ViewState.ERROR);
-      },
-      fetchPolicy: "network-only",
-      nextFetchPolicy: "no-cache",
-    }
-  );
-
-  // Lightweight query for fetching just annotations when switching analyses
-  const { refetch: refetchAnnotationsOnly } = useQuery<
-    GetDocumentAnnotationsOnlyOutput,
-    GetDocumentAnnotationsOnlyInput
-  >(GET_DOCUMENT_ANNOTATIONS_ONLY, {
-    skip: true, // We'll manually trigger this
-    fetchPolicy: "network-only",
-  });
-
-  // Query for thread count (for discussions tab badge)
-  const { data: threadCountData } = useQuery<
-    GetConversationsOutputs,
-    GetConversationsInputs
-  >(GET_CONVERSATIONS, {
-    variables: {
-      documentId: documentId,
-      conversationType: "THREAD",
-      limit: 1, // We only need the count
-    },
-    skip: !documentId,
-    fetchPolicy: "cache-and-network",
-  });
-
-  const threadCount = threadCountData?.conversations?.totalCount ?? 0;
-
-  // Combine query results
-  const loading = corpusLoading || documentLoading;
-  const queryError = corpusError || documentError;
-  const combinedData = corpusId ? corpusData : documentOnlyData;
-  const refetch = corpusId ? refetchWithCorpus : refetchDocumentOnly;
 
   // Fetch versioned markdown description for corpus info display
   const corpusMdContent = useCorpusMdDescription(
     corpusData?.corpus?.mdDescription
   );
-
-  // Process lightweight annotations data (used when switching analyses)
-  const processAnnotationsOnlyData = (
-    data: GetDocumentAnnotationsOnlyOutput
-  ) => {
-    if (data?.document) {
-      const processedAnnotations =
-        data.document.allAnnotations?.map((annotation) =>
-          convertToServerAnnotation(annotation)
-        ) ?? [];
-
-      // Update pdfAnnotations atom with ONLY non-structural annotations
-      // Structural annotations are loaded lazily and are analysis-independent,
-      // so they don't need to be re-fetched when switching analyses/extracts
-      setPdfAnnotations(
-        (prev) =>
-          new PdfAnnotations(
-            processedAnnotations,
-            prev.relations, // Keep existing relations initially
-            prev.docTypes, // Keep existing doc types
-            true
-          )
-      );
-
-      // Process relationships
-      const processedRelationships = data.document.allRelationships?.map(
-        (rel) =>
-          new RelationGroup(
-            rel.sourceAnnotations.edges
-              .map((edge) => edge?.node?.id)
-              .filter((id): id is string => id !== undefined),
-            rel.targetAnnotations.edges
-              .map((edge) => edge?.node?.id)
-              .filter((id): id is string => id !== undefined),
-            rel.relationshipLabel,
-            rel.id,
-            rel.structural
-          )
-      );
-
-      setPdfAnnotations(
-        (prev) =>
-          new PdfAnnotations(
-            prev.annotations,
-            processedRelationships || [],
-            prev.docTypes,
-            true
-          )
-      );
-    }
-  };
-
-  useEffect(() => {
-    if (!loading && corpusId) {
-      // Use lightweight query for annotation updates only
-      refetchAnnotationsOnly({
-        documentId,
-        corpusId,
-        analysisId: selectedAnalysis?.id || null,
-      }).then(({ data }) => {
-        if (data) {
-          processAnnotationsOnlyData(data);
-        }
-      });
-    }
-  }, [selectedAnalysis, corpusId, loading, documentId]);
-
-  useEffect(() => {
-    if (!loading && corpusId) {
-      // Use lightweight query for annotation updates only
-      refetchAnnotationsOnly({
-        documentId,
-        corpusId,
-        analysisId: selectedExtract?.id || null,
-      }).then(({ data }) => {
-        if (data) {
-          processAnnotationsOnlyData(data);
-        }
-      });
-    }
-  }, [selectedExtract, corpusId, loading, documentId]);
 
   const metadata = combinedData?.document ?? {
     title: "Loading...",
@@ -1616,7 +613,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   // The main viewer content:
   const viewerContent = (
     <DocumentViewer
-      fileType={metadata.fileType}
+      fileType={metadata.fileType ?? ""}
       viewState={viewState}
       canEdit={canEdit}
       containerWidth={containerWidth}
@@ -1734,85 +731,15 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
       open={true}
       onClose={handleClose}
     >
-      <HeaderContainer>
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            overflow: "hidden",
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: "100%",
-              fontSize: "1.5rem",
-              fontWeight: 700,
-            }}
-          >
-            <span title={metadata.title || "Untitled Document"}>
-              {metadata.title || "Untitled Document"}
-            </span>
-          </h2>
-          <MetadataRow>
-            <span>
-              <FileType size={16} /> {metadata.fileType}
-            </span>
-            <span>
-              <User size={16} /> {metadata.creator?.email}
-            </span>
-            <span>
-              <Calendar size={16} /> Created:{" "}
-              {new Date(metadata.created).toLocaleDateString()}
-            </span>
-            {hasCorpus && corpusId && (
-              <DocumentVersionSelector
-                documentId={documentId}
-                corpusId={corpusId}
-              />
-            )}
-          </MetadataRow>
-        </div>
-
-        <HeaderButtonGroup>
-          {!hasCorpus && !readOnly && (
-            <HeaderButton
-              $variant="primary"
-              onClick={() => setShowAddToCorpusModal(true)}
-              title="Add this document to a corpus to unlock collaborative features"
-              data-testid="add-to-corpus-button"
-            >
-              <Plus />
-              Add to Corpus
-            </HeaderButton>
-          )}
-          <HeaderButton
-            onClick={(e) => {
-              routingLogger.debug(
-                `🖱️  [DocumentKnowledgeBase] ════════ BACK BUTTON CLICKED ════════`
-              );
-              routingLogger.debug(
-                "[DocumentKnowledgeBase] Button click event:",
-                {
-                  timestamp: new Date().toISOString(),
-                  button: e.button,
-                  currentTarget: e.currentTarget,
-                  target: e.target,
-                  currentUrl: window.location.pathname + window.location.search,
-                }
-              );
-              handleClose();
-            }}
-            title="Go back"
-            data-testid="back-button"
-          >
-            <ArrowLeft />
-          </HeaderButton>
-        </HeaderButtonGroup>
-      </HeaderContainer>
+      <HeaderBar
+        metadata={metadata}
+        documentId={documentId}
+        corpusId={corpusId}
+        hasCorpus={Boolean(hasCorpus)}
+        readOnly={readOnly}
+        onAddToCorpus={() => setShowAddToCorpusModal(true)}
+        onClose={() => handleClose()}
+      />
 
       {/* Context Bar - shows when analysis or extract is selected */}
       <AnalysisExtractContextBar
