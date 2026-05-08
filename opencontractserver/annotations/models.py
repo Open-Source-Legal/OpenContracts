@@ -963,6 +963,15 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     # Mark structural / layout annotations explicitly.
     structural = django.db.models.BooleanField(default=False)
 
+    # True only for annotations created by the extraction-grounding pipeline
+    # (``opencontractserver/utils/extraction_grounding.py``). Backs the
+    # partial UniqueConstraints below — the constraints scope to this flag
+    # so legitimate non-grounding flows that happen to produce the same
+    # ``(document, corpus, label, page, raw_text, creator)`` tuple (e.g.
+    # multi-occurrence exact-string annotation tools, hierarchical
+    # annotation trees) are not blocked.
+    is_grounding_source = django.db.models.BooleanField(default=False)
+
     # Content modalities present in this annotation (TEXT, IMAGE, etc.)
     content_modalities = ArrayField(
         django.db.models.CharField(max_length=20),
@@ -1241,6 +1250,55 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 violation_error_message=(
                     "Annotations in a structural_set must have structural=True"
                 ),
+            ),
+            # Backs the application-level ``get_or_create`` in the
+            # extraction grounding pipeline (see
+            # ``opencontractserver/utils/extraction_grounding.py``). Without
+            # this, two concurrent Celery workers retrying the same datacell
+            # could both miss on the SELECT and both succeed on the CREATE,
+            # producing duplicate source annotations. ``creator`` is in the
+            # key so two distinct users manually creating identical rows
+            # are not blocked. Scoped to ``is_grounding_source=True`` so
+            # legitimate non-grounding flows that happen to produce the
+            # same key tuple (e.g. ``add_annotations_from_exact_strings``
+            # finding multiple occurrences of the same word on a page,
+            # hierarchical annotation trees) are not blocked.
+            django.db.models.UniqueConstraint(
+                fields=[
+                    "document",
+                    "corpus",
+                    "annotation_label",
+                    "page",
+                    "raw_text",
+                    "creator",
+                ],
+                condition=django.db.models.Q(
+                    structural=False,
+                    annotation_type=TOKEN_LABEL,
+                    is_grounding_source=True,
+                ),
+                name="annotation_unique_token_label_grounding_key",
+            ),
+            # Span counterpart: ``json={"start", "end"}`` is the identity
+            # of a span annotation, so it replaces ``page`` in the key.
+            # JSONB equality on PostgreSQL is structural (key-order
+            # independent), which matches the application-level lookup;
+            # SQLite stores JSON as text and would compare lexically.
+            django.db.models.UniqueConstraint(
+                fields=[
+                    "document",
+                    "corpus",
+                    "annotation_label",
+                    "raw_text",
+                    "json",
+                    "creator",
+                ],
+                condition=django.db.models.Q(
+                    structural=False,
+                    annotation_type=SPAN_LABEL,
+                    is_grounding_source=True,
+                ),
+                name="annotation_unique_span_label_grounding_key",
             ),
         ]
 
