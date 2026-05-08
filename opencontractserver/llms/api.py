@@ -5,7 +5,7 @@ This module provides a simple interface for creating document or corpus agents.
 """
 
 import logging
-from typing import Any, Literal, Optional, TypeVar, Union
+from typing import Any, Callable, Literal, Optional, TypeVar, Union, cast
 
 from django.conf import settings
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 FrameworkType = Union[AgentFramework, Literal["pydantic_ai"]]
 DocumentType = Union[str, int, Document]
 CorpusType = Union[str, int, Corpus]
-ToolType = Union[str, CoreTool, callable]
+ToolType = Union[str, CoreTool, Callable[..., Any]]
 
 # Type variable for structured responses
 T = TypeVar("T")
@@ -111,15 +111,21 @@ class AgentAPI:
             )
         """
         # Resolve default framework if caller did not specify one
-        if framework is None:
-            framework = getattr(
-                settings, "LLMS_DOCUMENT_AGENT_FRAMEWORK", AgentFramework.PYDANTIC_AI
-            )
-        if isinstance(framework, str):
-            framework = AgentFramework(framework)
+        resolved_framework = _resolve_framework(framework)
 
         # Convert tool names to CoreTool instances
-        resolved_tools = _resolve_tools(tools) if tools else None
+        # ``_resolve_tools`` returns ``list[CoreTool]``; the factory parameter
+        # is the wider ``list[Union[CoreTool, Callable, str]]`` so it can also
+        # accept un-resolved tool spec lists from other callers. ``list`` is
+        # invariant in the type system, so we cast through the wider alias.
+        resolved_tools: Optional[list[Union[CoreTool, Callable[..., Any], str]]] = (
+            cast(
+                "list[Union[CoreTool, Callable[..., Any], str]]",
+                _resolve_tools(tools),
+            )
+            if tools
+            else None
+        )
 
         # If caller explicitly disabled persistence we propagate the flags via **kwargs
         persistence_overrides: dict[str, Any] = {}
@@ -132,7 +138,7 @@ class AgentAPI:
         return await UnifiedAgentFactory.create_document_agent(
             document,
             corpus,
-            framework=framework,
+            framework=resolved_framework,
             user_id=user_id,
             conversation=conversation,
             conversation_id=conversation_id,
@@ -223,15 +229,23 @@ class AgentAPI:
                 print(chunk.content, end="")
         """
         # Resolve default framework if caller did not specify one
-        if framework is None:
-            framework = getattr(
-                settings, "LLMS_CORPUS_AGENT_FRAMEWORK", AgentFramework.PYDANTIC_AI
-            )
-        if isinstance(framework, str):
-            framework = AgentFramework(framework)
+        resolved_framework = _resolve_framework(
+            framework, setting_name="LLMS_CORPUS_AGENT_FRAMEWORK"
+        )
 
         # Convert tool names to CoreTool instances
-        resolved_tools = _resolve_tools(tools) if tools else None
+        # ``_resolve_tools`` returns ``list[CoreTool]``; the factory parameter
+        # is the wider ``list[Union[CoreTool, Callable, str]]`` so it can also
+        # accept un-resolved tool spec lists from other callers. ``list`` is
+        # invariant in the type system, so we cast through the wider alias.
+        resolved_tools: Optional[list[Union[CoreTool, Callable[..., Any], str]]] = (
+            cast(
+                "list[Union[CoreTool, Callable[..., Any], str]]",
+                _resolve_tools(tools),
+            )
+            if tools
+            else None
+        )
 
         # If caller explicitly disabled persistence we propagate the flags via **kwargs
         persistence_overrides: dict[str, Any] = {}
@@ -243,7 +257,7 @@ class AgentAPI:
 
         return await UnifiedAgentFactory.create_corpus_agent(
             corpus,
-            framework=framework,
+            framework=resolved_framework,
             user_id=user_id,
             conversation=conversation,
             conversation_id=conversation_id,
@@ -428,7 +442,8 @@ class AgentAPI:
         # The tool implementations appended to this list during the run.
         # Dedupe while preserving order of first occurrence so the most
         # relevant (earliest retrieved) citations come first.
-        raw_ids = getattr(agent.agent_deps, "retrieved_annotation_ids", []) or []
+        agent_deps = getattr(agent, "agent_deps", None)
+        raw_ids = getattr(agent_deps, "retrieved_annotation_ids", []) or []
         seen: set[int] = set()
         annotation_ids: list[int] = []
         for aid in raw_ids:
@@ -579,7 +594,7 @@ class ToolAPI:
 
     @staticmethod
     def from_function(
-        func: callable,
+        func: Callable[..., Any],
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
@@ -650,18 +665,20 @@ class VectorStoreAPI:
             # Pydantic AI vector store
             store = vector_stores.create("pydantic_ai", document_id=456)
         """
-        # Resolve default framework if caller did not specify one
-        if framework is None:
-            framework = getattr(
-                settings, "LLMS_DOCUMENT_AGENT_FRAMEWORK", AgentFramework.PYDANTIC_AI
-            )
-
-        # Normalize framework
-        if isinstance(framework, str):
-            framework = AgentFramework(framework)
+        # Resolve default framework if caller did not specify one. Vector
+        # stores have their own dedicated setting — the document-agent
+        # default would have been a leaky abstraction that surprised
+        # operators who wanted to tune the two independently. When the
+        # setting is absent ``_resolve_framework`` falls through to
+        # ``AgentFramework.PYDANTIC_AI``, the same default the agent paths
+        # use, so existing deployments continue to work without a settings
+        # change.
+        resolved_framework = _resolve_framework(
+            framework, setting_name="LLMS_VECTOR_STORE_FRAMEWORK"
+        )
 
         return UnifiedVectorStoreFactory.create_vector_store(
-            framework=framework,
+            framework=resolved_framework,
             user_id=user_id,
             corpus_id=corpus_id,
             document_id=document_id,
@@ -681,7 +698,7 @@ def _resolve_tools(tools: list[ToolType]) -> list[CoreTool]:
     from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
 
     registry = ToolFunctionRegistry.get()
-    resolved = []
+    resolved: list[CoreTool] = []
 
     for tool in tools:
         if isinstance(tool, str):
@@ -697,6 +714,28 @@ def _resolve_tools(tools: list[ToolType]) -> list[CoreTool]:
         else:
             logger.warning("Invalid tool specification: %s", tool)
 
+    return resolved
+
+
+def _resolve_framework(
+    framework: Optional[FrameworkType],
+    *,
+    setting_name: str = "LLMS_DOCUMENT_AGENT_FRAMEWORK",
+) -> AgentFramework:
+    """Coerce a caller-supplied framework spec into a concrete ``AgentFramework``.
+
+    Accepts ``None`` (falls back to the named Django setting / pydantic-ai
+    default), the literal framework name, or an ``AgentFramework`` member.
+    """
+    resolved: Any = framework
+    if resolved is None:
+        resolved = getattr(settings, setting_name, AgentFramework.PYDANTIC_AI)
+    if isinstance(resolved, str):
+        resolved = AgentFramework(resolved)
+    if not isinstance(resolved, AgentFramework):
+        raise TypeError(
+            f"Could not resolve framework {framework!r} to an AgentFramework"
+        )
     return resolved
 
 

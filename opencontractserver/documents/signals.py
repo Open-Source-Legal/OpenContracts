@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from celery import chain
 from django.apps import apps
 from django.conf import settings
-from django.db import transaction
+from django.db import connections, transaction
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import Signal
 from django.utils import timezone
@@ -168,6 +168,21 @@ def process_doc_on_document_path_create(
 
 DOC_DELETE_CAPTURE_SS_UID = "capture_structural_set_id_pre_delete"
 DOC_DELETE_GC_SS_UID = "gc_orphan_structural_set_post_delete"
+DOC_DELETE_CAPTURE_BLOBS_UID = "capture_blob_paths_pre_delete"
+DOC_DELETE_SCHEDULE_BLOB_GC_UID = "schedule_blob_gc_post_delete"
+
+# Per-DB-connection accumulator key for batched blob cleanup. Set directly
+# on the connection object so it shares the connection's lifetime; reset to
+# an empty set the first time an on_commit flush callback runs in any
+# transaction that touched it. We deliberately do NOT track a "scheduled"
+# bit: Django discards rolled-back ``on_commit`` callbacks but cannot reset
+# Python attributes we set on the connection wrapper, so a flag would leak
+# across rollbacks and silently drop later cleanups (issue raised in PR
+# review). Instead we register ``on_commit`` on every post_delete; the
+# first callback to fire snapshots the shared set and clears it, and any
+# additional callbacks in the same commit see an empty set and short-
+# circuit.
+_PENDING_BLOB_CLEANUP_KEY = "_oc_pending_blob_cleanup_paths"
 
 
 def _capture_structural_set_id(sender, instance, **kwargs):
@@ -177,6 +192,100 @@ def _capture_structural_set_id(sender, instance, **kwargs):
     deletion, so we have to record it pre_delete to inspect it post_delete.
     """
     instance._structural_set_id_at_delete = instance.structural_annotation_set_id
+
+
+def _capture_blob_paths_pre_delete(sender, instance, **kwargs):
+    """Capture every populated FileField blob path before the row is gone.
+
+    Issue #1492: when a Document is deleted we want to reclaim its file
+    blobs from storage — but only if no other Document still references
+    them (corpus-isolated copies created by ``Corpus.add_document`` share
+    blob paths by design, see issue #1464). We record the candidate
+    paths pre-delete and let the matching ``post_delete`` handler fold
+    them into a per-transaction set that fires a single Celery task on
+    commit.
+
+    The field list is derived from ``_meta`` so adding a new ``FileField``
+    on Document automatically extends coverage (parity with
+    ``Document.safe_delete_field_blob`` and
+    ``DocumentManager.unique_blob_paths``).
+    """
+    paths: list[str] = []
+    for field_name in type(instance).blob_field_names():
+        value = getattr(instance, field_name, None)
+        if value and value.name:
+            paths.append(value.name)
+    instance._captured_blob_paths = paths
+
+
+def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
+    """Schedule async cleanup of blobs that may have been orphaned.
+
+    Per-instance signals fire for both ``Model.delete()`` and
+    ``QuerySet.delete()`` once the model has signal listeners, so this
+    handler covers both deletion paths uniformly. To avoid spawning one
+    Celery task per Document on bulk delete, we accumulate paths into a
+    connection-level set and register one ``transaction.on_commit``
+    callback per ``post_delete``; the first to fire snapshots the shared
+    set and clears it, so subsequent callbacks short-circuit on an empty
+    set. ``QuerySet.delete()`` therefore still produces ``O(N)``
+    callbacks but only one Celery dispatch.
+
+    Transaction safety: ``on_commit`` callbacks do not fire on rollback,
+    so a failed delete never reaches the storage layer with new paths.
+    The accumulator set itself is a Python attribute on the Django
+    connection wrapper, however — Django does not reset attributes set
+    on the wrapper when a transaction rolls back. Paths captured by a
+    rolled-back delete therefore "bleed" into the next transaction's
+    accumulator and are submitted to the cleanup task. The orphan
+    re-check inside ``cleanup_orphaned_document_blobs_task`` handles
+    this safely: rows restored by the rollback still reference the
+    blob, so the path fails the orphan test and is skipped.
+    """
+    paths = getattr(instance, "_captured_blob_paths", None)
+    if not paths:
+        return
+
+    connection = connections[using]
+
+    pending = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, None)
+    if pending is None:
+        pending = set()
+        setattr(connection, _PENDING_BLOB_CLEANUP_KEY, pending)
+    pending.update(paths)
+
+    def _flush_blob_cleanup() -> None:
+        collected: set[str] = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
+        if not collected:
+            # Another flush callback in this commit already drained the
+            # shared set — nothing to do.
+            return
+        # Snapshot the set; other callbacks registered in this same
+        # commit will find it empty and short-circuit above.
+        snapshot = sorted(collected)
+        setattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
+        # Log before dispatch so an ops team can recover paths from logs
+        # if the broker is unavailable and ``delay()`` raises.
+        logger.info("Scheduling blob cleanup for %d paths: %s", len(snapshot), snapshot)
+        from opencontractserver.tasks.cleanup_tasks import (
+            cleanup_orphaned_document_blobs_task,
+        )
+
+        # ``sorted`` makes task arguments deterministic (helps tests +
+        # idempotent retries); ``list`` because Celery JSON-serialises.
+        try:
+            cleanup_orphaned_document_blobs_task.delay(snapshot)
+        except Exception:
+            # Broker unavailable / dispatch error: blobs may be orphaned in
+            # storage. Log at ERROR with the full path list so ops can
+            # reconcile via the future management command (issue #1492).
+            logger.exception(
+                "Blob cleanup task dispatch failed; %d paths may be orphaned: %s",
+                len(snapshot),
+                snapshot,
+            )
+
+    transaction.on_commit(_flush_blob_cleanup, using=using)
 
 
 def _gc_orphan_structural_set(sender, instance, **kwargs):
@@ -243,4 +352,17 @@ def connect_corpus_document_signals() -> None:
         _gc_orphan_structural_set,
         sender=Document,
         dispatch_uid=DOC_DELETE_GC_SS_UID,
+    )
+
+    # Document deletion (#1492): capture FileField blob paths pre_delete
+    # and schedule async storage cleanup post_delete via on_commit.
+    pre_delete.connect(
+        _capture_blob_paths_pre_delete,
+        sender=Document,
+        dispatch_uid=DOC_DELETE_CAPTURE_BLOBS_UID,
+    )
+    post_delete.connect(
+        _schedule_blob_cleanup_post_delete,
+        sender=Document,
+        dispatch_uid=DOC_DELETE_SCHEDULE_BLOB_GC_UID,
     )

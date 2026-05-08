@@ -1159,3 +1159,42 @@ class TestURIParserExtended(TestCase):
 
     def test_corpus_with_special_chars(self):
         self.assertIsNone(URIParser.parse_corpus("corpus://test<script>"))
+
+
+class TestAnyUrlCustomSchemes(TestCase):
+    """Pin the contract that pydantic's ``AnyUrl`` accepts the custom URI
+    schemes the MCP server emits when listing resources (``corpus://``,
+    ``document://`` and ``thread://``). Pre-#1486 the resource-uri payload
+    used plain strings; the typing graduation introduces ``AnyUrl(...)``
+    construction at three call sites in ``mcp/server.py``. If pydantic
+    ever tightens its URI validation, this test fails immediately rather
+    than producing a runtime error during a live MCP ``list_resources``
+    call.
+    """
+
+    def test_corpus_uri_constructs(self) -> None:
+        from pydantic import AnyUrl
+
+        url = AnyUrl("corpus://my-corpus-slug")
+        self.assertEqual(str(url), "corpus://my-corpus-slug")
+
+    def test_document_uri_constructs(self) -> None:
+        from pydantic import AnyUrl
+
+        url = AnyUrl("document://my-corpus/my-doc")
+        self.assertEqual(str(url), "document://my-corpus/my-doc")
+
+    def test_thread_uri_constructs(self) -> None:
+        from pydantic import AnyUrl
+
+        url = AnyUrl("thread://my-corpus/threads/42")
+        self.assertEqual(str(url), "thread://my-corpus/threads/42")
+
+    def test_corpus_uri_with_uuid_slug(self) -> None:
+        """Real-world slug shapes (uuid-y, dotted, hyphenated) — they all
+        live under the ``[a-z0-9-]`` slug regex enforced upstream and
+        must remain accepted by AnyUrl."""
+        from pydantic import AnyUrl
+
+        url = AnyUrl("corpus://abc-123-def-4567")
+        self.assertEqual(str(url), "corpus://abc-123-def-4567")

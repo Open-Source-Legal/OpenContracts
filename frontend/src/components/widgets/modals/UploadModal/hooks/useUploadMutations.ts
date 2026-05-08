@@ -1,7 +1,10 @@
 import { useCallback, useState } from "react";
 import { useApolloClient } from "@apollo/client";
 import { toast } from "react-toastify";
-import { GET_DOCUMENTS } from "../../../../../graphql/queries";
+import {
+  GET_DOCUMENTS,
+  GET_DOCUMENTS_FOR_LIST,
+} from "../../../../../graphql/queries";
 import { GET_CORPUS_FOLDERS } from "../../../../../graphql/queries/folders";
 import {
   importDocumentMultipart,
@@ -147,9 +150,14 @@ export function useUploadMutations({
         setSingleInFlight(false);
       }
 
-      // Refetch documents and folders after all uploads
+      // Refetch documents and folders after all uploads. Both the heavy
+      // ``GET_DOCUMENTS`` (used by corpus tabs, modals, relationship UI) and
+      // the slim ``GET_DOCUMENTS_FOR_LIST`` (used by the top-level Documents
+      // view) need to refresh — Apollo's ``refetchQueries`` only refetches
+      // queries that are currently active on the client, so listing both is
+      // a no-op when the corresponding observable isn't mounted.
       await client.refetchQueries({
-        include: [GET_DOCUMENTS, GET_CORPUS_FOLDERS],
+        include: [GET_DOCUMENTS, GET_DOCUMENTS_FOR_LIST, GET_CORPUS_FOLDERS],
       });
 
       onComplete?.();
