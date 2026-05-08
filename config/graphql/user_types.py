@@ -97,12 +97,12 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_display_name(self, info) -> str:
         """Pick the first non-empty branch of the display-name chain.
 
-        Issue: #1574 — Reddit-style auto-assigned user handles
-        Issue: #1557 (precursor) — leaderboard OAuth-ID leak fix.
-
         The chain is the single rendering choke point for "what should the UI
         show?" and gracefully degrades to the redacted fallback for any user
-        the handle backfill hasn't reached yet.
+        the handle backfill hasn't reached yet. Local users (``is_social_user
+        =False``) get their chosen username verbatim — ``|`` is allowed by
+        ``UserUnicodeUsernameValidator`` so a local username with ``|`` is
+        legitimate and must not be redacted.
         """
         name = (self.name or "").strip()
         if name:

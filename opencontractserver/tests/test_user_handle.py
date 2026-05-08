@@ -267,11 +267,21 @@ class DisplayNameResolverTests(TestCase):
         self.assertEqual(self._resolve_for(user), "alice")
 
     def test_redacted_fallback_when_everything_missing(self):
-        user = User.objects.create_user(username="auth0|x", email="r@x.com")
+        # ``is_social_user=True`` is the gate that routes a ``|``-containing
+        # username through the OAuth-sub redaction; without it the resolver
+        # would return the username verbatim (legitimate per
+        # ``UserUnicodeUsernameValidator`` for locally-chosen usernames).
+        user = User.objects.create_user(
+            username="auth0|abcdef0123",
+            email="r@x.com",
+            is_social_user=True,
+        )
         # Strip the auto-handle so we hit the redacted branch.
         User.objects.filter(pk=user.pk).update(handle=None)
         user.refresh_from_db()
-        self.assertEqual(self._resolve_for(user), f"user_{user.pk}")
+        # Resolver returns the last 6 chars of the sub (after stripping the
+        # provider prefix), per ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH``.
+        self.assertEqual(self._resolve_for(user), "user_ef0123")
 
     def test_display_name_query_exposes_field_in_schema(self):
         """The GraphQL schema must expose ``displayName`` on UserType.

@@ -1,4 +1,4 @@
-# Schema migration adding the auto-assigned display handle (issue #1574).
+# Schema migration adding the auto-assigned display handle.
 #
 # Backfill is performed in the follow-on migration ``0028_backfill_user_handles``
 # so the schema change is observable on its own and the data migration can be

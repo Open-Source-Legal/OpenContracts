@@ -84,8 +84,9 @@ class DisplayNameResolverTestCase(TestCase):
         rather than the higher-priority handle branch (issue #1574).
         """
         user = User.objects.create_user(username="alice")
-        user.handle = None
-        user.save(update_fields=["handle"])
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         self.assertEqual(_resolve(user), "alice")
 
     def test_redacts_oauth_sub_when_no_profile_fields(self):
@@ -97,8 +98,9 @@ class DisplayNameResolverTestCase(TestCase):
         """
         username = "google-oauth2|114688257717759010643"
         user = User.objects.create_user(username=username, is_social_user=True)
-        user.handle = None
-        user.save(update_fields=["handle"])
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         display = _resolve(user)
         # Suffix only — must not contain the provider prefix or the pipe.
         self.assertEqual(display, "user_010643")
@@ -126,8 +128,9 @@ class DisplayNameResolverTestCase(TestCase):
         )
         username = f"auth0|{sub}"
         user = User.objects.create_user(username=username, is_social_user=True)
-        user.handle = None
-        user.save(update_fields=["handle"])
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         display = _resolve(user)
         self.assertEqual(display, f"user_{sub}")
         self.assertNotIn("|", display)
@@ -142,8 +145,9 @@ class DisplayNameResolverTestCase(TestCase):
         than the higher-priority handle branch (issue #1574).
         """
         user = User.objects.create_user(username="alice|admin", is_social_user=False)
-        user.handle = None
-        user.save(update_fields=["handle"])
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         self.assertEqual(_resolve(user), "alice|admin")
 
     def test_whitespace_only_name_is_skipped(self):

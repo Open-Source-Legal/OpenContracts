@@ -18,6 +18,10 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 
+from opencontractserver.constants.users import (
+    HANDLE_INSERT_RETRY_ATTEMPTS,
+    USER_HANDLE_MAX_LENGTH,
+)
 from opencontractserver.shared.db_utils import table_has_column
 from opencontractserver.shared.defaults import jsonfield_default_value
 from opencontractserver.shared.fields import NullableJSONField
@@ -137,13 +141,13 @@ class User(AbstractUser):
         ),
     )
 
-    # Reddit-style display handle (issue #1574). Auto-assigned on save when
-    # missing; surfaced via the ``UserType.displayName`` GraphQL resolver so
-    # users without populated Auth0 ``name``/``given_name`` claims don't fall
+    # Reddit-style display handle. Auto-assigned on save when missing;
+    # surfaced via the ``UserType.displayName`` GraphQL resolver so users
+    # without populated Auth0 ``name``/``given_name`` claims don't fall
     # through to the redacted ``user_<id>`` fallback.
     handle = django.db.models.CharField(
         "Display Handle",
-        max_length=64,
+        max_length=USER_HANDLE_MAX_LENGTH,
         unique=True,
         null=True,
         blank=True,
@@ -228,23 +232,47 @@ class User(AbstractUser):
                 validate_user_slug_or_raise(sanitized)
                 self.slug = sanitized
 
-        # Auto-assign Reddit-style display handle (issue #1574). Mirrors the
-        # slug guard so initial migrations that pre-date the column don't
-        # explode on save.
+        # Auto-assign Reddit-style display handle. Mirrors the slug guard so
+        # initial migrations that pre-date the column don't explode on save.
         handle_column_exists = table_has_column(self._meta.db_table, "handle")
         handle_being_saved = update_fields is None or "handle" in update_fields
-        if (
+        needs_handle = (
             handle_column_exists
             and handle_being_saved
             and (not self.handle or not str(self.handle).strip())
-        ):
-            scope_qs = get_user_model().objects.all()
-            self.handle = generate_handle(
-                scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
-            )
+        )
 
         created = self.id is None
-        super().save(*args, **kwargs)
+
+        if needs_handle:
+            # Bounded retry loop: ``generate_handle`` checks uniqueness with a
+            # non-locking ``.exists()`` query, so two concurrent inserts can
+            # sample the same candidate before either commits. Catch the
+            # resulting unique-constraint IntegrityError on the ``handle``
+            # column and re-roll. With the ~56k-pair namespace the first
+            # attempt almost always wins; the bound prevents pathological
+            # loops if the namespace is misconfigured.
+            from django.db import IntegrityError
+
+            scope_qs = get_user_model().objects.all()
+            for attempt in range(HANDLE_INSERT_RETRY_ATTEMPTS):
+                self.handle = generate_handle(
+                    scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
+                )
+                try:
+                    super().save(*args, **kwargs)
+                    break
+                except IntegrityError as exc:
+                    # Only retry on the handle uniqueness collision; let
+                    # other integrity errors (e.g. username, slug) propagate.
+                    if "handle" not in str(exc).lower():
+                        raise
+                    if attempt == HANDLE_INSERT_RETRY_ATTEMPTS - 1:
+                        raise
+                    self.handle = None
+                    continue
+        else:
+            super().save(*args, **kwargs)
 
         # after save user has ID
         # add user to group only after creating

@@ -1,5 +1,5 @@
 # Data migration backfilling auto-assigned display handles for existing users
-# (issue #1574). Uses ``opencontractserver.users.handle_generator`` so the same
+#. Uses ``opencontractserver.users.handle_generator`` so the same
 # logic powers ad-hoc reruns via the ``regenerate_user_handles`` management
 # command if the curated word list grows.
 

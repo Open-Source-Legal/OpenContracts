@@ -11,7 +11,7 @@ Format
 ------
 ``adjectiveNoun`` (camelCase). On collision a 2-4 digit numeric suffix is
 appended (``cleverFox42``). With the default ~56k namespace, suffix promotion
-is rare in practice (see ``test_user_handle.py``).
+is rare in practice.
 
 Determinism
 -----------
@@ -23,21 +23,25 @@ selection in production.
 from __future__ import annotations
 
 import random
-from typing import Optional
 
 from django.db.models import QuerySet
 
+from opencontractserver.constants.users import (
+    HANDLE_PLAIN_ATTEMPTS,
+    HANDLE_SUFFIX_MAX,
+    HANDLE_SUFFIX_MIN,
+    HANDLE_SUFFIXED_ATTEMPTS,
+)
 from opencontractserver.users.handle_wordlists import ADJECTIVES, NOUNS
 
-# Tunables. Kept module-level so tests can patch them if the namespace shrinks.
 DEFAULT_HANDLE_FIELD = "handle"
-# Plain-pair attempts before falling back to numeric-suffixed candidates.
-PLAIN_ATTEMPTS = 50
-# Numeric-suffix attempts before raising. With suffix range 10..9999 and a
-# fully populated namespace this is astronomically unlikely to be exhausted.
-SUFFIXED_ATTEMPTS = 100
-SUFFIX_MIN = 10
-SUFFIX_MAX = 9999
+
+# Backwards-compatible aliases preserved for tests that patch these names.
+# The authoritative values live in ``opencontractserver.constants.users``.
+PLAIN_ATTEMPTS = HANDLE_PLAIN_ATTEMPTS
+SUFFIXED_ATTEMPTS = HANDLE_SUFFIXED_ATTEMPTS
+SUFFIX_MIN = HANDLE_SUFFIX_MIN
+SUFFIX_MAX = HANDLE_SUFFIX_MAX
 
 
 def _camel_case_pair(adjective: str, noun: str) -> str:
@@ -51,7 +55,7 @@ def generate_handle(
     *,
     scope_qs: QuerySet,
     handle_field: str = DEFAULT_HANDLE_FIELD,
-    rng: Optional[random.Random] = None,
+    rng: random.Random | None = None,
 ) -> str:
     """Generate a unique handle within ``scope_qs`` using ``ADJECTIVES × NOUNS``.
 

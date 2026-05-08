@@ -1,6 +1,6 @@
 """
 Re-run Reddit-style handle assignment for users missing or eligible for a fresh
-handle (issue #1574).
+handle.
 
 Use cases:
 - The curated word list (``handle_wordlists.py``) grew and you want users who
@@ -40,7 +40,7 @@ _SUFFIXED_PATTERN = re.compile(r"\d+$")
 
 class Command(BaseCommand):
     help = (
-        "Assign auto-generated Reddit-style handles to users (issue #1574). "
+        "Assign auto-generated Reddit-style handles to users. "
         "By default only fills users with NULL/empty handles. Use "
         "--reroll-suffixed to additionally re-roll users whose handle ends "
         "in a numeric suffix (i.e. handed out during a collision)."
