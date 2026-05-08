@@ -831,9 +831,9 @@ class TestResolveToolsCallerForms(TestCase):
             return arg
 
         sentinel = object()
-        # ``_resolve_tools`` calls ``CoreTool.from_function`` directly (not
-        # the ``ToolAPI.from_function`` indirection), so we patch the
-        # bound name actually invoked at line 713 of api.py.
+        # ``_resolve_tools`` builds the CoreTool by calling
+        # ``CoreTool.from_function`` directly (not via the ToolAPI wrapper),
+        # so the patch must target the underlying classmethod to be observed.
         with patch(
             "opencontractserver.llms.api.CoreTool.from_function",
             return_value=sentinel,
