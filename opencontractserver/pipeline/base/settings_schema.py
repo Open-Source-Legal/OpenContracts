@@ -343,7 +343,9 @@ def create_settings_instance(
         ValueError: If component has no Settings dataclass
     """
     settings_class = getattr(component_class, "Settings", None)
-    if settings_class is None or not dataclasses.is_dataclass(settings_class):
+    if not isinstance(settings_class, type) or not dataclasses.is_dataclass(
+        settings_class
+    ):
         raise ValueError(
             f"Component {component_class.__name__} has no Settings dataclass"
         )
