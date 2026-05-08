@@ -114,11 +114,7 @@ const DOCUMENTS_PAGE_SIZE = 20;
 const PageContainer = styled.div`
   height: 100%;
   background: ${OS_LEGAL_COLORS.background};
-  font-family:
-    "Inter",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
 `;
@@ -844,7 +840,7 @@ export const Documents = () => {
   const backend_user = useReactiveVar(backendUserObj);
   const show_bulk_upload_modal = useReactiveVar(showBulkUploadModal);
   const show_upload_new_documents_modal = useReactiveVar(
-    showUploadNewDocumentsModal,
+    showUploadNewDocumentsModal
   );
   const filtered_to_labelset_id = useReactiveVar(filterToLabelsetId);
   const filtered_to_label_id = useReactiveVar(filterToLabelId);
@@ -852,14 +848,14 @@ export const Documents = () => {
   const selected_document_ids = useReactiveVar(selectedDocumentIds);
   const document_search_term = useReactiveVar(documentSearchTerm);
   const show_add_docs_to_corpus_modal = useReactiveVar(
-    showAddDocsToCorpusModal,
+    showAddDocsToCorpusModal
   );
   const show_delete_documents_modal = useReactiveVar(showDeleteDocumentsModal);
 
   const [searchCache, setSearchCache] = useState<string>(document_search_term);
   const [viewMode, setViewMode] = useState<ViewMode>(VIEW_MODES.GRID);
   const [activeStatusFilter, setActiveStatusFilter] = useState<StatusFilter>(
-    STATUS_FILTERS.ALL,
+    STATUS_FILTERS.ALL
   );
   const [contextMenu, setContextMenu] = useState<{
     document: DocumentType;
@@ -884,7 +880,7 @@ export const Documents = () => {
       ...(filtered_to_label_id && { hasLabelWithId: filtered_to_label_id }),
       ...(filtered_to_corpus && { inCorpusWithId: filtered_to_corpus.id }),
     }),
-    [document_search_term, filtered_to_label_id, filtered_to_corpus],
+    [document_search_term, filtered_to_label_id, filtered_to_corpus]
   );
 
   const {
@@ -903,7 +899,7 @@ export const Documents = () => {
       // which combined with the refetch storm hammered the backend on every
       // re-render of any parent reactive var.
       notifyOnNetworkStatusChange: true,
-    },
+    }
   );
 
   // ``document_items`` was previously rebuilt on every render via
@@ -946,7 +942,7 @@ export const Documents = () => {
         labelId: filtered_to_label_id,
         corpus: filtered_to_corpus,
       }),
-    [document_search_term, filtered_to_label_id, filtered_to_corpus],
+    [document_search_term, filtered_to_label_id, filtered_to_corpus]
   );
 
   // ``cache-and-network`` so the tiles update when the user revisits the
@@ -1001,7 +997,7 @@ export const Documents = () => {
         count: String(stats.processingCount),
       },
     ],
-    [stats.totalDocs, stats.processedCount, stats.processingCount],
+    [stats.totalDocs, stats.processedCount, stats.processingCount]
   );
 
   // Apollo's ``useQuery`` automatically refetches when ``variables`` change
@@ -1023,7 +1019,7 @@ export const Documents = () => {
   const debouncedSearch = useRef(
     _.debounce((searchTerm: string) => {
       documentSearchTerm(searchTerm);
-    }, DEBOUNCE.SEARCH_MS),
+    }, DEBOUNCE.SEARCH_MS)
   );
 
   useEffect(() => {
@@ -1040,7 +1036,7 @@ export const Documents = () => {
       setSearchCache(value);
       debouncedSearch.current(value);
     },
-    [],
+    []
   );
 
   // Mutations
@@ -1056,7 +1052,7 @@ export const Documents = () => {
 
   const handleDeleteDocuments = (
     ids: string[] | null,
-    callback?: (args?: any) => void | any,
+    callback?: (args?: any) => void | any
   ) => {
     if (ids) {
       tryDeleteDocuments({ variables: { documentIdsToDelete: ids } })
@@ -1197,7 +1193,7 @@ export const Documents = () => {
           yesAction={() =>
             handleDeleteDocuments(
               selected_document_ids.length > 0 ? selected_document_ids : null,
-              () => showDeleteDocumentsModal(false),
+              () => showDeleteDocumentsModal(false)
             )
           }
           noAction={() => showDeleteDocumentsModal(false)}
@@ -1272,8 +1268,8 @@ export const Documents = () => {
                           filtered_to_labelset_id
                             ? filtered_to_labelset_id
                             : filtered_to_corpus?.labelSet?.id
-                              ? filtered_to_corpus.labelSet.id
-                              : undefined
+                            ? filtered_to_corpus.labelSet.id
+                            : undefined
                         }
                       />
                     ) : null}
@@ -1697,15 +1693,15 @@ export const Documents = () => {
                   activeStatusFilter !== STATUS_FILTERS.ALL
                     ? `No ${getSectionTitle().toLowerCase()}`
                     : hasAdvancedFilters
-                      ? "No documents match your filters"
-                      : "No documents yet"
+                    ? "No documents match your filters"
+                    : "No documents yet"
                 }
                 description={
                   activeStatusFilter !== STATUS_FILTERS.ALL
                     ? "Try selecting a different filter to see more documents."
                     : hasAdvancedFilters
-                      ? "Try adjusting your filters or clearing them to see more documents."
-                      : "Upload your first document to get started with document analysis, annotation, and AI-powered insights."
+                    ? "Try adjusting your filters or clearing them to see more documents."
+                    : "Upload your first document to get started with document analysis, annotation, and AI-powered insights."
                 }
                 size="lg"
                 action={

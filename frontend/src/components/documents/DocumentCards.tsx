@@ -123,8 +123,7 @@ const EmptyStateIcon = styled.div`
   justify-content: center;
   margin-bottom: 24px;
   color: ${OS_LEGAL_COLORS.primaryBlue};
-  box-shadow:
-    0 4px 6px -1px rgba(59, 130, 246, 0.1),
+  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.1),
     0 2px 4px -1px rgba(59, 130, 246, 0.06);
 
   svg {
@@ -349,8 +348,8 @@ export const DocumentCards = ({
     viewMode === "classic"
       ? ResponsiveCardGrid
       : viewMode === "modern-list"
-        ? ModernListContainer
-        : ModernCardGrid;
+      ? ModernListContainer
+      : ModernCardGrid;
 
   return (
     <div

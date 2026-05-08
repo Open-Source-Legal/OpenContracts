@@ -65,7 +65,7 @@ export const AnalysesCards = ({
     if (analysis_ids_to_display.includes(selected_analysis.id)) {
       // Remove from selection
       const cleaned_ids = analysis_ids_to_display.filter(
-        (id) => id !== selected_analysis.id,
+        (id) => id !== selected_analysis.id
       );
       // Update URL - CentralRouteManager will set reactive var
       updateAnnotationSelectionParams(location, navigate, {
@@ -74,7 +74,7 @@ export const AnalysesCards = ({
 
       // Also update legacy selectedAnalyses for backward compatibility
       const cleaned_analyses = analyses.filter((a) =>
-        cleaned_ids.includes(a.id),
+        cleaned_ids.includes(a.id)
       );
       selectedAnalyses(cleaned_analyses);
     } else {

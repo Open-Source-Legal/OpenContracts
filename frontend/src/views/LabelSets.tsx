@@ -61,11 +61,7 @@ import { getLabelsetUrl } from "../utils/navigationUtils";
 const PageContainer = styled.div`
   height: 100%;
   background: ${OS_LEGAL_COLORS.background};
-  font-family:
-    "Inter",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
 `;
@@ -209,7 +205,7 @@ export const Labelsets = () => {
   const debouncedSearch = useRef(
     _.debounce((searchTerm: string) => {
       labelsetSearchTerm(searchTerm);
-    }, 500),
+    }, 500)
   );
 
   const handleSearchChange = (value: string) => {
@@ -258,7 +254,7 @@ export const Labelsets = () => {
           (ls) =>
             !ls.isPublic &&
             ls.creator?.email !== currentUserEmail &&
-            (ls.myPermissions?.length || 0) > 0,
+            (ls.myPermissions?.length || 0) > 0
         );
       case "public":
         return labelsets.filter((ls) => ls.isPublic);
@@ -276,7 +272,7 @@ export const Labelsets = () => {
         (ls) =>
           !ls.isPublic &&
           ls.creator?.email !== currentUserEmail &&
-          (ls.myPermissions?.length || 0) > 0,
+          (ls.myPermissions?.length || 0) > 0
       ).length,
       public: labelsets.filter((ls) => ls.isPublic).length,
     };
@@ -336,7 +332,7 @@ export const Labelsets = () => {
         } else {
           toast.error(
             result.data?.deleteLabelset?.message ||
-              "Failed to delete label set.",
+              "Failed to delete label set."
           );
         }
         deletingLabelset(null);
@@ -364,7 +360,7 @@ export const Labelsets = () => {
       setMenuPosition({ x: e.clientX, y: e.clientY });
       setOpenMenuId(labelsetId);
     },
-    [],
+    []
   );
 
   const handleCloseMenu = useCallback(() => {

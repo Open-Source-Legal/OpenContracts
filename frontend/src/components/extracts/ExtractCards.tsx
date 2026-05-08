@@ -139,14 +139,14 @@ export const ExtractCards = ({
         navigate(`/extracts/${extract.id}`);
       }
     },
-    [useInlineSelection, location, navigate],
+    [useInlineSelection, location, navigate]
   );
 
   const handleDeleteExtract = useCallback(
     (extract: ExtractType) => {
       tryDeleteExtract({ variables: { id: extract.id } });
     },
-    [tryDeleteExtract],
+    [tryDeleteExtract]
   );
 
   const handleOpenContextMenu = useCallback(
@@ -156,7 +156,7 @@ export const ExtractCards = ({
       setMenuPosition({ x: e.clientX, y: e.clientY });
       setOpenMenuId(extractId);
     },
-    [],
+    []
   );
 
   const handleCloseMenu = useCallback(() => {

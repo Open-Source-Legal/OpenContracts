@@ -59,11 +59,7 @@ import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 const PageContainer = styled.div`
   height: 100%;
   background: ${OS_LEGAL_COLORS.background};
-  font-family:
-    "Inter",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
 `;
@@ -262,7 +258,7 @@ function mapCategoryToType(corpus: CorpusType): CollectionType {
 
 function getVisibilityStatus(
   corpus: CorpusType,
-  currentUserEmail?: string,
+  currentUserEmail?: string
 ): string {
   const isOwner = corpus.creator?.email === currentUserEmail;
   // Using Unicode symbols for visual flair
@@ -289,7 +285,7 @@ function formatStats(corpus: CorpusType): string[] {
       stats.push(
         `${labelsetName} (${totalLabels} ${
           totalLabels === 1 ? "label" : "labels"
-        })`,
+        })`
       );
     } else {
       stats.push(labelsetName);
@@ -374,7 +370,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
   >(START_FORK_CORPUS, {
     onCompleted: () => {
       toast.success(
-        "SUCCESS! Fork started. Refresh the corpus page to view fork progress.",
+        "SUCCESS! Fork started. Refresh the corpus page to view fork progress."
       );
     },
     onError: () => {
@@ -405,16 +401,16 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
       activeFilter === "my"
         ? "mine"
         : activeFilter === "shared"
-          ? "shared"
-          : activeFilter === "public"
-            ? "public"
-            : "all";
+        ? "shared"
+        : activeFilter === "public"
+        ? "public"
+        : "all";
     return {
       totalCorpuses: filterCounts[tabKey as keyof CorpusFilterCounts],
       totalDocuments: list.reduce((sum, c) => sum + (c.documentCount || 0), 0),
       totalAnnotations: list.reduce(
         (sum, c) => sum + (c.annotations?.totalCount || 0),
-        0,
+        0
       ),
       sharedCount: filterCounts.shared,
     };
@@ -439,7 +435,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
       if (openMenuId) return;
       navigateToCorpus(corpus, navigate, window.location.pathname);
     },
-    [navigate, openMenuId],
+    [navigate, openMenuId]
   );
 
   // Handle opening context menu
@@ -450,7 +446,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
       setMenuPosition({ x: e.clientX, y: e.clientY });
       setOpenMenuId(corpusId);
     },
-    [],
+    []
   );
 
   // Handle closing context menu
@@ -464,7 +460,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
     (value: string) => {
       onSearchChange(value);
     },
-    [onSearchChange],
+    [onSearchChange]
   );
 
   // Handle fork
@@ -472,7 +468,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
     (corpusId: string) => {
       startForkCorpus({ variables: { corpusId } });
     },
-    [startForkCorpus],
+    [startForkCorpus]
   );
 
   // Determine section title based on filter
@@ -588,7 +584,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                   // Status shows visibility only (with icon)
                   const visibilityStatus = getVisibilityStatus(
                     corpus,
-                    currentUserEmail,
+                    currentUserEmail
                   );
 
                   return (
@@ -643,16 +639,16 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                 if (!openMenuId || !menuPosition) return null;
 
                 const corpus = filteredCorpuses.find(
-                  (c) => c.id === openMenuId,
+                  (c) => c.id === openMenuId
                 );
                 if (!corpus) return null;
 
                 const permissions = getPermissions(corpus.myPermissions || []);
                 const canUpdate = permissions.includes(
-                  PermissionTypes.CAN_UPDATE,
+                  PermissionTypes.CAN_UPDATE
                 );
                 const canRemove = permissions.includes(
-                  PermissionTypes.CAN_REMOVE,
+                  PermissionTypes.CAN_REMOVE
                 );
 
                 return (
