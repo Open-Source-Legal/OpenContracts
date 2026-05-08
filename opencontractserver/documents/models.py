@@ -363,7 +363,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         super().save(*args, **kwargs)
 
     @classmethod
-    def blob_field_names(cls) -> list[str]:
+    def blob_field_names(cls) -> tuple[str, ...]:
         """Names of every ``FileField`` declared on the Document model.
 
         Single source of truth for blob-storage code paths (signal
@@ -374,14 +374,18 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         Computed once per process and cached on the class so signal
         handlers and the orphan-cleanup task do not pay
         ``_meta.get_fields()`` introspection cost on every delete.
+
+        Returned as a ``tuple`` (immutable) so a misbehaving caller
+        cannot corrupt the shared cache by mutating the result; see
+        issue #1572 follow-up #1.
         """
-        cached: list[str] | None = getattr(cls, "_BLOB_FIELD_NAMES_CACHE", None)
+        cached: tuple[str, ...] | None = getattr(cls, "_BLOB_FIELD_NAMES_CACHE", None)
         if cached is None:
-            cached = [
+            cached = tuple(
                 field.name
                 for field in cls._meta.get_fields()
                 if isinstance(field, models.FileField)
-            ]
+            )
             cls._BLOB_FIELD_NAMES_CACHE = cached
         return cached
 
