@@ -140,7 +140,9 @@ def get_settings_schema(component_class: type) -> dict[str, dict[str, Any]]:
     Returns empty dict if the component has no Settings dataclass.
     """
     settings_class = getattr(component_class, "Settings", None)
-    if settings_class is None or not dataclasses.is_dataclass(settings_class):
+    if not isinstance(settings_class, type) or not dataclasses.is_dataclass(
+        settings_class
+    ):
         return {}
 
     schema: dict[str, dict[str, Any]] = {}
