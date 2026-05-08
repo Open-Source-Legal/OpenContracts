@@ -18,21 +18,13 @@ from opencontractserver.users.models import Assignment, UserExport, UserImport
 User = get_user_model()
 
 
-# Auth0 ``provider|sub`` usernames (e.g. ``auth0|abc123``,
-# ``google-oauth2|105...``) leak the OAuth identifier and must never be
-# rendered to other users. The displayName resolver routes these around
-# ``username`` and into the auto-assigned ``handle`` instead.
-def _looks_like_auth0_provider_sub(username: str) -> bool:
-    return bool(username) and "|" in username
-
-
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     display_name = graphene.String(
         description=(
             "Resolved display name with PII-safe fallback chain. Order: "
             "name → given_name + family_name → first_name + last_name → "
-            "auto-assigned handle → username (only when not a 'provider|sub' "
-            "Auth0 identifier) → redacted 'user_<id>' fallback."
+            "auto-assigned handle → username (local users only) → redacted "
+            "'user_<sub_suffix>' fallback for social users → 'user_<pk>'."
         )
     )
 
@@ -131,11 +123,17 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return handle
 
         username = (self.username or "").strip()
-        if username and not _looks_like_auth0_provider_sub(username):
+        is_social = bool(getattr(self, "is_social_user", False))
+
+        # Local users get their chosen username verbatim. ``|`` is allowed
+        # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
+        # username like ``alice|admin`` is legitimate and not an OAuth sub.
+        if username and not is_social:
             return username
 
         if username:
-            # Auth0 sub fallback — strip provider prefix.
+            # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
+            # strips the provider prefix even when the sub is short.
             sub = username.rsplit("|", 1)[-1]
             return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
 

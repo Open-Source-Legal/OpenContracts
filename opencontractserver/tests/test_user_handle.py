@@ -117,16 +117,12 @@ class HandleGeneratorTests(TestCase):
             User.objects.create_user(
                 username="u1", email="u1@x.com", handle="braveBear"
             )
-            User.objects.create_user(
-                username="u2", email="u2@x.com", handle="braveFox"
-            )
+            User.objects.create_user(username="u2", email="u2@x.com", handle="braveFox")
             User.objects.create_user(
                 username="u3", email="u3@x.com", handle="cleverBear"
             )
 
-            handle = generate_handle(
-                scope_qs=User.objects.all(), rng=random.Random(0)
-            )
+            handle = generate_handle(scope_qs=User.objects.all(), rng=random.Random(0))
 
         self.assertEqual(handle, "cleverFox")
 
@@ -147,12 +143,8 @@ class HandleGeneratorTests(TestCase):
 
         with mock.patch(
             "opencontractserver.users.handle_generator.ADJECTIVES", single_adj
-        ), mock.patch(
-            "opencontractserver.users.handle_generator.NOUNS", single_noun
-        ):
-            handle = generate_handle(
-                scope_qs=User.objects.all(), rng=random.Random(99)
-            )
+        ), mock.patch("opencontractserver.users.handle_generator.NOUNS", single_noun):
+            handle = generate_handle(scope_qs=User.objects.all(), rng=random.Random(99))
 
         # Must end in digits (the suffix) and start with the only available pair.
         self.assertTrue(
@@ -173,6 +165,7 @@ class UserModelHandleAutoAssignTests(TestCase):
     def test_new_user_gets_handle(self):
         user = User.objects.create_user(username="new_handle_user", email="n@x.com")
         self.assertTrue(user.handle, "Newly created user should have an auto handle")
+        assert user.handle is not None
         self.assertRegex(user.handle, r"^[a-z]+[A-Z][a-z]+(\d+)?$")
 
     def test_handle_is_unique_per_user(self):
@@ -195,6 +188,7 @@ class UserModelHandleAutoAssignTests(TestCase):
             username="auth0|abc123-def-456",
             email="oauth@x.com",
         )
+        assert user.handle is not None
         self.assertNotIn("auth0", user.handle.lower())
         self.assertNotIn("|", user.handle)
         self.assertNotIn("abc123", user.handle)
@@ -376,13 +370,7 @@ class HandleGeneratorTunablesTests(TestCase):
 
         with mock.patch(
             "opencontractserver.users.handle_generator.ADJECTIVES", ("only",)
-        ), mock.patch(
-            "opencontractserver.users.handle_generator.NOUNS", ("one",)
-        ):
-            User.objects.create_user(
-                username="a", email="a@x.com", handle="onlyOne"
-            )
-            handle = generate_handle(
-                scope_qs=User.objects.all(), rng=random.Random(0)
-            )
+        ), mock.patch("opencontractserver.users.handle_generator.NOUNS", ("one",)):
+            User.objects.create_user(username="a", email="a@x.com", handle="onlyOne")
+            handle = generate_handle(scope_qs=User.objects.all(), rng=random.Random(0))
         self.assertTrue(re.search(r"\d+$", handle), f"Expected suffix on {handle!r}")
