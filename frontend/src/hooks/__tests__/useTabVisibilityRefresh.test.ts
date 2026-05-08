@@ -55,7 +55,8 @@ describe("useTabVisibilityRefresh", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it("swallows promise rejections from refresh fns", async () => {
+  it("logs promise rejections via console.error and does not propagate", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const failing = vi.fn().mockRejectedValue(new Error("boom"));
     renderHook(() => useTabVisibilityRefresh([failing]));
 
@@ -63,9 +64,15 @@ describe("useTabVisibilityRefresh", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(failing).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("refresh promise rejected"),
+      expect.any(Error)
+    );
+    errorSpy.mockRestore();
   });
 
-  it("swallows synchronous exceptions from refresh fns", () => {
+  it("logs synchronous exceptions via console.error and continues with the next fn", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const synchronousThrower = vi.fn(() => {
       throw new Error("sync boom");
     });
@@ -76,6 +83,11 @@ describe("useTabVisibilityRefresh", () => {
 
     expect(synchronousThrower).toHaveBeenCalledTimes(1);
     expect(followup).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("refresh threw synchronously"),
+      expect.any(Error)
+    );
+    errorSpy.mockRestore();
   });
 
   it("removes the listener on unmount", () => {

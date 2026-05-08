@@ -25,25 +25,22 @@ export function useTabVisibilityRefresh(refreshFns: RefreshFn[]): void {
             result &&
             typeof (result as Promise<unknown>).catch === "function"
           ) {
+            // Log unconditionally — production swallowing makes a
+            // consistently failing refresh (torn-down query, network
+            // outage) silent forever. Sentry / browser consoles surface
+            // ``console.error`` for diagnosis.
             (result as Promise<unknown>).catch((err) => {
-              if (process.env.NODE_ENV !== "production") {
-                // Surface refetch rejections in dev so a broken caller
-                // (e.g. Apollo query torn down between visibilitychange
-                // events) doesn't disappear silently.
-                console.warn(
-                  "[useTabVisibilityRefresh] refresh promise rejected:",
-                  err
-                );
-              }
+              console.error(
+                "[useTabVisibilityRefresh] refresh promise rejected:",
+                err
+              );
             });
           }
         } catch (err) {
-          if (process.env.NODE_ENV !== "production") {
-            console.warn(
-              "[useTabVisibilityRefresh] refresh threw synchronously:",
-              err
-            );
-          }
+          console.error(
+            "[useTabVisibilityRefresh] refresh threw synchronously:",
+            err
+          );
         }
       }
     };

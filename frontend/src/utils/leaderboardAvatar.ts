@@ -35,7 +35,12 @@ export function getLeaderboardInitials(name?: string): string {
   if (tokens.length >= 2) {
     return (tokens[0][0] + tokens[1][0]).toUpperCase();
   }
-  return name.substring(0, 2).toUpperCase();
+  if (tokens.length === 1) {
+    // Use the trimmed token, not the raw input — leading whitespace would
+    // otherwise turn ``"  alice"`` into ``"  "``.
+    return tokens[0].substring(0, 2).toUpperCase();
+  }
+  return "?";
 }
 
 /**

@@ -35,6 +35,15 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
     )
 
+    email = graphene.String(
+        description=(
+            "Email address. Returned only when the requesting user is viewing "
+            "themselves or is a superuser; ``null`` otherwise. This prevents "
+            "the leaderboard / public-profile surfaces from leaking other "
+            "users' email addresses to clients that select the field."
+        )
+    )
+
     # Reputation fields (Epic #565)
     reputation_global = graphene.Int(
         description="Global reputation score across all corpuses"
@@ -66,6 +75,21 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "USAGE_CAPPED_USER_CAN_IMPORT_CORPUS is disabled."
         )
     )
+
+    def resolve_email(self, info) -> str | None:
+        """Gate ``email`` to self-views and superusers.
+
+        ``DjangoObjectType`` would otherwise auto-expose the model field to
+        any client that selected it (e.g. on a leaderboard ``user`` subtree),
+        which is more PII than the leaderboard needs. Self / superuser views
+        — ``me``, profile settings, admin tooling — still get the real value.
+        """
+        requester = getattr(info.context, "user", None)
+        if requester is None or not requester.is_authenticated:
+            return None
+        if requester.is_superuser or requester.pk == self.pk:
+            return self.email or None
+        return None
 
     def resolve_can_import_corpus(self, info) -> bool:
         if not self.is_authenticated:

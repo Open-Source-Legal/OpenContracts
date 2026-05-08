@@ -38,6 +38,20 @@ describe("getLeaderboardInitials", () => {
     expect(getLeaderboardInitials("alice")).toBe("AL");
     expect(getLeaderboardInitials("X")).toBe("X");
   });
+
+  it("trims surrounding whitespace before extracting initials", () => {
+    // Leading-space regression: previously returned "  " instead of "AL"
+    // because substring was called on the un-trimmed input.
+    expect(getLeaderboardInitials("  alice")).toBe("AL");
+    expect(getLeaderboardInitials("\tBob")).toBe("BO");
+  });
+
+  it("returns ? for whitespace-only single-token names", () => {
+    // After trimming and filtering, no tokens remain — the redirected
+    // fallback should not silently surface whitespace.
+    expect(getLeaderboardInitials("   ")).toBe("?");
+    expect(getLeaderboardInitials("\t\n")).toBe("?");
+  });
 });
 
 describe("getLeaderboardAvatarColor", () => {

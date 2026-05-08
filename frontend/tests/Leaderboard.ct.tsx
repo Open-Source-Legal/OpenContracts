@@ -272,7 +272,6 @@ test.describe("Leaderboard", () => {
                 user: {
                   id: "user-only",
                   displayName: "only_user",
-                  email: "only@example.com",
                   slug: "only-user",
                   isProfilePublic: true,
                 },
@@ -549,7 +548,6 @@ test.describe("Leaderboard", () => {
               user: {
                 id: `user-${rank}`,
                 displayName: `user_${rank}`,
-                email: `u${rank}@example.com`,
                 slug: `user-${rank}`,
                 isProfilePublic: true,
               },
@@ -646,7 +644,6 @@ test.describe("Leaderboard", () => {
                 user: {
                   id: "user-msg",
                   displayName: "chatty_user",
-                  email: "chat@example.com",
                   slug: "chatty-user",
                   isProfilePublic: true,
                 },
@@ -751,7 +748,6 @@ test.describe("Leaderboard", () => {
                 user: {
                   id: "user-week",
                   displayName: "weekly_winner",
-                  email: "week@example.com",
                   slug: "weekly-winner",
                   isProfilePublic: true,
                 },
@@ -849,7 +845,6 @@ test.describe("Leaderboard", () => {
                 user: {
                   id: "user-10",
                   displayName: "top_ten_only",
-                  email: "ten@example.com",
                   slug: "top-ten-only",
                   isProfilePublic: true,
                 },

@@ -31,7 +31,6 @@ const defaultLeaderboardMock: MockedResponse = {
             user: {
               id: "user-1",
               displayName: "top_user",
-              email: "top@example.com",
               slug: "top-user",
               isProfilePublic: true,
             },
@@ -48,7 +47,6 @@ const defaultLeaderboardMock: MockedResponse = {
             user: {
               id: "user-2",
               displayName: "second_user",
-              email: "second@example.com",
               slug: "second-user",
               isProfilePublic: true,
             },
