@@ -202,7 +202,7 @@ def generate_agent_response(
             # Stream the agent response
             # Pass store_messages=False since we handle message persistence ourselves
             # (we already created response_message above with parent_message set)
-            async for event in await agent.stream(user_message, store_messages=False):
+            async for event in agent.stream(user_message, store_messages=False):
                 if isinstance(event, ContentEvent):
                     # Token/content chunk
                     token = event.content
