@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTabVisibilityRefresh } from "../../hooks/useTabVisibilityRefresh";
 import { useQuery } from "@apollo/client";
 import { Dropdown, StatBlock, StatGrid, Table } from "@os-legal/ui";
 import styled from "styled-components";
@@ -345,10 +346,14 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
   );
   const [limit, setLimit] = useState(25);
 
+  // Cache-first reads with one-shot refresh on mount/filter change. Hidden
+  // tabs do not pay for refetches; ``useTabVisibilityRefresh`` below runs
+  // a single refresh when the tab becomes visible again.
   const {
     loading: leaderboardLoading,
     error: leaderboardError,
     data: leaderboardData,
+    refetch: refetchLeaderboard,
   } = useQuery<{ leaderboard: LeaderboardType }>(GET_LEADERBOARD, {
     variables: {
       metric,
@@ -356,15 +361,22 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
       corpusId,
       limit,
     },
-    pollInterval: 60000, // Refresh every minute
+    fetchPolicy: "cache-and-network",
+    nextFetchPolicy: "cache-first",
+    notifyOnNetworkStatusChange: false,
   });
 
-  const { data: statsData } = useQuery<{
+  const { data: statsData, refetch: refetchStats } = useQuery<{
     communityStats: CommunityStatsType;
   }>(GET_COMMUNITY_STATS, {
     variables: { corpusId },
-    pollInterval: 120000, // Refresh every 2 minutes
+    fetchPolicy: "cache-and-network",
+    nextFetchPolicy: "cache-first",
+    notifyOnNetworkStatusChange: false,
   });
+
+  // Refresh once whenever the user returns to the tab. No timer-based polling.
+  useTabVisibilityRefresh([refetchLeaderboard, refetchStats]);
 
   const metricOptions = [
     { value: LeaderboardMetric.BADGES, label: "Top Badge Earners" },
@@ -567,7 +579,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
                           </Table.Cell>
                           <Table.Cell>
                             <UsernameCell>
-                              <strong>{entry.user.username}</strong>
+                              <strong>{entry.user.displayName}</strong>
                               {entry.isRisingStar && (
                                 <RisingStarTag>
                                   <TrendingUp size={12} />
