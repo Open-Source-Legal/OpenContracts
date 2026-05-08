@@ -46,7 +46,7 @@ pandas
 plasmapdf==0.1.3  # https://github.com/Jsv4/plasmapdf
 pdf2image>=1.17.0
 tiktoken==0.12.0  # https://github.com/openai/tiktoken
-openai>=2.35.1,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
+openai>=2.36.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
 pytesseract
 # Bumping pydantic-ai is a deliberate decision: this codebase relies on the
 # precedence rule that ``instructions=`` (not ``system_prompt=``) is the only
