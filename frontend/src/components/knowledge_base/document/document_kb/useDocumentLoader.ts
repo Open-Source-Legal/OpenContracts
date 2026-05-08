@@ -246,7 +246,7 @@ export function useDocumentLoader({
       // runs in Apollo's onCompleted (outside React's automatic batching).
       // Structural annotations are loaded lazily — see useStructuralAnnotations.
       setPdfAnnotations(
-        (prev) =>
+        () =>
           new PdfAnnotations(
             processedAnnotations,
             processedRelationships,
@@ -314,6 +314,8 @@ export function useDocumentLoader({
         data.document.allRelationships?.map((rel) => relationToGroup(rel)) ??
         [];
 
+      // Preserve previously-loaded doc-type annotations across analysis /
+      // extract switches — only annotations + relationships are replaced.
       // Single setPdfAnnotations call avoids the intermediate render that
       // splitting annotations-then-relationships would cause when this runs
       // in Apollo's onCompleted (outside React's automatic batching).
@@ -343,6 +345,10 @@ export function useDocumentLoader({
       const loadPagesPromises: Promise<PDFPageInfo>[] = [];
       for (let i = 1; i <= pdfDocProxy.numPages; i++) {
         const pageNum = i;
+        // pdfjs-dist's `.getPage(...).then(...)` declares its return as
+        // `PDFPromise` (a non-thenable wrapper) instead of a real `Promise`,
+        // so TS rejects assigning it to `Promise<PDFPageInfo>`. The runtime
+        // value IS Promise-shaped; the double cast bridges the type system.
         loadPagesPromises.push(
           pdfDocProxy.getPage(pageNum).then((p: PDFPageProxy) => {
             const viewport = p.getViewport({ scale: 1 });
@@ -371,17 +377,17 @@ export function useDocumentLoader({
         setPages(loadedPages);
         const { doc_text, string_index_token_map } =
           createTokenStringSearch(loadedPages);
-        setPageTextMaps({
-          ...string_index_token_map,
-          ...pageTextMaps,
-        });
+        // Functional updater so we always merge against the current map even
+        // if a stale closure capture slipped in across the async PDF load —
+        // also keeps `pageTextMaps` out of the dep array.
+        setPageTextMaps((prev) => ({ ...string_index_token_map, ...prev }));
         setDocText(doc_text);
         setDocxBytes(null);
         setViewState(ViewState.LOADED);
       });
       routingLogger.debug("=== DOCUMENT LOAD COMPLETE ===");
     },
-    [setPages, setPageTextMaps, pageTextMaps, setDocText, setDocxBytes]
+    [setPages, setPageTextMaps, setDocText, setDocxBytes]
   );
 
   /**
@@ -524,6 +530,11 @@ export function useDocumentLoader({
           ...doc,
           myPermissions: doc.myPermissions ?? [],
         };
+        // The `selectedDocument` atom takes the legacy nested DocumentType
+        // shape that includes Apollo edges/__typename — the cast bridges the
+        // GraphQL query result (a partial subset) into that legacy shape
+        // without rebuilding every consumer. Replace once the atom is
+        // re-typed to accept the lean GraphQL shape directly.
         setDocument(processedDocData as any);
         setPermissions(getPermissions(doc.myPermissions));
       });

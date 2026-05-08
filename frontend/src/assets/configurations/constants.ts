@@ -565,3 +565,13 @@ You have access to thread context, messages, and moderation tools. Use them judi
 // trigger is selected).
 export const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
   "You are a document processing agent for this corpus.";
+
+// Right-panel (chat / annotation tray) drag-resize bounds and snap targets.
+// Used by useResizeHandle in the document KB viewer to clamp custom widths
+// and to snap to the predefined "quarter" / "half" / "full" presets.
+export const PANEL_WIDTH_MIN_PCT = 15;
+export const PANEL_WIDTH_MAX_PCT = 95;
+export const PANEL_WIDTH_QUARTER_PCT = 25;
+export const PANEL_WIDTH_HALF_PCT = 50;
+export const PANEL_WIDTH_FULL_PCT = 90;
+export const PANEL_SNAP_THRESHOLD_PCT = 3;

@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChatPanelWidthMode } from "../../../annotator/context/UISettingsAtom";
+import {
+  PANEL_SNAP_THRESHOLD_PCT,
+  PANEL_WIDTH_FULL_PCT,
+  PANEL_WIDTH_HALF_PCT,
+  PANEL_WIDTH_MAX_PCT,
+  PANEL_WIDTH_MIN_PCT,
+  PANEL_WIDTH_QUARTER_PCT,
+} from "../../../../assets/configurations/constants";
 
 interface UseResizeHandleParams {
   /** Returns the panel width as a percentage (0–100) at the moment of grab */
@@ -57,16 +65,21 @@ export function useResizeHandle({
       const windowWidth = window.innerWidth;
       const deltaPercentage = (deltaX / windowWidth) * 100;
       const newWidth = Math.max(
-        15,
-        Math.min(95, dragStartWidth + deltaPercentage)
+        PANEL_WIDTH_MIN_PCT,
+        Math.min(PANEL_WIDTH_MAX_PCT, dragStartWidth + deltaPercentage)
       );
 
-      const snapThresholdPct = 3;
-      if (Math.abs(newWidth - 25) < snapThresholdPct) {
+      if (
+        Math.abs(newWidth - PANEL_WIDTH_QUARTER_PCT) < PANEL_SNAP_THRESHOLD_PCT
+      ) {
         setMode("quarter");
-      } else if (Math.abs(newWidth - 50) < snapThresholdPct) {
+      } else if (
+        Math.abs(newWidth - PANEL_WIDTH_HALF_PCT) < PANEL_SNAP_THRESHOLD_PCT
+      ) {
         setMode("half");
-      } else if (Math.abs(newWidth - 90) < snapThresholdPct) {
+      } else if (
+        Math.abs(newWidth - PANEL_WIDTH_FULL_PCT) < PANEL_SNAP_THRESHOLD_PCT
+      ) {
         setMode("full");
       } else {
         setCustomWidth(newWidth);
