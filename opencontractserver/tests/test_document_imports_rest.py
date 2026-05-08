@@ -790,12 +790,16 @@ class DocumentImportRealJWTAuthTests(TestCase):
         from graphql_jwt.shortcuts import get_token
 
         token = get_token(self.user)
-        # Flip the final character (signature segment) to break the HS256 sig.
-        # Toggling between two valid base64url chars guarantees the resulting
-        # string is well-formed but the signature bytes change.
-        last = token[-1]
-        replacement = "A" if last != "A" else "B"
-        self._set_bearer(token[:-1] + replacement)
+        # Flip a char in the middle of the signature segment. The trailing
+        # base64url char of an HS256 signature encodes only 4 data bits + 2
+        # padding bits, so flipping it can leave the decoded signature bytes
+        # unchanged when only padding bits differ — flaky in ~6% of cases.
+        head, _, sig = token.rpartition(".")
+        mid = len(sig) // 2
+        original = sig[mid]
+        replacement = "A" if original != "A" else "B"
+        tampered_sig = sig[:mid] + replacement + sig[mid + 1 :]
+        self._set_bearer(f"{head}.{tampered_sig}")
         response = self.client.post(
             SINGLE_URL,
             self._payload(),

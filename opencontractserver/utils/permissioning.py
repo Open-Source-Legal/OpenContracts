@@ -285,23 +285,8 @@ def get_users_permissions_for_obj(
             f"permission_{model_name}",
         }
 
-    # ------------------------------------------------------------------
-    # Fast path: user-scoped prefetched permissions.
-    #
-    # ``_apply_document_prefetches`` (and any future manager following the
-    # same convention) attaches the requesting user's
-    # ``DocumentUserObjectPermission`` rows as
-    # ``_prefetched_user_perms_uid_<user.id>`` and the user's
-    # ``DocumentGroupObjectPermission`` rows as
-    # ``_prefetched_user_group_perms_uid_<user.id>`` — both pre-joined to
-    # ``permission`` via ``select_related`` so codenames are a memory access.
-    #
-    # The user-id-suffixed attribute names are what make this safe under a
-    # mismatched lookup: if the caller asks about a user the queryset wasn't
-    # prefetched for, ``getattr`` returns ``None`` and we fall through to the
-    # guardian path. An empty list means "user has no rows for this object" —
-    # also correct.
-    # ------------------------------------------------------------------
+    # Fast path: consume per-user guardian prefetches if attached. Missing attr
+    # (different user, or no prefetch) falls through to the guardian path below.
     prefetched_user_perms = getattr(instance, user_perm_attr(user.id), None)
     if prefetched_user_perms is not None:
         model_permissions_for_user = {
@@ -318,9 +303,7 @@ def get_users_permissions_for_obj(
                 for perm in prefetched_group_perms:
                     model_permissions_for_user.add(perm.permission.codename)
             else:
-                # User perms were prefetched but group perms weren't (e.g.,
-                # a non-Document model that only opted into the user prefetch);
-                # fall back to the guardian query for groups only.
+                # Partial prefetch: user perms cached but group perms not — fall back for groups only.
                 permission_id_to_name_map = get_permission_id_to_name_map_for_model(
                     instance=instance
                 )

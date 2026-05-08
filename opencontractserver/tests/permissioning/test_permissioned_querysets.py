@@ -913,7 +913,11 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         )
 
         docs = list(Document.objects.visible_to_user(self.viewer, lightweight=True))
-        # Strip the group-perm prefetch so we exercise the partial path.
+        # Reach into the suffixed attribute name to pin the partial-prefetch
+        # contract: this is the lowest-cost way to exercise "user perms cached,
+        # group perms not" without inventing a separate manager. Coupled to
+        # ``user_group_perm_attr`` on purpose — if the convention changes,
+        # ``shared/prefetch_attrs.py`` is the single point of update.
         for d in docs:
             delattr(d, user_group_perm_attr(self.viewer.id))
 
@@ -966,4 +970,73 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
                         self.other_user, d, PermissionTypes.READ
                     )
                 )
-        self.assertGreaterEqual(len(ctx.captured_queries), len(docs))
+        # Legacy path issues at least 2 queries per row (user-perm filter +
+        # permission-id-to-name map). Asserting >= 2 * len(docs) pins both —
+        # >= len(docs) alone would mask a partial regression.
+        self.assertGreaterEqual(len(ctx.captured_queries), 2 * len(docs))
+
+    def test_resolve_my_permissions_uses_prefetch_via_graphql(self):
+        """
+        Pin the ``myPermissions`` GraphQL field end-to-end against both the
+        prefetched fast path (Document) and the non-prefetched fallback
+        (Corpus). Documents go through ``_apply_document_prefetches`` so
+        codenames come from the user-id-suffixed cache; Corpuses never have
+        the cache attached, so the resolver falls back to ``.filter()`` on
+        the related manager — both branches must surface direct + group
+        permissions correctly.
+        """
+        doc_query = """
+        query($id: ID!) {
+          document(id: $id) {
+            myPermissions
+          }
+        }
+        """
+        client = Client(schema, context_value=TestContext(self.viewer))
+
+        # docs[0]: viewer has READ via direct guardian + UPDATE via group.
+        result = client.execute(
+            doc_query,
+            variable_values={"id": to_global_id("DocumentType", self.docs[0].id)},
+        )
+        self.assertNotIn("errors", result)
+        perms = set(result["data"]["document"]["myPermissions"])
+        self.assertIn("read_document", perms)
+        self.assertIn("update_document", perms)
+
+        # docs[1]: only direct READ — group UPDATE must NOT appear.
+        result = client.execute(
+            doc_query,
+            variable_values={"id": to_global_id("DocumentType", self.docs[1].id)},
+        )
+        self.assertNotIn("errors", result)
+        perms = set(result["data"]["document"]["myPermissions"])
+        self.assertIn("read_document", perms)
+        self.assertNotIn("update_document", perms)
+
+        # Fallback path: Corpus instances don't carry the user-id-suffixed
+        # prefetch attrs, so resolve_my_permissions takes the ``.filter()``
+        # branch. Verifies the path still surfaces direct + group perms.
+        from guardian.shortcuts import assign_perm
+
+        corpus = Corpus.objects.create(
+            title="Fallback Corpus", creator=self.owner, is_public=False
+        )
+        set_permissions_for_obj_to_user(self.viewer, corpus, [PermissionTypes.READ])
+        assign_perm("update_corpus", self.group, corpus)
+
+        corpus_query = """
+        query($id: ID!) {
+          corpus(id: $id) {
+            myPermissions
+          }
+        }
+        """
+        result = client.execute(
+            corpus_query,
+            variable_values={"id": to_global_id("CorpusType", corpus.id)},
+        )
+        self.assertNotIn("errors", result)
+        perms = set(result["data"]["corpus"]["myPermissions"])
+        self.assertIn("read_corpus", perms)
+        self.assertIn("update_corpus", perms)

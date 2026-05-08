@@ -292,11 +292,8 @@ class AnnotatePermissionsForReadMixin:
                         # )
                         #####################################################################
 
-                        # Check if permissions were prefetched (for documents).
-                        # The user-id suffix makes the cache safe to read: a
-                        # different user simply finds no attribute and falls
-                        # through to the guardian query path below. See
-                        # ``_apply_document_prefetches`` for the producer.
+                        # Prefer per-user prefetch (set by _apply_document_prefetches);
+                        # ``.filter()`` on the related manager bypasses the cache.
                         prefetched_user_perms_attr = user_perm_attr(user.id)
                         if hasattr(self, prefetched_user_perms_attr):
                             this_user_perms = getattr(self, prefetched_user_perms_attr)
@@ -305,10 +302,6 @@ class AnnotatePermissionsForReadMixin:
                                 self, f"{model_name}userobjectpermission_set"
                             ).filter(user_id=user.id)
 
-                        # Group permissions: prefer the user-scoped prefetch
-                        # when available — ``.filter()`` on the related manager
-                        # bypasses the prefetch cache and triggers a fresh
-                        # DB query per row.
                         prefetched_group_perms_attr = user_group_perm_attr(user.id)
                         if hasattr(self, prefetched_group_perms_attr):
                             this_users_group_perms = getattr(
