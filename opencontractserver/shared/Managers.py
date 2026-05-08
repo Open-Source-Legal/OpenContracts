@@ -172,16 +172,19 @@ class BaseVisibilityManager(Manager):
         # semantics for models that override ``objects``.
         model_cls: Any = cast(Any, self.model)
 
+        # ``Options.model_name`` is Optional only for abstract models.
+        # Raise *outside* the broad except below so the abstract-model bug
+        # surfaces instead of silently degrading into a creator/public
+        # fallback. Use an explicit raise (not ``assert``) so the guard
+        # survives ``python -O`` and never lets None propagate.
+        model_name = self.model._meta.model_name
+        if model_name is None:
+            raise RuntimeError(
+                f"Concrete manager invoked on abstract model {self.model}"
+            )
+        app_label = self.model._meta.app_label
+
         try:
-            # ``Options.model_name`` is Optional only for abstract models.
-            # Use an explicit raise (not ``assert``) so the guard survives
-            # ``python -O`` and never lets None propagate into the lookup.
-            model_name = self.model._meta.model_name
-            if model_name is None:
-                raise RuntimeError(
-                    f"Concrete manager invoked on abstract model {self.model}"
-                )
-            app_label = self.model._meta.app_label
 
             # Fallback to legacy logic with security warning
             logger.debug(
@@ -462,7 +465,7 @@ class DocumentManager(BaseVisibilityManager):
         from opencontractserver.documents.models import Document
 
         unique: set[str] = set()
-        for field_name in cast("type[Document]", self.model).blob_field_names():
+        for field_name in cast(type[Document], self.model).blob_field_names():
             # Single round-trip per field: collect every distinct,
             # non-empty path used by the targets.
             target_paths: set[str] = {

@@ -338,13 +338,12 @@ class BaseVisibilityManagerAbstractModelGuardTest(TestCase):
     Django-level invariant that signals an abstract model.  The guard is
     explicit (not ``assert``) so it survives ``python -O``.
 
-    Note: the outer ``except (ImportError, Exception)`` catches the
-    ``RuntimeError`` and falls back to the creator/public filter, so the
-    raise itself does not propagate.  We verify the guard executed by
-    asserting the fallback queryset is what we got back.
+    The check sits *outside* the broad ``except (ImportError, Exception)``
+    inside ``visible_to_user`` so that the abstract-model bug surfaces
+    instead of silently degrading into a creator/public fallback.
     """
 
-    def test_runtime_error_guard_triggers_fallback(self) -> None:
+    def test_runtime_error_guard_propagates_for_abstract_models(self) -> None:
         from opencontractserver.annotations.models import Embedding
 
         authenticated_user = User.objects.create_user(
@@ -355,14 +354,12 @@ class BaseVisibilityManagerAbstractModelGuardTest(TestCase):
         # Force ``self.model._meta.model_name`` to None for the duration of
         # the call to simulate an abstract-model invocation without having
         # to register a real abstract model + manager just for the test.
-        # ``_meta`` is a shared ``Options`` instance, so patching the
-        # attribute directly (and unwinding it on exit) is the simplest
-        # safe way to trip the guard.
+        # ``_meta`` is a shared ``Options`` instance — fine for sequential
+        # ``TestCase`` runs but worth being aware of: with pytest-xdist /
+        # ``--dist loadscope``, classes run on isolated workers, so this
+        # patch never overlaps with parallel ``Embedding`` queries.
         with patch.object(Embedding._meta, "model_name", None):
-            # Must consume the queryset so the inner ``try`` body actually
-            # executes — visible_to_user is lazy.  The RuntimeError raised
-            # inside the inner try is caught by the outer except handler,
-            # which falls back to a creator/public filter (returns []
-            # here since no embeddings exist for this user).
-            qs = list(Embedding.objects.visible_to_user(user=authenticated_user))
-            self.assertEqual(qs, [])
+            with self.assertRaisesRegex(
+                RuntimeError, "Concrete manager invoked on abstract model"
+            ):
+                list(Embedding.objects.visible_to_user(user=authenticated_user))

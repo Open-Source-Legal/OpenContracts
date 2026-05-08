@@ -831,8 +831,11 @@ class TestResolveToolsCallerForms(TestCase):
             return arg
 
         sentinel = object()
+        # ``_resolve_tools`` builds the CoreTool by calling
+        # ``CoreTool.from_function`` directly (not via the ToolAPI wrapper),
+        # so the patch must target the underlying classmethod to be observed.
         with patch(
-            "opencontractserver.llms.api.ToolAPI.from_function",
+            "opencontractserver.llms.api.CoreTool.from_function",
             return_value=sentinel,
         ) as from_fn:
             result = _resolve_tools([my_tool])
