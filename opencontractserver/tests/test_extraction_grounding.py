@@ -482,8 +482,8 @@ class TestGroundingPipelineIntegration(TestCase):
         self.assertIn(seed.id, {a.id for a in retry})
 
 
-class TestMigration0069M2MDedup(TestCase):
-    """Direct test of migration 0069's ``_repoint_cross_references`` helper.
+class TestMigration0071M2MDedup(TestCase):
+    """Direct test of migration 0071's ``_repoint_cross_references`` helper.
 
     Reproduces the race scenario the migration is written to clean up: a
     keeper and a redundant annotation both pre-existing in the same
@@ -574,9 +574,9 @@ class TestMigration0069M2MDedup(TestCase):
         self.assertEqual(self.datacell.sources.count(), 2)
 
         spec = importlib.util.spec_from_file_location(
-            "mig0069",
+            "mig0071",
             "opencontractserver/annotations/migrations/"
-            "0069_grounding_annotation_unique_constraints.py",
+            "0071_grounding_annotation_unique_constraints.py",
         )
         assert spec is not None and spec.loader is not None  # narrows for mypy
         mig = importlib.util.module_from_spec(spec)
