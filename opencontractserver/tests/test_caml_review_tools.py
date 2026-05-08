@@ -150,12 +150,30 @@ class ReadCorpusCamlArticleTests(TransactionTestCase):
         self.assertFalse(result["blocks"][4]["needs_citation_candidate"])  # code
 
     def test_outsider_without_access_raises(self):
-        """IDOR: another user cannot enumerate or read a private corpus's CAML."""
-        with self.assertRaises(ValueError) as ctx:
+        """IDOR: another user cannot enumerate or read a private corpus's CAML.
+
+        Locks in the IDOR-safe identical-error contract by asserting the
+        outsider gets the *exact* same message format as a request for a
+        non-existent corpus — only the ``corpus_id`` placeholder differs, so
+        the message reveals nothing the caller did not already supply.
+        """
+        existing_id = self.corpus.id
+        nonexistent_id = self.corpus.id + 99999
+
+        with self.assertRaises(ValueError) as ctx_existing:
+            _read_corpus_caml_article(corpus_id=existing_id, author_id=self.outsider.id)
+        with self.assertRaises(ValueError) as ctx_nonexistent:
             _read_corpus_caml_article(
-                corpus_id=self.corpus.id, author_id=self.outsider.id
+                corpus_id=nonexistent_id, author_id=self.outsider.id
             )
-        self.assertIn("Readme.CAML", str(ctx.exception))
+
+        self.assertIn("Readme.CAML", str(ctx_existing.exception))
+        # Substituting the corpus_id back to a fixed placeholder must yield
+        # byte-identical strings: same template, different injected ID.
+        self.assertEqual(
+            str(ctx_existing.exception).replace(str(existing_id), "<id>"),
+            str(ctx_nonexistent.exception).replace(str(nonexistent_id), "<id>"),
+        )
 
     def test_corpus_without_caml_raises(self):
         empty_corpus = Corpus.objects.create(title="No CAML Corpus", creator=self.owner)
@@ -383,6 +401,33 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
                 author_id=self.owner.id,
                 target_text="this string is not in the article",
                 replacement_text="anything",
+                rationale="r",
+            )
+        self.assertIn("not found", str(ctx.exception))
+
+    def test_empty_caml_file_raises_not_found(self):
+        """Edit against an empty CAML body surfaces the same not-found error.
+
+        ``_read_caml_content`` returns ``""`` when ``txt_extract_file`` is
+        falsy/empty; the apply tool must refuse the edit (rather than
+        silently producing a no-op or ``IndexError`` from ``content.find``)
+        so the agent gets a deterministic signal that it should re-read the
+        article.
+        """
+        # Replace the body with an empty file -- the FieldFile pointer stays
+        # set, but ``_read_caml_content`` returns "" because the blob has no
+        # content to count target_text occurrences in.
+        self.caml_doc.txt_extract_file.save(
+            "Readme.CAML.md",
+            ContentFile(b""),
+            save=True,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            _apply_caml_article_edit(
+                corpus_id=self.corpus.id,
+                author_id=self.owner.id,
+                target_text="anything",
+                replacement_text="anything else",
                 rationale="r",
             )
         self.assertIn("not found", str(ctx.exception))

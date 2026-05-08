@@ -40,7 +40,10 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 
-from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
+from opencontractserver.constants.document_processing import (
+    CAML_ARTICLE_TITLE,
+    MARKDOWN_MIME_TYPE,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import user_has_permission_for_obj
@@ -49,11 +52,10 @@ from ._helpers import _db_sync_to_async
 
 logger = logging.getLogger(__name__)
 
-
-# Title used for the corpus-level CAML article.  Must stay in sync with the
-# frontend constant ``CAML_ARTICLE_FILENAME`` declared in
-# ``frontend/src/assets/configurations/constants.ts``.
-CAML_ARTICLE_TITLE = "Readme.CAML"
+# Re-exported for callers that historically imported the title from this
+# module (test patches, registry definitions).  The canonical home is
+# ``opencontractserver.constants.document_processing``.
+__all__ = ["CAML_ARTICLE_TITLE"]
 
 # Mirror of ``DIRECTIVE_PATTERN_GLOBAL`` from
 # ``frontend/src/components/corpuses/caml/inlineDirectives.ts`` so backend
@@ -151,19 +153,17 @@ def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     except Corpus.DoesNotExist:
         raise ValueError(not_found)
 
-    caml_ids = list(
+    # ``corpus.get_documents(include_caml=True)`` already filters via the
+    # ``DocumentPath.is_current=True`` join (see CorpusType.get_documents).
+    # Pass the inner query as a subquery so Django pushes the intersection
+    # to the database in a single round-trip — IDOR-safe two-query pattern
+    # without materialising the candidate IDs in Python.
+    caml_ids_qs = (
         corpus.get_documents(include_caml=True)
         .filter(title=CAML_ARTICLE_TITLE, file_type=MARKDOWN_MIME_TYPE)
-        .values_list("id", flat=True)
+        .values("id")
     )
-    if not caml_ids:
-        raise ValueError(not_found)
-
-    # ``corpus.get_documents(include_caml=True)`` already filters via the
-    # ``DocumentPath.is_current=True`` join (see CorpusType.get_documents),
-    # so the second query just intersects ``caml_ids`` with documents the
-    # user can read — IDOR-safe two-query pattern.
-    doc = Document.objects.visible_to_user(user).filter(pk__in=caml_ids).first()
+    doc = Document.objects.visible_to_user(user).filter(pk__in=caml_ids_qs).first()
     if doc is None:
         raise ValueError(not_found)
     return doc
@@ -181,7 +181,7 @@ def _read_caml_content(doc: Document) -> str:
         return ""
     with doc.txt_extract_file.open("rb") as fh:
         raw = fh.read()
-    return raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    return raw.decode("utf-8")
 
 
 # --------------------------------------------------------------------------- #
@@ -416,12 +416,12 @@ def _apply_caml_article_edit(
     # ``occurrences == 1`` and clobber each other's edit.  ``select_for_update``
     # blocks competing writers until this transaction commits.
     with transaction.atomic():
-        Document.objects.select_for_update().filter(pk=doc.pk).first()
-        # Refresh the row's file pointer in case another writer rotated the
-        # blob between the original load and the lock acquisition.
-        doc.refresh_from_db()
+        # Atomically acquire the lock and re-load the row's current file
+        # pointer — a competing writer may have rotated the blob between
+        # ``_load_caml_document_for_user`` and this point.
+        locked_doc = Document.objects.select_for_update().get(pk=doc.pk)
 
-        content = _read_caml_content(doc)
+        content = _read_caml_content(locked_doc)
 
         occurrences = content.count(target_text)
         if occurrences == 0:
@@ -438,14 +438,22 @@ def _apply_caml_article_edit(
 
         new_content = content.replace(target_text, replacement_text, 1)
 
-        # Persist via FileField.save which writes the new file blob and bumps
-        # ``Document.modified`` automatically.  We keep the same Document row so
-        # frontend deep-links to ``Readme.CAML`` continue to work (no new
-        # version_tree entry).
-        file_name = doc.txt_extract_file.name or ""
+        # ``FieldFile.save()`` writes the blob to storage *and* bumps the DB
+        # pointer/``modified`` timestamp in a single call.  Keep it as the
+        # last in-transaction operation so nothing else can raise after the
+        # storage write — ensuring a transaction rollback never leaves the
+        # blob orphaned with a stale DB pointer.  We keep the same Document
+        # row so frontend deep-links to ``Readme.CAML`` continue to work
+        # (no new version_tree entry).
+        file_name = locked_doc.txt_extract_file.name or ""
         filename = file_name.rsplit("/", 1)[-1] or "Readme.CAML.md"
-        doc.txt_extract_file.save(filename, ContentFile(new_content.encode("utf-8")))
-        doc.refresh_from_db(fields=["modified"])
+        locked_doc.txt_extract_file.save(
+            filename, ContentFile(new_content.encode("utf-8"))
+        )
+
+    # ``refresh_from_db`` is a read; doing it outside the txn keeps the
+    # write block free of any post-save operations that could raise.
+    locked_doc.refresh_from_db(fields=["modified"])
 
     pos = content.find(target_text)
     preview_start = max(0, pos - _PREVIEW_RADIUS_CHARS)
@@ -456,14 +464,14 @@ def _apply_caml_article_edit(
 
     return {
         "corpus_id": corpus_id,
-        "document_id": doc.pk,
+        "document_id": locked_doc.pk,
         "applied": True,
         "target_text": target_text,
         "replacement_text": replacement_text,
         "rationale": rationale,
         "char_offset": pos,
         "preview": preview_window,
-        "modified": doc.modified.isoformat() if doc.modified else None,
+        "modified": (locked_doc.modified.isoformat() if locked_doc.modified else None),
     }
 
 

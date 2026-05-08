@@ -10,6 +10,12 @@ AppRegistryNotReady errors during settings loading.
 # ingestion and in the parser pipeline for type detection.
 MARKDOWN_MIME_TYPE = "text/markdown"
 
+# Title used for the corpus-level CAML article (the "Readme.CAML" Markdown
+# document attached to a corpus that drives the citation-review tooling).
+# Must stay in sync with the frontend constant ``CAML_ARTICLE_FILENAME``
+# declared in ``frontend/src/assets/configurations/constants.ts``.
+CAML_ARTICLE_TITLE = "Readme.CAML"
+
 # MIME type for Microsoft Word (DOCX) documents.
 DOCX_MIME_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
