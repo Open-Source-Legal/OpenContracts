@@ -547,12 +547,9 @@ class ConversationQueryMixin:
         except Corpus.DoesNotExist:
             return None
 
-        # Check permission
-        if not user.is_superuser:
-            is_owner = corpus.creator == user
-            is_moderator = corpus.moderators.filter(user=user).exists()
-            if not is_owner and not is_moderator:
-                return None
+        # Check permission via the canonical Corpus.user_can_moderate helper
+        if not corpus.user_can_moderate(user):
+            return None
 
         end_time = timezone.now()
         start_time = end_time - timedelta(hours=time_range_hours)
