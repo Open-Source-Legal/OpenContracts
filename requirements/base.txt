@@ -55,7 +55,7 @@ pytesseract
 # ``opencontractserver/tests/test_pydantic_ai_factory.py`` pins this behaviour
 # against the version installed; if that test fails on a bump, validate the
 # new precedence semantics before widening this pin.
-pydantic-ai>=1.91.0,<2  # see issue #1451 before bumping the upper bound
+pydantic-ai>=1.92.0,<2  # see issue #1451 before bumping the upper bound
 spacy
 pdfplumber>=0.11.9  # https://github.com/jsvine/pdfplumber - PDF token extraction
 shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection
