@@ -193,46 +193,36 @@ class BaseVisibilityManager(Manager):
             )
 
             # === TOP_LEVEL PERMISSION LOGIC ===
-            # This logic is for objs that don't follow some parent permissions logic
+            # By this point ``user`` is guaranteed to be authenticated and
+            # non-superuser — None / superuser / anonymous all returned early
+            # at the top of the method, so the only path that lands here is
+            # the authenticated-non-superuser case.
+            # Initialize an empty queryset so the outer ``except`` handler
+            # below has a defined fallback if the inner permission lookup
+            # raises something other than ``LookupError``.
+            queryset = model_cls.objects.none()
 
-            # Get the base queryset first (only stuff given user CAN see)
-            queryset = model_cls.objects.none()  # Start with an empty queryset
+            permission_model_name = f"{model_name}userobjectpermission"
+            try:
+                permission_model_type = apps.get_model(app_label, permission_model_name)
+                # Optimize: Get IDs with permissions first, then use IN clause
+                permitted_ids = permission_model_type.objects.filter(
+                    permission__codename=f"read_{model_name}", user_id=user.id
+                ).values_list("content_object_id", flat=True)
 
-            # Handle the case where user resolution failed explicitly
-            if user is None:
-                queryset = model_cls.objects.filter(is_public=True)
-            elif user.is_superuser:
-                # Superusers see everything, no filtering needed
-                queryset = model_cls.objects.all().order_by("created")
-            elif user.is_anonymous:
-                # Anonymous users only see public items
-                queryset = model_cls.objects.filter(is_public=True)
-            else:  # Authenticated, non-superuser
-                permission_model_name = f"{model_name}userobjectpermission"
-                try:
-                    permission_model_type = apps.get_model(
-                        app_label, permission_model_name
-                    )
-                    # Optimize: Get IDs with permissions first, then use IN clause
-                    permitted_ids = permission_model_type.objects.filter(
-                        permission__codename=f"read_{model_name}", user_id=user.id
-                    ).values_list("content_object_id", flat=True)
-
-                    # Build the optimized query using simpler conditions
-                    queryset = model_cls.objects.filter(
-                        Q(creator_id=user.id)
-                        | Q(is_public=True)
-                        | Q(id__in=permitted_ids)
-                    )
-                except LookupError:
-                    logger.warning(
-                        f"Permission model {app_label}.{permission_model_name}"
-                        " not found. Falling back to creator/public check."
-                    )
-                    # Fallback if permission model doesn't exist (might happen for simpler models)
-                    queryset = model_cls.objects.filter(
-                        Q(creator_id=user.id) | Q(is_public=True)
-                    )
+                # Build the optimized query using simpler conditions
+                queryset = model_cls.objects.filter(
+                    Q(creator_id=user.id) | Q(is_public=True) | Q(id__in=permitted_ids)
+                )
+            except LookupError:
+                logger.warning(
+                    f"Permission model {app_label}.{permission_model_name}"
+                    " not found. Falling back to creator/public check."
+                )
+                # Fallback if permission model doesn't exist (might happen for simpler models)
+                queryset = model_cls.objects.filter(
+                    Q(creator_id=user.id) | Q(is_public=True)
+                )
 
             # --- Apply Performance Optimizations Based on Model Type ---
             if model_name.upper() == "CORPUS":

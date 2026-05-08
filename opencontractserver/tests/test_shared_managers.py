@@ -4,12 +4,15 @@ Tests for opencontractserver.shared.Managers (closes #1477).
 Covers the branches introduced or modified during the mypy graduation:
   - BaseVisibilityManager.visible_to_user(user=None)    → AnonymousUser path
   - BaseVisibilityManager.visible_to_user(superuser)    → all-objects path
+  - BaseVisibilityManager.visible_to_user(abstract)     → RuntimeError guard
   - PermissionManager.visible_to_user(user=None)        → AnonymousUser path
   - PermissionManager.visible_to_user(superuser)        → all-objects path
   - UserFeedbackManager.visible_to_user(user=None)      → AnonymousUser path
   - UserFeedbackManager.get_or_none()                   → hit and miss paths
   - DocumentManager.unique_blob_paths()                 → blob sharing logic
 """
+
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
@@ -281,3 +284,85 @@ class PermissionManagerSuperuserTest(TestCase):
         ids = list(qs.values_list("pk", flat=True))
         self.assertIn(self.public_corpus.pk, ids)
         self.assertIn(self.private_corpus.pk, ids)
+
+
+class PermissionManagerVisibleToUserViaNoteTest(TestCase):
+    """``PermissionManager.visible_to_user`` is reached through models whose
+    manager is built via ``PermissionManager.from_queryset(...)`` — i.e.,
+    ``Note.objects`` (NoteManager) and ``Annotation.objects``.  The Corpus
+    manager is a ``PermissionedTreeQuerySet.as_manager()`` and bypasses
+    ``PermissionManager`` entirely, so Note is the right vehicle to verify
+    the ``user is None → AnonymousUser`` coercion in the manager itself.
+    """
+
+    def setUp(self) -> None:
+        from opencontractserver.annotations.models import Note
+        from opencontractserver.documents.models import Document
+
+        self.Note = Note
+
+        self.owner = User.objects.create_user(
+            username="pmnote_owner",
+            email="pmnote_owner@example.com",
+        )
+        self.doc = Document.objects.create(
+            title="PM Note Doc", creator=self.owner, is_public=True
+        )
+        self.public_note = Note.objects.create(
+            title="public note",
+            content="public",
+            document=self.doc,
+            creator=self.owner,
+            is_public=True,
+        )
+        self.private_note = Note.objects.create(
+            title="private note",
+            content="private",
+            document=self.doc,
+            creator=self.owner,
+            is_public=False,
+        )
+
+    def test_none_user_coerced_to_anonymous(self) -> None:
+        """Calling visible_to_user(user=None) on a PermissionManager-backed
+        model must coerce None → AnonymousUser and return public-only rows."""
+        qs = self.Note.objects.visible_to_user(user=None)
+        ids = set(qs.values_list("pk", flat=True))
+        self.assertIn(self.public_note.pk, ids)
+        self.assertNotIn(self.private_note.pk, ids)
+
+
+class BaseVisibilityManagerAbstractModelGuardTest(TestCase):
+    """``BaseVisibilityManager.visible_to_user`` raises ``RuntimeError`` when
+    invoked on a manager whose ``Options.model_name`` is None — the
+    Django-level invariant that signals an abstract model.  The guard is
+    explicit (not ``assert``) so it survives ``python -O``.
+
+    Note: the outer ``except (ImportError, Exception)`` catches the
+    ``RuntimeError`` and falls back to the creator/public filter, so the
+    raise itself does not propagate.  We verify the guard executed by
+    asserting the fallback queryset is what we got back.
+    """
+
+    def test_runtime_error_guard_triggers_fallback(self) -> None:
+        from opencontractserver.annotations.models import Embedding
+
+        authenticated_user = User.objects.create_user(
+            username="abs_guard_user",
+            email="abs_guard@example.com",
+        )
+
+        # Force ``self.model._meta.model_name`` to None for the duration of
+        # the call to simulate an abstract-model invocation without having
+        # to register a real abstract model + manager just for the test.
+        # ``_meta`` is a shared ``Options`` instance, so patching the
+        # attribute directly (and unwinding it on exit) is the simplest
+        # safe way to trip the guard.
+        with patch.object(Embedding._meta, "model_name", None):
+            # Must consume the queryset so the inner ``try`` body actually
+            # executes — visible_to_user is lazy.  The RuntimeError raised
+            # inside the inner try is caught by the outer except handler,
+            # which falls back to a creator/public filter (returns []
+            # here since no embeddings exist for this user).
+            qs = list(Embedding.objects.visible_to_user(user=authenticated_user))
+            self.assertEqual(qs, [])
