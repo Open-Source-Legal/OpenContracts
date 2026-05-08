@@ -339,7 +339,12 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("annotations", "0068_enforce_embedder_path_not_null"),
+        # Renumbered from 0069 to 0071 after PR #1503 (which introduced
+        # 0069_labelset_is_default_and_seed_default + 0070_seed_default_labelset)
+        # had already landed on main. Branching off 0068 left two leaf nodes;
+        # since this migration had not yet been applied anywhere, we slot it
+        # after 0070 instead of carrying a merge migration forward.
+        ("annotations", "0070_seed_default_labelset"),
         # Dedup helper repoints cross-references on these apps' models. Pin
         # to the latest migration of each so they exist when this runs.
         ("conversations", "0018_conversation_memory_curated"),
