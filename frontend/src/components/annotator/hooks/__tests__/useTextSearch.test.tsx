@@ -13,7 +13,7 @@
  *      resolved from pageTokenTextMaps
  *   5. No-op when neither the query nor the document has changed
  */
-import { renderHook } from "@testing-library/react-hooks";
+import { renderHook } from "../../../../test-utils/renderHook";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useTextSearch } from "../useTextSearch";
 

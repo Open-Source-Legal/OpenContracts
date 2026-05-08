@@ -59,6 +59,24 @@ CORPUS_NOT_FOUND_MSG = (
 )
 
 
+class DocumentImportPermissionError(PermissionError):
+    """PermissionError raised by the import service layer.
+
+    Carries a stable ``code`` so transports can map it to a fixed,
+    public-safe response message instead of echoing ``str(e)`` —
+    breaks the data flow CodeQL flags as ``py/stack-trace-exposure``.
+    Inherits :class:`PermissionError` so existing GraphQL callers that
+    let it propagate continue to see the same error type and ``str(e)``.
+    """
+
+    USAGE_CAP = "usage_cap"
+    BULK_UPLOAD_DENIED = "bulk_upload_denied"
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 @dataclass
 class ImportResult:
     """Result of a single-document import."""
@@ -164,10 +182,11 @@ def check_usage_cap(user) -> None:
         user.is_usage_capped
         and user.document_set.count() > settings.USAGE_CAPPED_USER_DOC_CAP_COUNT - 1
     ):
-        raise PermissionError(
+        raise DocumentImportPermissionError(
+            DocumentImportPermissionError.USAGE_CAP,
             f"Your usage is capped at {settings.USAGE_CAPPED_USER_DOC_CAP_COUNT} "
             f"documents. Try deleting an existing document first or contact "
-            f"the admin for a higher limit."
+            f"the admin for a higher limit.",
         )
 
 
@@ -284,9 +303,10 @@ def import_documents_zip_for_user(
     Returns :class:`ZipImportResult`. On failure, ``job_id`` is ``None``.
     """
     if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
-        raise PermissionError(
+        raise DocumentImportPermissionError(
+            DocumentImportPermissionError.BULK_UPLOAD_DENIED,
             "By default, usage-capped users cannot bulk upload documents. "
-            "Please contact the admin to authorize your account."
+            "Please contact the admin to authorize your account.",
         )
 
     # Reject non-zip uploads up front: the downstream

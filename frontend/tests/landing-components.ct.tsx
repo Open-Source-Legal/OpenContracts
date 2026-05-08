@@ -124,7 +124,7 @@ const mockDiscussions = [
 const mockLeaderboard = [
   {
     id: "VXNlclR5cGU6MQ==",
-    username: "topcontributor",
+    displayName: "topcontributor",
     slug: "topcontributor",
     reputationGlobal: 1500,
     totalMessages: 250,
@@ -147,7 +147,7 @@ const mockLeaderboard = [
   },
   {
     id: "VXNlclR5cGU6Mg==",
-    username: "activeuser",
+    displayName: "activeuser",
     slug: "activeuser",
     reputationGlobal: 1200,
     totalMessages: 180,

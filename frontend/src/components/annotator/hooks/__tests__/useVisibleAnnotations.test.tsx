@@ -9,7 +9,7 @@
  * a silent regression surfaces as a failing test.
  */
 import React from "react";
-import { renderHook } from "@testing-library/react-hooks";
+import { renderHook } from "../../../../test-utils/renderHook";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RelationGroup, ServerTokenAnnotation } from "../../types/annotations";
 import type { AnnotationLabelType } from "../../../../types/graphql-api";
