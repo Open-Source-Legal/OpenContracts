@@ -1,6 +1,9 @@
 from .agent_tasks import generate_agent_response, trigger_agent_responses_for_message
 from .badge_tasks import check_auto_badges, check_badges_for_all_users
-from .cleanup_tasks import delete_analysis_and_annotations_task
+from .cleanup_tasks import (
+    cleanup_orphaned_document_blobs_task,
+    delete_analysis_and_annotations_task,
+)
 from .corpus_tasks import *  # noqa: F403, F401
 from .data_extract_tasks import *  # noqa: F403, F401
 from .doc_analysis_tasks import *  # noqa: F403, F401
@@ -37,6 +40,7 @@ __all__ = [
     "make_corpus_public_task",
     "make_analysis_public_task",
     "delete_analysis_and_annotations_task",
+    "cleanup_orphaned_document_blobs_task",
     "check_auto_badges",
     "check_badges_for_all_users",
     "generate_agent_response",
