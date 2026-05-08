@@ -76,6 +76,7 @@ const buildBaseMocks = (corpusId: string | undefined): MockedResponse[] => {
             totalAnnotations: 0,
             totalAnalyses: 0,
             totalExtracts: 0,
+            totalThreads: 0,
             __typename: "CorpusStatsType",
           },
         },

@@ -115,7 +115,7 @@ describe("useTabVisibilityRefresh", () => {
 
     const { rerender } = renderHook(
       ({ fns }: { fns: Array<() => void> }) => useTabVisibilityRefresh(fns),
-      { fns: [first] }
+      { initialProps: { fns: [first] } }
     );
 
     rerender({ fns: [second] });
