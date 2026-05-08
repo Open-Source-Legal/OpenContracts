@@ -147,7 +147,6 @@
     "@graphql-codegen/cli": "^5.0.2",
     "@playwright/experimental-ct-react": "^1.52.0",
     "@playwright/test": "^1.52.0",
-    "@testing-library/react-hooks": "^8.0.1",
     "@types/d3": "^7.4.3",
     "@types/dompurify": "^3.2.0",
     "@types/json-schema": "^7.0.15",
