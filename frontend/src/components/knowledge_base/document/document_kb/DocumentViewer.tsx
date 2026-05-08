@@ -12,7 +12,8 @@ import {
   isPdfFileType,
   isDocxFileType,
 } from "../../../../utils/files";
-import { EmptyState } from "../styled";
+import { EmptyState } from "./EmptyStates";
+import { ServerTokenAnnotation } from "../../../annotator/types/annotations";
 
 interface ViewerStatusProps {
   loadingLabel: string;
@@ -75,7 +76,7 @@ export interface DocumentViewerProps {
   /** Ref callback that publishes the container element to atoms + zoom hooks */
   containerRefCallback: React.RefCallback<HTMLDivElement>;
   /** Annotation creation handler (PDF only) */
-  createAnnotationHandler: (annotation: any) => Promise<any>;
+  createAnnotationHandler: (annotation: ServerTokenAnnotation) => Promise<void>;
 }
 
 /**

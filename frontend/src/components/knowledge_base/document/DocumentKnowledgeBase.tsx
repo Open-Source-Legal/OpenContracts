@@ -25,6 +25,7 @@ import { useAtom, useSetAtom } from "jotai";
 import { useAnnotationSelection } from "../../annotator/context/UISettingsAtom";
 import { useChatSourceState } from "../../annotator/context/ChatSourceAtom";
 import { useCreateAnnotation } from "../../annotator/hooks/AnnotationHooks";
+import { ServerTokenAnnotation } from "../../annotator/types/annotations";
 import {
   selectedRelationsAtom,
   initialZoomSetAtom,
@@ -369,12 +370,12 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
 
   // Conditional annotation handlers based on corpus availability
   const createAnnotationHandler = React.useCallback(
-    async (annotation: any) => {
+    async (annotation: ServerTokenAnnotation): Promise<void> => {
       if (!corpusId) {
         toast.info("Add document to corpus to create annotations");
         return;
       }
-      return originalCreateAnnotationHandler(annotation);
+      await originalCreateAnnotationHandler(annotation);
     },
     [corpusId, originalCreateAnnotationHandler]
   );

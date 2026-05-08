@@ -1,6 +1,7 @@
 import React from "react";
 import {
   MessageSquare,
+  MessagesSquare,
   Layers,
   Database,
   BarChart3,
@@ -161,7 +162,7 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
             {threadCount}
           </TabBadge>
         )}
-        <MessageSquare />
+        <MessagesSquare />
         <span className="tab-label">Discussions</span>
       </SidebarTab>
     </SidebarTabsContainer>
@@ -258,7 +259,7 @@ export const MobileSidebarTabs: React.FC<MobileSidebarTabsProps> = ({
         )}
         aria-label="Document discussions"
       >
-        <MessageSquare />
+        <MessagesSquare />
         <span>
           Discussions
           {threadCount > 0 ? ` (${threadCount})` : ""}

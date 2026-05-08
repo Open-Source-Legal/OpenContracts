@@ -66,7 +66,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           </span>
           <span>
             <Calendar size={16} /> Created:{" "}
-            {new Date(metadata.created ?? Date.now()).toLocaleDateString()}
+            {metadata.created
+              ? new Date(metadata.created).toLocaleDateString()
+              : "—"}
           </span>
           {hasCorpus && corpusId && (
             <DocumentVersionSelector

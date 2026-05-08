@@ -13,10 +13,9 @@ interface UseContainerWidthReturn {
  * the element to `scrollContainerRefAtom` so the virtual page renderer can
  * read it for visibility math.
  *
- * The width updates on two triggers:
- * 1. The ref callback fires (mount/unmount) — captures the initial width.
- * 2. A `ResizeObserver` fires when the layout reflows (sidebar open/close,
- *    window resize) — keeps the fit-to-width zoom calculation accurate.
+ * The `ResizeObserver` is created/disposed inside the ref callback rather
+ * than a `useEffect`, so it correctly reattaches if the container is
+ * conditionally re-rendered (e.g. when the user swaps file types).
  *
  * On unmount the scroll container ref is cleared so stale element refs
  * don't leak across document navigations.
@@ -25,13 +24,26 @@ export function useContainerWidth(): UseContainerWidthReturn {
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const { setScrollContainerRef } = useScrollContainerRef();
   const pdfContainerRef = useRef<HTMLDivElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const containerRefCallback = useCallback(
     (node: HTMLDivElement | null) => {
+      // Tear down any previous observer before swapping nodes.
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+
       pdfContainerRef.current = node;
       if (node) {
         setContainerWidth(node.getBoundingClientRect().width);
         setScrollContainerRef(pdfContainerRef);
+
+        const observer = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            setContainerWidth(entry.contentRect.width);
+          }
+        });
+        observer.observe(node);
+        resizeObserverRef.current = observer;
       } else {
         setScrollContainerRef(null);
       }
@@ -39,20 +51,15 @@ export function useContainerWidth(): UseContainerWidthReturn {
     [setScrollContainerRef]
   );
 
-  useEffect(() => {
-    const node = pdfContainerRef.current;
-    if (!node) return;
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
-      }
-    });
-    resizeObserver.observe(node);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  // Clear on unmount so stale refs are never used.
-  useEffect(() => () => setScrollContainerRef(null), [setScrollContainerRef]);
+  // Clear on unmount so stale refs are never used and observers don't leak.
+  useEffect(
+    () => () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      setScrollContainerRef(null);
+    },
+    [setScrollContainerRef]
+  );
 
   return { containerWidth, containerRefCallback };
 }

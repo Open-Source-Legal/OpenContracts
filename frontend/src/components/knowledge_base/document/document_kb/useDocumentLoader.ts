@@ -105,8 +105,6 @@ interface UseDocumentLoaderReturn {
   refetch: () => Promise<unknown>;
   /** Document body load state — separate from query loading */
   viewState: ViewState;
-  /** Manual setter — used by tests and edge-case fallbacks */
-  setViewState: (state: ViewState) => void;
   /** Number of discussion threads on the document (for the badge) */
   threadCount: number;
 }
@@ -234,33 +232,25 @@ export function useDocumentLoader({
         ) ?? []
       );
 
-      // Update pdfAnnotations atom with ONLY non-structural annotations.
-      // Structural annotations are loaded lazily — see useStructuralAnnotations.
-      setPdfAnnotations(
-        (prev) =>
-          new PdfAnnotations(
-            processedAnnotations,
-            prev.relations,
-            processedDocTypeAnnotations,
-            true
-          )
-      );
-
-      setInitialAnnotations(processedAnnotations);
-
       // Backend filters out analysis relationships when analysisId is unset.
       const processedRelationships =
         data.document.allRelationships?.map((rel) => relationToGroup(rel)) ??
         [];
 
+      setInitialAnnotations(processedAnnotations);
       setInitialRelations(processedRelationships);
 
+      // Single setPdfAnnotations call merges non-structural annotations,
+      // relationships and doc-types — avoids the intermediate render that a
+      // split annotations-then-relationships update would cause when this
+      // runs in Apollo's onCompleted (outside React's automatic batching).
+      // Structural annotations are loaded lazily — see useStructuralAnnotations.
       setPdfAnnotations(
         (prev) =>
           new PdfAnnotations(
-            prev.annotations,
+            processedAnnotations,
             processedRelationships,
-            prev.docTypes,
+            processedDocTypeAnnotations,
             true
           )
       );
@@ -320,24 +310,17 @@ export function useDocumentLoader({
           convertToServerAnnotation(annotation)
         ) ?? [];
 
-      setPdfAnnotations(
-        (prev) =>
-          new PdfAnnotations(
-            processedAnnotations,
-            prev.relations,
-            prev.docTypes,
-            true
-          )
-      );
-
       const processedRelationships =
         data.document.allRelationships?.map((rel) => relationToGroup(rel)) ??
         [];
 
+      // Single setPdfAnnotations call avoids the intermediate render that
+      // splitting annotations-then-relationships would cause when this runs
+      // in Apollo's onCompleted (outside React's automatic batching).
       setPdfAnnotations(
         (prev) =>
           new PdfAnnotations(
-            prev.annotations,
+            processedAnnotations,
             processedRelationships,
             prev.docTypes,
             true
@@ -718,7 +701,6 @@ export function useDocumentLoader({
     queryError: corpusError || documentError,
     refetch: corpusId ? refetchWithCorpus : refetchDocumentOnly,
     viewState,
-    setViewState,
     threadCount: threadCountData?.conversations?.totalCount ?? 0,
   };
 }
