@@ -29,6 +29,7 @@ from opencontractserver.shared.slug_utils import (
 )
 from opencontractserver.shared.utils import calc_oc_file_path
 from opencontractserver.types.enums import ExportType
+from opencontractserver.users.handle_generator import generate_handle
 from opencontractserver.users.validators import UserUnicodeUsernameValidator
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,23 @@ class User(AbstractUser):
         ),
     )
 
+    # Reddit-style display handle (issue #1574). Auto-assigned on save when
+    # missing; surfaced via the ``UserType.displayName`` GraphQL resolver so
+    # users without populated Auth0 ``name``/``given_name`` claims don't fall
+    # through to the redacted ``user_<id>`` fallback.
+    handle = django.db.models.CharField(
+        "Display Handle",
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text=(
+            "Auto-assigned Reddit-style handle (e.g. 'cleverFox', 'cleverFox42'). "
+            "Used by the displayName resolver when Auth0 name claims are absent. "
+            "User-facing editing is out of scope for the initial rollout."
+        ),
+    )
+
     # Cookie consent tracking
     cookie_consent_accepted = django.db.models.BooleanField(
         "Cookie Consent Accepted",
@@ -209,6 +227,21 @@ class User(AbstractUser):
                     raise ValidationError({"slug": "Slug cannot be empty."})
                 validate_user_slug_or_raise(sanitized)
                 self.slug = sanitized
+
+        # Auto-assign Reddit-style display handle (issue #1574). Mirrors the
+        # slug guard so initial migrations that pre-date the column don't
+        # explode on save.
+        handle_column_exists = table_has_column(self._meta.db_table, "handle")
+        handle_being_saved = update_fields is None or "handle" in update_fields
+        if (
+            handle_column_exists
+            and handle_being_saved
+            and (not self.handle or not str(self.handle).strip())
+        ):
+            scope_qs = get_user_model().objects.all()
+            self.handle = generate_handle(
+                scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
+            )
 
         created = self.id is None
         super().save(*args, **kwargs)

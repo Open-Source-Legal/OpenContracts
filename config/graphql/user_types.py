@@ -17,7 +17,57 @@ from opencontractserver.users.models import Assignment, UserExport, UserImport
 User = get_user_model()
 
 
+# Auth0 ``provider|sub`` usernames (e.g. ``auth0|abc123``,
+# ``google-oauth2|105...``) leak the OAuth identifier and must never be
+# rendered to other users. The displayName resolver routes these around
+# ``username`` and into the auto-assigned ``handle`` instead.
+def _looks_like_auth0_provider_sub(username: str) -> bool:
+    return bool(username) and "|" in username
+
+
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    display_name = graphene.String(
+        description=(
+            "Resolved display name with PII-safe fallback chain. Order: "
+            "name → given_name + family_name → first_name + last_name → "
+            "auto-assigned handle → username (only when not a 'provider|sub' "
+            "Auth0 identifier) → redacted 'user_<id>' fallback."
+        )
+    )
+
+    def resolve_display_name(self, info) -> str:
+        """Pick the first non-empty branch of the display-name chain.
+
+        Issue: #1574 — Reddit-style auto-assigned user handles
+        Issue: #1557 (precursor) — leaderboard OAuth-ID leak fix.
+
+        The chain is the single rendering choke point for "what should the UI
+        show?" and gracefully degrades to the redacted fallback for any user
+        the handle backfill hasn't reached yet.
+        """
+        name = (self.name or "").strip()
+        if name:
+            return name
+
+        given = (self.given_name or "").strip()
+        family = (self.family_name or "").strip()
+        if given or family:
+            return f"{given} {family}".strip()
+
+        first = (self.first_name or "").strip()
+        last = (self.last_name or "").strip()
+        if first or last:
+            return f"{first} {last}".strip()
+
+        handle = (self.handle or "").strip()
+        if handle:
+            return handle
+
+        username = (self.username or "").strip()
+        if username and not _looks_like_auth0_provider_sub(username):
+            return username
+
+        return f"user_{self.pk}" if self.pk is not None else "user_unknown"
     # Reputation fields (Epic #565)
     reputation_global = graphene.Int(
         description="Global reputation score across all corpuses"
