@@ -43,6 +43,7 @@ class CorpusUserCanModerateTests(TestCase):
             user=self.moderator_with_perms,
             permissions=["lock_threads"],
             assigned_by=self.owner,
+            creator=self.owner,
         )
         # Empty permissions list — still counts for the *view-moderation*
         # check (see helper docstring); diverges from
@@ -52,6 +53,7 @@ class CorpusUserCanModerateTests(TestCase):
             user=self.moderator_no_perms,
             permissions=[],
             assigned_by=self.owner,
+            creator=self.owner,
         )
 
     def test_superuser_can_moderate(self) -> None:
@@ -96,5 +98,6 @@ class CorpusUserCanModerateTests(TestCase):
             user=cross_user,
             permissions=["lock_threads"],
             assigned_by=self.outsider,
+            creator=self.outsider,
         )
         self.assertFalse(self.corpus.user_can_moderate(cross_user))
