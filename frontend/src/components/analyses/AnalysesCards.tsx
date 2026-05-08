@@ -33,11 +33,7 @@ interface AnalysesCardsProps {
   opened_corpus: CorpusType | null;
   pageInfo: PageInfo | undefined | null;
   loading: boolean;
-  /**
-   * Apollo `networkStatus` from the parent's `useQuery`. When provided, the
-   * footer spinner is shown only while a `fetchMore` is in flight (status 3),
-   * not on background `cache-and-network` refetches.
-   */
+  /** NetworkStatus from useQuery. When omitted, footer falls back to `loading && hasNextPage`. */
   networkStatus?: NetworkStatus;
   loading_message: string;
   fetchMore: (args?: any) => void | any;

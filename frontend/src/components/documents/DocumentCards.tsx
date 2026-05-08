@@ -248,11 +248,7 @@ interface DocumentCardProps {
   items: DocumentType[];
   pageInfo: PageInfo | undefined;
   loading: boolean;
-  /**
-   * Apollo `networkStatus` from the parent's `useQuery`. When provided, the
-   * footer spinner is shown only while a `fetchMore` is in flight (status 3),
-   * not on background `cache-and-network` refetches.
-   */
+  /** NetworkStatus from useQuery. When omitted, footer falls back to `loading && hasNextPage`. */
   networkStatus?: NetworkStatus;
   loading_message: string;
   onShiftClick?: (document: DocumentType) => void;
@@ -381,10 +377,7 @@ export const DocumentCards = ({
           </DropZoneContent>
         </DropZoneOverlay>
       )}
-      {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible.
-          We gate on `showEmptyState` (no docs *and* no folders) rather than `items.length === 0`
-          because folder rows are rendered via `prefixItems` and the grid is non-empty whenever
-          they're present, even before any documents arrive. */}
+      {/* Initial-load overlay — `showEmptyState` (no docs and no folders) is the right gate because `prefixItems` folder rows keep the grid non-empty before any docs arrive. */}
       <LoadingOverlay
         active={loading && showEmptyState}
         size="large"

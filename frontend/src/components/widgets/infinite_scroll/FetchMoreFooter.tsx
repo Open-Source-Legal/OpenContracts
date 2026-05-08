@@ -32,12 +32,7 @@ interface FetchMoreFooterProps {
   "data-testid"?: string;
 }
 
-/**
- * Unobtrusive footer-pinned spinner shown beneath an infinite-scroll list while
- * a `fetchMore` request is in flight. Pairs with `FetchMoreOnVisible` to give
- * users feedback during pagination without dimming or covering the rows that
- * have already rendered.
- */
+/** Footer-pinned spinner shown beneath an infinite-scroll list during fetchMore. */
 export const FetchMoreFooter: React.FC<FetchMoreFooterProps> = ({
   visible,
   message,

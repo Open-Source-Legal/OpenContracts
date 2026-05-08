@@ -7,14 +7,7 @@ interface HarnessProps {
   "data-testid"?: string;
 }
 
-/**
- * Test wrapper for FetchMoreFooter.
- *
- * The Playwright CT hook already provides JotaiProvider, ApolloProvider,
- * ThemeProvider, and allStyles injection, so we render the component
- * directly inside a sized container that mirrors how it appears at the
- * bottom of an infinite-scroll list.
- */
+/** Test harness mirroring how FetchMoreFooter renders at the bottom of an infinite-scroll list. */
 export const FetchMoreFooterHarness: React.FC<HarnessProps> = ({
   visible,
   message = "Loading more documents…",
