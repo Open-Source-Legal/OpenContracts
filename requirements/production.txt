@@ -12,7 +12,7 @@ django-anymail[mailgun]==15.0  # https://github.com/anymail/django-anymail
 
 # GCP Stuff
 # ------------------------------------------------------------------------------
-google-auth==2.51.0
+google-auth==2.52.0
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # Duplicated accross requirements files due to Snyk not understanding requirements inheritance
