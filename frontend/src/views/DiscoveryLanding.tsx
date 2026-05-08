@@ -338,7 +338,8 @@ export const DiscoveryLanding: React.FC<DiscoveryLandingProps> = ({
 
         {/* Featured Collections with Section Header */}
         <Section $marginBottom={56}>
-          <SectionHeader>
+          {/* $gap=0 / $wrap=false preserves the pre-refactor single-line layout. */}
+          <SectionHeader $gap={0} $wrap={false}>
             <SectionTitle>Featured Collections</SectionTitle>
             <SectionLink href="/corpuses">
               View all

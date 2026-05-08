@@ -113,14 +113,26 @@ export const StatsContainer = styled.div`
   }
 `;
 
+interface SectionHeaderProps {
+  /** Override the default 16px horizontal gap between children. Pass 0 to suppress. */
+  $gap?: number;
+  /**
+   * Whether children should wrap to a new line when the row overflows.
+   * Defaults to true (matching the list-page pattern in Documents/Extracts/LabelSets).
+   * DiscoveryLanding's "Recent Activity" / "Suggested Corpora" rows pass false to
+   * preserve the pre-refactor single-line layout.
+   */
+  $wrap?: boolean;
+}
+
 /** Flex row used above lists/grids: [SectionTitle … ActionButtons]. */
-export const SectionHeader = styled.div`
+export const SectionHeader = styled.div<SectionHeaderProps>`
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: ${(props) => props.$gap ?? 16}px;
+  flex-wrap: ${(props) => (props.$wrap === false ? "nowrap" : "wrap")};
 `;
 
 /** Georgia serif section heading rendered in the accent color. */
