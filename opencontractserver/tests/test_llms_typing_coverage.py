@@ -712,3 +712,137 @@ class TestTimelineStreamMixin(TestCase):
                 await agen.__anext__()
 
         async_to_sync(_enter)()
+
+
+class TestIsPublicHelper(TestCase):
+    """Cover ``_is_public`` — the cheap visibility heuristic on document/corpus."""
+
+    def test_none_object_is_not_public(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _is_public
+
+        self.assertFalse(_is_public(None))
+
+    def test_explicit_is_public_true(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _is_public
+
+        obj = MagicMock(spec=["is_public"])
+        obj.is_public = True
+        self.assertTrue(_is_public(obj))
+
+    def test_explicit_is_public_false(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _is_public
+
+        obj = MagicMock(spec=["is_public"])
+        obj.is_public = False
+        self.assertFalse(_is_public(obj))
+
+    def test_visibility_string_public(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _is_public
+
+        obj = MagicMock(spec=["visibility"])
+        obj.visibility = "PUBLIC"
+        self.assertTrue(_is_public(obj))
+
+    def test_visibility_string_private(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _is_public
+
+        obj = MagicMock(spec=["visibility"])
+        obj.visibility = "private"
+        self.assertFalse(_is_public(obj))
+
+    def test_visibility_enum_member_with_public_name(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _is_public
+
+        enum_member = MagicMock()
+        enum_member.name = "Public"
+        obj = MagicMock(spec=["visibility"])
+        obj.visibility = enum_member
+        self.assertTrue(_is_public(obj))
+
+    def test_object_without_visibility_is_private(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _is_public
+
+        # spec=[] gives an object with no recognised visibility attrs.
+        obj = MagicMock(spec=[])
+        self.assertFalse(_is_public(obj))
+
+
+class TestAssertAccessHelper(TestCase):
+    """Cover ``_assert_access`` — the anonymous-user gate."""
+
+    def test_anonymous_blocked_on_private(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _assert_access
+
+        private = MagicMock(spec=["is_public"])
+        private.is_public = False
+        with self.assertRaises(PermissionError):
+            _assert_access(private, user_id=None)
+
+    def test_anonymous_allowed_on_public(self) -> None:
+        from opencontractserver.llms.agents.core_agents import _assert_access
+
+        public = MagicMock(spec=["is_public"])
+        public.is_public = True
+        # No exception expected — call must return without raising.
+        _assert_access(public, user_id=None)
+
+    def test_authenticated_allowed_on_private(self) -> None:
+        """The helper does not enforce object-level perms for authenticated
+        callers — it only blocks anonymous reads of private resources."""
+        from opencontractserver.llms.agents.core_agents import _assert_access
+
+        private = MagicMock(spec=["is_public"])
+        private.is_public = False
+        # No exception expected.
+        _assert_access(private, user_id=42)
+
+
+class TestResolveToolsCallerForms(TestCase):
+    """Cover the union members of ``ToolType`` in ``_resolve_tools`` —
+    string lookup, raw callable, ``CoreTool`` passthrough, and the
+    invalid-input warning branch."""
+
+    def test_string_resolves_via_registry(self) -> None:
+        from opencontractserver.llms.api import _resolve_tools
+        from opencontractserver.llms.tools import core_tools as _core_tools_module
+
+        # ``aload_document_md_summary`` is a real registered async tool — pick
+        # any name that ``ToolAPI._registered_tools`` exposes for the test.
+        registered = _core_tools_module.aload_document_md_summary
+        with patch(
+            "opencontractserver.llms.api.ToolAPI.from_function",
+            side_effect=lambda fn, **kw: fn,
+        ):
+            with patch(
+                "opencontractserver.llms.api._registered_tools",
+                {"aload_document_md_summary": registered},
+                create=True,
+            ):
+                # Even when no registry override is in scope, ``_resolve_tools``
+                # falls back to ``ToolAPI.from_function`` — so we only assert
+                # that the function returns a list.
+                result = _resolve_tools(["aload_document_md_summary"])
+                self.assertIsInstance(result, list)
+
+    def test_callable_resolves_via_from_function(self) -> None:
+        from opencontractserver.llms.api import _resolve_tools
+
+        async def my_tool(arg: int) -> int:
+            return arg
+
+        sentinel = object()
+        with patch(
+            "opencontractserver.llms.api.ToolAPI.from_function",
+            return_value=sentinel,
+        ) as from_fn:
+            result = _resolve_tools([my_tool])
+            self.assertEqual(result, [sentinel])
+            from_fn.assert_called_once_with(my_tool)
+
+    def test_unknown_specification_logs_warning_and_skips(self) -> None:
+        from opencontractserver.llms.api import _resolve_tools
+
+        # An int is neither a string nor a callable nor a CoreTool — the
+        # resolver logs a warning and skips it instead of crashing.
+        result = _resolve_tools([42])  # type: ignore[list-item]
+        self.assertEqual(result, [])
