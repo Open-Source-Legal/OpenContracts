@@ -85,7 +85,7 @@ class DisplayNameResolverTestCase(TestCase):
     def test_redacts_oauth_sub_when_no_profile_fields(self):
         """Raw OAuth ``sub`` MUST never be returned — only a redacted suffix."""
         username = "google-oauth2|114688257717759010643"
-        user = User.objects.create_user(username=username)
+        user = User.objects.create_user(username=username, is_social_user=True)
         display = _resolve(user)
         # Suffix only — must not contain the provider prefix or the pipe.
         self.assertEqual(display, "user_010643")
@@ -112,10 +112,18 @@ class DisplayNameResolverTestCase(TestCase):
             "exercise the whole-sub fallback.",
         )
         username = f"auth0|{sub}"
-        user = User.objects.create_user(username=username)
+        user = User.objects.create_user(username=username, is_social_user=True)
         display = _resolve(user)
         self.assertEqual(display, f"user_{sub}")
         self.assertNotIn("|", display)
+
+    def test_does_not_redact_local_username_with_pipe(self):
+        """Local users (``is_social_user=False``) keep their ``|``-containing
+        username verbatim — ``UserUnicodeUsernameValidator`` allows ``|``,
+        so a local user named ``alice|admin`` is legitimate and the
+        OAuth-sub redaction must not fire."""
+        user = User.objects.create_user(username="alice|admin", is_social_user=False)
+        self.assertEqual(_resolve(user), "alice|admin")
 
     def test_whitespace_only_name_is_skipped(self):
         """A whitespace-only ``name`` field must not satisfy the priority chain."""

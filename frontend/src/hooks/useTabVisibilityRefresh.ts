@@ -10,6 +10,15 @@ type RefreshFn = () => Promise<unknown> | unknown;
  * Internally keeps a ref to the latest ``refreshFns`` array so callers do
  * not need to memoize: the listener is registered once on mount and reads
  * the current array on every visibility transition.
+ *
+ * Notes for callers:
+ * - No initial-mount fetch is fired here. Components that mount in an
+ *   already-visible tab rely on Apollo's ``cache-and-network`` (or similar)
+ *   fetch policy on the underlying queries to populate state on first render;
+ *   this hook only handles subsequent ``hidden → visible`` transitions.
+ * - Rapid tab-switching can fire multiple ``visibilitychange`` events in
+ *   quick succession. There is no internal debounce — Apollo's query
+ *   deduplication absorbs concurrent identical refetches in practice.
  */
 export function useTabVisibilityRefresh(refreshFns: RefreshFn[]): void {
   const refreshFnsRef = useRef(refreshFns);

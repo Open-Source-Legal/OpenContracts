@@ -35,6 +35,9 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
     )
 
+    # Overrides DjangoObjectType's auto-exposed model field so the
+    # ``resolve_email`` gate below runs — without this declaration the
+    # resolver is bypassed for cross-user reads.
     email = graphene.String(
         description=(
             "Email address. Returned only when the requesting user is viewing "
@@ -118,6 +121,12 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         never be surfaced in any UI. The expected profile fields (``name``,
         ``given_name``, ``family_name``, ``first_name``, ``last_name``)
         are all model columns on ``opencontractserver.users.models.User``.
+
+        The ``|`` character alone is NOT a sufficient OAuth-sub signal —
+        the project's ``UserUnicodeUsernameValidator`` allows ``|`` in
+        locally-chosen usernames. The redaction branch is gated on
+        ``is_social_user`` so a local user named e.g. ``alice|admin`` is
+        not mistakenly redacted.
         """
         name = _stripped(getattr(self, "name", ""))
         if name:
@@ -146,13 +155,20 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return first_last
 
         username = _stripped(getattr(self, "username", ""))
-        if username and "|" not in username:
+        is_social = bool(getattr(self, "is_social_user", False))
+
+        # Local users get their chosen username verbatim. ``|`` is allowed
+        # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
+        # username is legitimate and not an OAuth sub.
+        if username and not is_social:
             return username
 
         if username:
-            # Take the suffix from the OAuth sub (the part after the last "|")
-            # so the redacted display never carries the provider prefix or the
-            # separator itself, even when the sub is short (e.g. "auth0|abc").
+            # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
+            # strips the provider prefix even when the sub is short
+            # (``auth0|abc`` → ``abc``); when the username has no ``|`` (a
+            # data-corruption edge case) it falls through to the whole
+            # username, which is then suffix-truncated.
             sub = username.rsplit("|", 1)[-1]
             return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
 
