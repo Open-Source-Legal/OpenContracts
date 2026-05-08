@@ -487,18 +487,15 @@ class ConversationQueryMixin:
                 "moderator",
             ).get(pk=pk)
 
-            # Check permission
-            if not user.is_superuser:
-                corpus = (
-                    action.conversation.chat_with_corpus
-                    if action.conversation
-                    else None
-                )
-                if corpus:
-                    is_owner = corpus.creator == user
-                    is_moderator = corpus.moderators.filter(user=user).exists()
-                    if not is_owner and not is_moderator:
-                        return None
+            # Check permission via the canonical Corpus.user_can_moderate
+            # helper. The superuser short-circuit is baked in; the prior
+            # "no corpus context → grant access" branch is preserved for
+            # corpus-less moderation actions.
+            corpus = (
+                action.conversation.chat_with_corpus if action.conversation else None
+            )
+            if corpus is not None and not corpus.user_can_moderate(user):
+                return None
 
             return action
         except ModerationAction.DoesNotExist:
@@ -542,12 +539,9 @@ class ConversationQueryMixin:
         except Corpus.DoesNotExist:
             return None
 
-        # Check permission
-        if not user.is_superuser:
-            is_owner = corpus.creator == user
-            is_moderator = corpus.moderators.filter(user=user).exists()
-            if not is_owner and not is_moderator:
-                return None
+        # Check permission via the canonical Corpus.user_can_moderate helper
+        if not corpus.user_can_moderate(user):
+            return None
 
         end_time = timezone.now()
         start_time = end_time - timedelta(hours=time_range_hours)

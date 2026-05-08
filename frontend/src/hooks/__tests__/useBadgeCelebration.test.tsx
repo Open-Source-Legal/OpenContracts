@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react-hooks";
+import { renderHook, act } from "../../test-utils/renderHook";
 
 /**
  * Mock dependencies before the hook is imported so its module-level
