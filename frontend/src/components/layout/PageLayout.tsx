@@ -35,8 +35,7 @@ interface ContentContainerProps {
 export const ContentContainer = styled.main<ContentContainerProps>`
   max-width: ${(props) => (props.$maxWidth === "wide" ? "1200px" : "900px")};
   margin: 0 auto;
-  padding: ${(props) =>
-    props.$compact ? "32px 24px 80px" : "48px 24px 80px"};
+  padding: ${(props) => (props.$compact ? "32px 24px 80px" : "48px 24px 80px")};
 
   @media (max-width: 768px) {
     padding: ${(props) =>
