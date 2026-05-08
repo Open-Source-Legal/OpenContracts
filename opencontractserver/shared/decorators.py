@@ -272,7 +272,8 @@ def doc_analyzer_task(
                                 # the invariant is ever violated at runtime.
                                 if pdf_text_extract is None:
                                     raise ValueError(
-                                        "txt_extract_file is required for text/plain documents"
+                                        "txt_extract_file is required for text documents "
+                                        f"(got file_type={doc.file_type!r})"
                                     )
                                 label_obj, _ = AnnotationLabel.objects.get_or_create(
                                     text=label_text,
@@ -632,22 +633,11 @@ def async_doc_analyzer_task(
 
                         elif doc.file_type in ["application/txt", "text/plain"]:
                             span, label_text = span_label_pair
-                            # Mirrors the sync wrapper's invariant: TXT
-                            # processing requires a non-empty
-                            # ``txt_extract_file``. ``span["text"]`` is the
-                            # actual ``raw_text`` source here (the async
-                            # path doesn't slice into ``pdf_text_extract``
-                            # like the sync path), but the analyzer
-                            # function was invoked with
-                            # ``pdf_text_extract=None`` upstream, which
-                            # likely produced no usable spans — failing
-                            # fast here makes that contract violation
-                            # obvious instead of silently saving an
-                            # annotation built from a span whose
-                            # coordinates the analyzer couldn't compute.
+                            # Fail fast: TXT processing requires txt_extract_file (same invariant as sync path).
                             if pdf_text_extract is None:
                                 raise ValueError(
-                                    "txt_extract_file is required for text/plain documents"
+                                    "txt_extract_file is required for text documents "
+                                    f"(got file_type={doc.file_type!r})"
                                 )
                             logger.info(
                                 f"[ASYNC] TXT Annotation data: {label_text} / {span}"

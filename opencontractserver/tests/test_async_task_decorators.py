@@ -702,7 +702,7 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
             )
 
         with self.assertRaisesRegex(
-            ValueError, "txt_extract_file is required for text/plain documents"
+            ValueError, "txt_extract_file is required for text documents"
         ):
             task_returning_span.si(
                 doc_id=bare_txt_document.id, analysis_id=self.analysis.id
@@ -731,7 +731,7 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
             )
 
         with self.assertRaisesRegex(
-            ValueError, "txt_extract_file is required for text/plain documents"
+            ValueError, "txt_extract_file is required for text documents"
         ):
             task_returning_span.si(
                 doc_id=bare_app_txt_document.id, analysis_id=self.analysis.id

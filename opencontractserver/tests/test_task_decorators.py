@@ -436,7 +436,9 @@ class DocAnalyzerTaskTestCase(TestCase):
         This is the branch::
 
             if pdf_text_extract is None:
-                raise ValueError("txt_extract_file is required for text/plain documents")
+                raise ValueError(
+                    f"txt_extract_file is required for text documents (got file_type={doc.file_type!r})"
+                )
 
         The test creates a text/plain document *without* a txt_extract_file so
         that pdf_text_extract is None, then attempts to annotate it with a span
@@ -461,7 +463,7 @@ class DocAnalyzerTaskTestCase(TestCase):
             )
 
         with self.assertRaisesRegex(
-            ValueError, "txt_extract_file is required for text/plain documents"
+            ValueError, "txt_extract_file is required for text documents"
         ):
             task_returning_span.si(
                 doc_id=bare_txt_document.id, analysis_id=self.analysis.id
@@ -489,7 +491,7 @@ class DocAnalyzerTaskTestCase(TestCase):
             )
 
         with self.assertRaisesRegex(
-            ValueError, "txt_extract_file is required for text/plain documents"
+            ValueError, "txt_extract_file is required for text documents"
         ):
             task_returning_span_app_txt.si(
                 doc_id=bare_app_txt_document.id, analysis_id=self.analysis.id

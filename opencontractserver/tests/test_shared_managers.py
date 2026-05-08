@@ -130,8 +130,9 @@ class UserFeedbackManagerGetOrNoneTest(TestCase):
 
     def test_get_or_none_returns_object_on_hit(self) -> None:
         result = UserFeedback.objects.get_or_none(pk=self.feedback.pk)
-        self.assertIsNotNone(result)
-        assert result is not None  # narrow type for mypy
+        # ``assert`` narrows ``Optional[UserFeedback]`` for mypy and serves
+        # as the not-None assertion for the test runner in one statement.
+        assert result is not None
         self.assertEqual(result.pk, self.feedback.pk)
 
     def test_get_or_none_returns_none_on_miss(self) -> None:
@@ -176,6 +177,8 @@ class BaseVisibilityManagerSuperuserTest(TestCase):
     """
 
     def setUp(self) -> None:
+        # Lazy imports keep this test module loadable when the annotations /
+        # documents apps haven't finished their AppConfig.ready() pass yet.
         from opencontractserver.annotations.models import Embedding
         from opencontractserver.documents.models import Document
 
