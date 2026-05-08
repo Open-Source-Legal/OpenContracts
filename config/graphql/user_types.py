@@ -12,12 +12,41 @@ from config.graphql.base import CountableConnection
 from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
 )
+from opencontractserver.constants.auth import OAUTH_SUB_DISPLAY_SUFFIX_LENGTH
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 User = get_user_model()
 
 
+def _stripped(value: object) -> str:
+    """Return a trimmed string when ``value`` is a string, else empty."""
+    return value.strip() if isinstance(value, str) else ""
+
+
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    display_name = graphene.String(
+        description=(
+            "A safe, friendly display name for this user. Resolved in order from "
+            "``name`` → ``given_name`` + ``family_name`` → ``first_name`` + "
+            "``last_name`` → ``username`` (only when it is not an OAuth "
+            "``provider|sub`` identifier) → redacted ``user_<suffix>`` fallback. "
+            "Never returns the raw OAuth ``sub`` used as the Django ``username`` "
+            "for social-login users."
+        )
+    )
+
+    # Overrides DjangoObjectType's auto-exposed model field so the
+    # ``resolve_email`` gate below runs — without this declaration the
+    # resolver is bypassed for cross-user reads.
+    email = graphene.String(
+        description=(
+            "Email address. Returned only when the requesting user is viewing "
+            "themselves or is a superuser; ``null`` otherwise. This prevents "
+            "the leaderboard / public-profile surfaces from leaking other "
+            "users' email addresses to clients that select the field."
+        )
+    )
+
     # Reputation fields (Epic #565)
     reputation_global = graphene.Int(
         description="Global reputation score across all corpuses"
@@ -50,12 +79,102 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
     )
 
+    def resolve_email(self, info) -> str | None:
+        """Gate ``email`` to self-views and superusers.
+
+        ``DjangoObjectType`` would otherwise auto-expose the model field to
+        any client that selected it (e.g. on a leaderboard ``user`` subtree),
+        which is more PII than the leaderboard needs. Self / superuser views
+        — ``me``, profile settings, admin tooling — still get the real value.
+        """
+        requester = getattr(info.context, "user", None)
+        if requester is None or not requester.is_authenticated:
+            return None
+        if requester.is_superuser or requester.pk == self.pk:
+            return self.email or None
+        return None
+
     def resolve_can_import_corpus(self, info) -> bool:
         if not self.is_authenticated:
             return False
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
             return False
         return True
+
+    def resolve_display_name(self, info) -> str:
+        """
+        Resolve a privacy-preserving display name for this user.
+
+        Priority (first non-empty wins):
+        1. ``name`` — full name claim from Auth0 profile.
+        2. ``given_name`` + ``family_name`` — Auth0 split-name claims.
+        3. ``first_name`` + ``last_name`` — legacy Django profile fields.
+        4. ``username`` — only when it does not look like a raw OAuth
+           ``provider|sub`` identifier (no ``|`` separator).
+        5. ``user_<last N chars of OAuth sub>`` — redacted fallback. The
+           bare ``"user"`` final fallback only triggers if ``username`` is
+           empty (Django enforces non-empty so this is unreachable in
+           practice) and is intentionally not a unique identifier.
+
+        ``username`` is set to the Auth0 ``sub`` for social users (see
+        ``jwt_get_username_from_payload_handler``), so the raw value must
+        never be surfaced in any UI. The expected profile fields (``name``,
+        ``given_name``, ``family_name``, ``first_name``, ``last_name``)
+        are all model columns on ``opencontractserver.users.models.User``.
+
+        The ``|`` character alone is NOT a sufficient OAuth-sub signal —
+        the project's ``UserUnicodeUsernameValidator`` allows ``|`` in
+        locally-chosen usernames. The redaction branch is gated on
+        ``is_social_user`` so a local user named e.g. ``alice|admin`` is
+        not mistakenly redacted.
+        """
+        name = _stripped(getattr(self, "name", ""))
+        if name:
+            return name
+
+        given_family = " ".join(
+            part
+            for part in (
+                _stripped(getattr(self, "given_name", "")),
+                _stripped(getattr(self, "family_name", "")),
+            )
+            if part
+        )
+        if given_family:
+            return given_family
+
+        first_last = " ".join(
+            part
+            for part in (
+                _stripped(getattr(self, "first_name", "")),
+                _stripped(getattr(self, "last_name", "")),
+            )
+            if part
+        )
+        if first_last:
+            return first_last
+
+        username = _stripped(getattr(self, "username", ""))
+        is_social = bool(getattr(self, "is_social_user", False))
+
+        # Local users get their chosen username verbatim. ``|`` is allowed
+        # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
+        # username is legitimate and not an OAuth sub.
+        if username and not is_social:
+            return username
+
+        if username:
+            # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
+            # strips the provider prefix even when the sub is short
+            # (``auth0|abc`` → ``abc``); when the username has no ``|`` (a
+            # data-corruption edge case) it falls through to the whole
+            # username, which is then suffix-truncated.
+            sub = username.rsplit("|", 1)[-1]
+            return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
+
+        # Django enforces non-empty username, so this branch is effectively
+        # unreachable; the bare "user" sentinel is intentionally not unique.
+        return "user"
 
     def resolve_reputation_global(self, info) -> Any:
         """

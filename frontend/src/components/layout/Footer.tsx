@@ -29,7 +29,7 @@ const FooterInner = styled.div`
 
 const FooterGrid = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr 2fr;
+  grid-template-columns: 1fr 2fr;
   gap: 2em;
   text-align: left;
 
@@ -119,32 +119,15 @@ export function Footer() {
           <FooterDivider />
           <FooterGrid>
             <div>
-              <FooterHeading>My Other Projects:</FooterHeading>
-              <FooterLinkList>
-                <li>
-                  <a href="https://github.com/JSv4/GremlinServer">
-                    GREMLIN Low-Code
-                  </a>
-                </li>
-                <li>
-                  <a href="https://github.com/JSv4/AtticusClassifier">
-                    Open Classifiers
-                  </a>
-                </li>
-              </FooterLinkList>
-            </div>
-            <div>
               <FooterHeading>Open Source Legaltech</FooterHeading>
               <FooterLinkList>
                 <li>
-                  <a href="https://github.com/JSv4">Github</a>
+                  <a href="https://github.com/Open-Source-Legal">Github</a>
                 </li>
               </FooterLinkList>
             </div>
             <div>
-              <FooterHeading>
-                Gordium Knot, Inc. d/b/a OpenSource.Legal &copy;2021
-              </FooterHeading>
+              <FooterHeading>OpenSource.Legal &copy;2021-2026</FooterHeading>
               <p>
                 Open Contracts was developed by{" "}
                 <a href="https://github.com/JSv4">JSv4</a>. Use of this tool is
@@ -161,30 +144,15 @@ export function Footer() {
         <FooterInner>
           <FooterGrid>
             <div>
-              <FooterHeading>My Other Projects:</FooterHeading>
-              <FooterLinkList>
-                <li>
-                  <a href="https://github.com/JSv4/GremlinServer">
-                    GREMLIN Low-Code
-                  </a>
-                </li>
-                <li>
-                  <a href="https://github.com/JSv4/AtticusClassifier">
-                    Open Classifiers
-                  </a>
-                </li>
-              </FooterLinkList>
-            </div>
-            <div>
               <FooterHeading>Open Source Legaltech</FooterHeading>
               <FooterLinkList>
                 <li>
-                  <a href="https://github.com/JSv4">Github</a>
+                  <a href="https://github.com/Open-Source-Legal">Github</a>
                 </li>
               </FooterLinkList>
             </div>
             <div>
-              <FooterHeading>&copy;2021-2024 JSv4</FooterHeading>
+              <FooterHeading>OpenSource.Legal &copy;2021-2026</FooterHeading>
               <p>
                 Open Contracts was developed by{" "}
                 <a href="https://github.com/JSv4">JSv4</a>. Use of this tool is

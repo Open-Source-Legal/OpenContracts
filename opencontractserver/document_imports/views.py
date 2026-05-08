@@ -41,11 +41,34 @@ from opencontractserver.document_imports.serializers import (
     DocumentsZipImportSerializer,
 )
 from opencontractserver.document_imports.services import (
+    DocumentImportPermissionError,
     import_document_for_user,
     import_documents_zip_for_user,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _public_permission_message(code: str) -> str:
+    """Map a service-layer permission-error code to a fixed, public-safe
+    response string.
+
+    The response body is built from these literals — never from
+    ``str(exception)`` — so exception-derived data does not flow into the
+    HTTP response (CodeQL: ``py/stack-trace-exposure``).
+    """
+    if code == DocumentImportPermissionError.USAGE_CAP:
+        return (
+            f"Your usage is capped at {settings.USAGE_CAPPED_USER_DOC_CAP_COUNT} "
+            f"documents. Try deleting an existing document first or contact "
+            f"the admin for a higher limit."
+        )
+    if code == DocumentImportPermissionError.BULK_UPLOAD_DENIED:
+        return (
+            "By default, usage-capped users cannot bulk upload documents. "
+            "Please contact the admin to authorize your account."
+        )
+    return "You are not authorized to perform this import."
 
 
 def _normalise_optional(value: str | None) -> str | None:
@@ -138,9 +161,10 @@ class DocumentImportView(APIView):
                 add_to_folder_id=_normalise_optional(data.get("add_to_folder_id")),
                 slug=_normalise_optional(data.get("slug")),
             )
-        except PermissionError as e:
+        except DocumentImportPermissionError as e:
+            logger.info("Document import denied", extra={"code": e.code})
             return Response(
-                {"ok": False, "error": str(e)},
+                {"ok": False, "error": _public_permission_message(e.code)},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -194,9 +218,10 @@ class DocumentsZipImportView(APIView):
                 make_public=bool(data.get("make_public", False)),
                 add_to_corpus_id=_normalise_optional(data.get("add_to_corpus_id")),
             )
-        except PermissionError as e:
+        except DocumentImportPermissionError as e:
+            logger.info("Bulk-zip import denied", extra={"code": e.code})
             return Response(
-                {"ok": False, "error": str(e)},
+                {"ok": False, "error": _public_permission_message(e.code)},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
