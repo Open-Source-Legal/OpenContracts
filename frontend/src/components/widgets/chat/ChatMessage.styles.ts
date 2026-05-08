@@ -136,7 +136,7 @@ export const MessageContent = styled.div<{ $isAssistant: boolean }>`
     background: ${(props) =>
       props.$isAssistant
         ? "linear-gradient(135deg, #f8f9fa, #ffffff)"
-        : "linear-gradient(135deg, ${OS_LEGAL_COLORS.gray200}, ${OS_LEGAL_COLORS.surfaceLight})"};
+        : `linear-gradient(135deg, ${OS_LEGAL_COLORS.gray200}, ${OS_LEGAL_COLORS.surfaceLight})`};
     transform: rotate(45deg);
     border-radius: 0.125rem;
   }
