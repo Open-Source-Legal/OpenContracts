@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
 from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.db import IntegrityError
@@ -459,8 +459,10 @@ class DocumentManager(BaseVisibilityManager):
         if not target_pks:
             return set()
 
+        from opencontractserver.documents.models import Document
+
         unique: set[str] = set()
-        for field_name in self.model.blob_field_names():
+        for field_name in cast("type[Document]", self.model).blob_field_names():
             # Single round-trip per field: collect every distinct,
             # non-empty path used by the targets.
             target_paths: set[str] = {
