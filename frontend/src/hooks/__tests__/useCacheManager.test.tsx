@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react-hooks";
+import { renderHook, act } from "../../test-utils/renderHook";
 import { ApolloClient, InMemoryCache, ApolloProvider } from "@apollo/client";
 import React from "react";
 import { useCacheManager } from "../useCacheManager";

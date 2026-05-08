@@ -167,7 +167,7 @@ describe("useWebSocketAuth", () => {
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
         useWebSocketAuth({ url: "ws://x/", enabled }),
-      { enabled: false }
+      { initialProps: { enabled: false } }
     );
     expect(MockWebSocket.instances.length).toBe(0);
     expect(result.current.isConnected).toBe(false);

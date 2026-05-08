@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderHook } from "@testing-library/react-hooks";
+import { renderHook } from "../../test-utils/renderHook";
 import { useFeatureAvailability } from "../useFeatureAvailability";
 
 describe("useFeatureAvailability", () => {

@@ -44,11 +44,12 @@ from opencontractserver.utils.embeddings import generate_embeddings_from_text
 from opencontractserver.utils.text import truncate
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
     from django.db.models import QuerySet
 
     from opencontractserver.annotations.models import AnnotationLabel
     from opencontractserver.documents.models import Document, DocumentPath
+    from opencontractserver.users.models import User as UserModel
 
 logger = logging.getLogger(__name__)
 
@@ -665,6 +666,40 @@ class Corpus(TreeNode):
         return DocumentPath.objects.filter(
             corpus=self, is_current=True, is_deleted=False
         ).exists()
+
+    def user_can_moderate(self, user: UserModel | AnonymousUser | None) -> bool:
+        """
+        Check whether ``user`` may view/act on moderation surfaces for this corpus.
+
+        Canonical replacement for the inline
+        ``user.is_superuser or corpus.creator == user or
+        corpus.moderators.filter(user=user).exists()`` pattern in moderation
+        resolvers (see ``config/graphql/conversation_queries.py``).
+
+        Returns ``True`` iff:
+            * ``user`` is a superuser, OR
+            * ``user`` is the corpus creator, OR
+            * ``user`` is a designated moderator (any row in
+              :class:`~opencontractserver.conversations.models.CorpusModerator`,
+              regardless of the ``permissions`` list).
+
+        Anonymous / unauthenticated / ``None`` users always get ``False``.
+
+        NOTE: This is intentionally more permissive than
+        :meth:`Conversation.can_moderate`, which additionally requires the
+        ``CorpusModerator.permissions`` list to be non-empty. Reconciling
+        the two is a behavior change tracked separately from the
+        consolidation work in #1450.
+        """
+        if user is None:
+            return False
+        if not getattr(user, "is_authenticated", False):
+            return False
+        if user.is_superuser:
+            return True
+        if self.creator_id == user.pk:
+            return True
+        return self.moderators.filter(user=user).exists()
 
     def clean(self) -> None:
         """Validate the model before saving.
