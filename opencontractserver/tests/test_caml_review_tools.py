@@ -204,12 +204,18 @@ class ReadCorpusCamlArticleTests(TransactionTestCase):
 # --------------------------------------------------------------------------- #
 
 
-class ProposeCamlCitationMatchTests(TestCase):
+class ProposeCamlCitationMatchTests(TransactionTestCase):
     """Tests for the citation candidate proposal tool.
 
     The vector store's ``async_search`` is patched so we don't depend on a
     configured embedder -- we only need to verify the tool's adapter logic
     (shape, capping, error handling).
+
+    Uses ``TransactionTestCase`` (not ``TestCase``) because
+    ``apropose_caml_citation_match`` now performs an inline corpus-visibility
+    check via ``_db_sync_to_async`` (``thread_sensitive=False``); the helper
+    thread opens a fresh DB connection that only sees committed data, so the
+    fixture rows must live outside a per-test ``atomic()`` wrapper.
     """
 
     owner: User
@@ -218,28 +224,30 @@ class ProposeCamlCitationMatchTests(TestCase):
     label: AnnotationLabel
     annotation: Annotation
 
-    @classmethod
-    def setUpTestData(cls):
-        cls.owner = User.objects.create_user(username="propose_owner", password="pw")
-        cls.corpus = Corpus.objects.create(
-            title="Propose Corpus", creator=cls.owner, is_public=True
+    def setUp(self):
+        # Fixtures are recreated per-test so ``TransactionTestCase``'s
+        # post-test truncation doesn't leak rows between cases, and so the
+        # async helper thread sees them via its own committed view.
+        self.owner = User.objects.create_user(username="propose_owner", password="pw")
+        self.corpus = Corpus.objects.create(
+            title="Propose Corpus", creator=self.owner, is_public=True
         )
-        cls.doc = Document.objects.create(
+        self.doc = Document.objects.create(
             title="Source Doc",
-            creator=cls.owner,
+            creator=self.owner,
             file_type="text/plain",
             processing_started=timezone.now(),
         )
-        cls.doc, _, _ = cls.corpus.add_document(document=cls.doc, user=cls.owner)
-        cls.label = AnnotationLabel.objects.create(
-            text="Liability Cap", color="#abcdef", creator=cls.owner
+        self.doc, _, _ = self.corpus.add_document(document=self.doc, user=self.owner)
+        self.label = AnnotationLabel.objects.create(
+            text="Liability Cap", color="#abcdef", creator=self.owner
         )
-        cls.annotation = Annotation.objects.create(
-            document=cls.doc,
-            corpus=cls.corpus,
-            creator=cls.owner,
+        self.annotation = Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.owner,
             raw_text="Liability is capped at twice the annual fee.",
-            annotation_label=cls.label,
+            annotation_label=self.label,
             page=3,
             is_public=True,
         )
@@ -332,6 +340,37 @@ class ProposeCamlCitationMatchTests(TestCase):
                     query_text="anything",
                 )
         self.assertIn("Semantic search failed", str(ctx.exception))
+
+    def test_invisible_corpus_raises_before_search(self):
+        """Defense-in-depth: an outsider cannot search a private corpus.
+
+        Pins the inline ``_assert_corpus_visible_to_user`` guard so the tool
+        fails closed even when the registry wrapper is bypassed. The patched
+        ``async_search`` would surface a distinguishable error if it were
+        ever reached.
+        """
+        outsider = User.objects.create_user(username="propose_outsider", password="pw")
+        private_corpus = Corpus.objects.create(
+            title="Private", creator=self.owner, is_public=False
+        )
+
+        async def _should_not_run(self, query):  # pragma: no cover - fail-loud
+            raise AssertionError(
+                "vector search must not run when corpus is invisible to author"
+            )
+
+        with patch(
+            "opencontractserver.llms.vector_stores.core_vector_stores"
+            ".CoreAnnotationVectorStore.async_search",
+            new=_should_not_run,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                async_to_sync(apropose_caml_citation_match)(
+                    corpus_id=private_corpus.id,
+                    author_id=outsider.id,
+                    query_text="anything",
+                )
+        self.assertIn("not visible", str(ctx.exception))
 
 
 # --------------------------------------------------------------------------- #

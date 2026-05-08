@@ -19,6 +19,7 @@ production call site without requiring a full pydantic-ai invocation.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from django.test import TestCase
@@ -327,25 +328,37 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
         text = (
             _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
         ).read_text()
+        # Scope BOTH assertions to the body of ``add_document_note_tool``
+        # itself — the file defines many sibling tools that share similar
+        # ternary patterns (``context.corpus.id if context.corpus else None``
+        # appears elsewhere) and similar reject messages, so a file-wide
+        # search would silently let ``add_document_note_tool`` regress.
+        note_tool_start = text.index("async def add_document_note_tool")
+        # ``add_document_note_tool`` is a nested inner function (indented 8
+        # spaces inside ``async def create``).  Scan forward for the next
+        # ``async def`` at *any* indentation — sibling inner tools are
+        # 8-indent, the enclosing method's siblings are 4-indent — both
+        # would correctly close out this function's body.
+        match = re.search(r"\n {4,}async def ", text[note_tool_start + 1 :])
+        next_tool_idx = (
+            note_tool_start + 1 + match.start() if match is not None else len(text)
+        )
+        note_tool_body = text[note_tool_start:next_tool_idx]
         # The forwarded value must use a ternary that yields ``None`` when
         # ``context.corpus`` is missing; the previous reject-guard form
         # raised ValueError instead.
         self.assertIn(
             "context.corpus.id if context.corpus else None",
-            text,
+            note_tool_body,
             msg=(
                 "add_document_note_tool no longer forwards None for the "
                 "standalone-document case — agents without a corpus will "
                 "hit a ValueError again."
             ),
         )
-        # Scope the assertion to ``add_document_note`` specifically — other
-        # tools in the same module (e.g. ``add_exact_string_annotations``)
-        # still legitimately reject standalone-document agents and share a
-        # similar message tail.
         self.assertNotIn(
             "add_document_note requires the agent to be scoped to a corpus",
-            text,
+            note_tool_body,
             msg=(
                 "add_document_note_tool still rejects standalone-document "
                 "agents; the corpus-required guard should be gone."

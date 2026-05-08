@@ -114,14 +114,22 @@ def _looks_like_prose(text: str) -> bool:
     """Heuristic: is ``text`` natural-language prose suitable for a citation?
 
     Returns ``False`` for headings, lists, code fences, blockquotes, table
-    rows, and embedded component markers so the candidate list stays focused
-    on paragraphs the user would actually want to cite.
+    rows, thematic breaks/setext underlines, and embedded component markers
+    so the candidate list stays focused on paragraphs the user would actually
+    want to cite.
     """
     stripped = text.strip()
     if not stripped:
         return False
+    # Thematic breaks and setext heading underlines are blocks consisting of
+    # only ``-``, ``_``, or ``=`` (with optional spaces) — exclude them
+    # before the first-character check so a lone ``___`` paragraph doesn't
+    # slip through as prose.
+    if set(stripped.replace(" ", "")) <= {"-", "_", "="}:
+        return False
     first = stripped[:1]
-    if first in {"#", "-", "*", ">", "|"}:
+    # ``+`` is a CommonMark unordered-list marker alongside ``-`` and ``*``.
+    if first in {"#", "-", "*", "+", ">", "|"}:
         return False
     if stripped.startswith("```"):
         return False
@@ -167,6 +175,28 @@ def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     if doc is None:
         raise ValueError(not_found)
     return doc
+
+
+def _assert_corpus_visible_to_user(corpus_id: int, author_id: int) -> None:
+    """Raise ``ValueError`` if ``author_id`` cannot see ``corpus_id``.
+
+    Defense-in-depth check used by tools that don't go through
+    :func:`_load_caml_document_for_user` (which performs the same validation
+    as part of locating the CAML document).  Returns the same opaque
+    "not found" message the read/edit tools surface so a caller cannot
+    distinguish "missing user", "missing corpus", and "no permission".
+    """
+    User = get_user_model()
+    not_found = f"Corpus id={corpus_id} is not visible to this user."
+    try:
+        user = User.objects.get(pk=author_id)
+    except User.DoesNotExist:
+        raise ValueError(not_found)
+
+    from opencontractserver.corpuses.models import Corpus
+
+    if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
+        raise ValueError(not_found)
 
 
 def _read_caml_content(doc: Document) -> str:
@@ -316,13 +346,16 @@ async def apropose_caml_citation_match(
     if not query_text or not query_text.strip():
         raise ValueError("query_text must be a non-empty string.")
 
-    # NOTE: Corpus-visibility is *not* enforced inside this function.  The tool
-    # is registered with ``requires_corpus=True`` so the wrapper validates that
-    # ``corpus_id`` is visible to ``author_id`` before dispatch; results are
-    # additionally scoped by the vector store's ``user_id`` filter, which
-    # honours ``Annotation.objects.visible_to_user`` semantics.  If this tool
-    # is ever invoked outside the wrapper, add an explicit ``Corpus.objects
-    # .visible_to_user(user).get(pk=corpus_id)`` check here.
+    # Defense-in-depth corpus-visibility check: the tool is registered with
+    # ``requires_corpus=True`` and the vector store further scopes results via
+    # ``user_id``, but mirror the explicit ``visible_to_user`` guard the read
+    # and edit tools enforce inline so this function fails closed if it is
+    # ever invoked outside the registry wrapper.  Wrapped via
+    # ``_db_sync_to_async`` because this function runs on the event loop.
+    await _db_sync_to_async(_assert_corpus_visible_to_user)(
+        corpus_id=corpus_id, author_id=author_id
+    )
+
     capped_limit = max(1, min(int(limit), _MAX_CITATION_CANDIDATES))
 
     store = CoreAnnotationVectorStore(
@@ -346,7 +379,9 @@ async def apropose_caml_citation_match(
         )
 
     candidates: list[dict[str, Any]] = []
-    for result in results[:capped_limit]:
+    # ``async_search`` already honours ``similarity_top_k`` (we passed
+    # ``capped_limit`` above), so the result list is already bounded.
+    for result in results:
         ann = result.annotation
         label = ann.annotation_label  # may be None for label-less annotations
         document = ann.document  # may be None for structural-set annotations
@@ -404,11 +439,11 @@ def _apply_caml_article_edit(
     # documents, see its docstring).
     if not (
         user.is_superuser
-        or doc.creator_id == user.id
+        or doc.creator_id == user.pk
         or user_has_permission_for_obj(user, doc, PermissionTypes.UPDATE)
     ):
         raise ValueError(
-            f"User {user.id} cannot modify the Readme.CAML for corpus {corpus_id}."
+            f"User {user.pk} cannot modify the Readme.CAML for corpus {corpus_id}."
         )
 
     # Wrap the read-check-write in a transaction with a row lock on the
@@ -438,18 +473,24 @@ def _apply_caml_article_edit(
 
         new_content = content.replace(target_text, replacement_text, 1)
 
-        # ``FieldFile.save()`` writes the blob to storage *and* bumps the DB
-        # pointer/``modified`` timestamp in a single call.  Keep it as the
-        # last in-transaction operation so nothing else can raise after the
-        # storage write — ensuring a transaction rollback never leaves the
-        # blob orphaned with a stale DB pointer.  We keep the same Document
-        # row so frontend deep-links to ``Readme.CAML`` continue to work
+        # ``FieldFile.save()`` writes the blob to storage *and* (when
+        # ``save=True``, the default) bumps the DB pointer with a full
+        # ``Document.save()`` — which would also rewrite unrelated columns
+        # like ``backend_lock`` and processing flags, potentially clobbering
+        # concurrent updates.  Pass ``save=False`` and follow up with a
+        # narrowly-scoped ``update_fields`` save so the only DB columns
+        # touched are the file pointer and ``modified`` timestamp.
+        # Keeping these two writes as the last in-transaction operations
+        # ensures a rollback after the storage write never leaves the blob
+        # orphaned with a stale DB pointer.  We keep the same Document row
+        # so frontend deep-links to ``Readme.CAML`` continue to work
         # (no new version_tree entry).
         file_name = locked_doc.txt_extract_file.name or ""
         filename = file_name.rsplit("/", 1)[-1] or "Readme.CAML.md"
         locked_doc.txt_extract_file.save(
-            filename, ContentFile(new_content.encode("utf-8"))
+            filename, ContentFile(new_content.encode("utf-8")), save=False
         )
+        locked_doc.save(update_fields=["txt_extract_file", "modified"])
 
     # ``refresh_from_db`` is a read; doing it outside the txn keeps the
     # write block free of any post-save operations that could raise.
