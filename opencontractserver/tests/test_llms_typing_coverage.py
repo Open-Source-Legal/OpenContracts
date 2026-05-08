@@ -846,3 +846,48 @@ class TestResolveToolsCallerForms(TestCase):
         # resolver logs a warning and skips it instead of crashing.
         result = _resolve_tools([42])  # type: ignore[list-item]
         self.assertEqual(result, [])
+
+
+class TestVectorStoreAPICreate(TestCase):
+    """``VectorStoreAPI.create`` reads from the ``LLMS_VECTOR_STORE_FRAMEWORK``
+    setting independently of the document-agent setting. Covers the new
+    framework resolution path and the factory delegation."""
+
+    def test_create_uses_dedicated_vector_store_setting(self) -> None:
+        from opencontractserver.llms.api import VectorStoreAPI
+
+        sentinel = object()
+        with patch(
+            "opencontractserver.llms.api.UnifiedVectorStoreFactory.create_vector_store",
+            return_value=sentinel,
+        ) as mock_create:
+            result = VectorStoreAPI.create(corpus_id=123)
+            self.assertIs(result, sentinel)
+            # The factory call should have received a resolved AgentFramework.
+            kwargs = mock_create.call_args.kwargs
+            self.assertIn("framework", kwargs)
+            self.assertEqual(kwargs["corpus_id"], 123)
+            self.assertEqual(kwargs["embed_dim"], 384)
+
+    def test_create_forwards_extra_kwargs_to_factory(self) -> None:
+        from opencontractserver.llms.api import VectorStoreAPI
+
+        with patch(
+            "opencontractserver.llms.api.UnifiedVectorStoreFactory.create_vector_store"
+        ) as mock_create:
+            VectorStoreAPI.create(
+                corpus_id=1,
+                document_id=2,
+                user_id=3,
+                embedder_path="x.y.z",
+                must_have_text="needle",
+                embed_dim=768,
+                extra_flag=True,
+            )
+            kwargs = mock_create.call_args.kwargs
+            self.assertEqual(kwargs["document_id"], 2)
+            self.assertEqual(kwargs["user_id"], 3)
+            self.assertEqual(kwargs["embedder_path"], "x.y.z")
+            self.assertEqual(kwargs["must_have_text"], "needle")
+            self.assertEqual(kwargs["embed_dim"], 768)
+            self.assertTrue(kwargs["extra_flag"])
