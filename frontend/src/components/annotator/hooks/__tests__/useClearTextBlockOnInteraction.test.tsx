@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook } from "@testing-library/react-hooks";
+import { renderHook } from "../../../../test-utils/renderHook";
 import { MemoryRouter } from "react-router-dom";
 import * as React from "react";
 import type { ReactNode } from "react";

@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react-hooks";
+import { renderHook, act } from "../../../../test-utils/renderHook";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { Provider } from "jotai";
 import { useHydrateAtoms } from "jotai/utils";

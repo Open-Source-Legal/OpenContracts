@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -172,17 +173,23 @@ DOC_DELETE_CAPTURE_BLOBS_UID = "capture_blob_paths_pre_delete"
 DOC_DELETE_SCHEDULE_BLOB_GC_UID = "schedule_blob_gc_post_delete"
 
 # Per-DB-connection accumulator key for batched blob cleanup. Set directly
-# on the connection object so it shares the connection's lifetime; reset to
-# an empty set the first time an on_commit flush callback runs in any
-# transaction that touched it. We deliberately do NOT track a "scheduled"
-# bit: Django discards rolled-back ``on_commit`` callbacks but cannot reset
-# Python attributes we set on the connection wrapper, so a flag would leak
-# across rollbacks and silently drop later cleanups (issue raised in PR
-# review). Instead we register ``on_commit`` on every post_delete; the
-# first callback to fire snapshots the shared set and clears it, and any
-# additional callbacks in the same commit see an empty set and short-
-# circuit.
+# on the connection object so it shares the connection's lifetime; reset
+# to an empty set the first time an on_commit flush callback runs in any
+# transaction that touched it.
+#
+# Storing arbitrary attributes on ``django.db.connections[alias]`` is an
+# undocumented pattern (issue #1572 follow-up #5). It works because the
+# Django connection wrapper is a plain Python object that allows
+# attribute assignment, and connections are thread-local so two threads
+# cannot race on the same accumulator. Should this assumption ever
+# break, switch to a module-level ``WeakValueDictionary`` keyed by
+# ``id(connection)`` or a ``threading.local`` keyed by ``using``.
 _PENDING_BLOB_CLEANUP_KEY = "_oc_pending_blob_cleanup_paths"
+
+# Sentinel attribute that marks our flush callback so we can recognise
+# it in ``connection.run_on_commit`` without comparing closure identity.
+# See ``_flush_already_pending`` for why we need this.
+_FLUSH_CALLBACK_MARKER = "_oc_blob_cleanup_flush_marker"
 
 
 def _capture_structural_set_id(sender, instance, **kwargs):
@@ -218,6 +225,76 @@ def _capture_blob_paths_pre_delete(sender, instance, **kwargs):
     instance._captured_blob_paths = paths
 
 
+def _flush_blob_cleanup(using: str) -> None:
+    """Drain the per-connection blob-path accumulator and dispatch the
+    cleanup task. Registered as an ``on_commit`` callback by
+    ``_schedule_blob_cleanup_post_delete``.
+
+    Defined at module scope (not as a per-call closure) so it can be
+    tagged with ``_FLUSH_CALLBACK_MARKER`` and discovered in
+    ``connection.run_on_commit`` for de-duplication. See
+    ``_flush_already_pending`` for why that matters.
+    """
+    connection = connections[using]
+    collected: set[str] = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
+    if not collected:
+        # Either nothing was deferred this transaction, or a sibling
+        # callback already drained the shared set — nothing to do.
+        return
+    # Snapshot the set and reset it. ``sorted`` makes task arguments
+    # deterministic (helps tests + idempotent retries) and ``list``
+    # because Celery JSON-serialises.
+    snapshot = sorted(collected)
+    setattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
+
+    # Log before dispatch so an ops team can recover paths from logs
+    # if the broker is unavailable and ``delay()`` raises.
+    logger.info("Scheduling blob cleanup for %d paths: %s", len(snapshot), snapshot)
+    from opencontractserver.tasks.cleanup_tasks import (
+        cleanup_orphaned_document_blobs_task,
+    )
+
+    try:
+        cleanup_orphaned_document_blobs_task.delay(snapshot)
+    except Exception:
+        # Broker unavailable / dispatch error: blobs may be orphaned in
+        # storage. Log at ERROR with the full path list so ops can
+        # reconcile via the future management command (issue #1492).
+        logger.exception(
+            "Blob cleanup task dispatch failed; %d paths may be orphaned: %s",
+            len(snapshot),
+            snapshot,
+        )
+
+
+# Tag the module-level callback so we can recognise it in the on_commit
+# queue without relying on closure identity (which a per-call wrapper
+# would not give us).
+setattr(_flush_blob_cleanup, _FLUSH_CALLBACK_MARKER, True)
+
+
+def _flush_already_pending(connection: Any) -> bool:
+    """Is our flush callback already in this connection's on_commit queue?
+
+    ``connection.run_on_commit`` is a Django-internal list of
+    ``(savepoint_ids, callback, robust)`` tuples. Django automatically
+    drops entries when a savepoint or transaction is rolled back, so a
+    presence check here is safe under rollback: after a rollback our
+    callback is gone from the queue and the next ``post_delete`` in a
+    fresh transaction re-registers a new one.
+    """
+    if not connection.in_atomic_block:
+        return False
+    for entry in getattr(connection, "run_on_commit", ()):
+        # Index 1 is the callback regardless of tuple arity (Django 5.x
+        # uses 3-tuples, older versions used 2-tuples).
+        callback = entry[1]
+        target = callback.func if isinstance(callback, functools.partial) else callback
+        if getattr(target, _FLUSH_CALLBACK_MARKER, False):
+            return True
+    return False
+
+
 def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
     """Schedule async cleanup of blobs that may have been orphaned.
 
@@ -225,11 +302,12 @@ def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
     ``QuerySet.delete()`` once the model has signal listeners, so this
     handler covers both deletion paths uniformly. To avoid spawning one
     Celery task per Document on bulk delete, we accumulate paths into a
-    connection-level set and register one ``transaction.on_commit``
-    callback per ``post_delete``; the first to fire snapshots the shared
-    set and clears it, so subsequent callbacks short-circuit on an empty
-    set. ``QuerySet.delete()`` therefore still produces ``O(N)``
-    callbacks but only one Celery dispatch.
+    connection-level set and register exactly ONE
+    ``transaction.on_commit`` callback per atomic context; subsequent
+    ``post_delete`` signals in the same context skip the registration
+    and only update the shared accumulator. ``QuerySet.delete()`` of N
+    rows therefore costs O(N) set updates and O(1) on_commit
+    registrations — see issue #1572 follow-up #2.
 
     Transaction safety: ``on_commit`` callbacks do not fire on rollback,
     so a failed delete never reaches the storage layer with new paths.
@@ -254,38 +332,15 @@ def _schedule_blob_cleanup_post_delete(sender, instance, using, **kwargs):
         setattr(connection, _PENDING_BLOB_CLEANUP_KEY, pending)
     pending.update(paths)
 
-    def _flush_blob_cleanup() -> None:
-        collected: set[str] = getattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
-        if not collected:
-            # Another flush callback in this commit already drained the
-            # shared set — nothing to do.
-            return
-        # Snapshot the set; other callbacks registered in this same
-        # commit will find it empty and short-circuit above.
-        snapshot = sorted(collected)
-        setattr(connection, _PENDING_BLOB_CLEANUP_KEY, set())
-        # Log before dispatch so an ops team can recover paths from logs
-        # if the broker is unavailable and ``delay()`` raises.
-        logger.info("Scheduling blob cleanup for %d paths: %s", len(snapshot), snapshot)
-        from opencontractserver.tasks.cleanup_tasks import (
-            cleanup_orphaned_document_blobs_task,
+    if not _flush_already_pending(connection):
+        # ``functools.partial`` lets us bind ``using`` to the
+        # module-level callback while preserving the marker on
+        # ``_flush_blob_cleanup`` (we unwrap partials in
+        # ``_flush_already_pending`` before checking the marker).
+        transaction.on_commit(
+            functools.partial(_flush_blob_cleanup, using),
+            using=using,
         )
-
-        # ``sorted`` makes task arguments deterministic (helps tests +
-        # idempotent retries); ``list`` because Celery JSON-serialises.
-        try:
-            cleanup_orphaned_document_blobs_task.delay(snapshot)
-        except Exception:
-            # Broker unavailable / dispatch error: blobs may be orphaned in
-            # storage. Log at ERROR with the full path list so ops can
-            # reconcile via the future management command (issue #1492).
-            logger.exception(
-                "Blob cleanup task dispatch failed; %d paths may be orphaned: %s",
-                len(snapshot),
-                snapshot,
-            )
-
-    transaction.on_commit(_flush_blob_cleanup, using=using)
 
 
 def _gc_orphan_structural_set(sender, instance, **kwargs):

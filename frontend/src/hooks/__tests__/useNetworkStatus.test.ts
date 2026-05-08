@@ -6,7 +6,7 @@
  * Related to Issue #697 - Error on screen unlock
  */
 
-import { renderHook, act } from "@testing-library/react-hooks";
+import { renderHook, act } from "../../test-utils/renderHook";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useNetworkStatus } from "../useNetworkStatus";
 

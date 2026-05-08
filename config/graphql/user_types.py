@@ -12,6 +12,7 @@ from config.graphql.base import CountableConnection
 from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
 )
+from opencontractserver.constants.auth import OAUTH_SUB_DISPLAY_SUFFIX_LENGTH
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 User = get_user_model()
@@ -34,6 +35,72 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "Auth0 identifier) → redacted 'user_<id>' fallback."
         )
     )
+
+    # Overrides DjangoObjectType's auto-exposed model field so the
+    # ``resolve_email`` gate below runs — without this declaration the
+    # resolver is bypassed for cross-user reads.
+    email = graphene.String(
+        description=(
+            "Email address. Returned only when the requesting user is viewing "
+            "themselves or is a superuser; ``null`` otherwise. This prevents "
+            "the leaderboard / public-profile surfaces from leaking other "
+            "users' email addresses to clients that select the field."
+        )
+    )
+
+    # Reputation fields (Epic #565)
+    reputation_global = graphene.Int(
+        description="Global reputation score across all corpuses"
+    )
+    reputation_for_corpus = graphene.Int(
+        corpus_id=graphene.ID(required=True),
+        description="Reputation score for a specific corpus",
+    )
+
+    # Activity statistics (Issue #611 - User Profile Page)
+    total_messages = graphene.Int(
+        description="Total number of messages posted by this user"
+    )
+    total_threads_created = graphene.Int(
+        description="Total number of threads created by this user"
+    )
+    total_annotations_created = graphene.Int(
+        description="Total number of annotations created by this user (visible to requester)"
+    )
+    total_documents_uploaded = graphene.Int(
+        description="Total number of documents uploaded by this user (visible to requester)"
+    )
+
+    can_import_corpus = graphene.Boolean(
+        description=(
+            "Whether this user is permitted to import a corpus. Mirrors the "
+            "server-side check in UploadCorpusImportZip / ImportZipToCorpus: "
+            "false for usage-capped users when "
+            "USAGE_CAPPED_USER_CAN_IMPORT_CORPUS is disabled."
+        )
+    )
+
+    def resolve_email(self, info) -> str | None:
+        """Gate ``email`` to self-views and superusers.
+
+        ``DjangoObjectType`` would otherwise auto-expose the model field to
+        any client that selected it (e.g. on a leaderboard ``user`` subtree),
+        which is more PII than the leaderboard needs. Self / superuser views
+        — ``me``, profile settings, admin tooling — still get the real value.
+        """
+        requester = getattr(info.context, "user", None)
+        if requester is None or not requester.is_authenticated:
+            return None
+        if requester.is_superuser or requester.pk == self.pk:
+            return self.email or None
+        return None
+
+    def resolve_can_import_corpus(self, info) -> bool:
+        if not self.is_authenticated:
+            return False
+        if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
+            return False
+        return True
 
     def resolve_display_name(self, info) -> str:
         """Pick the first non-empty branch of the display-name chain.
@@ -67,45 +134,12 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if username and not _looks_like_auth0_provider_sub(username):
             return username
 
+        if username:
+            # Auth0 sub fallback — strip provider prefix.
+            sub = username.rsplit("|", 1)[-1]
+            return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
+
         return f"user_{self.pk}" if self.pk is not None else "user_unknown"
-    # Reputation fields (Epic #565)
-    reputation_global = graphene.Int(
-        description="Global reputation score across all corpuses"
-    )
-    reputation_for_corpus = graphene.Int(
-        corpus_id=graphene.ID(required=True),
-        description="Reputation score for a specific corpus",
-    )
-
-    # Activity statistics (Issue #611 - User Profile Page)
-    total_messages = graphene.Int(
-        description="Total number of messages posted by this user"
-    )
-    total_threads_created = graphene.Int(
-        description="Total number of threads created by this user"
-    )
-    total_annotations_created = graphene.Int(
-        description="Total number of annotations created by this user (visible to requester)"
-    )
-    total_documents_uploaded = graphene.Int(
-        description="Total number of documents uploaded by this user (visible to requester)"
-    )
-
-    can_import_corpus = graphene.Boolean(
-        description=(
-            "Whether this user is permitted to import a corpus. Mirrors the "
-            "server-side check in UploadCorpusImportZip / ImportZipToCorpus: "
-            "false for usage-capped users when "
-            "USAGE_CAPPED_USER_CAN_IMPORT_CORPUS is disabled."
-        )
-    )
-
-    def resolve_can_import_corpus(self, info) -> bool:
-        if not self.is_authenticated:
-            return False
-        if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
-            return False
-        return True
 
     def resolve_reputation_global(self, info) -> Any:
         """
