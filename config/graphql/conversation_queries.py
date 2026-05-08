@@ -494,6 +494,11 @@ class ConversationQueryMixin:
                     if action.conversation
                     else None
                 )
+                # TODO(#1594): corpus-less actions have no auth gate — when
+                # `corpus is None`, this branch falls through and returns the
+                # action to any authenticated non-superuser. Mirror the list
+                # resolver's filter (require corpus ownership/moderation) once
+                # the broader fix lands.
                 if corpus:
                     is_owner = corpus.creator == user
                     is_moderator = corpus.moderators.filter(user=user).exists()
