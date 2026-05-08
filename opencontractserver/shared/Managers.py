@@ -291,6 +291,10 @@ class PermissionManager(BaseVisibilityManager):
         ``lightweight`` and ``with_doc_label_annotations`` are accepted for
         signature parity with ``BaseVisibilityManager`` but have no effect
         here — ``PermissionQuerySet`` only filters on creator / public.
+
+        Note: this override returns before reaching ``super().visible_to_user``,
+        so the base class superuser shortcut is NOT used. Superuser visibility
+        is granted by ``PermissionQuerySet.visible_to_user`` itself.
         """
         if user is None:
             user = AnonymousUser()
@@ -519,6 +523,8 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         )
 
 
+# Same ``from_queryset`` dynamic-base-class rationale as ``AnnotationManager``
+# above — the runtime-synthesised base class isn't visible to mypy.
 class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignore[misc]
     """
     Custom Manager for the Note model that uses:
