@@ -20,7 +20,11 @@ import {
   NormalizedCacheObject,
   DocumentNode,
 } from "@apollo/client";
-import { GET_CORPUSES, GET_DOCUMENTS } from "../graphql/queries";
+import {
+  GET_CORPUSES,
+  GET_DOCUMENTS,
+  GET_DOCUMENTS_FOR_LIST,
+} from "../graphql/queries";
 import { GET_CORPUS_FOLDERS } from "../graphql/queries/folders";
 
 // ============================================================================
@@ -283,7 +287,7 @@ export class CacheManager {
    * avoiding the overhead of a full cache reset.
    *
    * Entity-specific behavior:
-   * - **document**: Refetches GET_DOCUMENTS, GET_CORPUS_FOLDERS
+   * - **document**: Refetches GET_DOCUMENTS, GET_DOCUMENTS_FOR_LIST, GET_CORPUS_FOLDERS
    * - **corpus**: Refetches GET_CORPUSES
    * - **annotation**: Refetches annotations for the specified document/corpus
    * - **thread**: Refetches conversation threads for the specified document/corpus
@@ -425,7 +429,12 @@ export class CacheManager {
         // NOTE: This refetches ALL documents and corpus folders globally.
         // Future optimization: use corpusId/documentId from context to scope
         // refetches with query variables for large corpora.
-        return [GET_DOCUMENTS, GET_CORPUS_FOLDERS];
+        // Both the heavy ``GET_DOCUMENTS`` (corpus tabs, modals, relationships)
+        // and the slim ``GET_DOCUMENTS_FOR_LIST`` (top-level Documents view)
+        // are listed; Apollo's ``refetchQueries`` ignores entries with no
+        // active observable, so listing both is safe and only the mounted
+        // one will actually refetch.
+        return [GET_DOCUMENTS, GET_DOCUMENTS_FOR_LIST, GET_CORPUS_FOLDERS];
 
       case "corpus":
         // Corpus changes affect corpus lists
@@ -434,7 +443,7 @@ export class CacheManager {
       case "annotation":
         // Annotation changes are typically handled by the mutation's refetchQueries
         // But if we need to manually invalidate, refetch document-related queries
-        return [GET_DOCUMENTS];
+        return [GET_DOCUMENTS, GET_DOCUMENTS_FOR_LIST];
 
       case "thread":
         // Thread changes are typically handled by mutation refetchQueries

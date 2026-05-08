@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from collections.abc import MutableMapping
 from typing import Any
 
 from config.ratelimit.engine import UNKNOWN_IP
@@ -136,7 +137,7 @@ def get_client_ip_from_http(request) -> str:
     return _mask_ipv6(request.META.get("REMOTE_ADDR", UNKNOWN_IP))
 
 
-def get_client_ip_from_scope(scope: dict[str, Any]) -> str:
+def get_client_ip_from_scope(scope: MutableMapping[str, Any]) -> str:
     """Extract client IP from an ASGI scope dict.
 
     Uses the same ``RATELIMIT_PROXIES_COUNT`` setting as

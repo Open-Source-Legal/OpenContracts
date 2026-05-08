@@ -165,3 +165,75 @@ class PublicFlipCascadeTests(TransactionTestCase):
                 notification_type=NotificationTypeChoices.DOCUMENT_PUBLICIZED,
             ).exists()
         )
+
+    def test_all_docs_cross_owner_blocked_no_publicize_and_no_notification(self):
+        """When every document in the corpus is blocked by the cross-owner
+        constraint, the early-return inside transaction.atomic() must fire and
+        no document must be publicized and no notification sent.
+
+        This exercises the `if not publicize_ids: return` branch that now lives
+        inside the atomic block after the I-1 follow-up review fix.
+        """
+        # Build a corpus that contains ONLY documents also held by a foreign
+        # private corpus — so publicize_ids will be empty after filtering.
+        sole_publisher = User.objects.create_user(
+            username="sole_publisher", password="x"
+        )
+        foreign_owner = User.objects.create_user(username="foreign", password="x")
+
+        foreign_doc = Document.objects.create(
+            title="All-Blocked Doc",
+            creator=foreign_owner,
+            is_public=False,
+            backend_lock=False,
+        )
+        publisher_corpus = Corpus.objects.create(
+            title="All-Blocked Corpus", creator=sole_publisher, is_public=False
+        )
+        _attach_doc_to_corpus(
+            foreign_doc,
+            publisher_corpus,
+            path="/documents/foreign_doc",
+        )
+
+        # Wire the same doc into a private corpus owned by foreign_owner so
+        # cross_owner_blocked_ids will include it and publicize_ids is empty.
+        foreign_private_corpus = Corpus.objects.create(
+            title="Foreign Private Corpus", creator=foreign_owner, is_public=False
+        )
+        _attach_doc_to_corpus(
+            foreign_doc,
+            foreign_private_corpus,
+            path="/documents/foreign_doc",
+        )
+
+        Notification.objects.filter(
+            recipient__in=[sole_publisher, foreign_owner]
+        ).delete()
+
+        publisher_corpus.is_public = True
+        publisher_corpus.save()
+
+        foreign_doc.refresh_from_db()
+        self.assertFalse(
+            foreign_doc.is_public,
+            msg="Document was incorrectly publicized when all docs were cross-owner blocked.",
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                recipient=foreign_owner,
+                notification_type=NotificationTypeChoices.DOCUMENT_PUBLICIZED,
+            ).exists(),
+            msg="Notification was sent for a document that was not actually publicized.",
+        )
+        # The publisher (corpus owner) should also receive no spurious
+        # DOCUMENT_PUBLICIZED notification — the early-return inside the
+        # atomic block exits before the fan-out runs.
+        self.assertFalse(
+            Notification.objects.filter(
+                recipient=sole_publisher,
+                notification_type=NotificationTypeChoices.DOCUMENT_PUBLICIZED,
+            ).exists(),
+            msg="Publisher received a spurious DOCUMENT_PUBLICIZED notification "
+            "even though no documents were actually publicized.",
+        )

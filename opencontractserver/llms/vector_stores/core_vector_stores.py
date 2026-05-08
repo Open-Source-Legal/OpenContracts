@@ -7,7 +7,7 @@ from typing import Any, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 
 from opencontractserver.annotations.models import Annotation, StructuralAnnotationSet
 from opencontractserver.constants.search import (
@@ -22,6 +22,7 @@ from opencontractserver.pipeline.base.reranker import (
     safe_arerank,
     safe_rerank,
 )
+from opencontractserver.shared.QuerySets import AnnotationQuerySet
 from opencontractserver.types.protocols import VectorStoreProtocol
 from opencontractserver.utils.embeddings import (
     agenerate_embeddings_from_text,
@@ -102,7 +103,7 @@ async def _safe_execute_queryset(queryset) -> list:
 
     # Execute QuerySet
     if _is_async_context():
-        return await sync_to_async(list)(queryset)
+        return await sync_to_async(lambda: list(queryset))()
     else:
         return list(queryset)
 
@@ -182,19 +183,39 @@ class CoreAnnotationVectorStore:
         self._reranker_override: Optional[BaseReranker] = reranker
         self.rerank_oversample_factor = max(1, int(rerank_oversample_factor))
 
-        # Auto-detect embedder configuration
-        embedder_class, detected_embedder_path = get_embedder(
-            corpus_id=corpus_id,
-            embedder_path=embedder_path,
-        )
-        self.embedder_path = detected_embedder_path
+        # Auto-detect embedder configuration. The constructor invariant above
+        # guarantees that at least one of ``corpus_id`` / ``embedder_path`` is
+        # provided, so the call below is safe even though ``get_embedder``
+        # rejects ``None`` for ``corpus_id``.
+        if embedder_path is not None:
+            embedder_class, detected_embedder_path = get_embedder(
+                embedder_path=embedder_path,
+            )
+        else:
+            # Explicit check (not `assert`) so the guard survives `python -O`.
+            if corpus_id is None:
+                raise RuntimeError(
+                    "internal invariant violated: corpus_id is None in the "
+                    "embedder-path-absent branch (constructor requires at "
+                    "least one of corpus_id / embedder_path)"
+                )
+            embedder_class, detected_embedder_path = get_embedder(
+                corpus_id=corpus_id,
+            )
+        if detected_embedder_path is None:
+            raise ValueError(
+                "get_embedder() resolved no embedder_path; vector search "
+                "cannot proceed without one. Check corpus.preferred_embedder "
+                "or the global default."
+            )
+        self.embedder_path: str = detected_embedder_path
         _logger.debug(f"Configured embedder path: {self.embedder_path}")
 
         # Validate or fallback dimension
         if self.embed_dim not in VALID_EMBEDDING_DIMS:
             self.embed_dim = getattr(embedder_class, "vector_size", 768)
 
-    async def _build_base_queryset(self) -> QuerySet[Annotation]:
+    async def _build_base_queryset(self) -> AnnotationQuerySet:
         """Build the base annotation queryset applying the following rules.
 
         1. Scope by document or corpus if those identifiers were supplied.
@@ -366,10 +387,12 @@ class CoreAnnotationVectorStore:
 
             # Get document to check for structural_annotation_set
             # Note: Document already imported at top of _build_base_queryset
+            # Bind to a local so mypy can narrow inside the lambda closure.
+            doc_pk = self.document_id
             document = await sync_to_async(
                 lambda: Document.objects.select_related(
                     "structural_annotation_set"
-                ).get(pk=self.document_id)
+                ).get(pk=doc_pk)
             )()
 
             # Build filter for annotations from BOTH sources:
@@ -534,8 +557,8 @@ class CoreAnnotationVectorStore:
         return queryset
 
     def _apply_metadata_filters(
-        self, queryset: QuerySet[Annotation], filters: Optional[dict[str, Any]]
-    ) -> QuerySet[Annotation]:
+        self, queryset: AnnotationQuerySet, filters: Optional[dict[str, Any]]
+    ) -> AnnotationQuerySet:
         """Apply additional metadata filters to the queryset."""
         if not filters:
             return queryset
@@ -710,15 +733,20 @@ class CoreAnnotationVectorStore:
         )
 
         # Build base queryset with filters
-        queryset = async_to_sync(self._build_base_queryset)()
+        base_queryset = async_to_sync(self._build_base_queryset)()
 
         # Apply metadata filters
-        queryset = self._apply_metadata_filters(queryset, query.filters)
+        base_queryset = self._apply_metadata_filters(base_queryset, query.filters)
 
         # Determine the query vector
         vector = query.query_embedding
         if vector is None and query.query_text is not None:
             vector = self._generate_query_embedding(query.query_text)
+
+        # ``search_by_embedding`` materialises results into a list while the
+        # fallback branch keeps a sliced QuerySet. The downstream code accepts
+        # either via the safe queryset helpers.
+        queryset: Union[AnnotationQuerySet, list[Any]]
 
         # Perform vector search if we have a valid embedding
         if vector is not None and len(vector) in VALID_EMBEDDING_DIMS:
@@ -727,7 +755,7 @@ class CoreAnnotationVectorStore:
                 f"Performing vector search with embedder: {self.embedder_path}"
             )
 
-            queryset = queryset.search_by_embedding(
+            queryset = base_queryset.search_by_embedding(
                 query_vector=vector,
                 embedder_path=self.embedder_path,
                 top_k=first_stage_top_k,
@@ -744,7 +772,7 @@ class CoreAnnotationVectorStore:
                     f"Invalid vector dimension: {len(vector)}, using standard filtering"
                 )
 
-            queryset = queryset[:first_stage_top_k]
+            queryset = base_queryset[:first_stage_top_k]
             _logger.debug(_safe_queryset_info_sync(queryset, "After limiting results"))
 
         # Execute query and convert to results
@@ -1219,15 +1247,20 @@ class CoreAnnotationVectorStore:
         )
 
         # Build base queryset with filters
-        queryset = await self._build_base_queryset()
+        base_queryset = await self._build_base_queryset()
 
         # Apply metadata filters
-        queryset = self._apply_metadata_filters(queryset, query.filters)
+        base_queryset = self._apply_metadata_filters(base_queryset, query.filters)
 
         # Determine the query vector
         vector = query.query_embedding
         if vector is None and query.query_text is not None:
             vector = await self._agenerate_query_embedding(query.query_text)
+
+        # ``search_by_embedding`` materialises results into a list while the
+        # fallback branch keeps a sliced QuerySet. The downstream code accepts
+        # either via the safe queryset helpers.
+        queryset: Union[AnnotationQuerySet, list[Any]]
 
         # Perform vector search if we have a valid embedding
         if vector is not None and len(vector) in VALID_EMBEDDING_DIMS:
@@ -1239,7 +1272,7 @@ class CoreAnnotationVectorStore:
             # search_by_embedding is a sync method that materializes the queryset
             # Wrap it with sync_to_async to make it safe for async contexts
             queryset = await sync_to_async(
-                lambda: queryset.search_by_embedding(
+                lambda: base_queryset.search_by_embedding(
                     query_vector=vector,
                     embedder_path=self.embedder_path,
                     top_k=first_stage_top_k,
@@ -1257,7 +1290,7 @@ class CoreAnnotationVectorStore:
                     f"Invalid vector dimension: {len(vector)}, using standard filtering"
                 )
 
-            queryset = queryset[:first_stage_top_k]
+            queryset = base_queryset[:first_stage_top_k]
             _logger.debug(await _safe_queryset_info(queryset, "After limiting results"))
 
         # Execute query and convert to results

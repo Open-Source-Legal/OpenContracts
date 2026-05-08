@@ -13,6 +13,7 @@ from typing import (
     Protocol,
     TypeVar,
     Union,
+    cast,
     runtime_checkable,
 )
 
@@ -337,18 +338,31 @@ class CorpusAgentContext:
 
     corpus: Corpus
     config: AgentConfig
-    documents: Optional[list[Document]] = None
+    documents: list[Document] = field(default_factory=list)
 
     async def initialize(self):
-        """Initialize documents list if not provided.
+        """Populate ``documents`` from the corpus when the caller did not
+        pre-load them.
 
         Note: This is a separate async method instead of __post_init__ because
         dataclass __post_init__ is called synchronously, and we need async
         initialization to load documents from the database.
+
+        Reload semantics: an empty ``documents`` list is treated as "not
+        pre-loaded" and triggers a corpus fetch. Callers that want to
+        explicitly state "no documents — skip loading" should not invoke
+        ``initialize()`` (or should pass a sentinel container if that ever
+        becomes a real use case). This matches the pre-typing behaviour:
+        the field used to default to ``None`` and was checked with
+        ``is None``; promoting the default to ``[]`` while keeping the
+        same control flow means the truthy / falsy check is the
+        load-trigger now.
         """
-        if self.documents is None:
+        if not self.documents:
             # Use DocumentPath-based method to get active documents
-            self.documents = await sync_to_async(list)(self.corpus.get_documents())
+            self.documents = await sync_to_async(
+                lambda: list(self.corpus.get_documents())
+            )()
 
 
 @runtime_checkable
@@ -360,8 +374,8 @@ class CoreAgent(Protocol):
         """Send a message and get a complete response with sources."""
         ...
 
-    async def stream(
-        self, message: str, **kwargs
+    def stream(
+        self, message: str, **kwargs: Any
     ) -> AsyncGenerator[UnifiedStreamEvent, None]:
         """Send a message and receive a typed stream of events (thoughts, content, sources, final)."""
         ...
@@ -375,8 +389,8 @@ class CoreAgent(Protocol):
         self,
         message_id: int,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Update a stored message with content, sources, and metadata."""
         ...
@@ -385,8 +399,8 @@ class CoreAgent(Protocol):
         self,
         message_id: int,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Complete a message atomically with content, sources, and metadata."""
         ...
@@ -402,8 +416,8 @@ class CoreAgent(Protocol):
     async def store_llm_message(
         self,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> int:
         """Store an LLM message in the conversation."""
         ...
@@ -458,13 +472,16 @@ class CoreAgent(Protocol):
     # Human-in-the-loop: approve / resume
     # ------------------------------------------------------------------
 
-    async def resume_with_approval(
+    def resume_with_approval(
         self,
         llm_message_id: int,
         approved: bool,
-        **kwargs,
-    ) -> Union[UnifiedChatResponse, AsyncGenerator[UnifiedStreamEvent, None]]:
+        **kwargs: Any,
+    ) -> AsyncGenerator[UnifiedStreamEvent, None]:
         """Resume a paused conversation after an approval decision.
+
+        Always yields an async generator of unified stream events so callers
+        can iterate via ``async for`` regardless of approval outcome.
 
         Args:
             llm_message_id: The message that is currently *awaiting* approval.
@@ -501,8 +518,8 @@ class CoreAgentBase(ABC):
         self,
         message_id: int,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Update a stored message with content, sources, and metadata."""
         if metadata and "timeline" not in metadata:
@@ -515,8 +532,8 @@ class CoreAgentBase(ABC):
         self,
         message_id: int,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Complete a message atomically with content, sources, and metadata."""
         logger.debug(
@@ -543,8 +560,8 @@ class CoreAgentBase(ABC):
     async def store_llm_message(
         self,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> int:
         """Store an LLM message in the conversation."""
         return await self.conversation_manager.store_llm_message(
@@ -656,13 +673,18 @@ class CoreAgentBase(ABC):
         raise NotImplementedError
 
     async def _stream_raw(
-        self, message: str, **kwargs
+        self, message: str, **kwargs: Any
     ) -> AsyncGenerator[UnifiedStreamEvent, None]:  # pragma: no cover – abstract
         """Yield framework-native events (ThoughtEvent / ContentEvent / …).
 
         The base wrapper will take care of DB side-effects.
         """
         raise NotImplementedError
+        # Unreachable: declares this as an async generator at the type level so
+        # mypy understands ``async for evt in self._stream_raw(...)`` consumes
+        # an iterable rather than awaiting a coroutine.
+        if False:  # pragma: no cover
+            yield cast(UnifiedStreamEvent, None)
 
     async def _structured_response_raw(
         self,
@@ -698,7 +720,7 @@ class CoreAgentBase(ABC):
     # Public chat / stream wrappers – universal across frameworks.
     # ------------------------------------------------------------------
 
-    async def chat(self, message: str, **kwargs) -> UnifiedChatResponse:  # type: ignore[override]
+    async def chat(self, message: str, **kwargs: Any) -> UnifiedChatResponse:
         """Framework-agnostic chat wrapper that transparently persists state."""
 
         from opencontractserver.llms.exceptions import ToolConfirmationRequired
@@ -773,7 +795,9 @@ class CoreAgentBase(ABC):
             )
 
     # NOTE: Streaming wrapper is more involved but follows same pattern
-    async def stream(self, message: str, **kwargs):  # type: ignore[override]
+    async def stream(
+        self, message: str, **kwargs: Any
+    ) -> AsyncGenerator[UnifiedStreamEvent, None]:
         """Framework-agnostic streaming wrapper with persistence."""
 
         from opencontractserver.llms.exceptions import ToolConfirmationRequired
@@ -844,13 +868,16 @@ class CoreAgentBase(ABC):
                 )
 
         except ToolConfirmationRequired as e:
-            # Finalise as awaiting approval and emit ApprovalNeededEvent
-            await self.pause_for_approval(
-                llm_msg_id,
-                tool_name=e.tool_name,
-                tool_args=e.tool_args,
-                tool_call_id=e.tool_call_id,
-            )
+            # Finalise as awaiting approval and emit ApprovalNeededEvent.
+            # ``pause_for_approval`` requires a real placeholder message id;
+            # if persistence was disabled we skip the DB side-effect.
+            if llm_msg_id is not None:
+                await self.pause_for_approval(
+                    llm_msg_id,
+                    tool_name=e.tool_name,
+                    tool_args=e.tool_args,
+                    tool_call_id=e.tool_call_id,
+                )
 
             yield ApprovalNeededEvent(
                 pending_tool_call={
@@ -890,9 +917,10 @@ class CoreAgentBase(ABC):
         if hasattr(raw, "model_dump"):
             raw = raw.model_dump()
         if isinstance(raw, dict):
+            content = raw.get("content") or raw.get("text") or ""
             return SourceNode(
                 annotation_id=int(raw.get("annotation_id", 0)),
-                content=raw.get("content", raw.get("text", "")),
+                content=str(content),
                 metadata=raw,
                 similarity_score=float(raw.get("similarity_score", 1.0)),
             )
@@ -1073,26 +1101,32 @@ class CoreCorpusAgentFactory:
         config: AgentConfig,
     ) -> CorpusAgentContext:
         """Create corpus agent context with all necessary components."""
-        if not isinstance(corpus, Corpus):
-            corpus = await Corpus.objects.aget(id=corpus)
+        if isinstance(corpus, Corpus):
+            corpus_obj: Corpus = corpus
+        else:
+            corpus_obj = await Corpus.objects.aget(id=corpus)
 
         # Permission check – anonymous sessions cannot access private corpuses
-        _assert_access(corpus, config.user_id)
+        _assert_access(corpus_obj, config.user_id)
 
         # Use DocumentPath-based method to get active documents
-        documents = await sync_to_async(list)(corpus.get_documents())
+        documents: list[Document] = await sync_to_async(
+            lambda: list(corpus_obj.get_documents())
+        )()
 
         # Set default system prompt if not provided
         if config.system_prompt is None:
             config.system_prompt = CoreCorpusAgentFactory.get_default_system_prompt(
-                corpus
+                corpus_obj
             )
 
         # Use corpus preferred embedder if not specified
         if config.embedder_path is None:
-            config.embedder_path = corpus.preferred_embedder
+            config.embedder_path = corpus_obj.preferred_embedder
 
-        context = CorpusAgentContext(corpus=corpus, config=config, documents=documents)
+        context = CorpusAgentContext(
+            corpus=corpus_obj, config=config, documents=documents
+        )
         await context.initialize()
         return context
 
@@ -1177,6 +1211,11 @@ class CoreConversationManager:
             conversation = config.conversation
         elif conversation_id or config.conversation_id:
             cid = conversation_id or config.conversation_id
+            if cid is None:
+                raise RuntimeError(
+                    "internal invariant violated: conversation_id resolved to None "
+                    "after truthy `conversation_id or config.conversation_id` check"
+                )
             try:
                 conversation = await Conversation.objects.aget(id=cid)
             except Conversation.DoesNotExist:
@@ -1198,7 +1237,7 @@ class CoreConversationManager:
 
         # Load existing messages if provided
         if loaded_messages or config.loaded_messages:
-            messages = loaded_messages or config.loaded_messages
+            messages = loaded_messages or config.loaded_messages or []
             logger.debug(
                 f"Loaded {len(messages)} existing messages for conversation {conversation.id}"
             )
@@ -1246,6 +1285,11 @@ class CoreConversationManager:
             conversation = config.conversation
         elif conversation_id or config.conversation_id:
             cid = conversation_id or config.conversation_id
+            if cid is None:
+                raise RuntimeError(
+                    "internal invariant violated: conversation_id resolved to None "
+                    "after truthy `conversation_id or config.conversation_id` check"
+                )
             try:
                 conversation = await Conversation.objects.aget(id=cid)
             except Conversation.DoesNotExist:
@@ -1267,7 +1311,7 @@ class CoreConversationManager:
 
         # Load existing messages if provided
         if loaded_messages or config.loaded_messages:
-            messages = loaded_messages or config.loaded_messages
+            messages = loaded_messages or config.loaded_messages or []
             logger.debug(
                 f"Loaded {len(messages)} existing messages for conversation {conversation.id}"
             )
@@ -1360,6 +1404,14 @@ class CoreConversationManager:
             ChatMessage,
         )
 
+        # When persistence is enabled the factory always pairs a conversation
+        # with a non-anonymous user, so user_id must be set here. We use an
+        # explicit raise (not `assert`) so the guard survives `python -O` and
+        # never silently falls through to a `creator_id=None` ORM call.
+        if self.user_id is None:
+            raise RuntimeError(
+                "factory invariant violated: user_id must be set when persistence is enabled"
+            )
         message = await ChatMessage.objects.acreate(
             conversation=self.conversation,
             content="",
@@ -1422,8 +1474,8 @@ class CoreConversationManager:
         self,
         message_id: int,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         msg_type: str = "LLM",
     ) -> None:
         """Complete a message with content, sources, and metadata in one operation."""
@@ -1508,6 +1560,14 @@ class CoreConversationManager:
             self._ephemeral_token_estimate += estimate_token_count(content)
             return msg_id
 
+        # When persistence is enabled the factory always pairs a conversation
+        # with a non-anonymous user, so user_id must be set here. We use an
+        # explicit raise (not `assert`) so the guard survives `python -O` and
+        # never silently falls through to a `creator_id=None` ORM call.
+        if self.user_id is None:
+            raise RuntimeError(
+                "factory invariant violated: user_id must be set when persistence is enabled"
+            )
         message = await ChatMessage.objects.acreate(
             conversation=self.conversation,
             content=content,
@@ -1524,8 +1584,8 @@ class CoreConversationManager:
     async def store_llm_message(
         self,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> int:
         """Store an LLM message in the conversation."""
         if not self.conversation:
@@ -1545,7 +1605,7 @@ class CoreConversationManager:
             self._ephemeral_token_estimate += estimate_token_count(content)
             return msg_id
 
-        data = {
+        data: dict[str, Any] = {
             "state": MessageState.COMPLETED,
             "created_at": timezone.now().isoformat(),
             "model_name": self.config.model_name,
@@ -1556,6 +1616,14 @@ class CoreConversationManager:
         if metadata:
             data.update(metadata)
 
+        # When persistence is enabled the factory always pairs a conversation
+        # with a non-anonymous user, so user_id must be set here. We use an
+        # explicit raise (not `assert`) so the guard survives `python -O` and
+        # never silently falls through to a `creator_id=None` ORM call.
+        if self.user_id is None:
+            raise RuntimeError(
+                "factory invariant violated: user_id must be set when persistence is enabled"
+            )
         message = await ChatMessage.objects.acreate(
             conversation=self.conversation,
             content=content,
@@ -1570,8 +1638,8 @@ class CoreConversationManager:
         self,
         message_id: int,
         content: str,
-        sources: list[SourceNode] = None,
-        metadata: dict[str, Any] = None,
+        sources: Optional[list[SourceNode]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Update an existing message with content, sources, and metadata."""
         if not self.conversation:
@@ -1628,9 +1696,9 @@ class CoreConversationManager:
         await message.asave()
 
 
-def get_default_config(**overrides) -> AgentConfig:
+def get_default_config(**overrides: Any) -> AgentConfig:
     """Get default agent configuration with optional overrides."""
-    defaults = {
+    defaults: dict[str, Any] = {
         "model_name": getattr(settings, "OPENAI_MODEL", "gpt-4o"),
         "api_key": getattr(settings, "OPENAI_API_KEY", None),
         "similarity_top_k": 10,

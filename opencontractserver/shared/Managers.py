@@ -8,6 +8,10 @@ from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.db.models import Manager, Prefetch, Q, QuerySet
 
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 from opencontractserver.shared.QuerySets import (
     AnnotationQuerySet,
     DocumentQuerySet,
@@ -42,38 +46,29 @@ def _apply_document_prefetches(
     lightweight: bool = False,
     with_doc_label_annotations: bool = False,
 ) -> QuerySet:
-    """
-    Apply Document-specific select_related and prefetch_related optimizations.
+    """Apply Document-specific select_related/prefetch_related optimizations.
 
-    Shared by BaseVisibilityManager (for generic model dispatch) and
-    DocumentManager (for custom permission filtering) to avoid duplication.
-
-    ``lightweight`` skips ONLY the heavy per-document fan-outs (full
-    doc_annotations, rows, source/target relationships, notes). Cheap JOINs
-    (creator, parent, user_lock) and user-scoped guardian permission prefetches
-    are applied unconditionally because the corresponding GraphQL fields
-    (``creator``, ``myPermissions``, version metadata) are commonly requested
-    even on list views — leaving them unprefetched produces an N+1 storm where
-    every list row issues 2-3 extra round trips. See
-    ``resolve_my_permissions`` in
-    ``config/graphql/permissioning/permission_annotator/mixins.py`` for the
-    consumer of ``_prefetched_user_perms``.
-
-    ``with_doc_label_annotations`` opts in to a focused prefetch of the
-    document's ``DOC_TYPE_LABEL`` annotations into
-    ``_prefetched_doc_annotations``. ``resolve_doc_annotations_optimized``
-    (config/graphql/custom_resolvers.py) prefers that attribute when present,
-    so this short-circuits the per-document
-    ``AnnotationQueryOptimizer.get_document_annotations`` call that the
-    list-view badge query (``GET_DOCUMENTS`` with ``annotateDocLabels: true``)
-    otherwise triggers per row. The flag is only consulted in lightweight
-    mode — the full prefetch path already loads every doc_annotation, so a
-    focused prefetch on top would be redundant work.
+    Shared by ``BaseVisibilityManager`` and ``DocumentManager``. ``lightweight``
+    skips heavy fan-outs (full doc_annotations, rows, relationships, notes) but
+    keeps cheap JOINs and user-scoped guardian permission prefetches — fields
+    like ``myPermissions`` are commonly requested even on list views.
+    Permission prefetches land on each instance under user-id-suffixed attrs
+    (see ``shared/prefetch_attrs.py``); consumed by ``user_has_permission_for_obj``
+    and ``resolve_my_permissions``. ``with_doc_label_annotations`` opts in to a
+    focused prefetch of ``DOC_TYPE_LABEL`` annotations for list-view badges
+    (only honoured in lightweight mode).
     """
     queryset = queryset.select_related("creator", "user_lock", "parent")
 
     if user and not user.is_anonymous and not user.is_superuser:
-        from opencontractserver.documents.models import DocumentUserObjectPermission
+        from opencontractserver.documents.models import (
+            DocumentGroupObjectPermission,
+            DocumentUserObjectPermission,
+        )
+
+        # Pass the queryset (not ``list(...)``) so Django emits a SQL subquery
+        # — async-safe; ``list(...)`` would raise SynchronousOnlyOperation.
+        user_group_ids = user.groups.values_list("id", flat=True)
 
         queryset = queryset.prefetch_related(
             Prefetch(
@@ -81,10 +76,15 @@ def _apply_document_prefetches(
                 queryset=DocumentUserObjectPermission.objects.filter(
                     user_id=user.id
                 ).select_related("permission"),
-                to_attr="_prefetched_user_perms",
+                to_attr=user_perm_attr(user.id),
             ),
-            "documentgroupobjectpermission_set__permission",
-            "documentgroupobjectpermission_set__group",
+            Prefetch(
+                "documentgroupobjectpermission_set",
+                queryset=DocumentGroupObjectPermission.objects.filter(
+                    group_id__in=user_group_ids
+                ).select_related("permission"),
+                to_attr=user_group_perm_attr(user.id),
+            ),
         )
 
     if not lightweight:

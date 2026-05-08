@@ -3,12 +3,16 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from asgiref.sync import sync_to_async
 from django.db.models import QuerySet
 
-from opencontractserver.conversations.models import ChatMessage, Conversation
+from opencontractserver.conversations.models import (
+    ChatMessage,
+    ChatMessageQuerySet,
+    Conversation,
+)
 from opencontractserver.utils.embeddings import (
     agenerate_embeddings_from_text,
     generate_embeddings_from_text,
@@ -53,7 +57,7 @@ def _safe_queryset_info_sync(queryset: QuerySet, description: str) -> str:
 async def _safe_execute_queryset(queryset: QuerySet) -> list:
     """Safely execute a queryset in both sync and async contexts."""
     if _is_async_context():
-        return await sync_to_async(list)(queryset)
+        return await sync_to_async(lambda: list(queryset))()
     else:
         return list(queryset)
 
@@ -125,26 +129,47 @@ class CoreConversationVectorStore:
         self.embed_dim = embed_dim
         self.exclude_deleted = exclude_deleted
 
-        # Use explicit embedder_path if provided, otherwise auto-detect
+        # Use explicit embedder_path if provided, otherwise auto-detect.
+        # The constructor invariant above guarantees that at least one of
+        # ``corpus_id`` / ``embedder_path`` is provided, so the calls below
+        # are safe even though ``get_embedder`` rejects ``None`` for
+        # ``corpus_id``.
         if embedder_path is not None:
             # Trust the explicitly provided embedder_path (useful for testing and overrides)
             self.embedder_path = embedder_path
             _logger.debug(f"Using explicit embedder path: {self.embedder_path}")
             # Try to get embedder class for dimension validation, but don't override path
             try:
-                embedder_class, _ = get_embedder(
-                    corpus_id=corpus_id,
-                    embedder_path=embedder_path,
-                )
+                if corpus_id is not None:
+                    embedder_class, _ = get_embedder(
+                        corpus_id=corpus_id,
+                        embedder_path=embedder_path,
+                    )
+                else:
+                    embedder_class, _ = get_embedder(
+                        embedder_path=embedder_path,
+                    )
             except Exception:
                 # If embedder resolution fails (e.g., test mock), use default dimension
                 embedder_class = None
         else:
+            # Explicit check (not `assert`) so the guard survives `python -O`.
+            if corpus_id is None:
+                raise RuntimeError(
+                    "internal invariant violated: corpus_id is None in "
+                    "auto-detect branch (the `else` should only be reached "
+                    "when corpus_id is set)"
+                )
             # Auto-detect embedder from corpus
             embedder_class, detected_embedder_path = get_embedder(
                 corpus_id=corpus_id,
                 embedder_path=None,
             )
+            if detected_embedder_path is None:
+                raise ValueError(
+                    "get_embedder() resolved no embedder_path; conversation "
+                    "vector search cannot proceed without one."
+                )
             self.embedder_path = detected_embedder_path
             _logger.debug(f"Auto-detected embedder path: {self.embedder_path}")
 
@@ -182,7 +207,7 @@ class CoreConversationVectorStore:
         if self.document_id is not None:
             queryset = queryset.filter(chat_with_document_id=self.document_id)
         elif self.corpus_id is not None:
-            queryset = queryset.filter(chat_with_corpus_id=self.corpus_id)
+            queryset = queryset.filter(chat_with_corpus_id=int(self.corpus_id))
 
         if self.conversation_type:
             queryset = queryset.filter(conversation_type=self.conversation_type)
@@ -252,7 +277,7 @@ class CoreConversationVectorStore:
         if self.document_id is not None:
             queryset = queryset.filter(chat_with_document_id=self.document_id)
         elif self.corpus_id is not None:
-            queryset = queryset.filter(chat_with_corpus_id=self.corpus_id)
+            queryset = queryset.filter(chat_with_corpus_id=int(self.corpus_id))
 
         if self.conversation_type:
             queryset = queryset.filter(conversation_type=self.conversation_type)
@@ -341,26 +366,47 @@ class CoreChatMessageVectorStore:
         self.embed_dim = embed_dim
         self.exclude_deleted = exclude_deleted
 
-        # Use explicit embedder_path if provided, otherwise auto-detect
+        # Use explicit embedder_path if provided, otherwise auto-detect.
+        # The constructor invariant above guarantees that at least one of
+        # ``corpus_id`` / ``embedder_path`` is provided, so the calls below
+        # are safe even though ``get_embedder`` rejects ``None`` for
+        # ``corpus_id``.
         if embedder_path is not None:
             # Trust the explicitly provided embedder_path (useful for testing and overrides)
             self.embedder_path = embedder_path
             _logger.debug(f"Using explicit embedder path: {self.embedder_path}")
             # Try to get embedder class for dimension validation, but don't override path
             try:
-                embedder_class, _ = get_embedder(
-                    corpus_id=corpus_id,
-                    embedder_path=embedder_path,
-                )
+                if corpus_id is not None:
+                    embedder_class, _ = get_embedder(
+                        corpus_id=corpus_id,
+                        embedder_path=embedder_path,
+                    )
+                else:
+                    embedder_class, _ = get_embedder(
+                        embedder_path=embedder_path,
+                    )
             except Exception:
                 # If embedder resolution fails (e.g., test mock), use default dimension
                 embedder_class = None
         else:
+            # Explicit check (not `assert`) so the guard survives `python -O`.
+            if corpus_id is None:
+                raise RuntimeError(
+                    "internal invariant violated: corpus_id is None in "
+                    "auto-detect branch (the `else` should only be reached "
+                    "when corpus_id is set)"
+                )
             # Auto-detect embedder from corpus
             embedder_class, detected_embedder_path = get_embedder(
                 corpus_id=corpus_id,
                 embedder_path=None,
             )
+            if detected_embedder_path is None:
+                raise ValueError(
+                    "get_embedder() resolved no embedder_path; conversation "
+                    "vector search cannot proceed without one."
+                )
             self.embedder_path = detected_embedder_path
             _logger.debug(f"Auto-detected embedder path: {self.embedder_path}")
 
@@ -407,7 +453,9 @@ class CoreChatMessageVectorStore:
         if self.conversation_id is not None:
             queryset = queryset.filter(conversation_id=self.conversation_id)
         elif self.corpus_id is not None:
-            queryset = queryset.filter(conversation__chat_with_corpus_id=self.corpus_id)
+            queryset = queryset.filter(
+                conversation__chat_with_corpus_id=int(self.corpus_id)
+            )
 
         if self.msg_type:
             queryset = queryset.filter(msg_type=self.msg_type)
@@ -434,8 +482,10 @@ class CoreChatMessageVectorStore:
 
         # Perform vector search (returns a sliced QuerySet; all filtering
         # must be applied before this call since Django prohibits filtering
-        # after slicing).
-        search_results = queryset.search_by_embedding(
+        # after slicing). ``ChatMessage.objects`` is a custom manager that
+        # exposes ``search_by_embedding``; cast guides mypy past the django
+        # plugin's narrowing of chained QuerySet methods.
+        search_results = cast(ChatMessageQuerySet, queryset).search_by_embedding(
             query_vector=query_embedding,
             embedder_path=self.embedder_path,
             top_k=query.similarity_top_k,
@@ -489,7 +539,9 @@ class CoreChatMessageVectorStore:
         if self.conversation_id is not None:
             queryset = queryset.filter(conversation_id=self.conversation_id)
         elif self.corpus_id is not None:
-            queryset = queryset.filter(conversation__chat_with_corpus_id=self.corpus_id)
+            queryset = queryset.filter(
+                conversation__chat_with_corpus_id=int(self.corpus_id)
+            )
 
         if self.msg_type:
             queryset = queryset.filter(msg_type=self.msg_type)
@@ -514,9 +566,12 @@ class CoreChatMessageVectorStore:
         else:
             raise ValueError("Either query_text or query_embedding must be provided")
 
-        # Perform vector search (sync operation wrapped)
+        # Perform vector search (sync operation wrapped). The cast guides
+        # mypy past the django plugin's narrowing of chained QuerySet methods
+        # to the base ``QuerySet`` type.
+        message_qs = cast(ChatMessageQuerySet, queryset)
         results_qs = await sync_to_async(
-            lambda: queryset.search_by_embedding(
+            lambda: message_qs.search_by_embedding(
                 query_vector=query_embedding,
                 embedder_path=self.embedder_path,
                 top_k=query.similarity_top_k,

@@ -27,7 +27,7 @@ from opencontractserver.annotations.models import (
     Relationship,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.types.enums import LabelType, PermissionTypes
 from opencontractserver.utils.permissioning import (
@@ -231,8 +231,6 @@ def _resolve_annotation_parents(
     doc D in corpus A and CREATE on corpus B → would otherwise be allowed
     to write `Annotation(document=D, corpus=B)`).
     """
-    from opencontractserver.documents.models import DocumentPath
-
     try:
         document = Document.objects.visible_to_user(user).get(pk=document_pk)
         corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)

@@ -1,3 +1,5 @@
+from typing import Any
+
 from storages.backends.s3boto3 import S3Boto3Storage
 
 # Only import GoogleCloudStorage if it's available
@@ -6,8 +8,8 @@ try:
 except ImportError:
     # If Google Cloud Storage dependencies aren't installed,
     # create a placeholder class
-    class GoogleCloudStorage:
-        def __init__(self, *args, **kwargs):
+    class GoogleCloudStorage:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             raise ImportError(
                 "Google Cloud Storage dependencies are not installed. "
                 "Install with: pip install django-storages[google]"
