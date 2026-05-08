@@ -15,23 +15,26 @@ from django import db
 @pytest.fixture(scope="session", autouse=True)
 def disable_document_processing_signals(django_db_setup):
     """
-    Disable document and annotation processing signals for all tests by default.
+    Disable document, annotation, and note processing signals for all tests by default.
 
     This prevents Celery tasks from being triggered when creating test documents,
-    which would fail because test documents typically don't have actual files.
+    annotations, or notes, which would fail because test fixtures typically don't
+    have a configured embedder/storage backend.
 
-    Tests that specifically need document processing signals (e.g., integration tests
-    for the processing pipeline) can use the `enable_doc_processing_signals` fixture
+    Tests that specifically need processing signals (e.g., integration tests for
+    the processing pipeline) can use the `enable_doc_processing_signals` fixture
     to temporarily re-enable them.
 
     The signals are reconnected after all tests complete.
     """
     from django.db.models.signals import post_save
 
-    from opencontractserver.annotations.models import Annotation
+    from opencontractserver.annotations.models import Annotation, Note
     from opencontractserver.annotations.signals import (
         ANNOT_CREATE_UID,
+        NOTE_CREATE_UID,
         process_annot_on_create_atomic,
+        process_note_on_create_atomic,
     )
     from opencontractserver.documents.models import Document, DocumentPath
     from opencontractserver.documents.signals import (
@@ -49,6 +52,9 @@ def disable_document_processing_signals(django_db_setup):
         process_annot_on_create_atomic, sender=Annotation, dispatch_uid=ANNOT_CREATE_UID
     )
     post_save.disconnect(
+        process_note_on_create_atomic, sender=Note, dispatch_uid=NOTE_CREATE_UID
+    )
+    post_save.disconnect(
         process_doc_on_document_path_create,
         sender=DocumentPath,
         dispatch_uid=DOC_PATH_CREATE_UID,
@@ -64,6 +70,9 @@ def disable_document_processing_signals(django_db_setup):
         process_annot_on_create_atomic, sender=Annotation, dispatch_uid=ANNOT_CREATE_UID
     )
     post_save.connect(
+        process_note_on_create_atomic, sender=Note, dispatch_uid=NOTE_CREATE_UID
+    )
+    post_save.connect(
         process_doc_on_document_path_create,
         sender=DocumentPath,
         dispatch_uid=DOC_PATH_CREATE_UID,
@@ -73,9 +82,9 @@ def disable_document_processing_signals(django_db_setup):
 @pytest.fixture
 def enable_doc_processing_signals():
     """
-    Re-enable document processing signals for a specific test.
+    Re-enable document, annotation, and note processing signals for a specific test.
 
-    Use this fixture in tests that specifically need to test document processing
+    Use this fixture in tests that specifically need to test processing
     pipeline behavior with signals firing.
 
     Example:
@@ -85,10 +94,12 @@ def enable_doc_processing_signals():
     """
     from django.db.models.signals import post_save
 
-    from opencontractserver.annotations.models import Annotation
+    from opencontractserver.annotations.models import Annotation, Note
     from opencontractserver.annotations.signals import (
         ANNOT_CREATE_UID,
+        NOTE_CREATE_UID,
         process_annot_on_create_atomic,
+        process_note_on_create_atomic,
     )
     from opencontractserver.documents.models import Document, DocumentPath
     from opencontractserver.documents.signals import (
@@ -106,6 +117,9 @@ def enable_doc_processing_signals():
         process_annot_on_create_atomic, sender=Annotation, dispatch_uid=ANNOT_CREATE_UID
     )
     post_save.connect(
+        process_note_on_create_atomic, sender=Note, dispatch_uid=NOTE_CREATE_UID
+    )
+    post_save.connect(
         process_doc_on_document_path_create,
         sender=DocumentPath,
         dispatch_uid=DOC_PATH_CREATE_UID,
@@ -119,6 +133,9 @@ def enable_doc_processing_signals():
     )
     post_save.disconnect(
         process_annot_on_create_atomic, sender=Annotation, dispatch_uid=ANNOT_CREATE_UID
+    )
+    post_save.disconnect(
+        process_note_on_create_atomic, sender=Note, dispatch_uid=NOTE_CREATE_UID
     )
     post_save.disconnect(
         process_doc_on_document_path_create,

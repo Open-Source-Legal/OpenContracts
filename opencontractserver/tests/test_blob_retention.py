@@ -38,7 +38,7 @@ User = get_user_model()
 # Blob-field-name list lives on the model; using the helper here keeps
 # the test file in lock-step with whatever new ``FileField``s land on
 # Document without an additional edit here.
-DOCUMENT_FILE_FIELDS: list[str] = Document.blob_field_names()
+DOCUMENT_FILE_FIELDS: tuple[str, ...] = Document.blob_field_names()
 
 
 class UniqueBlobPathsTestCase(TransactionTestCase):
@@ -979,6 +979,65 @@ class DocumentDeleteOrphanReclaimTestCase(TransactionTestCase):
             if default_storage.exists(blob_name):
                 default_storage.delete(blob_name)
 
+    def test_bulk_delete_registers_single_on_commit_callback(self) -> None:
+        """Issue #1572 follow-up #2: ``QuerySet.delete()`` on N rows
+        must register at most ONE blob-cleanup ``on_commit`` callback
+        for the surrounding atomic context, not one per row.
+
+        Before the fix, every ``post_delete`` registered its own
+        ``on_commit`` callback; the first to fire drained the shared
+        accumulator and the rest short-circuited on an empty set, but
+        the queue still grew O(N) in memory and per-callback dispatch
+        cost. Now we register exactly once per atomic context (subject
+        to a presence check against the queue) and update the shared
+        accumulator on subsequent ``post_delete`` signals.
+        """
+        import functools as _functools
+
+        from django.db import connections
+
+        from opencontractserver.documents.signals import _FLUSH_CALLBACK_MARKER
+
+        bulk_size = 20
+        docs: list[Document] = []
+        for i in range(bulk_size):
+            doc, _blobs = _make_doc_with_blobs(
+                self.user, f"{self.uid}-callback-{i}", label=f"BulkCB{i}"
+            )
+            docs.append(doc)
+
+        pks = [d.pk for d in docs]
+        connection = connections["default"]
+
+        def _count_blob_flush_callbacks() -> int:
+            count = 0
+            for entry in connection.run_on_commit:
+                # entry: (savepoint_ids, callback, robust) on Django 5.x
+                callback = entry[1]
+                target = (
+                    callback.func
+                    if isinstance(callback, _functools.partial)
+                    else callback
+                )
+                if getattr(target, _FLUSH_CALLBACK_MARKER, False):
+                    count += 1
+            return count
+
+        with transaction.atomic():
+            before = _count_blob_flush_callbacks()
+            Document.objects.filter(pk__in=pks).delete()
+            after = _count_blob_flush_callbacks()
+            new_callbacks = after - before
+
+        self.assertEqual(
+            new_callbacks,
+            1,
+            f"Bulk delete of {bulk_size} rows registered {new_callbacks} "
+            "blob-cleanup on_commit callbacks; expected exactly 1 — "
+            "the shared accumulator should coalesce all paths into a "
+            "single flush (issue #1572 follow-up #2).",
+        )
+
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
 class UniqueBlobPathsForManyTestCase(TransactionTestCase):
@@ -1126,10 +1185,21 @@ class CleanupOrphanedDocumentBlobsTaskTestCase(TransactionTestCase):
 
     def test_missing_path_is_tolerated(self) -> None:
         """A path that no longer exists in storage (e.g. because a
-        previous run already deleted it) is skipped without error."""
+        previous run already deleted it, or another process raced us
+        to it — issue #1572 follow-up #3) is reported as cleaned and
+        does not raise.
+
+        The exact ``deleted_count`` depends on whether the configured
+        storage backend raises ``FileNotFoundError`` (counted as 0) or
+        is idempotent on missing paths (counted as 1). What we pin
+        here is the idempotency contract: storage is left in the
+        desired state with no exceptions surfacing to the caller.
+        """
         from opencontractserver.tasks.cleanup_tasks import (
             cleanup_orphaned_document_blobs_task,
         )
 
-        deleted = cleanup_orphaned_document_blobs_task([f"nonexistent_{self.uid}.bin"])
-        self.assertEqual(deleted, 0)
+        nonexistent = f"nonexistent_{self.uid}.bin"
+        # Should not raise; storage state must be "absent" after the call.
+        cleanup_orphaned_document_blobs_task([nonexistent])
+        self.assertFalse(default_storage.exists(nonexistent))

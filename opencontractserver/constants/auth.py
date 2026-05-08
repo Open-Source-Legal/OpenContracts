@@ -18,3 +18,10 @@ ADMIN_CLAIMS_CACHE_TTL = 300
 # 4001 (TOKEN_EXPIRED). Sized to comfortably cover Auth0 silent renewal
 # (a few seconds in practice) plus retry headroom.
 WS_AUTH_REFRESH_GRACE_SECONDS = 30.0
+
+# Length of the OAuth ``sub`` suffix surfaced as the redacted display name
+# fallback (``user_<last N chars>``). Long enough to stay reasonably unique
+# across users in the same UI context, short enough that the redacted form
+# does not effectively expose the full sub. See ``UserType.resolve_display_name``
+# (issue #1557).
+OAUTH_SUB_DISPLAY_SUFFIX_LENGTH = 6

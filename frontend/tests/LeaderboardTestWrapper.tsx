@@ -30,8 +30,7 @@ const defaultLeaderboardMock: MockedResponse = {
             isRisingStar: true,
             user: {
               id: "user-1",
-              username: "top_user",
-              email: "top@example.com",
+              displayName: "top_user",
               slug: "top-user",
               isProfilePublic: true,
             },
@@ -47,8 +46,7 @@ const defaultLeaderboardMock: MockedResponse = {
             isRisingStar: false,
             user: {
               id: "user-2",
-              username: "second_user",
-              email: "second@example.com",
+              displayName: "second_user",
               slug: "second-user",
               isProfilePublic: true,
             },

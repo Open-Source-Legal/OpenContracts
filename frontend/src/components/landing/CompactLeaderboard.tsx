@@ -15,6 +15,10 @@ import { ArrowRight, Trophy } from "lucide-react";
 import { LeaderboardEntry } from "../../graphql/landing-queries";
 import { color } from "../../theme/colors";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  getLeaderboardAvatarColor as getAvatarColor,
+  getLeaderboardInitials as getInitials,
+} from "../../utils/leaderboardAvatar";
 
 interface CompactLeaderboardProps {
   contributors: LeaderboardEntry[] | null;
@@ -287,38 +291,6 @@ const EmptyText = styled.p`
   margin: 0;
 `;
 
-/**
- * Gets initials from username for avatar display
- */
-function getInitials(username?: string): string {
-  if (!username) return "?";
-  // Handle OAuth usernames (e.g., "google-oauth2|123456")
-  if (username.includes("|")) {
-    const provider = username.split("|")[0];
-    if (provider.includes("google")) return "G";
-    if (provider.includes("github")) return "GH";
-    return "U";
-  }
-  return username.substring(0, 2).toUpperCase();
-}
-
-/**
- * Gets consistent avatar color for a user based on their ID
- */
-function getAvatarColor(userId?: string): string {
-  const colors = [
-    OS_LEGAL_COLORS.primaryBlue,
-    OS_LEGAL_COLORS.greenMedium,
-    OS_LEGAL_COLORS.folderIcon,
-    OS_LEGAL_COLORS.dangerBorderHover,
-    "#8B5CF6",
-    "#EC4899",
-  ];
-  if (!userId) return colors[0];
-  const hash = userId.split("").reduce((a, b) => a + b.charCodeAt(0), 0);
-  return colors[hash % colors.length];
-}
-
 export const CompactLeaderboard: React.FC<CompactLeaderboardProps> = ({
   contributors,
   loading,
@@ -389,13 +361,13 @@ export const CompactLeaderboard: React.FC<CompactLeaderboardProps> = ({
               <UserInfo>
                 <Avatar
                   size="sm"
-                  fallback={getInitials(contributor.username)}
+                  fallback={getInitials(contributor.displayName)}
                   style={{
                     backgroundColor: getAvatarColor(contributor.id),
                     color: "white",
                   }}
                 />
-                <Username>{contributor.username || "Anonymous"}</Username>
+                <Username>{contributor.displayName || "Anonymous"}</Username>
               </UserInfo>
 
               {badges.length > 0 && (
