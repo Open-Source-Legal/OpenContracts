@@ -324,15 +324,33 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
     """
 
     def test_add_document_note_tool_passes_none_when_corpus_absent(self) -> None:
+        import re
+
         text = (
             _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
         ).read_text()
+        # Scope the source-grep to the ``add_document_note_tool`` function
+        # body. Other tools (``add_exact_string_annotations``) legitimately
+        # require a corpus and contain the same diagnostic string — without
+        # this scoping, those raise sites would trip the guard below.
+        match = re.search(
+            r"^        async def add_document_note_tool\b"
+            r".*?"
+            r"(?=^        (?:async def |def )|^    [A-Za-z]|^class |\Z)",
+            text,
+            flags=re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            match,
+            msg="add_document_note_tool no longer present in pydantic_ai_agents.py",
+        )
+        body = match.group(0)  # type: ignore[union-attr]
         # The forwarded value must use a ternary that yields ``None`` when
         # ``context.corpus`` is missing; the previous reject-guard form
         # raised ValueError instead.
         self.assertIn(
             "context.corpus.id if context.corpus else None",
-            text,
+            body,
             msg=(
                 "add_document_note_tool no longer forwards None for the "
                 "standalone-document case — agents without a corpus will "
@@ -341,7 +359,7 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
         )
         self.assertNotIn(
             'requires the agent to be scoped to a corpus"',
-            text,
+            body,
             msg=(
                 "add_document_note_tool still rejects standalone-document "
                 "agents; the corpus-required guard should be gone."
