@@ -38,6 +38,7 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.db import transaction
 
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
 from opencontractserver.documents.models import Document
@@ -158,22 +159,29 @@ def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     if not caml_ids:
         raise ValueError(not_found)
 
-    doc = (
-        Document.objects.visible_to_user(user)
-        .filter(pk__in=caml_ids, is_current=True)
-        .first()
-    )
+    # ``corpus.get_documents(include_caml=True)`` already filters via the
+    # ``DocumentPath.is_current=True`` join (see CorpusType.get_documents),
+    # so the second query just intersects ``caml_ids`` with documents the
+    # user can read — IDOR-safe two-query pattern.
+    doc = Document.objects.visible_to_user(user).filter(pk__in=caml_ids).first()
     if doc is None:
         raise ValueError(not_found)
     return doc
 
 
 def _read_caml_content(doc: Document) -> str:
-    """Read the markdown body of a Readme.CAML document, or '' if empty."""
+    """Read the markdown body of a Readme.CAML document, or '' if empty.
+
+    The file is always written as UTF-8 (see ``ContentFile(... .encode("utf-8"))``
+    sites that produce these documents); we open in binary mode and decode
+    explicitly so the read doesn't accidentally honour the runtime locale on
+    non-UTF-8 hosts and corrupt accented or smart-quote characters in legal text.
+    """
     if not doc.txt_extract_file:
         return ""
-    with doc.txt_extract_file.open("r") as fh:
-        return fh.read()
+    with doc.txt_extract_file.open("rb") as fh:
+        raw = fh.read()
+    return raw.decode("utf-8") if isinstance(raw, bytes) else raw
 
 
 # --------------------------------------------------------------------------- #
@@ -308,6 +316,13 @@ async def apropose_caml_citation_match(
     if not query_text or not query_text.strip():
         raise ValueError("query_text must be a non-empty string.")
 
+    # NOTE: Corpus-visibility is *not* enforced inside this function.  The tool
+    # is registered with ``requires_corpus=True`` so the wrapper validates that
+    # ``corpus_id`` is visible to ``author_id`` before dispatch; results are
+    # additionally scoped by the vector store's ``user_id`` filter, which
+    # honours ``Annotation.objects.visible_to_user`` semantics.  If this tool
+    # is ever invoked outside the wrapper, add an explicit ``Corpus.objects
+    # .visible_to_user(user).get(pk=corpus_id)`` check here.
     capped_limit = max(1, min(int(limit), _MAX_CITATION_CANDIDATES))
 
     store = CoreAnnotationVectorStore(
@@ -396,31 +411,41 @@ def _apply_caml_article_edit(
             f"User {user.id} cannot modify the Readme.CAML for corpus {corpus_id}."
         )
 
-    content = _read_caml_content(doc)
+    # Wrap the read-check-write in a transaction with a row lock on the
+    # Document so two simultaneous approval-gated calls can't both observe
+    # ``occurrences == 1`` and clobber each other's edit.  ``select_for_update``
+    # blocks competing writers until this transaction commits.
+    with transaction.atomic():
+        Document.objects.select_for_update().filter(pk=doc.pk).first()
+        # Refresh the row's file pointer in case another writer rotated the
+        # blob between the original load and the lock acquisition.
+        doc.refresh_from_db()
 
-    occurrences = content.count(target_text)
-    if occurrences == 0:
-        raise ValueError(
-            "target_text was not found in the Readme.CAML article. "
-            "Re-read the article via aread_corpus_caml_article and pass an "
-            "exact substring."
-        )
-    if occurrences > 1:
-        raise ValueError(
-            f"target_text matches {occurrences} locations in the article. "
-            "Provide a longer substring that matches exactly once."
-        )
+        content = _read_caml_content(doc)
 
-    new_content = content.replace(target_text, replacement_text, 1)
+        occurrences = content.count(target_text)
+        if occurrences == 0:
+            raise ValueError(
+                "target_text was not found in the Readme.CAML article. "
+                "Re-read the article via aread_corpus_caml_article and pass an "
+                "exact substring."
+            )
+        if occurrences > 1:
+            raise ValueError(
+                f"target_text matches {occurrences} locations in the article. "
+                "Provide a longer substring that matches exactly once."
+            )
 
-    # Persist via FileField.save which writes the new file blob and bumps
-    # ``Document.modified`` automatically.  We keep the same Document row so
-    # frontend deep-links to ``Readme.CAML`` continue to work (no new
-    # version_tree entry).
-    file_name = doc.txt_extract_file.name or ""
-    filename = file_name.rsplit("/", 1)[-1] or "Readme.CAML.md"
-    doc.txt_extract_file.save(filename, ContentFile(new_content.encode("utf-8")))
-    doc.refresh_from_db(fields=["modified"])
+        new_content = content.replace(target_text, replacement_text, 1)
+
+        # Persist via FileField.save which writes the new file blob and bumps
+        # ``Document.modified`` automatically.  We keep the same Document row so
+        # frontend deep-links to ``Readme.CAML`` continue to work (no new
+        # version_tree entry).
+        file_name = doc.txt_extract_file.name or ""
+        filename = file_name.rsplit("/", 1)[-1] or "Readme.CAML.md"
+        doc.txt_extract_file.save(filename, ContentFile(new_content.encode("utf-8")))
+        doc.refresh_from_db(fields=["modified"])
 
     pos = content.find(target_text)
     preview_start = max(0, pos - _PREVIEW_RADIUS_CHARS)

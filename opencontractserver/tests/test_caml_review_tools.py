@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
@@ -77,24 +77,39 @@ def _create_caml_doc(corpus: Corpus, user, *, content: str = SAMPLE_CAML) -> Doc
 # --------------------------------------------------------------------------- #
 
 
-class ReadCorpusCamlArticleTests(TestCase):
-    """Tests for the read-only CAML article reviewer tool."""
+class ReadCorpusCamlArticleTests(TransactionTestCase):
+    """Tests for the read-only CAML article reviewer tool.
+
+    Uses ``TransactionTestCase`` (not ``TestCase``) so the per-test fixture
+    rows are committed and visible to the fresh DB connection that
+    ``async_to_sync(...)`` opens for ``test_async_wrapper_returns_same_payload``
+    — ``_db_sync_to_async`` runs with ``thread_sensitive=False`` so the
+    standard ``TestCase`` transaction wrapper would hide the data from the
+    helper thread.
+    """
 
     owner: User
     outsider: User
     corpus: Corpus
     caml_doc: Document
 
-    @classmethod
-    def setUpTestData(cls):
-        cls.owner = User.objects.create_user(username="caml_owner", password="pw")
-        cls.outsider = User.objects.create_user(username="caml_outsider", password="pw")
-        cls.corpus = Corpus.objects.create(
+    def setUp(self):
+        # All fixtures are recreated per-test:
+        #   * Users + corpus + file rows live in the per-test transaction
+        #     so async helpers' fresh DB connection can see them.
+        #   * Readme.CAML.md is bound to this test's MEDIA_ROOT (set by the
+        #     autouse ``media_storage`` fixture in opencontractserver/conftest.py)
+        #     so the file is reachable for every test in this class.
+        self.owner = User.objects.create_user(username="caml_owner", password="pw")
+        self.outsider = User.objects.create_user(
+            username="caml_outsider", password="pw"
+        )
+        self.corpus = Corpus.objects.create(
             title="CAML Review Corpus",
-            creator=cls.owner,
+            creator=self.owner,
             is_public=False,
         )
-        cls.caml_doc = _create_caml_doc(cls.corpus, cls.owner)
+        self.caml_doc = _create_caml_doc(self.corpus, self.owner)
 
     def test_returns_blocks_and_existing_directives(self):
         result = _read_corpus_caml_article(
@@ -306,28 +321,32 @@ class ProposeCamlCitationMatchTests(TestCase):
 # --------------------------------------------------------------------------- #
 
 
-class ApplyCamlArticleEditTests(TestCase):
-    """Tests for the approval-gated CAML article edit tool."""
+class ApplyCamlArticleEditTests(TransactionTestCase):
+    """Tests for the approval-gated CAML article edit tool.
+
+    Uses ``TransactionTestCase`` for the same reason as
+    ``ReadCorpusCamlArticleTests`` — ``test_async_wrapper_persists_edit``
+    routes through ``_db_sync_to_async`` (``thread_sensitive=False``), so
+    the helper thread's fresh DB connection only sees committed data.
+    """
 
     owner: User
     editor: User
     outsider: User
     superuser: User
 
-    @classmethod
-    def setUpTestData(cls):
-        cls.owner = User.objects.create_user(username="apply_owner", password="pw")
-        cls.editor = User.objects.create_user(username="apply_editor", password="pw")
-        cls.outsider = User.objects.create_user(
+    def setUp(self):
+        # Recreate everything per test: users + corpus + Readme.CAML.md.
+        # File mutations don't leak between cases, and the per-test rows
+        # are committed in time for any async path to see them.
+        self.owner = User.objects.create_user(username="apply_owner", password="pw")
+        self.editor = User.objects.create_user(username="apply_editor", password="pw")
+        self.outsider = User.objects.create_user(
             username="apply_outsider", password="pw"
         )
-        cls.superuser = User.objects.create_user(
+        self.superuser = User.objects.create_user(
             username="apply_super", password="pw", is_superuser=True
         )
-
-    def setUp(self):
-        # Re-create the corpus + CAML article per test so file mutations don't
-        # leak between cases.
         self.corpus = Corpus.objects.create(
             title="Apply Corpus", creator=self.owner, is_public=False
         )
@@ -478,6 +497,23 @@ class ApplyCamlArticleEditTests(TestCase):
 class CamlReviewToolRegistryTests(TestCase):
     """The new tools must be discoverable via the central tool registry."""
 
+    @classmethod
+    def setUpClass(cls):
+        # Reset the registry around the whole class so an unexpected exception
+        # in ``test_tool_definitions_are_registered`` cannot leak modified
+        # registry state into unrelated tests sharing the same worker.
+        super().setUpClass()
+        from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
+
+        ToolFunctionRegistry.reset()
+
+    @classmethod
+    def tearDownClass(cls):
+        from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
+
+        ToolFunctionRegistry.reset()
+        super().tearDownClass()
+
     def test_tool_definitions_are_registered(self):
         from opencontractserver.llms.tools.tool_registry import (
             AVAILABLE_TOOLS,
@@ -491,23 +527,20 @@ class CamlReviewToolRegistryTests(TestCase):
 
         # ToolFunctionRegistry resolves each name to a CoreTool, with the
         # apply tool flagged as approval-gated and write-permission-gated.
-        ToolFunctionRegistry.reset()
         registry = ToolFunctionRegistry.get()
-        try:
-            apply_tool = registry.to_core_tool("apply_caml_article_edit")
-            assert apply_tool is not None  # narrow for mypy
-            self.assertTrue(apply_tool.requires_approval)
-            self.assertTrue(apply_tool.requires_corpus)
-            self.assertTrue(apply_tool.requires_write_permission)
 
-            read_tool = registry.to_core_tool("read_corpus_caml_article")
-            assert read_tool is not None
-            self.assertFalse(read_tool.requires_approval)
-            self.assertTrue(read_tool.requires_corpus)
+        apply_tool = registry.to_core_tool("apply_caml_article_edit")
+        assert apply_tool is not None  # narrow for mypy
+        self.assertTrue(apply_tool.requires_approval)
+        self.assertTrue(apply_tool.requires_corpus)
+        self.assertTrue(apply_tool.requires_write_permission)
 
-            propose_tool = registry.to_core_tool("propose_caml_citation_match")
-            assert propose_tool is not None
-            self.assertFalse(propose_tool.requires_approval)
-            self.assertTrue(propose_tool.requires_corpus)
-        finally:
-            ToolFunctionRegistry.reset()
+        read_tool = registry.to_core_tool("read_corpus_caml_article")
+        assert read_tool is not None
+        self.assertFalse(read_tool.requires_approval)
+        self.assertTrue(read_tool.requires_corpus)
+
+        propose_tool = registry.to_core_tool("propose_caml_citation_match")
+        assert propose_tool is not None
+        self.assertFalse(propose_tool.requires_approval)
+        self.assertTrue(propose_tool.requires_corpus)
