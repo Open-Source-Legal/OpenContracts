@@ -70,9 +70,9 @@ const SourceItem: React.FC<SourceItemProps> = ({
     setLabelMenuOpen((prev) => !prev);
   };
 
-  const handleLabelSelect = (label: any) => {
+  const handleLabelSelect = (label: AnnotationLabelType) => {
     const msg = chatStateValue.messages.find(
-      (m: any) => m.messageId === messageId
+      (m) => m.messageId === messageId
     );
     if (!msg) return setLabelMenuOpen(false);
     const sourceData = msg.sources[index];

@@ -264,12 +264,14 @@ export const TimelinePreview: React.FC<TimelinePreviewProps> = ({
       scrollContainerRef.current
     ) {
       // Small delay to ensure DOM has updated
-      setTimeout(() => {
+      const id = setTimeout(() => {
         if (scrollContainerRef.current) {
           scrollContainerRef.current.scrollTop =
             scrollContainerRef.current.scrollHeight;
         }
       }, 50);
+      prevTimelineLengthRef.current = timeline.length;
+      return () => clearTimeout(id);
     }
 
     prevTimelineLengthRef.current = timeline.length;
@@ -278,9 +280,10 @@ export const TimelinePreview: React.FC<TimelinePreviewProps> = ({
   // Initial scroll to bottom when first expanded
   useEffect(() => {
     if (isExpanded && scrollContainerRef.current) {
-      setTimeout(() => {
+      const id = setTimeout(() => {
         scrollToBottom();
       }, 100);
+      return () => clearTimeout(id);
     }
   }, [isExpanded]);
 
