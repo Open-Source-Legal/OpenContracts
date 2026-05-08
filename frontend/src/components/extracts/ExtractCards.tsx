@@ -10,6 +10,7 @@ import { ExtractListCard } from "./ExtractListCard";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { ExtractType, CorpusType, PageInfo } from "../../types/graphql-api";
 import {
   showCreateExtractModal,
@@ -138,14 +139,14 @@ export const ExtractCards = ({
         navigate(`/extracts/${extract.id}`);
       }
     },
-    [useInlineSelection, location, navigate]
+    [useInlineSelection, location, navigate],
   );
 
   const handleDeleteExtract = useCallback(
     (extract: ExtractType) => {
       tryDeleteExtract({ variables: { id: extract.id } });
     },
-    [tryDeleteExtract]
+    [tryDeleteExtract],
   );
 
   const handleOpenContextMenu = useCallback(
@@ -155,7 +156,7 @@ export const ExtractCards = ({
       setMenuPosition({ x: e.clientX, y: e.clientY });
       setOpenMenuId(extractId);
     },
-    []
+    [],
   );
 
   const handleCloseMenu = useCallback(() => {
@@ -203,9 +204,9 @@ export const ExtractCards = ({
 
   return (
     <Container style={style}>
+      {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
       <LoadingOverlay
-        active={loading}
-        inverted
+        active={loading && filteredExtracts.length === 0}
         size="large"
         content={loading_message}
       />
@@ -233,6 +234,11 @@ export const ExtractCards = ({
             </CollectionList>
 
             <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+            <FetchMoreFooter
+              visible={loading && Boolean(pageInfo?.hasNextPage)}
+              message="Loading more extracts…"
+              data-testid="extract-cards-fetch-more-spinner"
+            />
           </>
         ) : !loading ? (
           <EmptyStateWrapper>

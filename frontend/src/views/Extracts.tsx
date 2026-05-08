@@ -45,6 +45,7 @@ import { ExtractListCard } from "../components/extracts/ExtractListCard";
 import { ConfirmModal } from "../components/widgets/modals/ConfirmModal";
 import { CreateExtractModal } from "../components/widgets/modals/CreateExtractModal";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { DEBOUNCE } from "../assets/configurations/constants";
 
@@ -53,7 +54,11 @@ import { DEBOUNCE } from "../assets/configurations/constants";
 const PageContainer = styled.div`
   height: 100%;
   background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
 `;
@@ -188,14 +193,14 @@ export const Extracts = () => {
     y: number;
   } | null>(null);
   const [extractToDelete, setExtractToDelete] = useState<ExtractType | null>(
-    null
+    null,
   );
 
   // Debounced search
   const debouncedSearch = useRef(
     _.debounce((searchTerm: string) => {
       extractSearchTerm(searchTerm);
-    }, DEBOUNCE.EXTRACT_SEARCH_MS)
+    }, DEBOUNCE.EXTRACT_SEARCH_MS),
   );
 
   // Cleanup debounce on unmount to prevent memory leaks
@@ -241,7 +246,7 @@ export const Extracts = () => {
     return data.extracts.edges
       .map((edge) => edge?.node)
       .filter(
-        (node): node is ExtractType => node !== null && node !== undefined
+        (node): node is ExtractType => node !== null && node !== undefined,
       );
   }, [data]);
 
@@ -315,7 +320,7 @@ export const Extracts = () => {
     (extract: ExtractType) => {
       navigate(`/extracts/${extract.id}`);
     },
-    [navigate]
+    [navigate],
   );
 
   const handleDeleteExtract = (extract: ExtractType) => {
@@ -348,7 +353,7 @@ export const Extracts = () => {
       setMenuPosition({ x: e.clientX, y: e.clientY });
       setOpenMenuId(extractId);
     },
-    []
+    [],
   );
 
   const handleCloseMenu = useCallback(() => {
@@ -491,9 +496,9 @@ export const Extracts = () => {
 
         {/* Extracts List Section */}
         <ListContainer>
+          {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
-            active={loading}
-            inverted
+            active={loading && filteredExtracts.length === 0}
             size="large"
             content="Loading extracts..."
           />
@@ -536,6 +541,13 @@ export const Extracts = () => {
 
               {/* Infinite scroll trigger */}
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+              <FetchMoreFooter
+                visible={
+                  loading && Boolean(data?.extracts?.pageInfo?.hasNextPage)
+                }
+                message="Loading more extracts…"
+                data-testid="extracts-fetch-more-spinner"
+              />
             </>
           ) : !loading ? (
             <EmptyStateWrapper>

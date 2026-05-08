@@ -2,6 +2,7 @@ import { Table } from "@os-legal/ui";
 import { ExportObject } from "../../types/graphql-api";
 import { PageInfo } from "../../types/graphql-api";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { ExportItemRow } from "./ExportItemRow";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 
@@ -51,11 +52,17 @@ export function ExportList({
       ))
     : [];
 
+  const itemCount = items?.length ?? 0;
+
   return (
     <div
       style={{ ...styles.container, ...(style || {}), position: "relative" }}
     >
-      <LoadingOverlay active={loading} content="Loading Exports..." />
+      {/* Cover the table only on the initial load — fetchMore keeps existing rows visible. */}
+      <LoadingOverlay
+        active={loading && itemCount === 0}
+        content="Loading Exports..."
+      />
 
       <Table variant="bordered">
         <Table.Head>
@@ -71,6 +78,11 @@ export function ExportList({
       </Table>
 
       <FetchMoreOnVisible fetchNextPage={handleUpdate} />
+      <FetchMoreFooter
+        visible={loading && Boolean(pageInfo?.hasNextPage)}
+        message="Loading more exports…"
+        data-testid="exports-fetch-more-spinner"
+      />
     </div>
   );
 }

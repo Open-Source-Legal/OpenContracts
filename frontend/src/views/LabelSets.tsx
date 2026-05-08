@@ -50,6 +50,7 @@ import { validateTitleAndDescription } from "../components/forms/shared";
 import { CRUDModal } from "../components/widgets/CRUD/CRUDModal";
 import { LabelSetListCard } from "../components/labelsets/LabelSetListCard";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { getLabelsetUrl } from "../utils/navigationUtils";
 
@@ -60,7 +61,11 @@ import { getLabelsetUrl } from "../utils/navigationUtils";
 const PageContainer = styled.div`
   height: 100%;
   background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   overflow-y: auto;
   overflow-x: hidden;
 `;
@@ -204,7 +209,7 @@ export const Labelsets = () => {
   const debouncedSearch = useRef(
     _.debounce((searchTerm: string) => {
       labelsetSearchTerm(searchTerm);
-    }, 500)
+    }, 500),
   );
 
   const handleSearchChange = (value: string) => {
@@ -253,7 +258,7 @@ export const Labelsets = () => {
           (ls) =>
             !ls.isPublic &&
             ls.creator?.email !== currentUserEmail &&
-            (ls.myPermissions?.length || 0) > 0
+            (ls.myPermissions?.length || 0) > 0,
         );
       case "public":
         return labelsets.filter((ls) => ls.isPublic);
@@ -271,7 +276,7 @@ export const Labelsets = () => {
         (ls) =>
           !ls.isPublic &&
           ls.creator?.email !== currentUserEmail &&
-          (ls.myPermissions?.length || 0) > 0
+          (ls.myPermissions?.length || 0) > 0,
       ).length,
       public: labelsets.filter((ls) => ls.isPublic).length,
     };
@@ -331,7 +336,7 @@ export const Labelsets = () => {
         } else {
           toast.error(
             result.data?.deleteLabelset?.message ||
-              "Failed to delete label set."
+              "Failed to delete label set.",
           );
         }
         deletingLabelset(null);
@@ -359,7 +364,7 @@ export const Labelsets = () => {
       setMenuPosition({ x: e.clientX, y: e.clientY });
       setOpenMenuId(labelsetId);
     },
-    []
+    [],
   );
 
   const handleCloseMenu = useCallback(() => {
@@ -496,9 +501,9 @@ export const Labelsets = () => {
 
         {/* Label Sets List Section */}
         <ListContainer>
+          {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
-            active={loading}
-            inverted
+            active={loading && filteredLabelsets.length === 0}
             size="large"
             content="Loading label sets..."
           />
@@ -542,6 +547,13 @@ export const Labelsets = () => {
 
               {/* Infinite scroll trigger */}
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+              <FetchMoreFooter
+                visible={
+                  loading && Boolean(data?.labelsets?.pageInfo?.hasNextPage)
+                }
+                message="Loading more label sets…"
+                data-testid="labelsets-fetch-more-spinner"
+              />
             </>
           ) : !loading ? (
             <EmptyStateWrapper>

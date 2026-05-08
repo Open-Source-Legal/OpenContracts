@@ -7,6 +7,7 @@ import { AnalysisItem } from "./AnalysisItem";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import { PlaceholderCard } from "../placeholders/PlaceholderCard";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { AnalysisType, CorpusType, PageInfo } from "../../types/graphql-api";
 import { useReactiveVar } from "@apollo/client";
 import { selectedAnalyses, selectedAnalysesIds } from "../../graphql/cache";
@@ -64,7 +65,7 @@ export const AnalysesCards = ({
     if (analysis_ids_to_display.includes(selected_analysis.id)) {
       // Remove from selection
       const cleaned_ids = analysis_ids_to_display.filter(
-        (id) => id !== selected_analysis.id
+        (id) => id !== selected_analysis.id,
       );
       // Update URL - CentralRouteManager will set reactive var
       updateAnnotationSelectionParams(location, navigate, {
@@ -73,7 +74,7 @@ export const AnalysesCards = ({
 
       // Also update legacy selectedAnalyses for backward compatibility
       const cleaned_analyses = analyses.filter((a) =>
-        cleaned_ids.includes(a.id)
+        cleaned_ids.includes(a.id),
       );
       selectedAnalyses(cleaned_analyses);
     } else {
@@ -152,11 +153,20 @@ export const AnalysesCards = ({
         ...style,
       }}
     >
-      <LoadingOverlay active={loading} content={loading_message} />
+      {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible. */}
+      <LoadingOverlay
+        active={loading && analyses.length === 0}
+        content={loading_message}
+      />
       <CardGrid $columns={card_cols} style={comp_style}>
         {analysis_items}
       </CardGrid>
       <FetchMoreOnVisible fetchNextPage={handleUpdate} />
+      <FetchMoreFooter
+        visible={loading && Boolean(pageInfo?.hasNextPage)}
+        message="Loading more analyses…"
+        data-testid="analyses-fetch-more-spinner"
+      />
     </div>
   );
 };

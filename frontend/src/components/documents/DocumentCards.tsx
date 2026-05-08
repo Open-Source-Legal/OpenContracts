@@ -9,6 +9,7 @@ import { DocumentItem } from "./DocumentItem";
 import { ModernDocumentItem } from "./ModernDocumentItem";
 import { DocumentType, PageInfo } from "../../types/graphql-api";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 
 const ResponsiveCardGrid = styled.div`
   display: grid;
@@ -122,7 +123,8 @@ const EmptyStateIcon = styled.div`
   justify-content: center;
   margin-bottom: 24px;
   color: ${OS_LEGAL_COLORS.primaryBlue};
-  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.1),
+  box-shadow:
+    0 4px 6px -1px rgba(59, 130, 246, 0.1),
     0 2px 4px -1px rgba(59, 130, 246, 0.06);
 
   svg {
@@ -347,8 +349,8 @@ export const DocumentCards = ({
     viewMode === "classic"
       ? ResponsiveCardGrid
       : viewMode === "modern-list"
-      ? ModernListContainer
-      : ModernCardGrid;
+        ? ModernListContainer
+        : ModernCardGrid;
 
   return (
     <div
@@ -372,9 +374,9 @@ export const DocumentCards = ({
           </DropZoneContent>
         </DropZoneOverlay>
       )}
+      {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible. */}
       <LoadingOverlay
-        active={loading}
-        inverted
+        active={loading && showEmptyState}
         size="large"
         content={loading_message}
       />
@@ -413,6 +415,11 @@ export const DocumentCards = ({
               {cards}
             </GridContainer>
             <FetchMoreOnVisible fetchNextPage={handleUpdate} />
+            <FetchMoreFooter
+              visible={loading && Boolean(pageInfo?.hasNextPage)}
+              message="Loading more documents…"
+              data-testid="document-cards-fetch-more-spinner"
+            />
           </>
         )}
       </div>
