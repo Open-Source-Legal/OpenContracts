@@ -324,20 +324,27 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
     """
 
     def test_add_document_note_tool_passes_none_when_corpus_absent(self) -> None:
+        import re
+
         text = (
             _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
         ).read_text()
-        # Scope the assertion to the body of ``add_document_note_tool`` —
-        # other tools (e.g. ``add_exact_string_annotations``) legitimately
-        # require a corpus, so a global file scan would false-positive.
-        marker = "async def add_document_note_tool"
-        start = text.find(marker)
-        self.assertNotEqual(start, -1, "add_document_note_tool not found in file")
-        # End at the next top-level ``async def`` / ``def`` at the same
-        # indentation level — good enough for a substring scan.
-        body_start = text.find("\n", start)
-        next_def = text.find("\n        async def ", body_start + 1)
-        body = text[body_start:next_def] if next_def != -1 else text[body_start:]
+        # Scope the source-grep to the ``add_document_note_tool`` function
+        # body. Other tools (``add_exact_string_annotations``) legitimately
+        # require a corpus and contain the same diagnostic string — without
+        # this scoping, those raise sites would trip the guard below.
+        match = re.search(
+            r"^        async def add_document_note_tool\b"
+            r".*?"
+            r"(?=^        (?:async def |def )|^    [A-Za-z]|^class |\Z)",
+            text,
+            flags=re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            match,
+            msg="add_document_note_tool no longer present in pydantic_ai_agents.py",
+        )
+        body = match.group(0)  # type: ignore[union-attr]
         # The forwarded value must use a ternary that yields ``None`` when
         # ``context.corpus`` is missing; the previous reject-guard form
         # raised ValueError instead.
@@ -351,7 +358,7 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
             ),
         )
         self.assertNotIn(
-            "requires the agent to be scoped to a corpus",
+            'requires the agent to be scoped to a corpus"',
             body,
             msg=(
                 "add_document_note_tool still rejects standalone-document "

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { renderHook } from "@testing-library/react-hooks";
+import { renderHook } from "../../test-utils/renderHook";
 import { MockedProvider } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { useMessageBadges } from "../useMessageBadges";

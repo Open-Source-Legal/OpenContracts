@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, renderHook } from "@testing-library/react-hooks";
+import { act, renderHook } from "../../test-utils/renderHook";
 import React from "react";
 import { Provider as JotaiProvider, createStore } from "jotai";
 import { useAgentChat, AgentMessageData } from "../useAgentChat";
