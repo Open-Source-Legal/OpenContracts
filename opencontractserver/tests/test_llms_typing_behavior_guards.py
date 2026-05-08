@@ -336,6 +336,7 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
         # The tool is defined as a nested coroutine inside a factory method,
         # so it sits at 8-space indentation — match up to (but not including)
         # the next sibling ``async def`` / ``def`` at the same indent.
+        
         match = re.search(
             r"^        async def add_document_note_tool\b"
             r".*?"
