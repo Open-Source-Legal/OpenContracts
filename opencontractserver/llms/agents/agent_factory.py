@@ -1,7 +1,7 @@
 """Unified agent factory that can create agents for different frameworks."""
 
 import logging
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from channels.db import database_sync_to_async
 from django.conf import settings
@@ -173,7 +173,7 @@ class UnifiedAgentFactory:
 
         # Extract deps-specific kwargs that shouldn't go to AgentConfig
         # These are passed directly to the agent's create method
-        deps_kwargs: dict[str, any] = {}
+        deps_kwargs: dict[str, Any] = {}
         if "skip_approval_gate" in kwargs:
             deps_kwargs["skip_approval_gate"] = kwargs.pop("skip_approval_gate")
 
@@ -181,7 +181,7 @@ class UnifiedAgentFactory:
         # restrict_tool_names: when provided, the agent is restricted to ONLY
         # these tool names (plus their runtime-context versions built by the
         # factory).  This prevents tool overload for automated corpus actions.
-        create_kwargs: dict[str, any] = {}
+        create_kwargs: dict[str, Any] = {}
         if "restrict_tool_names" in kwargs:
             create_kwargs["restrict_tool_names"] = kwargs.pop("restrict_tool_names")
         # Back-compat: `restrict_tools=True` without names does nothing useful
@@ -368,7 +368,7 @@ class UnifiedAgentFactory:
 
         # Extract deps-specific kwargs that shouldn't go to AgentConfig
         # These are passed directly to the agent's create method
-        deps_kwargs: dict[str, any] = {}
+        deps_kwargs: dict[str, Any] = {}
         if "skip_approval_gate" in kwargs:
             deps_kwargs["skip_approval_gate"] = kwargs.pop("skip_approval_gate")
 

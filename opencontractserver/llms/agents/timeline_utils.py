@@ -10,9 +10,10 @@ produces the exact same structure without having to duplicate
 book-keeping logic in each adapter implementation.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from .core_agents import FinalEvent, SourceEvent, ThoughtEvent
+from .timeline_schema import TimelineEntry
 
 __all__ = ["TimelineBuilder"]
 
@@ -30,6 +31,13 @@ class TimelineBuilder:
     """
 
     def __init__(self) -> None:
+        # Accumulated as ``list[dict[str, Any]]`` (not ``list[TimelineEntry]``)
+        # because the dict-passthrough branch in ``add()`` accepts dicts from
+        # external callers we cannot statically guarantee are TypedDict-shaped,
+        # and because the helper ``entry`` builders mutate dicts (e.g.
+        # ``entry["result"] = ...``) which mypy refuses for closed TypedDicts.
+        # The single ``cast`` in the ``timeline`` property is the boundary
+        # where we promise the schema is honoured; ``add()`` is the gatekeeper.
         self._timeline: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
@@ -111,9 +119,9 @@ class TimelineBuilder:
     # Accessors
     # ------------------------------------------------------------------
     @property
-    def timeline(self) -> list[dict[str, Any]]:
+    def timeline(self) -> list[TimelineEntry]:
         """Return the collected timeline list (read-only)."""
-        return self._timeline
+        return cast("list[TimelineEntry]", self._timeline)
 
     def reset(self) -> None:
         """Clear the internal buffer so the instance can be reused."""

@@ -1,7 +1,7 @@
 """PydanticAI-specific vector store implementations."""
 
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
@@ -311,7 +311,7 @@ class PydanticAIAnnotationVectorStore:
             "modalities": self.modalities,
         }
 
-    async def create_vector_search_tool(self) -> callable:
+    async def create_vector_search_tool(self) -> Callable[..., Any]:
         """Create a PydanticAI-compatible tool function for vector search.
 
         Returns:
@@ -370,8 +370,8 @@ async def create_vector_search_tool(
     document_id: Optional[Union[str, int]] = None,
     embedder_path: Optional[str] = None,
     modalities: Optional[list[str]] = None,
-    **kwargs,
-) -> callable:
+    **kwargs: Any,
+) -> Callable[..., Any]:
     """Create a vector search tool for PydanticAI agents.
 
     Args:
