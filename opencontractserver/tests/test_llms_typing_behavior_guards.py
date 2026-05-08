@@ -325,8 +325,6 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
     """
 
     def test_add_document_note_tool_passes_none_when_corpus_absent(self) -> None:
-        import re
-
         text = (
             _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
         ).read_text()
