@@ -84,8 +84,8 @@ const ActionButton = styled(motion.button)`
     border-color: ${OS_LEGAL_COLORS.primaryBlue};
 
     &:hover:not(:disabled) {
-      background: #357abd;
-      border-color: #357abd;
+      background: ${OS_LEGAL_COLORS.primaryBlueHover};
+      border-color: ${OS_LEGAL_COLORS.primaryBlueHover};
     }
   }
 
@@ -105,7 +105,6 @@ const ChatNavigationHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
-  background: white;
   border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   position: sticky;
   top: 0;

@@ -8,7 +8,11 @@ import { SearchBox, FilterTabs } from "@os-legal/ui";
 import type { FilterTabItem } from "@os-legal/ui";
 
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
-import { DEBOUNCE } from "../assets/configurations/constants";
+import {
+  DEBOUNCE,
+  TABLET_BREAKPOINT,
+  TABLET_LANDSCAPE_BREAKPOINT,
+} from "../assets/configurations/constants";
 import { analysisSearchTerm, selectedExtractIds } from "../graphql/cache";
 import { updateAnnotationSelectionParams } from "../utils/navigationUtils";
 import { CorpusExtractCards } from "../components/extracts/CorpusExtractCards";
@@ -38,11 +42,11 @@ const ExtractsListPane = styled.div<{ $hasSelection: boolean }>`
   background: ${OS_LEGAL_COLORS.background};
   transition: flex 0.2s ease;
 
-  @media (max-width: 1024px) {
+  @media (max-width: ${TABLET_LANDSCAPE_BREAKPOINT}px) {
     flex: ${(props) => (props.$hasSelection ? "0 0 280px" : "1")};
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: ${TABLET_BREAKPOINT}px) {
     display: ${(props) => (props.$hasSelection ? "none" : "block")};
     flex: 1;
   }
@@ -53,7 +57,7 @@ const ExtractsDetailPane = styled.div`
   overflow: hidden;
   background: white;
 
-  @media (max-width: 768px) {
+  @media (max-width: ${TABLET_BREAKPOINT}px) {
     position: absolute;
     inset: 0;
     z-index: 10;
@@ -82,6 +86,15 @@ interface ExtractsTabContentProps {
   setActiveTab: (tab: number) => void;
   onOpenMobileMenu?: () => void;
 }
+
+// Static filter-tab definitions; module-scoped to avoid per-render allocation.
+const EXTRACT_FILTER_ITEMS: FilterTabItem[] = [
+  { id: "all", label: "All" },
+  { id: "running", label: "Running" },
+  { id: "completed", label: "Completed" },
+  { id: "failed", label: "Failed" },
+  { id: "not_started", label: "Not Started" },
+];
 
 /**
  * ExtractsTabContent - Split view for corpus extracts tab.
@@ -128,15 +141,6 @@ export const ExtractsTabContent: React.FC<ExtractsTabContentProps> = ({
     });
   }, [location, navigate]);
 
-  // Filter tabs configuration
-  const filterItems: FilterTabItem[] = [
-    { id: "all", label: "All" },
-    { id: "running", label: "Running" },
-    { id: "completed", label: "Completed" },
-    { id: "failed", label: "Failed" },
-    { id: "not_started", label: "Not Started" },
-  ];
-
   return (
     <div
       style={{
@@ -177,7 +181,7 @@ export const ExtractsTabContent: React.FC<ExtractsTabContentProps> = ({
           />
         </ExtractsSearchRow>
         <FilterTabs
-          items={filterItems}
+          items={EXTRACT_FILTER_ITEMS}
           value={activeFilter}
           onChange={setActiveFilter}
         />
