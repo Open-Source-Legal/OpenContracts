@@ -1,25 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useLazyQuery, useReactiveVar } from "@apollo/client";
 import { unstable_batchedUpdates } from "react-dom";
-import { Button, Modal, ModalBody, ModalFooter, Spinner } from "@os-legal/ui";
+import { Button, Modal, ModalBody, ModalFooter } from "@os-legal/ui";
 import {
   ErrorMessage,
   InfoMessage,
   SuccessMessage,
 } from "../../widgets/feedback";
-import {
-  MessageSquare,
-  FileText,
-  User,
-  Calendar,
-  FileType,
-  ArrowLeft,
-  Plus,
-  Layers,
-  Database,
-  BarChart3,
-  BookOpen,
-} from "lucide-react";
+import { User, Calendar, FileType, ArrowLeft, Plus } from "lucide-react";
 import {
   GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS,
   GetDocumentKnowledgeAndAnnotationsInput,
@@ -51,7 +39,6 @@ import {
   DocumentType,
 } from "../../../types/graphql-api";
 import { AnimatePresence } from "framer-motion";
-import { PDFContainer } from "../../annotator/display/viewer/DocumentViewer";
 import { PDFDocumentLoadingTask } from "pdfjs-dist";
 import { useUISettings } from "../../annotator/hooks/useUISettings";
 import useWindowDimensions from "../../hooks/WindowDimensionHook";
@@ -93,9 +80,6 @@ import {
 import { useAtom, useSetAtom } from "jotai";
 import { useInitialAnnotations } from "../../annotator/hooks/AnnotationHooks";
 import { EnhancedLabelSelector } from "../../annotator/labels/EnhancedLabelSelector";
-import { PDF } from "../../annotator/renderers/pdf/PDF";
-import TxtAnnotatorWrapper from "../../annotator/components/wrappers/TxtAnnotatorWrapper";
-import DocxAnnotatorWrapper from "../../annotator/components/wrappers/DocxAnnotatorWrapper";
 import {
   useAnnotationControls,
   selectedRelationsAtom,
@@ -106,20 +90,13 @@ import { updateAnnotationSelectionParams } from "../../../utils/navigationUtils"
 import { routingLogger } from "../../../utils/routingLogger";
 import { canEditAnnotationsInCorpus } from "../../../utils/annotationPermissions";
 
-import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
   ContentArea,
   HeaderContainer,
   MainContentArea,
   MetadataRow,
   SlidingPanel,
-  EmptyState,
   ResizeHandle,
-  SidebarTabsContainer,
-  SidebarTab,
-  TabBadge,
-  MobileTabBar,
-  MobileTab,
 } from "./StyledContainers";
 
 import { useTextSearch } from "../../annotator/hooks/useTextSearch";
@@ -177,6 +154,13 @@ import { useZoomManager } from "./document_kb/useZoomManager";
 import { RightPanelContent } from "./document_kb/RightPanelContent";
 import { DocumentModals } from "./document_kb/DocumentModals";
 import { AnalysisExtractContextBar } from "./document_kb/ContextBar";
+import {
+  DesktopSidebarTabs,
+  MobileSidebarTabs,
+} from "./document_kb/SidebarTabs";
+import { DocumentViewer } from "./document_kb/DocumentViewer";
+import { useResizeHandle } from "./document_kb/useResizeHandle";
+import { useDocumentMarkdown } from "./document_kb/useDocumentMarkdown";
 
 // Setting worker path to worker bundle.
 GlobalWorkerOptions.workerSrc = workerSrc;
@@ -413,10 +397,12 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     return width;
   }, [mode, customWidth]);
 
-  // Resize handle state
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStartX, setDragStartX] = useState(0);
-  const [dragStartWidth, setDragStartWidth] = useState(0);
+  // Resize drag state — see useResizeHandle for the snap/clamp logic.
+  const { isDragging, handleResizeStart } = useResizeHandle({
+    getPanelWidthPercentage,
+    setMode,
+    setCustomWidth,
+  });
   const [isMinimized, setIsMinimized] = useState(false);
   const documentAreaRef = useRef<HTMLDivElement>(null);
   const docxLoadCancelRef = useRef<() => void>(() => {});
@@ -530,9 +516,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     },
     [corpusId, originalCreateAnnotationHandler]
   );
-
-  const [markdownContent, setMarkdownContent] = useState<string | null>(null);
-  const [markdownError, setMarkdownError] = useState<boolean>(false);
 
   const { selectedAnalysis, selectedExtract } = useAnalysisSelection();
   const { selectedAnnotations, setSelectedAnnotations } =
@@ -1534,63 +1517,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     ? corpusData?.document?.allDocRelationships ?? []
     : [];
 
-  // Resize handlers
-  const handleResizeStart = (e: React.MouseEvent) => {
-    // Don't start resize if clicking on a button
-    const target = e.target as HTMLElement;
-    if (target.closest("button")) {
-      return;
-    }
-
-    setIsDragging(true);
-    setDragStartX(e.clientX);
-    setDragStartWidth(getPanelWidthPercentage());
-    e.preventDefault();
-  };
-
-  const handleResizeMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDragging) return;
-
-      const deltaX = dragStartX - e.clientX;
-      const windowWidth = window.innerWidth;
-      const deltaPercentage = (deltaX / windowWidth) * 100;
-      const newWidth = Math.max(
-        15,
-        Math.min(95, dragStartWidth + deltaPercentage)
-      );
-
-      // Snap to preset widths if close
-      const snapThreshold = 3;
-      if (Math.abs(newWidth - 25) < snapThreshold) {
-        setMode("quarter");
-      } else if (Math.abs(newWidth - 50) < snapThreshold) {
-        setMode("half");
-      } else if (Math.abs(newWidth - 90) < snapThreshold) {
-        setMode("full");
-      } else {
-        setCustomWidth(newWidth);
-      }
-    },
-    [isDragging, dragStartX, dragStartWidth, setMode, setCustomWidth]
-  );
-
-  const handleResizeEnd = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  // Add resize event listeners
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener("mousemove", handleResizeMove);
-      document.addEventListener("mouseup", handleResizeEnd);
-      return () => {
-        document.removeEventListener("mousemove", handleResizeMove);
-        document.removeEventListener("mouseup", handleResizeEnd);
-      };
-    }
-  }, [isDragging, handleResizeMove, handleResizeEnd]);
-
   // Auto-minimize logic
   const handleDocumentMouseEnter = useCallback(() => {
     // Desktop: no auto-collapse – user controls size fully.
@@ -1619,26 +1545,9 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   }, [showRightPanel]);
 
   // Load MD summary if available
-  useEffect(() => {
-    const fetchMarkdownContent = async () => {
-      if (!combinedData?.document?.mdSummaryFile) {
-        setMarkdownContent(null);
-        return;
-      }
-      try {
-        const response = await fetch(combinedData.document.mdSummaryFile);
-        if (!response.ok) throw new Error("Failed to fetch markdown content");
-        const text = await response.text();
-        setMarkdownContent(text);
-        setMarkdownError(false);
-      } catch (error) {
-        console.error("Error fetching markdown content:", error);
-        setMarkdownContent(null);
-        setMarkdownError(true);
-      }
-    };
-    fetchMarkdownContent();
-  }, [combinedData?.document?.mdSummaryFile]);
+  const { markdownContent } = useDocumentMarkdown(
+    combinedData?.document?.mdSummaryFile
+  );
 
   const [selectedNote, setSelectedNote] = useState<(typeof notes)[0] | null>(
     null
@@ -1705,158 +1614,16 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   }, [deepLinkedNoteId, combinedData?.document, notes]);
 
   // The main viewer content:
-  let viewerContent: JSX.Element = <></>;
-  if (isPdfFileType(metadata.fileType)) {
-    viewerContent = (
-      <PDFContainer id="pdf-container" ref={containerRefCallback}>
-        {viewState === ViewState.LOADED ? (
-          <PDF
-            read_only={!canEdit}
-            containerWidth={containerWidth}
-            createAnnotationHandler={createAnnotationHandler}
-          />
-        ) : viewState === ViewState.LOADING ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              gap: "0.5rem",
-            }}
-          >
-            <Spinner size={24} />
-            <span
-              style={{
-                color: OS_LEGAL_COLORS.textSecondary,
-                fontSize: "0.875rem",
-              }}
-            >
-              Loading PDF...
-            </span>
-          </div>
-        ) : (
-          <EmptyState
-            icon={<FileText size={40} />}
-            title="Error Loading PDF"
-            description="Could not load the PDF document."
-          />
-        )}
-      </PDFContainer>
-    );
-  } else if (isTextFileType(metadata.fileType)) {
-    viewerContent = (
-      <PDFContainer id="pdf-container" ref={containerRefCallback}>
-        {viewState === ViewState.LOADED ? (
-          <TxtAnnotatorWrapper readOnly={!canEdit} allowInput={canEdit} />
-        ) : viewState === ViewState.LOADING ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              gap: "0.5rem",
-            }}
-          >
-            <Spinner size={24} />
-            <span
-              style={{
-                color: OS_LEGAL_COLORS.textSecondary,
-                fontSize: "0.875rem",
-              }}
-            >
-              Loading Text...
-            </span>
-          </div>
-        ) : (
-          <EmptyState
-            icon={<FileText size={40} />}
-            title="Error Loading Text"
-            description="Could not load the text file."
-          />
-        )}
-      </PDFContainer>
-    );
-  } else if (isDocxFileType(metadata.fileType)) {
-    viewerContent = (
-      <PDFContainer id="docx-container" ref={containerRefCallback}>
-        {viewState === ViewState.LOADED ? (
-          <DocxAnnotatorWrapper readOnly={!canEdit} allowInput={canEdit} />
-        ) : viewState === ViewState.LOADING ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              gap: "0.5rem",
-            }}
-          >
-            <Spinner size={24} />
-            <span
-              style={{
-                color: OS_LEGAL_COLORS.textSecondary,
-                fontSize: "0.875rem",
-              }}
-            >
-              Loading DOCX...
-            </span>
-          </div>
-        ) : (
-          <EmptyState
-            icon={<FileText size={40} />}
-            title="Error Loading DOCX"
-            description="Could not load the Word document."
-          />
-        )}
-      </PDFContainer>
-    );
-  } else {
-    viewerContent = (
-      <div
-        style={{
-          padding: "2rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100%",
-        }}
-      >
-        {viewState === ViewState.LOADING ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              gap: "0.5rem",
-            }}
-          >
-            <Spinner size={24} />
-            <span
-              style={{
-                color: OS_LEGAL_COLORS.textSecondary,
-                fontSize: "0.875rem",
-              }}
-            >
-              Loading Document...
-            </span>
-          </div>
-        ) : (
-          <EmptyState
-            icon={<FileText size={40} />}
-            title="Unsupported File"
-            description="This document type can't be displayed."
-          />
-        )}
-      </div>
-    );
-  }
+  const viewerContent = (
+    <DocumentViewer
+      fileType={metadata.fileType}
+      viewState={viewState}
+      canEdit={canEdit}
+      containerWidth={containerWidth}
+      containerRefCallback={containerRefCallback}
+      createAnnotationHandler={createAnnotationHandler}
+    />
+  );
 
   // Decide which content is in the center based on activeLayer
   const mainLayerContent =
@@ -2242,108 +2009,21 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
                 />
               )}
 
-              {/* Sidebar View Mode Tabs - always visible, outside panel when closed, on panel edge when open */}
+              {/* Sidebar View Mode Tabs - shown to the right of the document
+                  while the panel is closed; the panel-open variant lives
+                  inside the SlidingPanel below. */}
               {!showRightPanel && (
-                <SidebarTabsContainer $panelOpen={false}>
-                  <SidebarTab
-                    $isActive={sidebarViewMode === "index"}
-                    $panelOpen={false}
-                    onClick={() => {
-                      setSidebarViewMode("index");
-                      setShowRightPanel(true);
-                    }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    data-testid="view-mode-index"
-                  >
-                    <BookOpen />
-                    <span className="tab-label">Index</span>
-                  </SidebarTab>
-                  <SidebarTab
-                    $isActive={sidebarViewMode === "chat"}
-                    $panelOpen={false}
-                    onClick={() => {
-                      setSidebarViewMode("chat");
-                      setShowRightPanel(true);
-                    }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    data-testid="view-mode-chat"
-                  >
-                    <MessageSquare />
-                    <span className="tab-label">Chat</span>
-                  </SidebarTab>
-                  <SidebarTab
-                    $isActive={sidebarViewMode === "feed"}
-                    $panelOpen={false}
-                    onClick={() => {
-                      setSidebarViewMode("feed");
-                      setShowRightPanel(true);
-                    }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    data-testid="view-mode-feed"
-                  >
-                    <Layers />
-                    <span className="tab-label">Feed</span>
-                  </SidebarTab>
-                  {/* Extract tab - only visible when extract is selected */}
-                  {selectedExtract && (
-                    <SidebarTab
-                      $isActive={sidebarViewMode === "extract"}
-                      $panelOpen={false}
-                      onClick={() => {
-                        setSidebarViewMode("extract");
-                        setShowRightPanel(true);
-                      }}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      data-testid="view-mode-extract"
-                    >
-                      <Database />
-                      <span className="tab-label">Extract</span>
-                    </SidebarTab>
-                  )}
-                  {/* Analysis tab - only visible when analysis is selected */}
-                  {selectedAnalysis && (
-                    <SidebarTab
-                      $isActive={sidebarViewMode === "analysis"}
-                      $panelOpen={false}
-                      onClick={() => {
-                        setSidebarViewMode("analysis");
-                        setShowRightPanel(true);
-                      }}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      data-testid="view-mode-analysis"
-                    >
-                      <BarChart3 />
-                      <span className="tab-label">Analysis</span>
-                    </SidebarTab>
-                  )}
-                  {/* Discussions tab - always visible */}
-                  <SidebarTab
-                    $isActive={sidebarViewMode === "discussions"}
-                    $panelOpen={false}
-                    onClick={() => {
-                      setSidebarViewMode("discussions");
-                      setShowRightPanel(true);
-                      setMode("half"); // Keep document visible
-                    }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    data-testid="view-mode-discussions"
-                    aria-label="Document discussions"
-                  >
-                    {threadCount > 0 && (
-                      <TabBadge $isActive={sidebarViewMode === "discussions"}>
-                        {threadCount}
-                      </TabBadge>
-                    )}
-                    <MessageSquare />
-                    <span className="tab-label">Discussions</span>
-                  </SidebarTab>
-                </SidebarTabsContainer>
+                <DesktopSidebarTabs
+                  panelOpen={false}
+                  sidebarViewMode={sidebarViewMode}
+                  setSidebarViewMode={setSidebarViewMode}
+                  showRightPanel={showRightPanel}
+                  setShowRightPanel={setShowRightPanel}
+                  setMode={setMode}
+                  selectedAnalysis={selectedAnalysis}
+                  selectedExtract={selectedExtract}
+                  threadCount={threadCount}
+                />
               )}
 
               {/* Right Panel, if needed */}
@@ -2369,233 +2049,29 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
                     />
 
                     {/* Mobile Tab Bar - horizontal tabs at top for mobile */}
-                    <MobileTabBar>
-                      <MobileTab
-                        $active={sidebarViewMode === "index"}
-                        onClick={() => {
-                          if (sidebarViewMode === "index") {
-                            setShowRightPanel(false);
-                          } else {
-                            setSidebarViewMode("index");
-                          }
-                        }}
-                        data-testid="mobile-view-mode-index"
-                      >
-                        <BookOpen />
-                        <span>Index</span>
-                      </MobileTab>
-                      <MobileTab
-                        $active={sidebarViewMode === "chat"}
-                        onClick={() => {
-                          if (sidebarViewMode === "chat") {
-                            setShowRightPanel(false);
-                          } else {
-                            setSidebarViewMode("chat");
-                          }
-                        }}
-                        data-testid="mobile-view-mode-chat"
-                      >
-                        <MessageSquare />
-                        <span>Chat</span>
-                      </MobileTab>
-                      <MobileTab
-                        $active={sidebarViewMode === "feed"}
-                        onClick={() => {
-                          if (sidebarViewMode === "feed") {
-                            setShowRightPanel(false);
-                          } else {
-                            setSidebarViewMode("feed");
-                          }
-                        }}
-                        data-testid="mobile-view-mode-feed"
-                      >
-                        <Layers />
-                        <span>Feed</span>
-                      </MobileTab>
-                      {selectedExtract && (
-                        <MobileTab
-                          $active={sidebarViewMode === "extract"}
-                          onClick={() => {
-                            if (sidebarViewMode === "extract") {
-                              setShowRightPanel(false);
-                            } else {
-                              setSidebarViewMode("extract");
-                            }
-                          }}
-                          data-testid="mobile-view-mode-extract"
-                        >
-                          <Database />
-                          <span>Extract</span>
-                        </MobileTab>
-                      )}
-                      {selectedAnalysis && (
-                        <MobileTab
-                          $active={sidebarViewMode === "analysis"}
-                          onClick={() => {
-                            if (sidebarViewMode === "analysis") {
-                              setShowRightPanel(false);
-                            } else {
-                              setSidebarViewMode("analysis");
-                            }
-                          }}
-                          data-testid="mobile-view-mode-analysis"
-                        >
-                          <BarChart3 />
-                          <span>Analysis</span>
-                        </MobileTab>
-                      )}
-                      <MobileTab
-                        $active={sidebarViewMode === "discussions"}
-                        onClick={() => {
-                          if (sidebarViewMode === "discussions") {
-                            setShowRightPanel(!showRightPanel);
-                          } else {
-                            setSidebarViewMode("discussions");
-                            setShowRightPanel(true);
-                            setMode("full");
-                          }
-                        }}
-                        aria-label="Document discussions"
-                      >
-                        <MessageSquare />
-                        <span>
-                          Discussions
-                          {threadCount > 0 ? ` (${threadCount})` : ""}
-                        </span>
-                      </MobileTab>
-                    </MobileTabBar>
+                    <MobileSidebarTabs
+                      sidebarViewMode={sidebarViewMode}
+                      setSidebarViewMode={setSidebarViewMode}
+                      showRightPanel={showRightPanel}
+                      setShowRightPanel={setShowRightPanel}
+                      setMode={setMode}
+                      selectedAnalysis={selectedAnalysis}
+                      selectedExtract={selectedExtract}
+                      threadCount={threadCount}
+                    />
 
                     {/* Tabs when panel is open - positioned on left edge of panel (desktop only) */}
-                    <SidebarTabsContainer $panelOpen={true}>
-                      <SidebarTab
-                        $isActive={sidebarViewMode === "index"}
-                        $panelOpen={true}
-                        onClick={() => {
-                          if (sidebarViewMode === "index") {
-                            setShowRightPanel(false);
-                          } else {
-                            setSidebarViewMode("index");
-                          }
-                        }}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        data-testid="view-mode-index"
-                      >
-                        <BookOpen />
-                        <span className="tab-label">Index</span>
-                      </SidebarTab>
-                      <SidebarTab
-                        $isActive={sidebarViewMode === "chat"}
-                        $panelOpen={true}
-                        onClick={() => {
-                          if (sidebarViewMode === "chat") {
-                            // Clicking active tab closes the panel
-                            setShowRightPanel(false);
-                          } else {
-                            // Switch to chat mode
-                            setSidebarViewMode("chat");
-                          }
-                        }}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        data-testid="view-mode-chat"
-                      >
-                        <MessageSquare />
-                        <span className="tab-label">Chat</span>
-                      </SidebarTab>
-                      <SidebarTab
-                        $isActive={sidebarViewMode === "feed"}
-                        $panelOpen={true}
-                        onClick={() => {
-                          if (sidebarViewMode === "feed") {
-                            // Clicking active tab closes the panel
-                            setShowRightPanel(false);
-                          } else {
-                            // Switch to feed mode
-                            setSidebarViewMode("feed");
-                          }
-                        }}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        data-testid="view-mode-feed"
-                      >
-                        <Layers />
-                        <span className="tab-label">Feed</span>
-                      </SidebarTab>
-                      {/* Extract tab - only visible when extract is selected */}
-                      {selectedExtract && (
-                        <SidebarTab
-                          $isActive={sidebarViewMode === "extract"}
-                          $panelOpen={true}
-                          onClick={() => {
-                            if (sidebarViewMode === "extract") {
-                              // Clicking active tab closes the panel
-                              setShowRightPanel(false);
-                            } else {
-                              // Switch to extract mode
-                              setSidebarViewMode("extract");
-                            }
-                          }}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          data-testid="view-mode-extract"
-                        >
-                          <Database />
-                          <span className="tab-label">Extract</span>
-                        </SidebarTab>
-                      )}
-                      {/* Analysis tab - only visible when analysis is selected */}
-                      {selectedAnalysis && (
-                        <SidebarTab
-                          $isActive={sidebarViewMode === "analysis"}
-                          $panelOpen={true}
-                          onClick={() => {
-                            if (sidebarViewMode === "analysis") {
-                              // Clicking active tab closes the panel
-                              setShowRightPanel(false);
-                            } else {
-                              // Switch to analysis mode
-                              setSidebarViewMode("analysis");
-                            }
-                          }}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          data-testid="view-mode-analysis"
-                        >
-                          <BarChart3 />
-                          <span className="tab-label">Analysis</span>
-                        </SidebarTab>
-                      )}
-                      {/* Discussions tab - always visible */}
-                      <SidebarTab
-                        $isActive={sidebarViewMode === "discussions"}
-                        $panelOpen={true}
-                        onClick={() => {
-                          if (sidebarViewMode === "discussions") {
-                            // Clicking active tab closes the panel
-                            setShowRightPanel(false);
-                          } else {
-                            // Switch to discussions mode
-                            setSidebarViewMode("discussions");
-                            setMode("half"); // Keep document visible
-                          }
-                        }}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        data-testid="view-mode-discussions"
-                        aria-label="Document discussions"
-                      >
-                        {threadCount > 0 && (
-                          <TabBadge
-                            $isActive={sidebarViewMode === "discussions"}
-                          >
-                            {threadCount}
-                          </TabBadge>
-                        )}
-                        <MessageSquare />
-                        <span className="tab-label">Discussions</span>
-                      </SidebarTab>
-                    </SidebarTabsContainer>
+                    <DesktopSidebarTabs
+                      panelOpen={true}
+                      sidebarViewMode={sidebarViewMode}
+                      setSidebarViewMode={setSidebarViewMode}
+                      showRightPanel={showRightPanel}
+                      setShowRightPanel={setShowRightPanel}
+                      setMode={setMode}
+                      selectedAnalysis={selectedAnalysis}
+                      selectedExtract={selectedExtract}
+                      threadCount={threadCount}
+                    />
 
                     <RightPanelContent
                       showRightPanel={showRightPanel}
