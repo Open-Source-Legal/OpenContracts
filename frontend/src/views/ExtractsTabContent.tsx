@@ -113,6 +113,10 @@ export const ExtractsTabContent: React.FC<ExtractsTabContentProps> = ({
 
   // Local state for search and filter
   const [searchCache, setSearchCache] = useState(analysis_search_term);
+  // Status filter is intentionally local — switching tabs unmounts this
+  // component, so the filter resets to "all" each visit. Persisting it would
+  // require lifting to a reactive var or URL param; the current UX matches
+  // sibling tabs (Annotations, Documents) where the filter is also per-visit.
   const [activeFilter, setActiveFilter] = useState("all");
 
   // Debounced search - updates the reactive var used by CorpusExtractCards

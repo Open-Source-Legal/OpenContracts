@@ -1616,10 +1616,7 @@ export const Corpuses = () => {
         </NavigationSidebar>
 
         {/* Main content area */}
-        <MainContentArea
-          id="main-corpus-content-area"
-          $sidebarExpanded={!use_mobile_layout && sidebarExpanded}
-        >
+        <MainContentArea id="main-corpus-content-area">
           {mainContent}
         </MainContentArea>
       </CorpusViewContainer>

@@ -14,6 +14,21 @@ import { ChatMessageSource } from "../components/annotator/context/ChatSourceAto
 import useWindowDimensions from "../components/hooks/WindowDimensionHook";
 
 // ===============================================
+// LOCAL CONSTANTS
+// ===============================================
+// Cap on motion-wrapper height so the composer never overflows the viewport
+// when child rendering reports unusually tall content (e.g. virtualized chat
+// transcripts during a layout shift).
+const COMPOSER_MAX_HEIGHT = "99vh";
+// Delay (ms) before focusing the search input on initial desktop mount —
+// the longer wait gives the textarea time to mount inside CorpusHome.
+const MOUNT_FOCUS_DELAY_MS = 150;
+// Delay (ms) before refocusing the search input when returning to search mode
+// (after a chat is dismissed). Shorter than the mount delay because the
+// textarea is already mounted at this point.
+const RETURN_FOCUS_DELAY_MS = 100;
+
+// ===============================================
 // PRIVATE STYLES
 // ===============================================
 const DashboardContainer = styled.div`
@@ -210,29 +225,44 @@ export const CorpusQueryView = ({
 
   // Focus the input on initial mount (desktop only to avoid mobile keyboard issues)
   useEffect(() => {
-    if (isDesktop && inputRef.current) {
-      // Use longer timeout on mount to ensure DOM is ready
-      setTimeout(() => inputRef.current?.focus(), 150);
-    }
-  }, []); // Empty deps = run only on mount
+    if (!isDesktop || !inputRef.current) return;
+    const id = setTimeout(
+      () => inputRef.current?.focus(),
+      MOUNT_FOCUS_DELAY_MS
+    );
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Focus the input when returning to search mode
   useEffect(() => {
-    if (isSearchMode && inputRef.current && isDesktop) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
+    if (!isSearchMode || !inputRef.current || !isDesktop) return;
+    const id = setTimeout(
+      () => inputRef.current?.focus(),
+      RETURN_FOCUS_DELAY_MS
+    );
+    return () => clearTimeout(id);
   }, [isSearchMode, isDesktop]);
+
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Clean up any in-flight resetToSearch focus timer on unmount so it can't
+  // fire against a stale inputRef.
+  useEffect(
+    () => () => {
+      if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    },
+    []
+  );
 
   const resetToSearch = () => {
     setChatExpanded(false);
     setChatExpandedInConversation(false);
     setIsSearchMode(true);
     setSearchQuery("");
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 100);
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => {
+      inputRef.current?.focus();
+    }, RETURN_FOCUS_DELAY_MS);
   };
 
   const openHistoryView = () => {
@@ -319,7 +349,7 @@ export const CorpusQueryView = ({
             flexDirection: "column",
             overflow: "hidden",
             minHeight: 0,
-            maxHeight: "99vh", // Never exceed 99vh regardless of content
+            maxHeight: COMPOSER_MAX_HEIGHT,
             height: "100%",
           }}
           initial={{ opacity: 0 }}
@@ -356,7 +386,7 @@ export const CorpusQueryView = ({
           flexDirection: "column",
           overflow: "hidden",
           minHeight: 0,
-          maxHeight: "99vh", // Never exceed 99vh regardless of content
+          maxHeight: COMPOSER_MAX_HEIGHT,
           height: "100%",
           width: "100%",
         }}
@@ -371,7 +401,7 @@ export const CorpusQueryView = ({
             style={{ position: "relative" }}
           >
             <CorpusHome
-              corpus={opened_corpus as CorpusType}
+              corpus={opened_corpus}
               onEditDescription={() => setShowDescriptionEditor(true)}
               onEditArticle={() => setShowArticleEditor(true)}
               onNavigate={onNavigate}
@@ -410,7 +440,7 @@ export const CorpusQueryView = ({
           display: "flex",
           flexDirection: "column",
           minHeight: 0,
-          maxHeight: "99vh", // Never exceed 99vh regardless of content
+          maxHeight: COMPOSER_MAX_HEIGHT,
           height: "100%",
         }}
         initial={{ opacity: 0 }}

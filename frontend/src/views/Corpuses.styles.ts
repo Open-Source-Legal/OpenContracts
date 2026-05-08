@@ -477,7 +477,7 @@ export const NavigationItem = styled(motion.button)<{
   }
 `;
 
-export const MainContentArea = styled.div<{ $sidebarExpanded: boolean }>`
+export const MainContentArea = styled.div`
   flex: 1;
   overflow: hidden;
   position: relative;
