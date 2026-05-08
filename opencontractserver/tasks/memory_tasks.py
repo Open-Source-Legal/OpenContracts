@@ -96,9 +96,17 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
     # 2. Load messages and check minimum threshold BEFORE claiming.
     # This avoids permanently marking short conversations as curated,
     # which would prevent re-evaluation if more messages are added later.
+    # ``[arg-type]`` is suppressed because ``values_list(..., named=True)``
+    # returns a ``QuerySet[Row*]`` (a synthesised namedtuple class) that the
+    # django-stubs Manager descriptor does not propagate through
+    # ``conversation.chat_messages.filter(...)`` on a custom Manager —
+    # mypy infers the iterable element as ``Any`` and complains about the
+    # ``deleted_at__isnull`` lookup; the production type is correct.
     messages = await database_sync_to_async(
         lambda: list(
-            conversation.chat_messages.filter(deleted_at__isnull=True)
+            conversation.chat_messages.filter(  # type: ignore[arg-type]
+                deleted_at__isnull=True
+            )
             .order_by("created_at")
             .values_list("msg_type", "content", named=True)
         )

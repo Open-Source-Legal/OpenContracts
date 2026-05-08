@@ -470,6 +470,7 @@ export const ModernAnnotationCard: React.FC<ModernAnnotationCardProps> = ({
     images,
     loading: imagesLoading,
     error: imagesError,
+    hasFetchedEmpty: imagesEmpty,
   } = useAnnotationImages(annotation.id, contentModalities);
 
   const labelColor =
@@ -533,6 +534,7 @@ export const ModernAnnotationCard: React.FC<ModernAnnotationCardProps> = ({
                 images={images}
                 loading={imagesLoading}
                 error={imagesError}
+                hasFetchedEmpty={imagesEmpty}
                 compact={false}
               />
               {/* Show text below image if mixed content */}

@@ -53,7 +53,7 @@ def start_analysis(
 
 
 @celery_app.task()
-def request_gremlin_manifest(gremlin_id: str | int) -> list[AnalyzerManifest]:
+def request_gremlin_manifest(gremlin_id: int) -> list[AnalyzerManifest]:
     logger.info("request_gremlin_manifest() - Start...")
 
     gremlin = GremlinEngine.objects.get(id=gremlin_id)
@@ -67,7 +67,7 @@ def request_gremlin_manifest(gremlin_id: str | int) -> list[AnalyzerManifest]:
     # )
     logger.info("request_gremlin_manifest() - End.")
 
-    return analyzer_manifests
+    return analyzer_manifests or []
 
 
 @celery_app.task()
@@ -96,7 +96,7 @@ def mark_analysis_complete(analysis_id: str | int, doc_ids: list[int | str]) -> 
 
     analysis = Analysis.objects.get(pk=analysis_id)
     analysis.analysis_completed = timezone.now()
-    analysis.analyzed_documents.add(*doc_ids)
+    analysis.analyzed_documents.add(*[int(doc_id) for doc_id in doc_ids])
     analysis.save()
 
     # Mark any related CorpusActionExecutions as completed

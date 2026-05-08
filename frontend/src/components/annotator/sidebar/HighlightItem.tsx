@@ -169,7 +169,7 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
   const { annotationElementRefs } = useAnnotationRefs();
 
   // Fetch images if annotation has IMAGE modality
-  const { images, loading, error } = useAnnotationImages(
+  const { images, loading, error, hasFetchedEmpty } = useAnnotationImages(
     annotation.id,
     contentModalities
   );
@@ -268,6 +268,7 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
                 images={images}
                 loading={loading}
                 error={error}
+                hasFetchedEmpty={hasFetchedEmpty}
                 compact={false}
               />
               {/* Show text below image if it's mixed content */}

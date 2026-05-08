@@ -399,7 +399,7 @@ def agentic_highlighter_claude(
                 max_tokens=1024,
                 system=system_directive,
                 messages=[
-                    {"role": "user", "content": request_payload},
+                    {"role": "user", "content": request_payload},  # type: ignore[typeddict-item]
                 ],
             )
 
@@ -597,13 +597,15 @@ def pii_highlighter_claude(
                 }
             ],
         )
-        claude_response = response.content or []
-        logger.info(f"Claude response ({type(claude_response)}): {claude_response}")
+        claude_blocks = response.content or []
+        logger.info(f"Claude response ({type(claude_blocks)}): {claude_blocks}")
 
-        claude_response = [resp.text for resp in claude_response]
-        logger.info(f"Claude response ({type(claude_response)}): {claude_response}")
+        claude_text_parts = [
+            resp.text for resp in claude_blocks if hasattr(resp, "text")
+        ]
+        logger.info(f"Claude response ({type(claude_text_parts)}): {claude_text_parts}")
 
-        claude_response = "\n".join(claude_response)
+        claude_response = "\n".join(claude_text_parts)
         logger.info(f"Claude response ({type(claude_response)}): {claude_response}")
 
     except Exception as e:

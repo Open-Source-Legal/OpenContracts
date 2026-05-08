@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import _ from "lodash";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { useReactiveVar } from "@apollo/client";
@@ -10,7 +10,6 @@ import { Loader2, PenLine, Sparkles } from "lucide-react";
 import { selectedAnnotationIds } from "../../graphql/cache";
 import { ServerAnnotationType, PageInfo } from "../../types/graphql-api";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
-import { LoadingOverlay } from "../common/LoadingOverlay";
 import {
   ModernAnnotationCard,
   getAnnotationSource,
@@ -62,7 +61,6 @@ export interface AnnotationsPanelProps {
 
   // Customization
   emptyStateMessage?: string;
-  loadingMessage?: string;
   isSemanticSearch?: boolean;
 
   // Style
@@ -198,6 +196,58 @@ const LoadingMoreIndicator = styled.div`
   }
 `;
 
+// ── Skeleton loading state ──────────────────────────────────────────────────
+// Cards-shaped placeholders that match the eventual ModernAnnotationCard layout.
+// Replaces a dark inverted overlay that previously stretched across an
+// undefined-height flex container, producing a tall near-black band on the
+// otherwise light Browse Annotations page (issue #1560).
+const skeletonShimmer = keyframes`
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+`;
+
+const SkeletonBlock = styled.div<{
+  $width?: string;
+  $height?: string;
+  $radius?: string;
+}>`
+  width: ${(p) => p.$width ?? "100%"};
+  height: ${(p) => p.$height ?? "12px"};
+  border-radius: ${(p) => p.$radius ?? "4px"};
+  background: linear-gradient(
+    90deg,
+    ${OS_LEGAL_COLORS.surfaceLight} 0%,
+    ${OS_LEGAL_COLORS.surfaceHover} 40%,
+    ${OS_LEGAL_COLORS.surfaceLight} 80%
+  );
+  background-size: 200% 100%;
+  animation: ${skeletonShimmer} 1.5s ease-in-out infinite;
+`;
+
+const SkeletonCard = styled.div`
+  background: white;
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 240px;
+`;
+
+const SkeletonRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+`;
+
+const SkeletonBadges = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+`;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // FILTER TAB CONFIGURATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -218,6 +268,27 @@ const SOURCE_FILTER_TABS: FilterTabItem[] = [
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Render a single annotation card skeleton matching the ModernAnnotationCard layout.
+ */
+const AnnotationCardSkeleton: React.FC = () => (
+  <SkeletonCard aria-hidden="true">
+    <SkeletonRow>
+      <SkeletonBlock $width="40%" $height="14px" />
+      <SkeletonBadges>
+        <SkeletonBlock $width="24px" $height="24px" $radius="6px" />
+        <SkeletonBlock $width="48px" $height="20px" />
+      </SkeletonBadges>
+    </SkeletonRow>
+    <SkeletonBlock $width="35%" $height="20px" />
+    <SkeletonBlock $width="100%" $height="120px" $radius="8px" />
+    <SkeletonRow>
+      <SkeletonBlock $width="45%" $height="12px" />
+      <SkeletonBlock $width="80px" $height="12px" />
+    </SkeletonRow>
+  </SkeletonCard>
+);
 
 /**
  * Apply client-side filtering by type and source to annotation items
@@ -268,7 +339,6 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
   similarityScores,
   searchError,
   emptyStateMessage,
-  loadingMessage = "Loading annotations...",
   isSemanticSearch = false,
   style,
 }) => {
@@ -314,14 +384,6 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
 
       {/* Annotations Grid */}
       <AnnotationsListContainer>
-        {/* Show full overlay only on initial load (no items yet) */}
-        <LoadingOverlay
-          active={loading && filteredItems.length === 0}
-          inverted
-          size="large"
-          content={loadingMessage}
-        />
-
         {/* Error display for search failures */}
         {searchError && (
           <ErrorBanner>
@@ -342,7 +404,13 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
                 similarityScore={similarityScores?.get(annotation.id)}
               />
             ))
-          ) : !loading ? (
+          ) : loading ? (
+            <>
+              {Array.from({ length: 6 }).map((_unused, idx) => (
+                <AnnotationCardSkeleton key={`skeleton-${idx}`} />
+              ))}
+            </>
+          ) : (
             <EmptyStateWrapper>
               <AnnotationIconWrapper>
                 {isSemanticSearch ? (
@@ -362,7 +430,7 @@ export const AnnotationsPanel: React.FC<AnnotationsPanelProps> = ({
                   : "Try adjusting your filters or search query to find what you're looking for."}
               </EmptyDescription>
             </EmptyStateWrapper>
-          ) : null}
+          )}
         </AnnotationsGrid>
 
         {/* Loading more indicator */}

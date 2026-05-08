@@ -44,6 +44,7 @@ vi.mock("../../hooks/useAnnotationImages", () => ({
     images: [],
     loading: false,
     error: false,
+    hasFetchedEmpty: false,
   }),
 }));
 

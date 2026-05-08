@@ -417,11 +417,6 @@ export const CorpusAnnotationCards = ({
       loading={
         isSemanticSearchActive ? semanticSearchLoading : annotation_loading
       }
-      loadingMessage={
-        isSemanticSearchActive
-          ? "Searching annotations..."
-          : "Loading annotations..."
-      }
       pageInfo={annotation_response?.annotations?.pageInfo}
       typeFilter={typeFilter}
       sourceFilter={sourceFilter}
