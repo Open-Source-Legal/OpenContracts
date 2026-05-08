@@ -311,3 +311,105 @@ class TestVectorStoreTypingChanges(TestCase):
         config = AgentConfig(user_id=user.id)
         ctx = CorpusAgentContext(corpus=corpus, config=config)
         self.assertEqual(ctx.documents, [])
+
+
+class TestAddDocumentNoteToolCorpusOptional(TestCase):
+    """``add_document_note_tool`` is reachable from agents scoped to a
+    document with **no corpus**. The underlying ``aadd_document_note``
+    accepts ``corpus_id: int | None``, so the tool must forward ``None``
+    rather than rejecting standalone-document agents.
+
+    The previous implementation guarded ``context.corpus is None`` to
+    placate mypy, which silently broke the standalone-document path.
+    """
+
+    def test_add_document_note_tool_passes_none_when_corpus_absent(self) -> None:
+        text = (
+            _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
+        ).read_text()
+        # The forwarded value must use a ternary that yields ``None`` when
+        # ``context.corpus`` is missing; the previous reject-guard form
+        # raised ValueError instead.
+        self.assertIn(
+            "context.corpus.id if context.corpus else None",
+            text,
+            msg=(
+                "add_document_note_tool no longer forwards None for the "
+                "standalone-document case — agents without a corpus will "
+                "hit a ValueError again."
+            ),
+        )
+        self.assertNotIn(
+            'requires the agent to be scoped to a corpus"',
+            text,
+            msg=(
+                "add_document_note_tool still rejects standalone-document "
+                "agents; the corpus-required guard should be gone."
+            ),
+        )
+
+
+class TestStreamCoreUnknownKwargRejection(TestCase):
+    """``_stream_core`` accepts a fixed allow-list of kwargs and pops
+    each one. Unknown kwargs used to be silently ignored, which masked
+    typos at the call site. PR review asked for an explicit guard so
+    misspellings surface as ``TypeError`` rather than no-ops."""
+
+    def test_stream_core_raises_typeerror_on_unknown_kwarg(self) -> None:
+        text = (
+            _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
+        ).read_text()
+        # The guard reads ``if kwargs:`` followed by a TypeError raise
+        # within ``_stream_core``. We assert both the structural guard
+        # and the diagnostic prefix so the contract stays grep-able.
+        self.assertRegex(
+            text,
+            r"def _stream_core\(",
+            msg="_stream_core no longer present in pydantic_ai_agents.py",
+        )
+        self.assertIn(
+            "_stream_core got unexpected keyword arguments",
+            text,
+            msg=(
+                "Unknown-kwarg guard is missing from _stream_core — typos "
+                "in caller kwarg names will be silently ignored again."
+            ),
+        )
+
+
+class TestConversationVectorStoreCorpusIdCast(TestCase):
+    """Both async vector-store search paths must cast ``self.corpus_id``
+    to ``int`` before the ORM filter, mirroring the ``CoreChatMessage*``
+    sister filters. The PR review caught the asymmetry between the two
+    Conversation-vector-store search methods."""
+
+    def test_both_search_paths_int_cast_corpus_id(self) -> None:
+        text = (
+            _PROJECT_ROOT
+            / "opencontractserver/llms/vector_stores/core_conversation_vector_stores.py"
+        ).read_text()
+        # The buggy form was a bare ``self.corpus_id`` in the
+        # ``chat_with_corpus_id=`` filter. After the fix every such
+        # filter wraps the value in ``int(...)``.
+        bare_filters = text.count("chat_with_corpus_id=self.corpus_id")
+        self.assertEqual(
+            bare_filters,
+            0,
+            msg=(
+                "core_conversation_vector_stores.py still has bare "
+                "``chat_with_corpus_id=self.corpus_id`` filters; the int() "
+                "cast is required for the ORM to honour string-typed "
+                "corpus_id values."
+            ),
+        )
+        # And the cast form must appear at least twice (sync + async path).
+        cast_filters = text.count("chat_with_corpus_id=int(self.corpus_id)")
+        self.assertGreaterEqual(
+            cast_filters,
+            2,
+            msg=(
+                "Expected at least two ``int(self.corpus_id)`` casts in the "
+                "Conversation vector store search paths; found "
+                f"{cast_filters}."
+            ),
+        )

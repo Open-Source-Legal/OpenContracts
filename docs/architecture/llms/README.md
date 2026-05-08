@@ -1942,6 +1942,7 @@ The default framework for agents is configured via Django settings:
 |---------|---------|-------------|
 | `LLMS_DOCUMENT_AGENT_FRAMEWORK` | `AgentFramework.PYDANTIC_AI` | Framework for document agents |
 | `LLMS_CORPUS_AGENT_FRAMEWORK` | `AgentFramework.PYDANTIC_AI` | Framework for corpus agents |
+| `LLMS_VECTOR_STORE_FRAMEWORK` | `AgentFramework.PYDANTIC_AI` | Framework for vector stores. Independent of the agent framework — set this if vector store framework selection should differ from `LLMS_DOCUMENT_AGENT_FRAMEWORK`. |
 
 #### Usage Examples
 

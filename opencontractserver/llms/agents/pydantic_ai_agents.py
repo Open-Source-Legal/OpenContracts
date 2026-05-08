@@ -633,6 +633,10 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         initial_timeline: Optional[list[dict]] = kwargs.pop("initial_timeline", None)
         deps: Any = kwargs.pop("deps", None)
         message_history: Optional[list[Any]] = kwargs.pop("message_history", None)
+        if kwargs:
+            raise TypeError(
+                f"_stream_core got unexpected keyword arguments: {sorted(kwargs)}"
+            )
 
         logger.info(f"[PydanticAI stream] Starting stream with message: {message!r}")
 
@@ -2365,16 +2369,12 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 raise PermissionError(
                     "add_document_note requires an authenticated user"
                 )
-            if context.corpus is None:
-                raise ValueError(
-                    "add_document_note requires the agent to be scoped to a corpus"
-                )
             note = await aadd_document_note(
                 document_id=context.document.id,
                 title=title,
                 content=content,
                 creator_id=config.user_id,
-                corpus_id=context.corpus.id,
+                corpus_id=context.corpus.id if context.corpus else None,
             )
             return {"note_id": note.id}
 

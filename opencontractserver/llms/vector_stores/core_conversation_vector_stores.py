@@ -207,7 +207,7 @@ class CoreConversationVectorStore:
         if self.document_id is not None:
             queryset = queryset.filter(chat_with_document_id=self.document_id)
         elif self.corpus_id is not None:
-            queryset = queryset.filter(chat_with_corpus_id=self.corpus_id)
+            queryset = queryset.filter(chat_with_corpus_id=int(self.corpus_id))
 
         if self.conversation_type:
             queryset = queryset.filter(conversation_type=self.conversation_type)
@@ -277,7 +277,7 @@ class CoreConversationVectorStore:
         if self.document_id is not None:
             queryset = queryset.filter(chat_with_document_id=self.document_id)
         elif self.corpus_id is not None:
-            queryset = queryset.filter(chat_with_corpus_id=self.corpus_id)
+            queryset = queryset.filter(chat_with_corpus_id=int(self.corpus_id))
 
         if self.conversation_type:
             queryset = queryset.filter(conversation_type=self.conversation_type)

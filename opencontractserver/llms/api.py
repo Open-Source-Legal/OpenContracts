@@ -5,7 +5,7 @@ This module provides a simple interface for creating document or corpus agents.
 """
 
 import logging
-from typing import Any, Callable, Literal, Optional, TypeVar, Union
+from typing import Any, Callable, Literal, Optional, TypeVar, Union, cast
 
 from django.conf import settings
 
@@ -114,8 +114,17 @@ class AgentAPI:
         resolved_framework = _resolve_framework(framework)
 
         # Convert tool names to CoreTool instances
+        # ``_resolve_tools`` returns ``list[CoreTool]``; the factory parameter
+        # is the wider ``list[Union[CoreTool, Callable, str]]`` so it can also
+        # accept un-resolved tool spec lists from other callers. ``list`` is
+        # invariant in the type system, so we cast through the wider alias.
         resolved_tools: Optional[list[Union[CoreTool, Callable[..., Any], str]]] = (
-            list(_resolve_tools(tools)) if tools else None
+            cast(
+                "list[Union[CoreTool, Callable[..., Any], str]]",
+                _resolve_tools(tools),
+            )
+            if tools
+            else None
         )
 
         # If caller explicitly disabled persistence we propagate the flags via **kwargs
@@ -225,8 +234,17 @@ class AgentAPI:
         )
 
         # Convert tool names to CoreTool instances
+        # ``_resolve_tools`` returns ``list[CoreTool]``; the factory parameter
+        # is the wider ``list[Union[CoreTool, Callable, str]]`` so it can also
+        # accept un-resolved tool spec lists from other callers. ``list`` is
+        # invariant in the type system, so we cast through the wider alias.
         resolved_tools: Optional[list[Union[CoreTool, Callable[..., Any], str]]] = (
-            list(_resolve_tools(tools)) if tools else None
+            cast(
+                "list[Union[CoreTool, Callable[..., Any], str]]",
+                _resolve_tools(tools),
+            )
+            if tools
+            else None
         )
 
         # If caller explicitly disabled persistence we propagate the flags via **kwargs
