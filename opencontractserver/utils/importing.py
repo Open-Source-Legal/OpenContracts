@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from django.core.files.base import ContentFile, File
 from django.utils import timezone
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 def load_or_create_labels(
     user_id: int,
     labelset_obj,
-    label_data_dict: dict[str, dict],
+    label_data_dict: Mapping[str, Mapping[str, Any]],
     existing_labels: dict[str, AnnotationLabel] = {},
 ) -> dict[str, AnnotationLabel]:
     """
@@ -52,11 +53,11 @@ def load_or_create_labels(
     for label_name, label_data in label_data_dict.items():
         if label_name not in existing_labels:
             logger.info(f"Creating new label: {label_name}")
-            label_data = label_data.copy()
-            label_data.pop("id", None)
-            label_data["creator_id"] = user_id
+            label_data_copy = dict(label_data)
+            label_data_copy.pop("id", None)
+            label_data_copy["creator_id"] = user_id
 
-            label_serializer = AnnotationLabelSerializer(data=label_data)
+            label_serializer = AnnotationLabelSerializer(data=label_data_copy)
             label_serializer.is_valid(raise_exception=True)
             label_obj = label_serializer.save()
             set_permissions_for_obj_to_user(
@@ -514,7 +515,7 @@ def create_document_from_export_data(
 
 
 def import_doc_annotations(
-    doc_data: dict,
+    doc_data: Mapping[str, Any],
     corpus_doc,
     corpus_obj,
     user_id: int,

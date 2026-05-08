@@ -6,6 +6,7 @@ import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { Provider as JotaiProvider } from "jotai";
 import { Documents } from "../src/views/Documents";
+import { DocumentsTestWrapper } from "./DocumentsTestWrapper";
 import {
   GET_DOCUMENTS_FOR_LIST,
   GET_DOCUMENT_STATS,
@@ -17,10 +18,6 @@ import {
   documentSearchTerm,
   selectedDocumentIds,
 } from "../src/graphql/cache";
-// Mock document data — fields match GET_DOCUMENTS_FOR_LIST's selection set.
-// The slim query intentionally omits ``description``, ``pdfFile``,
-// ``isPublic``, ``modified``, ``myPermissions`` (and the rest of the kitchen
-// sink the original GET_DOCUMENTS asked for) — see queries.ts.
 const mockDocument1 = {
   id: "RG9jdW1lbnRUeXBlOjE=",
   slug: "test-document-1",
@@ -53,10 +50,6 @@ const mockDocument2 = {
   },
 };
 
-// Base mock for GET_DOCUMENTS_FOR_LIST query. Variables match what the
-// component sends on initial mount: ``{ limit: DOCUMENTS_PAGE_SIZE }`` with no
-// search/filter set. (DOCUMENTS_PAGE_SIZE = 20 — kept inline here so test
-// failures point at the wrong variable shape rather than a constant import.)
 const getDocumentsMock = {
   request: {
     query: GET_DOCUMENTS_FOR_LIST,
@@ -79,10 +72,6 @@ const getDocumentsMock = {
   },
 };
 
-// Aggregate stats mock — the Documents view fires GET_DOCUMENT_STATS in
-// parallel with the list query so the tile counters reflect the user's full
-// permission scope. The component sends ``{}`` when no filters are active
-// (search term empty, no corpus, no label), so the mock matches that shape.
 const getDocumentStatsMock = {
   request: {
     query: GET_DOCUMENT_STATS,
@@ -649,10 +638,7 @@ test.describe("Documents View - Stat Tiles", () => {
     documentSearchTerm("");
     selectedDocumentIds([]);
 
-    // Stats mock asserts a different shape than the list mock: 47 totalDocs
-    // even though only 2 edges are loaded. This is exactly the bug the PR
-    // fixes — the old client-side reduce would have shown "2", the new
-    // backend aggregate shows "47".
+    // Tile counters reflect the backend aggregate (47), not the loaded edges (2).
     const populatedStatsMock = {
       request: {
         query: GET_DOCUMENT_STATS,
@@ -688,8 +674,6 @@ test.describe("Documents View - Stat Tiles", () => {
       </MockedProvider>
     );
 
-    // Wait for the list query to settle so the page is fully painted before
-    // we read the tile values.
     await expect(page.locator("text=Test Document 1.pdf")).toBeVisible({
       timeout: 5000,
     });
@@ -704,15 +688,10 @@ test.describe("Documents View - Stat Tiles", () => {
     await expect(tiles.nth(2)).toHaveText("40");
     await expect(tiles.nth(3)).toHaveText("7");
 
-    // The "All Documents" filter tab badge must match the Documents tile —
-    // before the fix it tracked ``document_items.length`` (here: 2) and
-    // diverged from the tile counter sitting next to it.
+    // The "All Documents" tab badge must match the Documents tile (47, not 2).
     const allDocsTab = page.locator('text="All Documents"').first();
     await expect(allDocsTab.locator("..").locator("text=47")).toBeVisible();
 
-    // Capture the populated stats hero for the docs site so reviewers can
-    // see the tile-counter contract this PR fixes (full visible count, not
-    // the paginated subset).
     await docScreenshot(page, "documents--stat-tiles--with-data");
 
     authToken(null);
@@ -723,28 +702,132 @@ test.describe("Documents View - Stat Tiles", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Regression notes:
-//
-// The Documents view previously fired ~7 GET_DOCUMENTS requests on every
-// mount — one from the ``useQuery`` itself plus six redundant
-// ``useEffect(refetchDocuments)`` hooks. Combined with
-// ``nextFetchPolicy: "network-only"`` every refetch bypassed the cache.
-//
-// Catching the storm BEHAVIORALLY is not viable in this MockedProvider
-// environment: Apollo's built-in query deduplication merges concurrent
-// in-flight queries with the same key, so all six mount-time refetches
-// collapse into the single initial network request before reaching MockLink.
-// A counter on MockLink can't see them.
-//
-// The structural fix is therefore pinned by a Vitest source-level test in
-// ``frontend/src/views/Documents.refetch-shape.test.ts`` that asserts:
-//   - no ``nextFetchPolicy: "network-only"`` in the source,
-//   - no ``useEffect`` block ending with a bare ``refetchDocuments()`` call,
-//   - the slim ``GET_DOCUMENTS_FOR_LIST`` query is the imported one.
-//
-// The CT mocks above already pin the on-the-wire variable shape — they use
-// strict ``{ limit: 20 }`` matching, so any drift in the request variables
-// would surface as a "document doesn't render" failure in the existing
-// tests.
-// ─────────────────────────────────────────────────────────────────────────────
+test.describe("Documents View - Infinite Scroll (issue #1559)", () => {
+  test("loads a second page when the sentinel scrolls into view", async ({
+    mount,
+    page,
+  }) => {
+    authToken("test-auth-token");
+    userObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+    } as any);
+    backendUserObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+      isUsageCapped: false,
+    } as any);
+    documentSearchTerm("");
+    selectedDocumentIds([]);
+
+    const firstPageDocs = Array.from({ length: 20 }, (_, i) => ({
+      id: `RG9jdW1lbnRUeXBlOlBhZ2UxXyR7aX0=_p1_${i}`,
+      slug: `page-1-doc-${i}`,
+      title: `Page 1 Document ${i + 1}.pdf`,
+      fileType: "pdf",
+      backendLock: false,
+      pageCount: 5,
+      icon: null,
+      created: "2024-01-15T10:30:00Z",
+      creator: {
+        id: "VXNlclR5cGU6MQ==",
+        slug: "test-user",
+        email: "test@example.com",
+      },
+    }));
+
+    const firstPageMock = {
+      request: {
+        query: GET_DOCUMENTS_FOR_LIST,
+        variables: { limit: 20 },
+      },
+      result: {
+        data: {
+          documents: {
+            edges: firstPageDocs.map((node) => ({ node })),
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: "cursor-page-1-start",
+              endCursor: "cursor-page-1-end",
+            },
+          },
+        },
+      },
+    };
+
+    const secondPageDoc = {
+      id: "RG9jdW1lbnRUeXBlOlBhZ2UyXzE=",
+      slug: "page-2-doc-1",
+      title: "Page 2 Sentinel Document.pdf",
+      fileType: "pdf",
+      backendLock: false,
+      pageCount: 7,
+      icon: null,
+      created: "2024-01-16T10:30:00Z",
+      creator: {
+        id: "VXNlclR5cGU6MQ==",
+        slug: "test-user",
+        email: "test@example.com",
+      },
+    };
+
+    const secondPageMock = {
+      request: {
+        query: GET_DOCUMENTS_FOR_LIST,
+        variables: {
+          limit: 20,
+          cursor: "cursor-page-1-end",
+        },
+      },
+      result: {
+        data: {
+          documents: {
+            edges: [{ node: secondPageDoc }],
+            pageInfo: {
+              hasNextPage: false,
+              hasPreviousPage: true,
+              startCursor: "cursor-page-2-start",
+              endCursor: "cursor-page-2-end",
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <DocumentsTestWrapper
+        mocks={[
+          firstPageMock,
+          getDocumentStatsMock,
+          getDocumentStatsMock,
+          secondPageMock,
+        ]}
+        withRelayCache
+      />
+    );
+
+    await expect(page.locator("text=Page 1 Document 1.pdf")).toBeVisible({
+      timeout: 5000,
+    });
+
+    const sentinel = page.locator(".FetchMoreOnVisible");
+    await sentinel.first().scrollIntoViewIfNeeded({ timeout: 5000 });
+    // Allow the IntersectionObserver + Apollo cache merge to settle.
+    await page.waitForTimeout(500);
+
+    await expect(page.locator("text=Page 2 Sentinel Document.pdf")).toBeVisible(
+      { timeout: 8000 }
+    );
+
+    authToken(null);
+    userObj(null);
+    backendUserObj(null);
+
+    await component.unmount();
+  });
+});
+
+// Refetch-storm regression is pinned by Documents.refetch-shape.test.ts (Vitest).

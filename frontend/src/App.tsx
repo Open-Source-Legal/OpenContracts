@@ -58,6 +58,7 @@ import { Annotations } from "./views/Annotations";
 
 import { ThemeProvider } from "./theme/ThemeProvider";
 
+import { AppShell } from "./components/layout/AppShell";
 import "./App.css";
 import "react-toastify/dist/ReactToastify.css";
 import useWindowDimensions from "./components/hooks/WindowDimensionHook";
@@ -296,14 +297,8 @@ export const App = () => {
     initializeAnalyticsOnLoad();
   }, []);
 
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100vh",
-      }}
-    >
+  const overlays = (
+    <>
       <ToastContainer />
       {show_export_modal ? (
         <ExportModal
@@ -338,222 +333,171 @@ export const App = () => {
           onViewBadges={() => navigate("/badges")}
         />
       )}
-      <ThemeProvider>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-            flex: 1,
-            minHeight: 0,
-          }}
-        >
-          <NavMenu />
-          <div
-            id="AppContainer"
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "flex-start",
-              width: "100%",
-              margin: "0px",
-              padding: "0px",
-              minWidth: "100vw",
-              minHeight: 0,
-            }}
-          >
-            {opened_corpus && (
-              <SelectAnalyzerOrFieldsetModal
-                open={show_corpus_analyzer_fieldset_modal}
-                corpus={opened_corpus}
-                document={opened_document ? opened_document : undefined}
-                onClose={() => showSelectCorpusAnalyzerOrFieldsetModal(false)}
-              />
-            )}
-            <DocumentUploadModal
-              refetch={() => {
-                showUploadNewDocumentsModal(false);
-                uploadModalPreloadedFiles([]);
-              }}
-              open={Boolean(show_upload_new_documents_modal)}
-              onClose={() => {
-                showUploadNewDocumentsModal(false);
-                uploadModalPreloadedFiles([]);
-              }}
-              corpusId={opened_corpus?.id || null}
-              folderId={selected_folder_id}
-            />
-            <CRUDModal
-              open={document_to_edit !== null}
-              mode="EDIT"
-              oldInstance={document_to_edit ? document_to_edit : {}}
-              modelName="document"
-              onSubmit={handleUpdateDocument}
-              onClose={() => editingDocument(null)}
-              acceptedFileTypes="pdf"
-              hasFile={true}
-              fileField="pdfFile"
-              fileLabel="PDF File"
-              fileIsImage={false}
-              validate={validateTitleAndDescription}
-              renderForm={(formData, onChange, disabled) => (
-                <DocumentFormFields
-                  formData={formData}
-                  onChange={onChange}
-                  disabled={disabled}
-                />
-              )}
-            />
-            <CRUDModal
-              open={document_to_view !== null}
-              mode="VIEW"
-              oldInstance={document_to_view ? document_to_view : {}}
-              modelName="document"
-              onClose={() => viewingDocument(null)}
-              acceptedFileTypes="pdf"
-              hasFile={true}
-              fileField="pdfFile"
-              fileLabel="PDF File"
-              fileIsImage={false}
-              renderForm={(formData, onChange, disabled) => (
-                <DocumentFormFields
-                  formData={formData}
-                  onChange={onChange}
-                  disabled={disabled}
-                />
-              )}
-            />
-            {/* Central routing state manager - handles ALL URL ↔ State sync */}
-            <CentralRouteManager />
+    </>
+  );
 
-            <AuthGate
-              useAuth0={REACT_APP_USE_AUTH0}
-              audience={REACT_APP_AUDIENCE}
-            >
-              <Routes>
-                {/* Landing/Discovery Page - Main entry point */}
-                <Route
-                  path="/"
-                  element={isLoading ? <div /> : <DiscoveryLanding />}
-                />
-                {/* Simple declarative routes with explicit prefixes */}
+  return (
+    <AppShell
+      overlays={overlays}
+      themeProvider={ThemeProvider}
+      navMenu={<NavMenu />}
+      footer={<Footer />}
+      showFooter={!opened_corpus}
+    >
+      {opened_corpus && (
+        <SelectAnalyzerOrFieldsetModal
+          open={show_corpus_analyzer_fieldset_modal}
+          corpus={opened_corpus}
+          document={opened_document ? opened_document : undefined}
+          onClose={() => showSelectCorpusAnalyzerOrFieldsetModal(false)}
+        />
+      )}
+      <DocumentUploadModal
+        refetch={() => {
+          showUploadNewDocumentsModal(false);
+          uploadModalPreloadedFiles([]);
+        }}
+        open={Boolean(show_upload_new_documents_modal)}
+        onClose={() => {
+          showUploadNewDocumentsModal(false);
+          uploadModalPreloadedFiles([]);
+        }}
+        corpusId={opened_corpus?.id || null}
+        folderId={selected_folder_id}
+      />
+      <CRUDModal
+        open={document_to_edit !== null}
+        mode="EDIT"
+        oldInstance={document_to_edit ? document_to_edit : {}}
+        modelName="document"
+        onSubmit={handleUpdateDocument}
+        onClose={() => editingDocument(null)}
+        acceptedFileTypes="pdf"
+        hasFile={true}
+        fileField="pdfFile"
+        fileLabel="PDF File"
+        fileIsImage={false}
+        validate={validateTitleAndDescription}
+        renderForm={(formData, onChange, disabled) => (
+          <DocumentFormFields
+            formData={formData}
+            onChange={onChange}
+            disabled={disabled}
+          />
+        )}
+      />
+      <CRUDModal
+        open={document_to_view !== null}
+        mode="VIEW"
+        oldInstance={document_to_view ? document_to_view : {}}
+        modelName="document"
+        onClose={() => viewingDocument(null)}
+        acceptedFileTypes="pdf"
+        hasFile={true}
+        fileField="pdfFile"
+        fileLabel="PDF File"
+        fileIsImage={false}
+        renderForm={(formData, onChange, disabled) => (
+          <DocumentFormFields
+            formData={formData}
+            onChange={onChange}
+            disabled={disabled}
+          />
+        )}
+      />
+      {/* Central routing state manager - handles ALL URL ↔ State sync */}
+      <CentralRouteManager />
 
-                {/* Document routes */}
-                <Route
-                  path="/d/:userIdent/:corpusIdent/:docIdent"
-                  element={<DocumentLandingRoute />}
-                />
-                <Route
-                  path="/d/:userIdent/:docIdent"
-                  element={<DocumentLandingRoute />}
-                />
+      <AuthGate useAuth0={REACT_APP_USE_AUTH0} audience={REACT_APP_AUDIENCE}>
+        <Routes>
+          {/* Landing/Discovery Page - Main entry point */}
+          <Route
+            path="/"
+            element={isLoading ? <div /> : <DiscoveryLanding />}
+          />
+          {/* Simple declarative routes with explicit prefixes */}
 
-                {/* Corpus discussion thread route (Issue #621) - MUST come before general corpus route */}
-                <Route
-                  path="/c/:userIdent/:corpusIdent/discussions/:threadId"
-                  element={<CorpusThreadRoute />}
-                />
-                {/* Corpus routes */}
-                <Route
-                  path="/c/:userIdent/:corpusIdent"
-                  element={<CorpusLandingRoute />}
-                />
+          {/* Document routes */}
+          <Route
+            path="/d/:userIdent/:corpusIdent/:docIdent"
+            element={<DocumentLandingRoute />}
+          />
+          <Route
+            path="/d/:userIdent/:docIdent"
+            element={<DocumentLandingRoute />}
+          />
 
-                {/* Extract routes */}
-                <Route
-                  path="/e/:userIdent/:extractIdent"
-                  element={<ExtractLandingRoute />}
-                />
+          {/* Corpus discussion thread route (Issue #621) - MUST come before general corpus route */}
+          <Route
+            path="/c/:userIdent/:corpusIdent/discussions/:threadId"
+            element={<CorpusThreadRoute />}
+          />
+          {/* Corpus routes */}
+          <Route
+            path="/c/:userIdent/:corpusIdent"
+            element={<CorpusLandingRoute />}
+          />
 
-                {/* List views */}
-                <Route path="/corpuses" element={<Corpuses />} />
-                <Route path="/documents" element={<Documents />} />
+          {/* Extract routes */}
+          <Route
+            path="/e/:userIdent/:extractIdent"
+            element={<ExtractLandingRoute />}
+          />
 
-                {/* Cross-content Discover search */}
-                <Route
-                  path="/discover/search"
-                  element={<DiscoverSearchResults />}
-                />
+          {/* List views */}
+          <Route path="/corpuses" element={<Corpuses />} />
+          <Route path="/documents" element={<Documents />} />
 
-                {/* Global Discussions Route (Issue #623) */}
-                <Route
-                  path="/discussions"
-                  element={<GlobalDiscussionsRoute />}
-                />
+          {/* Cross-content Discover search */}
+          <Route path="/discover/search" element={<DiscoverSearchResults />} />
 
-                {/* Thread Search Route (Issue #580) */}
-                <Route path="/threads" element={<ThreadSearchRoute />} />
+          {/* Global Discussions Route (Issue #623) */}
+          <Route path="/discussions" element={<GlobalDiscussionsRoute />} />
 
-                {/* User Profile Routes (Issue #611) */}
-                <Route path="/profile" element={<ProfileRedirect />} />
-                <Route path="/users/:slug" element={<UserProfileRoute />} />
-                {/* Convenience redirect for badge notifications (Issue #637) */}
-                <Route
-                  path="/badges"
-                  element={<Navigate to="/profile" replace />}
-                />
+          {/* Thread Search Route (Issue #580) */}
+          <Route path="/threads" element={<ThreadSearchRoute />} />
 
-                {/* Auth */}
-                {!REACT_APP_USE_AUTH0 ? (
-                  <Route path="/login" element={<Login />} />
-                ) : (
-                  <></>
-                )}
-                {/* LabelSet routes */}
-                <Route
-                  path="/label_sets/:labelsetId"
-                  element={<LabelSetLandingRoute />}
-                />
-                <Route path="/label_sets" element={<Labelsets />} />
-                <Route path="/annotations" element={<Annotations />} />
-                <Route path="/privacy" element={<PrivacyPolicy />} />
-                <Route path="/terms_of_service" element={<TermsOfService />} />
-                <Route
-                  path="/extracts/:extractId"
-                  element={<ExtractDetailRoute />}
-                />
-                <Route path="/extracts" element={<Extracts />} />
-                <Route path="/admin/badges" element={<BadgeManagement />} />
-                <Route
-                  path="/admin/settings"
-                  element={<GlobalSettingsPanel />}
-                />
-                <Route
-                  path="/admin/agents"
-                  element={<GlobalAgentManagement />}
-                />
-                <Route
-                  path="/admin/worker-accounts"
-                  element={<WorkerAccountManagement />}
-                />
-                <Route path="/system_settings" element={<SystemSettings />} />
+          {/* User Profile Routes (Issue #611) */}
+          <Route path="/profile" element={<ProfileRedirect />} />
+          <Route path="/users/:slug" element={<UserProfileRoute />} />
+          {/* Convenience redirect for badge notifications (Issue #637) */}
+          <Route path="/badges" element={<Navigate to="/profile" replace />} />
 
-                {/* Community Routes (Issue #613) */}
-                <Route path="/leaderboard" element={<LeaderboardRoute />} />
-                <Route
-                  path="/community/leaderboard"
-                  element={<LeaderboardRoute />}
-                />
-
-                {/* 404 explicit route and catch-all */}
-                <Route path="/404" element={<NotFound />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </AuthGate>
-          </div>
-          {!opened_corpus && (
-            <div
-              style={{
-                flexShrink: 0,
-                position: "relative",
-              }}
-            >
-              <Footer />
-            </div>
+          {/* Auth */}
+          {!REACT_APP_USE_AUTH0 ? (
+            <Route path="/login" element={<Login />} />
+          ) : (
+            <></>
           )}
-        </div>
-      </ThemeProvider>
-    </div>
+          {/* LabelSet routes */}
+          <Route
+            path="/label_sets/:labelsetId"
+            element={<LabelSetLandingRoute />}
+          />
+          <Route path="/label_sets" element={<Labelsets />} />
+          <Route path="/annotations" element={<Annotations />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms_of_service" element={<TermsOfService />} />
+          <Route path="/extracts/:extractId" element={<ExtractDetailRoute />} />
+          <Route path="/extracts" element={<Extracts />} />
+          <Route path="/admin/badges" element={<BadgeManagement />} />
+          <Route path="/admin/settings" element={<GlobalSettingsPanel />} />
+          <Route path="/admin/agents" element={<GlobalAgentManagement />} />
+          <Route
+            path="/admin/worker-accounts"
+            element={<WorkerAccountManagement />}
+          />
+          <Route path="/system_settings" element={<SystemSettings />} />
+
+          {/* Community Routes (Issue #613) */}
+          <Route path="/leaderboard" element={<LeaderboardRoute />} />
+          <Route path="/community/leaderboard" element={<LeaderboardRoute />} />
+
+          {/* 404 explicit route and catch-all */}
+          <Route path="/404" element={<NotFound />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </AuthGate>
+    </AppShell>
   );
 };
