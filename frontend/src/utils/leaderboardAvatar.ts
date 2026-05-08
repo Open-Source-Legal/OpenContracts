@@ -1,10 +1,11 @@
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 
-// Leaderboard-specific avatar palette. Two final entries are violet/pink
-// accents not present in OS_LEGAL_COLORS — kept in this file so the palette
-// stays a single, audit-able list.
-const AVATAR_VIOLET = "#8B5CF6";
-const AVATAR_PINK = "#EC4899";
+// Leaderboard-specific avatar palette.  The violet/pink accents below are
+// not present in OS_LEGAL_COLORS but live here so the whole palette stays a
+// single audit-able list; exported so theme audits can import the literals
+// directly instead of round-tripping through this module's behaviour.
+export const AVATAR_VIOLET = "#8B5CF6";
+export const AVATAR_PINK = "#EC4899";
 
 const AVATAR_COLOR_PALETTE = [
   OS_LEGAL_COLORS.primaryBlue,

@@ -339,8 +339,12 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
                 "hit a ValueError again."
             ),
         )
+        # Scope the assertion to ``add_document_note`` specifically — other
+        # tools in the same module (e.g. ``add_exact_string_annotations``)
+        # still legitimately reject standalone-document agents and share a
+        # similar message tail.
         self.assertNotIn(
-            'requires the agent to be scoped to a corpus"',
+            "add_document_note requires the agent to be scoped to a corpus",
             text,
             msg=(
                 "add_document_note_tool still rejects standalone-document "

@@ -18,6 +18,11 @@ from opencontractserver.users.models import Assignment, UserExport, UserImport
 User = get_user_model()
 
 
+def _stripped(value: object) -> str:
+    """Return a trimmed string when ``value`` is a string, else empty."""
+    return value.strip() if isinstance(value, str) else ""
+
+
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     display_name = graphene.String(
         description=(
@@ -90,10 +95,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ``given_name``, ``family_name``, ``first_name``, ``last_name``)
         are all model columns on ``opencontractserver.users.models.User``.
         """
-
-        def _stripped(value: object) -> str:
-            return value.strip() if isinstance(value, str) else ""
-
         name = _stripped(getattr(self, "name", ""))
         if name:
             return name

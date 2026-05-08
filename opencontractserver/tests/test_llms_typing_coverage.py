@@ -831,8 +831,11 @@ class TestResolveToolsCallerForms(TestCase):
             return arg
 
         sentinel = object()
+        # ``_resolve_tools`` calls ``CoreTool.from_function`` directly (not
+        # the ``ToolAPI.from_function`` indirection), so we patch the
+        # bound name actually invoked at line 713 of api.py.
         with patch(
-            "opencontractserver.llms.api.ToolAPI.from_function",
+            "opencontractserver.llms.api.CoreTool.from_function",
             return_value=sentinel,
         ) as from_fn:
             result = _resolve_tools([my_tool])
