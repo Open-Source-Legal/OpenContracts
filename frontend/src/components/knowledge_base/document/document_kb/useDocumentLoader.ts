@@ -3,6 +3,10 @@ import { useQuery } from "@apollo/client";
 import { unstable_batchedUpdates } from "react-dom";
 import { toast } from "react-toastify";
 import { getDocument, PDFDocumentLoadingTask } from "pdfjs-dist";
+import {
+  PDFDocumentProxy,
+  PDFPageProxy,
+} from "pdfjs-dist/types/src/display/api";
 import { useAtom } from "jotai";
 import {
   GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS,
@@ -47,6 +51,7 @@ import {
   RelationGroup,
 } from "../../../annotator/types/annotations";
 import { PDFPageInfo } from "../../../annotator/types/pdf";
+import { PageTokens } from "../../../types";
 import { ViewState } from "../../../types";
 import {
   convertToDocTypeAnnotations,
@@ -348,12 +353,15 @@ export function useDocumentLoader({
    * upstream (cached URL vs direct).
    */
   const buildPdfPages = useCallback(
-    (pdfDocProxy: any, pawlsData: any): Promise<PDFPageInfo[]> => {
+    (
+      pdfDocProxy: PDFDocumentProxy,
+      pawlsData: PageTokens[] | null | undefined
+    ): Promise<PDFPageInfo[]> => {
       const loadPagesPromises: Promise<PDFPageInfo>[] = [];
       for (let i = 1; i <= pdfDocProxy.numPages; i++) {
         const pageNum = i;
         loadPagesPromises.push(
-          pdfDocProxy.getPage(pageNum).then((p: any) => {
+          pdfDocProxy.getPage(pageNum).then((p: PDFPageProxy) => {
             const viewport = p.getViewport({ scale: 1 });
             const pageTokens = resolvePageTokens(
               pawlsData,
