@@ -697,7 +697,7 @@ class Corpus(TreeNode):
             return False
         if user.is_superuser:
             return True
-        if self.creator_id == user.id:
+        if self.creator_id == user.pk:
             return True
         return self.moderators.filter(user=user).exists()
 
