@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { relationToGroup } from "../helpers";
-import { LabelType } from "../../../../../types/graphql-api";
+import {
+  AnnotationLabelType,
+  LabelType,
+} from "../../../../../types/graphql-api";
 
-const label = {
+const label: AnnotationLabelType = {
   id: "lbl-1",
   text: "label",
   color: "#000",
   description: "",
   icon: "",
   labelType: LabelType.RelationshipLabel,
-} as any;
+};
 
 describe("relationToGroup", () => {
   it("maps source/target edges to id arrays and preserves structural=false default", () => {
