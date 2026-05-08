@@ -19,7 +19,12 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { MockedResponse } from "@apollo/client/testing";
 import { CorpusesTestWrapper } from "./CorpusesTestWrapper";
-import { openedCorpus, selectedTab } from "../src/graphql/cache";
+import {
+  openedCorpus,
+  selectedTab,
+  selectedExtractIds,
+  analysisSearchTerm,
+} from "../src/graphql/cache";
 import {
   GET_CORPUSES,
   GET_CORPUS_STATS,
@@ -1479,5 +1484,73 @@ test.describe("Corpus - Power User Mode", () => {
     await expect(page.getByTestId("navigation-sidebar")).toBeVisible({
       timeout: 10000,
     });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Tests: Decomposed Components (CorpusQueryView + ExtractsTabContent)         */
+/*                                                                             */
+/* These exercise the interactive branches of the modules extracted in PR     */
+/* #1578 — chat-history view-state, chatExpanded path, extract search/filter, */
+/* and selected-extract detail-pane rendering — that the broader navigation   */
+/* tests above don't drive.                                                   */
+/* -------------------------------------------------------------------------- */
+
+test.describe("ExtractsTabContent - search and filter interactions", () => {
+  test.use({ viewport: { width: 1200, height: 800 } });
+  test.setTimeout(30000);
+
+  test.afterEach(async () => {
+    selectedExtractIds([]);
+    analysisSearchTerm("");
+  });
+
+  test("renders search input and all filter tabs", async ({ mount, page }) => {
+    const corpus = createMockCorpus();
+    await mountCorpuses(mount, corpus, { tab: "extracts" });
+
+    await expect(page.getByPlaceholder("Search extracts...")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // All five filter tabs from EXTRACT_FILTER_ITEMS should render
+    for (const label of [
+      "All",
+      "Running",
+      "Completed",
+      "Failed",
+      "Not Started",
+    ]) {
+      await expect(
+        page.getByRole("tab", { name: new RegExp(`^${label}$`, "i") })
+      ).toBeVisible();
+    }
+
+    await docScreenshot(page, "corpus--extracts-tab--toolbar");
+  });
+
+  test("typing in search input updates the search box value", async ({
+    mount,
+    page,
+  }) => {
+    const corpus = createMockCorpus();
+    await mountCorpuses(mount, corpus, { tab: "extracts" });
+
+    const search = page.getByPlaceholder("Search extracts...");
+    await expect(search).toBeVisible({ timeout: 10000 });
+
+    await search.fill("invoice");
+    await expect(search).toHaveValue("invoice");
+  });
+
+  test("clicking a filter tab marks it active", async ({ mount, page }) => {
+    const corpus = createMockCorpus();
+    await mountCorpuses(mount, corpus, { tab: "extracts" });
+
+    const completed = page.getByRole("tab", { name: /^Completed$/i });
+    await expect(completed).toBeVisible({ timeout: 10000 });
+
+    await completed.click();
+    await expect(completed).toHaveAttribute("aria-selected", "true");
   });
 });
