@@ -831,8 +831,11 @@ class TestResolveToolsCallerForms(TestCase):
             return arg
 
         sentinel = object()
+        # ``_resolve_tools`` calls ``CoreTool.from_function`` directly; patching
+        # ``ToolAPI.from_function`` (the public wrapper) doesn't intercept the
+        # actual call site.
         with patch(
-            "opencontractserver.llms.api.ToolAPI.from_function",
+            "opencontractserver.llms.api.CoreTool.from_function",
             return_value=sentinel,
         ) as from_fn:
             result = _resolve_tools([my_tool])
