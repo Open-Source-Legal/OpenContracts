@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { NetworkStatus } from "@apollo/client";
 import { useDropzone } from "react-dropzone";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
@@ -247,6 +248,12 @@ interface DocumentCardProps {
   items: DocumentType[];
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /**
+   * Apollo `networkStatus` from the parent's `useQuery`. When provided, the
+   * footer spinner is shown only while a `fetchMore` is in flight (status 3),
+   * not on background `cache-and-network` refetches.
+   */
+  networkStatus?: NetworkStatus;
   loading_message: string;
   onShiftClick?: (document: DocumentType) => void;
   onClick?: (document: DocumentType) => void;
@@ -267,6 +274,7 @@ export const DocumentCards = ({
   items,
   pageInfo,
   loading,
+  networkStatus,
   loading_message,
   onShiftClick,
   onClick,
@@ -373,7 +381,10 @@ export const DocumentCards = ({
           </DropZoneContent>
         </DropZoneOverlay>
       )}
-      {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible. */}
+      {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible.
+          We gate on `showEmptyState` (no docs *and* no folders) rather than `items.length === 0`
+          because folder rows are rendered via `prefixItems` and the grid is non-empty whenever
+          they're present, even before any documents arrive. */}
       <LoadingOverlay
         active={loading && showEmptyState}
         size="large"
@@ -415,7 +426,12 @@ export const DocumentCards = ({
             </GridContainer>
             <FetchMoreOnVisible fetchNextPage={handleUpdate} />
             <FetchMoreFooter
-              visible={loading && Boolean(pageInfo?.hasNextPage)}
+              visible={
+                networkStatus === NetworkStatus.fetchMore ||
+                (networkStatus === undefined &&
+                  loading &&
+                  Boolean(pageInfo?.hasNextPage))
+              }
               message="Loading more documents…"
               data-testid="document-cards-fetch-more-spinner"
             />

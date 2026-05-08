@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useReactiveVar } from "@apollo/client";
+import { NetworkStatus, useMutation, useReactiveVar } from "@apollo/client";
 import {
   SearchBox,
   FilterTabs,
@@ -324,6 +324,13 @@ interface CorpusListViewProps {
   corpuses: CorpusType[] | null;
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /**
+   * Apollo `networkStatus` from the parent's `useQuery`. When provided, the
+   * footer spinner is shown only while a `fetchMore` is in flight (status 3),
+   * not on background `cache-and-network` refetches. Required for the parent
+   * query to use `notifyOnNetworkStatusChange: true`.
+   */
+  networkStatus?: NetworkStatus;
   fetchMore: (args?: any) => void | any;
   onCreateCorpus: () => void;
   onImportCorpus?: () => void;
@@ -339,6 +346,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
   corpuses,
   pageInfo,
   loading,
+  networkStatus,
   fetchMore,
   onCreateCorpus,
   onImportCorpus,
@@ -745,7 +753,12 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
           {/* Infinite scroll trigger */}
           <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
           <FetchMoreFooter
-            visible={loading && Boolean(pageInfo?.hasNextPage)}
+            visible={
+              networkStatus === NetworkStatus.fetchMore ||
+              (networkStatus === undefined &&
+                loading &&
+                Boolean(pageInfo?.hasNextPage))
+            }
             message="Loading more corpuses…"
             data-testid="corpuses-fetch-more-spinner"
           />

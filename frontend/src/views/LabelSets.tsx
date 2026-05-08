@@ -8,7 +8,12 @@ import React, {
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
 import {
   SearchBox,
   FilterTabs,
@@ -214,7 +219,7 @@ export const Labelsets = () => {
   };
 
   // GraphQL Query
-  const { refetch, loading, data, fetchMore } = useQuery<
+  const { refetch, loading, networkStatus, data, fetchMore } = useQuery<
     GetLabelsetsWithLabelsOutputs,
     GetLabelsetsWithLabelsInputs
   >(REQUEST_LABELSETS_WITH_ALL_LABELS, {
@@ -544,9 +549,7 @@ export const Labelsets = () => {
               {/* Infinite scroll trigger */}
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
               <FetchMoreFooter
-                visible={
-                  loading && Boolean(data?.labelsets?.pageInfo?.hasNextPage)
-                }
+                visible={networkStatus === NetworkStatus.fetchMore}
                 message="Loading more label sets…"
                 data-testid="labelsets-fetch-more-spinner"
               />

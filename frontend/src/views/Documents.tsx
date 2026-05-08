@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import _ from "lodash";
@@ -886,6 +891,7 @@ export const Documents = () => {
   const {
     refetch: refetchDocuments,
     loading: documents_loading,
+    networkStatus: documents_network_status,
     error: documents_error,
     data: documents_data,
     fetchMore: fetchMoreDocuments,
@@ -1660,10 +1666,7 @@ export const Documents = () => {
 
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
               <FetchMoreFooter
-                visible={
-                  documents_loading &&
-                  Boolean(documents_data?.documents?.pageInfo?.hasNextPage)
-                }
+                visible={documents_network_status === NetworkStatus.fetchMore}
                 message="Loading more documents…"
                 data-testid="documents-fetch-more-spinner"
               />

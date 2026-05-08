@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import styled from "styled-components";
-import { useMutation, useReactiveVar } from "@apollo/client";
+import { NetworkStatus, useMutation, useReactiveVar } from "@apollo/client";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { CollectionList, EmptyState, Button } from "@os-legal/ui";
@@ -64,6 +64,12 @@ interface ExtractCardsProps {
   opened_corpus: CorpusType | null;
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /**
+   * Apollo `networkStatus` from the parent's `useQuery`. When provided, the
+   * footer spinner is shown only while a `fetchMore` is in flight (status 3),
+   * not on background `cache-and-network` refetches.
+   */
+  networkStatus?: NetworkStatus;
   loading_message: string;
   fetchMore: (args?: any) => void | any;
   /** If true, clicking selects via URL params instead of navigating away */
@@ -78,6 +84,7 @@ export const ExtractCards = ({
   opened_corpus,
   loading_message,
   loading,
+  networkStatus,
   fetchMore,
   pageInfo,
   useInlineSelection = false,
@@ -235,7 +242,12 @@ export const ExtractCards = ({
 
             <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
             <FetchMoreFooter
-              visible={loading && Boolean(pageInfo?.hasNextPage)}
+              visible={
+                networkStatus === NetworkStatus.fetchMore ||
+                (networkStatus === undefined &&
+                  loading &&
+                  Boolean(pageInfo?.hasNextPage))
+              }
               message="Loading more extracts…"
               data-testid="extract-cards-fetch-more-spinner"
             />

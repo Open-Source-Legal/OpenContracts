@@ -1,3 +1,4 @@
+import { NetworkStatus } from "@apollo/client";
 import { Table } from "@os-legal/ui";
 import { ExportObject } from "../../types/graphql-api";
 import { PageInfo } from "../../types/graphql-api";
@@ -10,6 +11,12 @@ interface ExportListProps {
   items: ExportObject[] | undefined;
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /**
+   * Apollo `networkStatus` from the parent's `useQuery`. When provided, the
+   * footer spinner is shown only while a `fetchMore` is in flight (status 3),
+   * not on background `cache-and-network` refetches.
+   */
+  networkStatus?: NetworkStatus;
   style?: Record<string, any>;
   fetchMore: (args?: any) => void | any;
   onDelete: (args?: any) => void | any;
@@ -31,6 +38,7 @@ export function ExportList({
   items,
   pageInfo,
   loading,
+  networkStatus,
   style,
   fetchMore,
   onDelete,
@@ -79,7 +87,12 @@ export function ExportList({
 
       <FetchMoreOnVisible fetchNextPage={handleUpdate} />
       <FetchMoreFooter
-        visible={loading && Boolean(pageInfo?.hasNextPage)}
+        visible={
+          networkStatus === NetworkStatus.fetchMore ||
+          (networkStatus === undefined &&
+            loading &&
+            Boolean(pageInfo?.hasNextPage))
+        }
         message="Loading more exports…"
         data-testid="exports-fetch-more-spinner"
       />

@@ -132,6 +132,7 @@ export const CorpusDocumentCards = ({
   const {
     refetch: refetchDocuments,
     loading: documents_loading,
+    networkStatus: documents_network_status,
     error: documents_error,
     data: documents_response,
     fetchMore: fetchMoreDocuments,
@@ -427,6 +428,7 @@ export const CorpusDocumentCards = ({
           <DocumentCards
             items={document_items}
             loading={documents_loading}
+            networkStatus={documents_network_status}
             loading_message="Documents Loading..."
             pageInfo={documents_response?.documents.pageInfo}
             containerStyle={{

@@ -1,7 +1,13 @@
 import React from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import { Loader2 } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+
+const spin = keyframes`
+  to {
+    transform: rotate(360deg);
+  }
+`;
 
 const Footer = styled.div`
   display: flex;
@@ -13,13 +19,7 @@ const Footer = styled.div`
   font-size: 0.875rem;
 
   svg {
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+    animation: ${spin} 0.8s linear infinite;
   }
 `;
 
@@ -36,7 +36,7 @@ interface FetchMoreFooterProps {
  * Unobtrusive footer-pinned spinner shown beneath an infinite-scroll list while
  * a `fetchMore` request is in flight. Pairs with `FetchMoreOnVisible` to give
  * users feedback during pagination without dimming or covering the rows that
- * have already rendered. See PR #1565 for the original Documents-view rationale.
+ * have already rendered.
  */
 export const FetchMoreFooter: React.FC<FetchMoreFooterProps> = ({
   visible,
