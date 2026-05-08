@@ -24,16 +24,12 @@ import {
   showExportModal,
   userObj,
   showCookieAcceptModal,
-  openedDocument,
   openedCorpus,
-  showSelectCorpusAnalyzerOrFieldsetModal,
-  showUploadNewDocumentsModal,
   uploadModalPreloadedFiles,
+  showUploadNewDocumentsModal,
   showKnowledgeBaseModal,
   backendUserObj,
   editingDocument,
-  viewingDocument,
-  selectedFolderId,
 } from "./graphql/cache";
 import { GET_ME, GetMeOutputs } from "./graphql/queries";
 import {
@@ -59,6 +55,7 @@ import { Annotations } from "./views/Annotations";
 import { ThemeProvider } from "./theme/ThemeProvider";
 
 import { AppShell } from "./components/layout/AppShell";
+import { AppDocumentModals } from "./components/layout/AppDocumentModals";
 import "./App.css";
 import "react-toastify/dist/ReactToastify.css";
 import useWindowDimensions from "./components/hooks/WindowDimensionHook";
@@ -75,8 +72,6 @@ import {
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
-import { SelectAnalyzerOrFieldsetModal } from "./components/widgets/modals/SelectCorpusAnalyzerOrFieldsetAnalyzer";
-import { DocumentUploadModal } from "./components/widgets/modals/DocumentUploadModal";
 import { FileUploadPackageProps } from "./components/widgets/modals/DocumentUploadModal";
 import { DocumentLandingRoute } from "./components/routes/DocumentLandingRoute";
 import { ExtractLandingRoute } from "./components/routes/ExtractLandingRoute";
@@ -92,10 +87,7 @@ import { ThreadSearchRoute } from "./views/ThreadSearchRoute";
 import { DiscoveryLanding } from "./views/DiscoveryLanding";
 import { DiscoverSearchResults } from "./views/DiscoverSearchResults";
 import { CentralRouteManager } from "./routing/CentralRouteManager";
-import { CRUDModal } from "./components/widgets/CRUD/CRUDModal";
 import { updateAnnotationDisplayParams } from "./utils/navigationUtils";
-import { DocumentFormFields } from "./components/forms/DocumentFormFields";
-import { validateTitleAndDescription } from "./components/forms/shared";
 import { useBadgeNotifications } from "./hooks/useBadgeNotifications";
 import { useBadgeCelebration } from "./hooks/useBadgeCelebration";
 import { BadgeCelebrationModal } from "./components/badges/BadgeCelebrationModal";
@@ -109,16 +101,6 @@ export const App = () => {
   const show_cookie_modal = useReactiveVar(showCookieAcceptModal);
   const knowledge_base_modal = useReactiveVar(showKnowledgeBaseModal);
   const opened_corpus = useReactiveVar(openedCorpus);
-  const opened_document = useReactiveVar(openedDocument);
-  const document_to_edit = useReactiveVar(editingDocument);
-  const document_to_view = useReactiveVar(viewingDocument);
-  const selected_folder_id = useReactiveVar(selectedFolderId);
-  const show_corpus_analyzer_fieldset_modal = useReactiveVar(
-    showSelectCorpusAnalyzerOrFieldsetModal
-  );
-  const show_upload_new_documents_modal = useReactiveVar(
-    showUploadNewDocumentsModal
-  );
   // Track when auth initialization (including cache clear) is complete
   const auth_init_complete = useReactiveVar(authInitCompleteVar);
 
@@ -344,67 +326,7 @@ export const App = () => {
       footer={<Footer />}
       showFooter={!opened_corpus}
     >
-      {opened_corpus && (
-        <SelectAnalyzerOrFieldsetModal
-          open={show_corpus_analyzer_fieldset_modal}
-          corpus={opened_corpus}
-          document={opened_document ? opened_document : undefined}
-          onClose={() => showSelectCorpusAnalyzerOrFieldsetModal(false)}
-        />
-      )}
-      <DocumentUploadModal
-        refetch={() => {
-          showUploadNewDocumentsModal(false);
-          uploadModalPreloadedFiles([]);
-        }}
-        open={Boolean(show_upload_new_documents_modal)}
-        onClose={() => {
-          showUploadNewDocumentsModal(false);
-          uploadModalPreloadedFiles([]);
-        }}
-        corpusId={opened_corpus?.id || null}
-        folderId={selected_folder_id}
-      />
-      <CRUDModal
-        open={document_to_edit !== null}
-        mode="EDIT"
-        oldInstance={document_to_edit ? document_to_edit : {}}
-        modelName="document"
-        onSubmit={handleUpdateDocument}
-        onClose={() => editingDocument(null)}
-        acceptedFileTypes="pdf"
-        hasFile={true}
-        fileField="pdfFile"
-        fileLabel="PDF File"
-        fileIsImage={false}
-        validate={validateTitleAndDescription}
-        renderForm={(formData, onChange, disabled) => (
-          <DocumentFormFields
-            formData={formData}
-            onChange={onChange}
-            disabled={disabled}
-          />
-        )}
-      />
-      <CRUDModal
-        open={document_to_view !== null}
-        mode="VIEW"
-        oldInstance={document_to_view ? document_to_view : {}}
-        modelName="document"
-        onClose={() => viewingDocument(null)}
-        acceptedFileTypes="pdf"
-        hasFile={true}
-        fileField="pdfFile"
-        fileLabel="PDF File"
-        fileIsImage={false}
-        renderForm={(formData, onChange, disabled) => (
-          <DocumentFormFields
-            formData={formData}
-            onChange={onChange}
-            disabled={disabled}
-          />
-        )}
-      />
+      <AppDocumentModals handleUpdateDocument={handleUpdateDocument} />
       {/* Central routing state manager - handles ALL URL ↔ State sync */}
       <CentralRouteManager />
 
