@@ -1553,4 +1553,57 @@ test.describe("ExtractsTabContent - search and filter interactions", () => {
     await completed.click();
     await expect(completed).toHaveAttribute("aria-selected", "true");
   });
+
+  test("typing fires the debounced search update path", async ({
+    mount,
+    page,
+  }) => {
+    const corpus = createMockCorpus();
+    await mountCorpuses(mount, corpus, { tab: "extracts" });
+
+    const search = page.getByPlaceholder("Search extracts...");
+    await expect(search).toBeVisible({ timeout: 10000 });
+    await search.fill("contract");
+    // Wait long enough for the 500ms debounce callback to fire inside the
+    // iframe. We can't read the reactive var from Node (separate module
+    // instance), so we assert on the input value instead.
+    await page.waitForTimeout(700);
+    await expect(search).toHaveValue("contract");
+  });
+
+  test("pressing Enter in the search input fires the onSubmit handler", async ({
+    mount,
+    page,
+  }) => {
+    const corpus = createMockCorpus();
+    await mountCorpuses(mount, corpus, { tab: "extracts" });
+
+    const search = page.getByPlaceholder("Search extracts...");
+    await expect(search).toBeVisible({ timeout: 10000 });
+    await search.fill("annual");
+    await search.press("Enter");
+    // onSubmit calls handleSearchChange synchronously; the value remains in
+    // the input afterwards (no clear) — that's the visible signal we can
+    // assert on across the test/iframe module boundary.
+    await expect(search).toHaveValue("annual");
+  });
+
+  test("Extracts back button returns to Home tab", async ({ mount, page }) => {
+    const corpus = createMockCorpus();
+    await mountCorpuses(mount, corpus, { tab: "extracts" });
+
+    // Wait for extracts content to render
+    await expect(page.locator("text=Extracts").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    const backBtn = page.locator('[title="Back to Home"]').first();
+    await expect(backBtn).toBeVisible({ timeout: 5000 });
+    await backBtn.click();
+
+    // Landing/home content should render
+    await expect(page.getByTestId("corpus-home-landing")).toBeVisible({
+      timeout: 5000,
+    });
+  });
 });

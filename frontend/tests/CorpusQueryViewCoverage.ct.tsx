@@ -147,4 +147,69 @@ test.describe("CorpusQueryView - direct mount", () => {
       timeout: 10000,
     });
   });
+
+  test("clicking Home button in VIEW state flips reactive var to ASK", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <CorpusQueryViewTestWrapper
+        opened_corpus={buildCorpus()}
+        initialQueryViewState="VIEW"
+      />
+    );
+    const homeBtn = page.locator('[title="Return to Dashboard"]');
+    await expect(homeBtn).toBeVisible({ timeout: 10000 });
+    await homeBtn.click();
+    // After click, the VIEW header text disappears (reactive var flipped to
+    // ASK and the dashboard branch renders instead).
+    await expect(page.getByText("Conversation History")).not.toBeVisible({
+      timeout: 5000,
+    });
+  });
+
+  test("ASK state with a corpus renders the dashboard container", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <CorpusQueryViewTestWrapper
+        opened_corpus={buildCorpus()}
+        initialQueryViewState="ASK"
+      />
+    );
+    // Dashboard branch renders a container with id="corpus-dashboard-container".
+    await expect(page.locator("#corpus-dashboard-container")).toBeVisible({
+      timeout: 10000,
+    });
+  });
+});
+
+test.describe("CorpusQueryView - mobile viewport", () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+  test.setTimeout(30000);
+
+  test.afterEach(() => {
+    showQueryViewState("ASK");
+  });
+
+  test("VIEW state navigation header is suppressed on mobile", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <CorpusQueryViewTestWrapper
+        opened_corpus={buildCorpus()}
+        initialQueryViewState="VIEW"
+      />
+    );
+    // CorpusChat owns its own header on mobile, so the outer
+    // "Conversation History" wrapper should not render.
+    await expect(page.getByText("Conversation History")).not.toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText("Back to Dashboard")).not.toBeVisible({
+      timeout: 5000,
+    });
+  });
 });
