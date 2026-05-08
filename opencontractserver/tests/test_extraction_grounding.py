@@ -286,8 +286,8 @@ class TestGroundingPipelineIntegration(TestCase):
             self.assertEqual(annot.document, self.document)
             self.assertEqual(annot.corpus, self.corpus)
             self.assertFalse(annot.structural)
-            self.assertIsNotNone(annot.annotation_label)
-            assert annot.annotation_label is not None  # narrow for mypy
+            self.assertTrue(annot.is_grounding_source)
+            assert annot.annotation_label is not None  # narrows for mypy
             self.assertEqual(annot.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
 
             # Verify span data
@@ -417,6 +417,180 @@ class TestGroundingPipelineIntegration(TestCase):
         self.datacell.refresh_from_db()
         self.assertEqual(self.datacell.sources.count(), first_count)
 
+    def test_db_constraint_blocks_concurrent_span_label_grounding_duplicates(self):
+        """The DB-level UniqueConstraint must reject a literal duplicate
+        of a grounding SPAN_LABEL row, and ``get_or_create`` must recover
+        via SELECT.
+
+        Parallel to the TOKEN_LABEL test in the PDF class — this one
+        exercises the JSONB-equality lookup, since SPAN_LABEL keys on
+        ``json={"start", "end"}`` rather than ``page``.
+        """
+        from django.db import IntegrityError, transaction
+
+        from opencontractserver.annotations.models import (
+            SPAN_LABEL,
+            Annotation,
+        )
+        from opencontractserver.constants.annotations import OC_EXTRACT_SOURCE_LABEL
+        from opencontractserver.utils.extraction_grounding import (
+            ground_extraction_to_annotations,
+        )
+
+        seeded = async_to_sync(ground_extraction_to_annotations)(
+            datacell=self.datacell,
+            document=self.document,
+            corpus=self.corpus,
+            user_id=self.user.id,
+            enable_fuzzy=False,
+        )
+        self.assertGreater(len(seeded), 0)
+        seed = seeded[0]
+        assert seed.annotation_label is not None  # narrows for mypy
+        self.assertEqual(seed.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
+        self.assertEqual(seed.annotation_type, SPAN_LABEL)
+        self.assertTrue(seed.is_grounding_source)
+
+        # Reordering the json keys must NOT bypass the constraint —
+        # PostgreSQL JSONB equality is structural.
+        reordered_json = {"end": seed.json["end"], "start": seed.json["start"]}
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Annotation.objects.create(
+                    document=seed.document,
+                    corpus=seed.corpus,
+                    annotation_label=seed.annotation_label,
+                    annotation_type=SPAN_LABEL,
+                    page=1,
+                    raw_text=seed.raw_text,
+                    creator_id=self.user.id,
+                    is_grounding_source=True,
+                    structural=False,
+                    json=reordered_json,
+                )
+
+        count_before = Annotation.objects.filter(document=self.document).count()
+        retry = async_to_sync(ground_extraction_to_annotations)(
+            datacell=self.datacell,
+            document=self.document,
+            corpus=self.corpus,
+            user_id=self.user.id,
+            enable_fuzzy=False,
+        )
+        count_after = Annotation.objects.filter(document=self.document).count()
+        self.assertEqual(count_after, count_before)
+        self.assertIn(seed.id, {a.id for a in retry})
+
+
+class TestMigration0069M2MDedup(TestCase):
+    """Direct test of migration 0069's ``_repoint_cross_references`` helper.
+
+    Reproduces the race scenario the migration is written to clean up: a
+    keeper and a redundant annotation both pre-existing in the same
+    ``Datacell.sources`` (i.e. two workers raced and both linked their
+    grounding rows).  A blind ``UPDATE annotation_id=keeper_id`` would
+    collide with the through table's ``UNIQUE(datacell_id, annotation_id)``
+    constraint, so the helper deletes colliding rows before updating.
+    """
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        from opencontractserver.annotations.models import (
+            TOKEN_LABEL,
+            Annotation,
+            AnnotationLabel,
+        )
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
+        from opencontractserver.extracts.models import (
+            Column,
+            Datacell,
+            Extract,
+            Fieldset,
+        )
+
+        User = get_user_model()
+        self.user = User.objects.create_user(username="m2m_dedup_user", password="x")
+        self.corpus = Corpus.objects.create(title="C", creator=self.user)
+        self.doc = Document.objects.create(
+            title="D", creator=self.user, file_type="application/pdf"
+        )
+        fs = Fieldset.objects.create(name="F", creator=self.user)
+        col = Column.objects.create(
+            fieldset=fs, name="c", query="q", output_type="str", creator=self.user
+        )
+        extract = Extract.objects.create(
+            name="E", corpus=self.corpus, fieldset=fs, creator=self.user
+        )
+        self.datacell = Datacell.objects.create(
+            extract=extract,
+            column=col,
+            document=self.doc,
+            creator=self.user,
+            data={},
+        )
+        self.label = AnnotationLabel.objects.create(
+            text="m2m_dedup_label", creator=self.user, label_type=TOKEN_LABEL
+        )
+        self.Annotation = Annotation
+        self.TOKEN_LABEL = TOKEN_LABEL
+
+    def test_repoint_cross_references_handles_existing_keeper_in_through_table(self):
+        """When keeper and redundant both share an owner, the helper
+        deletes the colliding redundant through-row before updating.
+        """
+        import importlib.util
+
+        from django.apps import apps as django_apps
+
+        keeper = self.Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            page=0,
+            annotation_type=self.TOKEN_LABEL,
+            raw_text="hi",
+            creator=self.user,
+            json={},
+            structural=False,
+            is_grounding_source=False,
+        )
+        redundant = self.Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            page=0,
+            annotation_type=self.TOKEN_LABEL,
+            raw_text="hi",
+            creator=self.user,
+            json={},
+            structural=False,
+            is_grounding_source=False,
+        )
+        # The race condition we're cleaning up: BOTH annotations linked to
+        # the same datacell.sources before the dedup runs.
+        self.datacell.sources.add(keeper, redundant)
+        self.assertEqual(self.datacell.sources.count(), 2)
+
+        spec = importlib.util.spec_from_file_location(
+            "mig0069",
+            "opencontractserver/annotations/migrations/"
+            "0069_grounding_annotation_unique_constraints.py",
+        )
+        assert spec is not None and spec.loader is not None  # narrows for mypy
+        mig = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mig)
+
+        # Must NOT raise IntegrityError.
+        mig._repoint_cross_references(django_apps, [redundant.id], keeper.id)
+        self.Annotation.objects.filter(id=redundant.id).delete()
+
+        self.datacell.refresh_from_db()
+        self.assertEqual(self.datacell.sources.count(), 1)
+        self.assertTrue(self.datacell.sources.filter(id=keeper.id).exists())
+        self.assertFalse(self.Annotation.objects.filter(id=redundant.id).exists())
+
 
 class TestGroundingPipelinePDFIntegration(TestCase):
     """Integration tests for grounding against a PDF-shaped document.
@@ -511,8 +685,8 @@ class TestGroundingPipelinePDFIntegration(TestCase):
             self.assertEqual(annot.document, self.document)
             self.assertEqual(annot.corpus, self.corpus)
             self.assertFalse(annot.structural)
-            self.assertIsNotNone(annot.annotation_label)
-            assert annot.annotation_label is not None  # narrow for mypy
+            self.assertTrue(annot.is_grounding_source)
+            assert annot.annotation_label is not None  # narrows for mypy
             self.assertEqual(annot.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
             # PlasmaPDF returns 0-indexed pages; valid range is
             # [0, len(pages) - 1]. The bug we're guarding against is the
@@ -690,3 +864,73 @@ class TestGroundingPipelinePDFIntegration(TestCase):
             self.assertEqual(annot.corpus_id, self.corpus.id)
         for annot in second_corpus_annotations:
             self.assertEqual(annot.corpus_id, other_corpus.id)
+
+    def test_db_constraint_blocks_concurrent_token_label_grounding_duplicates(self):
+        """The DB-level UniqueConstraint must reject a literal duplicate
+        of a grounding TOKEN_LABEL row, and ``get_or_create`` must
+        recover via SELECT — not propagate the IntegrityError.
+
+        Simulates the celery race the constraint exists to defeat: one
+        worker has already inserted the grounding row, a second worker's
+        SELECT misses, and its INSERT must fail-and-fallback rather than
+        creating a sibling row.
+        """
+        from django.db import IntegrityError, transaction
+
+        from opencontractserver.annotations.models import (
+            TOKEN_LABEL,
+            Annotation,
+        )
+        from opencontractserver.constants.annotations import OC_EXTRACT_SOURCE_LABEL
+        from opencontractserver.utils.extraction_grounding import (
+            ground_extraction_to_annotations,
+        )
+
+        # Run grounding once to seed an OC_EXTRACT_SOURCE row with the
+        # right (label, page, raw_text, creator, is_grounding_source=True)
+        # tuple — exactly what the constraint guards.
+        seeded = async_to_sync(ground_extraction_to_annotations)(
+            datacell=self.datacell,
+            document=self.document,
+            corpus=self.corpus,
+            user_id=self.user.id,
+            enable_fuzzy=False,
+        )
+        self.assertGreater(len(seeded), 0)
+        seed = seeded[0]
+        assert seed.annotation_label is not None  # narrows for mypy
+        self.assertEqual(seed.annotation_label.text, OC_EXTRACT_SOURCE_LABEL)
+        self.assertEqual(seed.annotation_type, TOKEN_LABEL)
+        self.assertTrue(seed.is_grounding_source)
+
+        # A direct duplicate INSERT must fail at the database level.
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Annotation.objects.create(
+                    document=seed.document,
+                    corpus=seed.corpus,
+                    annotation_label=seed.annotation_label,
+                    annotation_type=TOKEN_LABEL,
+                    page=seed.page,
+                    raw_text=seed.raw_text,
+                    creator_id=self.user.id,
+                    is_grounding_source=True,
+                    structural=False,
+                    json={},
+                )
+
+        # And re-running the grounding pipeline must NOT create a
+        # duplicate — get_or_create's fallback SELECT (after IntegrityError
+        # on a racing INSERT in production, or after the up-front SELECT
+        # hit here) returns the seed row.
+        count_before = Annotation.objects.filter(document=self.document).count()
+        retry = async_to_sync(ground_extraction_to_annotations)(
+            datacell=self.datacell,
+            document=self.document,
+            corpus=self.corpus,
+            user_id=self.user.id,
+            enable_fuzzy=False,
+        )
+        count_after = Annotation.objects.filter(document=self.document).count()
+        self.assertEqual(count_after, count_before)
+        self.assertIn(seed.id, {a.id for a in retry})

@@ -10,6 +10,10 @@ from graphene.types.generic import GenericScalar
 from config.graphql.permissioning.permission_annotator.middleware import (
     get_permissions_for_user_on_model_in_app,
 )
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 
 User = get_user_model()
 
@@ -288,27 +292,25 @@ class AnnotatePermissionsForReadMixin:
                         # )
                         #####################################################################
 
-                        # Check if permissions were prefetched (for documents)
-                        if hasattr(self, "_prefetched_user_perms"):
-                            # Use prefetched permissions to avoid database hit
-                            this_user_perms = self._prefetched_user_perms
+                        # Prefer per-user prefetch (set by _apply_document_prefetches);
+                        # ``.filter()`` on the related manager bypasses the cache.
+                        prefetched_user_perms_attr = user_perm_attr(user.id)
+                        if hasattr(self, prefetched_user_perms_attr):
+                            this_user_perms = getattr(self, prefetched_user_perms_attr)
                         else:
-                            # Fallback to original query
                             this_user_perms = getattr(
                                 self, f"{model_name}userobjectpermission_set"
+                            ).filter(user_id=user.id)
+
+                        prefetched_group_perms_attr = user_group_perm_attr(user.id)
+                        if hasattr(self, prefetched_group_perms_attr):
+                            this_users_group_perms = getattr(
+                                self, prefetched_group_perms_attr
                             )
-                            # logger.info(
-                            #     f"resolve_my_permissions() - this_user_perms: {this_user_perms}"
-                            # )
-
-                            this_user_perms = this_user_perms.filter(user_id=user.id)
-                            # logger.info(
-                            #     f"resolve_my_permissions() - filtered this_user_perms: {this_user_perms}"
-                            # )
-
-                        this_users_group_perms = getattr(
-                            self, f"{model_name}groupobjectpermission_set"
-                        ).filter(group_id__in=this_user_group_ids)
+                        else:
+                            this_users_group_perms = getattr(
+                                self, f"{model_name}groupobjectpermission_set"
+                            ).filter(group_id__in=this_user_group_ids)
                         # logger.info(
                         #     f"resolve_my_permissions() - this_users_group_perms:"
                         #     f"{this_users_group_perms}"

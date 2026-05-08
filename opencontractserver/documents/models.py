@@ -362,6 +362,29 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
 
         super().save(*args, **kwargs)
 
+    @classmethod
+    def blob_field_names(cls) -> list[str]:
+        """Names of every ``FileField`` declared on the Document model.
+
+        Single source of truth for blob-storage code paths (signal
+        handlers, manager helpers, cleanup tasks). Adding a new
+        ``FileField`` to the model automatically extends coverage
+        everywhere that consumes this list — no follow-up edits needed.
+
+        Computed once per process and cached on the class so signal
+        handlers and the orphan-cleanup task do not pay
+        ``_meta.get_fields()`` introspection cost on every delete.
+        """
+        cached: list[str] | None = getattr(cls, "_BLOB_FIELD_NAMES_CACHE", None)
+        if cached is None:
+            cached = [
+                field.name
+                for field in cls._meta.get_fields()
+                if isinstance(field, models.FileField)
+            ]
+            cls._BLOB_FIELD_NAMES_CACHE = cached
+        return cached
+
     def safe_delete_field_blob(self, field_name: str, *, save: bool = False) -> bool:
         """Delete the blob for ``field_name`` from storage *only* if no
         other Document row references it.

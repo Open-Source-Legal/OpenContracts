@@ -15,7 +15,7 @@ book-keeping code.
 """
 
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
 from .core_agents import FinalEvent, UnifiedStreamEvent
 from .timeline_utils import TimelineBuilder
@@ -32,9 +32,13 @@ class TimelineStreamMixin:  # pylint: disable=too-few-public-methods
     ) -> AsyncGenerator[UnifiedStreamEvent]:
         """Yield events – to be implemented by concrete adapters."""
         raise NotImplementedError("_stream_core() must be implemented by adapter")
+        # The unreachable yield turns this into an async generator so the
+        # declared return type is honoured at runtime — concrete adapters
+        # override this method with a real implementation.
+        yield cast(UnifiedStreamEvent, None)
 
     # Public API -------------------------------------------------------------
-    async def stream(  # type: ignore[override]
+    async def stream(
         self, message: str, **kwargs: Any
     ) -> AsyncGenerator[UnifiedStreamEvent]:
         """Wrapper that delegates to ``_stream_core`` and builds a timeline."""
@@ -56,11 +60,10 @@ class TimelineStreamMixin:  # pylint: disable=too-few-public-methods
                 # Persist to DB if the adapter exposes the helper – this removes
                 # the need for each implementation to do the book-keeping.
                 # ------------------------------------------------------------------
-                if hasattr(self, "_finalise_llm_message") and callable(
-                    getattr(self, "_finalise_llm_message")
-                ):
+                finalise = getattr(self, "_finalise_llm_message", None)
+                if callable(finalise):
                     try:
-                        await self._finalise_llm_message(  # type: ignore[attr-defined]
+                        await finalise(
                             event.llm_message_id or 0,
                             event.accumulated_content or event.content,
                             event.sources,

@@ -12,6 +12,10 @@ from django.db import transaction
 from guardian.shortcuts import assign_perm, remove_perm
 
 from config.graphql.permissioning.permission_annotator.middleware import combine
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
@@ -280,6 +284,37 @@ def get_users_permissions_for_obj(
             f"publish_{model_name}",
             f"permission_{model_name}",
         }
+
+    # Fast path: consume per-user guardian prefetches if attached. Missing attr
+    # (different user, or no prefetch) falls through to the guardian path below.
+    prefetched_user_perms = getattr(instance, user_perm_attr(user.id), None)
+    if prefetched_user_perms is not None:
+        model_permissions_for_user = {
+            perm.permission.codename for perm in prefetched_user_perms
+        }
+        if hasattr(instance, "is_public") and instance.is_public:
+            model_permissions_for_user.add(f"read_{model_name}")
+
+        if include_group_permissions:
+            prefetched_group_perms = getattr(
+                instance, user_group_perm_attr(user.id), None
+            )
+            if prefetched_group_perms is not None:
+                for perm in prefetched_group_perms:
+                    model_permissions_for_user.add(perm.permission.codename)
+            else:
+                # Partial prefetch: user perms cached but group perms not — fall back for groups only.
+                permission_id_to_name_map = get_permission_id_to_name_map_for_model(
+                    instance=instance
+                )
+                this_users_group_perms = getattr(
+                    instance, f"{model_name}groupobjectpermission_set"
+                ).filter(group_id__in=get_users_group_ids(user_instance=user))
+                for perm in this_users_group_perms:
+                    model_permissions_for_user.add(
+                        permission_id_to_name_map[perm.permission_id]
+                    )
+        return model_permissions_for_user
 
     this_user_perms = getattr(instance, f"{model_name}userobjectpermission_set")
 

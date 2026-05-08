@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Iterable
 
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.db import IntegrityError
-from django.db.models import FileField, Manager, Prefetch, Q, QuerySet
+from django.db.models import Manager, Prefetch, Q, QuerySet
 
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 from opencontractserver.shared.QuerySets import (
     AnnotationQuerySet,
     DocumentQuerySet,
@@ -35,38 +40,29 @@ def _apply_document_prefetches(
     lightweight: bool = False,
     with_doc_label_annotations: bool = False,
 ) -> QuerySet:
-    """
-    Apply Document-specific select_related and prefetch_related optimizations.
+    """Apply Document-specific select_related/prefetch_related optimizations.
 
-    Shared by BaseVisibilityManager (for generic model dispatch) and
-    DocumentManager (for custom permission filtering) to avoid duplication.
-
-    ``lightweight`` skips ONLY the heavy per-document fan-outs (full
-    doc_annotations, rows, source/target relationships, notes). Cheap JOINs
-    (creator, parent, user_lock) and user-scoped guardian permission prefetches
-    are applied unconditionally because the corresponding GraphQL fields
-    (``creator``, ``myPermissions``, version metadata) are commonly requested
-    even on list views — leaving them unprefetched produces an N+1 storm where
-    every list row issues 2-3 extra round trips. See
-    ``resolve_my_permissions`` in
-    ``config/graphql/permissioning/permission_annotator/mixins.py`` for the
-    consumer of ``_prefetched_user_perms``.
-
-    ``with_doc_label_annotations`` opts in to a focused prefetch of the
-    document's ``DOC_TYPE_LABEL`` annotations into
-    ``_prefetched_doc_annotations``. ``resolve_doc_annotations_optimized``
-    (config/graphql/custom_resolvers.py) prefers that attribute when present,
-    so this short-circuits the per-document
-    ``AnnotationQueryOptimizer.get_document_annotations`` call that the
-    list-view badge query (``GET_DOCUMENTS`` with ``annotateDocLabels: true``)
-    otherwise triggers per row. The flag is only consulted in lightweight
-    mode — the full prefetch path already loads every doc_annotation, so a
-    focused prefetch on top would be redundant work.
+    Shared by ``BaseVisibilityManager`` and ``DocumentManager``. ``lightweight``
+    skips heavy fan-outs (full doc_annotations, rows, relationships, notes) but
+    keeps cheap JOINs and user-scoped guardian permission prefetches — fields
+    like ``myPermissions`` are commonly requested even on list views.
+    Permission prefetches land on each instance under user-id-suffixed attrs
+    (see ``shared/prefetch_attrs.py``); consumed by ``user_has_permission_for_obj``
+    and ``resolve_my_permissions``. ``with_doc_label_annotations`` opts in to a
+    focused prefetch of ``DOC_TYPE_LABEL`` annotations for list-view badges
+    (only honoured in lightweight mode).
     """
     queryset = queryset.select_related("creator", "user_lock", "parent")
 
     if user and not user.is_anonymous and not user.is_superuser:
-        from opencontractserver.documents.models import DocumentUserObjectPermission
+        from opencontractserver.documents.models import (
+            DocumentGroupObjectPermission,
+            DocumentUserObjectPermission,
+        )
+
+        # Pass the queryset (not ``list(...)``) so Django emits a SQL subquery
+        # — async-safe; ``list(...)`` would raise SynchronousOnlyOperation.
+        user_group_ids = user.groups.values_list("id", flat=True)
 
         queryset = queryset.prefetch_related(
             Prefetch(
@@ -74,10 +70,15 @@ def _apply_document_prefetches(
                 queryset=DocumentUserObjectPermission.objects.filter(
                     user_id=user.id
                 ).select_related("permission"),
-                to_attr="_prefetched_user_perms",
+                to_attr=user_perm_attr(user.id),
             ),
-            "documentgroupobjectpermission_set__permission",
-            "documentgroupobjectpermission_set__group",
+            Prefetch(
+                "documentgroupobjectpermission_set",
+                queryset=DocumentGroupObjectPermission.objects.filter(
+                    group_id__in=user_group_ids
+                ).select_related("permission"),
+                to_attr=user_group_perm_attr(user.id),
+            ),
         )
 
     if not lightweight:
@@ -414,14 +415,8 @@ class DocumentManager(BaseVisibilityManager):
             *only* by ``doc``. Safe to delete from storage. Empty/
             unset fields are omitted.
         """
-        blob_fields: list[str] = [
-            field.name
-            for field in doc._meta.get_fields()
-            if isinstance(field, FileField)
-        ]
-
         unique: set[str] = set()
-        for field_name in blob_fields:
+        for field_name in type(doc).blob_field_names():
             file_field = getattr(doc, field_name)
             if not file_field:
                 continue
@@ -431,6 +426,64 @@ class DocumentManager(BaseVisibilityManager):
             shared = self.filter(**{field_name: blob_name}).exclude(pk=doc.pk).exists()
             if not shared:
                 unique.add(blob_name)
+        return unique
+
+    def unique_blob_paths_for_many(
+        self, queryset_or_pks: QuerySet | Iterable[Any]
+    ) -> set[str]:
+        """Batched complement to ``unique_blob_paths`` for bulk deletion.
+
+        Returns the set of blob paths referenced by any Document in the
+        input set that are NOT referenced by any Document outside the
+        input set. These are the blobs that would be orphaned in storage
+        if every Document in the input were deleted.
+
+        Where ``unique_blob_paths`` runs N queries per Document (one per
+        FileField), this runs at most ``2 * len(FileFields)`` queries
+        regardless of the input size — suitable for queryset-style
+        deletes where the per-row form would be N+1.
+
+        Args:
+            queryset_or_pks: A Document queryset, or an iterable of
+                Document primary keys.
+
+        Returns:
+            Set of blob names safe to schedule for deletion if every
+            input Document is deleted. Empty/unset fields are omitted.
+        """
+        if isinstance(queryset_or_pks, QuerySet):
+            target_pks: list[Any] = list(queryset_or_pks.values_list("pk", flat=True))
+        else:
+            target_pks = [pk for pk in queryset_or_pks if pk is not None]
+
+        if not target_pks:
+            return set()
+
+        unique: set[str] = set()
+        for field_name in self.model.blob_field_names():
+            # Single round-trip per field: collect every distinct,
+            # non-empty path used by the targets.
+            target_paths: set[str] = {
+                path
+                for path in self.filter(pk__in=target_pks)
+                .exclude(**{field_name: ""})
+                .exclude(**{f"{field_name}__isnull": True})
+                .values_list(field_name, flat=True)
+                .distinct()
+                if path
+            }
+            if not target_paths:
+                continue
+
+            # Single round-trip per field: of those, which are still
+            # referenced OUTSIDE the target set?
+            shared_paths: set[str] = set(
+                self.exclude(pk__in=target_pks)
+                .filter(**{f"{field_name}__in": list(target_paths)})
+                .values_list(field_name, flat=True)
+            )
+
+            unique.update(target_paths - shared_paths)
         return unique
 
 
