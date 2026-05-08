@@ -1,24 +1,6 @@
 import type { CSSProperties } from "react";
 
-/**
- * Sticky-footer SPA shell layout.
- *
- * The shell stacks: outer wrapper → flex shell → AppContainer (main routes) →
- * footer wrapper. Each layer's responsibility:
- *
- * - **outer**: floor of 100vh so short pages fill the viewport, but no
- *   ``height: 100vh`` ceiling so longer pages can grow naturally and the
- *   body scrolls. ``justifyContent: center`` is intentionally absent — it
- *   would have negatively offset overflow content if a page exceeded 100vh.
- * - **flexShell**: ``flex: 1`` so it consumes the outer wrapper's free space,
- *   ``minHeight: 0`` so its children can shrink correctly inside flex.
- * - **appContainer**: ``flex: 1`` so the main routes area grows to push the
- *   footer down. ``minHeight: 0`` for the same flex shrink reason.
- * - **footerWrapper**: ``flexShrink: 0`` so the footer never gets squished
- *   away. Previously had ``marginTop: -1.5rem`` to mask the gradient strip
- *   exposed by the ``overflow: hidden`` clamps; that hack is no longer needed
- *   now that the inner wrappers don't clip overflow.
- */
+/** Sticky-footer SPA shell layout (issue #1558). */
 export const APP_SHELL_OUTER_STYLE: CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -33,6 +15,10 @@ export const APP_SHELL_FLEX_SHELL_STYLE: CSSProperties = {
   minHeight: 0,
 };
 
+// minWidth intentionally omitted: 100vw includes scrollbar width but the
+// parent flex container does not, which forces a horizontal scrollbar on
+// systems with non-overlay scrollbars whenever vertical scroll is active.
+// width: 100% already fills the parent.
 export const APP_CONTAINER_STYLE: CSSProperties = {
   flex: 1,
   display: "flex",
@@ -41,7 +27,6 @@ export const APP_CONTAINER_STYLE: CSSProperties = {
   width: "100%",
   margin: "0px",
   padding: "0px",
-  minWidth: "100vw",
   minHeight: 0,
 };
 

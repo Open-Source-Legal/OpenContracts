@@ -24,13 +24,7 @@ export interface AppShellProps {
   showFooter?: boolean;
 }
 
-/**
- * Sticky-footer SPA shell.
- *
- * Owns the four nested wrappers that compose the top-level layout so the
- * ``appShellLayout`` style constants are applied in a single small component
- * that can be unit-tested without standing up the whole ``App`` provider tree.
- */
+/** Sticky-footer SPA shell (issue #1558). */
 export const AppShell: React.FC<AppShellProps> = ({
   overlays,
   themeProvider: ThemeWrapper,
@@ -51,6 +45,8 @@ export const AppShell: React.FC<AppShellProps> = ({
     </div>
   );
 
+  // overlays render outside the optional ThemeProvider so toasts/modals that
+  // consume the theme context will fall back to defaults (matches App.tsx).
   return (
     <div style={APP_SHELL_OUTER_STYLE}>
       {overlays}

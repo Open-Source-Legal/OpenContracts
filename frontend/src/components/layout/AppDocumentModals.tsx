@@ -23,14 +23,7 @@ export interface AppDocumentModalsProps {
   handleUpdateDocument: (document_obj: Record<string, unknown>) => void;
 }
 
-/**
- * Top-level modals attached to the App shell that are driven by Apollo
- * reactive variables (corpus selection, document upload, edit/view).
- *
- * Extracted from ``App`` so the conditional/ternary branches that decide
- * which modal renders can be unit-tested without mounting the whole
- * routing tree.
- */
+/** Top-level reactive-var-driven modals (corpus analyzer, upload, edit/view). */
 export const AppDocumentModals: React.FC<AppDocumentModalsProps> = ({
   handleUpdateDocument,
 }) => {

@@ -68,6 +68,13 @@ describe("APP_CONTAINER_STYLE", () => {
   it("uses minHeight: 0 so flex children can shrink correctly", () => {
     expect(APP_CONTAINER_STYLE.minHeight).toBe(0);
   });
+
+  it("does not pin minWidth to 100vw (scrollbar overflow regression)", () => {
+    // 100vw includes the scrollbar width but the parent flex container does
+    // not. Pinning minWidth to 100vw forces a horizontal scrollbar whenever
+    // vertical scroll is active on systems with non-overlay scrollbars.
+    expect(APP_CONTAINER_STYLE.minWidth).toBeUndefined();
+  });
 });
 
 describe("APP_SHELL_FOOTER_WRAPPER_STYLE", () => {
