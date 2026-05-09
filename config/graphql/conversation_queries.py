@@ -487,23 +487,21 @@ class ConversationQueryMixin:
                 "moderator",
             ).get(pk=pk)
 
-            # Check permission
-            if not user.is_superuser:
-                corpus = (
-                    action.conversation.chat_with_corpus
-                    if action.conversation
-                    else None
-                )
-                # TODO(#1594): corpus-less actions have no auth gate — when
-                # `corpus is None`, this branch falls through and returns the
-                # action to any authenticated non-superuser. Mirror the list
-                # resolver's filter (require corpus ownership/moderation) once
-                # the broader fix lands.
-                if corpus:
-                    is_owner = corpus.creator == user
-                    is_moderator = corpus.moderators.filter(user=user).exists()
-                    if not is_owner and not is_moderator:
-                        return None
+            # Check permission via the canonical Corpus.user_can_moderate
+            # helper. The superuser short-circuit is baked in; the prior
+            # "no corpus context → grant access" branch is preserved for
+            # corpus-less moderation actions.
+            #
+            # TODO(#1594): corpus-less actions have no auth gate — when
+            # `corpus is None`, this branch falls through and returns the
+            # action to any authenticated non-superuser. Mirror the list
+            # resolver's filter (require corpus ownership/moderation) once
+            # the broader fix lands.
+            corpus = (
+                action.conversation.chat_with_corpus if action.conversation else None
+            )
+            if corpus is not None and not corpus.user_can_moderate(user):
+                return None
 
             return action
         except ModerationAction.DoesNotExist:
