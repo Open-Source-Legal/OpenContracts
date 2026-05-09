@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { NetworkStatus } from "@apollo/client";
 import { useDropzone } from "react-dropzone";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
@@ -9,6 +10,7 @@ import { DocumentItem } from "./DocumentItem";
 import { ModernDocumentItem } from "./ModernDocumentItem";
 import { DocumentType, PageInfo } from "../../types/graphql-api";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 
 const ResponsiveCardGrid = styled.div`
   display: grid;
@@ -246,6 +248,8 @@ interface DocumentCardProps {
   items: DocumentType[];
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /** NetworkStatus from useQuery. When omitted, footer falls back to `loading && hasNextPage`. */
+  networkStatus?: NetworkStatus;
   loading_message: string;
   onShiftClick?: (document: DocumentType) => void;
   onClick?: (document: DocumentType) => void;
@@ -266,6 +270,7 @@ export const DocumentCards = ({
   items,
   pageInfo,
   loading,
+  networkStatus,
   loading_message,
   onShiftClick,
   onClick,
@@ -372,9 +377,9 @@ export const DocumentCards = ({
           </DropZoneContent>
         </DropZoneOverlay>
       )}
+      {/* Initial-load overlay — `showEmptyState` (no docs and no folders) is the right gate because `prefixItems` folder rows keep the grid non-empty before any docs arrive. */}
       <LoadingOverlay
-        active={loading}
-        inverted
+        active={loading && showEmptyState}
         size="large"
         content={loading_message}
       />
@@ -413,6 +418,16 @@ export const DocumentCards = ({
               {cards}
             </GridContainer>
             <FetchMoreOnVisible fetchNextPage={handleUpdate} />
+            <FetchMoreFooter
+              visible={
+                networkStatus === NetworkStatus.fetchMore ||
+                (networkStatus === undefined &&
+                  loading &&
+                  Boolean(pageInfo?.hasNextPage))
+              }
+              message="Loading more documents…"
+              data-testid="document-cards-fetch-more-spinner"
+            />
           </>
         )}
       </div>
