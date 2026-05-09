@@ -42,6 +42,8 @@ from django.db import transaction
 
 from opencontractserver.constants.document_processing import (
     CAML_ARTICLE_TITLE,
+    CAML_CITATION_MAX_CANDIDATES,
+    CAML_EDIT_PREVIEW_RADIUS_CHARS,
     MARKDOWN_MIME_TYPE,
 )
 from opencontractserver.documents.models import Document
@@ -70,14 +72,6 @@ _DIRECTIVE_PATTERN = re.compile(
     r"\{\{@(\w+)\s+(sentence|paragraph|block)(?:\s+([^}]+?))?\}\}"
 )
 _DIRECTIVE_ARG_PATTERN = re.compile(r'(\w+)=(?:"([^"]+)"|(\S+))')
-
-# Cap on candidates returned by ``apropose_caml_citation_match`` -- keeps the
-# tool output bounded regardless of what the LLM passes for ``limit``.
-_MAX_CITATION_CANDIDATES = 25
-
-# Window of surrounding text returned in ``apply``'s preview so the approval
-# modal can show "before/after" context without dumping the whole document.
-_PREVIEW_RADIUS_CHARS = 80
 
 
 # --------------------------------------------------------------------------- #
@@ -128,10 +122,12 @@ def _looks_like_prose(text: str) -> bool:
     if not stripped:
         return False
     # Thematic breaks and setext heading underlines are blocks consisting of
-    # only ``-``, ``_``, or ``=`` (with optional spaces) — exclude them
-    # before the first-character check so a lone ``___`` paragraph doesn't
-    # slip through as prose.
-    if set(stripped.replace(" ", "")) <= {"-", "_", "="}:
+    # only ``-``, ``_``, ``=``, or ``*`` (with optional spaces) — exclude them
+    # before the first-character check so a lone ``___`` or ``***`` paragraph
+    # doesn't slip through as prose.  ``***`` is a valid CommonMark thematic
+    # break; emphasis runs like ``*Force majeure*`` survive because they
+    # contain non-asterisk characters and so are not a subset of this set.
+    if set(stripped.replace(" ", "")) <= {"-", "_", "=", "*"}:
         return False
     # CommonMark list markers require a following whitespace
     # (``- item``, ``* item``, ``+ item``).  Without the whitespace the
@@ -211,6 +207,26 @@ def _assert_corpus_visible_to_user(corpus_id: int, author_id: int) -> None:
 
     if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
         raise ValueError(not_found)
+
+
+def _safe_delete_storage_path(name: str) -> None:
+    """Delete a storage path, swallowing failures.
+
+    Used as an ``on_commit`` callback after rotating a CAML article's
+    underlying blob.  The new file is already persisted and the DB pointer
+    has been bumped; if the old-blob delete fails (transient storage
+    error, missing object, etc.) we don't want to surface the failure to
+    the agent, since the user-visible edit succeeded.  An orphan blob is
+    recoverable via housekeeping; a thrown exception here is not.
+    """
+    if not name:
+        return
+    from django.core.files.storage import default_storage
+
+    try:
+        default_storage.delete(name)
+    except Exception:
+        logger.exception("Failed to delete orphaned CAML blob %s", name)
 
 
 def _read_caml_content(doc: Document) -> str:
@@ -370,7 +386,7 @@ async def apropose_caml_citation_match(
         corpus_id=corpus_id, author_id=author_id
     )
 
-    capped_limit = max(1, min(int(limit), _MAX_CITATION_CANDIDATES))
+    capped_limit = max(1, min(int(limit), CAML_CITATION_MAX_CANDIDATES))
 
     store = CoreAnnotationVectorStore(
         user_id=author_id,
@@ -450,20 +466,6 @@ def _apply_caml_article_edit(
 
     doc = _load_caml_document_for_user(corpus_id, user)
 
-    # Defense-in-depth: explicit UPDATE check on the CAML document.  The
-    # wrapper validates READ on deps.corpus_id, but the CAML article is a
-    # separate Document with its own guardian permissions -- creator access
-    # is honoured here (user_has_permission_for_obj does not consider it for
-    # documents, see its docstring).
-    if not (
-        user.is_superuser
-        or doc.creator_id == user.pk
-        or user_has_permission_for_obj(user, doc, PermissionTypes.UPDATE)
-    ):
-        raise ValueError(
-            f"User {user.pk} cannot modify the Readme.CAML for corpus {corpus_id}."
-        )
-
     # Wrap the read-check-write in a transaction with a row lock on the
     # Document so two simultaneous approval-gated calls can't both observe
     # ``occurrences == 1`` and clobber each other's edit.  ``select_for_update``
@@ -473,6 +475,22 @@ def _apply_caml_article_edit(
         # pointer — a competing writer may have rotated the blob between
         # ``_load_caml_document_for_user`` and this point.
         locked_doc = Document.objects.select_for_update().get(pk=doc.pk)
+
+        # Defense-in-depth: explicit UPDATE check on the CAML document.  The
+        # wrapper validates READ on deps.corpus_id, but the CAML article is a
+        # separate Document with its own guardian permissions -- creator access
+        # is honoured here (user_has_permission_for_obj does not consider it
+        # for documents, see its docstring).  The check runs inside the locked
+        # transaction so a permission revocation between the initial load and
+        # the write cannot slip through.
+        if not (
+            user.is_superuser
+            or locked_doc.creator_id == user.pk
+            or user_has_permission_for_obj(user, locked_doc, PermissionTypes.UPDATE)
+        ):
+            raise ValueError(
+                f"User {user.pk} cannot modify the Readme.CAML for corpus {corpus_id}."
+            )
 
         content = _read_caml_content(locked_doc)
 
@@ -503,12 +521,29 @@ def _apply_caml_article_edit(
         # orphaned with a stale DB pointer.  We keep the same Document row
         # so frontend deep-links to ``Readme.CAML`` continue to work
         # (no new version_tree entry).
-        file_name = locked_doc.txt_extract_file.name or ""
-        filename = file_name.rsplit("/", 1)[-1] or "Readme.CAML.md"
+        old_file_name = locked_doc.txt_extract_file.name or ""
+        filename = old_file_name.rsplit("/", 1)[-1] or "Readme.CAML.md"
         locked_doc.txt_extract_file.save(
             filename, ContentFile(new_content.encode("utf-8")), save=False
         )
+        new_file_name = locked_doc.txt_extract_file.name or ""
         locked_doc.save(update_fields=["txt_extract_file", "modified"])
+
+        # ``FieldFile.save`` writes a fresh storage blob each call (the
+        # default ``upload_to`` strategy mangles the name on collision),
+        # so without explicit cleanup the previous blob is orphaned.
+        # Schedule the delete on transaction commit: storage operations
+        # are non-transactional, so deleting before commit could leave a
+        # rolled-back document pointing at a missing file.  Wrap in a
+        # try/except so a transient storage failure here doesn't blow up
+        # the otherwise-successful edit; the orphan is recoverable.
+        if old_file_name and old_file_name != new_file_name:
+            old_to_delete: str = old_file_name
+
+            def _cleanup_orphan() -> None:
+                _safe_delete_storage_path(old_to_delete)
+
+            transaction.on_commit(_cleanup_orphan)
 
     # The ``select_for_update`` lock is released at transaction commit, so
     # rename the variable here to stop the "locked" connotation from
@@ -520,9 +555,10 @@ def _apply_caml_article_edit(
     caml_doc.refresh_from_db(fields=["modified"])
 
     pos = content.find(target_text)
-    preview_start = max(0, pos - _PREVIEW_RADIUS_CHARS)
+    preview_start = max(0, pos - CAML_EDIT_PREVIEW_RADIUS_CHARS)
     preview_end = min(
-        len(new_content), pos + len(replacement_text) + _PREVIEW_RADIUS_CHARS
+        len(new_content),
+        pos + len(replacement_text) + CAML_EDIT_PREVIEW_RADIUS_CHARS,
     )
     preview_window = new_content[preview_start:preview_end]
 

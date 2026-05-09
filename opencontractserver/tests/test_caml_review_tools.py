@@ -17,7 +17,10 @@ from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
-from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
+from opencontractserver.constants.document_processing import (
+    CAML_EDIT_PREVIEW_RADIUS_CHARS,
+    MARKDOWN_MIME_TYPE,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.tools.core_tools import (
@@ -26,7 +29,6 @@ from opencontractserver.llms.tools.core_tools import (
     aread_corpus_caml_article,
 )
 from opencontractserver.llms.tools.core_tools.caml_article import (
-    _PREVIEW_RADIUS_CHARS,
     _apply_caml_article_edit,
     _looks_like_prose,
     _parse_directive_args,
@@ -575,6 +577,44 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
         self.assertTrue(result["applied"])
         self.assertIn("{{@cite sentence}}", self._read_caml_body())
 
+    def test_old_blob_is_deleted_after_edit(self):
+        """Each edit must rotate to a new blob and clean up the previous one.
+
+        Without explicit cleanup, ``FieldFile.save`` accumulates orphaned
+        files in storage on every call (it picks a fresh suffixed name on
+        collision rather than overwriting in place). This test pins the
+        behaviour: after an edit, the *previous* blob name no longer
+        exists in storage.
+        """
+        from django.core.files.storage import default_storage
+
+        old_name = self.caml_doc.txt_extract_file.name
+        assert old_name, "Fixture CAML doc must have a non-empty file name."
+        self.assertTrue(default_storage.exists(old_name))
+
+        _apply_caml_article_edit(
+            corpus_id=self.corpus.id,
+            author_id=self.owner.id,
+            target_text=(
+                "Force majeure clauses were updated in 2023 to "
+                "cover supply-chain shocks."
+            ),
+            replacement_text=(
+                "Force majeure clauses were updated in 2023 to "
+                "cover supply-chain shocks. {{@cite sentence}}"
+            ),
+            rationale="rotate blob",
+        )
+        self.caml_doc.refresh_from_db()
+        new_name = self.caml_doc.txt_extract_file.name
+        assert new_name, "Edit must leave a non-empty file pointer."
+        self.assertNotEqual(new_name, old_name)
+        self.assertTrue(default_storage.exists(new_name))
+        self.assertFalse(
+            default_storage.exists(old_name),
+            f"Old CAML blob {old_name!r} was orphaned in storage after edit.",
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Registry integration                                                         #
@@ -686,6 +726,10 @@ class LooksLikeProseTests(TestCase):
         self.assertFalse(_looks_like_prose("___"))
         self.assertFalse(_looks_like_prose("==="))
         self.assertFalse(_looks_like_prose("- - -"))
+        # ``***`` is a valid CommonMark thematic break — characters are
+        # all ``*``, so the subset-of-{-, _, =, *} guard rejects it.
+        self.assertFalse(_looks_like_prose("***"))
+        self.assertFalse(_looks_like_prose("* * *"))
 
     def test_rejects_code_fences(self):
         self.assertFalse(_looks_like_prose("```python"))
@@ -743,10 +787,14 @@ class ApplyCamlArticleEditPreviewTests(TransactionTestCase):
         preview = result["preview"]
         # The replacement text must appear in the preview.
         self.assertIn("REPLACED.", preview)
-        # The preview is bounded by ``_PREVIEW_RADIUS_CHARS`` on each side
-        # of the replacement.  Cap the maximum length: radius before +
+        # The preview is bounded by ``CAML_EDIT_PREVIEW_RADIUS_CHARS`` on each
+        # side of the replacement.  Cap the maximum length: radius before +
         # replacement length + radius after.
-        max_expected = _PREVIEW_RADIUS_CHARS + len("REPLACED.") + _PREVIEW_RADIUS_CHARS
+        max_expected = (
+            CAML_EDIT_PREVIEW_RADIUS_CHARS
+            + len("REPLACED.")
+            + CAML_EDIT_PREVIEW_RADIUS_CHARS
+        )
         self.assertLessEqual(len(preview), max_expected)
         # Some context from the prefix and suffix should also be visible.
         self.assertIn("alpha", preview)

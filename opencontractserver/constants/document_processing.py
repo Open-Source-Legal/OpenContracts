@@ -182,3 +182,16 @@ DEFAULT_SLIDING_WINDOW_OVERLAP = 200
 # inputs (e.g. a 10MB log line with no spaces) that would otherwise make the
 # inner scan O(n²) relative to the span length.
 MAX_WORD_BOUNDARY_SCAN_CHARS = 512
+
+# ---------------------------------------------------------------------------
+# CAML article citation review tools
+# ---------------------------------------------------------------------------
+
+# Cap on candidates returned by ``apropose_caml_citation_match`` -- keeps the
+# tool output bounded regardless of what the LLM passes for ``limit``.
+CAML_CITATION_MAX_CANDIDATES = 25
+
+# Window of surrounding text returned in ``aapply_caml_article_edit``'s preview
+# so the approval modal can show "before/after" context without dumping the
+# whole document.
+CAML_EDIT_PREVIEW_RADIUS_CHARS = 80

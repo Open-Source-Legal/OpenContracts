@@ -52,6 +52,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     single-occurrence rule, the creator/superuser/UPDATE check matrix, and
     registry resolution including the `requires_approval` /
     `requires_write_permission` / `requires_corpus` flags.
+  - Each `apply_caml_article_edit` call rotates `Document.txt_extract_file`
+    to a fresh storage blob and queues an `on_commit` cleanup that deletes
+    the previous blob, so long-lived corpora don't accumulate orphan files
+    on every citation edit. The UPDATE permission check runs **inside** the
+    `select_for_update` transaction so a permission revocation between the
+    initial load and the locked write cannot slip through. The prose
+    heuristic also rejects `***` / `* * *` thematic breaks (previously only
+    `-`/`_`/`=` runs were excluded). `CAML_CITATION_MAX_CANDIDATES` and
+    `CAML_EDIT_PREVIEW_RADIUS_CHARS` moved to
+    `opencontractserver/constants/document_processing.py`.
 
 ### Fixed
 
