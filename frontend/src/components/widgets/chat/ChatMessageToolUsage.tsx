@@ -30,7 +30,7 @@ import {
   ToolPopoverBody,
   ToolPopoverHeader,
 } from "./ChatMessage.styles";
-import type { TimelineEntry } from "./ChatMessage";
+import type { TimelineEntry } from "./types";
 
 // Paired tool call info extracted from timeline for the tool usage popover
 interface ToolCallInfo {

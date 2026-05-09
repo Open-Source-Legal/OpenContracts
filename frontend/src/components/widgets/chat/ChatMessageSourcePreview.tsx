@@ -124,7 +124,7 @@ const SourceItem: React.FC<SourceItemProps> = ({
         createAnnotation(newAnnot);
       }
     } catch (err) {
-      /* eslint-disable no-console */
+      // eslint-disable-next-line no-console
       console.error("Failed to create annotation from source", err);
     } finally {
       setLabelMenuOpen(false);

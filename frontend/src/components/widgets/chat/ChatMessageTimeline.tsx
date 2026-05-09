@@ -206,10 +206,8 @@ export const TimelinePreview: React.FC<TimelinePreviewProps> = ({
   const prevTimelineLengthRef = useRef(timeline.length);
 
   /* Expansion state per entry ----------------------------------------- */
-  const buildInitialExpandedStates = () => timeline.map(() => true);
-
-  const [expandedStates, setExpandedStates] = useState<boolean[]>(
-    buildInitialExpandedStates()
+  const [expandedStates, setExpandedStates] = useState<boolean[]>(() =>
+    timeline.map(() => true)
   );
 
   // Calculate responsive threshold

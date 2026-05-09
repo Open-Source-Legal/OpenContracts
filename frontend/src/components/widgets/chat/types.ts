@@ -26,6 +26,6 @@ export interface TimelineEntry {
   args?: Record<string, unknown>;
   result?: string;
   count?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   msg?: string;
 }
