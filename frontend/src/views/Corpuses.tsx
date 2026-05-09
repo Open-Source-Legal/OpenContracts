@@ -1948,6 +1948,7 @@ export const Corpuses = () => {
   const {
     refetch: refetchCorpuses,
     loading: loading_corpuses,
+    networkStatus: corpus_network_status,
     error: corpus_load_error,
     data: corpus_response,
     fetchMore: fetchMoreCorpusesOrig,
@@ -2900,6 +2901,7 @@ export const Corpuses = () => {
           update_corpus_loading ||
           create_corpus_loading
         }
+        networkStatus={corpus_network_status}
         fetchMore={fetchMoreCorpuses}
         onCreateCorpus={() => setShowNewCorpusModal(true)}
         onImportCorpus={() => showImportCorpusModal(true)}

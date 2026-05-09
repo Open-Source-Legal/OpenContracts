@@ -96,6 +96,7 @@ export function ExportModal({ visible, toggleModal }: ExportModalProps) {
     {
       refetch: refetchExports,
       loading: exports_loading,
+      networkStatus: exports_network_status,
       error: exports_error,
       data: exports_response,
       fetchMore: fetchMoreExports,
@@ -205,6 +206,7 @@ export function ExportModal({ visible, toggleModal }: ExportModalProps) {
           items={export_items}
           pageInfo={exports_response?.userexports?.pageInfo}
           loading={exports_loading || deleting}
+          networkStatus={exports_network_status}
           fetchMore={fetchMoreExports}
           onDelete={handleDelete}
         />

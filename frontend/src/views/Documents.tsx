@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import _ from "lodash";
@@ -80,6 +85,7 @@ import { FilterToLabelsetSelector } from "../components/widgets/model-filters/Fi
 import { FilterToCorpusSelector } from "../components/widgets/model-filters/FilterToCorpusSelector";
 import { BulkUploadModal } from "../components/widgets/modals/BulkUploadModal";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { navigateToDocument } from "../utils/navigationUtils";
 import {
@@ -401,27 +407,6 @@ const ViewToggleButton = styled.button<{ $active?: boolean }>`
 const DocumentsListContainer = styled.section`
   position: relative;
   min-height: 200px;
-`;
-
-// Footer-pinned spinner shown beneath the grid while a `fetchMore` is in flight.
-const FetchMoreFooter = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 16px 0 24px;
-  color: ${OS_LEGAL_COLORS.textMuted};
-  font-size: 0.875rem;
-
-  svg {
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
 `;
 
 const EmptyStateWrapper = styled.div`
@@ -906,6 +891,7 @@ export const Documents = () => {
   const {
     refetch: refetchDocuments,
     loading: documents_loading,
+    networkStatus: documents_network_status,
     error: documents_error,
     data: documents_data,
     fetchMore: fetchMoreDocuments,
@@ -1679,17 +1665,11 @@ export const Documents = () => {
               )}
 
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
-              {documents_loading &&
-                documents_data?.documents?.pageInfo?.hasNextPage && (
-                  <FetchMoreFooter
-                    role="status"
-                    aria-live="polite"
-                    data-testid="documents-fetch-more-spinner"
-                  >
-                    <Loader2 size={16} aria-hidden="true" />
-                    <span>Loading more documents…</span>
-                  </FetchMoreFooter>
-                )}
+              <FetchMoreFooter
+                visible={documents_network_status === NetworkStatus.fetchMore}
+                message="Loading more documents…"
+                data-testid="documents-fetch-more-spinner"
+              />
             </>
           ) : documents_error ? (
             <EmptyStateWrapper>
