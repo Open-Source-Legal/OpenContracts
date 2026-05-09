@@ -1,5 +1,8 @@
 import styled from "styled-components";
-import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_SPACING,
+} from "../../assets/configurations/osLegalStyles";
 
 /**
  * Shared primitives for the modern OS-Legal page layout used by the
@@ -92,6 +95,15 @@ export const HeroSubtitle = styled.p`
  * Wrapper for the @os-legal/ui StatGrid + StatBlock cluster. Bumps the
  * value font-size to 36px (28px on mobile) so list-page stats read more
  * prominently than the library default.
+ *
+ * NOTE: the [class*="StatBlock"] selector is an intentional coupling to
+ * `@os-legal/ui` internals. styled-components hashes the StatBlock's
+ * generated class so it stays stable inside any single bundle of
+ * `@os-legal/ui`, but if the library ever renames or restructures
+ * StatBlock, this override silently stops applying with no compile-time
+ * signal. The [data-testid="stat-value"] fallback below is a stable
+ * second selector — bump the library version cautiously and re-check
+ * the rendered DOM if list-page stats look smaller than expected.
  */
 export const StatsContainer = styled.div`
   margin-bottom: 48px;
@@ -149,5 +161,5 @@ export const EmptyStateWrapper = styled.div`
   padding: 48px 24px;
   background: white;
   border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 16px;
+  border-radius: ${OS_LEGAL_SPACING.borderRadiusEmptyState};
 `;
