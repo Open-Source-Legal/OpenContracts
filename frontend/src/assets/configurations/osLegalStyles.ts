@@ -315,6 +315,8 @@ export const OS_LEGAL_SPACING = {
 
   /** Border radius for inset list items inside cards. */
   borderRadiusListItem: "6px",
+  /** Border radius for full-width empty-state cards (above borderRadiusCard). */
+  borderRadiusEmptyState: "16px",
   /** Border-left thickness for callout / disclaimer blocks. */
   borderAccentWidth: "3px",
 

@@ -1,5 +1,5 @@
 {
-  "total": 453,
+  "total": 451,
   "byArea": {
     "components_other": 122,
     "annotator": 90,
@@ -10,7 +10,6 @@
     "other": 24,
     "widgets_other": 19,
     "hooks": 17,
-    "routing": 13,
-    "widgets_chat": 2
+    "routing": 13
   }
 }

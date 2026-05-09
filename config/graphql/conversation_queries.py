@@ -468,10 +468,19 @@ class ConversationQueryMixin:
         """
         Resolve a single moderation action by ID.
 
-        Permissions:
+        Permissions (delegated to ``Conversation.can_moderate``):
             - Superusers: can see any action
-            - Corpus owners/moderators: can see actions on their corpuses
+            - Conversation creator: can see actions on their conversations
+            - Corpus owner / designated moderator (when chat_with_corpus is set)
+            - Document owner (when chat_with_document is set)
             - Returns None if user lacks permission (prevents ID enumeration)
+
+        Closes #1594: previously the resolver short-circuited to ``return
+        action`` whenever ``conversation.chat_with_corpus`` was ``None``,
+        leaking document-only and orphaned moderation actions to any
+        authenticated user. We now route every case through
+        ``Conversation.can_moderate``, which is the canonical authorization
+        helper used by the moderation mutations themselves.
 
         Args:
             id: Global ID of the moderation action
@@ -483,23 +492,29 @@ class ConversationQueryMixin:
             action = ModerationAction.objects.select_related(
                 "conversation",
                 "conversation__chat_with_corpus",
+                "conversation__chat_with_document",
                 "message",
                 "moderator",
             ).get(pk=pk)
-
-            # Check permission via the canonical Corpus.user_can_moderate
-            # helper. The superuser short-circuit is baked in; the prior
-            # "no corpus context → grant access" branch is preserved for
-            # corpus-less moderation actions.
-            corpus = (
-                action.conversation.chat_with_corpus if action.conversation else None
-            )
-            if corpus is not None and not corpus.user_can_moderate(user):
-                return None
-
-            return action
         except ModerationAction.DoesNotExist:
             return None
+
+        # Superusers always see every action, including the rare orphan
+        # rows where ``conversation`` itself is NULL (the FK is nullable for
+        # historical reasons; in practice every real action has one).
+        if user.is_superuser:
+            return action
+
+        if action.conversation is None:
+            # No conversation context → no per-action gate to evaluate
+            # safely. Fail closed to mirror the list resolver, which never
+            # surfaces these to non-superusers either.
+            return None
+
+        if not action.conversation.can_moderate(user):
+            return None
+
+        return action
 
     moderation_metrics = graphene.Field(
         ModerationMetricsType,

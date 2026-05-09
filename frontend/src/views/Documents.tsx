@@ -14,6 +14,17 @@ import {
   accentAlpha,
 } from "../assets/configurations/osLegalStyles";
 import {
+  PageContainer,
+  ContentContainer,
+  HeroSection,
+  HeroTitle,
+  HeroSubtitle,
+  StatsContainer,
+  SectionHeader,
+  SectionTitle,
+  EmptyStateWrapper,
+} from "../components/layout/PageLayout";
+import {
   SearchBox,
   FilterTabs,
   StatBlock,
@@ -115,53 +126,6 @@ const DOCUMENTS_PAGE_SIZE = 20;
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLED COMPONENTS - Following CorpusListView/DiscoveryLanding patterns
 // ═══════════════════════════════════════════════════════════════════════════════
-
-const PageContainer = styled.div`
-  height: 100%;
-  background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-y: auto;
-  overflow-x: hidden;
-`;
-
-const ContentContainer = styled.main`
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 48px 24px 80px;
-
-  @media (max-width: 768px) {
-    padding: 32px 16px 60px;
-  }
-`;
-
-const HeroSection = styled.section`
-  margin-bottom: 48px;
-`;
-
-const HeroTitle = styled.h1`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 42px;
-  font-weight: 400;
-  line-height: 1.2;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  margin: 0 0 16px;
-
-  span {
-    color: ${OS_LEGAL_COLORS.accent};
-  }
-
-  @media (max-width: 768px) {
-    font-size: 32px;
-  }
-`;
-
-const HeroSubtitle = styled.p`
-  font-size: 17px;
-  line-height: 1.6;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  margin: 0 0 32px;
-  max-width: 600px;
-`;
 
 const SearchContainer = styled.div`
   margin-bottom: 16px;
@@ -331,43 +295,6 @@ const ClearFiltersButton = styled.button`
   }
 `;
 
-const StatsContainer = styled.div`
-  margin-bottom: 48px;
-  padding: 32px 0;
-
-  /* Override stat value size like StatsSection does */
-  [class*="StatBlock"] > *:first-child,
-  [data-testid="stat-value"] {
-    font-size: 36px !important;
-  }
-
-  @media (max-width: 768px) {
-    padding: 24px 0;
-
-    [class*="StatBlock"] > *:first-child,
-    [data-testid="stat-value"] {
-      font-size: 28px !important;
-    }
-  }
-`;
-
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  gap: 16px;
-  flex-wrap: wrap;
-`;
-
-const SectionTitle = styled.h2`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 24px;
-  font-weight: 400;
-  color: ${OS_LEGAL_COLORS.accent};
-  margin: 0;
-`;
-
 const ActionButtons = styled.div`
   display: flex;
   align-items: center;
@@ -407,13 +334,6 @@ const ViewToggleButton = styled.button<{ $active?: boolean }>`
 const DocumentsListContainer = styled.section`
   position: relative;
   min-height: 200px;
-`;
-
-const EmptyStateWrapper = styled.div`
-  padding: 48px 24px;
-  background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 16px;
 `;
 
 // ═══════════════════════════════════════════════════════════════════════════════
