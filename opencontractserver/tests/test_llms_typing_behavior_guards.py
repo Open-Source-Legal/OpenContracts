@@ -19,7 +19,6 @@ production call site without requiring a full pydantic-ai invocation.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from django.test import TestCase
@@ -325,31 +324,37 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
     """
 
     def test_add_document_note_tool_passes_none_when_corpus_absent(self) -> None:
+        import re
+
         text = (
             _PROJECT_ROOT / "opencontractserver/llms/agents/pydantic_ai_agents.py"
         ).read_text()
-        # Scope BOTH assertions to the body of ``add_document_note_tool``
-        # itself — the file defines many sibling tools that share similar
-        # ternary patterns (``context.corpus.id if context.corpus else None``
-        # appears elsewhere) and similar reject messages, so a file-wide
-        # search would silently let ``add_document_note_tool`` regress.
-        note_tool_start = text.index("async def add_document_note_tool")
-        # ``add_document_note_tool`` is a nested inner function (indented 8
-        # spaces inside ``async def create``).  Scan forward for the next
-        # ``async def`` at *any* indentation — sibling inner tools are
-        # 8-indent, the enclosing method's siblings are 4-indent — both
-        # would correctly close out this function's body.
-        match = re.search(r"\n {4,}async def ", text[note_tool_start + 1 :])
-        next_tool_idx = (
-            note_tool_start + 1 + match.start() if match is not None else len(text)
+        # Scope the source-grep to the ``add_document_note_tool`` function
+        # body. Other tools (``add_exact_string_annotations``) legitimately
+        # require a corpus and contain the same diagnostic string — without
+        # this scoping, those raise sites would trip the guard below.
+        # The tool is defined as a nested coroutine inside a factory method,
+        # so it sits at 8-space indentation — match up to (but not including)
+        # the next sibling ``async def`` / ``def`` at the same indent.
+
+        match = re.search(
+            r"^        async def add_document_note_tool\b"
+            r".*?"
+            r"(?=^        (?:async def |def )|^    [A-Za-z]|^class |\Z)",
+            text,
+            flags=re.DOTALL | re.MULTILINE,
         )
-        note_tool_body = text[note_tool_start:next_tool_idx]
+        self.assertIsNotNone(
+            match,
+            msg="add_document_note_tool no longer present in pydantic_ai_agents.py",
+        )
+        body = match.group(0)  # type: ignore[union-attr]
         # The forwarded value must use a ternary that yields ``None`` when
         # ``context.corpus`` is missing; the previous reject-guard form
         # raised ValueError instead.
         self.assertIn(
             "context.corpus.id if context.corpus else None",
-            note_tool_body,
+            body,
             msg=(
                 "add_document_note_tool no longer forwards None for the "
                 "standalone-document case — agents without a corpus will "
@@ -357,8 +362,8 @@ class TestAddDocumentNoteToolCorpusOptional(TestCase):
             ),
         )
         self.assertNotIn(
-            "add_document_note requires the agent to be scoped to a corpus",
-            note_tool_body,
+            'requires the agent to be scoped to a corpus"',
+            body,
             msg=(
                 "add_document_note_tool still rejects standalone-document "
                 "agents; the corpus-required guard should be gone."
