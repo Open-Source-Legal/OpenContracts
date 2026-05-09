@@ -62,6 +62,21 @@ class HandleWordlistTests(TestCase):
         # Any drop in raw size below ~10k combos should force a re-think.
         self.assertGreaterEqual(len(ADJECTIVES) * len(NOUNS), 10_000)
 
+    def test_wordlists_have_no_cross_list_overlap(self):
+        """No word should appear in both lists.
+
+        Cross-list duplicates would let the generator emit degenerate
+        same-word pairs like ``cometComet``. The wordlist docstring states
+        this rule explicitly; pin it down with a test so a future careless
+        addition trips immediately.
+        """
+        overlap = set(ADJECTIVES) & set(NOUNS)
+        self.assertEqual(
+            overlap,
+            set(),
+            f"Words appear in both ADJECTIVES and NOUNS: {sorted(overlap)}",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Pure generator tests

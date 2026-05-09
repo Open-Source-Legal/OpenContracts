@@ -15,12 +15,16 @@ Format requirements:
 - ASCII only
 - Lower-case
 - No spaces, hyphens, or punctuation (we camelCase the pair)
-- Length 3-10 characters
+- Length 3-12 characters
+- Each word must be unique to its list (no entry appears in both
+  ``ADJECTIVES`` and ``NOUNS``) so combinations like ``cometComet`` are
+  impossible. The pair lists are spot-checked for cross-overlap; add
+  new entries to whichever list reads more naturally.
 """
 
 from __future__ import annotations
 
-# 248 adjectives. Friendly, neutral, easy to spell.
+# 245 adjectives. Friendly, neutral, easy to spell.
 ADJECTIVES: tuple[str, ...] = (
     "able",
     "agile",
@@ -72,7 +76,6 @@ ADJECTIVES: tuple[str, ...] = (
     "clever",
     "cloudy",
     "clumsy",
-    "comet",
     "comic",
     "cool",
     "copper",
@@ -197,7 +200,6 @@ ADJECTIVES: tuple[str, ...] = (
     "mango",
     "maple",
     "mauve",
-    "meadow",
     "mellow",
     "melodic",
     "merry",
@@ -230,7 +232,6 @@ ADJECTIVES: tuple[str, ...] = (
     "polished",
     "poppy",
     "posh",
-    "prairie",
     "pretty",
     "prim",
     "prismy",

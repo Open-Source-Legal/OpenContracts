@@ -22,9 +22,11 @@ def backfill_handles(apps, schema_editor):
     for user in missing.iterator():
         # ``generate_handle`` checks uniqueness against the current snapshot of
         # the table; we exclude this user's own pk so it doesn't see its own
-        # (still-empty) row as a collision target. We commit each row before
-        # generating the next so successive iterations see the previous
-        # assignment.
+        # (still-empty) row as a collision target. ``RunPython`` wraps the
+        # whole migration in a single transaction; under PostgreSQL READ
+        # COMMITTED the connection sees its own uncommitted writes, so each
+        # ``user.save()`` is visible to the next iteration's
+        # ``generate_handle`` query without a per-row commit.
         scope_qs = User.objects.using(db).exclude(pk=user.pk)
         user.handle = generate_handle(scope_qs=scope_qs)
         user.save(update_fields=["handle"])

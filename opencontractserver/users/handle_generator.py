@@ -22,6 +22,7 @@ selection in production.
 
 from __future__ import annotations
 
+import logging
 import random
 
 from django.db.models import QuerySet
@@ -34,10 +35,14 @@ from opencontractserver.constants.users import (
 )
 from opencontractserver.users.handle_wordlists import ADJECTIVES, NOUNS
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_HANDLE_FIELD = "handle"
 
-# Backwards-compatible aliases preserved for tests that patch these names.
-# The authoritative values live in ``opencontractserver.constants.users``.
+# Module-local aliases so callers (including tests that patch these names)
+# can import directly from this module without depending on the constants
+# module path. The authoritative values live in
+# ``opencontractserver.constants.users``.
 PLAIN_ATTEMPTS = HANDLE_PLAIN_ATTEMPTS
 SUFFIXED_ATTEMPTS = HANDLE_SUFFIXED_ATTEMPTS
 SUFFIX_MIN = HANDLE_SUFFIX_MIN
@@ -82,6 +87,17 @@ def generate_handle(
         candidate = _camel_case_pair(rng.choice(ADJECTIVES), rng.choice(NOUNS))
         if not scope_qs.filter(**{handle_field: candidate}).exists():
             return candidate
+
+    # Reaching this point means ``PLAIN_ATTEMPTS`` consecutive collisions in
+    # the ~56k-pair namespace, which suggests either heavy saturation or an
+    # accidentally truncated word list. Log a warning so an operator can spot
+    # the regression before users start seeing numeric-suffixed handles.
+    logger.warning(
+        "generate_handle: plain phase exhausted after %s attempts; "
+        "falling back to suffixed phase. Word list may be too small or "
+        "scope_qs is unexpectedly saturated.",
+        PLAIN_ATTEMPTS,
+    )
 
     for _ in range(SUFFIXED_ATTEMPTS):
         base = _camel_case_pair(rng.choice(ADJECTIVES), rng.choice(NOUNS))

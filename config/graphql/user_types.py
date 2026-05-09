@@ -97,12 +97,29 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_display_name(self, info) -> str:
         """Pick the first non-empty branch of the display-name chain.
 
+        Resolution order:
+            1. ``name`` (Auth0 ``name`` claim).
+            2. ``given_name`` + ``family_name`` (Auth0).
+            3. ``first_name`` + ``last_name`` (local Django fields).
+            4. ``handle`` (Reddit-style auto-assigned handle, issue #1574).
+            5. ``username`` verbatim — ONLY when ``is_social_user=False``.
+               ``UserUnicodeUsernameValidator`` (see
+               ``opencontractserver/users/validators.py``) explicitly allows
+               ``|`` in locally-chosen usernames, so a local username like
+               ``alice|admin`` is legitimate and must NOT be redacted.
+            6. ``user_<last N chars after the last "|">`` for social users.
+               The raw OAuth ``sub`` (e.g. ``google-oauth2|114688...``) is
+               never returned — ``rsplit("|", 1)[-1]`` strips the provider
+               prefix even when the sub is short, and we keep only the last
+               ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` chars.
+            7. ``user_<pk>`` / ``user_unknown`` last-resort fallback. With a
+               populated handle column (see migration 0028) this branch is
+               effectively unreachable for any user touched by the backfill.
+
         The chain is the single rendering choke point for "what should the UI
-        show?" and gracefully degrades to the redacted fallback for any user
-        the handle backfill hasn't reached yet. Local users (``is_social_user
-        =False``) get their chosen username verbatim — ``|`` is allowed by
-        ``UserUnicodeUsernameValidator`` so a local username with ``|`` is
-        legitimate and must not be redacted.
+        show?" and gracefully degrades for users the handle backfill hasn't
+        reached yet (e.g. inserted via ``QuerySet.update`` that bypasses
+        ``save()``).
         """
         name = (self.name or "").strip()
         if name:

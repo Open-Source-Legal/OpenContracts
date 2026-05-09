@@ -12,6 +12,7 @@ from django.contrib.auth.models import (
     Group,
 )
 from django.contrib.auth.models import UserManager as DjangoUserManager
+from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.urls import reverse
 from django.utils import timezone
@@ -252,8 +253,6 @@ class User(AbstractUser):
             # column and re-roll. With the ~56k-pair namespace the first
             # attempt almost always wins; the bound prevents pathological
             # loops if the namespace is misconfigured.
-            from django.db import IntegrityError
-
             scope_qs = get_user_model().objects.all()
             for attempt in range(HANDLE_INSERT_RETRY_ATTEMPTS):
                 self.handle = generate_handle(
