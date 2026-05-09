@@ -37,7 +37,9 @@ import {
   exportingCorpus,
   showAnalyzerSelectionForCorpus,
   userObj,
+  backendUserObj,
 } from "../../graphql/cache";
+import { isOwnedBy } from "../../utils/userDisplay";
 import {
   StartForkCorpusInput,
   StartForkCorpusOutput,
@@ -258,9 +260,9 @@ function mapCategoryToType(corpus: CorpusType): CollectionType {
 
 function getVisibilityStatus(
   corpus: CorpusType,
-  currentUserEmail?: string
+  currentUserId?: string
 ): string {
-  const isOwner = corpus.creator?.email === currentUserEmail;
+  const isOwner = isOwnedBy(corpus.creator, { id: currentUserId });
   // Using Unicode symbols for visual flair
   if (corpus.isPublic) return "🌐 Public";
   if (isOwner) return "🔒 Private";
@@ -354,10 +356,13 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
 }) => {
   const navigate = useNavigate();
   const currentUser = useReactiveVar(userObj);
+  const backendUser = useReactiveVar(backendUserObj);
   // Use userObj for auth check - consistent with NavMenu which gates protected items on user object
   // Note: authToken can be out of sync with userObj in some edge cases
   const isAuthenticated = Boolean(currentUser);
-  const currentUserEmail = currentUser?.email;
+  // Ownership keys off the backend user id (the public GraphQL UserType)
+  // so we don't depend on the redacted email field.
+  const currentUserId = backendUser?.id;
 
   // Track which menu is open and its position
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -587,7 +592,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                   // Status shows visibility only (with icon)
                   const visibilityStatus = getVisibilityStatus(
                     corpus,
-                    currentUserEmail
+                    currentUserId
                   );
 
                   return (

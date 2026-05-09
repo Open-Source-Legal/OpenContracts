@@ -295,14 +295,18 @@ const SectionTitle = styled.h2`
 `;
 
 export interface UserProfileProps {
+  // ``username``, ``name``, ``firstName``, ``lastName`` and ``email`` are
+  // redacted to ``null`` for non-self viewers per the user privacy
+  // contract (see ``config/graphql/user_types.py``). Only ``id`` and
+  // ``slug`` are guaranteed cross-user.
   user: {
     id: string;
-    username: string;
+    username: string | null;
     slug: string;
-    name: string;
-    firstName: string;
-    lastName: string;
-    email: string;
+    name: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
     isProfilePublic: boolean;
     reputationGlobal: number;
     totalMessages: number;
@@ -317,7 +321,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   user,
   isOwnProfile,
 }) => {
-  // Get initials for avatar
+  // Get initials for avatar. Names are redacted for non-self viewers, so
+  // we fall back to the slug (and ultimately to ``user_<id>``).
   const getInitials = () => {
     if (user.firstName && user.lastName) {
       return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
@@ -329,13 +334,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       }
       return user.name.substring(0, 2).toUpperCase();
     }
-    return user.username.substring(0, 2).toUpperCase();
+    if (user.username) {
+      return user.username.substring(0, 2).toUpperCase();
+    }
+    if (user.slug) {
+      const parts = user.slug.split("-").filter(Boolean);
+      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+      return (parts[0] || "?").substring(0, 2).toUpperCase();
+    }
+    return "?";
   };
 
+  const handle = user.username || user.slug;
   const displayName =
     user.name ||
     `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-    user.username;
+    handle;
 
   // Placeholder — reputation change tracking requires a backend time-series model.
   const recentChange = 0;
@@ -347,7 +361,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <Avatar>{getInitials()}</Avatar>
           <ProfileInfo>
             <ProfileName>{displayName}</ProfileName>
-            <ProfileUsername>@{user.username}</ProfileUsername>
+            <ProfileUsername>@{handle}</ProfileUsername>
             {isOwnProfile && user.email && (
               <ProfileEmail>{user.email}</ProfileEmail>
             )}

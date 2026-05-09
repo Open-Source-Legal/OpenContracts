@@ -44,9 +44,12 @@ test.describe("Leaderboard", () => {
   test("shows leaderboard entries with user data", async ({ mount, page }) => {
     const component = await mount(<LeaderboardTestWrapper />);
 
-    // Wait for the table to render with user data
-    await expect(page.getByText("top_user")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("second_user")).toBeVisible({
+    // The leaderboard now renders ``user.slug`` (case-sensitive, hyphenated)
+    // rather than ``displayName`` — the mock fixture has slug "top-user" /
+    // "second-user" alongside displayName "top_user" / "second_user", and
+    // the public privacy contract is to surface only the slug.
+    await expect(page.getByText("top-user")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("second-user")).toBeVisible({
       timeout: 10000,
     });
 
@@ -321,8 +324,9 @@ test.describe("Leaderboard", () => {
   }) => {
     const component = await mount(<LeaderboardTestWrapper />);
 
-    // Wait for the table to render
-    const topRow = page.getByText("top_user", { exact: false });
+    // Wait for the table to render — the visible label is the user's slug
+    // (privacy contract: leaderboard never surfaces displayName).
+    const topRow = page.getByText("top-user", { exact: false });
     await expect(topRow).toBeVisible({ timeout: 10000 });
 
     // Click navigates via react-router; in MemoryRouter we can observe the
@@ -334,7 +338,7 @@ test.describe("Leaderboard", () => {
 
     // After click the table is still rendered (no crash, no navigation
     // outside the in-memory router).
-    await expect(page.getByText("top_user")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("top-user")).toBeVisible({ timeout: 10000 });
 
     await component.unmount();
   });
@@ -577,11 +581,12 @@ test.describe("Leaderboard", () => {
       />
     );
 
-    // All four user rows should render
-    await expect(page.getByText("user_1")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("user_2")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("user_3")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("user_4")).toBeVisible({ timeout: 10000 });
+    // All four user rows should render — leaderboard surfaces ``slug``
+    // (case-sensitive, hyphenated), not ``displayName``.
+    await expect(page.getByText("user-1")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("user-2")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("user-3")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("user-4")).toBeVisible({ timeout: 10000 });
 
     // Rank 4 renders the numeric fallback (the `<span>{entry.rank}</span>`
     // branch of `entry.rank <= 3 ? <Medal/> : <span>...</span>`). Scope to a
@@ -677,8 +682,8 @@ test.describe("Leaderboard", () => {
       />
     );
 
-    // Wait for initial badges render
-    await expect(page.getByText("top_user")).toBeVisible({ timeout: 10000 });
+    // Wait for initial badges render — leaderboard renders slug, not displayName.
+    await expect(page.getByText("top-user")).toBeVisible({ timeout: 10000 });
 
     // Open metric dropdown and pick "Most Active Contributors" (MESSAGES)
     const triggers = page.locator(".oc-dropdown__trigger");
@@ -688,8 +693,8 @@ test.describe("Leaderboard", () => {
       .click();
 
     // After refetch, the new entry should render with the messages-formatted
-    // score label produced by getScoreLabel(MESSAGES, 250).
-    await expect(page.getByText("chatty_user")).toBeVisible({
+    // score label produced by getScoreLabel(MESSAGES, 250). User row shows slug.
+    await expect(page.getByText("chatty-user")).toBeVisible({
       timeout: 10000,
     });
     await expect(
@@ -781,7 +786,7 @@ test.describe("Leaderboard", () => {
       />
     );
 
-    await expect(page.getByText("top_user")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("top-user")).toBeVisible({ timeout: 10000 });
 
     const triggers = page.locator(".oc-dropdown__trigger");
     await triggers.nth(1).click();
@@ -789,7 +794,7 @@ test.describe("Leaderboard", () => {
       .locator(".oc-dropdown__option", { hasText: "This Week" })
       .click();
 
-    await expect(page.getByText("weekly_winner")).toBeVisible({
+    await expect(page.getByText("weekly-winner")).toBeVisible({
       timeout: 10000,
     });
 
@@ -878,14 +883,14 @@ test.describe("Leaderboard", () => {
       />
     );
 
-    await expect(page.getByText("top_user")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("top-user")).toBeVisible({ timeout: 10000 });
 
     const triggers = page.locator(".oc-dropdown__trigger");
     await triggers.nth(2).click();
     // Use exact match — "Top 10" would also match "Top 100".
     await page.getByRole("option", { name: "Top 10", exact: true }).click();
 
-    await expect(page.getByText("top_ten_only")).toBeVisible({
+    await expect(page.getByText("top-ten-only")).toBeVisible({
       timeout: 10000,
     });
 

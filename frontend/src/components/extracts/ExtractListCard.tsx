@@ -86,7 +86,8 @@ function formatStats(extract: ExtractType): string[] {
 
 interface ExtractListCardProps {
   extract: ExtractType;
-  currentUserEmail?: string;
+  /** Backend user id of the current user — kept for future ownership UX. */
+  currentUserId?: string;
   onView?: (extract: ExtractType) => void;
   onDelete?: (extract: ExtractType) => void;
   isMenuOpen?: boolean;
@@ -99,7 +100,7 @@ interface ExtractListCardProps {
 
 export const ExtractListCard: React.FC<ExtractListCardProps> = ({
   extract,
-  currentUserEmail,
+  currentUserId: _currentUserId,
   onView,
   onDelete,
   isMenuOpen,

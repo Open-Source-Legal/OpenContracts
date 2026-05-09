@@ -84,10 +84,14 @@ class AnnotatePermissionsForReadMixin:
                             perm.permission_id
                         ]: this_model_permission_id_map[perm.permission_id]
                     }
+                    # Only the case-sensitive ``slug`` is exposed for the
+                    # users an object is shared with — never ``email`` or
+                    # ``username``. The slug is the public handle; emitting
+                    # email here previously leaked PII to every viewer of
+                    # any shared corpus / document / labelset.
                     user_permission_map[perm.user_id] = {
                         "id": perm.user_id,
-                        "email": perm.user.email,
-                        "username": perm.user.username,
+                        "slug": perm.user.slug,
                         "permissions": seed_permission,
                     }
 
@@ -96,8 +100,7 @@ class AnnotatePermissionsForReadMixin:
                 values.append(
                     {
                         "id": value["id"],
-                        "email": value["email"],
-                        "username": value["username"],
+                        "slug": value["slug"],
                         "permissions": list(value["permissions"].values()),
                     }
                 )

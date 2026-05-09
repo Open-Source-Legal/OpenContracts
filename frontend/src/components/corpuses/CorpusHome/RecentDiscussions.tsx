@@ -21,7 +21,7 @@ import {
   CONVERSATION_TYPE,
   RECENT_THREAD_LIMIT,
 } from "../../../assets/configurations/constants";
-import { formatUsername } from "../../threads/userUtils";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 
 // ============================================================================
 // STYLED COMPONENTS
@@ -259,10 +259,7 @@ export const RecentDiscussions: React.FC<RecentDiscussionsProps> = ({
               <ThreadMeta>
                 <MetaItem>
                   <User />
-                  {formatUsername(
-                    thread.creator?.username,
-                    thread.creator?.email
-                  )}
+                  {getCreatorDisplay(thread.creator)}
                 </MetaItem>
                 <MetaItem>
                   <Clock />

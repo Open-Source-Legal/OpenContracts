@@ -1,9 +1,25 @@
-"""GraphQL type definitions for user-related types."""
+"""GraphQL type definitions for user-related types.
 
-from typing import Any
+Privacy model
+-------------
+Personally identifying user fields (``email``, ``name``, ``first_name``,
+``last_name``, ``given_name``, ``family_name``, ``username``, ``phone``,
+``auth0_Id``, ``last_ip``, ``email_verified``, ``is_social_user``, login
+metadata, UI preferences) are gated to *self-only* reads. Non-self viewers
+— including superusers, server-side internal callers, and anonymous users
+— see ``None`` for these fields. The ``slug`` is the only public identifier
+and the ``display_name`` resolver returns the slug for non-self viewers.
+
+This is enforced uniformly via :func:`_is_self_view` so any future PII
+fields that need similar treatment can reuse the same gate. ``Meta.exclude``
+hides fields that should never be reachable through GraphQL (passwords,
+auth tokens, raw IPs); custom resolvers below override ``DjangoObjectType``
+auto-exposure for fields the user themselves still needs to read.
+"""
+
+from typing import Any, Optional
 
 import graphene
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from graphene import relay
 from graphene_django import DjangoObjectType
@@ -23,31 +39,111 @@ def _stripped(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _is_self_view(user_obj: Any, info: Any) -> bool:
+    """True iff the requester *is* the user object being resolved.
+
+    Authentication is required: anonymous viewers, server-side ``None``
+    contexts (e.g. internal callers passing ``info=None``), and inactive
+    sessions all return ``False``. Superusers deliberately do not bypass
+    this gate — PII access is reserved for Django admin, not the public
+    GraphQL API.
+    """
+    if info is None:
+        return False
+    context = getattr(info, "context", None)
+    if context is None:
+        return False
+    requester = getattr(context, "user", None)
+    if requester is None:
+        return False
+    if not getattr(requester, "is_authenticated", False):
+        return False
+    return requester.pk == user_obj.pk
+
+
+def _self_only(user_obj: Any, info: Any, attr: str) -> Optional[Any]:
+    """Return ``user_obj.attr`` only when the requester is the user themselves.
+
+    Returns ``None`` for non-self views, including superusers. The empty
+    string is also normalised to ``None`` so clients can rely on ``null``
+    as the universal "hidden / unset" sentinel.
+    """
+    if not _is_self_view(user_obj, info):
+        return None
+    value = getattr(user_obj, attr, None)
+    if isinstance(value, str) and not value:
+        return None
+    return value
+
+
+def _redacted_handle(user_obj: Any) -> str:
+    """Stable, non-PII fallback when no ``slug`` is available.
+
+    Uses the user's primary key suffix so two distinct users never collide
+    on the same fallback. Mirrors the ``user_<sub>`` shape used elsewhere
+    so frontend code can format both consistently.
+    """
+    pk_suffix = str(getattr(user_obj, "pk", "") or "")[
+        -OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:
+    ]
+    return f"user_{pk_suffix or 'unknown'}"
+
+
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    # ------------------------------------------------------------------
+    # Public identity
+    # ------------------------------------------------------------------
     display_name = graphene.String(
         description=(
-            "A safe, friendly display name for this user. Resolved in order from "
-            "``name`` → ``given_name`` + ``family_name`` → ``first_name`` + "
-            "``last_name`` → ``username`` (only when it is not an OAuth "
-            "``provider|sub`` identifier) → redacted ``user_<suffix>`` fallback. "
-            "Never returns the raw OAuth ``sub`` used as the Django ``username`` "
-            "for social-login users."
+            "Privacy-preserving display name. Non-self viewers always receive "
+            "the user's ``slug`` (or a redacted ``user_<id>`` fallback when "
+            "no slug exists). Self-views still get the rich profile-name "
+            "fallback for personal-settings UI. The raw OAuth ``provider|sub`` "
+            "value used as the Django ``username`` for social-login users is "
+            "never returned."
         )
     )
 
-    # Overrides DjangoObjectType's auto-exposed model field so the
-    # ``resolve_email`` gate below runs — without this declaration the
-    # resolver is bypassed for cross-user reads.
+    # ------------------------------------------------------------------
+    # PII fields — declared explicitly so the self-only resolvers below
+    # run instead of ``DjangoObjectType``'s default auto-resolver.
+    # Returning ``None`` for non-self viewers is the security boundary.
+    # ------------------------------------------------------------------
     email = graphene.String(
         description=(
-            "Email address. Returned only when the requesting user is viewing "
-            "themselves or is a superuser; ``null`` otherwise. This prevents "
-            "the leaderboard / public-profile surfaces from leaking other "
-            "users' email addresses to clients that select the field."
+            "Email address. Returned **only** when the requesting user is "
+            "viewing their own profile; ``null`` for everyone else, including "
+            "superusers. Real PII reaches the GraphQL surface only via the "
+            "``me`` query / profile-settings flow."
+        )
+    )
+    username = graphene.String(
+        description=(
+            "Login username. Self-only. For OAuth/social users this is the "
+            "raw provider ``sub`` and must never be exposed cross-user — use "
+            "``slug`` or ``displayName`` for any UI that identifies a user."
+        )
+    )
+    name = graphene.String(description="Full name claim. Self-only.")
+    first_name = graphene.String(description="First name. Self-only.")
+    last_name = graphene.String(description="Last name. Self-only.")
+    given_name = graphene.String(description="OIDC ``given_name`` claim. Self-only.")
+    family_name = graphene.String(description="OIDC ``family_name`` claim. Self-only.")
+    phone = graphene.String(description="Phone number. Self-only.")
+    email_verified = graphene.Boolean(
+        description="Whether the user has verified their email. Self-only."
+    )
+    is_social_user = graphene.Boolean(
+        description=(
+            "Whether the user signed in through a social/OAuth provider. "
+            "Self-only — exposes account-shape information that could be "
+            "used to fingerprint identity providers."
         )
     )
 
-    # Reputation fields (Epic #565)
+    # ------------------------------------------------------------------
+    # Reputation / activity (already public; resolvers below)
+    # ------------------------------------------------------------------
     reputation_global = graphene.Int(
         description="Global reputation score across all corpuses"
     )
@@ -56,7 +152,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="Reputation score for a specific corpus",
     )
 
-    # Activity statistics (Issue #611 - User Profile Page)
     total_messages = graphene.Int(
         description="Total number of messages posted by this user"
     )
@@ -79,24 +174,52 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
     )
 
-    def resolve_email(self, info) -> str | None:
-        """Gate ``email`` to self-views and superusers.
+    # ------------------------------------------------------------------
+    # Self-only resolvers
+    # ------------------------------------------------------------------
+    def resolve_email(self, info) -> Optional[str]:
+        return _self_only(self, info, "email")
 
-        ``DjangoObjectType`` would otherwise auto-expose the model field to
-        any client that selected it (e.g. on a leaderboard ``user`` subtree),
-        which is more PII than the leaderboard needs. Self / superuser views
-        — ``me``, profile settings, admin tooling — still get the real value.
-        """
-        requester = getattr(info.context, "user", None)
-        if requester is None or not requester.is_authenticated:
+    def resolve_username(self, info) -> Optional[str]:
+        return _self_only(self, info, "username")
+
+    def resolve_name(self, info) -> Optional[str]:
+        return _self_only(self, info, "name")
+
+    def resolve_first_name(self, info) -> Optional[str]:
+        return _self_only(self, info, "first_name")
+
+    def resolve_last_name(self, info) -> Optional[str]:
+        return _self_only(self, info, "last_name")
+
+    def resolve_given_name(self, info) -> Optional[str]:
+        return _self_only(self, info, "given_name")
+
+    def resolve_family_name(self, info) -> Optional[str]:
+        return _self_only(self, info, "family_name")
+
+    def resolve_phone(self, info) -> Optional[str]:
+        return _self_only(self, info, "phone")
+
+    def resolve_email_verified(self, info) -> Optional[bool]:
+        if not _is_self_view(self, info):
             return None
-        if requester.is_superuser or requester.pk == self.pk:
-            return self.email or None
-        return None
+        return bool(getattr(self, "email_verified", False))
+
+    def resolve_is_social_user(self, info) -> Optional[bool]:
+        if not _is_self_view(self, info):
+            return None
+        return bool(getattr(self, "is_social_user", False))
 
     def resolve_can_import_corpus(self, info) -> bool:
-        if not self.is_authenticated:
+        # ``self`` here is the User model instance being resolved on, not
+        # necessarily the requester. ``can_import_corpus`` is a property of
+        # *that* user; the cap-based gating is the same regardless of viewer
+        # because the leaderboard etc. don't surface this field cross-user.
+        if not getattr(self, "is_authenticated", False):
             return False
+        from django.conf import settings
+
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
             return False
         return True
@@ -105,29 +228,30 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         Resolve a privacy-preserving display name for this user.
 
-        Priority (first non-empty wins):
-        1. ``name`` — full name claim from Auth0 profile.
+        Non-self viewers always get the user's ``slug`` (or a redacted
+        ``user_<pk-suffix>`` fallback when slug is unset — should not
+        happen post-migration, but is defensive against partial data).
+
+        Self-views walk the rich profile-name fallback so settings UIs
+        can show "Welcome, Alice". The raw OAuth ``provider|sub`` used as
+        the Django ``username`` for social-login users is never returned;
+        we redact it to ``user_<sub-suffix>``.
+
+        Priority for self-views (first non-empty wins):
+        1. ``name`` — full-name claim from Auth0 profile.
         2. ``given_name`` + ``family_name`` — Auth0 split-name claims.
         3. ``first_name`` + ``last_name`` — legacy Django profile fields.
-        4. ``username`` — only when it does not look like a raw OAuth
-           ``provider|sub`` identifier (no ``|`` separator).
-        5. ``user_<last N chars of OAuth sub>`` — redacted fallback. The
-           bare ``"user"`` final fallback only triggers if ``username`` is
-           empty (Django enforces non-empty so this is unreachable in
-           practice) and is intentionally not a unique identifier.
+        4. ``username`` — only for non-social local users (no OAuth sub).
+        5. Redacted ``user_<sub-suffix>`` fallback.
 
-        ``username`` is set to the Auth0 ``sub`` for social users (see
-        ``jwt_get_username_from_payload_handler``), so the raw value must
-        never be surfaced in any UI. The expected profile fields (``name``,
-        ``given_name``, ``family_name``, ``first_name``, ``last_name``)
-        are all model columns on ``opencontractserver.users.models.User``.
-
-        The ``|`` character alone is NOT a sufficient OAuth-sub signal —
-        the project's ``UserUnicodeUsernameValidator`` allows ``|`` in
-        locally-chosen usernames. The redaction branch is gated on
-        ``is_social_user`` so a local user named e.g. ``alice|admin`` is
-        not mistakenly redacted.
+        ``slug`` is intentionally not in the self-view chain: the user's
+        choice of personal name should win for "what does my settings
+        page greet me with?", and slug is what other people see anyway.
         """
+        if not _is_self_view(self, info):
+            slug = _stripped(getattr(self, "slug", ""))
+            return slug or _redacted_handle(self)
+
         name = _stripped(getattr(self, "name", ""))
         if name:
             return name
@@ -156,25 +280,14 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         username = _stripped(getattr(self, "username", ""))
         is_social = bool(getattr(self, "is_social_user", False))
-
-        # Local users get their chosen username verbatim. ``|`` is allowed
-        # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
-        # username is legitimate and not an OAuth sub.
         if username and not is_social:
             return username
 
         if username:
-            # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
-            # strips the provider prefix even when the sub is short
-            # (``auth0|abc`` → ``abc``); when the username has no ``|`` (a
-            # data-corruption edge case) it falls through to the whole
-            # username, which is then suffix-truncated.
             sub = username.rsplit("|", 1)[-1]
             return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
 
-        # Django enforces non-empty username, so this branch is effectively
-        # unreachable; the bare "user" sentinel is intentionally not unique.
-        return "user"
+        return _redacted_handle(self)
 
     def resolve_reputation_global(self, info) -> Any:
         """
@@ -183,9 +296,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         Uses pre-attached _reputation_global from resolve_global_leaderboard
         to avoid N+1 queries. Falls back to database query for single-user
         lookups.
-
-        Epic: #565 - Corpus Engagement Metrics & Analytics
-        Issue: #568 - Create GraphQL queries for engagement metrics and leaderboards
         """
         if hasattr(self, "_reputation_global") and self._reputation_global is not None:
             return self._reputation_global
@@ -199,12 +309,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return 0
 
     def resolve_reputation_for_corpus(self, info, corpus_id) -> Any:
-        """
-        Resolve reputation for this user in a specific corpus.
-
-        Epic: #565 - Corpus Engagement Metrics & Analytics
-        Issue: #568 - Create GraphQL queries for engagement metrics and leaderboards
-        """
         from graphql_relay import from_global_id
 
         from opencontractserver.conversations.models import UserReputation
@@ -219,12 +323,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return 0
 
     def resolve_total_messages(self, info) -> int:
-        """
-        Resolve total messages posted by this user.
-        Only counts messages visible to the requesting user.
-
-        Issue: #611 - User Profile Page
-        """
         from opencontractserver.conversations.models import (
             ChatMessage,
             MessageTypeChoices,
@@ -237,12 +335,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
     def resolve_total_threads_created(self, info) -> Any:
-        """
-        Resolve total threads created by this user.
-        Only counts threads visible to the requesting user.
-
-        Issue: #611 - User Profile Page
-        """
         from opencontractserver.conversations.models import Conversation
 
         return (
@@ -252,12 +344,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
     def resolve_total_annotations_created(self, info) -> Any:
-        """
-        Resolve total annotations created by this user.
-        Only counts annotations visible to the requesting user.
-
-        Issue: #611 - User Profile Page
-        """
         from opencontractserver.annotations.models import Annotation
 
         return (
@@ -267,12 +353,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
     def resolve_total_documents_uploaded(self, info) -> Any:
-        """
-        Resolve total documents uploaded by this user.
-        Only counts documents visible to the requesting user.
-
-        Issue: #611 - User Profile Page
-        """
         from opencontractserver.documents.models import Document
 
         return (
@@ -285,6 +365,20 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         model = User
         interfaces = [relay.Node]
         connection_class = CountableConnection
+        # Block model fields that should never reach the GraphQL surface,
+        # even for self-views. ``password`` is the obvious one; the rest
+        # are tracking metadata that has no client use case and would
+        # leak operational details about a user (when they last logged
+        # in, what IP, whether their profile is being synced from Auth0).
+        exclude = (
+            "password",
+            "last_ip",
+            "last_login",
+            "last_synced",
+            "synced",
+            "auth0_Id",
+            "first_signed_in",
+        )
 
 
 class AssignmentType(AnnotatePermissionsForReadMixin, DjangoObjectType):

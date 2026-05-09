@@ -41,6 +41,7 @@ import {
 } from "../../../graphql/mutations";
 import fallback_doc_icon from "../../../assets/images/defaults/default_doc_icon.jpg";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 
 // Message auto-dismiss durations (in milliseconds)
 const SUCCESS_MESSAGE_DURATION = 5000;
@@ -859,7 +860,7 @@ export const TrashFolderView: React.FC<TrashFolderViewProps> = ({
                     </div>
                     <div className="meta-row hide-mobile">
                       <User size={12} className="icon" />
-                      Deleted by {docPath.creator?.username || "Unknown user"}
+                      Deleted by {getCreatorDisplay(docPath.creator)}
                     </div>
                     {docPath.folder && (
                       <div className="meta-row hide-mobile">

@@ -105,6 +105,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { updateAnnotationSelectionParams } from "../../../utils/navigationUtils";
 import { routingLogger } from "../../../utils/routingLogger";
 import { canEditAnnotationsInCorpus } from "../../../utils/annotationPermissions";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
@@ -1523,7 +1524,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   const metadata = combinedData?.document ?? {
     title: "Loading...",
     fileType: "",
-    creator: { email: "" },
+    creator: { id: "", slug: "" },
     created: new Date().toISOString(),
   };
 
@@ -1995,7 +1996,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
               <FileType size={16} /> {metadata.fileType}
             </span>
             <span>
-              <User size={16} /> {metadata.creator?.email}
+              <User size={16} /> {getCreatorDisplay(metadata.creator)}
             </span>
             <span>
               <Calendar size={16} /> Created:{" "}

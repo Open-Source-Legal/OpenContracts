@@ -27,6 +27,7 @@ import {
   useStructuralAnnotations,
 } from "../../../annotator/hooks/AnnotationHooks";
 import { useAnnotationRefs } from "../../../annotator/hooks/useAnnotationRefs";
+import { getCreatorDisplay } from "../../../../utils/userDisplay";
 
 interface ContentItemRendererProps {
   item: UnifiedContentItem;
@@ -176,7 +177,8 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
             <SafeMarkdown>{note.content}</SafeMarkdown>
           </div>
           <div className="meta">
-            {note.creator.email} • {new Date(note.created).toLocaleDateString()}
+            {getCreatorDisplay(note.creator)} •{" "}
+            {new Date(note.created).toLocaleDateString()}
           </div>
         </PostItNote>
       </ItemContainer>

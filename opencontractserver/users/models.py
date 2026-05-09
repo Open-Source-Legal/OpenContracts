@@ -167,7 +167,10 @@ class User(AbstractUser):
     objects: ClassVar[UserProfileManager] = UserProfileManager()
 
     def __str__(self) -> str:
-        return f"{self.username}: {self.email}"
+        # Avoid leaking email into __repr__/admin/log surfaces. Slug is the
+        # public handle; falls back to username only when slug is unset
+        # (pre-migration rows or save() failures).
+        return self.slug or self.username
 
     def get_absolute_url(self) -> str:
         """Get url for user's detail view.

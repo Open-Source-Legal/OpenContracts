@@ -99,11 +99,8 @@ import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchM
 import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { navigateToDocument } from "../utils/navigationUtils";
-import {
-  formatFileSize,
-  formatRelativeTime,
-  getInitials,
-} from "../utils/formatters";
+import { formatFileSize, formatRelativeTime } from "../utils/formatters";
+import { getCreatorInitials } from "../utils/userDisplay";
 import {
   VIEW_MODES,
   STATUS_FILTERS,
@@ -1415,7 +1412,7 @@ export const Documents = () => {
                       <CardFooter>
                         <CardUploader>
                           <Avatar
-                            fallback={getInitials(doc.creator?.email)}
+                            fallback={getCreatorInitials(doc.creator)}
                             size="xs"
                           />
                           <span>{formatRelativeTime(doc.created)}</span>
@@ -1501,7 +1498,7 @@ export const Documents = () => {
                       </div>
                       <ListItemUploader>
                         <Avatar
-                          fallback={getInitials(doc.creator?.email)}
+                          fallback={getCreatorInitials(doc.creator)}
                           size="xs"
                         />
                         <span>{formatRelativeTime(doc.created)}</span>

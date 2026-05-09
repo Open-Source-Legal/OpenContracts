@@ -35,6 +35,7 @@ import {
 } from "../../../graphql/types/NoteTypes";
 import { SafeMarkdown } from "../markdown/SafeMarkdown";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 
 // Styled Components
 const StyledModalWrapper = styled.div`
@@ -839,7 +840,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                           <div className="version-meta">
                             <div className="meta-row">
                               <User size={12} />
-                              {revision.author.email}
+                              {getCreatorDisplay(revision.author)}
                             </div>
                             <div className="meta-row">
                               <Clock size={12} />

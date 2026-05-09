@@ -192,6 +192,7 @@ export const UPDATE_CORPUS_DESCRIPTION = gql`
           version
           author {
             id
+            slug
             email
           }
           created
@@ -2502,6 +2503,7 @@ export const CREATE_THREAD_MESSAGE = gql`
         modified
         creator {
           id
+          slug
           username
           email
         }
@@ -2559,6 +2561,7 @@ export const REPLY_TO_MESSAGE = gql`
         modified
         creator {
           id
+          slug
           username
           email
         }
@@ -2567,6 +2570,7 @@ export const REPLY_TO_MESSAGE = gql`
           content
           creator {
             id
+            slug
             username
           }
         }
@@ -3296,6 +3300,7 @@ export const CREATE_DOCUMENT_RELATIONSHIP = gql`
         }
         creator {
           id
+          slug
           username
         }
         created

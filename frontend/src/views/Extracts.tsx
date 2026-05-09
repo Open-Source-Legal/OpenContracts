@@ -45,6 +45,7 @@ import {
   showCreateExtractModal,
   showDeleteExtractModal,
   userObj,
+  backendUserObj,
 } from "../graphql/cache";
 import {
   GetExtractsOutput,
@@ -96,13 +97,15 @@ const TableIcon = () => (
 
 export const Extracts = () => {
   const currentUser = useReactiveVar(userObj);
+  const backendUser = useReactiveVar(backendUserObj);
   const extract_search_term = useReactiveVar(extractSearchTerm);
   const show_create_extract_modal = useReactiveVar(showCreateExtractModal);
   const show_delete_extract_modal = useReactiveVar(showDeleteExtractModal);
   const selected_extract_ids = useReactiveVar(selectedExtractIds);
   // Use userObj for auth check - consistent with NavMenu pattern
   const isAuthenticated = Boolean(currentUser);
-  const currentUserEmail = currentUser?.email;
+  // Ownership keys off the backend user id (the public GraphQL UserType).
+  const currentUserId = backendUser?.id;
 
   // Local state
   const [searchCache, setSearchCache] = useState<string>(extract_search_term);
@@ -446,7 +449,7 @@ export const Extracts = () => {
                   <ExtractListCard
                     key={extract.id}
                     extract={extract}
-                    currentUserEmail={currentUserEmail}
+                    currentUserId={currentUserId}
                     onView={handleViewExtract}
                     onDelete={handleDeleteExtract}
                     isMenuOpen={openMenuId === extract.id}

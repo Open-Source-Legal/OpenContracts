@@ -77,6 +77,7 @@ export const GET_DELETED_DOCUMENTS_IN_CORPUS = gql`
       modified
       creator {
         id
+        slug
         username
       }
       document {

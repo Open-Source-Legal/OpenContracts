@@ -579,7 +579,19 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
                           </Table.Cell>
                           <Table.Cell>
                             <UsernameCell>
-                              <strong>{entry.user.displayName}</strong>
+                              {/*
+                                Render the public slug — never displayName,
+                                which still falls back to the user's
+                                preferred name for self-views. The
+                                leaderboard is a public surface so every
+                                row is identified by the slug only. The
+                                ``user_<id>`` redaction only triggers for
+                                pre-migration rows; new users always have
+                                a slug.
+                              */}
+                              <strong>
+                                {entry.user.slug || `user_${entry.user.id}`}
+                              </strong>
                               {entry.isRisingStar && (
                                 <RisingStarTag>
                                   <TrendingUp size={12} />
