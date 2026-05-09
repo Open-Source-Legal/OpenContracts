@@ -24,7 +24,7 @@ Format requirements:
 
 from __future__ import annotations
 
-# 245 adjectives. Friendly, neutral, easy to spell.
+# 243 adjectives. Friendly, neutral, easy to spell.
 ADJECTIVES: tuple[str, ...] = (
     "able",
     "agile",
@@ -271,7 +271,7 @@ ADJECTIVES: tuple[str, ...] = (
     "smiling",
 )
 
-# 227 nouns. Mostly animals, fauna, mythical, plus a few nature elements.
+# 229 nouns. Mostly animals, fauna, mythical, plus a few nature elements.
 NOUNS: tuple[str, ...] = (
     "alpaca",
     "antelope",

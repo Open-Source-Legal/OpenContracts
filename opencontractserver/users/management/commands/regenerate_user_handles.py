@@ -104,17 +104,25 @@ class Command(BaseCommand):
         with transaction.atomic():
             for user in queryset.iterator():
                 old_handle = user.handle
-                # When --reroll-all/--reroll-suffixed, drop the existing handle
-                # before generating so it's not treated as the user's own
-                # collision in scope_qs.exclude(pk=user.pk).
-                if reroll_all or (
+                rerolling = reroll_all or (
                     reroll_suffixed
                     and user.handle
                     and _SUFFIXED_PATTERN.search(str(user.handle))
-                ):
-                    user.handle = None
+                )
 
-                scope_qs = User.objects.exclude(pk=user.pk)
+                # When rerolling, keep the user's own row in scope_qs so its
+                # current DB handle blocks generate_handle from re-selecting
+                # the same value (the python-only reset below doesn't reach
+                # the DB, so excluding the user's pk would let cleverFox42
+                # round-trip through the generator and back to itself). For
+                # the missing-fill path the row's handle is NULL/empty, which
+                # never matches a candidate, so excluding pk is safe and
+                # avoids a self-match against an empty string.
+                scope_qs = (
+                    User.objects.all()
+                    if rerolling
+                    else User.objects.exclude(pk=user.pk)
+                )
                 new_handle = generate_handle(scope_qs=scope_qs)
 
                 if dry_run:

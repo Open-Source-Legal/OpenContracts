@@ -1,5 +1,5 @@
 """
-Tests for the Reddit-style auto-assigned user handle (issue #1574).
+Tests for the Reddit-style auto-assigned user handle.
 
 Covers:
 - ``handle_generator.generate_handle`` — uniqueness, no PII leakage,
@@ -207,6 +207,42 @@ class UserModelHandleAutoAssignTests(TestCase):
         self.assertNotIn("auth0", user.handle.lower())
         self.assertNotIn("|", user.handle)
         self.assertNotIn("abc123", user.handle)
+
+    def test_anonymous_user_save_skips_handle_assignment(self):
+        """The django-guardian Anonymous account is a system row; it must
+        never receive an auto-handle so the migration / management command /
+        save() guards stay symmetric. django-guardian seeds this row at
+        startup, so we work with the existing user rather than creating one.
+        """
+        anon, _ = User.objects.get_or_create(username="Anonymous")
+        # Make sure no prior test fixture leaked a handle onto Anonymous.
+        User.objects.filter(pk=anon.pk).update(handle=None)
+        anon.refresh_from_db()
+        anon.email = "anon@x.com"
+        anon.save()
+        anon.refresh_from_db()
+        self.assertIsNone(
+            anon.handle,
+            f"Anonymous user must not receive a handle (got {anon.handle!r})",
+        )
+
+    def test_regenerate_command_skips_anonymous_user(self):
+        """The management command's ``--reroll-all`` / missing-fill modes must
+        also skip Anonymous so its handle stays None even after a forced reroll.
+        """
+        anon, _ = User.objects.get_or_create(username="Anonymous")
+        User.objects.filter(pk=anon.pk).update(handle=None)
+        anon.refresh_from_db()
+        self.assertIsNone(anon.handle)
+
+        out = StringIO()
+        call_command("regenerate_user_handles", "--reroll-all", stdout=out)
+
+        anon.refresh_from_db()
+        self.assertIsNone(
+            anon.handle,
+            "Anonymous handle must remain None even under --reroll-all",
+        )
 
 
 # ---------------------------------------------------------------------------

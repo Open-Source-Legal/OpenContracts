@@ -37,8 +37,6 @@ from opencontractserver.users.handle_wordlists import ADJECTIVES, NOUNS
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HANDLE_FIELD = "handle"
-
 # Module-local aliases so callers (including tests that patch these names)
 # can import directly from this module without depending on the constants
 # module path. The authoritative values live in
@@ -59,7 +57,7 @@ def _camel_case_pair(adjective: str, noun: str) -> str:
 def generate_handle(
     *,
     scope_qs: QuerySet,
-    handle_field: str = DEFAULT_HANDLE_FIELD,
+    handle_field: str = "handle",
     rng: random.Random | None = None,
 ) -> str:
     """Generate a unique handle within ``scope_qs`` using ``ADJECTIVES × NOUNS``.

@@ -258,7 +258,8 @@ class User(AbstractUser):
             # column and re-roll. With the ~56k-pair namespace the first
             # attempt almost always wins; the bound prevents pathological
             # loops if the namespace is misconfigured.
-            scope_qs = get_user_model().objects.all()
+            user_cls = type(self)
+            scope_qs = user_cls.objects.all()
             for attempt in range(HANDLE_INSERT_RETRY_ATTEMPTS):
                 self.handle = generate_handle(
                     scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
@@ -276,8 +277,7 @@ class User(AbstractUser):
                     chosen = self.handle
                     self.handle = None
                     if not chosen or not (
-                        get_user_model()
-                        .objects.exclude(pk=self.pk)
+                        user_cls.objects.exclude(pk=self.pk)
                         .filter(handle=chosen)
                         .exists()
                     ):

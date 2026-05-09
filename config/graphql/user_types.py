@@ -101,7 +101,7 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             1. ``name`` (Auth0 ``name`` claim).
             2. ``given_name`` + ``family_name`` (Auth0).
             3. ``first_name`` + ``last_name`` (local Django fields).
-            4. ``handle`` (Reddit-style auto-assigned handle, issue #1574).
+            4. ``handle`` (Reddit-style auto-assigned handle).
             5. ``username`` verbatim — ONLY when ``is_social_user=False``.
                ``UserUnicodeUsernameValidator`` (see
                ``opencontractserver/users/validators.py``) explicitly allows
