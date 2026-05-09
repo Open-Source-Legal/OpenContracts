@@ -255,34 +255,51 @@ const SelectionLayer = ({
   }, []);
 
   /**
+   * Finalises an in-progress selection at ``(clientX, clientY)``.
+   *
+   * Extracted so the same logic runs whether the mouseup fired on the
+   * SelectionLayer (React's ``onMouseUp``) or anywhere else in the document
+   * (the global listener below). Without the global path, releases over
+   * fixed-positioned siblings (e.g. the right-edge sidebar tabs at z-index
+   * higher than the selection layer) silently swallow the gesture and the
+   * action menu never appears — a real UX bug surfaced by mobile selection
+   * tests near the viewport's right edge.
+   */
+  const finalizeSelection = useCallback(
+    (clientX: number, clientY: number, shiftKey: boolean) => {
+      if (!localPageSelection) return;
+      const pageNum = pageNumber;
+
+      setMultiSelections((prev) => {
+        const updatedSelections = {
+          ...prev,
+          [pageNum]: [...(prev[pageNum] || []), localPageSelection.bounds],
+        };
+        setLocalPageSelection(undefined);
+        setIsCreatingAnnotation(false); // Reset creating annotation state
+
+        if (!shiftKey) {
+          // Instead of immediately creating annotation, show action menu
+          setPendingSelections(updatedSelections);
+          const menuPos = clampMenuPosition(clientX, clientY);
+          setActionMenuPosition(menuPos);
+          setShowActionMenu(true);
+        }
+
+        return updatedSelections;
+      });
+    },
+    [localPageSelection, pageNumber, setIsCreatingAnnotation]
+  );
+
+  /**
    * Handles the mouse up event to finalize the selection.
    */
   const handleMouseUp = useCallback(
     (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
-      if (localPageSelection) {
-        const pageNum = pageNumber;
-
-        setMultiSelections((prev) => {
-          const updatedSelections = {
-            ...prev,
-            [pageNum]: [...(prev[pageNum] || []), localPageSelection.bounds],
-          };
-          setLocalPageSelection(undefined);
-          setIsCreatingAnnotation(false); // Reset creating annotation state
-
-          if (!event.shiftKey) {
-            // Instead of immediately creating annotation, show action menu
-            setPendingSelections(updatedSelections);
-            const menuPos = clampMenuPosition(event.clientX, event.clientY);
-            setActionMenuPosition(menuPos);
-            setShowActionMenu(true);
-          }
-
-          return updatedSelections;
-        });
-      }
+      finalizeSelection(event.clientX, event.clientY, event.shiftKey);
     },
-    [localPageSelection, pageNumber, setIsCreatingAnnotation]
+    [finalizeSelection]
   );
 
   /**
@@ -630,6 +647,47 @@ const SelectionLayer = ({
       };
     }
   }, [localPageSelection, setIsCreatingAnnotation, longPressTimer]);
+
+  // Document-level mouseup / mousemove during an in-progress selection so
+  // gestures that release (or drift) over an overlapping fixed-positioned
+  // sibling — sidebar tabs on the right edge, floating controls — still
+  // complete cleanly. React's ``onMouseUp`` fires on the element under the
+  // cursor at release time; without this fallback, releasing over those
+  // siblings silently drops the selection and the action menu never appears.
+  useEffect(() => {
+    if (!localPageSelection) return;
+    if (localPageSelection.pageNumber !== pageNumber) return;
+
+    const handleDocMouseUp = (event: MouseEvent) => {
+      finalizeSelection(event.clientX, event.clientY, event.shiftKey);
+    };
+
+    const handleDocMouseMove = (event: MouseEvent) => {
+      if (containerRef.current === null) return;
+      const canvasElement = containerRef.current
+        .previousSibling as HTMLCanvasElement | null;
+      if (!canvasElement) return;
+      const canvasBounds = canvasElement.getBoundingClientRect();
+      setLocalPageSelection((prev) => {
+        if (!prev || prev.pageNumber !== pageNumber) return prev;
+        return {
+          pageNumber: prev.pageNumber,
+          bounds: {
+            ...prev.bounds,
+            right: event.clientX - canvasBounds.left,
+            bottom: event.clientY - canvasBounds.top,
+          },
+        };
+      });
+    };
+
+    document.addEventListener("mouseup", handleDocMouseUp);
+    document.addEventListener("mousemove", handleDocMouseMove);
+    return () => {
+      document.removeEventListener("mouseup", handleDocMouseUp);
+      document.removeEventListener("mousemove", handleDocMouseMove);
+    };
+  }, [localPageSelection, pageNumber, finalizeSelection]);
 
   // Cleanup long press timer on unmount
   useEffect(() => {
