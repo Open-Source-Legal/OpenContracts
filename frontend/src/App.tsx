@@ -74,7 +74,6 @@ import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
 import { FileUploadPackageProps } from "./components/widgets/modals/DocumentUploadModal";
 import { DocumentLandingRoute } from "./components/routes/DocumentLandingRoute";
-import { ExtractLandingRoute } from "./components/routes/ExtractLandingRoute";
 import { LabelSetLandingRoute } from "./components/routes/LabelSetLandingRoute";
 import { NotFound } from "./components/routes/NotFound";
 import { CorpusLandingRoute } from "./components/routes/CorpusLandingRoute";
@@ -360,10 +359,12 @@ export const App = () => {
             element={<CorpusLandingRoute />}
           />
 
-          {/* Extract routes */}
+          {/* Extract routes (canonical /e/ and legacy /extracts/:id both
+              render ExtractDetailRoute; CentralRouteManager Phase 3 redirects
+              /extracts/:id → /e/:user/:id when creator slug is available). */}
           <Route
             path="/e/:userIdent/:extractIdent"
-            element={<ExtractLandingRoute />}
+            element={<ExtractDetailRoute />}
           />
 
           {/* List views */}
