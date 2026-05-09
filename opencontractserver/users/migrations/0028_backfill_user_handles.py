@@ -1,13 +1,18 @@
-# Data migration backfilling auto-assigned display handles for existing users
-#. Uses ``opencontractserver.users.handle_generator`` so the same
-# logic powers ad-hoc reruns via the ``regenerate_user_handles`` management
-# command if the curated word list grows.
+# Data migration backfilling auto-assigned display handles for existing users.
+# Uses ``opencontractserver.users.handle_generator`` so the same logic powers
+# ad-hoc reruns via the ``regenerate_user_handles`` management command if the
+# curated word list grows.
 
 from django.db import migrations
+from django.db.models import Q
 
 
 def backfill_handles(apps, schema_editor):
     """Assign a unique handle to every user lacking one."""
+    # NOTE: Deliberately imports live application code (not a historical
+    # snapshot). Safe because ``generate_handle`` is pure logic with a
+    # stable signature — if the module is ever moved or renamed, update
+    # this import accordingly.
     from opencontractserver.users.handle_generator import generate_handle
 
     User = apps.get_model("users", "User")
@@ -16,9 +21,14 @@ def backfill_handles(apps, schema_editor):
     # ``--fake`` / ``--check`` and respects the active schema editor's DB.
     db = schema_editor.connection.alias
 
-    missing = User.objects.using(db).filter(handle__isnull=True) | User.objects.using(
-        db
-    ).filter(handle__exact="")
+    # The django-guardian Anonymous user is a system account that never
+    # surfaces to other users — never assign it a handle so this migration
+    # stays in sync with the User.save() / management-command exclusions.
+    missing = (
+        User.objects.using(db)
+        .filter(Q(handle__isnull=True) | Q(handle__exact=""))
+        .exclude(username="Anonymous")
+    )
     for user in missing.iterator():
         # ``generate_handle`` checks uniqueness against the current snapshot of
         # the table; we exclude this user's own pk so it doesn't see its own

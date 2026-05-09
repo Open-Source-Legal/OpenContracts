@@ -86,7 +86,11 @@ class Command(BaseCommand):
             queryset = User.objects.filter(missing)
             mode = "missing only"
 
-        queryset = queryset.order_by("pk")
+        # The django-guardian Anonymous user is a system account that
+        # never surfaces to other users; exclude it from every mode so the
+        # backfill stays a no-op for it (and so test fixtures that create a
+        # known number of users get the count they expect).
+        queryset = queryset.exclude(username="Anonymous").order_by("pk")
         total = queryset.count()
         self.stdout.write(
             f"regenerate_user_handles: mode={mode}, candidates={total}"

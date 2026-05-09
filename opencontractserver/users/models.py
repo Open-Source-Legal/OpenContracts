@@ -235,12 +235,17 @@ class User(AbstractUser):
 
         # Auto-assign Reddit-style display handle. Mirrors the slug guard so
         # initial migrations that pre-date the column don't explode on save.
+        # The django-guardian Anonymous user is a system account that never
+        # surfaces to other users, so it never needs (or wants) a handle —
+        # excluding it here also keeps the management command, migration,
+        # and ``DisplayName`` query symmetric.
         handle_column_exists = table_has_column(self._meta.db_table, "handle")
         handle_being_saved = update_fields is None or "handle" in update_fields
         needs_handle = (
             handle_column_exists
             and handle_being_saved
             and (not self.handle or not str(self.handle).strip())
+            and self.username != "Anonymous"
         )
 
         created = self.id is None
@@ -261,14 +266,24 @@ class User(AbstractUser):
                 try:
                     super().save(*args, **kwargs)
                     break
-                except IntegrityError as exc:
-                    # Only retry on the handle uniqueness collision; let
-                    # other integrity errors (e.g. username, slug) propagate.
-                    if "handle" not in str(exc).lower():
+                except IntegrityError:
+                    # Don't string-parse the DB error message — formats vary
+                    # across drivers and constraint names. Instead query for
+                    # an existing row holding our chosen handle: a hit means
+                    # this WAS a handle collision and we should re-roll; a
+                    # miss means the IntegrityError came from another column
+                    # (username, slug, …) and must propagate.
+                    chosen = self.handle
+                    self.handle = None
+                    if not chosen or not (
+                        get_user_model()
+                        .objects.exclude(pk=self.pk)
+                        .filter(handle=chosen)
+                        .exists()
+                    ):
                         raise
                     if attempt == HANDLE_INSERT_RETRY_ATTEMPTS - 1:
                         raise
-                    self.handle = None
                     continue
         else:
             super().save(*args, **kwargs)
