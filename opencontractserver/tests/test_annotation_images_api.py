@@ -185,17 +185,183 @@ class AnnotationImagesAPITestCase(TestCase):
         self.assertEqual(len(data["images"]), 0)
         self.assertEqual(data["count"], 0)
 
-    def test_fetch_images_unauthenticated(self):
-        """Test authentication required."""
+    def test_fetch_images_unauthenticated_private(self):
+        """
+        Anonymous users hitting a non-public annotation get 200 with an empty
+        array (IDOR protection) — same response shape as private/missing for
+        authenticated users.
+        """
         client = APIClient()
         document, annotation = self._create_test_document_with_images(self.user)
 
         response = client.get(f"/api/annotations/{annotation.id}/images/")
 
-        # Should require authentication
-        # DRF returns 403 for IsAuthenticated with SessionAuth
-        # or 401 for JWT authentication
-        self.assertIn(response.status_code, [401, 403])
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(len(data["images"]), 0)
+
+    def test_fetch_images_anonymous_public_structural(self):
+        """
+        Anonymous users CAN fetch images for structural annotations on
+        public documents in public corpora — mirrors what they can see via
+        the GraphQL annotation queryset.
+        """
+        client = APIClient()  # no auth
+
+        # Public corpus + public document
+        public_corpus = Corpus.objects.create(
+            title="Public Corpus",
+            creator=self.user,
+            label_set=self.label_set,
+            is_public=True,
+        )
+        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
+        document = Document.objects.create(
+            creator=self.user,
+            title="Public Doc",
+            description="Public",
+            pdf_file="test.pdf",
+            is_public=True,
+        )
+        pawls_json = json.dumps(pawls_data).encode("utf-8")
+        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
+
+        # Structural annotation (the only kind anonymous users can see)
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=public_corpus,
+            creator=self.user,
+            page=0,
+            annotation_label=self.annotation_label,
+            raw_text="",
+            structural=True,
+            json={
+                "0": {
+                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 1},
+                        {"pageIndex": 0, "tokenIndex": 2},
+                    ],
+                    "rawText": "",
+                }
+            },
+            content_modalities=["IMAGE"],
+        )
+
+        response = client.get(f"/api/annotations/{annotation.id}/images/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(len(data["images"]), 2)
+        self.assertEqual(data["images"][0]["format"], "jpeg")
+
+    def test_fetch_images_anonymous_non_structural_blocked(self):
+        """
+        Anonymous users CANNOT fetch images for NON-structural annotations
+        even on public document + corpus, because the annotation queryset
+        only exposes structural annotations to anonymous users.
+        """
+        client = APIClient()  # no auth
+
+        public_corpus = Corpus.objects.create(
+            title="Public Corpus 2",
+            creator=self.user,
+            label_set=self.label_set,
+            is_public=True,
+        )
+        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
+        document = Document.objects.create(
+            creator=self.user,
+            title="Public Doc 2",
+            description="Public",
+            pdf_file="test.pdf",
+            is_public=True,
+        )
+        pawls_json = json.dumps(pawls_data).encode("utf-8")
+        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
+
+        # NON-structural annotation
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=public_corpus,
+            creator=self.user,
+            page=0,
+            annotation_label=self.annotation_label,
+            raw_text="",
+            structural=False,
+            json={
+                "0": {
+                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 1},
+                    ],
+                    "rawText": "",
+                }
+            },
+            content_modalities=["IMAGE"],
+        )
+
+        response = client.get(f"/api/annotations/{annotation.id}/images/")
+
+        # Anonymous gate returns empty array (IDOR protection)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(len(data["images"]), 0)
+
+    def test_fetch_images_anonymous_private_corpus_blocked(self):
+        """
+        Anonymous users CANNOT fetch images when the corpus is private,
+        even for a structural annotation on a public document.
+        """
+        client = APIClient()  # no auth
+
+        # Private corpus, public document
+        private_corpus = Corpus.objects.create(
+            title="Private Corpus",
+            creator=self.user,
+            label_set=self.label_set,
+            is_public=False,
+        )
+        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
+        document = Document.objects.create(
+            creator=self.user,
+            title="Public Doc 3",
+            description="Public",
+            pdf_file="test.pdf",
+            is_public=True,
+        )
+        pawls_json = json.dumps(pawls_data).encode("utf-8")
+        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
+
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=private_corpus,
+            creator=self.user,
+            page=0,
+            annotation_label=self.annotation_label,
+            raw_text="",
+            structural=True,
+            json={
+                "0": {
+                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 1},
+                    ],
+                    "rawText": "",
+                }
+            },
+            content_modalities=["IMAGE"],
+        )
+
+        response = client.get(f"/api/annotations/{annotation.id}/images/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(len(data["images"]), 0)
 
     def test_fetch_images_for_text_only_annotation(self):
         """Test fetching images for annotation with no images."""

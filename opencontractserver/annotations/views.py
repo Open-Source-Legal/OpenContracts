@@ -3,9 +3,9 @@
 import logging
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
 from opencontractserver.llms.tools.image_tools import (
@@ -16,7 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 class AnnotationImagesThrottle(UserRateThrottle):
-    """Rate limiting for annotation image retrieval endpoint."""
+    """Rate limiting for annotation image retrieval endpoint (authenticated)."""
+
+    scope = "annotation_images"
+
+
+class AnnotationImagesAnonThrottle(AnonRateThrottle):
+    """Rate limiting for annotation image retrieval endpoint (anonymous)."""
 
     scope = "annotation_images"
 
@@ -28,15 +34,20 @@ class AnnotationImagesView(APIView):
     GET /api/annotations/<annotation_id>/images/
 
     Returns JSON with base64-encoded images for the specified annotation.
-    Uses get_annotation_images_with_permission() which:
-    - Verifies user has READ permission on annotation's document
+    Uses get_annotation_images_with_permission() which mirrors the visibility
+    rules of AnnotationQuerySet.visible_to_user:
+    - Authenticated users: requires READ permission on document AND corpus,
+      respects analysis/extract privacy fields
+    - Anonymous users: only structural annotations on public document +
+      public corpus (matches the public/anonymous read access defined in
+      docs/permissioning/consolidated_permissioning_guide.md)
     - Returns empty array for unauthorized/missing (IDOR protection)
 
-    Rate limited to 200 requests/hour per user to prevent resource exhaustion.
+    Rate limited to 200 requests/hour per user/IP to prevent resource exhaustion.
     """
 
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [AnnotationImagesThrottle]
+    permission_classes = [AllowAny]
+    throttle_classes = [AnnotationImagesThrottle, AnnotationImagesAnonThrottle]
 
     def get(self, request, annotation_id):
         """

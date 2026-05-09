@@ -480,10 +480,12 @@ def get_annotation_images_with_permission(
     1. Effective Permission = MIN(document_permission, corpus_permission)
     2. Privacy model: created_by_analysis/created_by_extract require source permission
     3. Structural annotations bypass privacy (always visible if doc/corpus readable)
-    4. IDOR protection: same response for missing or unauthorized
+    4. Anonymous users: structural annotations on public doc + public corpus only
+       (mirrors AnnotationQuerySet.visible_to_user)
+    5. IDOR protection: same response for missing or unauthorized
 
     Args:
-        user: The user requesting access.
+        user: The user requesting access (may be AnonymousUser).
         annotation_id: The annotation ID.
 
     Returns:
@@ -501,6 +503,16 @@ def get_annotation_images_with_permission(
         # Superusers bypass all checks
         if user.is_superuser:
             return get_annotation_images(annotation_id)
+
+        # Anonymous users may only see images for structural annotations.
+        # AnnotationQuerySet.visible_to_user restricts anonymous users to
+        # structural annotations on public docs/corpuses; the doc/corpus
+        # public-flag check below enforces the "public" half of that rule.
+        if user.is_anonymous and not annotation.structural:
+            logger.debug(
+                f"Anonymous user denied image access for non-structural annotation {annotation_id}"
+            )
+            return []  # IDOR protection
 
         # === PRIVACY MODEL CHECK ===
         # Non-structural annotations with created_by_analysis or created_by_extract
