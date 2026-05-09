@@ -19,8 +19,26 @@ import { showQueryViewState } from "../../graphql/cache";
 
 // Hoisted stubs so vi.mock can reference them. Each stub renders the props
 // callbacks as inline buttons so a test can fire them synthetically.
+//
+// Local interfaces describe only the prop callbacks the stubs need to
+// surface; the real components accept many more props but the stubs ignore
+// them, so a narrow shape avoids dragging the full component signatures into
+// this test file (and the explicit-`any` baseline at the same time).
+interface MockCorpusHomeProps {
+  onChatSubmit?: (text: string) => void;
+  onEditDescription?: () => void;
+  onEditArticle?: () => void;
+  onViewChatHistory?: () => void;
+}
+
+interface MockCorpusChatProps {
+  showLoad?: boolean;
+  onNavigateHome?: () => void;
+  onViewModeChange?: (inConversation: boolean) => void;
+}
+
 vi.mock("../../components/corpuses/CorpusHome", () => ({
-  CorpusHome: (props: any) => (
+  CorpusHome: (props: MockCorpusHomeProps) => (
     <div data-testid="mock-corpus-home">
       <button
         data-testid="trigger-chat-submit"
@@ -57,7 +75,7 @@ vi.mock("../../components/corpuses/CorpusHome", () => ({
 }));
 
 vi.mock("../../components/corpuses/CorpusChat", () => ({
-  CorpusChat: (props: any) => (
+  CorpusChat: (props: MockCorpusChatProps) => (
     <div data-testid="mock-corpus-chat" data-show-load={String(props.showLoad)}>
       <button
         data-testid="trigger-navigate-home"

@@ -244,25 +244,16 @@ export const CorpusQueryView = ({
     return () => clearTimeout(id);
   }, [isSearchMode, isDesktop]);
 
-  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Clean up any in-flight resetToSearch focus timer on unmount so it can't
-  // fire against a stale inputRef.
-  useEffect(
-    () => () => {
-      if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
-    },
-    []
-  );
-
   const resetToSearch = () => {
     setChatExpanded(false);
     setChatExpandedInConversation(false);
     setIsSearchMode(true);
     setSearchQuery("");
-    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
-    focusTimerRef.current = setTimeout(() => {
-      inputRef.current?.focus();
-    }, RETURN_FOCUS_DELAY_MS);
+    // Focus is scheduled by the `isSearchMode` effect above. Calling
+    // `setIsSearchMode(true)` from a non-search mode triggers the effect,
+    // which owns the focus timer + cleanup. Don't double-schedule a focus
+    // here — a stale ref-owned timer cannot be cancelled by the effect's
+    // cleanup, so a second source could fire against an unmounted input.
   };
 
   const openHistoryView = () => {

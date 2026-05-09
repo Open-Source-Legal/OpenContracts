@@ -281,7 +281,7 @@ export const NavigationItems = styled.div`
 
 // Badge for count display on navigation items
 export const NavItemBadge = styled.span<{
-  isActive: boolean;
+  $isActive: boolean;
   $isZero?: boolean;
 }>`
   display: inline-flex;
@@ -297,13 +297,13 @@ export const NavItemBadge = styled.span<{
   background: ${(props) =>
     props.$isZero
       ? "transparent"
-      : props.isActive
+      : props.$isActive
       ? CORPUS_COLORS.teal[700]
       : CORPUS_COLORS.slate[200]};
   color: ${(props) =>
     props.$isZero
       ? CORPUS_COLORS.slate[400]
-      : props.isActive
+      : props.$isActive
       ? CORPUS_COLORS.white
       : CORPUS_COLORS.slate[600]};
   border: ${(props) =>
@@ -312,13 +312,13 @@ export const NavItemBadge = styled.span<{
   box-shadow: ${(props) =>
     props.$isZero
       ? "none"
-      : props.isActive
+      : props.$isActive
       ? `0 2px 4px ${accentAlpha(0.25)}`
       : CORPUS_SHADOWS.sm};
 `;
 
 export const NavigationItem = styled(motion.button)<{
-  isActive: boolean;
+  $isActive: boolean;
   $isExpanded: boolean;
 }>`
   width: 100%;
@@ -332,7 +332,7 @@ export const NavigationItem = styled(motion.button)<{
     props.$isExpanded ? "calc(100% - 1rem)" : "calc(100% - 0.5rem)"};
   border-radius: ${(props) => (props.$isExpanded ? "12px" : "10px")};
   background: ${(props) => {
-    if (props.isActive) {
+    if (props.$isActive) {
       return `linear-gradient(
         135deg,
         rgba(74, 144, 226, 0.12) 0%,
@@ -342,12 +342,12 @@ export const NavigationItem = styled(motion.button)<{
     return "transparent";
   }};
   border: 1px solid
-    ${(props) => (props.isActive ? "rgba(74, 144, 226, 0.2)" : "transparent")};
+    ${(props) => (props.$isActive ? "rgba(74, 144, 226, 0.2)" : "transparent")};
   color: ${(props) =>
-    props.isActive
+    props.$isActive
       ? OS_LEGAL_COLORS.primaryBlue
       : OS_LEGAL_COLORS.textSecondary};
-  font-weight: ${(props) => (props.isActive ? "600" : "500")};
+  font-weight: ${(props) => (props.$isActive ? "600" : "500")};
   font-size: 0.9375rem;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -369,13 +369,13 @@ export const NavigationItem = styled(motion.button)<{
       #4a90e2 0%,
       #6366f1 100%
     );
-    opacity: ${(props) => (props.isActive ? "1" : "0")};
+    opacity: ${(props) => (props.$isActive ? "1" : "0")};
     transform: ${(props) =>
       props.$isExpanded ? "translateY(-50%)" : "translateX(-50%)"};
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border-radius: 2px;
     box-shadow: ${(props) =>
-      props.isActive ? "0 0 8px rgba(74, 144, 226, 0.5)" : "none"};
+      props.$isActive ? "0 0 8px rgba(74, 144, 226, 0.5)" : "none"};
   }
 
   /* Hover background effect */
@@ -398,7 +398,7 @@ export const NavigationItem = styled(motion.button)<{
 
   &:hover {
     background: ${(props) => {
-      if (props.isActive) {
+      if (props.$isActive) {
         return `linear-gradient(
           135deg,
           rgba(74, 144, 226, 0.16) 0%,
@@ -412,9 +412,9 @@ export const NavigationItem = styled(motion.button)<{
       )`;
     }};
     border-color: ${(props) =>
-      props.isActive ? "rgba(74, 144, 226, 0.3)" : "rgba(226, 232, 240, 0.5)"};
+      props.$isActive ? "rgba(74, 144, 226, 0.3)" : "rgba(226, 232, 240, 0.5)"};
     color: ${(props) =>
-      props.isActive
+      props.$isActive
         ? OS_LEGAL_COLORS.primaryBlue
         : OS_LEGAL_COLORS.textTertiary};
     transform: ${(props) =>
@@ -426,9 +426,9 @@ export const NavigationItem = styled(motion.button)<{
 
     svg {
       transform: ${(props) =>
-        props.isActive ? "scale(1.15) rotate(-5deg)" : "scale(1.1)"};
+        props.$isActive ? "scale(1.15) rotate(-5deg)" : "scale(1.1)"};
       filter: ${(props) =>
-        props.isActive
+        props.$isActive
           ? "drop-shadow(0 2px 4px rgba(74, 144, 226, 0.3))"
           : "none"};
     }

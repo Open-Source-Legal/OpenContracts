@@ -1552,7 +1552,7 @@ export const Corpuses = () => {
               <NavigationItem
                 data-item-id={item.id}
                 key={item.id}
-                isActive={active_tab === index}
+                $isActive={active_tab === index}
                 $isExpanded={
                   use_mobile_layout ? mobileSidebarOpen : sidebarExpanded
                 }
@@ -1584,7 +1584,7 @@ export const Corpuses = () => {
                     </span>
                     {item.badge !== undefined && (
                       <NavItemBadge
-                        isActive={active_tab === index}
+                        $isActive={active_tab === index}
                         $isZero={item.badge === 0}
                       >
                         {item.badge > 0 ? item.badge : "–"}
@@ -1599,7 +1599,7 @@ export const Corpuses = () => {
           {/* Exit to Explore mode button */}
           <ExitPowerUserWrapper>
             <NavigationItem
-              isActive={false}
+              $isActive={false}
               $isExpanded={
                 use_mobile_layout ? mobileSidebarOpen : sidebarExpanded
               }
