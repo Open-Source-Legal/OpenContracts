@@ -8,7 +8,12 @@ import React, {
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
 import {
   SearchBox,
   FilterTabs,
@@ -45,6 +50,7 @@ import { ExtractListCard } from "../components/extracts/ExtractListCard";
 import { ConfirmModal } from "../components/widgets/modals/ConfirmModal";
 import { CreateExtractModal } from "../components/widgets/modals/CreateExtractModal";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { DEBOUNCE } from "../assets/configurations/constants";
 
@@ -211,7 +217,7 @@ export const Extracts = () => {
   };
 
   // GraphQL Query
-  const { refetch, loading, data, fetchMore } = useQuery<
+  const { refetch, loading, networkStatus, data, fetchMore } = useQuery<
     GetExtractsOutput,
     GetExtractsInput
   >(GET_EXTRACTS, {
@@ -491,9 +497,9 @@ export const Extracts = () => {
 
         {/* Extracts List Section */}
         <ListContainer>
+          {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
-            active={loading}
-            inverted
+            active={loading && filteredExtracts.length === 0}
             size="large"
             content="Loading extracts..."
           />
@@ -536,6 +542,11 @@ export const Extracts = () => {
 
               {/* Infinite scroll trigger */}
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+              <FetchMoreFooter
+                visible={networkStatus === NetworkStatus.fetchMore}
+                message="Loading more extracts…"
+                data-testid="extracts-fetch-more-spinner"
+              />
             </>
           ) : !loading ? (
             <EmptyStateWrapper>
