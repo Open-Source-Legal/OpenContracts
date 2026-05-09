@@ -2,7 +2,7 @@ import styled from "styled-components";
 import { motion } from "framer-motion";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import { POPOVER_Z_INDEX } from "../../../assets/configurations/constants";
-import type { TimelineEntry } from "./ChatMessage";
+import type { TimelineEntry } from "./types";
 
 export const MessageContainer = styled(motion.div)<{
   $isAssistant: boolean;
@@ -990,7 +990,7 @@ export const ApprovalIndicator = styled.div<{
 }>`
   position: absolute;
   right: ${(props) => (props.$isSelected ? "8rem" : "1rem")};
-  top: ${(props) => (props.$isSelected ? "3.5rem" : "3.5rem")};
+  top: 3.5rem;
   z-index: 10;
   display: flex;
   align-items: center;

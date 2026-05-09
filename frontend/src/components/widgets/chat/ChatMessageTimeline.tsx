@@ -31,7 +31,7 @@ import {
   TimelineList,
   TimelineTitle,
 } from "./ChatMessage.styles";
-import type { TimelineEntry } from "./ChatMessage";
+import type { TimelineEntry } from "./types";
 
 // Helper function to get icon for timeline entry type
 export const getTimelineIcon = (type: TimelineEntry["type"]) => {

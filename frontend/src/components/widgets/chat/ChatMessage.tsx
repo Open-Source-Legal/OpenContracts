@@ -38,24 +38,10 @@ import { ToolUsageIndicator } from "./ChatMessageToolUsage";
 export { extractToolCalls, formatToolName } from "./ChatMessageToolUsage";
 export { StreamingThoughtTicker } from "./ChatMessageTimeline";
 
-// Timeline entry type based on the schema
-export interface TimelineEntry {
-  type:
-    | "thought"
-    | "content"
-    | "tool_call"
-    | "tool_result"
-    | "sources"
-    | "status"
-    | "compaction";
-  text?: string;
-  tool?: string;
-  args?: Record<string, unknown>;
-  result?: string;
-  count?: number;
-  metadata?: Record<string, any>;
-  msg?: string;
-}
+// Timeline entry type — definition lives in `./types` so sibling style
+// modules can import it without creating a `ChatMessage` ↔ styles cycle.
+export type { TimelineEntry } from "./types";
+import type { TimelineEntry } from "./types";
 
 export interface ChatMessageProps {
   messageId?: string; // Optional because some messages (like streaming ones) might not have an ID yet

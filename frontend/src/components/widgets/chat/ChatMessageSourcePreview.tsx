@@ -71,9 +71,7 @@ const SourceItem: React.FC<SourceItemProps> = ({
   };
 
   const handleLabelSelect = (label: AnnotationLabelType) => {
-    const msg = chatStateValue.messages.find(
-      (m) => m.messageId === messageId
-    );
+    const msg = chatStateValue.messages.find((m) => m.messageId === messageId);
     if (!msg) return setLabelMenuOpen(false);
     const sourceData = msg.sources[index];
     if (!sourceData) return setLabelMenuOpen(false);
@@ -145,7 +143,12 @@ const SourceItem: React.FC<SourceItemProps> = ({
           <Pin size={12} /> Source {index + 1}
         </SourceTitle>
         <div style={{ display: "flex", gap: "0.25rem" }}>
-          <AnnotateButton title="Annotate" onClick={handleAnnotateClick}>
+          <AnnotateButton
+            title="Annotate"
+            onClick={handleAnnotateClick}
+            aria-haspopup="menu"
+            aria-expanded={labelMenuOpen}
+          >
             <Plus size={14} /> Annotate
           </AnnotateButton>
           <ExpandButton
@@ -159,9 +162,13 @@ const SourceItem: React.FC<SourceItemProps> = ({
         </div>
       </SourceHeader>
       {labelMenuOpen && (
-        <LabelMenu>
+        <LabelMenu role="menu" aria-label="Choose label for new annotation">
           {availableLabels.map((lab) => (
-            <LabelButton key={lab.id} onClick={() => handleLabelSelect(lab)}>
+            <LabelButton
+              key={lab.id}
+              role="menuitem"
+              onClick={() => handleLabelSelect(lab)}
+            >
               <span
                 style={{
                   marginRight: 6,
@@ -236,7 +243,7 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({
             <SourceList>
               {sources.map((source, index) => (
                 <SourceItem
-                  key={index}
+                  key={`${messageId}-source-${index}`}
                   messageId={messageId}
                   text={source.text}
                   index={index}
