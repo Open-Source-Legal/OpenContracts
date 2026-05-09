@@ -427,3 +427,72 @@ class DocAnalyzerTaskTestCase(TestCase):
         self.assertEqual(span_annotation.raw_text, "Exhibit 10")
         self.assertEqual(span_annotation.json, {"start": 0, "end": 10})
         self.assertEqual(span_annotation.annotation_label.text, "TEXT_SPAN")
+
+    def test_doc_analyzer_task_txt_no_extract_file_raises(self):
+        """
+        Guard at decorators.py line 273-276: when file_type is text/plain but
+        txt_extract_file is absent, a ValueError must be raised immediately.
+
+        This is the branch::
+
+            if pdf_text_extract is None:
+                raise ValueError(
+                    f"txt_extract_file is required for text documents (got file_type={doc.file_type!r})"
+                )
+
+        The test creates a text/plain document *without* a txt_extract_file so
+        that pdf_text_extract is None, then attempts to annotate it with a span
+        to trigger the guard.
+        """
+        # Document typed as text/plain but WITHOUT a txt_extract_file
+        bare_txt_document = Document.objects.create(
+            title="Bare TXT Document - no extract",
+            creator=self.user,
+            file_type="text/plain",
+            # intentionally no txt_extract_file
+        )
+
+        @doc_analyzer_task()
+        def task_returning_span(*args, **kwargs):
+            # Return a span annotation to force entry into the text/plain branch
+            return (
+                [],
+                [(TextSpan(id="1", start=0, end=5, text="hello"), "LABEL")],
+                [{"data": {}}],
+                True,
+            )
+
+        with self.assertRaisesRegex(
+            ValueError, "txt_extract_file is required for text documents"
+        ):
+            task_returning_span.si(
+                doc_id=bare_txt_document.id, analysis_id=self.analysis.id
+            ).apply().get()
+
+    def test_doc_analyzer_task_txt_application_txt_no_extract_raises(self):
+        """
+        Same guard as above but with file_type 'application/txt' (the alternate
+        MIME type also matched by the elif branch in the decorator).
+        """
+        bare_app_txt_document = Document.objects.create(
+            title="Bare application/txt Document - no extract",
+            creator=self.user,
+            file_type="application/txt",
+            # intentionally no txt_extract_file
+        )
+
+        @doc_analyzer_task()
+        def task_returning_span_app_txt(*args, **kwargs):
+            return (
+                [],
+                [(TextSpan(id="1", start=0, end=3, text="abc"), "LABEL")],
+                [{"data": {}}],
+                True,
+            )
+
+        with self.assertRaisesRegex(
+            ValueError, "txt_extract_file is required for text documents"
+        ):
+            task_returning_span_app_txt.si(
+                doc_id=bare_app_txt_document.id, analysis_id=self.analysis.id
+            ).apply().get()

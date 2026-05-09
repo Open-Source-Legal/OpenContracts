@@ -4,7 +4,7 @@ import json
 import logging
 import traceback
 from functools import wraps
-from typing import Any, Callable, Union
+from typing import Any, Callable, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
 from celery import shared_task
@@ -106,7 +106,7 @@ def doc_analyzer_task(
 
             try:
                 # Prepare text extracts
-                pdf_text_extract = (
+                pdf_text_extract: Optional[str] = (
                     doc.txt_extract_file.read().decode("utf-8")
                     if doc.txt_extract_file
                     else None
@@ -116,7 +116,11 @@ def doc_analyzer_task(
                     if doc.pawls_parse_file
                     else None
                 )
-                pdf_data_layer = (
+                # ``build_translation_layer`` returns a ``PdfDataLayer`` whose
+                # ``create_opencontract_annotation_from_span`` is called below
+                # in the PDF branch.  ``Any`` keeps the union ``[] | PdfDataLayer``
+                # off mypy's radar without forcing ``plasmapdf`` stubs.
+                pdf_data_layer: Any = (
                     build_translation_layer(pdf_pawls_extract)
                     if pdf_pawls_extract
                     else []
@@ -261,6 +265,16 @@ def doc_analyzer_task(
                             elif doc.file_type in ["application/txt", "text/plain"]:
                                 # Plain text / span-based annotation
                                 span, label_text = span_label_pair
+                                # The TXT branch is only reachable for text
+                                # documents, which always carry a non-empty
+                                # ``txt_extract_file``; this guard narrows
+                                # ``Optional[str]`` for mypy and fast-fails if
+                                # the invariant is ever violated at runtime.
+                                if pdf_text_extract is None:
+                                    raise ValueError(
+                                        "txt_extract_file is required for text documents "
+                                        f"(got file_type={doc.file_type!r})"
+                                    )
                                 label_obj, _ = AnnotationLabel.objects.get_or_create(
                                     text=label_text,
                                     label_type=LabelType.SPAN_LABEL,
@@ -482,6 +496,7 @@ def async_doc_analyzer_task(
                     """
                     return bool(doc.pawls_parse_file)
 
+                pdf_text_extract: Optional[str]
                 if await has_txt_extract(doc):
                     pdf_text_extract = await get_pdf_text(doc)
                 else:
@@ -492,7 +507,11 @@ def async_doc_analyzer_task(
                 else:
                     pdf_pawls_extract = None
 
-                pdf_data_layer = (
+                # ``build_translation_layer`` returns a ``PdfDataLayer`` whose
+                # ``create_opencontract_annotation_from_span`` is called below
+                # in the PDF branch.  ``Any`` keeps the union ``[] | PdfDataLayer``
+                # off mypy's radar without forcing ``plasmapdf`` stubs.
+                pdf_data_layer: Any = (
                     build_translation_layer(pdf_pawls_extract)
                     if pdf_pawls_extract
                     else []
@@ -500,7 +519,7 @@ def async_doc_analyzer_task(
 
                 # Key change: Wrap access to analysis.creator with sync_to_async
                 @sync_to_async
-                def get_analysis_creator(analysis):
+                def get_analysis_creator(analysis: Analysis) -> Any:
                     return analysis.creator
 
                 # Use the wrapped function to get creator
@@ -514,7 +533,7 @@ def async_doc_analyzer_task(
                 )
 
                 @sync_to_async
-                def get_analysis_analyzer(analysis):
+                def get_analysis_analyzer(analysis: Analysis) -> Any:
                     return analysis.analyzer
 
                 analyzer = await get_analysis_analyzer(analysis)
@@ -614,6 +633,12 @@ def async_doc_analyzer_task(
 
                         elif doc.file_type in ["application/txt", "text/plain"]:
                             span, label_text = span_label_pair
+                            # Fail fast: TXT processing requires txt_extract_file (same invariant as sync path).
+                            if pdf_text_extract is None:
+                                raise ValueError(
+                                    "txt_extract_file is required for text documents "
+                                    f"(got file_type={doc.file_type!r})"
+                                )
                             logger.info(
                                 f"[ASYNC] TXT Annotation data: {label_text} / {span}"
                             )
@@ -702,7 +727,7 @@ def celery_task_with_async_to_sync(*task_args, **task_kwargs) -> Callable:
         # Register as a Celery task
         @shared_task(*task_args, **task_kwargs)
         @functools.wraps(async_func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             return sync_func(*args, **kwargs)
 
         # Expose underlying async func for testing if needed
