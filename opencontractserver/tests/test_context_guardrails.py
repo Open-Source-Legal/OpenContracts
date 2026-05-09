@@ -689,6 +689,101 @@ class TestMaxToolOutputCharsOverride(SimpleTestCase):
 
 
 # ---------------------------------------------------------------------------
+# Context-budget snapshot on PydanticAIDependencies
+# ---------------------------------------------------------------------------
+
+
+class TestContextBudgetSnapshot(SimpleTestCase):
+    """The context-budget snapshot fields drive the adaptive
+    ``load_document_text`` tool.  The tests below verify the budget math
+    so the tool's ``end`` defaulting stays predictable as constants
+    evolve."""
+
+    def test_remaining_tokens_until_compaction_basic(self):
+        """remaining = threshold - estimated_used, floored at 0."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+        # threshold = 150_000; used = 20_000 → 130_000 remaining
+        self.assertEqual(deps.remaining_tokens_until_compaction(), 130_000)
+
+    def test_remaining_tokens_zero_when_over_threshold(self):
+        """When usage already exceeds the threshold, remaining is 0
+        (never negative)."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=100_000,
+            estimated_used_tokens=90_000,
+            compaction_threshold_ratio=0.75,
+        )
+        self.assertEqual(deps.remaining_tokens_until_compaction(), 0)
+
+    def test_recommended_chunk_chars_reserves_default_25_percent(self):
+        """Default reserve_ratio leaves 25% of remaining tokens for the
+        assistant's own response and per-turn slop."""
+        from opencontractserver.constants.context_guardrails import (
+            CHARS_PER_TOKEN_ESTIMATE,
+        )
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+        # remaining = 130_000 tokens; usable = 130_000 * 0.75 = 97_500
+        # chars = 97_500 * 3.5 = 341_250
+        expected_chars = int(130_000 * 0.75 * CHARS_PER_TOKEN_ESTIMATE)
+        self.assertEqual(deps.recommended_chunk_chars(), expected_chars)
+
+    def test_recommended_chunk_chars_zero_when_starved(self):
+        """An exhausted budget should yield 0 recommended chars so callers
+        know to fall back to a small minimum or skip the load."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=100_000,
+            estimated_used_tokens=100_000,
+            compaction_threshold_ratio=0.75,
+        )
+        self.assertEqual(deps.recommended_chunk_chars(), 0)
+
+    def test_recommended_chunk_chars_custom_reserve(self):
+        """A custom reserve_ratio overrides the 0.25 default."""
+        from opencontractserver.constants.context_guardrails import (
+            CHARS_PER_TOKEN_ESTIMATE,
+        )
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+        # 50% reserve → 50% usable
+        expected_chars = int(130_000 * 0.5 * CHARS_PER_TOKEN_ESTIMATE)
+        self.assertEqual(
+            deps.recommended_chunk_chars(reserve_ratio=0.5),
+            expected_chars,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Optimistic locking in persist_compaction
 # ---------------------------------------------------------------------------
 

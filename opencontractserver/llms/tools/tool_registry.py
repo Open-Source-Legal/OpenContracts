@@ -174,17 +174,39 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         category=ToolCategory.DOCUMENT,
     ),
     ToolDefinition(
+        name="get_remaining_context_budget",
+        description=(
+            "Inspect the agent's remaining context-window budget for this "
+            "turn (model name, context window, used tokens, tokens left "
+            "before compaction, recommended chunk character count). Use "
+            "this when planning multi-step document reads so each "
+            "``load_document_text`` call uses an appropriately-sized chunk."
+        ),
+        category=ToolCategory.DOCUMENT,
+    ),
+    ToolDefinition(
         name="load_document_text",
         description=(
-            "Load a slice of the document's plain-text extract. Always use "
-            "get_document_text_length first to plan chunking. Load in chunks of "
-            "5K-50K chars to avoid context overflow. After reading, call "
-            "search_exact_text on key passages to create citations."
+            "Load a slice of the document's plain-text extract. The "
+            "document agent serves an adaptive variant: omit ``end`` to "
+            "auto-size the slice to the agent's remaining context budget "
+            "(ideal for whole-document tasks like summarisation), and "
+            "pass explicit ``start``/``end`` only when targeting a known "
+            "byte range. Use ``get_remaining_context_budget`` to inspect "
+            "the budget directly when planning multi-step reads. After "
+            "reading, call ``search_exact_text`` on key passages to "
+            "create citations."
         ),
         category=ToolCategory.DOCUMENT,
         parameters=(
             ("start", "Inclusive start character index (default 0)", False),
-            ("end", "Exclusive end character index (defaults to end of file)", False),
+            (
+                "end",
+                "Exclusive end character index. If omitted on the document "
+                "agent, defaults to a chunk sized for the remaining context "
+                "budget; otherwise defaults to the end of the file.",
+                False,
+            ),
             ("refresh", "If true, refresh the cached content from disk", False),
         ),
     ),
@@ -986,11 +1008,12 @@ class ToolFunctionRegistry:
             "get_corpus_memory": (aget_corpus_memory, ()),
             "suggest_memory_update": (asuggest_memory_update, ()),
         }
-        # NOTE: similarity_search, get_document_text_length, list_documents,
-        # and ask_document are NOT in FUNCTION_MAP because they require
-        # runtime context (vector store, cache, sub-agent) that is built
-        # in the agent factory.  They have ToolDefinition entries only for
-        # the GraphQL "available tools" API.
+        # NOTE: similarity_search, get_document_text_length,
+        # get_remaining_context_budget, list_documents, and ask_document
+        # are NOT in FUNCTION_MAP because they require runtime context
+        # (vector store, cache, agent deps snapshot, sub-agent) that is
+        # built in the agent factory.  They have ToolDefinition entries
+        # only for the GraphQL "available tools" API.
 
         # Legacy aliases (short names -> canonical names)
         LEGACY_ALIASES: dict[str, str] = {

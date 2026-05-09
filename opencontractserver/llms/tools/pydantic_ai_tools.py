@@ -8,7 +8,12 @@ from typing import Any, Callable, Optional, Protocol, get_type_hints, runtime_ch
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.tools import RunContext
 
-from opencontractserver.constants.context_guardrails import MAX_TOOL_OUTPUT_CHARS
+from opencontractserver.constants.context_guardrails import (
+    CHARS_PER_TOKEN_ESTIMATE,
+    COMPACTION_THRESHOLD_RATIO,
+    DEFAULT_CONTEXT_WINDOW,
+    MAX_TOOL_OUTPUT_CHARS,
+)
 from opencontractserver.llms.context_guardrails import truncate_tool_output
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.tool_factory import CoreTool
@@ -264,6 +269,74 @@ class PydanticAIDependencies(BaseModel):
             "to link citations to the owning object."
         ),
     )
+
+    # ------------------------------------------------------------------
+    # Context-budget snapshot
+    # ------------------------------------------------------------------
+    # Refreshed at the start of each turn from the result of
+    # ``_get_message_history()``.  Lets tools (e.g. ``load_document_text``)
+    # size their returns to the agent's actual remaining budget instead of
+    # blindly chunking at a fixed character count.
+    #
+    # The snapshot is stale within a turn — every tool result the agent
+    # consumes shrinks the real budget but does not update these fields.
+    # Tools should apply a generous safety margin (see
+    # ``recommended_chunk_chars`` below) rather than treating these as
+    # exact figures.
+    model_name: Optional[str] = Field(
+        default=None,
+        description="LLM model identifier used for context-window lookup.",
+    )
+    context_window_tokens: int = Field(
+        default=DEFAULT_CONTEXT_WINDOW,
+        description="Total context window of the underlying model in tokens.",
+    )
+    estimated_used_tokens: int = Field(
+        default=0,
+        description=(
+            "Estimated tokens already consumed by system prompt + history "
+            "for the current turn (snapshot at turn start)."
+        ),
+    )
+    compaction_threshold_ratio: float = Field(
+        default=COMPACTION_THRESHOLD_RATIO,
+        description=(
+            "Fraction of the context window at which compaction triggers. "
+            "Tools should target a budget below this to avoid forcing "
+            "compaction on the next turn."
+        ),
+    )
+
+    def remaining_tokens_until_compaction(self) -> int:
+        """Tokens still available before the compaction threshold trips.
+
+        Returns ``0`` when the snapshot already exceeds the threshold —
+        callers should treat this as "load nothing further" rather than
+        proceeding speculatively.
+        """
+        threshold = int(self.context_window_tokens * self.compaction_threshold_ratio)
+        return max(0, threshold - self.estimated_used_tokens)
+
+    def recommended_chunk_chars(self, *, reserve_ratio: float = 0.25) -> int:
+        """Suggest a character budget for the next document-text load.
+
+        Computes ``remaining_tokens_until_compaction`` minus a reservation
+        for the assistant's own response and per-turn slop, then converts
+        from tokens to characters using
+        :data:`CHARS_PER_TOKEN_ESTIMATE`.
+
+        ``reserve_ratio`` defaults to 0.25 so that 75% of the remaining
+        budget is offered to the next chunk — leaving room for the model's
+        reasoning/answer and for the ~10% over-estimation built into
+        :func:`estimate_token_count`.
+
+        Returns ``0`` when the snapshot is already at or beyond the
+        compaction threshold; callers should fall back to a small
+        minimum (or skip the load entirely) in that case.
+        """
+        remaining = self.remaining_tokens_until_compaction()
+        usable_tokens = int(remaining * (1.0 - max(0.0, min(reserve_ratio, 1.0))))
+        return max(0, int(usable_tokens * CHARS_PER_TOKEN_ESTIMATE))
 
 
 class PydanticAIToolWrapper:
