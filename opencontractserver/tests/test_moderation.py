@@ -1305,6 +1305,170 @@ class ModerationQueriesTest(TestCase):
         self.assertEqual(metrics["automatedActions"], 0)
 
 
+class ResolveModerationActionAuthGateTest(TestCase):
+    """Pin authorization for the single-action ``moderationAction`` resolver.
+
+    Regression coverage for #1594: the resolver previously short-circuited
+    to ``return action`` whenever ``conversation.chat_with_corpus`` was
+    ``None``, leaking document-only and orphaned moderation actions to any
+    authenticated user. The resolver now routes every case through
+    :meth:`Conversation.can_moderate`.
+    """
+
+    def setUp(self):
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+        from opencontractserver.documents.models import Document
+
+        # Cast of users covering each branch of ``can_moderate``.
+        self.corpus_owner = User.objects.create_user(
+            username="auth_gate_corpus_owner", password="pw"
+        )
+        self.corpus_moderator = User.objects.create_user(
+            username="auth_gate_corpus_moderator", password="pw"
+        )
+        self.doc_owner = User.objects.create_user(
+            username="auth_gate_doc_owner", password="pw"
+        )
+        self.thread_creator = User.objects.create_user(
+            username="auth_gate_thread_creator", password="pw"
+        )
+        self.unrelated = User.objects.create_user(
+            username="auth_gate_unrelated", password="pw"
+        )
+        self.superuser = User.objects.create_superuser(
+            username="auth_gate_superuser",
+            password="pw",
+            email="auth_gate_superuser@test.com",
+        )
+
+        self.corpus = Corpus.objects.create(
+            title="Auth Gate Corpus", creator=self.corpus_owner
+        )
+        CorpusModerator.objects.create(
+            corpus=self.corpus,
+            user=self.corpus_moderator,
+            creator=self.corpus_owner,
+            permissions=[ModeratorPermissionChoices.LOCK_THREADS.value],
+        )
+
+        # Two parallel conversations: corpus-attached and document-only.
+        self.corpus_conversation = Conversation.objects.create(
+            title="Auth Gate Corpus Thread",
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=self.corpus,
+            creator=self.thread_creator,
+        )
+        self.corpus_action = self.corpus_conversation.lock(self.corpus_owner)
+
+        self.document = Document.objects.create(
+            title="Auth Gate Doc",
+            creator=self.doc_owner,
+            file_type="application/pdf",
+        )
+        self.doc_only_conversation = Conversation.objects.create(
+            title="Auth Gate Doc-only Thread",
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_document=self.document,
+            creator=self.thread_creator,
+        )
+        self.doc_only_action = self.doc_only_conversation.lock(self.doc_owner)
+
+        self.client = Client(schema)
+
+    def _query(self, action_pk: int, user) -> dict:
+        from graphql_relay import to_global_id
+
+        action_global_id = to_global_id("ModerationActionType", action_pk)
+        return self.client.execute(
+            f"""
+            query {{
+                moderationAction(id: "{action_global_id}") {{
+                    id
+                    actionType
+                }}
+            }}
+            """,
+            context_value=type("Request", (), {"user": user})(),
+        )
+
+    def _assert_visible(self, action_pk: int, user) -> None:
+        result = self._query(action_pk, user)
+        self.assertIsNone(result.get("errors"))
+        self.assertIsNotNone(
+            result["data"]["moderationAction"],
+            f"User {user.username!r} should see action {action_pk}",
+        )
+
+    def _assert_hidden(self, action_pk: int, user) -> None:
+        result = self._query(action_pk, user)
+        self.assertIsNone(result.get("errors"))
+        self.assertIsNone(
+            result["data"]["moderationAction"],
+            f"User {user.username!r} must NOT see action {action_pk}",
+        )
+
+    # ------- corpus-attached conversation -------
+
+    def test_corpus_owner_sees_corpus_action(self):
+        self._assert_visible(self.corpus_action.pk, self.corpus_owner)
+
+    def test_corpus_moderator_sees_corpus_action(self):
+        self._assert_visible(self.corpus_action.pk, self.corpus_moderator)
+
+    def test_thread_creator_sees_corpus_action(self):
+        # Conversation creator gets moderation rights independent of corpus.
+        self._assert_visible(self.corpus_action.pk, self.thread_creator)
+
+    def test_unrelated_user_cannot_see_corpus_action(self):
+        self._assert_hidden(self.corpus_action.pk, self.unrelated)
+
+    def test_superuser_sees_corpus_action(self):
+        self._assert_visible(self.corpus_action.pk, self.superuser)
+
+    # ------- document-only conversation (regression for #1594) -------
+
+    def test_doc_owner_sees_doc_only_action(self):
+        self._assert_visible(self.doc_only_action.pk, self.doc_owner)
+
+    def test_thread_creator_sees_doc_only_action(self):
+        self._assert_visible(self.doc_only_action.pk, self.thread_creator)
+
+    def test_superuser_sees_doc_only_action(self):
+        self._assert_visible(self.doc_only_action.pk, self.superuser)
+
+    def test_unrelated_user_cannot_see_doc_only_action(self):
+        # Pre-fix this returned the action because chat_with_corpus was None
+        # and the resolver fell through. Pin the closure so the leak doesn't
+        # silently come back.
+        self._assert_hidden(self.doc_only_action.pk, self.unrelated)
+
+    def test_corpus_owner_cannot_see_unrelated_doc_only_action(self):
+        # An unrelated corpus owner has no claim on a document-only thread
+        # — confirms the gate doesn't accidentally widen to "any moderator
+        # of any corpus".
+        self._assert_hidden(self.doc_only_action.pk, self.corpus_owner)
+
+    # ------- orphaned action (conversation FK is NULL) -------
+
+    def test_orphaned_action_visible_only_to_superuser(self):
+        # ``conversation`` is a nullable FK on ModerationAction. Pin that
+        # the resolver fails closed for non-superusers in this edge case
+        # rather than re-opening the leak.
+        orphaned = ModerationAction.objects.create(
+            conversation=None,
+            action_type=ModerationActionType.LOCK_THREAD.value,
+            reason="orphan",
+            moderator=self.corpus_owner,
+            creator=self.corpus_owner,
+        )
+        self._assert_hidden(orphaned.pk, self.corpus_owner)
+        self._assert_hidden(orphaned.pk, self.thread_creator)
+        self._assert_hidden(orphaned.pk, self.unrelated)
+        self._assert_visible(orphaned.pk, self.superuser)
+
+
 class ModerationMethodReturnValueTest(TestCase):
     """Test that moderation methods return the created ModerationAction."""
 
