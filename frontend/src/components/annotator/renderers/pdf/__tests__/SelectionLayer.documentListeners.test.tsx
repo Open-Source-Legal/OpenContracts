@@ -17,8 +17,15 @@ import { MemoryRouter } from "react-router-dom";
 
 import SelectionLayer from "../SelectionLayer";
 import { PDFPageInfo } from "../../../types/pdf";
-import { AnnotationLabelType } from "../../../../../types/graphql-api";
+import {
+  AnnotationLabelType,
+  LabelType,
+} from "../../../../../types/graphql-api";
 import { PermissionTypes } from "../../../../types";
+
+type CorpusStateShape = ReturnType<
+  typeof import("../../../context/CorpusAtom").useCorpusState
+>;
 
 vi.mock("../../../context/CorpusAtom", () => ({
   useCorpusState: vi.fn(),
@@ -45,8 +52,8 @@ const mockActiveLabel: AnnotationLabelType = {
   text: "Test Label",
   color: "#0066cc",
   description: "Test label",
-  labelType: "SPAN_LABEL" as any,
-  icon: "tag" as any,
+  labelType: LabelType.SpanLabel,
+  icon: "tag",
   readonly: false,
 };
 
@@ -57,14 +64,15 @@ const mockPageInfo = {
 } as unknown as PDFPageInfo;
 
 const mountLayer = () => {
-  (useCorpusState as any).mockReturnValue({
+  const mocked = vi.mocked(useCorpusState);
+  mocked.mockReturnValue({
     canUpdateCorpus: true,
     myPermissions: [PermissionTypes.CAN_UPDATE],
     selectedCorpus: { id: "corpus-1" },
     humanSpanLabels: [mockActiveLabel],
     humanTokenLabels: [],
     relationLabels: [],
-  });
+  } as unknown as CorpusStateShape);
 
   return render(
     <MemoryRouter>
