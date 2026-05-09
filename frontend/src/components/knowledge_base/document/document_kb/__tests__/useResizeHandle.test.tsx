@@ -1,4 +1,4 @@
-import { renderHook, act } from "@testing-library/react-hooks";
+import { renderHook, act } from "../../../../../test-utils/renderHook";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { useResizeHandle } from "../useResizeHandle";

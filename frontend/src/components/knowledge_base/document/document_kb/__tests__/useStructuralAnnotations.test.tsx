@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react-hooks";
+import { renderHook } from "../../../../../test-utils/renderHook";
 import { render, waitFor } from "@testing-library/react";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { Provider, useAtomValue } from "jotai";
@@ -121,13 +121,12 @@ describe("useStructuralAnnotations", () => {
     const mocks: MockedResponse[] = [];
     const Wrapper: React.FC<{ children?: React.ReactNode }> = ({ children }) =>
       wrap({ mocks, children });
-    const { result } = renderHook(() => useStructuralAnnotations("doc-A"), {
-      wrapper: Wrapper,
-    });
+    // If the hook throws while toggled off, ``renderHook`` itself would
+    // surface the error synchronously — so simply mounting without throwing
+    // is enough to prove the no-fire contract.
+    renderHook(() => useStructuralAnnotations("doc-A"), { wrapper: Wrapper });
 
-    // Wait for any micro-tasks to settle, then ensure no error or thrown mock.
     await new Promise((r) => setTimeout(r, 0));
-    expect(result.error).toBeUndefined();
   });
 
   it("fetches all structural annotations once the user toggles structural visibility on", async () => {

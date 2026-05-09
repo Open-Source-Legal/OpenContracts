@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react-hooks";
+import { renderHook } from "../../../../../test-utils/renderHook";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { useDocumentMarkdown } from "../useDocumentMarkdown";
