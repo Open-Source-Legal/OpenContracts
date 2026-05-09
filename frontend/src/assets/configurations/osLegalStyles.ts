@@ -58,6 +58,17 @@ export const OS_LEGAL_COLORS = {
   primaryBlue: "#3b82f6",
   /** Hover/active state for primary blue. Slightly darker for visual feedback. */
   primaryBlueHover: "#2563eb",
+  /**
+   * Navigation accent blue (#4a90e2). Used in NavigationItem / NavigationToggle
+   * gradients and shadows, plus several legacy chat/search/note components.
+   * Distinct from `primaryBlue` (#3b82f6) — see issue #1446 for harmonization.
+   */
+  navBlue: "#4a90e2",
+  /**
+   * Navigation accent indigo (#6366f1). Used as the second gradient stop
+   * alongside `navBlue` in nav active/hover states. See issue #1446.
+   */
+  navIndigo: "#6366f1",
 
   // Text colors - slate scale
   /** Primary text color - dark slate. Use for headings and main content. */
@@ -236,6 +247,20 @@ export const accentAlpha = (opacity: number): string =>
  */
 export const primaryBlueAlpha = (opacity: number): string =>
   `rgba(59, 130, 246, ${opacity})`;
+
+/**
+ * Create an rgba color string from navBlue (#4a90e2 = rgb(74, 144, 226))
+ * with a given opacity. Use instead of hardcoded rgba(74, 144, 226, ...) values.
+ */
+export const navBlueAlpha = (opacity: number): string =>
+  `rgba(74, 144, 226, ${opacity})`;
+
+/**
+ * Create an rgba color string from navIndigo (#6366f1 = rgb(99, 102, 241))
+ * with a given opacity. Use instead of hardcoded rgba(99, 102, 241, ...) values.
+ */
+export const navIndigoAlpha = (opacity: number): string =>
+  `rgba(99, 102, 241, ${opacity})`;
 
 /**
  * Create an rgba color string from the chat-source blue-gray (#5c7c9d = rgb(92, 124, 157))

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Tokenize hardcoded navigation colors and tighten test-wrapper / focus-effect conventions in the Corpuses split** (`frontend/src/views/Corpuses.styles.ts`, `frontend/src/views/CorpusQueryView.tsx`, `frontend/tests/CorpusQueryViewTestWrapper.tsx`, `frontend/src/assets/configurations/osLegalStyles.ts`). Follow-up to PR #1578 review feedback:
+  - Added `OS_LEGAL_COLORS.navBlue` (`#4a90e2`) and `navIndigo` (`#6366f1`) tokens plus matching `navBlueAlpha` / `navIndigoAlpha` rgba helpers. These are intentionally distinct from `primaryBlue` (`#3b82f6`) — they capture the slightly-different navigation/sidebar blue that recurs across legacy chat, search, and note components, so multiple files can converge on a single named source. Cross-file harmonization with `primaryBlue` is tracked in #1446.
+  - Replaced ten hardcoded `rgba(74, 144, 226, ...)` / `rgba(99, 102, 241, ...)` / `#4a90e2` / `#6366f1` literals across `NavigationItem`, `NavigationToggle`, `NavigationItems` (scrollbar focus ring), and `BackNavButton` with the new tokens / helpers — visual fidelity preserved exactly.
+  - Replaced `React.useState(() => { showQueryViewState(initialQueryViewState); return null; })` in `CorpusQueryViewTestWrapper.tsx` with a plain `useEffect` keyed on `[initialQueryViewState]`. The `useState` initializer pattern was an unconventional way to fire a side effect during render; `useEffect` clearly signals "side effect on mount" and is lint-clean. All 7 `CorpusQueryViewCoverage.ct.tsx` tests continue to pass.
+  - Annotated the `eslint-disable react-hooks/exhaustive-deps` on the mount-only focus effect in `CorpusQueryView.tsx` with a one-line WHY: `isDesktop` is read once to avoid re-firing on viewport resize (which would pop the mobile keyboard mid-session).
+
 ### Security
 
 - **Close corpus-less `ModerationAction` auth gap in `resolve_moderation_action`** (`config/graphql/conversation_queries.py`, closes #1594). `resolve_moderation_action` previously short-circuited to `return action` whenever `conversation.chat_with_corpus` was `None`, leaking document-only and orphaned moderation actions to any authenticated user via direct ID lookup. The resolver now routes every case through `Conversation.can_moderate` (the same canonical authorization helper used by the moderation mutations), which accepts: superuser; conversation creator; corpus owner/designated moderator (when `chat_with_corpus` is set); document owner (when `chat_with_document` is set). Actions whose `conversation` FK is `NULL` (a rare historical edge — the column is nullable but every real action has one) fail closed for non-superusers. New regression coverage in `opencontractserver/tests/test_moderation.py` pins all four allowed paths plus the previously-leaking unauthorized-user case for both document-only and corpus-less conversations.

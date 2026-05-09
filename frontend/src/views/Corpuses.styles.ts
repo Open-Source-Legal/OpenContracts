@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import {
   OS_LEGAL_COLORS,
   accentAlpha,
+  navBlueAlpha,
+  navIndigoAlpha,
 } from "../assets/configurations/osLegalStyles";
 import { MOBILE_VIEW_BREAKPOINT } from "../assets/configurations/constants";
 import {
@@ -146,7 +148,7 @@ export const NavigationToggle = styled(motion.button)`
     border-radius: 50%;
     background: radial-gradient(
       circle,
-      rgba(74, 144, 226, 0.2) 0%,
+      ${navBlueAlpha(0.2)} 0%,
       transparent 70%
     );
     transform: translate(-50%, -50%);
@@ -156,13 +158,13 @@ export const NavigationToggle = styled(motion.button)`
   &:hover {
     background: linear-gradient(
       135deg,
-      rgba(74, 144, 226, 0.1) 0%,
-      rgba(99, 102, 241, 0.08) 100%
+      ${navBlueAlpha(0.1)} 0%,
+      ${navIndigoAlpha(0.08)} 100%
     );
-    border-color: rgba(74, 144, 226, 0.3);
+    border-color: ${navBlueAlpha(0.3)};
     color: ${OS_LEGAL_COLORS.primaryBlue};
     transform: translateY(-1px);
-    box-shadow: 0 4px 6px rgba(74, 144, 226, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 6px ${navBlueAlpha(0.1)}, 0 2px 4px rgba(0, 0, 0, 0.06);
 
     &::before {
       width: 80px;
@@ -262,7 +264,7 @@ export const NavigationItems = styled.div`
         rgba(203, 213, 225, 0.9) 0%,
         rgba(148, 163, 184, 0.9) 100%
       );
-      box-shadow: 0 0 0 1px rgba(74, 144, 226, 0.2);
+      box-shadow: 0 0 0 1px ${navBlueAlpha(0.2)};
     }
 
     &:active {
@@ -335,14 +337,14 @@ export const NavigationItem = styled(motion.button)<{
     if (props.$isActive) {
       return `linear-gradient(
         135deg,
-        rgba(74, 144, 226, 0.12) 0%,
-        rgba(99, 102, 241, 0.08) 100%
+        ${navBlueAlpha(0.12)} 0%,
+        ${navIndigoAlpha(0.08)} 100%
       )`;
     }
     return "transparent";
   }};
   border: 1px solid
-    ${(props) => (props.$isActive ? "rgba(74, 144, 226, 0.2)" : "transparent")};
+    ${(props) => (props.$isActive ? navBlueAlpha(0.2) : "transparent")};
   color: ${(props) =>
     props.$isActive
       ? OS_LEGAL_COLORS.primaryBlue
@@ -366,8 +368,8 @@ export const NavigationItem = styled(motion.button)<{
     height: ${(props) => (props.$isExpanded ? "60%" : "2px")};
     background: linear-gradient(
       ${(props) => (props.$isExpanded ? "180deg" : "90deg")},
-      #4a90e2 0%,
-      #6366f1 100%
+      ${OS_LEGAL_COLORS.navBlue} 0%,
+      ${OS_LEGAL_COLORS.navIndigo} 100%
     );
     opacity: ${(props) => (props.$isActive ? "1" : "0")};
     transform: ${(props) =>
@@ -375,7 +377,7 @@ export const NavigationItem = styled(motion.button)<{
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border-radius: 2px;
     box-shadow: ${(props) =>
-      props.$isActive ? "0 0 8px rgba(74, 144, 226, 0.5)" : "none"};
+      props.$isActive ? `0 0 8px ${navBlueAlpha(0.5)}` : "none"};
   }
 
   /* Hover background effect */
@@ -388,7 +390,7 @@ export const NavigationItem = styled(motion.button)<{
     bottom: 0;
     background: radial-gradient(
       circle at center,
-      rgba(74, 144, 226, 0.08) 0%,
+      ${navBlueAlpha(0.08)} 0%,
       transparent 70%
     );
     opacity: 0;
@@ -401,8 +403,8 @@ export const NavigationItem = styled(motion.button)<{
       if (props.$isActive) {
         return `linear-gradient(
           135deg,
-          rgba(74, 144, 226, 0.16) 0%,
-          rgba(99, 102, 241, 0.12) 100%
+          ${navBlueAlpha(0.16)} 0%,
+          ${navIndigoAlpha(0.12)} 100%
         )`;
       }
       return `linear-gradient(
@@ -412,7 +414,7 @@ export const NavigationItem = styled(motion.button)<{
       )`;
     }};
     border-color: ${(props) =>
-      props.$isActive ? "rgba(74, 144, 226, 0.3)" : "rgba(226, 232, 240, 0.5)"};
+      props.$isActive ? navBlueAlpha(0.3) : "rgba(226, 232, 240, 0.5)"};
     color: ${(props) =>
       props.$isActive
         ? OS_LEGAL_COLORS.primaryBlue
@@ -429,7 +431,7 @@ export const NavigationItem = styled(motion.button)<{
         props.$isActive ? "scale(1.15) rotate(-5deg)" : "scale(1.1)"};
       filter: ${(props) =>
         props.$isActive
-          ? "drop-shadow(0 2px 4px rgba(74, 144, 226, 0.3))"
+          ? `drop-shadow(0 2px 4px ${navBlueAlpha(0.3)})`
           : "none"};
     }
   }
@@ -638,7 +640,7 @@ export const BackNavButton = styled(motion.button)`
     background: white;
     border-color: ${OS_LEGAL_COLORS.primaryBlue};
     color: ${OS_LEGAL_COLORS.primaryBlue};
-    box-shadow: 0 2px 8px rgba(74, 144, 226, 0.15);
+    box-shadow: 0 2px 8px ${navBlueAlpha(0.15)};
   }
 
   &:active {
