@@ -25,7 +25,7 @@ import re
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q
 
@@ -35,7 +35,10 @@ logger = logging.getLogger(__name__)
 
 # A "suffixed" handle ends in digits — those are the ones the generator
 # produces only when the plain ``adjectiveNoun`` namespace was already taken.
-_SUFFIXED_PATTERN = re.compile(r"\d+$")
+# Single source of truth for both the compiled-pattern check (used per row in
+# the rerolling path) and the queryset-level ``handle__regex`` filter.
+_SUFFIXED_RE = r"\d+$"
+_SUFFIXED_PATTERN = re.compile(_SUFFIXED_RE)
 
 
 class Command(BaseCommand):
@@ -75,12 +78,20 @@ class Command(BaseCommand):
         reroll_suffixed: bool = options["reroll_suffixed"]
         reroll_all: bool = options["reroll_all"]
 
+        # ``--reroll-all`` is a strict superset of ``--reroll-suffixed``;
+        # passing both is almost always a mistake and silently dropping the
+        # narrower flag would mask the operator's intent. Fail fast.
+        if reroll_all and reroll_suffixed:
+            raise CommandError(
+                "--reroll-all and --reroll-suffixed are mutually exclusive."
+            )
+
         missing = Q(handle__isnull=True) | Q(handle__exact="")
         if reroll_all:
             queryset = User.objects.all()
             mode = "all users"
         elif reroll_suffixed:
-            queryset = User.objects.filter(missing | Q(handle__regex=r"\d+$"))
+            queryset = User.objects.filter(missing | Q(handle__regex=_SUFFIXED_RE))
             mode = "suffixed + missing"
         else:
             queryset = User.objects.filter(missing)

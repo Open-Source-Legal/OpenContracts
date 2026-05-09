@@ -258,6 +258,14 @@ class User(AbstractUser):
             # column and re-roll. With the ~56k-pair namespace the first
             # attempt almost always wins; the bound prevents pathological
             # loops if the namespace is misconfigured.
+            #
+            # ``scope_qs`` excludes ``self.pk`` only when re-saving an existing
+            # row. For a brand-new INSERT, ``self.pk`` is ``None`` and stays
+            # ``None`` even across failed attempts: Django captures the
+            # RETURNING id only on a successful INSERT, so an IntegrityError
+            # below leaves ``self.pk`` unset for the next iteration. That's
+            # the correct behaviour — there's no committed row of ours to
+            # exclude from the uniqueness check.
             user_cls = type(self)
             scope_qs = user_cls.objects.all()
             for attempt in range(HANDLE_INSERT_RETRY_ATTEMPTS):

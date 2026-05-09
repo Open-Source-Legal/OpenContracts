@@ -17,6 +17,7 @@ from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 from graphene.test import Client
 
@@ -59,8 +60,20 @@ class HandleWordlistTests(TestCase):
             )
 
     def test_wordlists_provide_a_meaningful_namespace(self):
-        # Any drop in raw size below ~10k combos should force a re-think.
-        self.assertGreaterEqual(len(ADJECTIVES) * len(NOUNS), 10_000)
+        # Actual namespace is ~56k pairs; assert at 40k so we keep meaningful
+        # protection against a careless deletion (cap the loss at ~25%) without
+        # making the test brittle for legitimate small trims.
+        self.assertGreaterEqual(len(ADJECTIVES) * len(NOUNS), 40_000)
+
+    def test_wordlists_respect_length_bounds(self):
+        """Each entry must be 3-12 characters, per the wordlist docstring.
+
+        The constraint is easy to violate accidentally when extending the
+        lists; pin it down so any out-of-bounds entry trips immediately.
+        """
+        for word in (*ADJECTIVES, *NOUNS):
+            self.assertGreaterEqual(len(word), 3, f"{word!r} is too short")
+            self.assertLessEqual(len(word), 12, f"{word!r} is too long")
 
     def test_wordlists_have_no_cross_list_overlap(self):
         """No word should appear in both lists.
@@ -391,6 +404,13 @@ class RegenerateUserHandlesCommandTests(TestCase):
         u.refresh_from_db()
         self.assertIsNone(u.handle, "Dry run must not commit changes")
         self.assertIn("would update", output)
+
+    def test_reroll_all_and_reroll_suffixed_are_mutually_exclusive(self):
+        """Passing both flags is an operator mistake — fail fast instead of
+        silently letting ``--reroll-all`` win."""
+        with self.assertRaises(CommandError) as ctx:
+            self._run("--reroll-all", "--reroll-suffixed")
+        self.assertIn("mutually exclusive", str(ctx.exception))
 
     def test_reroll_suffixed_targets_only_numeric_tails(self):
         plain = User.objects.create_user(username="plain", email="p@x.com")

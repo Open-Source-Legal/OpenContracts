@@ -57,7 +57,6 @@ def _camel_case_pair(adjective: str, noun: str) -> str:
 def generate_handle(
     *,
     scope_qs: QuerySet,
-    handle_field: str = "handle",
     rng: random.Random | None = None,
 ) -> str:
     """Generate a unique handle within ``scope_qs`` using ``ADJECTIVES × NOUNS``.
@@ -66,7 +65,6 @@ def generate_handle(
         scope_qs: QuerySet to check uniqueness against. Callers should
             ``.exclude(pk=instance.pk)`` if regenerating for an existing row,
             otherwise the candidate's own row will be treated as a collision.
-        handle_field: Name of the field holding the handle (default ``handle``).
         rng: Optional pre-seeded RNG. Defaults to ``random.SystemRandom`` for
             non-deterministic production output.
 
@@ -83,7 +81,7 @@ def generate_handle(
 
     for _ in range(PLAIN_ATTEMPTS):
         candidate = _camel_case_pair(rng.choice(ADJECTIVES), rng.choice(NOUNS))
-        if not scope_qs.filter(**{handle_field: candidate}).exists():
+        if not scope_qs.filter(handle=candidate).exists():
             return candidate
 
     # Reaching this point means ``PLAIN_ATTEMPTS`` consecutive collisions in
@@ -101,7 +99,7 @@ def generate_handle(
         base = _camel_case_pair(rng.choice(ADJECTIVES), rng.choice(NOUNS))
         suffix = rng.randint(SUFFIX_MIN, SUFFIX_MAX)
         candidate = f"{base}{suffix}"
-        if not scope_qs.filter(**{handle_field: candidate}).exists():
+        if not scope_qs.filter(handle=candidate).exists():
             return candidate
 
     raise RuntimeError(

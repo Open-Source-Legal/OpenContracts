@@ -271,7 +271,7 @@ ADJECTIVES: tuple[str, ...] = (
     "smiling",
 )
 
-# 229 nouns. Mostly animals, fauna, mythical, plus a few nature elements.
+# 228 nouns. Mostly animals, fauna, mythical, plus a few nature elements.
 NOUNS: tuple[str, ...] = (
     "alpaca",
     "antelope",
@@ -455,7 +455,6 @@ NOUNS: tuple[str, ...] = (
     "oriole",
     "otter",
     "owl",
-    "ox",
     "panda",
     "panther",
     "parrot",
