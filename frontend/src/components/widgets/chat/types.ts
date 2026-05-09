@@ -1,10 +1,11 @@
 /**
  * Shared types for the chat widget files.
  *
- * Lives in its own module so sibling files (`ChatMessage.styles.ts`,
- * `ChatMessageTimeline.tsx`) can pull the type without re-creating the
- * `ChatMessage.tsx` ↔ `ChatMessage.styles.ts` circular import that arose
- * when `TimelineEntry` was originally defined in `ChatMessage.tsx`.
+ * Lives in its own module so sibling style modules (e.g.
+ * `ChatMessageTimeline.styles.ts`) and component modules (e.g.
+ * `ChatMessageTimeline.tsx`, `ChatMessageToolUsage.tsx`) can pull the type
+ * without re-creating the `ChatMessage.tsx` ↔ styles circular import that
+ * arose when `TimelineEntry` was originally defined in `ChatMessage.tsx`.
  */
 
 /**

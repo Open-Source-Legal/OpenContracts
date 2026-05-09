@@ -221,6 +221,42 @@ export const OS_LEGAL_COLORS = {
   chatSourceHighlightActive: "#A8FFA8",
   /** Inactive chat source highlight. */
   chatSourceHighlight: "#D2FFD2",
+
+  // Chat widget palette (used by widgets/chat styles)
+  // The chat message bubbles use a slightly different slate scale than
+  // textPrimary/textSecondary so message body text reads as distinctly
+  // "chat-typed" rather than as standard UI labels. Kept here so the
+  // values are reusable across all chat sibling style modules.
+  /** Chat source brand color - blue-gray used by indicators/sources (#5c7c9d). */
+  chatSourceBlue: "#5c7c9d",
+  /** Chat source brand color - hover/darker shade (#4a6b8c). */
+  chatSourceBlueHover: "#4a6b8c",
+  /** Chat assistant message body text - very dark slate (#1a1f36). */
+  chatMessageTextAssistant: "#1a1f36",
+  /** Chat user message body text - dark slate (#2d3748). */
+  chatMessageTextUser: "#2d3748",
+  /** Chat source preview body text - medium slate (#4a5568). */
+  chatSourcePreviewText: "#4a5568",
+  /** Inline code color in chat markdown - medium blue (#2b6cb0). */
+  chatCodeText: "#2b6cb0",
+  /** Chat username text - near-black (#1a1a1a). */
+  chatUsernameText: "#1a1a1a",
+  /** Chat assistant avatar gradient start - bright blue (#2185d0). */
+  chatAvatarAssistantStart: "#2185d0",
+  /** Chat assistant avatar gradient end - darker blue (#1678c2). */
+  chatAvatarAssistantEnd: "#1678c2",
+
+  // Extended Tailwind-style cool gray scale used by timeline/code blocks
+  /** Cool gray-700 - timeline args & code block text (#374151). */
+  coolGray700: "#374151",
+  /** Cool gray-600 - timeline item text (#4b5563). */
+  coolGray600: "#4b5563",
+  /** Cool gray-500 - timeline title text (#6b7280). */
+  coolGray500: "#6b7280",
+  /** Cool gray-400 - timeline disclosure indicator (#9ca3af). */
+  coolGray400: "#9ca3af",
+  /** Cool gray-800 - timeline item title (expanded state) (#1f2937). */
+  coolGray800: "#1f2937",
 } as const;
 
 /**
@@ -264,6 +300,20 @@ export const dangerGlowAlpha = (opacity: number): string =>
  */
 export const folderIconAlpha = (opacity: number): string =>
   `rgba(217, 119, 6, ${opacity})`;
+
+/**
+ * Create an rgba color string for translucent white surfaces (rgb(255, 255, 255)).
+ * Used by chat message bubbles and source preview containers.
+ */
+export const whiteAlpha = (opacity: number): string =>
+  `rgba(255, 255, 255, ${opacity})`;
+
+/**
+ * Create an rgba color string for translucent black overlays (rgb(0, 0, 0)).
+ * Used by hover backgrounds and subtle borders inside chat code blocks.
+ */
+export const blackAlpha = (opacity: number): string =>
+  `rgba(0, 0, 0, ${opacity})`;
 
 /**
  * Typography definitions for the OS Legal design system.

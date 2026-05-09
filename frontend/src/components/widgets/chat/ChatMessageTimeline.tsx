@@ -30,7 +30,7 @@ import {
   TimelineItemTitle,
   TimelineList,
   TimelineTitle,
-} from "./ChatMessage.styles";
+} from "./ChatMessageTimeline.styles";
 import type { TimelineEntry } from "./types";
 
 // Helper function to get icon for timeline entry type
