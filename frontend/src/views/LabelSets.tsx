@@ -18,7 +18,12 @@ import {
   EmptyStateWrapper,
 } from "../components/layout/PageLayout";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
 import {
   SearchBox,
   FilterTabs,
@@ -60,6 +65,7 @@ import { validateTitleAndDescription } from "../components/forms/shared";
 import { CRUDModal } from "../components/widgets/CRUD/CRUDModal";
 import { LabelSetListCard } from "../components/labelsets/LabelSetListCard";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { getLabelsetUrl } from "../utils/navigationUtils";
 
@@ -132,7 +138,7 @@ export const Labelsets = () => {
   };
 
   // GraphQL Query
-  const { refetch, loading, data, fetchMore } = useQuery<
+  const { refetch, loading, networkStatus, data, fetchMore } = useQuery<
     GetLabelsetsWithLabelsOutputs,
     GetLabelsetsWithLabelsInputs
   >(REQUEST_LABELSETS_WITH_ALL_LABELS, {
@@ -415,9 +421,9 @@ export const Labelsets = () => {
 
         {/* Label Sets List Section */}
         <ListContainer>
+          {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
-            active={loading}
-            inverted
+            active={loading && filteredLabelsets.length === 0}
             size="large"
             content="Loading label sets..."
           />
@@ -461,6 +467,11 @@ export const Labelsets = () => {
 
               {/* Infinite scroll trigger */}
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+              <FetchMoreFooter
+                visible={networkStatus === NetworkStatus.fetchMore}
+                message="Loading more label sets…"
+                data-testid="labelsets-fetch-more-spinner"
+              />
             </>
           ) : !loading ? (
             <EmptyStateWrapper>

@@ -48,6 +48,7 @@ export const CorpusExtractCards: React.FC<CorpusExtractCardsProps> = ({
   const {
     refetch: refetchExtracts,
     loading: loading_extracts,
+    networkStatus: extracts_network_status,
     error: extracts_load_error,
     data: extracts_response,
     fetchMore: fetchMoreExtracts,
@@ -87,6 +88,7 @@ export const CorpusExtractCards: React.FC<CorpusExtractCardsProps> = ({
       extracts={extracts}
       opened_corpus={opened_corpus}
       loading={loading_extracts}
+      networkStatus={extracts_network_status}
       loading_message="Extracts Loading..."
       pageInfo={extracts_response?.extracts?.pageInfo}
       fetchMore={fetchMoreExtracts}
