@@ -109,6 +109,7 @@ export const SelectDocumentsModal = ({
   const {
     refetch: refetchDocuments,
     loading: documents_loading,
+    networkStatus: documents_network_status,
     error: documents_error,
     data: documents_data,
     fetchMore: fetchMoreDocuments,
@@ -272,6 +273,7 @@ export const SelectDocumentsModal = ({
             items={document_items}
             pageInfo={documents_data?.documents?.pageInfo}
             loading={documents_loading}
+            networkStatus={documents_network_status}
             loading_message="Loading Documents..."
             fetchMore={fetchMoreDocuments}
             onDrop={onDrop}

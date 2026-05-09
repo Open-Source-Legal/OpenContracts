@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useReactiveVar } from "@apollo/client";
+import { NetworkStatus, useMutation, useReactiveVar } from "@apollo/client";
 import {
   SearchBox,
   FilterTabs,
@@ -47,6 +47,7 @@ import { navigateToCorpus } from "../../utils/navigationUtils";
 import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import { MCPShareButton } from "../common/MCPShareButton";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
@@ -323,6 +324,8 @@ interface CorpusListViewProps {
   corpuses: CorpusType[] | null;
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /** NetworkStatus from useQuery. When omitted, footer falls back to `loading && hasNextPage`. */
+  networkStatus?: NetworkStatus;
   fetchMore: (args?: any) => void | any;
   onCreateCorpus: () => void;
   onImportCorpus?: () => void;
@@ -338,6 +341,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
   corpuses,
   pageInfo,
   loading,
+  networkStatus,
   fetchMore,
   onCreateCorpus,
   onImportCorpus,
@@ -543,9 +547,9 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
 
         {/* Corpus List Section */}
         <CorpusListContainer>
+          {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
-            active={loading}
-            inverted
+            active={loading && filteredCorpuses.length === 0}
             size="large"
             content="Loading corpuses..."
           />
@@ -743,6 +747,16 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
 
           {/* Infinite scroll trigger */}
           <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+          <FetchMoreFooter
+            visible={
+              networkStatus === NetworkStatus.fetchMore ||
+              (networkStatus === undefined &&
+                loading &&
+                Boolean(pageInfo?.hasNextPage))
+            }
+            message="Loading more corpuses…"
+            data-testid="corpuses-fetch-more-spinner"
+          />
         </CorpusListContainer>
       </ContentContainer>
     </PageContainer>

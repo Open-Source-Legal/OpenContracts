@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import styled from "styled-components";
-import { useMutation, useReactiveVar } from "@apollo/client";
+import { NetworkStatus, useMutation, useReactiveVar } from "@apollo/client";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { CollectionList, EmptyState, Button } from "@os-legal/ui";
@@ -10,6 +10,7 @@ import { ExtractListCard } from "./ExtractListCard";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { ExtractType, CorpusType, PageInfo } from "../../types/graphql-api";
 import {
   showCreateExtractModal,
@@ -63,6 +64,8 @@ interface ExtractCardsProps {
   opened_corpus: CorpusType | null;
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /** NetworkStatus from useQuery. When omitted, footer falls back to `loading && hasNextPage`. */
+  networkStatus?: NetworkStatus;
   loading_message: string;
   fetchMore: (args?: any) => void | any;
   /** If true, clicking selects via URL params instead of navigating away */
@@ -77,6 +80,7 @@ export const ExtractCards = ({
   opened_corpus,
   loading_message,
   loading,
+  networkStatus,
   fetchMore,
   pageInfo,
   useInlineSelection = false,
@@ -203,9 +207,9 @@ export const ExtractCards = ({
 
   return (
     <Container style={style}>
+      {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
       <LoadingOverlay
-        active={loading}
-        inverted
+        active={loading && filteredExtracts.length === 0}
         size="large"
         content={loading_message}
       />
@@ -233,6 +237,16 @@ export const ExtractCards = ({
             </CollectionList>
 
             <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+            <FetchMoreFooter
+              visible={
+                networkStatus === NetworkStatus.fetchMore ||
+                (networkStatus === undefined &&
+                  loading &&
+                  Boolean(pageInfo?.hasNextPage))
+              }
+              message="Loading more extracts…"
+              data-testid="extract-cards-fetch-more-spinner"
+            />
           </>
         ) : !loading ? (
           <EmptyStateWrapper>

@@ -73,14 +73,37 @@ test.describe("ExportList", () => {
     await component.unmount();
   });
 
-  test("shows loading overlay when loading", async ({ mount, page }) => {
-    const component = await mount(<ExportListTestWrapper loading={true} />);
+  test("shows loading overlay on initial load (no items yet)", async ({
+    mount,
+    page,
+  }) => {
+    // The overlay covers the table only when ``loading && itemCount === 0``
+    // — fetchMore keeps existing rows visible without dimming them.
+    const component = await mount(
+      <ExportListTestWrapper items={[]} loading={true} />
+    );
 
     await expect(page.locator("text=Loading Exports...")).toBeVisible({
       timeout: 5000,
     });
 
     await docScreenshot(page, "exports--list--loading");
+    await component.unmount();
+  });
+
+  test("does not cover existing rows during fetchMore (loading=true with items)", async ({
+    mount,
+    page,
+  }) => {
+    // When rows are already on screen, a refetch / fetchMore must not paint
+    // the modal overlay over them; the FetchMoreFooter spinner takes over.
+    const component = await mount(<ExportListTestWrapper loading={true} />);
+
+    await expect(page.locator("text=Contract Export Q1 2024")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator("text=Loading Exports...")).not.toBeVisible();
+
     await component.unmount();
   });
 });

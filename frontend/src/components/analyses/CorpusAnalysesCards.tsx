@@ -54,6 +54,7 @@ export const CorpusAnalysesCards = () => {
   const {
     refetch: refetchAnalyses,
     loading: loading_analyses,
+    networkStatus: analyses_network_status,
     error: analyses_load_error,
     data: analyses_response,
     fetchMore: fetchMoreAnalyses,
@@ -110,6 +111,7 @@ export const CorpusAnalysesCards = () => {
       analyses={analyses}
       opened_corpus={opened_corpus}
       loading={loading_analyses}
+      networkStatus={analyses_network_status}
       loading_message="Analyses Loading..."
       pageInfo={analyses_response?.analyses?.pageInfo}
       fetchMore={fetchMoreAnalyses}
