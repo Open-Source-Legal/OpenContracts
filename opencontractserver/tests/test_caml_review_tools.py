@@ -26,7 +26,10 @@ from opencontractserver.llms.tools.core_tools import (
     aread_corpus_caml_article,
 )
 from opencontractserver.llms.tools.core_tools.caml_article import (
+    _PREVIEW_RADIUS_CHARS,
     _apply_caml_article_edit,
+    _looks_like_prose,
+    _parse_directive_args,
     _read_corpus_caml_article,
 )
 from opencontractserver.llms.vector_stores.core_vector_stores import VectorSearchResult
@@ -628,3 +631,146 @@ class CamlReviewToolRegistryTests(TestCase):
         assert propose_tool is not None
         self.assertFalse(propose_tool.requires_approval)
         self.assertTrue(propose_tool.requires_corpus)
+
+
+class ParseDirectiveArgsTests(TestCase):
+    """Pure-function tests for the directive-arg parser used by the read tool."""
+
+    def test_returns_empty_for_none_or_blank(self):
+        self.assertEqual(_parse_directive_args(None), {})
+        self.assertEqual(_parse_directive_args(""), {})
+        self.assertEqual(_parse_directive_args("   "), {})
+
+    def test_parses_unquoted_key_value_pairs(self):
+        self.assertEqual(
+            _parse_directive_args("mode=all limit=5"),
+            {"mode": "all", "limit": "5"},
+        )
+
+    def test_parses_double_quoted_values_with_spaces(self):
+        """Quoted values may contain spaces; the regex must capture them whole."""
+        self.assertEqual(
+            _parse_directive_args('mode="all phrases" label="Force Majeure"'),
+            {"mode": "all phrases", "label": "Force Majeure"},
+        )
+
+    def test_mixes_quoted_and_unquoted_values(self):
+        self.assertEqual(
+            _parse_directive_args('mode="all phrases" limit=5'),
+            {"mode": "all phrases", "limit": "5"},
+        )
+
+
+class LooksLikeProseTests(TestCase):
+    """Pure-function tests for the citation-candidate prose heuristic."""
+
+    def test_rejects_blank_and_whitespace(self):
+        self.assertFalse(_looks_like_prose(""))
+        self.assertFalse(_looks_like_prose("   \n  \t "))
+
+    def test_rejects_headings_blockquotes_tables(self):
+        self.assertFalse(_looks_like_prose("# Heading"))
+        self.assertFalse(_looks_like_prose("## Sub-heading"))
+        self.assertFalse(_looks_like_prose("> A blockquote"))
+        self.assertFalse(_looks_like_prose("| col | col2 |"))
+
+    def test_rejects_list_markers_with_required_whitespace(self):
+        """``-``, ``*``, ``+`` only count as list markers when followed by whitespace."""
+        self.assertFalse(_looks_like_prose("- bullet"))
+        self.assertFalse(_looks_like_prose("* bullet"))
+        self.assertFalse(_looks_like_prose("+ bullet"))
+        self.assertFalse(_looks_like_prose("-\tbullet"))
+
+    def test_rejects_thematic_breaks_and_setext_underlines(self):
+        self.assertFalse(_looks_like_prose("---"))
+        self.assertFalse(_looks_like_prose("___"))
+        self.assertFalse(_looks_like_prose("==="))
+        self.assertFalse(_looks_like_prose("- - -"))
+
+    def test_rejects_code_fences(self):
+        self.assertFalse(_looks_like_prose("```python"))
+        self.assertFalse(_looks_like_prose("```"))
+
+    def test_accepts_paragraph_starting_with_emphasis_run(self):
+        """``*italic*`` is an emphasis run, not a list marker, and IS prose.
+
+        The earlier heuristic rejected any block whose first character was
+        ``*``; CommonMark requires a *space* after ``*`` for it to be a
+        list marker.  Pin this so a paragraph like
+        ``*Force majeure* clauses…`` is included as a citation candidate.
+        """
+        self.assertTrue(
+            _looks_like_prose("*Force majeure* clauses were updated in 2023.")
+        )
+        self.assertTrue(_looks_like_prose("**Bold** opener for a paragraph."))
+
+    def test_accepts_normal_prose(self):
+        self.assertTrue(
+            _looks_like_prose(
+                "Liability is capped at twice the annual fee under section 5."
+            )
+        )
+
+
+class ApplyCamlArticleEditPreviewTests(TransactionTestCase):
+    """Verify the ``preview`` window returned by the apply tool."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner = User.objects.create_user(
+            username="caml-preview-owner", password="pw"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Preview Test", creator=self.owner, is_public=False
+        )
+        # Body long enough to exercise the radius-bounded preview window:
+        # the target sits at a known offset so we can predict its expansion.
+        body_prefix = "alpha " * 40  # ~240 chars of filler
+        self.body = (
+            f"{body_prefix}" "TARGET-PHRASE." f"{body_prefix}" "Trailing content."
+        )
+        self.caml_doc = _create_caml_doc(self.corpus, self.owner, content=self.body)
+
+    def test_preview_window_centers_around_replacement(self):
+        result = _apply_caml_article_edit(
+            corpus_id=self.corpus.id,
+            author_id=self.owner.id,
+            target_text="TARGET-PHRASE.",
+            replacement_text="REPLACED.",
+            rationale="Sanity-check the preview window",
+        )
+
+        preview = result["preview"]
+        # The replacement text must appear in the preview.
+        self.assertIn("REPLACED.", preview)
+        # The preview is bounded by ``_PREVIEW_RADIUS_CHARS`` on each side
+        # of the replacement.  Cap the maximum length: radius before +
+        # replacement length + radius after.
+        max_expected = _PREVIEW_RADIUS_CHARS + len("REPLACED.") + _PREVIEW_RADIUS_CHARS
+        self.assertLessEqual(len(preview), max_expected)
+        # Some context from the prefix and suffix should also be visible.
+        self.assertIn("alpha", preview)
+
+    def test_preview_window_clamps_at_document_boundaries(self):
+        """A target near the start of the body must not wander past offset 0."""
+        # Replace the body so the target is at position 0.
+        edge_body = "TARGET-PHRASE. " + ("alpha " * 30)
+        self.caml_doc.txt_extract_file.save(
+            "Readme.CAML.md",
+            ContentFile(edge_body.encode("utf-8")),
+            save=False,
+        )
+        self.caml_doc.save(update_fields=["txt_extract_file", "modified"])
+
+        result = _apply_caml_article_edit(
+            corpus_id=self.corpus.id,
+            author_id=self.owner.id,
+            target_text="TARGET-PHRASE.",
+            replacement_text="EDGE.",
+            rationale="Edge-of-document preview",
+        )
+
+        # ``preview_start`` clamps to 0, so the preview begins with the edit.
+        self.assertTrue(result["preview"].startswith("EDGE."))
+        # And the offset reported back is also 0.
+        self.assertEqual(result["char_offset"], 0)

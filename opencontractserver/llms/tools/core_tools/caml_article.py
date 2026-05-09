@@ -52,10 +52,16 @@ from ._helpers import _db_sync_to_async
 
 logger = logging.getLogger(__name__)
 
-# Re-exported for callers that historically imported the title from this
-# module (test patches, registry definitions).  The canonical home is
+# Public API of this module.  ``CAML_ARTICLE_TITLE`` is re-exported here
+# for callers that historically imported the title from this module (test
+# patches, registry definitions); its canonical home is
 # ``opencontractserver.constants.document_processing``.
-__all__ = ["CAML_ARTICLE_TITLE"]
+__all__ = [
+    "CAML_ARTICLE_TITLE",
+    "aread_corpus_caml_article",
+    "apropose_caml_citation_match",
+    "aapply_caml_article_edit",
+]
 
 # Mirror of ``DIRECTIVE_PATTERN_GLOBAL`` from
 # ``frontend/src/components/corpuses/caml/inlineDirectives.ts`` so backend
@@ -127,9 +133,17 @@ def _looks_like_prose(text: str) -> bool:
     # slip through as prose.
     if set(stripped.replace(" ", "")) <= {"-", "_", "="}:
         return False
-    first = stripped[:1]
-    # ``+`` is a CommonMark unordered-list marker alongside ``-`` and ``*``.
-    if first in {"#", "-", "*", "+", ">", "|"}:
+    # CommonMark list markers require a following whitespace
+    # (``- item``, ``* item``, ``+ item``).  Without the whitespace the
+    # leading character is start-of-prose — e.g. ``*Force majeure* clauses…``
+    # is a paragraph that begins with an emphasis run, not a list.  Match
+    # the parser's behaviour and only reject when the marker is followed
+    # by a space or tab.
+    if stripped.startswith(("- ", "* ", "+ ", "-\t", "*\t", "+\t")) or stripped[:1] in {
+        "#",
+        ">",
+        "|",
+    }:
         return False
     if stripped.startswith("```"):
         return False
@@ -381,6 +395,10 @@ async def apropose_caml_citation_match(
     candidates: list[dict[str, Any]] = []
     # ``async_search`` already honours ``similarity_top_k`` (we passed
     # ``capped_limit`` above), so the result list is already bounded.
+    # ``CoreAnnotationVectorStore`` builds its queryset with
+    # ``select_related("annotation_label", "document", "corpus")`` (see
+    # ``core_vector_stores.py``), so the per-result attribute reads below do
+    # not fan out into N+1 queries.
     for result in results:
         ann = result.annotation
         label = ann.annotation_label  # may be None for label-less annotations
@@ -492,9 +510,14 @@ def _apply_caml_article_edit(
         )
         locked_doc.save(update_fields=["txt_extract_file", "modified"])
 
+    # The ``select_for_update`` lock is released at transaction commit, so
+    # rename the variable here to stop the "locked" connotation from
+    # leaking into the post-commit read/return path.
+    caml_doc = locked_doc
+
     # ``refresh_from_db`` is a read; doing it outside the txn keeps the
     # write block free of any post-save operations that could raise.
-    locked_doc.refresh_from_db(fields=["modified"])
+    caml_doc.refresh_from_db(fields=["modified"])
 
     pos = content.find(target_text)
     preview_start = max(0, pos - _PREVIEW_RADIUS_CHARS)
@@ -505,14 +528,14 @@ def _apply_caml_article_edit(
 
     return {
         "corpus_id": corpus_id,
-        "document_id": locked_doc.pk,
+        "document_id": caml_doc.pk,
         "applied": True,
         "target_text": target_text,
         "replacement_text": replacement_text,
         "rationale": rationale,
         "char_offset": pos,
         "preview": preview_window,
-        "modified": (locked_doc.modified.isoformat() if locked_doc.modified else None),
+        "modified": (caml_doc.modified.isoformat() if caml_doc.modified else None),
     }
 
 
