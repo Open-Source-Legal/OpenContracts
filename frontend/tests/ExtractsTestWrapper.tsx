@@ -14,7 +14,7 @@ import {
   showDeleteExtractModal,
 } from "../src/graphql/cache";
 import {
-  GET_EXTRACTS,
+  GET_EXTRACTS_FOR_LIST,
   GET_CORPUSES,
   GET_FIELDSETS,
 } from "../src/graphql/queries";
@@ -55,7 +55,7 @@ const createMocks = (
 ): MockedResponse[] => {
   const extractsMock: MockedResponse = {
     request: {
-      query: GET_EXTRACTS,
+      query: GET_EXTRACTS_FOR_LIST,
     },
     variableMatcher: () => true,
     result: options.error
@@ -64,7 +64,41 @@ const createMocks = (
           data: {
             extracts: {
               edges: extracts.map((extract) => ({
-                node: extract,
+                node: {
+                  // Project ExtractType fixtures down to the slim list shape.
+                  // ``documentCount`` and ``fieldset.columnCount`` map from the
+                  // legacy ``fullDocumentList`` / ``fullColumnList`` arrays so
+                  // existing tests don't have to be rewritten.
+                  id: extract.id,
+                  name: extract.name,
+                  created: extract.created,
+                  started: extract.started ?? null,
+                  finished: extract.finished ?? null,
+                  error: extract.error ?? null,
+                  myPermissions: extract.myPermissions ?? [],
+                  documentCount:
+                    extract.documentCount ??
+                    extract.fullDocumentList?.length ??
+                    0,
+                  corpus: extract.corpus
+                    ? {
+                        id: extract.corpus.id,
+                        title: extract.corpus.title,
+                        __typename: "CorpusType",
+                      }
+                    : null,
+                  fieldset: extract.fieldset
+                    ? {
+                        id: extract.fieldset.id,
+                        columnCount:
+                          extract.fieldset.columnCount ??
+                          extract.fieldset.fullColumnList?.length ??
+                          0,
+                        __typename: "FieldsetType",
+                      }
+                    : null,
+                  __typename: "ExtractType",
+                },
                 __typename: "ExtractTypeEdge",
               })),
               pageInfo: defaultPageInfo,

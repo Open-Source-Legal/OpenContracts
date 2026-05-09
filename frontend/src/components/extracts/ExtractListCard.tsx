@@ -64,17 +64,21 @@ const KebabIcon = () => (
 function formatStats(extract: ExtractType): string[] {
   const stats: string[] = [];
 
-  // Document count (use fullDocumentList from GraphQL query)
-  const docCount = extract.fullDocumentList?.length || 0;
+  // Prefer the backend-provided count (cheap aggregate); fall back to the
+  // legacy fullDocumentList / fullColumnList lengths so consumers still on
+  // GET_EXTRACTS keep working without extra plumbing.
+  const docCount =
+    extract.documentCount ?? extract.fullDocumentList?.length ?? 0;
   stats.push(`${docCount} ${docCount === 1 ? "document" : "documents"}`);
 
-  // Column count (from fieldset's fullColumnList)
-  const columnCount = extract.fieldset?.fullColumnList?.length || 0;
+  const columnCount =
+    extract.fieldset?.columnCount ??
+    extract.fieldset?.fullColumnList?.length ??
+    0;
   if (columnCount > 0) {
     stats.push(`${columnCount} ${columnCount === 1 ? "column" : "columns"}`);
   }
 
-  // Corpus name if available
   if (extract.corpus?.title) {
     stats.push(`from ${extract.corpus.title}`);
   }

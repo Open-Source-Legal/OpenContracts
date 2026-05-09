@@ -119,9 +119,6 @@ class AnnotationQueryMixin:
         else:
             # Fallback to visible_to_user for queries without document or corpus
             queryset = Annotation.objects.visible_to_user(info.context.user)
-            logger.info(
-                f"Using visible_to_user for annotations query, found {queryset.count()} annotations"
-            )
 
         queryset = queryset.select_related(
             "annotation_label",
@@ -143,17 +140,14 @@ class AnnotationQueryMixin:
         # Filter by uses_label_from_labelset_id
         labelset_id = kwargs.get("uses_label_from_labelset_id")
         if labelset_id:
-            logger.info(f"Filtering by labelset_id: {labelset_id}")
             django_pk = from_global_id(labelset_id)[1]
             queryset = queryset.filter(annotation_label__included_in_labelset=django_pk)
 
         # Filter by created_by_analysis_ids
         analysis_ids = kwargs.get("created_by_analysis_ids")
         if analysis_ids:
-            logger.info(f"Filtering by analysis_ids: {analysis_ids}")
             analysis_id_list = analysis_ids.split(",")
             if MANUAL_ANNOTATION_SENTINEL in analysis_id_list:
-                logger.info("Including manual annotations in filter")
                 analysis_id_list = [
                     id for id in analysis_id_list if id != MANUAL_ANNOTATION_SENTINEL
                 ]
@@ -164,7 +158,6 @@ class AnnotationQueryMixin:
                     Q(analysis__isnull=True) | Q(analysis_id__in=analysis_pks)
                 )
             else:
-                logger.info("Filtering only by specified analysis IDs")
                 analysis_pks = [
                     int(from_global_id(value)[1]) for value in analysis_id_list
                 ]
@@ -173,10 +166,8 @@ class AnnotationQueryMixin:
         # Filter by created_with_analyzer_id
         analyzer_ids = kwargs.get("created_with_analyzer_id")
         if analyzer_ids:
-            logger.info(f"Filtering by analyzer_ids: {analyzer_ids}")
             analyzer_id_list = analyzer_ids.split(",")
             if MANUAL_ANNOTATION_SENTINEL in analyzer_id_list:
-                logger.info("Including manual annotations in filter")
                 analyzer_id_list = [
                     id for id in analyzer_id_list if id != MANUAL_ANNOTATION_SENTINEL
                 ]
@@ -189,34 +180,27 @@ class AnnotationQueryMixin:
                     Q(analysis__isnull=True) | Q(analysis__analyzer_id__in=analyzer_pks)
                 )
             elif len(analyzer_id_list) > 0:
-                logger.info("Filtering only by specified analyzer IDs")
                 analyzer_pks = [int(from_global_id(id)[1]) for id in analyzer_id_list]
                 queryset = queryset.filter(analysis__analyzer_id__in=analyzer_pks)
 
         # Filter by raw_text
         raw_text = kwargs.get("raw_text_contains")
         if raw_text:
-            logger.info(f"Filtering by raw_text containing: {raw_text}")
             queryset = queryset.filter(raw_text__contains=raw_text)
 
         # Filter by annotation_label_id
         annotation_label_id = kwargs.get("annotation_label_id")
         if annotation_label_id:
-            logger.info(f"Filtering by annotation_label_id: {annotation_label_id}")
             django_pk = from_global_id(annotation_label_id)[1]
             queryset = queryset.filter(annotation_label_id=django_pk)
 
         # Filter by annotation_label__text
         label_text = kwargs.get("annotation_label__text")
         if label_text:
-            logger.info(f"Filtering by exact annotation_label__text: {label_text}")
             queryset = queryset.filter(annotation_label__text=label_text)
 
         label_text_contains = kwargs.get("annotation_label__text_contains")
         if label_text_contains:
-            logger.info(
-                f"Filtering by annotation_label__text containing: {label_text_contains}"
-            )
             queryset = queryset.filter(
                 annotation_label__text__contains=label_text_contains
             )
@@ -224,31 +208,18 @@ class AnnotationQueryMixin:
         # Filter by annotation_label__description
         label_description = kwargs.get("annotation_label__description_contains")
         if label_description:
-            logger.info(
-                f"Filtering by annotation_label__description containing: {label_description}"
-            )
             queryset = queryset.filter(
                 annotation_label__description__contains=label_description
             )
 
         # Filter by annotation_label__label_type
-        logger.info(
-            f"Queryset count before filtering by annotation_label__label_type: {queryset.count()}"
-        )
         label_type = kwargs.get("annotation_label__label_type")
         if label_type:
-            logger.info(f"Filtering by annotation_label__label_type: {label_type}")
             queryset = queryset.filter(annotation_label__label_type=label_type)
-        logger.info(f"Queryset count after filtering by label type: {queryset.count()}")
 
-        logger.info(f"Q Filter value for analysis_isnull: {analysis_isnull}")
         # Filter by analysis
         if analysis_isnull is not None:
-            logger.info(
-                f"QS count before filtering by analysis is null: {queryset.count()}"
-            )
             queryset = queryset.filter(analysis__isnull=analysis_isnull)
-            logger.info(f"Filtered by analysis_isnull: {queryset.count()}")
 
         # Filter by corpus_action
         if corpus_action_isnull is not None:
@@ -267,31 +238,24 @@ class AnnotationQueryMixin:
             # Filter by document_id
             document_id = kwargs.get("document_id")
             if document_id:
-                logger.info(f"Filtering by document_id: {document_id}")
                 django_pk = from_global_id(document_id)[1]
                 queryset = queryset.filter(document_id=django_pk)
 
             # Filter by corpus_id
-            logger.info(f"{queryset.count()} annotations pre corpus_id filter...")
             corpus_id = kwargs.get("corpus_id")
             if corpus_id:
                 django_pk = from_global_id(corpus_id)[1]
-                logger.info(f"Filtering by corpus_id: {django_pk}")
                 queryset = queryset.filter(corpus_id=django_pk)
-                logger.info(f"{queryset.count()} annotations post corpus_id filter...")
 
         # Filter by structural
         if structural is not None:
-            logger.info(f"Filtering by structural: {structural}")
             queryset = queryset.filter(structural=structural)
 
         # Ordering
         order_by = kwargs.get("order_by")
         if order_by:
-            logger.info(f"Ordering by: {order_by}")
             queryset = queryset.order_by(order_by)
         else:
-            logger.info("Ordering by default: -modified")
             queryset = queryset.order_by("-modified")
 
         return queryset

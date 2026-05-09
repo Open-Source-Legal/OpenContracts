@@ -47,9 +47,9 @@ import {
   userObj,
 } from "../graphql/cache";
 import {
-  GetExtractsOutput,
-  GetExtractsInput,
-  GET_EXTRACTS,
+  GetExtractsForListInput,
+  GetExtractsForListOutput,
+  GET_EXTRACTS_FOR_LIST,
 } from "../graphql/queries";
 import {
   REQUEST_DELETE_EXTRACT,
@@ -91,6 +91,14 @@ const TableIcon = () => (
     />
   </svg>
 );
+
+// Initial page size for the list. Subsequent pages match — see handleFetchMore.
+// The legacy GET_EXTRACTS query did not pass `first`/`after` to the connection
+// at all, so the server quietly clamped every request to ``max_limit=15`` and
+// fetchMore's cursor was sent but never honoured (broken pagination). The slim
+// query wires the connection args properly; explicit ``first: 20`` matches the
+// Documents view convention.
+const EXTRACTS_PAGE_SIZE = 20;
 
 // Main Component
 
@@ -135,14 +143,27 @@ export const Extracts = () => {
     debouncedSearch.current(value);
   };
 
-  // GraphQL Query
+  // Memoize variables so Apollo only re-fetches when the user actually changes
+  // a filter. Building a fresh object literal in the useQuery call below
+  // would force Apollo to deep-compare every render.
+  const extractVariables: GetExtractsForListInput = useMemo(
+    () => ({
+      limit: EXTRACTS_PAGE_SIZE,
+      ...(extract_search_term && { searchText: extract_search_term }),
+    }),
+    [extract_search_term]
+  );
+
+  // GraphQL Query — uses the slim list query (see GET_EXTRACTS_FOR_LIST in
+  // queries.ts). Replaces ``fullDocumentList { id }`` /
+  // ``fieldset.fullColumnList { id }`` with the new ``documentCount`` /
+  // ``fieldset.columnCount`` aggregates so each row no longer pays for a
+  // per-extract per-document permission check on the backend.
   const { refetch, loading, networkStatus, data, fetchMore } = useQuery<
-    GetExtractsOutput,
-    GetExtractsInput
-  >(GET_EXTRACTS, {
-    variables: {
-      searchText: extract_search_term,
-    },
+    GetExtractsForListOutput,
+    GetExtractsForListInput
+  >(GET_EXTRACTS_FOR_LIST, {
+    variables: extractVariables,
     notifyOnNetworkStatusChange: true,
   });
 
@@ -160,15 +181,20 @@ export const Extracts = () => {
     },
   });
 
-  // Extract extracts from query data
+  // Extract extracts from query data. The slim list query returns a subset of
+  // ExtractType's fields — cast is safe because every consumer below
+  // (filters, status helpers, ExtractListCard) only reads the fields the slim
+  // query selects (id/name/created/started/finished/error/myPermissions/
+  // documentCount/corpus.title/fieldset.columnCount). Memoize on the stable
+  // Apollo edges reference so the derived ``filteredExtracts`` / ``stats``
+  // memos don't churn on unrelated parent re-renders.
   const extracts: ExtractType[] = useMemo(() => {
-    if (!data?.extracts?.edges) return [];
-    return data.extracts.edges
+    const edges = data?.extracts?.edges ?? [];
+    return edges
       .map((edge) => edge?.node)
-      .filter(
-        (node): node is ExtractType => node !== null && node !== undefined
-      );
-  }, [data]);
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) => node as unknown as ExtractType);
+  }, [data?.extracts?.edges]);
 
   // Filter extracts based on active filter
   const filteredExtracts = useMemo(() => {
@@ -186,7 +212,11 @@ export const Extracts = () => {
     }
   }, [extracts, activeFilter]);
 
-  // Calculate counts for filter tabs
+  // Calculate counts for filter tabs.
+  // NOTE: bounded by the paginated subset currently in Apollo's cache. The
+  // legacy implementation has the same limitation; promoting these to a
+  // backend ``extractStats`` aggregate (mirroring ``documentStats`` from PR
+  // #1556) is a follow-up if the badges start drifting on large libraries.
   const filterCounts = useMemo(() => {
     return {
       running: extracts.filter((ex) => ex.started && !ex.finished && !ex.error)
@@ -214,14 +244,14 @@ export const Extracts = () => {
     },
   ];
 
-  // Calculate stats
+  // Calculate stats. Prefer the backend-provided ``documentCount`` aggregate
+  // (one CTE per extract row, no per-doc permission fan-out); fall back to
+  // ``fullDocumentList?.length`` for callers still on the legacy query.
   const stats = useMemo(() => {
     let totalDocuments = 0;
-    let totalColumns = 0;
 
     extracts.forEach((ex) => {
-      totalDocuments += ex.fullDocumentList?.length || 0;
-      totalColumns += ex.fieldset?.fullColumnList?.length || 0;
+      totalDocuments += ex.documentCount ?? ex.fullDocumentList?.length ?? 0;
     });
 
     return {
@@ -260,6 +290,7 @@ export const Extracts = () => {
     if (!loading && data?.extracts?.pageInfo?.hasNextPage) {
       fetchMore({
         variables: {
+          limit: EXTRACTS_PAGE_SIZE,
           cursor: data.extracts.pageInfo.endCursor,
         },
       });
@@ -309,12 +340,11 @@ export const Extracts = () => {
     }
   }, [openMenuId, handleCloseMenu]);
 
-  // Refetch on auth change
-  useEffect(() => {
-    if (currentUser) {
-      refetch();
-    }
-  }, [currentUser, refetch]);
+  // Apollo's ``useQuery`` automatically refetches when ``variables`` change
+  // (deep-compared), so we no longer need the explicit ``useEffect(refetch)``
+  // that previously fired on every ``currentUser`` reactive-var update. That
+  // effect double-fetched on first auth settle (initial useQuery + the effect
+  // both ran) and re-fetched on any unrelated ``userObj`` update.
 
   // Determine section title based on filter
   const getSectionTitle = () => {

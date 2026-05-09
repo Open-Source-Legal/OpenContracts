@@ -497,3 +497,79 @@ class ExtractsQueryTestCase(TestCase):
         )
         self.assertIsNone(result.get("errors"))
         self.assertEqual(len(result["data"]["extract"]["fullDatacellList"]), 0)
+
+    def test_extracts_list_count_fields_match_lists(self):
+        """
+        ``documentCount`` (ExtractType) and ``columnCount`` (FieldsetType) are
+        the slim list-view replacements for ``fullDocumentList { id }`` and
+        ``fieldset.fullColumnList { id }`` — see Extracts.tsx + the matching
+        slim GraphQL query. The list-view query asks for counts only so the
+        ``resolve_full_document_list`` per-row permission filter (an N+1 over
+        every document of every extract) and a full Column-row payload per
+        row no longer fire on every list paint.
+
+        This regression pins three properties:
+          1. ``documentCount`` matches ``len(fullDocumentList)`` for the
+             current user's permission scope.
+          2. ``columnCount`` on the fieldset matches the column count.
+          3. Both fields are reachable via the connection-style ``extracts``
+             list query (where the new count fields are most valuable).
+        """
+        # Add a second document so the count is something other than 1.
+        with SAMPLE_PDF_FILE_TWO_PATH.open("rb") as f:
+            second_pdf = ContentFile(f.read(), name="test_second.pdf")
+        second_doc = Document.objects.create(
+            creator=self.user,
+            title="Second Doc",
+            description="Second doc for count tests",
+            custom_meta={},
+            pdf_file=second_pdf,
+            backend_lock=True,
+        )
+        self.extract.documents.add(second_doc)
+        set_permissions_for_obj_to_user(self.user, second_doc, [PermissionTypes.READ])
+
+        # Add a second column so columnCount > 1.
+        Column.objects.create(
+            creator=self.user,
+            fieldset=self.fieldset,
+            query="TestQuery2",
+            output_type="str",
+        )
+
+        list_query = """
+            query {
+                extracts {
+                    edges {
+                        node {
+                            id
+                            documentCount
+                            fieldset {
+                                id
+                                columnCount
+                            }
+                            fullDocumentList { id }
+                            fieldset { fullColumnList { id } }
+                        }
+                    }
+                }
+            }
+        """
+        result = self.client.execute(list_query)
+        self.assertIsNone(result.get("errors"))
+
+        edges = result["data"]["extracts"]["edges"]
+        self.assertEqual(len(edges), 1, "Expected exactly one extract")
+        node = edges[0]["node"]
+
+        # documentCount must match the realized fullDocumentList length so the
+        # frontend can swap one for the other without changing visible totals.
+        self.assertEqual(node["documentCount"], len(node["fullDocumentList"]))
+        self.assertEqual(node["documentCount"], 2)
+
+        # columnCount must match the realized fullColumnList length.
+        self.assertEqual(
+            node["fieldset"]["columnCount"],
+            len(node["fieldset"]["fullColumnList"]),
+        )
+        self.assertEqual(node["fieldset"]["columnCount"], 2)
