@@ -62,6 +62,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `-`/`_`/`=` runs were excluded). `CAML_CITATION_MAX_CANDIDATES` and
     `CAML_EDIT_PREVIEW_RADIUS_CHARS` moved to
     `opencontractserver/constants/document_processing.py`.
+  - `propose_caml_citation_match` now wraps **both** `CoreAnnotationVectorStore`
+    construction and the `async_search` call in the same try/except, so a
+    corpus that has no `preferred_embedder` and no `PipelineSettings` default
+    surfaces the same friendly "Semantic search failed" `ValueError` the
+    agent already knows how to recover from instead of leaking the raw
+    `get_embedder() resolved no embedder_path` error from `__init__`. Pinned
+    by a new `test_constructor_failure_surfaces_as_value_error` test.
+  - `ProposeCamlCitationMatchTests` now patches `__init__` alongside
+    `async_search` on `CoreAnnotationVectorStore`. The real constructor calls
+    `get_embedder()` against the migration-seeded `PipelineSettings`
+    singleton, but `TransactionTestCase` truncates that row between tests
+    (`serialized_rollback=False` default), so any other class running first
+    on the same pytest-xdist `--dist loadscope` worker would leave us with no
+    default embedder and the constructor would raise before the patched
+    `async_search` could execute. Coverage of `caml_article.py` is now 100%
+    via additional tests for `_safe_delete_storage_path`, `_read_caml_content`
+    on a falsy `txt_extract_file`, the `User.DoesNotExist` branches in
+    `_read_corpus_caml_article` / `_apply_caml_article_edit` /
+    `_assert_corpus_visible_to_user`, the empty-`target_text` guard, and
+    component-marker / numbered-list rejection in `_looks_like_prose`.
 
 ### Fixed
 

@@ -388,15 +388,21 @@ async def apropose_caml_citation_match(
 
     capped_limit = max(1, min(int(limit), CAML_CITATION_MAX_CANDIDATES))
 
-    store = CoreAnnotationVectorStore(
-        user_id=author_id,
-        corpus_id=corpus_id,
-    )
-    query = VectorSearchQuery(
-        query_text=query_text.strip(),
-        similarity_top_k=capped_limit,
-    )
+    # Wrap both store construction and the search call: the constructor itself
+    # invokes ``get_embedder()`` and raises ``ValueError`` if the corpus has no
+    # preferred embedder and ``PipelineSettings`` lacks a default — that's a
+    # semantic-search precondition failure, not a fatal tool error, so surface
+    # it through the same friendly "Semantic search failed" message the agent
+    # knows how to recover from.
     try:
+        store = CoreAnnotationVectorStore(
+            user_id=author_id,
+            corpus_id=corpus_id,
+        )
+        query = VectorSearchQuery(
+            query_text=query_text.strip(),
+            similarity_top_k=capped_limit,
+        )
         results = await store.async_search(query)
     except Exception as exc:
         logger.exception(

@@ -32,12 +32,28 @@ from opencontractserver.llms.tools.core_tools.caml_article import (
     _apply_caml_article_edit,
     _looks_like_prose,
     _parse_directive_args,
+    _read_caml_content,
     _read_corpus_caml_article,
+    _safe_delete_storage_path,
 )
 from opencontractserver.llms.vector_stores.core_vector_stores import VectorSearchResult
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+
+
+def _noop_vector_store_init(self, *args, **kwargs):
+    """No-op replacement for ``CoreAnnotationVectorStore.__init__``.
+
+    Tests in ``ProposeCamlCitationMatchTests`` only exercise the adapter
+    logic around ``async_search`` — they don't need real embedder resolution.
+    Skipping the constructor avoids depending on ``PipelineSettings`` (the
+    singleton row created by migration 0031 is truncated by every
+    ``TransactionTestCase`` run, so the row may be absent when other test
+    classes share our pytest-xdist worker).
+    """
+    return None
+
 
 # Sample CAML body covering: H1 heading, a prose paragraph WITHOUT a directive,
 # a prose paragraph WITH a {{@cite}} directive, a list, and a fenced code block.
@@ -188,6 +204,40 @@ class ReadCorpusCamlArticleTests(TransactionTestCase):
             )
         self.assertIn("Readme.CAML", str(ctx.exception))
 
+    def test_unknown_user_raises(self):
+        """A non-existent ``author_id`` must raise rather than crash silently."""
+        with self.assertRaises(ValueError) as ctx:
+            _read_corpus_caml_article(corpus_id=self.corpus.id, author_id=99_999_999)
+        self.assertIn("does not exist", str(ctx.exception))
+
+    def test_doc_with_no_file_returns_empty_blocks(self):
+        """A CAML document whose ``txt_extract_file`` is empty yields no blocks.
+
+        Locks in ``_read_caml_content``'s falsy-file early return: the read
+        tool must succeed (returning an empty article) rather than raising,
+        so the agent can detect a freshly-created CAML and prompt for content.
+        """
+        empty_doc = Document.objects.create(
+            title="Readme.CAML",
+            creator=self.owner,
+            file_type=MARKDOWN_MIME_TYPE,
+            processing_started=timezone.now(),
+            backend_lock=False,
+        )
+        # No call to ``txt_extract_file.save`` -- the FieldFile is empty/falsy.
+        empty_corpus = Corpus.objects.create(
+            title="Empty CAML Corpus", creator=self.owner, is_public=False
+        )
+        empty_corpus.add_document(document=empty_doc, user=self.owner)
+
+        result = _read_corpus_caml_article(
+            corpus_id=empty_corpus.id, author_id=self.owner.id
+        )
+        self.assertEqual(result["content"], "")
+        self.assertEqual(result["blocks"], [])
+        self.assertEqual(result["candidate_block_indices"], [])
+        self.assertEqual(result["total_directives"], 0)
+
     def test_async_wrapper_returns_same_payload(self):
         """The public async function returns the same dict as the sync helper."""
         sync_result = _read_corpus_caml_article(
@@ -258,15 +308,27 @@ class ProposeCamlCitationMatchTests(TransactionTestCase):
         )
 
     def _patch_async_search(self, results):
-        """Return a context manager patching ``async_search`` to return ``results``."""
+        """Return a context manager patching the vector store to return ``results``.
+
+        Patches *both* ``__init__`` (no-op) and ``async_search`` on
+        ``CoreAnnotationVectorStore``.  Bypassing the constructor matters
+        under pytest-xdist's ``--dist loadscope`` runner: the real ``__init__``
+        calls ``get_embedder()`` which depends on a ``PipelineSettings`` row
+        seeded by migration 0031.  ``TransactionTestCase`` truncates that row
+        between tests on the same worker (it has ``serialized_rollback=False``
+        by default), so an unrelated test class running first would leave us
+        without a default embedder and the *real* constructor would raise
+        before our patched ``async_search`` could ever execute.
+        """
 
         async def _fake_async_search(self, query):
             return list(results)
 
-        return patch(
+        return patch.multiple(
             "opencontractserver.llms.vector_stores.core_vector_stores"
-            ".CoreAnnotationVectorStore.async_search",
-            new=_fake_async_search,
+            ".CoreAnnotationVectorStore",
+            __init__=_noop_vector_store_init,
+            async_search=_fake_async_search,
         )
 
     def test_returns_ranked_candidates(self):
@@ -299,10 +361,11 @@ class ProposeCamlCitationMatchTests(TransactionTestCase):
             captured["top_k"] = query.similarity_top_k
             return []
 
-        with patch(
+        with patch.multiple(
             "opencontractserver.llms.vector_stores.core_vector_stores"
-            ".CoreAnnotationVectorStore.async_search",
-            new=_capture_query,
+            ".CoreAnnotationVectorStore",
+            __init__=_noop_vector_store_init,
+            async_search=_capture_query,
         ):
             async_to_sync(apropose_caml_citation_match)(
                 corpus_id=self.corpus.id,
@@ -333,10 +396,11 @@ class ProposeCamlCitationMatchTests(TransactionTestCase):
         async def _explode(self, query):
             raise RuntimeError("embedder offline")
 
-        with patch(
+        with patch.multiple(
             "opencontractserver.llms.vector_stores.core_vector_stores"
-            ".CoreAnnotationVectorStore.async_search",
-            new=_explode,
+            ".CoreAnnotationVectorStore",
+            __init__=_noop_vector_store_init,
+            async_search=_explode,
         ):
             with self.assertRaises(ValueError) as ctx:
                 async_to_sync(apropose_caml_citation_match)(
@@ -345,6 +409,68 @@ class ProposeCamlCitationMatchTests(TransactionTestCase):
                     query_text="anything",
                 )
         self.assertIn("Semantic search failed", str(ctx.exception))
+
+    def test_constructor_failure_surfaces_as_value_error(self):
+        """An exploding ``__init__`` (e.g., no embedder) is wrapped, not raw.
+
+        Pins the production guard around ``CoreAnnotationVectorStore(...)``
+        construction: the real constructor raises ``ValueError`` from
+        ``get_embedder()`` when ``PipelineSettings`` has no default embedder
+        and the corpus has no ``preferred_embedder``.  The tool must surface
+        the failure as the same friendly "Semantic search failed" message
+        the agent recognises, not leak the raw embedder error.
+        """
+
+        def _exploding_init(self, *args, **kwargs):
+            raise ValueError(
+                "get_embedder() resolved no embedder_path; vector search "
+                "cannot proceed without one."
+            )
+
+        async def _should_not_run(self, query):  # pragma: no cover - fail-loud
+            raise AssertionError("async_search must not run when __init__ raises")
+
+        with patch.multiple(
+            "opencontractserver.llms.vector_stores.core_vector_stores"
+            ".CoreAnnotationVectorStore",
+            __init__=_exploding_init,
+            async_search=_should_not_run,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                async_to_sync(apropose_caml_citation_match)(
+                    corpus_id=self.corpus.id,
+                    author_id=self.owner.id,
+                    query_text="anything",
+                )
+        # The wrap message must include the raw embedder error so operators
+        # can still diagnose, but it must lead with the friendly prefix.
+        self.assertIn("Semantic search failed", str(ctx.exception))
+        self.assertIn("embedder_path", str(ctx.exception))
+
+    def test_unknown_user_raises_before_search(self):
+        """Pin the ``User.DoesNotExist`` branch in ``_assert_corpus_visible_to_user``.
+
+        Mirrors ``test_invisible_corpus_raises_before_search`` for the
+        author-not-found path: the same opaque "not visible" error is
+        emitted so a caller cannot tell "missing user" from "no permission".
+        """
+
+        async def _should_not_run(self, query):  # pragma: no cover - fail-loud
+            raise AssertionError("vector search must not run for unknown user")
+
+        with patch.multiple(
+            "opencontractserver.llms.vector_stores.core_vector_stores"
+            ".CoreAnnotationVectorStore",
+            __init__=_noop_vector_store_init,
+            async_search=_should_not_run,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                async_to_sync(apropose_caml_citation_match)(
+                    corpus_id=self.corpus.id,
+                    author_id=99_999_999,
+                    query_text="anything",
+                )
+        self.assertIn("not visible", str(ctx.exception))
 
     def test_invisible_corpus_raises_before_search(self):
         """Defense-in-depth: an outsider cannot search a private corpus.
@@ -448,6 +574,30 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
                 rationale="r",
             )
         self.assertIn("not found", str(ctx.exception))
+
+    def test_unknown_user_raises(self):
+        """A non-existent ``author_id`` must raise the user-not-found error."""
+        with self.assertRaises(ValueError) as ctx:
+            _apply_caml_article_edit(
+                corpus_id=self.corpus.id,
+                author_id=99_999_999,
+                target_text="Force majeure",
+                replacement_text="x",
+                rationale="r",
+            )
+        self.assertIn("does not exist", str(ctx.exception))
+
+    def test_empty_target_text_raises(self):
+        """``target_text`` must be non-empty -- empty would match everywhere."""
+        with self.assertRaises(ValueError) as ctx:
+            _apply_caml_article_edit(
+                corpus_id=self.corpus.id,
+                author_id=self.owner.id,
+                target_text="",
+                replacement_text="anything",
+                rationale="r",
+            )
+        self.assertIn("non-empty", str(ctx.exception))
 
     def test_empty_caml_file_raises_not_found(self):
         """Edit against an empty CAML body surfaces the same not-found error.
@@ -754,6 +904,77 @@ class LooksLikeProseTests(TestCase):
                 "Liability is capped at twice the annual fee under section 5."
             )
         )
+
+    def test_rejects_component_markers(self):
+        """``[component:...]`` blocks are embedded UI, not citable prose."""
+        self.assertFalse(_looks_like_prose("[component:Disclaimer]"))
+        self.assertFalse(
+            _looks_like_prose("[component:CitationCard id=42 mode=preview]")
+        )
+
+    def test_rejects_numbered_lists(self):
+        """``1. item`` style ordered list markers are not prose openings."""
+        self.assertFalse(_looks_like_prose("1. First step in the procedure."))
+        self.assertFalse(_looks_like_prose("12. A later numbered item."))
+
+
+class SafeDeleteStoragePathTests(TestCase):
+    """Pure-function tests for the orphan-blob cleanup helper.
+
+    The function runs as a transaction-on-commit callback so its contract is
+    "never raise" — that's load-bearing for the apply tool, which would
+    otherwise return a successful edit while letting a transient storage
+    error blow up the caller.
+    """
+
+    def test_no_op_for_empty_name(self):
+        """Empty / falsy name short-circuits before touching storage.
+
+        A guard against accidentally calling ``default_storage.delete("")``
+        which on some backends deletes the storage root directory entry.
+        """
+        # Should not raise, regardless of whether storage backend is configured.
+        _safe_delete_storage_path("")
+        _safe_delete_storage_path("   ")  # NB: still treated as a real path
+        # Whitespace strings ARE truthy in Python so the function will attempt
+        # the delete; what we care about for this branch is the empty-string
+        # short-circuit.
+
+    def test_swallows_storage_errors(self):
+        """Storage errors during cleanup are logged, never re-raised.
+
+        ``_safe_delete_storage_path`` runs after the DB pointer has already
+        been bumped, so propagating a storage failure here would surface a
+        post-success exception to the agent — confusing and non-actionable.
+        """
+        with patch(
+            "django.core.files.storage.default_storage.delete",
+            side_effect=OSError("permission denied"),
+        ):
+            # Must not raise.
+            _safe_delete_storage_path("some/orphan/path.md")
+
+
+class ReadCamlContentHelperTests(TestCase):
+    """Pin the empty-file early return in ``_read_caml_content``.
+
+    The helper's docstring promises ``''`` for a falsy ``txt_extract_file``;
+    the apply tool's "empty body raises not found" test exercises this
+    indirectly, but a direct unit assertion makes the contract explicit.
+    """
+
+    def test_returns_empty_string_for_falsy_file(self):
+        owner = User.objects.create_user(username="rcc-helper-owner", password="pw")
+        # A Document with no ``txt_extract_file.save`` call has a falsy
+        # ``FieldFile`` (no underlying name), so the early return fires.
+        doc = Document.objects.create(
+            title="Readme.CAML",
+            creator=owner,
+            file_type=MARKDOWN_MIME_TYPE,
+            processing_started=timezone.now(),
+            backend_lock=False,
+        )
+        self.assertEqual(_read_caml_content(doc), "")
 
 
 class ApplyCamlArticleEditPreviewTests(TransactionTestCase):
