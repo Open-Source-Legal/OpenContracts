@@ -159,7 +159,7 @@ export const SectionTitle = styled.h2`
 /** Card wrapper around the @os-legal/ui EmptyState component. */
 export const EmptyStateWrapper = styled.div`
   padding: 48px 24px;
-  background: white;
+  background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusEmptyState};
 `;
