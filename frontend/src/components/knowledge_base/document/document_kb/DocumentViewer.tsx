@@ -114,7 +114,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
   if (isTextFileType(fileType)) {
     return (
-      <PDFContainer id="pdf-container" ref={containerRefCallback}>
+      <PDFContainer id="text-container" ref={containerRefCallback}>
         <ViewerStatus
           loadingLabel="Loading Text..."
           errorTitle="Error Loading Text"

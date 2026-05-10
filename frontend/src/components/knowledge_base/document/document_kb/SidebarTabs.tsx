@@ -39,7 +39,8 @@ interface CommonProps {
   threadCount: number;
 }
 
-export interface DesktopSidebarTabsProps extends CommonProps {
+export interface DesktopSidebarTabsProps
+  extends Omit<CommonProps, "showRightPanel"> {
   /**
    * `false` → tabs anchored to the right edge (panel closed); clicking any tab
    * opens the panel.
@@ -66,10 +67,6 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
   selectedAnalysis,
   selectedExtract,
   threadCount,
-  // `showRightPanel` is part of CommonProps so the call site can pass the
-  // same prop bag to both Desktop and Mobile variants. Desktop derives the
-  // open/closed state from `panelOpen` and intentionally ignores the
-  // sibling reactive var.
 }) => {
   /**
    * Click handler factory:

@@ -59,7 +59,6 @@ export const SidebarTabsHarness: React.FC<SidebarTabsHarnessProps> = ({
           panelOpen={panelOpen}
           sidebarViewMode={sidebarViewMode}
           setSidebarViewMode={setSidebarViewMode}
-          showRightPanel={showRightPanel}
           setShowRightPanel={setShowRightPanel}
           setMode={setMode}
           selectedAnalysis={selectedAnalysis}

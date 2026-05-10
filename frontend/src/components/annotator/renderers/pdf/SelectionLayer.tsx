@@ -33,7 +33,10 @@ import {
   textBlockFromTokensByPage,
 } from "../../../../utils/textBlockEncoding";
 import { clampMenuPosition } from "../../../../utils/layout";
-import { Z_INDEX } from "../../../../assets/configurations/constants";
+import {
+  SELECTION_MENU_COOLDOWN_MS,
+  Z_INDEX,
+} from "../../../../assets/configurations/constants";
 
 interface SelectionLayerProps {
   pageInfo: PDFPageInfo;
@@ -92,7 +95,6 @@ const SelectionLayer = ({
   // Prevent new selection immediately after menu interaction
   const lastMenuInteractionTime = useRef<number>(0);
   const menuRef = useRef<HTMLDivElement>(null);
-  const MENU_INTERACTION_COOLDOWN = 300; // 300ms cooldown after menu interaction
 
   // Reentrant guard for finalizeSelection: when the mouse releases on the
   // SelectionLayer element itself, BOTH the React onMouseUp handler and the
@@ -279,29 +281,30 @@ const SelectionLayer = ({
     (clientX: number, clientY: number, shiftKey: boolean) => {
       if (!localPageSelection || finalizingRef.current) return;
       finalizingRef.current = true;
+
       const pageNum = pageNumber;
+      const newBounds = localPageSelection.bounds;
 
-      setMultiSelections((prev) => {
-        const updatedSelections = {
+      setMultiSelections((prev) => ({
+        ...prev,
+        [pageNum]: [...(prev[pageNum] || []), newBounds],
+      }));
+      setLocalPageSelection(undefined);
+      setIsCreatingAnnotation(false);
+
+      if (!shiftKey) {
+        // Show the action menu over the new selection. Re-derive
+        // pendingSelections from its own previous value so a parallel
+        // multiSelections update can't introduce a stale read.
+        setPendingSelections((prev) => ({
           ...prev,
-          [pageNum]: [...(prev[pageNum] || []), localPageSelection.bounds],
-        };
-        setLocalPageSelection(undefined);
-        setIsCreatingAnnotation(false); // Reset creating annotation state
+          [pageNum]: [...(prev[pageNum] || []), newBounds],
+        }));
+        setActionMenuPosition(clampMenuPosition(clientX, clientY));
+        setShowActionMenu(true);
+      }
 
-        if (!shiftKey) {
-          // Instead of immediately creating annotation, show action menu
-          setPendingSelections(updatedSelections);
-          const menuPos = clampMenuPosition(clientX, clientY);
-          setActionMenuPosition(menuPos);
-          setShowActionMenu(true);
-        }
-
-        // Release the reentrant guard for the next selection. State updates
-        // queued above will reset the closure value before the next mouseup.
-        finalizingRef.current = false;
-        return updatedSelections;
-      });
+      finalizingRef.current = false;
     },
     [localPageSelection, pageNumber, setIsCreatingAnnotation]
   );
@@ -332,7 +335,7 @@ const SelectionLayer = ({
 
       const timeSinceMenuInteraction =
         Date.now() - lastMenuInteractionTime.current;
-      if (timeSinceMenuInteraction < MENU_INTERACTION_COOLDOWN) {
+      if (timeSinceMenuInteraction < SELECTION_MENU_COOLDOWN_MS) {
         return;
       }
 
@@ -392,7 +395,7 @@ const SelectionLayer = ({
       // Check if we're in the cooldown period after a menu interaction
       const timeSinceMenuInteraction =
         Date.now() - lastMenuInteractionTime.current;
-      if (timeSinceMenuInteraction < MENU_INTERACTION_COOLDOWN) {
+      if (timeSinceMenuInteraction < SELECTION_MENU_COOLDOWN_MS) {
         return;
       }
 
