@@ -85,6 +85,7 @@ from opencontractserver.llms.tools.core_tools import (
     aupdate_corpus_description,
     aupdate_document_note,
     get_cached_txt_extract_length,
+    is_txt_extract_cached,
 )
 from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIDependencies,
@@ -213,11 +214,12 @@ def _make_load_document_text_tool(
     ) -> dict[str, Any]:
         start_idx = 0 if start is None else max(0, int(start))
 
-        cached_len = get_cached_txt_extract_length(doc_id)
-        if cached_len == 0 or refresh:
+        # Populate the cache only when needed. Use the membership predicate
+        # (``is_txt_extract_cached``) — NOT ``length == 0`` — so a genuinely
+        # empty document doesn't trigger a redundant re-load on every call.
+        if refresh or not is_txt_extract_cached(doc_id):
             await aload_document_txt_extract(doc_id, 0, 1, refresh=refresh)
-            cached_len = get_cached_txt_extract_length(doc_id)
-        total_chars = cached_len
+        total_chars = get_cached_txt_extract_length(doc_id)
 
         recommended = agent_deps.recommended_chunk_chars()
         window_chars = agent_deps.context_window_tokens * CHARS_PER_TOKEN_ESTIMATE

@@ -177,13 +177,21 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         name="get_remaining_context_budget",
         description=(
             "Inspect the agent's remaining context-window budget for this "
-            "turn (model name, context window, used tokens, tokens left "
-            "before compaction, recommended chunk character count). Use "
-            "this when planning multi-step document reads so each "
-            "``load_document_text`` call uses an appropriately-sized chunk."
+            "turn. Returns model name, total context window, estimated "
+            "tokens already used, tokens left before compaction trips, "
+            "the compaction threshold ratio, and the recommended "
+            "character chunk size for the next ``load_document_text`` "
+            "call. Use this when planning multi-step document reads so "
+            "each call uses an appropriately-sized chunk."
         ),
         category=ToolCategory.DOCUMENT,
     ),
+    # NOTE for developers: the document agent (``PydanticAIDocumentAgent``)
+    # replaces this registry entry at runtime with an adaptive variant that
+    # auto-sizes ``end`` to the agent's remaining context budget when
+    # omitted. The adaptive variant ships its own LLM-facing description.
+    # The description below is what non-document-agent callers (and the
+    # registry's own docs) see, so keep it user/LLM-focused only.
     ToolDefinition(
         name="load_document_text",
         description=(
@@ -191,10 +199,7 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             "character index. ``start`` defaults to 0; if ``end`` is "
             "omitted the slice runs to the end of the file. After "
             "reading, call ``search_exact_text`` on key passages to "
-            "create citations. (The document agent overrides this tool "
-            "with an adaptive variant that auto-sizes ``end`` to the "
-            "agent's remaining context budget when omitted — that "
-            "variant ships its own description.)"
+            "create citations."
         ),
         category=ToolCategory.DOCUMENT,
         parameters=(

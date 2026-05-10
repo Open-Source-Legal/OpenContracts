@@ -22,9 +22,25 @@ def get_cached_txt_extract_length(document_id: int) -> int:
     other modules use this in place of poking ``_DOC_TXT_CACHE`` directly
     so the cache's storage shape can evolve (e.g. move to Redis or wrap
     in an async-safe structure) without rippling across the codebase.
+
+    Note: a return value of ``0`` is ambiguous between "never cached"
+    and "cached but the document's text-extract is empty". Use
+    :func:`is_txt_extract_cached` when that distinction matters.
     """
     cached = _DOC_TXT_CACHE.get(document_id)
     return len(cached[1]) if cached else 0
+
+
+def is_txt_extract_cached(document_id: int) -> bool:
+    """Return ``True`` iff the document's text extract is in the cache.
+
+    Distinguishes a genuinely empty document (cached as ``""``) from
+    one that has never been loaded. Callers that key off ``length == 0``
+    to decide whether to populate the cache must use this predicate
+    instead, otherwise a 0-byte document triggers a redundant
+    re-population on every call.
+    """
+    return document_id in _DOC_TXT_CACHE
 
 
 def load_document_txt_extract(

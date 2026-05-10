@@ -349,7 +349,19 @@ class PydanticAIDependencies(BaseModel):
         Returns ``0`` when the snapshot is already at or beyond the
         compaction threshold; callers should fall back to a small
         minimum (or skip the load entirely) in that case.
+
+        ``reserve_ratio`` is clamped to ``[0.0, 1.0]``. Values outside
+        that range emit a ``logger.warning`` so a caller passing e.g.
+        ``1.5`` (which silently yields a 0-char budget after clamping)
+        gets a diagnostic instead of an unexplained empty slice.
         """
+        if not 0.0 <= reserve_ratio <= 1.0:
+            logger.warning(
+                "recommended_chunk_chars: reserve_ratio=%r is outside "
+                "[0.0, 1.0] and will be clamped. Pass a value in range "
+                "to silence this warning.",
+                reserve_ratio,
+            )
         remaining = self.remaining_tokens_until_compaction()
         usable_tokens = int(remaining * (1.0 - max(0.0, min(reserve_ratio, 1.0))))
         return max(0, int(usable_tokens * CHARS_PER_TOKEN_ESTIMATE))

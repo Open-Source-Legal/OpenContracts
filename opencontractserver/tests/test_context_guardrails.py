@@ -782,6 +782,56 @@ class TestContextBudgetSnapshot(SimpleTestCase):
             expected_chars,
         )
 
+    def test_recommended_chunk_chars_reserve_above_one_clamps_and_warns(self):
+        """``reserve_ratio > 1`` clamps to 1 (yielding 0 usable tokens) and
+        emits a warning so the caller can spot the mistake instead of being
+        confused by an unexplained empty slice."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+        with self.assertLogs(
+            "opencontractserver.llms.tools.pydantic_ai_tools",
+            level="WARNING",
+        ) as ctx:
+            result = deps.recommended_chunk_chars(reserve_ratio=1.5)
+        self.assertEqual(result, 0)
+        self.assertTrue(
+            any("reserve_ratio=1.5" in msg for msg in ctx.output),
+            f"Expected reserve_ratio=1.5 warning, got: {ctx.output}",
+        )
+
+    def test_recommended_chunk_chars_reserve_below_zero_clamps_and_warns(self):
+        """``reserve_ratio < 0`` clamps to 0 (full budget) and warns."""
+        from opencontractserver.constants.context_guardrails import (
+            CHARS_PER_TOKEN_ESTIMATE,
+        )
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+        with self.assertLogs(
+            "opencontractserver.llms.tools.pydantic_ai_tools",
+            level="WARNING",
+        ) as ctx:
+            result = deps.recommended_chunk_chars(reserve_ratio=-0.1)
+        # Clamped to 0 → 100% of remaining 130_000 tokens usable.
+        self.assertEqual(result, int(130_000 * CHARS_PER_TOKEN_ESTIMATE))
+        self.assertTrue(
+            any("reserve_ratio=-0.1" in msg for msg in ctx.output),
+            f"Expected reserve_ratio=-0.1 warning, got: {ctx.output}",
+        )
+
     def test_turn_implicit_doc_text_chars_defaults_to_zero(self):
         """The per-turn implicit-chunk tally starts at 0 so the first
         load_document_text call sees the unmodified recommended budget."""
@@ -1027,6 +1077,130 @@ class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
         # The second implicit call's effective budget must shrink relative
         # to the fresh recommendation (the drift compensation kicked in).
         self.assertLessEqual(second["context_budget_chars"], second_budget_seen)
+
+    async def test_empty_document_does_not_repopulate_cache(self):
+        """Genuinely empty documents (cached as ``""``) must not retrigger
+        the cache-priming load on every call. Previously the closure used
+        ``cached_len == 0`` to detect "never loaded", which collided with
+        "loaded and empty" and caused a redundant prime fetch each call.
+        The fix uses ``is_txt_extract_cached`` (membership), so the second
+        call sees the cache as populated.
+
+        The prime is detected by its distinctive signature
+        ``start=0, end=1`` (vs the per-call slice load which uses
+        ``start=0, end=0`` once ``total_chars`` is known to be zero).
+        """
+        from unittest.mock import AsyncMock
+
+        from opencontractserver.llms.agents import pydantic_ai_agents as mod
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _make_load_document_text_tool,
+        )
+        from opencontractserver.llms.tools.core_tools import text_extracts
+
+        # Reset module-level cache before the test (other tests may have
+        # populated it for DOC_ID and we want a clean slate).
+        text_extracts._DOC_TXT_CACHE.pop(self.DOC_ID, None)
+
+        deps = self._make_deps()
+        load_calls = []
+
+        async def fake_load(doc_id, start=None, end=None, refresh=False):
+            load_calls.append((doc_id, start, end, refresh))
+            # Populate cache with empty content via the real cache dict
+            # so ``is_txt_extract_cached`` flips to True after the prime.
+            from datetime import datetime as _dt
+
+            text_extracts._DOC_TXT_CACHE[doc_id] = (_dt.now(), "")
+            return ""
+
+        # NOTE: we intentionally do NOT patch ``is_txt_extract_cached`` or
+        # ``get_cached_txt_extract_length`` — we want the real helpers to
+        # exercise the membership-vs-length distinction.
+        with patch.object(
+            mod, "aload_document_txt_extract", new=AsyncMock(side_effect=fake_load)
+        ):
+            tool = _make_load_document_text_tool(deps, self.DOC_ID)
+            result1 = await tool()
+            result2 = await tool()
+
+        # The prime call (start=0, end=1) must happen exactly once across
+        # both invocations. Pre-fix this would have been 2.
+        prime_calls = [
+            c for c in load_calls if c[1] == 0 and c[2] == 1 and c[3] is False
+        ]
+        self.assertEqual(
+            len(prime_calls),
+            1,
+            f"Expected exactly one cache-prime load (start=0, end=1); "
+            f"got {len(prime_calls)} in {load_calls}",
+        )
+        self.assertEqual(result1["total_chars"], 0)
+        self.assertEqual(result2["total_chars"], 0)
+        self.assertEqual(result1["text"], "")
+        self.assertEqual(result2["text"], "")
+
+        # Cleanup so subsequent tests don't see the empty cache entry.
+        text_extracts._DOC_TXT_CACHE.pop(self.DOC_ID, None)
+
+
+# ---------------------------------------------------------------------------
+# is_txt_extract_cached membership predicate
+# ---------------------------------------------------------------------------
+
+
+class TestIsTxtExtractCached(SimpleTestCase):
+    """The membership predicate must distinguish "never loaded" (False)
+    from "loaded but empty" (True) — the bug the load_document_text
+    closure used to suffer from."""
+
+    DOC_ID = 12_345
+
+    def setUp(self):
+        from opencontractserver.llms.tools.core_tools import text_extracts
+
+        text_extracts._DOC_TXT_CACHE.pop(self.DOC_ID, None)
+
+    def tearDown(self):
+        from opencontractserver.llms.tools.core_tools import text_extracts
+
+        text_extracts._DOC_TXT_CACHE.pop(self.DOC_ID, None)
+
+    def test_false_when_never_loaded(self):
+        from opencontractserver.llms.tools.core_tools.text_extracts import (
+            is_txt_extract_cached,
+        )
+
+        self.assertFalse(is_txt_extract_cached(self.DOC_ID))
+
+    def test_true_when_loaded_even_if_empty(self):
+        from datetime import datetime
+
+        from opencontractserver.llms.tools.core_tools import text_extracts
+        from opencontractserver.llms.tools.core_tools.text_extracts import (
+            is_txt_extract_cached,
+        )
+
+        text_extracts._DOC_TXT_CACHE[self.DOC_ID] = (datetime.now(), "")
+        self.assertTrue(is_txt_extract_cached(self.DOC_ID))
+        # And the length predicate still returns 0 — confirming the
+        # ambiguity the new predicate resolves.
+        from opencontractserver.llms.tools.core_tools.text_extracts import (
+            get_cached_txt_extract_length,
+        )
+
+        self.assertEqual(get_cached_txt_extract_length(self.DOC_ID), 0)
+
+    def test_true_when_loaded_with_content(self):
+        from datetime import datetime
+
+        from opencontractserver.llms.tools.core_tools import text_extracts
+        from opencontractserver.llms.tools.core_tools.text_extracts import (
+            is_txt_extract_cached,
+        )
+
+        text_extracts._DOC_TXT_CACHE[self.DOC_ID] = (datetime.now(), "abc")
+        self.assertTrue(is_txt_extract_cached(self.DOC_ID))
 
 
 # ---------------------------------------------------------------------------
