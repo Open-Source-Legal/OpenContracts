@@ -297,11 +297,15 @@ export const Annotations = () => {
       vars.annotationLabelId = filter_to_label_id;
     }
     return vars;
+    // Depend on the primitive `id` rather than the whole `filtered_to_corpus`
+    // object so a reactive-var emit that swaps the reference but keeps the
+    // same id (e.g. corpus list re-fetched from the network) doesn't churn
+    // the memo and trigger a no-op Apollo refetch.
   }, [
     exclude_structural_annotations,
     annotation_search_term,
     filter_to_labelset_id,
-    filtered_to_corpus,
+    filtered_to_corpus?.id,
     filter_to_label_id,
   ]);
 
