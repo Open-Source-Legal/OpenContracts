@@ -1546,12 +1546,12 @@ The routing system coordinates multiple components that work together. Understan
 - **Never Sets**: Any reactive vars
 - **Renders**: `<DocumentKnowledgeBase />` when document is loaded
 
-**ExtractLandingRoute** (`src/components/routes/ExtractLandingRoute.tsx`)
-- **Role**: Dumb consumer for extract entity routes (`/e/:user/:extractId`)
+**ExtractDetailRoute** (`src/components/routes/ExtractDetailRoute.tsx`)
+- **Role**: Dumb consumer for extract entity routes (`/e/:user/:extractId` and `/extracts/:extractId`)
 - **Reads**: `openedExtract`, `routeLoading`, `routeError`
 - **Never Sets**: Any reactive vars
-- **Renders**: `<Extracts />` view when extract is loaded
-- **Note**: Extracts use IDs (not slugs) since they don't have slug fields yet
+- **Renders**: `<ExtractDetail />` view when extract is loaded
+- **Note**: Extracts use IDs (not slugs) since they don't have slug fields yet. CentralRouteManager Phase 3 redirects `/extracts/:id` → canonical `/e/:creator-slug/:id` once the extract is resolved.
 
 ### View Components
 
@@ -2227,7 +2227,7 @@ Violations cause race conditions, infinite loops, and unpredictable behavior.
 
 It's the single source of truth. If routing behavior seems wrong, the fix goes there. If a component needs routing data, it reads reactive vars. If you're writing `openedCorpus(...)`, `openedDocument(...)`, `openedExtract(...)`, `selectedAnnotationIds(...)`, or `showStructuralAnnotations(...)` outside CentralRouteManager, you're doing it wrong - use the navigation utilities instead.
 
-**Recent Extract Implementation:** The extract entity routes (`/e/:userIdent/:extractIdent`) follow this pattern perfectly - see the implementation in `CentralRouteManager.tsx` (Phase 1), `ExtractLandingRoute.tsx` (dumb consumer), `Extracts.tsx` (uses `navigateToExtract` utility), and `navigationUtils.ts` (`getExtractUrl`, `navigateToExtract`).
+**Extract Routing:** Both the canonical extract route (`/e/:userIdent/:extractIdent`) and the legacy ID-only route (`/extracts/:extractId`) render `ExtractDetailRoute` (the dumb consumer). `CentralRouteManager` Phase 1 resolves the extract by ID for either path, and Phase 3 then redirects `/extracts/:id` → `/e/:creator-slug/:id` whenever the resolved extract has a creator slug. The previous `ExtractLandingRoute` redirect component was removed because it caused an infinite loop — Phase 3 was redirecting in one direction while the landing route was redirecting in the other.
 
 ---
 
