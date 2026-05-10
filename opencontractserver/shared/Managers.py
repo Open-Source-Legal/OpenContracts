@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, cast
 
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.db import IntegrityError
-from django.db.models import FileField, Manager, Prefetch, Q, QuerySet
+from django.db.models import Manager, Prefetch, Q, QuerySet
 
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 from opencontractserver.shared.QuerySets import (
     AnnotationQuerySet,
     DocumentQuerySet,
@@ -22,26 +29,59 @@ from opencontractserver.types.protocols import (  # noqa: F401
 )
 
 if TYPE_CHECKING:
-    from django.contrib.auth import get_user_model
-
-    User = get_user_model()
-else:
-    from django.contrib.auth.models import AbstractUser as User
+    from opencontractserver.documents.models import Document
 
 logger = logging.getLogger(__name__)
 
 
 def _apply_document_prefetches(
-    queryset: QuerySet, user: Optional[User], lightweight: bool = False
+    queryset: QuerySet,
+    user: Any,
+    lightweight: bool = False,
+    with_doc_label_annotations: bool = False,
 ) -> QuerySet:
-    """
-    Apply Document-specific select_related and prefetch_related optimizations.
+    """Apply Document-specific select_related/prefetch_related optimizations.
 
-    Shared by BaseVisibilityManager (for generic model dispatch) and
-    DocumentManager (for custom permission filtering) to avoid duplication.
+    Shared by ``BaseVisibilityManager`` and ``DocumentManager``. ``lightweight``
+    skips heavy fan-outs (full doc_annotations, rows, relationships, notes) but
+    keeps cheap JOINs and user-scoped guardian permission prefetches — fields
+    like ``myPermissions`` are commonly requested even on list views.
+    Permission prefetches land on each instance under user-id-suffixed attrs
+    (see ``shared/prefetch_attrs.py``); consumed by ``user_has_permission_for_obj``
+    and ``resolve_my_permissions``. ``with_doc_label_annotations`` opts in to a
+    focused prefetch of ``DOC_TYPE_LABEL`` annotations for list-view badges
+    (only honoured in lightweight mode).
     """
+    queryset = queryset.select_related("creator", "user_lock", "parent")
+
+    if user and not user.is_anonymous and not user.is_superuser:
+        from opencontractserver.documents.models import (
+            DocumentGroupObjectPermission,
+            DocumentUserObjectPermission,
+        )
+
+        # Pass the queryset (not ``list(...)``) so Django emits a SQL subquery
+        # — async-safe; ``list(...)`` would raise SynchronousOnlyOperation.
+        user_group_ids = user.groups.values_list("id", flat=True)
+
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "documentuserobjectpermission_set",
+                queryset=DocumentUserObjectPermission.objects.filter(
+                    user_id=user.id
+                ).select_related("permission"),
+                to_attr=user_perm_attr(user.id),
+            ),
+            Prefetch(
+                "documentgroupobjectpermission_set",
+                queryset=DocumentGroupObjectPermission.objects.filter(
+                    group_id__in=user_group_ids
+                ).select_related("permission"),
+                to_attr=user_group_perm_attr(user.id),
+            ),
+        )
+
     if not lightweight:
-        queryset = queryset.select_related("creator", "user_lock")
         from opencontractserver.annotations.models import Annotation
 
         queryset = queryset.prefetch_related(
@@ -57,23 +97,18 @@ def _apply_document_prefetches(
             "target_relationships",
             "notes",
         )
+    elif with_doc_label_annotations:
+        from opencontractserver.annotations.models import DOC_TYPE_LABEL, Annotation
 
-        if user and not user.is_anonymous and not user.is_superuser:
-            from opencontractserver.documents.models import (
-                DocumentUserObjectPermission,
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "doc_annotations",
+                queryset=Annotation.objects.filter(
+                    annotation_label__label_type=DOC_TYPE_LABEL
+                ).select_related("annotation_label", "corpus"),
+                to_attr="_prefetched_doc_annotations",
             )
-
-            queryset = queryset.prefetch_related(
-                Prefetch(
-                    "documentuserobjectpermission_set",
-                    queryset=DocumentUserObjectPermission.objects.filter(
-                        user_id=user.id
-                    ).select_related("permission"),
-                    to_attr="_prefetched_user_perms",
-                ),
-                "documentgroupobjectpermission_set__permission",
-                "documentgroupobjectpermission_set__group",
-            )
+        )
 
     return queryset
 
@@ -91,11 +126,16 @@ class BaseVisibilityManager(Manager):
     more specific permission requirements.
     """
 
-    def visible_to_user(self, user=None, lightweight=False) -> QuerySet:
+    def visible_to_user(
+        self,
+        user: Any = None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ) -> QuerySet:
         """
         Returns queryset filtered to only objects visible to the user.
 
-        This implements the exact same logic as the fallback in old resolve_oc_model_queryset:
+        Visibility rules:
         - Superusers see everything
         - Anonymous users see only public objects
         - Authenticated users see: public objects, objects they created, or objects with explicit permissions
@@ -124,10 +164,27 @@ class BaseVisibilityManager(Manager):
         if user.is_anonymous:
             return queryset.filter(is_public=True)
 
+        # ``self.model`` is typed as ``type[_T]`` (a TypeVar bound on
+        # ``Manager``), so mypy doesn't know it has ``.objects`` /
+        # ``.DoesNotExist``.  Concrete subclasses always do at runtime,
+        # so the cast just informs mypy of what we already know.
+        # Switching to ``self.model._default_manager`` would change call
+        # semantics for models that override ``objects``.
+        model_cls: Any = cast(Any, self.model)
+
+        # ``Options.model_name`` is Optional only for abstract models.
+        # Raise *outside* the broad except below so the abstract-model bug
+        # surfaces instead of silently degrading into a creator/public
+        # fallback. Use an explicit raise (not ``assert``) so the guard
+        # survives ``python -O`` and never lets None propagate.
+        model_name = self.model._meta.model_name
+        if model_name is None:
+            raise RuntimeError(
+                f"Concrete manager invoked on abstract model {self.model}"
+            )
+        app_label = self.model._meta.app_label
+
         try:
-            # Get objects the user has read permission for via Guardian
-            model_name = self.model._meta.model_name
-            app_label = self.model._meta.app_label
 
             # Fallback to legacy logic with security warning
             logger.debug(
@@ -140,46 +197,36 @@ class BaseVisibilityManager(Manager):
             )
 
             # === TOP_LEVEL PERMISSION LOGIC ===
-            # This logic is for objs that don't follow some parent permissions logic
+            # By this point ``user`` is guaranteed to be authenticated and
+            # non-superuser — None / superuser / anonymous all returned early
+            # at the top of the method, so the only path that lands here is
+            # the authenticated-non-superuser case.
+            # Initialize an empty queryset so the outer ``except`` handler
+            # below has a defined fallback if the inner permission lookup
+            # raises something other than ``LookupError``.
+            queryset = model_cls.objects.none()
 
-            # Get the base queryset first (only stuff given user CAN see)
-            queryset = self.model.objects.none()  # Start with an empty queryset
+            permission_model_name = f"{model_name}userobjectpermission"
+            try:
+                permission_model_type = apps.get_model(app_label, permission_model_name)
+                # Optimize: Get IDs with permissions first, then use IN clause
+                permitted_ids = permission_model_type.objects.filter(
+                    permission__codename=f"read_{model_name}", user_id=user.id
+                ).values_list("content_object_id", flat=True)
 
-            # Handle the case where user resolution failed explicitly
-            if user is None:
-                queryset = self.model.objects.filter(is_public=True)
-            elif user.is_superuser:
-                # Superusers see everything, no filtering needed
-                queryset = self.model.objects.all().order_by("created")
-            elif user.is_anonymous:
-                # Anonymous users only see public items
-                queryset = self.model.objects.filter(is_public=True)
-            else:  # Authenticated, non-superuser
-                permission_model_name = f"{model_name}userobjectpermission"
-                try:
-                    permission_model_type = apps.get_model(
-                        app_label, permission_model_name
-                    )
-                    # Optimize: Get IDs with permissions first, then use IN clause
-                    permitted_ids = permission_model_type.objects.filter(
-                        permission__codename=f"read_{model_name}", user_id=user.id
-                    ).values_list("content_object_id", flat=True)
-
-                    # Build the optimized query using simpler conditions
-                    queryset = self.model.objects.filter(
-                        Q(creator_id=user.id)
-                        | Q(is_public=True)
-                        | Q(id__in=permitted_ids)
-                    )
-                except LookupError:
-                    logger.warning(
-                        f"Permission model {app_label}.{permission_model_name}"
-                        " not found. Falling back to creator/public check."
-                    )
-                    # Fallback if permission model doesn't exist (might happen for simpler models)
-                    queryset = self.model.objects.filter(
-                        Q(creator_id=user.id) | Q(is_public=True)
-                    )
+                # Build the optimized query using simpler conditions
+                queryset = model_cls.objects.filter(
+                    Q(creator_id=user.id) | Q(is_public=True) | Q(id__in=permitted_ids)
+                )
+            except LookupError:
+                logger.warning(
+                    f"Permission model {app_label}.{permission_model_name}"
+                    " not found. Falling back to creator/public check."
+                )
+                # Fallback if permission model doesn't exist (might happen for simpler models)
+                queryset = model_cls.objects.filter(
+                    Q(creator_id=user.id) | Q(is_public=True)
+                )
 
             # --- Apply Performance Optimizations Based on Model Type ---
             if model_name.upper() == "CORPUS":
@@ -193,7 +240,12 @@ class BaseVisibilityManager(Manager):
                 # Document counts are now computed via DocumentPath subqueries
             elif model_name.upper() == "DOCUMENT":
                 logger.debug("Applying Document specific optimizations")
-                queryset = _apply_document_prefetches(queryset, user, lightweight)
+                queryset = _apply_document_prefetches(
+                    queryset,
+                    user,
+                    lightweight,
+                    with_doc_label_annotations=with_doc_label_annotations,
+                )
             # Add elif blocks here for other models needing specific optimizations
 
             # Apply distinct *after* optimizations only when necessary.
@@ -222,56 +274,80 @@ class PermissionManager(BaseVisibilityManager):
     Inherits from BaseVisibilityManager but overrides to use PermissionQuerySet's version.
     """
 
-    def get_queryset(self) -> "PermissionQuerySet":
+    def get_queryset(self) -> PermissionQuerySet:
         return PermissionQuerySet(self.model, using=self._db)
 
-    def for_user(
-        self, user: User, perm: str, extra_conditions: Optional[Q] = None
-    ) -> "PermissionQuerySet":
-        return self.get_queryset().for_user(user, perm, extra_conditions)
-
-    def visible_to_user(self, user: Any) -> PermissionQuerySet:
+    def visible_to_user(
+        self,
+        user: Any = None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ) -> PermissionQuerySet:
         """
         Returns queryset filtered by user permission via PermissionQuerySet.
         This overrides BaseVisibilityManager's implementation to use
         PermissionQuerySet's simpler visible_to_user logic.
+
+        ``lightweight`` and ``with_doc_label_annotations`` are accepted for
+        signature parity with ``BaseVisibilityManager`` but have no effect
+        here — ``PermissionQuerySet`` only filters on creator / public.
+
+        Note: this override returns before reaching ``super().visible_to_user``,
+        so the base class superuser shortcut is NOT used. Superuser visibility
+        is granted by ``PermissionQuerySet.visible_to_user`` itself.
         """
+        if user is None:
+            user = AnonymousUser()
         return self.get_queryset().visible_to_user(user)
 
 
 class UserFeedbackManager(BaseVisibilityManager):
-    def get_queryset(self) -> "UserFeedbackQuerySet":
+    def get_queryset(self) -> UserFeedbackQuerySet:
         return UserFeedbackQuerySet(self.model, using=self._db)
 
-    def visible_to_user(self, user: User) -> QuerySet:
-        """Delegate to the queryset's visible_to_user method"""
+    def visible_to_user(
+        self,
+        user: Any = None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ) -> QuerySet:
+        """
+        Delegate to the queryset's visible_to_user method.
+
+        ``lightweight`` and ``with_doc_label_annotations`` are accepted for
+        signature parity with ``BaseVisibilityManager`` but have no effect
+        on UserFeedback (no heavy prefetches involved).
+        """
+        if user is None:
+            user = AnonymousUser()
         return self.get_queryset().visible_to_user(user)
 
-    def get_or_none(self, *args: Any, **kwargs: Any) -> Optional[Any]:
+    def get_or_none(self, *args: Any, **kwargs: Any) -> Any | None:
+        model_cls: Any = cast(Any, self.model)
         try:
             return self.get(*args, **kwargs)
-        except self.model.DoesNotExist:
+        except model_cls.DoesNotExist:
             return None
 
-    def approved(self) -> "UserFeedbackQuerySet":
+    def approved(self) -> UserFeedbackQuerySet:
         return self.get_queryset().approved()
 
-    def rejected(self) -> "UserFeedbackQuerySet":
+    def rejected(self) -> UserFeedbackQuerySet:
         return self.get_queryset().rejected()
 
-    def pending(self) -> "UserFeedbackQuerySet":
+    def pending(self) -> UserFeedbackQuerySet:
         return self.get_queryset().pending()
 
-    def recent(self, days: int = 30) -> "UserFeedbackQuerySet":
+    def recent(self, days: int = 30) -> UserFeedbackQuerySet:
         return self.get_queryset().recent(days)
 
-    def with_comments(self) -> "UserFeedbackQuerySet":
+    def with_comments(self) -> UserFeedbackQuerySet:
         return self.get_queryset().with_comments()
 
-    def by_creator(self, creator: User) -> "UserFeedbackQuerySet":
+    def by_creator(self, creator: AbstractBaseUser) -> UserFeedbackQuerySet:
         return self.get_queryset().by_creator(creator)
 
-    def search(self, query: str) -> "UserFeedbackQuerySet":
+    def search(self, query: str) -> UserFeedbackQuerySet:
         return self.get_queryset().filter(
             Q(comment__icontains=query) | Q(markdown__icontains=query)
         )
@@ -283,15 +359,21 @@ class DocumentManager(BaseVisibilityManager):
     that supports vector searching via the mixin.
     """
 
-    def get_queryset(self) -> "DocumentQuerySet":
+    def get_queryset(self) -> DocumentQuerySet:
         return DocumentQuerySet(self.model, using=self._db)
 
     def visible_to_user(
-        self, user: Optional[Any] = None, lightweight: bool = False
+        self,
+        user: Any | None = None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
     ) -> QuerySet:
         """
         Delegate permission filtering to DocumentQuerySet (which includes
         public-corpus logic) then apply the shared prefetch optimisations.
+
+        See ``_apply_document_prefetches`` for the meaning of
+        ``with_doc_label_annotations``.
         """
         from django.contrib.auth.models import AnonymousUser
 
@@ -299,7 +381,12 @@ class DocumentManager(BaseVisibilityManager):
             user = AnonymousUser()
 
         queryset = self.get_queryset().visible_to_user(user)
-        return _apply_document_prefetches(queryset, user, lightweight)
+        return _apply_document_prefetches(
+            queryset,
+            user,
+            lightweight,
+            with_doc_label_annotations=with_doc_label_annotations,
+        )
 
     def search_by_embedding(
         self, query_vector: list[float], embedder_path: str, top_k: int = 10
@@ -313,7 +400,7 @@ class DocumentManager(BaseVisibilityManager):
             query_vector, embedder_path, top_k
         )
 
-    def unique_blob_paths(self, doc: Any) -> set[str]:
+    def unique_blob_paths(self, doc: Document) -> set[str]:
         """Return the subset of file-field blob paths on ``doc`` that
         are NOT referenced by any other Document row.
 
@@ -335,14 +422,8 @@ class DocumentManager(BaseVisibilityManager):
             *only* by ``doc``. Safe to delete from storage. Empty/
             unset fields are omitted.
         """
-        blob_fields: list[str] = [
-            field.name
-            for field in doc._meta.get_fields()
-            if isinstance(field, FileField)
-        ]
-
         unique: set[str] = set()
-        for field_name in blob_fields:
+        for field_name in type(doc).blob_field_names():
             file_field = getattr(doc, field_name)
             if not file_field:
                 continue
@@ -354,8 +435,72 @@ class DocumentManager(BaseVisibilityManager):
                 unique.add(blob_name)
         return unique
 
+    def unique_blob_paths_for_many(
+        self, queryset_or_pks: QuerySet | Iterable[Any]
+    ) -> set[str]:
+        """Batched complement to ``unique_blob_paths`` for bulk deletion.
 
-class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):
+        Returns the set of blob paths referenced by any Document in the
+        input set that are NOT referenced by any Document outside the
+        input set. These are the blobs that would be orphaned in storage
+        if every Document in the input were deleted.
+
+        Where ``unique_blob_paths`` runs N queries per Document (one per
+        FileField), this runs at most ``2 * len(FileFields)`` queries
+        regardless of the input size — suitable for queryset-style
+        deletes where the per-row form would be N+1.
+
+        Args:
+            queryset_or_pks: A Document queryset, or an iterable of
+                Document primary keys.
+
+        Returns:
+            Set of blob names safe to schedule for deletion if every
+            input Document is deleted. Empty/unset fields are omitted.
+        """
+        if isinstance(queryset_or_pks, QuerySet):
+            target_pks: list[Any] = list(queryset_or_pks.values_list("pk", flat=True))
+        else:
+            target_pks = [pk for pk in queryset_or_pks if pk is not None]
+
+        if not target_pks:
+            return set()
+
+        from opencontractserver.documents.models import Document
+
+        unique: set[str] = set()
+        for field_name in cast(type[Document], self.model).blob_field_names():
+            # Single round-trip per field: collect every distinct,
+            # non-empty path used by the targets.
+            target_paths: set[str] = {
+                path
+                for path in self.filter(pk__in=target_pks)
+                .exclude(**{field_name: ""})
+                .exclude(**{f"{field_name}__isnull": True})
+                .values_list(field_name, flat=True)
+                .distinct()
+                if path
+            }
+            if not target_paths:
+                continue
+
+            # Single round-trip per field: of those, which are still
+            # referenced OUTSIDE the target set?
+            shared_paths: set[str] = set(
+                self.exclude(pk__in=target_pks)
+                .filter(**{f"{field_name}__in": list(target_paths)})
+                .values_list(field_name, flat=True)
+            )
+
+            unique.update(target_paths - shared_paths)
+        return unique
+
+
+# ``Manager.from_queryset(...)`` returns a class object computed at runtime;
+# mypy can't trace its members, so the dynamic-base-class warning is silenced
+# at the point of declaration.  The resulting manager still gets the
+# ``PermissionManager`` API plus everything declared on the queryset.
+class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  # type: ignore[misc]
     """
     Custom Manager for the Annotation model that uses:
       - PermissionManager (from_queryset)
@@ -364,14 +509,6 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):
 
     def get_queryset(self) -> AnnotationQuerySet:
         return AnnotationQuerySet(self.model, using=self._db)
-
-    def for_user(
-        self, user: User, perm: str, extra_conditions: Optional[Q] = None
-    ) -> AnnotationQuerySet:
-        """
-        Filters the queryset based on user permissions.
-        """
-        return self.get_queryset().for_user(user, perm, extra_conditions)
 
     def search_by_embedding(
         self, query_vector: list[float], embedder_path: str, top_k: int = 10
@@ -386,7 +523,9 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):
         )
 
 
-class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):
+# Same ``from_queryset`` dynamic-base-class rationale as ``AnnotationManager``
+# above — the runtime-synthesised base class isn't visible to mypy.
+class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignore[misc]
     """
     Custom Manager for the Note model that uses:
       - PermissionManager (from_queryset)
@@ -395,14 +534,6 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):
 
     def get_queryset(self) -> NoteQuerySet:
         return NoteQuerySet(self.model, using=self._db)
-
-    def for_user(
-        self, user: User, perm: str, extra_conditions: Optional[Q] = None
-    ) -> NoteQuerySet:
-        """
-        Filters the queryset based on user permissions.
-        """
-        return self.get_queryset().for_user(user, perm, extra_conditions)
 
     def search_by_embedding(
         self, query_vector: list[float], embedder_path: str, top_k: int = 10
@@ -444,15 +575,15 @@ class EmbeddingManager(BaseVisibilityManager):
     def store_embedding(
         self,
         *,
-        creator: User,
+        creator: AbstractBaseUser,
         dimension: int,
         vector: list[float],
         embedder_path: str,
-        document_id: Optional[int] = None,
-        annotation_id: Optional[int] = None,
-        note_id: Optional[int] = None,
-        conversation_id: Optional[int] = None,
-        message_id: Optional[int] = None,
+        document_id: int | None = None,
+        annotation_id: int | None = None,
+        note_id: int | None = None,
+        conversation_id: int | None = None,
+        message_id: int | None = None,
     ) -> Any:
         """
         Create or update an Embedding, referencing exactly one of:

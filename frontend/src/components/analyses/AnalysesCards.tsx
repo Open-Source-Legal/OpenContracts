@@ -7,8 +7,9 @@ import { AnalysisItem } from "./AnalysisItem";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import { PlaceholderCard } from "../placeholders/PlaceholderCard";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { AnalysisType, CorpusType, PageInfo } from "../../types/graphql-api";
-import { useReactiveVar } from "@apollo/client";
+import { NetworkStatus, useReactiveVar } from "@apollo/client";
 import { selectedAnalyses, selectedAnalysesIds } from "../../graphql/cache";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { determineCardColCount } from "../../utils/layout";
@@ -32,6 +33,8 @@ interface AnalysesCardsProps {
   opened_corpus: CorpusType | null;
   pageInfo: PageInfo | undefined | null;
   loading: boolean;
+  /** NetworkStatus from useQuery. When omitted, footer falls back to `loading && hasNextPage`. */
+  networkStatus?: NetworkStatus;
   loading_message: string;
   fetchMore: (args?: any) => void | any;
 }
@@ -44,6 +47,7 @@ export const AnalysesCards = ({
   pageInfo,
   loading_message,
   loading,
+  networkStatus,
   fetchMore,
 }: AnalysesCardsProps) => {
   const navigate = useNavigate();
@@ -152,11 +156,25 @@ export const AnalysesCards = ({
         ...style,
       }}
     >
-      <LoadingOverlay active={loading} content={loading_message} />
+      {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible. */}
+      <LoadingOverlay
+        active={loading && analyses.length === 0}
+        content={loading_message}
+      />
       <CardGrid $columns={card_cols} style={comp_style}>
         {analysis_items}
       </CardGrid>
       <FetchMoreOnVisible fetchNextPage={handleUpdate} />
+      <FetchMoreFooter
+        visible={
+          networkStatus === NetworkStatus.fetchMore ||
+          (networkStatus === undefined &&
+            loading &&
+            Boolean(pageInfo?.hasNextPage))
+        }
+        message="Loading more analyses…"
+        data-testid="analyses-fetch-more-spinner"
+      />
     </div>
   );
 };

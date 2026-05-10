@@ -18,6 +18,7 @@ import io
 import json
 import logging
 import zipfile
+from typing import cast
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
@@ -30,6 +31,7 @@ from opencontractserver.types.dicts import (
     ChatMessageExport,
     ConversationExport,
     MessageVoteExport,
+    OpenContractCorpusV2Type,
     OpenContractDocExport,
     OpenContractsExportDataJsonV2Type,
     StructuralAnnotationSetExport,
@@ -162,8 +164,16 @@ def package_corpus_export_v2(
                 structural_annotation_sets[struct_set.content_hash] = struct_export
 
         # ===== PART 3: Export Corpus Metadata (V2 enhanced) =====
-        corpus_export = package_corpus_for_export(corpus, v2_format=True)
+        # ``v2_format=True`` guarantees a V2 dict at runtime; check first,
+        # then cast so mypy can narrow the type.
+        _corpus_export = package_corpus_for_export(corpus, v2_format=True)
         label_set_export = package_label_set_for_export(corpus.label_set)
+        if _corpus_export is None or label_set_export is None:
+            raise RuntimeError(
+                f"Failed to package corpus or label set for V2 export of corpus "
+                f"{corpus_pk}"
+            )
+        corpus_export = cast(OpenContractCorpusV2Type, _corpus_export)
 
         # ===== PART 4: Export Folders =====
         folders_export = package_corpus_folders(corpus)
@@ -256,7 +266,7 @@ def package_corpus_export_v2(
         # Mark export as failed
         try:
             export = UserExport.objects.get(pk=export_id)
-            export.error = True
+            export.errors = str(e)
             export.backend_lock = False
             export.save()
         except Exception:

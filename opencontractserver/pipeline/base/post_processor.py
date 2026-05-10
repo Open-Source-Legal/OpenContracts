@@ -2,8 +2,9 @@
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from typing import ClassVar
 
+from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.types.dicts import OpenContractsExportDataJsonPythonType
 from opencontractserver.utils.logging import redact_sensitive_kwargs
 
@@ -19,13 +20,7 @@ class BasePostProcessor(PipelineComponentBase, ABC):
     Handles automatic loading of settings from Django settings.PIPELINE_SETTINGS.
     """
 
-    title: str = ""
-    description: str = ""
-    author: str = ""
-    dependencies: list[str] = []
-    input_schema: Mapping = (
-        {}
-    )  # If you want user to provide inputs, define a jsonschema here
+    supported_file_types: ClassVar[list[FileTypeEnum]] = []
 
     def __init__(self, **kwargs):
         """

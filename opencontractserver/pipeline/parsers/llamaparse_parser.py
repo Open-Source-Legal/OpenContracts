@@ -13,9 +13,11 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional, Union, cast
 
+import numpy as np
 from django.core.files.storage import default_storage
+from shapely.strtree import STRtree
 
 from opencontractserver.annotations.models import TOKEN_LABEL
 from opencontractserver.documents.models import Document
@@ -450,10 +452,10 @@ class LlamaParseParser(BaseParser):
 
         # Extract tokens from PDF if bytes are provided
         pawls_pages: list[PawlsPagePythonType] = []
-        spatial_indices = {}
-        tokens_by_page = {}
-        token_indices_by_page = {}
-        extracted_page_dims = {}
+        spatial_indices: dict[int, STRtree] = {}
+        tokens_by_page: dict[int, list[PawlsTokenPythonType]] = {}
+        token_indices_by_page: dict[int, np.ndarray] = {}
+        extracted_page_dims: dict[int, tuple[float, float]] = {}
 
         if pdf_bytes:
             try:
@@ -499,7 +501,7 @@ class LlamaParseParser(BaseParser):
 
         # Extract images from PDF if enabled
         # images_by_page maps page_idx -> list of raw image token dicts from extraction
-        images_by_page: dict[int, list[dict]] = {}
+        images_by_page: dict[int, list[PawlsTokenPythonType]] = {}
         # image_token_offsets tracks where image tokens start in each page's tokens array
         image_token_offsets: dict[int, int] = {}
         # Construct storage path for images based on document ID
@@ -511,7 +513,7 @@ class LlamaParseParser(BaseParser):
                     pdf_bytes,
                     min_width=self.min_image_width,
                     min_height=self.min_image_height,
-                    image_format=self.image_format,
+                    image_format=cast(Literal["jpeg", "png"], self.image_format),
                     jpeg_quality=self.image_quality,
                     storage_path=image_storage_path,
                 )
@@ -527,7 +529,10 @@ class LlamaParseParser(BaseParser):
                         token_offset = len(pawls_pages[page_idx].get("tokens", []))
                         image_token_offsets[page_idx] = token_offset
 
-                        # Convert image dicts to unified token format and add to tokens
+                        # Convert image dicts to unified token format and add
+                        # to tokens. Optional metadata is added only when
+                        # present so we don't violate the NotRequired-but-
+                        # non-None contract of PawlsTokenPythonType.
                         for img_data in page_images:
                             unified_token: PawlsTokenPythonType = {
                                 "x": img_data["x"],
@@ -536,13 +541,22 @@ class LlamaParseParser(BaseParser):
                                 "height": img_data["height"],
                                 "text": "",  # Required, empty for images
                                 "is_image": True,
-                                "image_path": img_data.get("image_path"),
                                 "format": img_data.get("format", "jpeg"),
-                                "content_hash": img_data.get("content_hash"),
-                                "original_width": img_data.get("original_width"),
-                                "original_height": img_data.get("original_height"),
-                                "image_type": img_data.get("image_type"),
                             }
+                            if img_data.get("image_path") is not None:
+                                unified_token["image_path"] = img_data["image_path"]
+                            if img_data.get("content_hash") is not None:
+                                unified_token["content_hash"] = img_data["content_hash"]
+                            if img_data.get("original_width") is not None:
+                                unified_token["original_width"] = img_data[
+                                    "original_width"
+                                ]
+                            if img_data.get("original_height") is not None:
+                                unified_token["original_height"] = img_data[
+                                    "original_height"
+                                ]
+                            if img_data.get("image_type") is not None:
+                                unified_token["image_type"] = img_data["image_type"]
                             pawls_pages[page_idx]["tokens"].append(unified_token)
 
                         # Store raw image data for overlap detection
@@ -601,7 +615,7 @@ class LlamaParseParser(BaseParser):
                         image_token_offsets.get(page_idx, 0),
                     )
 
-                    image_token_refs: list[TokenIdPythonType] = []
+                    image_token_refs = []  # list[TokenIdPythonType]
 
                     if existing_image_refs:
                         # Use existing embedded image token
@@ -622,7 +636,9 @@ class LlamaParseParser(BaseParser):
                             bounds,
                             page_width,
                             page_height,
-                            image_format=self.image_format,
+                            image_format=cast(
+                                Literal["jpeg", "png"], self.image_format
+                            ),
                             jpeg_quality=self.image_quality,
                             dpi=self.image_dpi,
                             storage_path=image_storage_path,
@@ -634,24 +650,7 @@ class LlamaParseParser(BaseParser):
                                 new_token_idx = len(
                                     pawls_pages[page_idx].get("tokens", [])
                                 )
-                                unified_token: PawlsTokenPythonType = {
-                                    "x": cropped_image["x"],
-                                    "y": cropped_image["y"],
-                                    "width": cropped_image["width"],
-                                    "height": cropped_image["height"],
-                                    "text": "",
-                                    "is_image": True,
-                                    "image_path": cropped_image.get("image_path"),
-                                    "format": cropped_image.get("format", "jpeg"),
-                                    "content_hash": cropped_image.get("content_hash"),
-                                    "original_width": cropped_image.get(
-                                        "original_width"
-                                    ),
-                                    "original_height": cropped_image.get(
-                                        "original_height"
-                                    ),
-                                    "image_type": cropped_image.get("image_type"),
-                                }
+                                unified_token = self._build_image_token(cropped_image)
                                 pawls_pages[page_idx]["tokens"].append(unified_token)
                                 image_token_refs = [
                                     {"pageIndex": page_idx, "tokenIndex": new_token_idx}
@@ -743,7 +742,7 @@ class LlamaParseParser(BaseParser):
                 )
 
                 # For figure/image types, find matching image tokens or crop the region
-                image_token_refs: list[TokenIdPythonType] = []
+                image_token_refs = []  # list[TokenIdPythonType]
                 if is_image_type and pdf_bytes and extract_images:
                     # Find image tokens in the tokens array that overlap with bounds
                     image_token_refs = find_image_tokens_in_bounds(
@@ -768,7 +767,9 @@ class LlamaParseParser(BaseParser):
                             bounds,
                             page_width,
                             page_height,
-                            image_format=self.image_format,
+                            image_format=cast(
+                                Literal["jpeg", "png"], self.image_format
+                            ),
                             jpeg_quality=self.image_quality,
                             dpi=self.image_dpi,
                             storage_path=image_storage_path,
@@ -782,24 +783,7 @@ class LlamaParseParser(BaseParser):
                                 new_token_idx = len(
                                     pawls_pages[page_idx].get("tokens", [])
                                 )
-                                unified_token: PawlsTokenPythonType = {
-                                    "x": cropped_image["x"],
-                                    "y": cropped_image["y"],
-                                    "width": cropped_image["width"],
-                                    "height": cropped_image["height"],
-                                    "text": "",
-                                    "is_image": True,
-                                    "image_path": cropped_image.get("image_path"),
-                                    "format": cropped_image.get("format", "jpeg"),
-                                    "content_hash": cropped_image.get("content_hash"),
-                                    "original_width": cropped_image.get(
-                                        "original_width"
-                                    ),
-                                    "original_height": cropped_image.get(
-                                        "original_height"
-                                    ),
-                                    "image_type": cropped_image.get("image_type"),
-                                }
+                                unified_token = self._build_image_token(cropped_image)
                                 pawls_pages[page_idx]["tokens"].append(unified_token)
                                 image_token_refs = [
                                     {"pageIndex": page_idx, "tokenIndex": new_token_idx}
@@ -862,7 +846,7 @@ class LlamaParseParser(BaseParser):
                     )
 
                     # For figure/image types, find matching image tokens or crop region
-                    image_token_refs: list[TokenIdPythonType] = []
+                    image_token_refs = []  # list[TokenIdPythonType]
                     if is_image_type and pdf_bytes and extract_images:
                         # Find image tokens in the tokens array that overlap with bounds
                         image_token_refs = find_image_tokens_in_bounds(
@@ -887,7 +871,9 @@ class LlamaParseParser(BaseParser):
                                 bounds,
                                 page_width,
                                 page_height,
-                                image_format=self.image_format,
+                                image_format=cast(
+                                    Literal["jpeg", "png"], self.image_format
+                                ),
                                 jpeg_quality=self.image_quality,
                                 dpi=self.image_dpi,
                                 storage_path=image_storage_path,
@@ -901,26 +887,9 @@ class LlamaParseParser(BaseParser):
                                     new_token_idx = len(
                                         pawls_pages[page_idx].get("tokens", [])
                                     )
-                                    unified_token: PawlsTokenPythonType = {
-                                        "x": cropped_image["x"],
-                                        "y": cropped_image["y"],
-                                        "width": cropped_image["width"],
-                                        "height": cropped_image["height"],
-                                        "text": "",
-                                        "is_image": True,
-                                        "image_path": cropped_image.get("image_path"),
-                                        "format": cropped_image.get("format", "jpeg"),
-                                        "content_hash": cropped_image.get(
-                                            "content_hash"
-                                        ),
-                                        "original_width": cropped_image.get(
-                                            "original_width"
-                                        ),
-                                        "original_height": cropped_image.get(
-                                            "original_height"
-                                        ),
-                                        "image_type": cropped_image.get("image_type"),
-                                    }
+                                    unified_token = self._build_image_token(
+                                        cropped_image
+                                    )
                                     pawls_pages[page_idx]["tokens"].append(
                                         unified_token
                                     )
@@ -952,7 +921,7 @@ class LlamaParseParser(BaseParser):
 
         # Build the export
         export: OpenContractDocExport = {
-            "title": document.title,
+            "title": document.title or "",
             "content": full_text,
             "description": document.description or "",
             "pawls_file_content": pawls_pages,
@@ -965,14 +934,15 @@ class LlamaParseParser(BaseParser):
         # Log summary - count text tokens and image tokens separately
         total_tokens = sum(len(p.get("tokens", [])) for p in pawls_pages)
         total_image_tokens = sum(
-            sum(1 for t in p.get("tokens", []) if t.get("is_image"))
+            sum(bool(t.get("is_image")) for t in p.get("tokens", []))
             for p in pawls_pages
         )
         total_text_tokens = total_tokens - total_image_tokens
         annotations_with_tokens = sum(
             1
             for a in annotations
-            if a.get("annotation_json", {})
+            if isinstance(a.get("annotation_json"), dict)
+            and cast(dict[str, Any], a["annotation_json"])
             .get(str(a.get("page", 0)), {})
             .get("tokensJsons")
         )
@@ -1014,7 +984,7 @@ class LlamaParseParser(BaseParser):
 
         # Without layout data, we create a minimal export
         export: OpenContractDocExport = {
-            "title": document.title,
+            "title": document.title or "",
             "content": full_text,
             "description": document.description or "",
             "pawls_file_content": [],
@@ -1059,10 +1029,16 @@ class LlamaParseParser(BaseParser):
         tokens: list[PawlsTokenPythonType] = []
 
         # Default margin constant (1 inch = 72 points)
-        DEFAULT_MARGIN = 72
+        DEFAULT_MARGIN: float = 72.0
         # Default bottom position for fallback bounding boxes (~1.4 inches from top)
         # This provides reasonable vertical space for a single-line text element
-        DEFAULT_BOTTOM = 100
+        DEFAULT_BOTTOM: float = 100.0
+        # Coordinates are kept as float throughout so fractional <-> absolute
+        # arithmetic (e.g. ``x1 * page_width``) doesn't narrow them back to int.
+        left: float
+        top: float
+        right: float
+        bottom: float
 
         # Parse bounding box - handle different formats from LlamaParse
         # LlamaParse may return fractional coordinates (0-1) or absolute coordinates
@@ -1200,6 +1176,40 @@ class LlamaParseParser(BaseParser):
         # Return empty tokens list - we don't have real token data from LlamaParse
         return tokens, bounds
 
+    @staticmethod
+    def _build_image_token(
+        source: PawlsTokenPythonType,
+    ) -> PawlsTokenPythonType:
+        """
+        Build a unified-token dict for an extracted/cropped image.
+
+        Optional metadata fields (``image_path``, ``content_hash``,
+        ``original_width``, ``original_height``, ``image_type``) are added
+        only when present so we don't violate the
+        ``NotRequired``-but-non-``None`` contract of
+        :class:`PawlsTokenPythonType`.
+        """
+        token: PawlsTokenPythonType = {
+            "x": source["x"],
+            "y": source["y"],
+            "width": source["width"],
+            "height": source["height"],
+            "text": "",
+            "is_image": True,
+            "format": source.get("format", "jpeg"),
+        }
+        if source.get("image_path") is not None:
+            token["image_path"] = source["image_path"]
+        if source.get("content_hash") is not None:
+            token["content_hash"] = source["content_hash"]
+        if source.get("original_width") is not None:
+            token["original_width"] = source["original_width"]
+        if source.get("original_height") is not None:
+            token["original_height"] = source["original_height"]
+        if source.get("image_type") is not None:
+            token["image_type"] = source["image_type"]
+        return token
+
     def _create_annotation(
         self,
         annotation_id: str,
@@ -1252,12 +1262,17 @@ class LlamaParseParser(BaseParser):
         if has_image_tokens:
             content_modalities.append("IMAGE")
 
+        annotation_json: dict[
+            Union[int, str], OpenContractsSinglePageAnnotationType
+        ] = {
+            str(page_idx): page_annotation,
+        }
         annotation: OpenContractsAnnotationPythonType = {
             "id": annotation_id,
             "annotationLabel": label,
             "rawText": raw_text,
             "page": page_idx,
-            "annotation_json": {str(page_idx): page_annotation},
+            "annotation_json": annotation_json,
             "parent_id": None,
             "annotation_type": TOKEN_LABEL,
             "structural": True,

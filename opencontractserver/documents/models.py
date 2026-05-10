@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import django
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
@@ -362,6 +362,33 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
 
         super().save(*args, **kwargs)
 
+    @classmethod
+    def blob_field_names(cls) -> tuple[str, ...]:
+        """Names of every ``FileField`` declared on the Document model.
+
+        Single source of truth for blob-storage code paths (signal
+        handlers, manager helpers, cleanup tasks). Adding a new
+        ``FileField`` to the model automatically extends coverage
+        everywhere that consumes this list — no follow-up edits needed.
+
+        Computed once per process and cached on the class so signal
+        handlers and the orphan-cleanup task do not pay
+        ``_meta.get_fields()`` introspection cost on every delete.
+
+        Returned as a ``tuple`` (immutable) so a misbehaving caller
+        cannot corrupt the shared cache by mutating the result; see
+        issue #1572 follow-up #1.
+        """
+        cached: tuple[str, ...] | None = getattr(cls, "_BLOB_FIELD_NAMES_CACHE", None)
+        if cached is None:
+            cached = tuple(
+                field.name
+                for field in cls._meta.get_fields()
+                if isinstance(field, models.FileField)
+            )
+            cls._BLOB_FIELD_NAMES_CACHE = cached
+        return cached
+
     def safe_delete_field_blob(self, field_name: str, *, save: bool = False) -> bool:
         """Delete the blob for ``field_name`` from storage *only* if no
         other Document row references it.
@@ -386,6 +413,17 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         The set of fields covered is derived from ``Document._meta`` so
         adding a new ``FileField`` extends coverage automatically.
 
+        Concurrency note: there is a small TOCTOU window between the
+        uniqueness check (``unique_blob_paths``, which reads sibling
+        rows) and the storage delete. If a concurrent ``add_document``
+        forks a new sibling that references the same blob immediately
+        after the check, the blob can be deleted while the new sibling
+        already references it. Callers in high-concurrency paths should
+        hold an appropriate row-level lock spanning all sibling rows
+        that could reference the blob — a ``select_for_update`` on the
+        single row being mutated (as in ``update_memory_content``) is
+        not sufficient on its own.
+
         Args:
             field_name: Name of a ``FileField`` on this Document.
             save: If True, persist the field clear to the database when
@@ -403,7 +441,7 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         """
         try:
             field = self._meta.get_field(field_name)
-        except Exception as exc:
+        except FieldDoesNotExist as exc:
             raise ValueError(
                 f"safe_delete_field_blob: {field_name!r} is not a field "
                 f"on {type(self).__name__}"
@@ -1259,24 +1297,59 @@ class PipelineSettings(django.db.models.Model):
 
     def get_parser_kwargs(self, parser_class_path: str) -> dict:
         """
-        Get configuration kwargs for a specific parser.
+        Get configuration kwargs for a specific parser, with encrypted
+        secrets merged on top of the plaintext kwargs.
 
-        Database is the single source of truth at runtime.
-        Initial values are populated from Django settings via get_instance().
+        Resolution order (later overrides earlier):
+            1. ``parser_kwargs[parser_class_path]`` — non-sensitive kwargs.
+            2. ``encrypted_secrets[parser_class_path]`` — decrypted secrets.
+
+        Secrets always win on key conflict. Operators may leave a
+        placeholder such as ``{"api_key": ""}`` in ``parser_kwargs`` as a
+        schema marker without clobbering the real secret.
+
+        A fresh dict is built on every call so decrypted secrets are not
+        retained on the model instance between calls (memory hygiene for
+        long-lived references).
+
+        Database is the single source of truth at runtime. Initial values
+        are populated from Django settings via get_instance().
 
         Args:
             parser_class_path: Full class path of the parser
 
         Returns:
-            Dict of kwargs for the parser.
+            Dict of kwargs (including decrypted secrets) for the parser.
         """
+        merged: dict = {}
         if self.parser_kwargs and parser_class_path in self.parser_kwargs:
-            return self.parser_kwargs[parser_class_path]
-        return {}
+            stored = self.parser_kwargs[parser_class_path]
+            if isinstance(stored, dict):
+                merged.update(stored)
+
+        secrets = (self.get_secrets() or {}).get(parser_class_path) or {}
+        if secrets:
+            merged.update(secrets)
+        return merged
 
     def get_component_settings(self, component_class_path: str) -> dict:
         """
-        Get settings overrides for a specific component from database.
+        Get settings overrides for a specific component, with encrypted
+        secrets merged on top of the plaintext settings.
+
+        Resolution order (later overrides earlier), mirrors
+        ``get_parser_kwargs`` so callers cannot accidentally read plaintext
+        settings without secrets:
+
+            1. ``component_settings[component_class_path]`` — non-sensitive.
+            2. ``encrypted_secrets[component_class_path]`` — decrypted.
+
+        Secrets always win on key conflict. Operators may leave a placeholder
+        such as ``{"api_key": ""}`` in ``component_settings`` as a schema
+        marker without clobbering the real secret.
+
+        A fresh dict is built on every call so decrypted secrets are not
+        retained on the model instance between calls.
 
         This method only returns database settings, not Django settings fallback.
         The Django settings fallback (with proper simple name vs full path
@@ -1286,14 +1359,19 @@ class PipelineSettings(django.db.models.Model):
             component_class_path: Full class path of the component
 
         Returns:
-            Dict of settings for the component from database, or empty dict.
+            Dict of settings (including decrypted secrets) for the component,
+            or empty dict if neither plaintext nor secret entries exist.
         """
-        # Only return database settings - no Django fallback here
-        # The fallback chain is handled by PipelineComponentBase
+        merged: dict = {}
         if self.component_settings and component_class_path in self.component_settings:
-            return self.component_settings[component_class_path]
+            stored = self.component_settings[component_class_path]
+            if isinstance(stored, dict):
+                merged.update(stored)
 
-        return {}
+        secrets = (self.get_secrets() or {}).get(component_class_path) or {}
+        if secrets:
+            merged.update(secrets)
+        return merged
 
     def get_default_embedder(self) -> str:
         """

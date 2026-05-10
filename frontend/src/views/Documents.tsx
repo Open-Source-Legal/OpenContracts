@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
-import { useLocation, useNavigate } from "react-router-dom";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import _ from "lodash";
 import styled from "styled-components";
@@ -8,6 +13,17 @@ import {
   OS_LEGAL_COLORS,
   accentAlpha,
 } from "../assets/configurations/osLegalStyles";
+import {
+  PageContainer,
+  ContentContainer,
+  HeroSection,
+  HeroTitle,
+  HeroSubtitle,
+  StatsContainer,
+  SectionHeader,
+  SectionTitle,
+  EmptyStateWrapper,
+} from "../components/layout/PageLayout";
 import {
   SearchBox,
   FilterTabs,
@@ -48,10 +64,14 @@ import {
   DELETE_MULTIPLE_DOCUMENTS,
 } from "../graphql/mutations";
 import {
-  RequestDocumentsInputs,
-  RequestDocumentsOutputs,
-  GET_DOCUMENTS,
+  RequestDocumentsForListInputs,
+  RequestDocumentsForListOutputs,
+  GET_DOCUMENTS_FOR_LIST,
+  RequestDocumentStatsInputs,
+  RequestDocumentStatsOutputs,
+  GET_DOCUMENT_STATS,
 } from "../graphql/queries";
+import { buildDocumentStatsVariables } from "./documentStatsVariables";
 import {
   documentSearchTerm,
   editingDocument,
@@ -76,6 +96,7 @@ import { FilterToLabelsetSelector } from "../components/widgets/model-filters/Fi
 import { FilterToCorpusSelector } from "../components/widgets/model-filters/FilterToCorpusSelector";
 import { BulkUploadModal } from "../components/widgets/modals/BulkUploadModal";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { navigateToDocument } from "../utils/navigationUtils";
 import {
@@ -92,68 +113,19 @@ import {
 } from "../assets/configurations/constants";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TYPES
+// CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface DocumentQueryVariables {
-  includeMetadata: boolean;
-  annotateDocLabels: boolean;
-  textSearch?: string;
-  hasLabelWithId?: string;
-  inCorpusWithId?: string;
-  includeCaml?: boolean;
-}
+// Initial page size for the list view. Subsequent pages are also 20 (see
+// handleFetchMore below). Keeping the first page small means first paint pays
+// for ~20 fully-resolved DocumentType rows instead of the connection's default
+// cap (RELAY_CONNECTION_MAX_LIMIT = 100), which is the cost the slow render
+// was actually charged.
+const DOCUMENTS_PAGE_SIZE = 20;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLED COMPONENTS - Following CorpusListView/DiscoveryLanding patterns
 // ═══════════════════════════════════════════════════════════════════════════════
-
-const PageContainer = styled.div`
-  height: 100%;
-  background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-y: auto;
-  overflow-x: hidden;
-`;
-
-const ContentContainer = styled.main`
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 48px 24px 80px;
-
-  @media (max-width: 768px) {
-    padding: 32px 16px 60px;
-  }
-`;
-
-const HeroSection = styled.section`
-  margin-bottom: 48px;
-`;
-
-const HeroTitle = styled.h1`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 42px;
-  font-weight: 400;
-  line-height: 1.2;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  margin: 0 0 16px;
-
-  span {
-    color: ${OS_LEGAL_COLORS.accent};
-  }
-
-  @media (max-width: 768px) {
-    font-size: 32px;
-  }
-`;
-
-const HeroSubtitle = styled.p`
-  font-size: 17px;
-  line-height: 1.6;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  margin: 0 0 32px;
-  max-width: 600px;
-`;
 
 const SearchContainer = styled.div`
   margin-bottom: 16px;
@@ -323,43 +295,6 @@ const ClearFiltersButton = styled.button`
   }
 `;
 
-const StatsContainer = styled.div`
-  margin-bottom: 48px;
-  padding: 32px 0;
-
-  /* Override stat value size like StatsSection does */
-  [class*="StatBlock"] > *:first-child,
-  [data-testid="stat-value"] {
-    font-size: 36px !important;
-  }
-
-  @media (max-width: 768px) {
-    padding: 24px 0;
-
-    [class*="StatBlock"] > *:first-child,
-    [data-testid="stat-value"] {
-      font-size: 28px !important;
-    }
-  }
-`;
-
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  gap: 16px;
-  flex-wrap: wrap;
-`;
-
-const SectionTitle = styled.h2`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 24px;
-  font-weight: 400;
-  color: ${OS_LEGAL_COLORS.accent};
-  margin: 0;
-`;
-
 const ActionButtons = styled.div`
   display: flex;
   align-items: center;
@@ -399,13 +334,6 @@ const ViewToggleButton = styled.button<{ $active?: boolean }>`
 const DocumentsListContainer = styled.section`
   position: relative;
   min-height: 200px;
-`;
-
-const EmptyStateWrapper = styled.div`
-  padding: 48px 24px;
-  background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 16px;
 `;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -862,39 +790,56 @@ export const Documents = () => {
 
   const filterPopupRef = useRef<HTMLDivElement>(null);
 
-  const location = useLocation();
   const navigate = useNavigate();
 
-  // Build query variables with proper typing
-  const documentVariables: DocumentQueryVariables = {
-    includeMetadata: true,
-    annotateDocLabels: Boolean(filtered_to_corpus || filtered_to_labelset_id),
-    ...(document_search_term && { textSearch: document_search_term }),
-    ...(filtered_to_label_id && { hasLabelWithId: filtered_to_label_id }),
-    ...(filtered_to_corpus && {
-      inCorpusWithId: filtered_to_corpus.id,
-      includeCaml: true,
+  // Build query variables. Memoized on the underlying primitives so Apollo's
+  // ``useQuery`` only re-fetches when something the user actually changed (a
+  // search term, a filter, the active corpus). Previously six separate
+  // ``useEffect(refetch)`` hooks fired on the same dep set in addition to the
+  // ``useQuery`` call itself, producing ~7 redundant network requests on first
+  // mount.
+  const documentVariables: RequestDocumentsForListInputs = useMemo(
+    () => ({
+      limit: DOCUMENTS_PAGE_SIZE,
+      ...(document_search_term && { textSearch: document_search_term }),
+      ...(filtered_to_label_id && { hasLabelWithId: filtered_to_label_id }),
+      ...(filtered_to_corpus && { inCorpusWithId: filtered_to_corpus.id }),
     }),
-  };
+    [document_search_term, filtered_to_label_id, filtered_to_corpus]
+  );
 
   const {
     refetch: refetchDocuments,
     loading: documents_loading,
+    networkStatus: documents_network_status,
     error: documents_error,
     data: documents_data,
     fetchMore: fetchMoreDocuments,
-  } = useQuery<RequestDocumentsOutputs, RequestDocumentsInputs>(GET_DOCUMENTS, {
-    variables: documentVariables,
-    nextFetchPolicy: "network-only",
-    notifyOnNetworkStatusChange: true,
-  });
+  } = useQuery<RequestDocumentsForListOutputs, RequestDocumentsForListInputs>(
+    GET_DOCUMENTS_FOR_LIST,
+    {
+      variables: documentVariables,
+      // No ``nextFetchPolicy`` override — let Apollo's default cache-first
+      // behavior do its job. The previous ``"network-only"`` setting forced
+      // every refetch (including the six redundant ones) to skip the cache,
+      // which combined with the refetch storm hammered the backend on every
+      // re-render of any parent reactive var.
+      notifyOnNetworkStatusChange: true,
+    }
+  );
 
-  const document_nodes = documents_data?.documents?.edges
-    ? documents_data.documents.edges
-    : [];
-  const document_items = document_nodes
-    .map((edge) => (edge?.node ? edge.node : undefined))
-    .filter((item): item is DocumentType => !!item);
+  // ``document_items`` was previously rebuilt on every render via
+  // ``.map().filter()``, producing a fresh array reference each time. That
+  // churned the ``useMemo`` deps below (``filteredDocuments``, ``stats``,
+  // ``statusFilterItems``) and was also the same shape of bug that triggered
+  // the production reload loop fixed in PR #1512 / #1517. Memoizing on the
+  // stable Apollo ``edges`` reference breaks the cycle.
+  const document_items = useMemo<DocumentType[]>(() => {
+    const edges = documents_data?.documents?.edges ?? [];
+    return edges
+      .map((edge) => (edge?.node ? edge.node : undefined))
+      .filter((item): item is DocumentType => !!item);
+  }, [documents_data?.documents?.edges]);
 
   // Filter by status
   const filteredDocuments = useMemo(() => {
@@ -909,36 +854,63 @@ export const Documents = () => {
     return document_items;
   }, [document_items, activeStatusFilter]);
 
-  // Calculate stats with single pass through array
-  const stats = useMemo(() => {
-    const result = document_items.reduce(
-      (acc, doc) => {
-        acc.totalPages += doc.pageCount || 0;
-        if (doc.backendLock) {
-          acc.processingCount += 1;
-        } else {
-          acc.processedCount += 1;
-        }
-        return acc;
-      },
-      { totalPages: 0, processedCount: 0, processingCount: 0 }
-    );
+  // Stats are computed by a single backend ``aggregate()`` over
+  // ``Document.objects.visible_to_user`` so the tile counters reflect the
+  // user's full permission scope rather than the paginated edges that
+  // happen to be loaded into Apollo's cache. The previous client-side
+  // reduce over ``document_items`` was bounded by the page size and
+  // additionally over-counted whenever filter changes leaked stale
+  // edges into the cache (the documents connection has no keyArgs).
+  const documentStatsVariables: RequestDocumentStatsInputs = useMemo(
+    () =>
+      buildDocumentStatsVariables({
+        searchTerm: document_search_term,
+        labelId: filtered_to_label_id,
+        corpus: filtered_to_corpus,
+      }),
+    [document_search_term, filtered_to_label_id, filtered_to_corpus]
+  );
 
-    return {
-      totalDocs: document_items.length,
-      totalPages: result.totalPages,
-      processedCount: result.processedCount,
-      processingCount: result.processingCount,
-    };
-  }, [document_items]);
+  // ``cache-and-network`` so the tiles update when the user revisits the
+  // view (e.g. after a document finishes processing and ``backendLock`` flips
+  // from true to false in another session). Without it, the default
+  // ``cache-first`` policy would never refetch as long as the variables
+  // remained stable, leaving processed/processing counters stuck at the
+  // values from the first visit.
+  const { data: stats_data, error: stats_error } = useQuery<
+    RequestDocumentStatsOutputs,
+    RequestDocumentStatsInputs
+  >(GET_DOCUMENT_STATS, {
+    variables: documentStatsVariables,
+    fetchPolicy: "cache-and-network",
+  });
 
-  // Filter tabs configuration
+  // Surface stats failures in the console so they don't silently render as
+  // zero counts (the same shape as the loading state). UI-side, we keep the
+  // zero fallback rather than a dash because the rest of the view stays
+  // usable; this is a complementary signal, not a hard error.
+  useEffect(() => {
+    if (stats_error) {
+      console.error("Documents view: GET_DOCUMENT_STATS failed", stats_error);
+    }
+  }, [stats_error]);
+
+  const stats = stats_data?.documentStats ?? {
+    totalDocs: 0,
+    totalPages: 0,
+    processedCount: 0,
+    processingCount: 0,
+  };
+
+  // Filter tabs configuration — ``All Documents`` reflects the full
+  // permission-filtered total, NOT the paginated subset, so the badge
+  // matches the tile counter to the right of it.
   const statusFilterItems: FilterTabItem[] = useMemo(
     () => [
       {
         id: STATUS_FILTERS.ALL,
         label: "All Documents",
-        count: String(document_items.length),
+        count: String(stats.totalDocs),
       },
       {
         id: STATUS_FILTERS.PROCESSED,
@@ -951,35 +923,21 @@ export const Documents = () => {
         count: String(stats.processingCount),
       },
     ],
-    [document_items.length, stats.processedCount, stats.processingCount]
+    [stats.totalDocs, stats.processedCount, stats.processingCount]
   );
 
-  // Refetch effects
-  useEffect(() => {
-    if (current_user) {
-      refetchDocuments();
-    }
-  }, [current_user]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [location]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [document_search_term]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [filtered_to_label_id]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [filtered_to_labelset_id]);
-
-  useEffect(() => {
-    refetchDocuments();
-  }, [filtered_to_corpus]);
+  // Apollo's ``useQuery`` automatically refetches when ``variables`` change
+  // (deep-compared), so we no longer need the six separate ``useEffect`` hooks
+  // that previously called ``refetchDocuments()`` on each reactive-var change.
+  // Each of those effects fired on mount in addition to the initial
+  // ``useQuery`` call, producing ~7 network requests for the same data on
+  // every visit to /documents. Anything the user can change that should drive
+  // a refetch is now a member of ``documentVariables``; anything that
+  // shouldn't (``location`` re-renders, ``current_user`` settling, the
+  // unrelated ``filtered_to_labelset_id`` reactive var) no longer triggers
+  // one. ``filtered_to_labelset_id`` is intentionally NOT a query variable —
+  // it's only used by the labelset filter UI to scope label-picker options;
+  // the previous refetch on its change was a no-op against the backend.
 
   // Debounced search with consolidated cleanup to prevent memory leaks.
   // The ref ensures stable reference across renders, and the cleanup
@@ -1043,7 +1001,7 @@ export const Documents = () => {
     ) {
       fetchMoreDocuments({
         variables: {
-          limit: 20,
+          limit: DOCUMENTS_PAGE_SIZE,
           cursor: documents_data.documents.pageInfo.endCursor,
         },
       });
@@ -1281,9 +1239,9 @@ export const Documents = () => {
 
         {/* Documents Section */}
         <DocumentsListContainer>
+          {/* Cover the grid only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
-            active={documents_loading}
-            inverted
+            active={documents_loading && filteredDocuments.length === 0}
             size="large"
             content="Loading documents..."
           />
@@ -1627,6 +1585,11 @@ export const Documents = () => {
               )}
 
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+              <FetchMoreFooter
+                visible={documents_network_status === NetworkStatus.fetchMore}
+                message="Loading more documents…"
+                data-testid="documents-fetch-more-spinner"
+              />
             </>
           ) : documents_error ? (
             <EmptyStateWrapper>

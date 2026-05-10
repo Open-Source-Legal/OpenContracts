@@ -15,27 +15,16 @@ import {
   Factory,
   Brain,
   Settings,
-  Home,
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
-  Search,
-  Send,
-  History,
   Trophy,
   BarChart3,
   MoreVertical,
   Link2,
 } from "lucide-react";
-import styled from "styled-components";
-import {
-  OS_LEGAL_COLORS,
-  accentAlpha,
-} from "../assets/configurations/osLegalStyles";
+import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 import { motion, AnimatePresence } from "framer-motion";
-import { SearchBox, FilterTabs } from "@os-legal/ui";
-import type { FilterTabItem } from "@os-legal/ui";
 
 import { ConfirmModal } from "../components/widgets/modals/ConfirmModal";
 import { CreateExtractModal } from "../components/widgets/modals/CreateExtractModal";
@@ -66,21 +55,15 @@ import {
   filterToLabelId,
   analysisSearchTerm,
   exportingCorpus,
-  showQueryViewState,
   showSelectCorpusAnalyzerOrFieldsetModal,
   selectedTab,
-  selectedExtractIds,
   selectedThreadId,
   corpusPowerUserMode,
   showCreateExtractModal,
   showImportCorpusModal,
   backendUserObj,
 } from "../graphql/cache";
-import {
-  updateTabParam,
-  updateAnnotationSelectionParams,
-  updateModeParam,
-} from "../utils/navigationUtils";
+import { updateTabParam, updateModeParam } from "../utils/navigationUtils";
 import {
   UPDATE_CORPUS,
   UpdateCorpusOutputs,
@@ -103,6 +86,9 @@ import {
   GET_CORPUSES,
   GET_CORPUS_METADATA,
   GET_CORPUS_STATS,
+  GET_CORPUS_FILTER_COUNTS,
+  GetCorpusFilterCountsInputs,
+  GetCorpusFilterCountsOutputs,
   RequestDocumentsInputs,
   RequestDocumentsOutputs,
   GET_DOCUMENTS,
@@ -123,8 +109,6 @@ import useWindowDimensions from "../components/hooks/WindowDimensionHook";
 import { SelectExportTypeModal } from "../components/widgets/modals/SelectExportTypeModal";
 import { ImportCorpusModal } from "../components/widgets/modals/ImportCorpusModal";
 import { FilterToCorpusActionOutputs } from "../components/widgets/model-filters/FilterToCorpusActionOutputs";
-import { CorpusExtractCards } from "../components/extracts/CorpusExtractCards";
-import { CorpusExtractDetail } from "../components/extracts/CorpusExtractDetail";
 import { getPermissions } from "../utils/transform";
 import {
   MOBILE_VIEW_BREAKPOINT,
@@ -143,1456 +127,36 @@ import {
 } from "../utils/textBlockEncoding";
 import { buildQueryParams } from "../utils/navigationUtils";
 import { toGlobalId } from "../utils/idValidation";
-import { CorpusHome } from "../components/corpuses/CorpusHome";
 import { CorpusDescriptionEditor } from "../components/corpuses/CorpusDescriptionEditor";
 import { CamlArticleEditor } from "../components/corpuses/CamlArticleEditor";
 import { CorpusDiscussionsView } from "../components/discussions/CorpusDiscussionsView";
 import { BadgeManagement } from "../components/badges/BadgeManagement";
 import { CorpusEngagementDashboard } from "../components/analytics/CorpusEngagementDashboard";
 import { CorpusDocumentRelationships } from "../components/corpuses/CorpusDocumentRelationships";
+import { CorpusQueryView } from "./CorpusQueryView";
+import { ExtractsTabContent } from "./ExtractsTabContent";
 import {
-  CORPUS_COLORS,
-  CORPUS_RADII,
-  CORPUS_SHADOWS,
-  CORPUS_TRANSITIONS,
-  mediaQuery as corpusMediaQuery,
-} from "../components/corpuses/styles/corpusDesignTokens";
-
-// Add these styled components near your other styled components
-const DashboardContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  padding: 0;
-  width: 100%;
-  min-height: 0;
-  max-height: 100%; /* Never exceed parent's height */
-  height: 100%;
-`;
-
-const ContentWrapper = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  flex: 1;
-  padding: 0;
-  overflow: hidden;
-  min-height: 0;
-  max-height: 100%; /* Never exceed parent's height */
-  height: 100%;
-  position: relative;
-`;
-
-const ChatTransitionContainer = styled.div<{
-  $isExpanded: boolean;
-  $isSearchTransform?: boolean;
-}>`
-  display: flex;
-  flex-direction: column;
-  height: ${(props) =>
-    props.$isSearchTransform ? (props.$isExpanded ? "100%" : "auto") : "100%"};
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-  background: white;
-  border-radius: ${(props) => (props.$isExpanded ? "0" : "16px")};
-  box-shadow: ${(props) =>
-    props.$isExpanded ? "none" : "0 8px 24px rgba(0,0,0,0.12)"};
-  overflow: hidden;
-  position: relative;
-  z-index: ${(props) => (props.$isExpanded ? "10" : "1")};
-`;
-
-const SearchToConversationInput = styled.div<{ $isExpanded: boolean }>`
-  display: flex;
-  align-items: center;
-  padding: ${(props) =>
-    props.$isExpanded ? "1.25rem 1.5rem" : "1rem 1.25rem"};
-  border-bottom: ${(props) =>
-    props.$isExpanded ? "1px solid rgba(226, 232, 240, 0.8)" : "none"};
-  background: ${(props) =>
-    props.$isExpanded ? "rgba(255, 255, 255, 0.98)" : "transparent"};
-  backdrop-filter: ${(props) => (props.$isExpanded ? "blur(12px)" : "none")};
-  box-shadow: ${(props) =>
-    props.$isExpanded ? "0 2px 8px rgba(0, 0, 0, 0.04)" : "none"};
-
-  input {
-    flex: 1;
-    border: none;
-    outline: none;
-    font-size: 1rem;
-    background: transparent;
-    color: ${OS_LEGAL_COLORS.textPrimary};
-
-    &::placeholder {
-      color: ${OS_LEGAL_COLORS.textMuted};
-    }
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.75rem;
-  }
-
-  .nav-button {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #4a5568;
-    font-weight: 500;
-    background: transparent;
-    border: none;
-    padding: 0.625rem 0.875rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border-radius: 8px;
-
-    &:hover {
-      background: rgba(0, 0, 0, 0.04);
-      color: #2d3748;
-    }
-
-    .button-text {
-      @media (max-width: 768px) {
-        display: none;
-      }
-    }
-  }
-`;
-
-const SearchActionsContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-
-  @media (max-width: 768px) {
-    gap: 0.375rem;
-  }
-`;
-
-const ActionButton = styled(motion.button)`
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-
-  &:hover:not(:disabled) {
-    background: ${OS_LEGAL_COLORS.border};
-    color: ${OS_LEGAL_COLORS.textTertiary};
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  &.primary {
-    background: ${OS_LEGAL_COLORS.primaryBlue};
-    color: white;
-    border-color: ${OS_LEGAL_COLORS.primaryBlue};
-
-    &:hover:not(:disabled) {
-      background: #357abd;
-      border-color: #357abd;
-    }
-  }
-
-  @media (max-width: 768px) {
-    width: 36px;
-    height: 36px;
-
-    svg {
-      width: 16px;
-      height: 16px;
-    }
-  }
-`;
-
-const ChatNavigationHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.5rem;
-  background: white;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  backdrop-filter: blur(12px);
-  background: rgba(255, 255, 255, 0.95);
-`;
-
-const NavigationTitle = styled.div`
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  flex: 1;
-  text-align: center;
-`;
-
-const BackButton = styled(motion.button)`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: transparent;
-  border: none;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  font-weight: 500;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: ${OS_LEGAL_COLORS.surfaceHover};
-    color: ${OS_LEGAL_COLORS.textTertiary};
-  }
-
-  @media (max-width: 768px) {
-    padding: 0.5rem;
-
-    span {
-      display: none;
-    }
-  }
-`;
-
-// Create a component for the corpus query view with the new search-to-chat functionality
-const CorpusQueryView = ({
-  opened_corpus,
-  opened_corpus_id,
-  setShowDescriptionEditor,
-  setShowArticleEditor,
-  onNavigate,
-  onBack,
-  canUpdate,
-  stats,
-  statsLoading,
-  onOpenMobileMenu,
-  onSourceNavigate,
-  onModeToggle,
-  isPowerUserMode,
-}: {
-  opened_corpus: CorpusType | null;
-  opened_corpus_id: string | null;
-  setShowDescriptionEditor: (show: boolean) => void;
-  setShowArticleEditor: (show: boolean) => void;
-  onNavigate?: (tabIndex: number) => void;
-  onBack?: () => void;
-  canUpdate?: boolean;
-  stats: {
-    totalDocs: number;
-    totalAnnotations: number;
-    totalAnalyses: number;
-    totalExtracts: number;
-    totalThreads: number;
-  };
-  statsLoading: boolean;
-  onOpenMobileMenu?: () => void;
-  onSourceNavigate?: (source: ChatMessageSource) => void;
-  onModeToggle?: () => void;
-  isPowerUserMode?: boolean;
-}) => {
-  const [chatExpanded, setChatExpanded] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [isSearchMode, setIsSearchMode] = useState<boolean>(true);
-  const show_query_view_state = useReactiveVar(showQueryViewState);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const { width } = useWindowDimensions();
-  const isDesktop = width > MOBILE_VIEW_BREAKPOINT;
-
-  // Focus the input on initial mount (desktop only to avoid mobile keyboard issues)
-  useEffect(() => {
-    if (isDesktop && inputRef.current) {
-      // Use longer timeout on mount to ensure DOM is ready
-      setTimeout(() => inputRef.current?.focus(), 150);
-    }
-  }, []); // Empty deps = run only on mount
-
-  // Focus the input when returning to search mode
-  useEffect(() => {
-    if (isSearchMode && inputRef.current && isDesktop) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [isSearchMode, isDesktop]);
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      setChatExpanded(true);
-      setIsSearchMode(false);
-      // Ensure we stay in ASK mode rather than switching to VIEW
-      showQueryViewState("ASK");
-    }
-  };
-
-  const resetToSearch = () => {
-    setChatExpanded(false);
-    setIsSearchMode(true);
-    setSearchQuery("");
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 100);
-  };
-
-  const openHistoryView = () => {
-    showQueryViewState("VIEW");
-  };
-
-  if (!opened_corpus) {
-    return <div>No corpus selected</div>;
-  }
-
-  // Render the navigation header consistently across all states
-  const renderNavigationHeader = () => {
-    if (chatExpanded || show_query_view_state === "VIEW") {
-      // On mobile, CorpusChat renders its own header, so skip rendering here
-      if (!isDesktop) {
-        return null;
-      }
-
-      return (
-        <ChatNavigationHeader>
-          <BackButton
-            onClick={
-              show_query_view_state === "VIEW"
-                ? () => showQueryViewState("ASK")
-                : resetToSearch
-            }
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <ArrowLeft size={18} />
-            <span>
-              {show_query_view_state === "VIEW" ? "Back to Dashboard" : "Back"}
-            </span>
-          </BackButton>
-
-          <NavigationTitle>
-            {show_query_view_state === "VIEW" ? "Conversation History" : "Chat"}
-          </NavigationTitle>
-
-          <SearchActionsContainer>
-            {show_query_view_state !== "VIEW" && (
-              <ActionButton
-                onClick={openHistoryView}
-                title="View conversation history"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <History size={18} />
-              </ActionButton>
-            )}
-            <ActionButton
-              onClick={() => showQueryViewState("ASK")}
-              title="Return to Dashboard"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Home size={18} />
-            </ActionButton>
-          </SearchActionsContainer>
-        </ChatNavigationHeader>
-      );
-    }
-
-    return null;
-  };
-
-  if (show_query_view_state === "ASK") {
-    // If we're in chat mode, render full-screen chat
-    if (chatExpanded) {
-      return (
-        <motion.div
-          id="corpus-chat-container-motion-div"
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            minHeight: 0,
-            maxHeight: "99vh", // Never exceed 99vh regardless of content
-            height: "100%",
-          }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          {renderNavigationHeader()}
-          <CorpusChat
-            corpusId={opened_corpus.id}
-            showLoad={false}
-            initialQuery={searchQuery}
-            setShowLoad={() => {}}
-            onMessageSelect={() => {}}
-            onSourceNavigate={onSourceNavigate}
-            forceNewChat={true}
-            // forceNewChat=true means we came from the search bar — just reset back to it
-            onNavigateHome={resetToSearch}
-          />
-        </motion.div>
-      );
-    }
-
-    // Otherwise, show the dashboard view with the search bar
-    return (
-      <motion.div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          minHeight: 0,
-          maxHeight: "99vh", // Never exceed 99vh regardless of content
-          height: "100%",
-          width: "100%",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        <DashboardContainer id="corpus-dashboard-container">
-          <ContentWrapper
-            id="corpus-dashboard-content-wrapper"
-            style={{ position: "relative" }}
-          >
-            <CorpusHome
-              corpus={opened_corpus as CorpusType}
-              onEditDescription={() => setShowDescriptionEditor(true)}
-              onEditArticle={() => setShowArticleEditor(true)}
-              onNavigate={onNavigate}
-              onBack={onBack}
-              canUpdate={canUpdate}
-              stats={stats}
-              statsLoading={statsLoading}
-              chatQuery={searchQuery}
-              onChatQueryChange={setSearchQuery}
-              onChatSubmit={(query) => {
-                if (query.trim()) {
-                  setSearchQuery(query);
-                  setChatExpanded(true);
-                  setIsSearchMode(false);
-                  showQueryViewState("ASK");
-                }
-              }}
-              onViewChatHistory={openHistoryView}
-              onNavigateToCorpuses={onBack}
-              onOpenMobileMenu={onOpenMobileMenu}
-              onModeToggle={onModeToggle}
-              isPowerUserMode={isPowerUserMode}
-            />
-          </ContentWrapper>
-        </DashboardContainer>
-      </motion.div>
-    );
-  } else {
-    return (
-      <motion.div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          minHeight: 0,
-          maxHeight: "99vh", // Never exceed 99vh regardless of content
-          height: "100%",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        {renderNavigationHeader()}
-
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            minHeight: 0,
-            maxHeight: "100%",
-            height: "100%",
-          }}
-        >
-          <CorpusChat
-            corpusId={opened_corpus.id}
-            showLoad={true}
-            setShowLoad={() => {}}
-            onMessageSelect={() => {}}
-            onSourceNavigate={onSourceNavigate}
-            // showLoad=true means we're in conversation-list mode — reset search
-            // AND explicitly switch to ASK state so the search bar is visible
-            // (without this the view could stay in VIEW mode after navigating home)
-            onNavigateHome={() => {
-              resetToSearch();
-              showQueryViewState("ASK");
-            }}
-          />
-        </div>
-      </motion.div>
-    );
-  }
-};
-
-// Add new styled components for the sidebar navigation
-const CorpusViewContainer = styled.div`
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-  position: relative;
-  overflow: hidden;
-  flex: 1;
-  align-items: stretch;
-  min-height: 0;
-  max-height: 100dvh;
-  height: 100%;
-`;
-
-const NavigationSidebar = styled(motion.div)<{ $isExpanded: boolean }>`
-  position: relative;
-  width: ${(props) => (props.$isExpanded ? "280px" : "80px")};
-  background: linear-gradient(180deg, #ffffff 0%, #fafbfc 50%, #f8f9fa 100%);
-  backdrop-filter: blur(10px);
-  border-right: 1px solid ${OS_LEGAL_COLORS.border};
-  box-shadow: ${(props) =>
-    props.$isExpanded
-      ? "2px 0 8px rgba(0, 0, 0, 0.06)"
-      : "2px 0 4px rgba(0, 0, 0, 0.04)"};
-  z-index: 100;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  flex-shrink: 0;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    position: fixed;
-    left: 50%;
-    bottom: 0;
-    width: 100%;
-    max-width: min(480px, 95vw);
-    height: ${(props) => (props.$isExpanded ? "70vh" : "0")};
-    max-height: min(600px, 70vh);
-    border-right: none;
-    border-top: 1px solid ${OS_LEGAL_COLORS.border};
-    border-radius: 24px 24px 0 0;
-    box-shadow: ${(props) =>
-      props.$isExpanded ? "0 -8px 32px rgba(0, 0, 0, 0.12)" : "none"};
-    transform: translate(
-      -50%,
-      ${(props) => (props.$isExpanded ? "0" : "100%")}
-    );
-    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-      height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 200;
-    background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
-  }
-`;
-
-// Drag handle for bottom sheet
-const BottomSheetHandle = styled.div`
-  display: none;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    display: flex;
-    justify-content: center;
-    padding: 0.75rem 0;
-    cursor: grab;
-
-    &::after {
-      content: "";
-      width: 40px;
-      height: 4px;
-      background: ${OS_LEGAL_COLORS.borderHover};
-      border-radius: 2px;
-      transition: background 0.2s ease;
-    }
-
-    &:active {
-      cursor: grabbing;
-
-      &::after {
-        background: ${OS_LEGAL_COLORS.textMuted};
-      }
-    }
-  }
-`;
-
-const NavigationHeader = styled.div<{ $isExpanded: boolean }>`
-  padding: 1.5rem;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  background: white;
-  display: flex;
-  align-items: center;
-  justify-content: ${(props) =>
-    props.$isExpanded ? "space-between" : "center"};
-  min-height: 72px;
-  position: relative;
-  gap: 0.75rem;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    padding: 0 1.5rem 1rem;
-    min-height: auto;
-  }
-`;
-
-const NavigationToggle = styled(motion.button)`
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.9) 0%,
-    rgba(248, 250, 252, 0.9) 100%
-  );
-  border: 1px solid rgba(226, 232, 240, 0.6);
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
-  position: relative;
-  overflow: hidden;
-
-  /* Ripple effect base */
-  &::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-radius: 50%;
-    background: radial-gradient(
-      circle,
-      rgba(74, 144, 226, 0.2) 0%,
-      transparent 70%
-    );
-    transform: translate(-50%, -50%);
-    transition: width 0.4s, height 0.4s;
-  }
-
-  &:hover {
-    background: linear-gradient(
-      135deg,
-      rgba(74, 144, 226, 0.1) 0%,
-      rgba(99, 102, 241, 0.08) 100%
-    );
-    border-color: rgba(74, 144, 226, 0.3);
-    color: ${OS_LEGAL_COLORS.primaryBlue};
-    transform: translateY(-1px);
-    box-shadow: 0 4px 6px rgba(74, 144, 226, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
-
-    &::before {
-      width: 80px;
-      height: 80px;
-    }
-
-    svg {
-      transform: scale(1.1);
-    }
-  }
-
-  &:active {
-    transform: translateY(0);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  }
-
-  svg {
-    width: 20px;
-    height: 20px;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 1;
-  }
-`;
-
-const NavigationItems = styled.div`
-  flex: 1;
-  padding: 1rem 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  position: relative;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    padding: 0.5rem 0 2rem;
-  }
-
-  /* Fade effect at top and bottom */
-  &::before,
-  &::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 20px;
-    pointer-events: none;
-    z-index: 1;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  &::before {
-    top: 0;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.9) 0%,
-      transparent 100%
-    );
-  }
-
-  &::after {
-    bottom: 0;
-    background: linear-gradient(
-      0deg,
-      rgba(255, 255, 255, 0.9) 0%,
-      transparent 100%
-    );
-  }
-
-  /* Show fade when scrollable */
-  &:hover::before,
-  &:hover::after {
-    opacity: 1;
-  }
-
-  /* Custom scrollbar styling */
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-    margin: 8px 0;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: linear-gradient(
-      180deg,
-      rgba(226, 232, 240, 0.8) 0%,
-      rgba(203, 213, 225, 0.8) 100%
-    );
-    border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    transition: all 0.2s ease;
-
-    &:hover {
-      background: linear-gradient(
-        180deg,
-        rgba(203, 213, 225, 0.9) 0%,
-        rgba(148, 163, 184, 0.9) 100%
-      );
-      box-shadow: 0 0 0 1px rgba(74, 144, 226, 0.2);
-    }
-
-    &:active {
-      background: linear-gradient(
-        180deg,
-        rgba(148, 163, 184, 1) 0%,
-        rgba(100, 116, 139, 1) 100%
-      );
-    }
-  }
-
-  /* Firefox scrollbar support */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(203, 213, 225, 0.8) transparent;
-`;
-
-// Badge for count display on navigation items
-const NavItemBadge = styled.span<{ isActive: boolean; $isZero?: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 11px;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  margin-left: auto;
-  background: ${(props) =>
-    props.$isZero
-      ? "transparent"
-      : props.isActive
-      ? CORPUS_COLORS.teal[700]
-      : CORPUS_COLORS.slate[200]};
-  color: ${(props) =>
-    props.$isZero
-      ? CORPUS_COLORS.slate[400]
-      : props.isActive
-      ? CORPUS_COLORS.white
-      : CORPUS_COLORS.slate[600]};
-  border: ${(props) =>
-    props.$isZero ? `1px dashed ${CORPUS_COLORS.slate[300]}` : "none"};
-  transition: all ${CORPUS_TRANSITIONS.normal};
-  box-shadow: ${(props) =>
-    props.$isZero
-      ? "none"
-      : props.isActive
-      ? `0 2px 4px ${accentAlpha(0.25)}`
-      : CORPUS_SHADOWS.sm};
-`;
-
-const NavigationItem = styled(motion.button)<{
-  isActive: boolean;
-  $isExpanded: boolean;
-}>`
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: ${(props) => (props.$isExpanded ? "0.75rem" : "0")};
-  padding: ${(props) =>
-    props.$isExpanded ? "0.875rem 1rem 0.875rem 1.5rem" : "0.875rem"};
-  margin: ${(props) => (props.$isExpanded ? "0 0.5rem" : "0 0.25rem")};
-  width: ${(props) =>
-    props.$isExpanded ? "calc(100% - 1rem)" : "calc(100% - 0.5rem)"};
-  border-radius: ${(props) => (props.$isExpanded ? "12px" : "10px")};
-  background: ${(props) => {
-    if (props.isActive) {
-      return `linear-gradient(
-        135deg,
-        rgba(74, 144, 226, 0.12) 0%,
-        rgba(99, 102, 241, 0.08) 100%
-      )`;
-    }
-    return "transparent";
-  }};
-  border: 1px solid
-    ${(props) => (props.isActive ? "rgba(74, 144, 226, 0.2)" : "transparent")};
-  color: ${(props) =>
-    props.isActive
-      ? OS_LEGAL_COLORS.primaryBlue
-      : OS_LEGAL_COLORS.textSecondary};
-  font-weight: ${(props) => (props.isActive ? "600" : "500")};
-  font-size: 0.9375rem;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  justify-content: ${(props) => (props.$isExpanded ? "flex-start" : "center")};
-  overflow: hidden;
-  min-height: ${(props) => (props.$isExpanded ? "48px" : "44px")};
-
-  /* Active indicator bar */
-  &::before {
-    content: "";
-    position: absolute;
-    left: ${(props) => (props.$isExpanded ? "-0.5rem" : "50%")};
-    top: ${(props) => (props.$isExpanded ? "50%" : "0")};
-    width: ${(props) => (props.$isExpanded ? "4px" : "60%")};
-    height: ${(props) => (props.$isExpanded ? "60%" : "2px")};
-    background: linear-gradient(
-      ${(props) => (props.$isExpanded ? "180deg" : "90deg")},
-      #4a90e2 0%,
-      #6366f1 100%
-    );
-    opacity: ${(props) => (props.isActive ? "1" : "0")};
-    transform: ${(props) =>
-      props.$isExpanded ? "translateY(-50%)" : "translateX(-50%)"};
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border-radius: 2px;
-    box-shadow: ${(props) =>
-      props.isActive ? "0 0 8px rgba(74, 144, 226, 0.5)" : "none"};
-  }
-
-  /* Hover background effect */
-  &::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(
-      circle at center,
-      rgba(74, 144, 226, 0.08) 0%,
-      transparent 70%
-    );
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-  }
-
-  &:hover {
-    background: ${(props) => {
-      if (props.isActive) {
-        return `linear-gradient(
-          135deg,
-          rgba(74, 144, 226, 0.16) 0%,
-          rgba(99, 102, 241, 0.12) 100%
-        )`;
-      }
-      return `linear-gradient(
-        135deg,
-        rgba(226, 232, 240, 0.3) 0%,
-        rgba(241, 245, 249, 0.2) 100%
-      )`;
-    }};
-    border-color: ${(props) =>
-      props.isActive ? "rgba(74, 144, 226, 0.3)" : "rgba(226, 232, 240, 0.5)"};
-    color: ${(props) =>
-      props.isActive
-        ? OS_LEGAL_COLORS.primaryBlue
-        : OS_LEGAL_COLORS.textTertiary};
-    transform: ${(props) =>
-      props.$isExpanded ? "translateX(2px)" : "scale(1.05)"};
-
-    &::after {
-      opacity: 1;
-    }
-
-    svg {
-      transform: ${(props) =>
-        props.isActive ? "scale(1.15) rotate(-5deg)" : "scale(1.1)"};
-      filter: ${(props) =>
-        props.isActive
-          ? "drop-shadow(0 2px 4px rgba(74, 144, 226, 0.3))"
-          : "none"};
-    }
-  }
-
-  &:active {
-    transform: ${(props) =>
-      props.$isExpanded ? "translateX(0)" : "scale(0.98)"};
-  }
-
-  svg {
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 1;
-  }
-
-  span {
-    white-space: nowrap;
-    opacity: ${(props) => (props.$isExpanded ? "1" : "0")};
-    width: ${(props) => (props.$isExpanded ? "auto" : "0")};
-    overflow: hidden;
-    transition: opacity 0.3s ease, width 0.3s ease;
-    z-index: 1;
-  }
-
-  /* Accessibility - focus visible */
-  &:focus-visible {
-    outline: 2px solid ${OS_LEGAL_COLORS.primaryBlue};
-    outline-offset: 2px;
-  }
-
-  /* Respect reduced motion preferences */
-  @media (prefers-reduced-motion: reduce) {
-    transition: background-color 0.2s ease, color 0.2s ease;
-
-    &:hover {
-      transform: none;
-    }
-
-    svg {
-      transition: none;
-      transform: none !important;
-    }
-  }
-`;
-
-const MainContentArea = styled.div<{ $sidebarExpanded: boolean }>`
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  max-height: 100%;
-  height: 100%;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    margin-left: 0;
-  }
-`;
-
-const MobileMenuBackdrop = styled(motion.div)`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(8px);
-  z-index: 190;
-  display: none;
-  -webkit-tap-highlight-color: transparent;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    display: block;
-  }
-`;
-
-// Unified search bar wrapper with integrated back button
-const SearchBarWithNav = styled.div`
-  display: flex;
-  align-items: stretch;
-  width: 100%;
-  background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  transition: all 0.2s ease;
-
-  &:focus-within {
-    border-color: ${OS_LEGAL_COLORS.borderHover};
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
-  }
-`;
-
-// Integrated back button - no separate border, part of unified container
-const MobileBackButton = styled.button`
-  display: none;
-  padding: 0 0.875rem;
-  min-width: auto;
-  background: transparent;
-  border: none;
-  border-right: 1px solid ${OS_LEGAL_COLORS.border};
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  transition: all 0.2s ease;
-  cursor: pointer;
-  flex-shrink: 0;
-
-  &:hover {
-    background: ${OS_LEGAL_COLORS.surfaceHover};
-    color: ${OS_LEGAL_COLORS.textTertiary};
-  }
-
-  &:active {
-    background: ${OS_LEGAL_COLORS.surfaceLight};
-  }
-
-  svg {
-    width: 20px;
-    height: 20px;
-  }
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-`;
-
-// Back navigation header for non-home tabs - CRISPY VERSION
-const TabNavigationHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.875rem 1.25rem;
-  background: white;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  flex-shrink: 0;
-  min-height: 56px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    padding: 0.625rem 1rem;
-    min-height: 48px;
-  }
-`;
-
-// Mobile kebab menu button for tab headers - only visible on mobile
-const MobileKebabButton = styled.button`
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-  margin-left: auto;
-
-  &:hover {
-    background: ${OS_LEGAL_COLORS.successSurface};
-    color: ${OS_LEGAL_COLORS.accent};
-  }
-
-  &:active {
-    transform: scale(0.95);
-  }
-
-  svg {
-    width: 20px;
-    height: 20px;
-  }
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    display: flex;
-  }
-`;
-
-const BackNavButton = styled(motion.button)`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  cursor: pointer;
-  padding: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  flex-shrink: 0;
-
-  &:hover {
-    background: white;
-    border-color: ${OS_LEGAL_COLORS.primaryBlue};
-    color: ${OS_LEGAL_COLORS.primaryBlue};
-    box-shadow: 0 2px 8px rgba(74, 144, 226, 0.15);
-  }
-
-  &:active {
-    transform: scale(0.95);
-  }
-
-  svg {
-    width: 20px;
-    height: 20px;
-    stroke-width: 2.5;
-  }
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    width: 32px;
-    height: 32px;
-
-    svg {
-      width: 18px;
-      height: 18px;
-    }
-  }
-`;
-
-const TabTitle = styled.h2`
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  margin: 0;
-  flex: 1;
-  letter-spacing: -0.025em;
-  line-height: 1;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    font-size: 1.25rem;
-  }
-`;
-
-const SearchBarContainer = styled.div`
-  flex: 1;
-  display: flex;
-  min-width: 0; /* Allows flex item to shrink below its content size */
-
-  /* Override CreateAndSearchBar's internal styles to remove duplicate borders */
-  > div {
-    width: 100%;
-    border: none !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-
-    /* Override the SearchInputWrapper max-width on mobile */
-    > div:first-child {
-      @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-        max-width: none;
-        flex: 1;
-      }
-    }
-  }
-`;
-
-const NotificationBadge = styled.div`
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  background: linear-gradient(
-    135deg,
-    ${OS_LEGAL_COLORS.danger} 0%,
-    ${OS_LEGAL_COLORS.danger} 100%
-  );
-  color: white;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 700;
-  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3),
-    0 0 0 2px rgba(255, 255, 255, 0.9);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  z-index: 2;
-
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 1;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 0.9;
-      transform: scale(1.05);
-    }
-  }
-
-  /* Respect reduced motion preferences */
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-// Compact badge for collapsed sidebar - slight overlap at corner.
-// Teal (non-zero) / slate (zero) is intentional: these badges display entity
-// counts (documents, annotations, analyses, etc.), not action-required items,
-// so the teal design-token color is appropriate rather than a warning palette.
-const CollapsedBadge = styled.div<{ $isZero: boolean }>`
-  position: absolute;
-  top: -4px;
-  right: -12px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  background: ${(props) =>
-    props.$isZero ? CORPUS_COLORS.slate[400] : CORPUS_COLORS.teal[700]};
-  color: ${CORPUS_COLORS.white};
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.6rem;
-  font-weight: 700;
-  z-index: 2;
-  box-shadow: ${CORPUS_SHADOWS.sm};
-`;
-
-// Split view container for extracts tab
-const ExtractsSplitView = styled.div`
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-  gap: 1px;
-  background: ${OS_LEGAL_COLORS.border};
-`;
-
-const ExtractsListPane = styled.div<{ $hasSelection: boolean }>`
-  flex: ${(props) => (props.$hasSelection ? "0 0 360px" : "1")};
-  overflow: hidden;
-  background: ${OS_LEGAL_COLORS.background};
-  transition: flex 0.2s ease;
-
-  @media (max-width: 1024px) {
-    flex: ${(props) => (props.$hasSelection ? "0 0 280px" : "1")};
-  }
-
-  @media (max-width: 768px) {
-    display: ${(props) => (props.$hasSelection ? "none" : "block")};
-    flex: 1;
-  }
-`;
-
-const ExtractsDetailPane = styled.div`
-  flex: 1;
-  overflow: hidden;
-  background: white;
-
-  @media (max-width: 768px) {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
-  }
-`;
-
-// Search and filter container for extracts tab
-const ExtractsToolbar = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 20px;
-  background: white;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  flex-shrink: 0;
-`;
-
-const ExtractsSearchRow = styled.div`
-  max-width: 400px;
-`;
-
-/**
- * ExtractsTabContent - Split view for corpus extracts tab
- * Shows list on left, detail on right when an extract is selected
- * Includes search and filter functionality matching standalone Extracts view
- */
-const ExtractsTabContent: React.FC<{
-  setActiveTab: (tab: number) => void;
-  onOpenMobileMenu?: () => void;
-}> = ({ setActiveTab, onOpenMobileMenu }) => {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const selected_extract_ids = useReactiveVar(selectedExtractIds);
-  const analysis_search_term = useReactiveVar(analysisSearchTerm);
-  const selectedExtractId = selected_extract_ids[0] || null;
-
-  // Local state for search and filter
-  const [searchCache, setSearchCache] = useState(analysis_search_term);
-  const [activeFilter, setActiveFilter] = useState("all");
-
-  // Debounced search - updates the reactive var used by CorpusExtractCards
-  const debouncedSearch = useRef(
-    _.debounce((searchTerm: string) => {
-      analysisSearchTerm(searchTerm);
-    }, DEBOUNCE.EXTRACT_SEARCH_MS)
-  );
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      debouncedSearch.current.cancel();
-    };
-  }, []);
-
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchCache(value);
-    debouncedSearch.current(value);
-  }, []);
-
-  const handleCloseDetail = useCallback(() => {
-    // Clear extract selection via URL
-    updateAnnotationSelectionParams(location, navigate, {
-      extractIds: [],
-    });
-  }, [location, navigate]);
-
-  // Filter tabs configuration
-  const filterItems: FilterTabItem[] = [
-    { id: "all", label: "All" },
-    { id: "running", label: "Running" },
-    { id: "completed", label: "Completed" },
-    { id: "failed", label: "Failed" },
-    { id: "not_started", label: "Not Started" },
-  ];
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        position: "relative",
-      }}
-    >
-      <TabNavigationHeader>
-        <BackNavButton
-          onClick={() => setActiveTab(0)}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          title="Back to Home"
-        >
-          <ArrowLeft />
-        </BackNavButton>
-        <TabTitle>Extracts</TabTitle>
-        {onOpenMobileMenu && (
-          <MobileKebabButton
-            onClick={onOpenMobileMenu}
-            aria-label="Open navigation menu"
-          >
-            <MoreVertical />
-          </MobileKebabButton>
-        )}
-      </TabNavigationHeader>
-
-      {/* Search and Filter Toolbar */}
-      <ExtractsToolbar>
-        <ExtractsSearchRow>
-          <SearchBox
-            placeholder="Search extracts..."
-            value={searchCache}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            onSubmit={(value) => handleSearchChange(value)}
-          />
-        </ExtractsSearchRow>
-        <FilterTabs
-          items={filterItems}
-          value={activeFilter}
-          onChange={setActiveFilter}
-        />
-      </ExtractsToolbar>
-
-      <ExtractsSplitView>
-        <ExtractsListPane $hasSelection={Boolean(selectedExtractId)}>
-          <CorpusExtractCards useInlineSelection activeFilter={activeFilter} />
-        </ExtractsListPane>
-
-        {selectedExtractId && (
-          <ExtractsDetailPane>
-            <CorpusExtractDetail
-              extractId={selectedExtractId}
-              onClose={handleCloseDetail}
-            />
-          </ExtractsDetailPane>
-        )}
-      </ExtractsSplitView>
-    </div>
-  );
-};
-
-// Container for the clean landing view (no sidebar).
-// Does NOT scroll — LandingContainer (inside CorpusLandingView) handles scrolling
-// via overflow-y: auto.  This wrapper only provides flex layout so that the
-// LandingContainer child can fill the available height.
-//
-// Height model:
-//   CardLayout → CleanViewContainer → LandingContainer
-//   - height: 100% + min-height: 0  → fills the flex parent while allowing
-//     shrink, giving LandingContainer a bounded block size.
-//   - overflow: hidden              → prevents this container from scrolling;
-//     all scrolling happens inside LandingContainer's overflow-y: auto.
-//   - max-height: 100dvh was removed because the flex ancestor chain already
-//     constrains height, and the extra cap conflicted with LandingContainer's
-//     own scroll container.
-const CleanViewContainer = styled.div`
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-`;
-
-// Wrapper for the "Simple View" exit button at the bottom of the sidebar
-const ExitPowerUserWrapper = styled.div`
-  padding: 0.75rem;
-  border-top: 1px solid ${CORPUS_COLORS.slate[200]};
-  flex-shrink: 0;
-`;
+  BackNavButton,
+  BottomSheetHandle,
+  CleanViewContainer,
+  CollapsedBadge,
+  CorpusViewContainer,
+  ExitPowerUserWrapper,
+  MainContentArea,
+  MobileBackButton,
+  MobileKebabButton,
+  MobileMenuBackdrop,
+  NavigationHeader,
+  NavigationItem,
+  NavigationItems,
+  NavigationSidebar,
+  NavigationToggle,
+  NavItemBadge,
+  SearchBarContainer,
+  SearchBarWithNav,
+  TabNavigationHeader,
+  TabTitle,
+} from "./Corpuses.styles";
 
 export const Corpuses = () => {
   const { width } = useWindowDimensions();
@@ -1631,7 +195,6 @@ export const Corpuses = () => {
   const currentUser = useReactiveVar(userObj);
   const backendUser = useReactiveVar(backendUserObj);
   const annotation_search_term = useReactiveVar(annotationContentSearchTerm);
-  const show_query_view_state = useReactiveVar(showQueryViewState);
   const show_create_extract_modal = useReactiveVar(showCreateExtractModal);
 
   const location = useLocation();
@@ -1667,6 +230,13 @@ export const Corpuses = () => {
   const [documentsViewMode, setDocumentsViewMode] =
     useState<ViewMode>("modern-list");
 
+  // Active tab on the Corpuses list view ("all" | "my" | "shared" | "public").
+  // Lifted up here so it can drive the GET_CORPUSES query variables — the
+  // server applies the tab filter and counts so pagination + badges stay
+  // accurate regardless of how many pages have been loaded.
+  const [corpusListActiveFilter, setCorpusListActiveFilter] =
+    useState<string>("all");
+
   // Track whether CorpusChat is showing a conversation (vs the list view)
   // Used to hide parent navigation header when CorpusChat handles its own
   const [chatInConversation, setChatInConversation] = useState<boolean>(false);
@@ -1680,10 +250,26 @@ export const Corpuses = () => {
    * Navigate to a source document with text block highlighting.
    * Called from CorpusChat when a user clicks a source citation.
    * Builds a deep link URL with ?tb= param and navigates to the document.
+   *
+   * Each silent-return path emits a console.warn so a user reporting "the
+   * source link doesn't work" can immediately see which guard is firing in
+   * DevTools instead of nothing happening on click.
    */
   const handleSourceNavigate = useCallback(
     (source: ChatMessageSource) => {
-      if (!source.document_id || !opened_corpus) return;
+      if (!source.document_id) {
+        console.warn(
+          "[handleSourceNavigate] No-op: source has no document_id; backend payload may be missing it.",
+          source
+        );
+        return;
+      }
+      if (!opened_corpus) {
+        console.warn(
+          "[handleSourceNavigate] No-op: opened_corpus is null; route resolution did not populate the openedCorpus reactive var."
+        );
+        return;
+      }
 
       // Validate corpus has slug data. This should always be present when
       // viewing a corpus (resolved from a slug-based URL by CentralRouteManager).
@@ -1691,13 +277,17 @@ export const Corpuses = () => {
       // unresolvable URL like /d/user/Q29ycHVzVHlwZTo1/... that 404s.
       if (!opened_corpus.slug || !opened_corpus.creator?.slug) {
         console.warn(
-          "Cannot navigate to source: corpus missing slug data",
-          opened_corpus
+          "[handleSourceNavigate] No-op: corpus missing slug data; cannot build canonical /d/<user-slug>/<corpus-slug>/<doc> URL.",
+          {
+            corpusSlug: opened_corpus.slug,
+            creatorSlug: opened_corpus.creator?.slug,
+            corpusId: opened_corpus.id,
+          }
         );
         return;
       }
 
-      // Build the text block encoding from source data
+      // Build the text block encoding from source data.
       let textBlock: string | null = null;
       if (
         source.isTextBased &&
@@ -1716,21 +306,67 @@ export const Corpuses = () => {
         );
       }
 
-      // Bail out if we couldn't build a text block reference —
-      // navigating without ?tb= would be a silent no-op.
-      if (!textBlock) return;
-
-      // We only have the document's raw database ID from the WebSocket source,
-      // not its slug, so we use a Relay global ID for the document segment.
-      // CentralRouteManager Phase 1 detects this as a GraphQL ID and resolves
-      // it via resolveDocumentById, then redirects to the canonical slug URL.
-      // The corpus segment uses validated slugs from the already-resolved corpus.
+      // Build the navigation URL. We only have the document's raw DB id from
+      // the WebSocket source, not its slug, so we use a Relay global ID for
+      // the document segment. CentralRouteManager Phase 1 detects this as a
+      // GraphQL ID and resolves it via resolveDocumentById, then redirects to
+      // the canonical slug URL. The corpus segment uses validated slugs from
+      // the already-resolved corpus.
       const docGraphQLId = toGlobalId("DocumentType", source.document_id);
-      const queryString = buildQueryParams({ textBlock });
 
-      navigate(
-        `/d/${opened_corpus.creator.slug}/${opened_corpus.slug}/${docGraphQLId}${queryString}`
-      );
+      // Prefer the precise text-block highlight when we have one. If the
+      // text-block could not be built (most often a PDF source whose multipage
+      // annotation_json has page keys but empty tokensJsons arrays — we have
+      // the annotation but not the per-token indices), fall back to selecting
+      // the annotation by its global ID via the existing ?ann= URL convention.
+      // Synthetic search-result annotations use negative IDs (see
+      // search.py); those are not real Annotation rows, so skip the ?ann=
+      // fallback and at least navigate to the document without a highlight
+      // rather than silently doing nothing.
+      const hasRealAnnotationId =
+        typeof source.annotation_id === "number" && source.annotation_id > 0;
+
+      let queryString: string;
+      if (textBlock) {
+        queryString = buildQueryParams({ textBlock });
+      } else if (hasRealAnnotationId) {
+        const annGlobalId = toGlobalId("AnnotationType", source.annotation_id);
+        queryString = buildQueryParams({ annotationIds: [annGlobalId] });
+        console.debug(
+          "[handleSourceNavigate] No text-block reference available; falling back to ?ann= deep-link.",
+          { annotationId: source.annotation_id, annGlobalId }
+        );
+      } else {
+        // Last-ditch: open the document with no highlight rather than no-op.
+        queryString = "";
+        console.warn(
+          "[handleSourceNavigate] No text-block AND no real annotation_id; navigating to document without a highlight.",
+          {
+            isTextBased: source.isTextBased,
+            startIndex: source.startIndex,
+            endIndex: source.endIndex,
+            tokensByPageCounts: source.tokensByPage
+              ? Object.fromEntries(
+                  Object.entries(source.tokensByPage).map(([page, tokens]) => [
+                    page,
+                    tokens.length,
+                  ])
+                )
+              : {},
+            annotationId: source.annotation_id,
+          }
+        );
+      }
+
+      const targetUrl = `/d/${opened_corpus.creator.slug}/${opened_corpus.slug}/${docGraphQLId}${queryString}`;
+
+      console.debug("[handleSourceNavigate] Navigating to source:", {
+        targetUrl,
+        documentId: source.document_id,
+        annotationId: source.annotation_id,
+      });
+
+      navigate(targetUrl);
     },
     [opened_corpus, navigate]
   );
@@ -1818,19 +454,29 @@ export const Corpuses = () => {
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // CRITICAL: Memoize corpus_variables to prevent infinite re-renders
   // Creating new object on every render causes Apollo to refetch → cache update → re-render → new object → LOOP
-  const corpus_variables = useMemo(() => {
-    const vars: LooseObject = {};
+  const corpus_variables = useMemo<GetCorpusesInputs>(() => {
+    const vars: GetCorpusesInputs = {};
     if (corpus_search_term) {
-      vars["textSearch"] = corpus_search_term;
+      vars.textSearch = corpus_search_term;
+    }
+    // Map active tab to backend filter args. Only one tab flag at a time —
+    // "all" sends no flag so the server returns the full visible set.
+    if (corpusListActiveFilter === "my") {
+      vars.mine = true;
+    } else if (corpusListActiveFilter === "shared") {
+      vars.sharedWithMe = true;
+    } else if (corpusListActiveFilter === "public") {
+      vars.isPublic = true;
     }
     return vars;
-  }, [corpus_search_term]);
+  }, [corpus_search_term, corpusListActiveFilter]);
 
   // Now that auth is guaranteed to be ready before this component renders,
   // we can use a regular useQuery
   const {
     refetch: refetchCorpuses,
     loading: loading_corpuses,
+    networkStatus: corpus_network_status,
     error: corpus_load_error,
     data: corpus_response,
     fetchMore: fetchMoreCorpusesOrig,
@@ -1842,6 +488,31 @@ export const Corpuses = () => {
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true, // required to get loading signal on fetchMore
   });
+
+  // Tab counts for the Corpuses list view. Server-computed so they reflect
+  // the user's actual visible set (and the current text search) without
+  // needing every page paginated in.
+  const corpus_filter_counts_variables = useMemo<GetCorpusFilterCountsInputs>(
+    () => (corpus_search_term ? { textSearch: corpus_search_term } : {}),
+    [corpus_search_term]
+  );
+  const {
+    data: corpus_filter_counts_data,
+    refetch: refetchCorpusFilterCounts,
+  } = useQuery<GetCorpusFilterCountsOutputs, GetCorpusFilterCountsInputs>(
+    GET_CORPUS_FILTER_COUNTS,
+    {
+      variables: corpus_filter_counts_variables,
+      fetchPolicy: "cache-and-network",
+    }
+  );
+  const corpus_filter_counts =
+    corpus_filter_counts_data?.corpusFilterCounts ?? {
+      all: 0,
+      mine: 0,
+      shared: 0,
+      public: 0,
+    };
 
   /* --------------------------------------------------------------------------------------------------
    * Entity resolution is now handled by CentralRouteManager
@@ -1988,9 +659,17 @@ export const Corpuses = () => {
     }
   }, [metadataCorpusId]); // Only depend on ID, not the full object
 
-  useEffect(() => {
-    refetch_documents();
-  }, [selected_metadata_id_to_filter_on]);
+  // NOTE: A previous version of this effect called ``refetch_documents()``
+  // whenever ``selected_metadata_id_to_filter_on`` changed. ``refetch_documents``
+  // is the ``refetch`` of a ``useLazyQuery`` that fires the query *immediately*
+  // — including on mount, when the dependency starts as ``undefined``. That
+  // produced a duplicate ``GET_DOCUMENTS`` network call on every corpus open
+  // (with no ``inFolderId``), racing against the per-folder ``GET_DOCUMENTS``
+  // already issued by ``CorpusDocumentCards``. The list there is authoritative
+  // and re-runs on its own when ``selected_metadata_id_to_filter_on`` changes
+  // (its variables include ``hasAnnotationsWithIds``), so this effect is
+  // redundant — and the duplicate response merging into the same cache nodes
+  // was contributing to the document-list reload loop.
 
   // Fetch corpus stats - with proper ID validation
   // Handle both string and number IDs, convert to string for GraphQL
@@ -2075,6 +754,7 @@ export const Corpuses = () => {
     onCompleted: (data) => {
       refetchCorpuses();
       refetchStats(); // Refresh stats after corpus update
+      refetchCorpusFilterCounts();
       editingCorpus(null);
     },
   });
@@ -2086,8 +766,27 @@ export const Corpuses = () => {
     DeleteCorpusOutputs,
     DeleteCorpusInputs
   >(DELETE_CORPUS, {
-    onCompleted: (data) => {
+    // Remove the deleted corpus from every cached connection (every tab,
+    // every search term) so the list updates instantly without waiting on
+    // the refetch round-trip.
+    update: (cache, { data }, { variables }) => {
+      if (!data?.deleteCorpus?.ok || !variables?.id) return;
+      const cacheId = cache.identify({
+        __typename: "CorpusType",
+        id: variables.id,
+      });
+      if (cacheId) {
+        cache.evict({ id: cacheId });
+        cache.gc();
+      }
+    },
+    onCompleted: () => {
+      // cache.evict gives instant removal in every cached page; the refetch
+      // is still load-bearing because deleting a corpus shifts every
+      // server-side pagination cursor that comes after it, so subsequent
+      // fetchMore calls would otherwise skip or duplicate items.
       refetchCorpuses();
+      refetchCorpusFilterCounts();
     },
   });
 
@@ -2111,6 +810,7 @@ export const Corpuses = () => {
     onCompleted: (data) => {
       refetchCorpuses();
       refetchStats(); // Refresh stats after corpus creation
+      refetchCorpusFilterCounts();
       setShowNewCorpusModal(false);
     },
   });
@@ -2333,7 +1033,6 @@ export const Corpuses = () => {
         component: (
           <CorpusQueryView
             opened_corpus={opened_corpus}
-            opened_corpus_id={opened_corpus_id}
             setShowDescriptionEditor={setShowDescriptionEditor}
             setShowArticleEditor={setShowArticleEditor}
             onNavigate={(tabIndex) => setActiveTab(tabIndex)}
@@ -2585,6 +1284,11 @@ export const Corpuses = () => {
                 setShowLoad={() => {}}
                 onViewModeChange={setChatInConversation}
                 onNavigateHome={() => setActiveTab(0)}
+                // The chats tab's TabNavigationHeader (rendered above when in
+                // list view) already provides Back navigation on every screen
+                // size, so suppress the inner filter-bar Back to avoid the
+                // duplicate-back-button UX bug.
+                hideListBackButton
               />
             </div>
           </div>
@@ -2724,6 +1428,7 @@ export const Corpuses = () => {
           update_corpus_loading ||
           create_corpus_loading
         }
+        networkStatus={corpus_network_status}
         fetchMore={fetchMoreCorpuses}
         onCreateCorpus={() => setShowNewCorpusModal(true)}
         onImportCorpus={() => showImportCorpusModal(true)}
@@ -2732,6 +1437,9 @@ export const Corpuses = () => {
         allowImport={
           REACT_APP_ALLOW_IMPORTS && Boolean(backendUser?.canImportCorpus)
         }
+        activeFilter={corpusListActiveFilter}
+        onFilterChange={setCorpusListActiveFilter}
+        filterCounts={corpus_filter_counts}
       />
     );
   } else if (
@@ -2844,7 +1552,7 @@ export const Corpuses = () => {
               <NavigationItem
                 data-item-id={item.id}
                 key={item.id}
-                isActive={active_tab === index}
+                $isActive={active_tab === index}
                 $isExpanded={
                   use_mobile_layout ? mobileSidebarOpen : sidebarExpanded
                 }
@@ -2876,7 +1584,7 @@ export const Corpuses = () => {
                     </span>
                     {item.badge !== undefined && (
                       <NavItemBadge
-                        isActive={active_tab === index}
+                        $isActive={active_tab === index}
                         $isZero={item.badge === 0}
                       >
                         {item.badge > 0 ? item.badge : "–"}
@@ -2891,7 +1599,7 @@ export const Corpuses = () => {
           {/* Exit to Explore mode button */}
           <ExitPowerUserWrapper>
             <NavigationItem
-              isActive={false}
+              $isActive={false}
               $isExpanded={
                 use_mobile_layout ? mobileSidebarOpen : sidebarExpanded
               }
@@ -2910,10 +1618,7 @@ export const Corpuses = () => {
         </NavigationSidebar>
 
         {/* Main content area */}
-        <MainContentArea
-          id="main-corpus-content-area"
-          $sidebarExpanded={!use_mobile_layout && sidebarExpanded}
-        >
+        <MainContentArea id="main-corpus-content-area">
           {mainContent}
         </MainContentArea>
       </CorpusViewContainer>

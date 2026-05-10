@@ -7,6 +7,13 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
+import {
+  PageContainer,
+  ContentContainer,
+  HeroSection,
+  HeroTitle,
+  HeroSubtitle,
+} from "../components/layout/PageLayout";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import _ from "lodash";
@@ -61,28 +68,6 @@ interface LooseObject {
 // STYLED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const PageContainer = styled.div`
-  height: 100%;
-  background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-y: auto;
-  overflow-x: hidden;
-`;
-
-const ContentContainer = styled.main`
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 48px 24px 80px;
-
-  @media (max-width: 768px) {
-    padding: 32px 16px 60px;
-  }
-`;
-
-const HeroSection = styled.section`
-  margin-bottom: 40px;
-`;
-
 const HeroHeader = styled.div`
   display: flex;
   align-items: flex-start;
@@ -95,27 +80,7 @@ const HeroHeader = styled.div`
   }
 `;
 
-const HeroTitle = styled.h1`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 42px;
-  font-weight: 400;
-  line-height: 1.2;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  margin: 0 0 12px;
-
-  span {
-    color: ${OS_LEGAL_COLORS.accent};
-  }
-
-  @media (max-width: 768px) {
-    font-size: 32px;
-  }
-`;
-
-const HeroSubtitle = styled.p`
-  font-size: 17px;
-  line-height: 1.6;
-  color: ${OS_LEGAL_COLORS.textSecondary};
+const NarrowHeroSubtitle = styled(HeroSubtitle)`
   margin: 0;
   max-width: 500px;
 `;
@@ -452,8 +417,17 @@ export const Annotations = () => {
   }, [isSemanticSearchActive, semanticSearchResults]);
 
   // Calculate stats
+  // NOTE: total comes from the server-side totalCount and is accurate.
+  // The breakdown counts (docLabels/textLabels/humanAnnotated) are derived
+  // from the items currently loaded into the client (initial page +
+  // anything fetched via infinite scroll). With totals in the tens of
+  // thousands these are necessarily partial; the labels below disclose
+  // this so the tiles aren't misread as "0 doc labels exist" when they
+  // really mean "0 in the loaded batch" (issue #1560).
   const stats = useMemo(() => {
     const total = annotation_data?.annotations?.totalCount ?? rawItems.length;
+    const loadedCount = rawItems.length;
+    const isPartial = total > loadedCount;
     const docLabels = rawItems.filter(
       (item) => getAnnotationLabelType(item) === "doc"
     ).length;
@@ -464,8 +438,20 @@ export const Annotations = () => {
       (item) => getAnnotationSource(item) === "human"
     ).length;
 
-    return { total, docLabels, textLabels, humanAnnotated };
+    return {
+      total,
+      loadedCount,
+      isPartial,
+      docLabels,
+      textLabels,
+      humanAnnotated,
+    };
   }, [rawItems, annotation_data?.annotations?.totalCount]);
+
+  const partialBreakdownTooltip = stats.isPartial
+    ? `Counted from ${stats.loadedCount.toLocaleString()} of ${stats.total.toLocaleString()} loaded so far. Scroll to load more.`
+    : undefined;
+  const partialBreakdownSuffix = stats.isPartial ? " (in view)" : "";
 
   // Execute semantic search with current filters
   const performSemanticSearch = useCallback(
@@ -610,18 +596,18 @@ export const Annotations = () => {
 
   return (
     <PageContainer>
-      <ContentContainer>
+      <ContentContainer $maxWidth="wide">
         {/* Hero Section */}
-        <HeroSection>
+        <HeroSection $marginBottom={40}>
           <HeroHeader>
             <div>
-              <HeroTitle>
+              <HeroTitle $marginBottom={12}>
                 Browse <span>annotations</span>
               </HeroTitle>
-              <HeroSubtitle>
+              <NarrowHeroSubtitle>
                 Explore and discover annotations across your documents. Filter
                 by type, source, or visibility.
-              </HeroSubtitle>
+              </NarrowHeroSubtitle>
             </div>
           </HeroHeader>
         </HeroSection>
@@ -639,33 +625,33 @@ export const Annotations = () => {
               </StatContent>
             </StatItem>
             <StatDivider />
-            <StatItem>
+            <StatItem title={partialBreakdownTooltip}>
               <StatIcon>
                 <FileText size={20} />
               </StatIcon>
               <StatContent>
                 <StatValue>{stats.docLabels}</StatValue>
-                <StatLabel>Doc Labels</StatLabel>
+                <StatLabel>Doc Labels{partialBreakdownSuffix}</StatLabel>
               </StatContent>
             </StatItem>
             <StatDivider />
-            <StatItem>
+            <StatItem title={partialBreakdownTooltip}>
               <StatIcon>
                 <AlignLeft size={20} />
               </StatIcon>
               <StatContent>
                 <StatValue>{stats.textLabels}</StatValue>
-                <StatLabel>Text Labels</StatLabel>
+                <StatLabel>Text Labels{partialBreakdownSuffix}</StatLabel>
               </StatContent>
             </StatItem>
             <StatDivider />
-            <StatItem>
+            <StatItem title={partialBreakdownTooltip}>
               <StatIcon>
                 <User size={20} />
               </StatIcon>
               <StatContent>
                 <StatValue>{stats.humanAnnotated}</StatValue>
-                <StatLabel>Human Annotated</StatLabel>
+                <StatLabel>Human Annotated{partialBreakdownSuffix}</StatLabel>
               </StatContent>
             </StatItem>
           </StatsRow>
@@ -724,11 +710,6 @@ export const Annotations = () => {
               isSemanticSearchActive
                 ? semanticSearchLoading
                 : annotation_loading
-            }
-            loadingMessage={
-              isSemanticSearchActive
-                ? "Searching annotations..."
-                : "Loading Annotations..."
             }
             pageInfo={annotation_data?.annotations?.pageInfo}
             typeFilter={typeFilter}

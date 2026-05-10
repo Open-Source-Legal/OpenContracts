@@ -2,8 +2,8 @@ import io
 import json
 import logging
 import zipfile
-from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 from pdfredact import build_text_redacted_pdf, redact_pdf_to_images
 
@@ -38,8 +38,8 @@ class PDFRedactor(BasePostProcessor):
     title: str = "PDF Redactor"
     description: str = "Redacts PDFs by overlaying black rectangles and removing text"
     author: str = "OpenContracts"
-    dependencies: list[str] = ["pikepdf>=8.2.2", "reportlab"]
-    input_schema: Mapping = {
+    dependencies = ["pikepdf>=8.2.2", "reportlab"]
+    input_schema = {
         "labels_to_redact": {
             "type": "array",
             "items": {"type": "string"},
@@ -141,8 +141,13 @@ class PDFRedactor(BasePostProcessor):
                         ] = {i: [] for i in range(page_count)}
 
                         for ann in annotation_jsons:
-                            for p in ann:
-                                annots_by_page[int(p)].append(ann[p])
+                            # ``annotation_json`` is a union of TypedDicts and
+                            # the legacy per-page mapping; only the latter
+                            # iterates over page keys, so we widen to dict for
+                            # the runtime walk.
+                            ann_pages = cast(dict[Any, Any], ann)
+                            for p in ann_pages:
+                                annots_by_page[int(p)].append(ann_pages[p])
                         annots_by_page_list = list(annots_by_page.values())
 
                         redacted_image_list = redact_pdf_to_images(

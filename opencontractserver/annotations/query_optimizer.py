@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from opencontractserver.analyzer.models import Analysis
     from opencontractserver.extracts.models import Extract
 
-from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Value
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet, Value
 
 
 class AnnotationQueryOptimizer:
@@ -27,7 +27,11 @@ class AnnotationQueryOptimizer:
 
     @classmethod
     def _compute_effective_permissions(
-        cls, user, document_id: int, corpus_id: Optional[int] = None
+        cls,
+        user,
+        document_id: int,
+        corpus_id: Optional[int] = None,
+        context=None,
     ) -> tuple[bool, bool, bool, bool, bool]:
         """
         Compute effective permissions based on document and corpus.
@@ -36,108 +40,178 @@ class AnnotationQueryOptimizer:
         - If corpus.allow_comments is True, any readable annotation is commentable
         - Otherwise, standard MIN(doc_comment, corpus_comment) logic applies
 
+        ``context`` is the GraphQL request context. When provided, results are
+        cached on ``context._effective_perms_cache`` keyed by
+        ``(user_id, document_id, corpus_id)`` so subsequent resolvers in the
+        same request reuse the answer instead of re-running the 10
+        ``user_has_permission_for_obj`` round-trips and the
+        ``Document``/``Corpus`` ``.get()`` lookups. The cache is also primed
+        with the fetched ORM instances so other resolvers inside this request
+        can avoid re-fetching them.
+
         Returns: (can_read, can_create, can_update, can_delete, can_comment)
         """
-        from opencontractserver.corpuses.models import Corpus
-        from opencontractserver.documents.models import Document
         from opencontractserver.types.enums import PermissionTypes
         from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
+        cache_key = (
+            getattr(user, "id", None),
+            document_id,
+            corpus_id,
+        )
+        perms_cache = None
+        if context is not None:
+            perms_cache = getattr(context, "_effective_perms_cache", None)
+            if perms_cache is None:
+                perms_cache = {}
+                context._effective_perms_cache = perms_cache
+            cached = perms_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        def _store(
+            result: tuple[bool, bool, bool, bool, bool],
+        ) -> tuple[bool, bool, bool, bool, bool]:
+            if perms_cache is not None:
+                perms_cache[cache_key] = result
+            return result
+
         # Superusers have all permissions
         if user.is_superuser:
-            return True, True, True, True, True
+            return _store((True, True, True, True, True))
+
+        document = cls._get_document_for_request(document_id, context)
+        if document is None:
+            return _store((False, False, False, False, False))
 
         # Anonymous users only have read access to public documents/corpuses
         if user.is_anonymous:
-            try:
-                document = Document.objects.get(id=document_id)
-                doc_read = document.is_public
-            except Document.DoesNotExist:
-                return False, False, False, False, False
-
-            if not doc_read:
-                return False, False, False, False, False
+            if not document.is_public:
+                return _store((False, False, False, False, False))
 
             if corpus_id:
-                try:
-                    corpus = Corpus.objects.get(id=corpus_id)
-                    corpus_read = corpus.is_public
-                except Corpus.DoesNotExist:
-                    return False, False, False, False, False
+                corpus = cls._get_corpus_for_request(corpus_id, context)
+                if corpus is None or not corpus.is_public:
+                    return _store((False, False, False, False, False))
 
-                if not corpus_read:
-                    return False, False, False, False, False
+            return _store((True, False, False, False, False))
 
-            # Anonymous users only get read permission
-            return True, False, False, False, False
-
-        # First check document permissions (primary)
-        try:
-            document = Document.objects.get(id=document_id)
-            doc_read = user_has_permission_for_obj(user, document, PermissionTypes.READ)
-            doc_create = user_has_permission_for_obj(
-                user, document, PermissionTypes.CREATE
-            )
-            doc_update = user_has_permission_for_obj(
-                user, document, PermissionTypes.UPDATE
-            )
-            doc_delete = user_has_permission_for_obj(
-                user, document, PermissionTypes.DELETE
-            )
-            doc_comment = user_has_permission_for_obj(
-                user, document, PermissionTypes.COMMENT
-            )
-        except Document.DoesNotExist:
-            return False, False, False, False, False
-
-        # If no document read permission, no access at all
+        # Authenticated user — document permissions first
+        doc_read = user_has_permission_for_obj(user, document, PermissionTypes.READ)
         if not doc_read:
-            return False, False, False, False, False
+            return _store((False, False, False, False, False))
 
-        # If no corpus, use document permissions only
+        doc_create = user_has_permission_for_obj(user, document, PermissionTypes.CREATE)
+        doc_update = user_has_permission_for_obj(user, document, PermissionTypes.UPDATE)
+        doc_delete = user_has_permission_for_obj(user, document, PermissionTypes.DELETE)
+        doc_comment = user_has_permission_for_obj(
+            user, document, PermissionTypes.COMMENT
+        )
+
         if not corpus_id:
-            return doc_read, doc_create, doc_update, doc_delete, doc_comment
+            return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
 
-        # Check corpus permissions and apply most restrictive
-        try:
-            corpus = Corpus.objects.get(id=corpus_id)
-            corpus_read = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.READ
-            )
-            corpus_create = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.CREATE
-            )
-            corpus_update = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.UPDATE
-            )
-            corpus_delete = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.DELETE
-            )
-            corpus_comment = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.COMMENT
-            )
+        corpus = cls._get_corpus_for_request(corpus_id, context)
+        if corpus is None:
+            # Corpus doesn't exist or isn't visible — fall back to document perms.
+            return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
 
-            # Compute final read permission
-            final_read = doc_read and corpus_read
+        corpus_read = user_has_permission_for_obj(user, corpus, PermissionTypes.READ)
+        corpus_create = user_has_permission_for_obj(
+            user, corpus, PermissionTypes.CREATE
+        )
+        corpus_update = user_has_permission_for_obj(
+            user, corpus, PermissionTypes.UPDATE
+        )
+        corpus_delete = user_has_permission_for_obj(
+            user, corpus, PermissionTypes.DELETE
+        )
+        corpus_comment = user_has_permission_for_obj(
+            user, corpus, PermissionTypes.COMMENT
+        )
 
-            # BACON MODE: If corpus allows comments, readable = commentable
-            if corpus.allow_comments:
-                final_comment = final_read  # Can see it? Can comment on it.
-            else:
-                # Standard restrictive model
-                final_comment = doc_comment and corpus_comment
+        final_read = doc_read and corpus_read
 
-            # Return computed permissions
-            return (
+        # BACON MODE: If corpus allows comments, readable = commentable.
+        if corpus.allow_comments:
+            final_comment = final_read
+        else:
+            final_comment = doc_comment and corpus_comment
+
+        return _store(
+            (
                 final_read,
                 doc_create and corpus_create,
                 doc_update and corpus_update,
                 doc_delete and corpus_delete,
                 final_comment,
             )
+        )
+
+    @staticmethod
+    def _get_document_for_request(document_id: int, context):
+        """
+        Return the ``Document`` for ``document_id``, caching the instance on
+        ``context._document_instance_cache`` so the same request never fetches
+        the same row twice.
+
+        ``structural_annotation_set`` is ``select_related`` so the FK
+        dereference inside ``get_document_annotations`` (which builds a query
+        spanning the document's structural set) stays on the original SELECT
+        instead of triggering a follow-up round-trip per request.
+        """
+        from opencontractserver.documents.models import Document
+
+        if context is None:
+            try:
+                return Document.objects.select_related("structural_annotation_set").get(
+                    id=document_id
+                )
+            except Document.DoesNotExist:
+                return None
+
+        cache = getattr(context, "_document_instance_cache", None)
+        if cache is None:
+            cache = {}
+            context._document_instance_cache = cache
+        if document_id in cache:
+            return cache[document_id]
+        try:
+            instance = Document.objects.select_related("structural_annotation_set").get(
+                id=document_id
+            )
+        except Document.DoesNotExist:
+            instance = None
+        cache[document_id] = instance
+        return instance
+
+    @staticmethod
+    def _get_corpus_for_request(corpus_id: int, context):
+        """
+        Return the ``Corpus`` for ``corpus_id``, caching the instance on
+        ``context._corpus_instance_cache``. Mirror of
+        ``_get_document_for_request``.
+        """
+        from opencontractserver.corpuses.models import Corpus
+
+        if context is None:
+            try:
+                return Corpus.objects.get(id=corpus_id)
+            except Corpus.DoesNotExist:
+                return None
+
+        cache = getattr(context, "_corpus_instance_cache", None)
+        if cache is None:
+            cache = {}
+            context._corpus_instance_cache = cache
+        if corpus_id in cache:
+            return cache[corpus_id]
+        try:
+            instance = Corpus.objects.get(id=corpus_id)
         except Corpus.DoesNotExist:
-            # Corpus doesn't exist, use document permissions
-            return doc_read, doc_create, doc_update, doc_delete, doc_comment
+            instance = None
+        cache[corpus_id] = instance
+        return instance
 
     @classmethod
     def get_document_annotations(
@@ -151,6 +225,7 @@ class AnnotationQueryOptimizer:
         structural: Optional[bool] = None,  # Filter for structural annotations
         use_cache: bool = True,  # Kept for backward compatibility, ignored
         check_current_version: bool = True,  # NEW: Check if document is current and has active path
+        context=None,
     ) -> QuerySet:
         """
         Get annotations with permission filtering and optimized queries.
@@ -159,13 +234,21 @@ class AnnotationQueryOptimizer:
         IMPORTANT: Returns annotations from BOTH:
         1. Direct document annotations (document FK) - corpus-specific annotations
         2. Structural annotations via document's structural_annotation_set (structural_set FK) - shared annotations
+
+        ``context`` is the GraphQL request context. When provided, the
+        permission check, the parent ``Document`` fetch, and the
+        ``Corpus`` fetch are cached for the lifetime of the request, so
+        sibling resolvers (``allAnnotations`` / ``allRelationships`` /
+        ``docAnnotations``) don't repeat the work for the same
+        ``(user, document, corpus)`` tuple.
         """
         from opencontractserver.annotations.models import Annotation
-        from opencontractserver.documents.models import Document
 
-        # Compute effective permissions once
+        # Compute effective permissions once (cached on context if available)
         can_read, can_create, can_update, can_delete, can_comment = (
-            cls._compute_effective_permissions(user, document_id, corpus_id)
+            cls._compute_effective_permissions(
+                user, document_id, corpus_id, context=context
+            )
         )
         # No read permission = no annotations
         if not can_read:
@@ -186,13 +269,14 @@ class AnnotationQueryOptimizer:
                 # Document is deleted or not current in corpus
                 return Annotation.objects.none()
 
-        # Fetch document to check for structural_annotation_set
-        # Use select_related for efficiency to avoid N+1 queries
-        try:
-            document = Document.objects.select_related("structural_annotation_set").get(
-                pk=document_id
-            )
-        except Document.DoesNotExist:
+        # Fetch the document (request-cached if ``context`` is provided so we
+        # don't re-fetch the row that ``_compute_effective_permissions`` and
+        # parent resolvers have already loaded). The cached fetcher
+        # ``_get_document_for_request`` uses ``select_related(
+        # "structural_annotation_set")`` so the structural-set branch below
+        # never triggers a follow-up round-trip on FK dereference.
+        document = cls._get_document_for_request(document_id, context)
+        if document is None:
             return Annotation.objects.none()
 
         # Build base filter for annotations from BOTH sources:
@@ -344,20 +428,45 @@ class AnnotationQueryOptimizer:
             ).values_list("sources__id", flat=True)
             qs = qs.filter(id__in=datacell_annotation_ids)
 
-        # Optimize query with prefetches and annotate feedback count
-        # Also annotate with computed permissions for backwards compatibility
+        # Optimize query with prefetches and annotate computed permissions for
+        # the GraphQL ``myPermissions`` field. Permission values are constant
+        # for the whole queryset (computed once above) so they're cheap.
+        #
+        # NB: previously this also did ``.annotate(feedback_count=Count(...))``
+        # plus ``.distinct()``. Both were per-row costs paid for every
+        # annotation in the response, even when no feedback exists:
+        #   - the Count forced a LEFT JOIN user_feedback + GROUP BY
+        #     annotation.id, which Postgres has to materialise/sort with
+        #     ``select_related`` joins also live
+        #   - the distinct then ran a sort/hash unique pass on the joined
+        #     row set
+        # Neither was necessary: the filters above don't introduce
+        # duplicates (no M2M JOINs — analysis/extract visibility uses
+        # subqueries), and ``feedback_count`` is now computed from the
+        # prefetched ``user_feedback`` list in
+        # ``AnnotationType.resolve_feedback_count``.
+        from opencontractserver.feedback.models import UserFeedback
+
         qs = (
             qs.select_related("annotation_label", "creator", "analysis")
+            .prefetch_related(
+                Prefetch(
+                    "user_feedback",
+                    queryset=UserFeedback.objects.only(
+                        "id",
+                        "approved",
+                        "rejected",
+                        "commented_annotation_id",
+                    ),
+                )
+            )
             .annotate(
-                feedback_count=Count("user_feedback"),
-                # Store computed permissions for GraphQL myPermissions field
                 _can_read=Value(can_read),
                 _can_create=Value(can_create),
                 _can_update=Value(can_update),
                 _can_delete=Value(can_delete),
                 _can_comment=Value(can_comment),
             )
-            .distinct()
         )
 
         return qs
@@ -692,6 +801,7 @@ class RelationshipQueryOptimizer:
         extract_id: Optional[int] = None,
         strict_extract_mode: bool = False,
         use_cache: bool = True,  # Ignored
+        context=None,
     ) -> QuerySet:
         """
         Get relationships with optimized prefetching.
@@ -700,27 +810,31 @@ class RelationshipQueryOptimizer:
         IMPORTANT: Returns relationships from BOTH:
         1. Direct document relationships (document FK) - corpus-specific relationships
         2. Structural relationships via document's structural_annotation_set (structural_set FK) - shared relationships
+
+        ``context`` allows the request-level caches in
+        ``AnnotationQueryOptimizer._compute_effective_permissions`` /
+        ``_get_document_for_request`` to be shared with the annotation resolver
+        in the same GraphQL operation.
         """
         from opencontractserver.annotations.models import Relationship
-        from opencontractserver.documents.models import Document
 
-        # Use unified permission check from AnnotationQueryOptimizer
+        # Use unified permission check from AnnotationQueryOptimizer.
+        # Pass context so the result is cached for the rest of the request.
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationQueryOptimizer._compute_effective_permissions(
-                user, document_id, corpus_id
+                user, document_id, corpus_id, context=context
             )
         )
 
         if not can_read:
             return Relationship.objects.none()
 
-        # Fetch document to check for structural_annotation_set
-        # Use select_related for efficiency
-        try:
-            document = Document.objects.select_related("structural_annotation_set").get(
-                pk=document_id
-            )
-        except Document.DoesNotExist:
+        # Fetch document via the request cache (same instance as the annotation
+        # resolver uses, when both run in the same GraphQL request).
+        document = AnnotationQueryOptimizer._get_document_for_request(
+            document_id, context
+        )
+        if document is None:
             return Relationship.objects.none()
 
         # Build base filter for relationships from BOTH sources:

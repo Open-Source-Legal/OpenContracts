@@ -113,7 +113,7 @@ class DeleteLabelset(DRFDeletion):
 
 class CreateLabelMutation(DRFMutation):
     class IOSettings:
-        pk_fields = []
+        pk_fields: list[str] = []
         serializer = AnnotationLabelSerializer
         model = AnnotationLabel
         graphene_model = AnnotationLabelType
@@ -128,7 +128,7 @@ class CreateLabelMutation(DRFMutation):
 
 class UpdateLabelMutation(DRFMutation):
     class IOSettings:
-        pk_fields = []
+        pk_fields: list[str] = []
         serializer = AnnotationLabelSerializer
         lookup_field = "id"
         model = AnnotationLabel
@@ -345,9 +345,7 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            label_pks = list(
-                map(lambda graphene_id: from_global_id(graphene_id)[1], label_ids)
-            )
+            label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
             labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
             if not user_has_permission_for_obj(
                 user,

@@ -10,6 +10,9 @@ import environ
 from opencontractserver.constants.agent_memory import (
     MEMORY_CURATION_CHECK_INTERVAL_SECONDS,
 )
+from opencontractserver.constants.celery import (
+    CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS,
+)
 from opencontractserver.constants.document_processing import MAX_FILE_UPLOAD_SIZE_BYTES
 
 ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
@@ -157,6 +160,7 @@ LOCAL_APPS = [
     "opencontractserver.notifications",
     "opencontractserver.agents",
     "opencontractserver.worker_uploads",
+    "opencontractserver.document_imports",
     "opencontractserver.discovery",
     "opencontractserver.benchmarks",
 ]
@@ -711,7 +715,14 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 # than raising the timeout further; longer timeouts directly delay redelivery
 # after a real worker death.
 # https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html#visibility-timeout
-CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 12 * 60 * 60}
+#
+# If adding new transport options in environment-specific settings (e.g.
+# production SSL options), merge into this dict rather than reassigning it —
+# a bare ``CELERY_BROKER_TRANSPORT_OPTIONS = {...}`` would drop the
+# visibility timeout and silently regress at-least-once delivery.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "visibility_timeout": CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS,
+}
 
 # Celery task routing
 # -----------------------------------------------------------------------
@@ -758,6 +769,18 @@ MAX_WORKER_UPLOAD_SIZE_BYTES = int(
 
 # Minutes before a PROCESSING upload is considered stalled and reset to PENDING.
 WORKER_UPLOAD_STALE_MINUTES = int(env("WORKER_UPLOAD_STALE_MINUTES", default="15"))
+
+# Maximum file size (in bytes) accepted by the multipart REST import
+# endpoints under /api/imports/. Applied to both single-document and
+# bulk-zip imports. Default: same ceiling as DATA_UPLOAD_MAX_MEMORY_SIZE
+# (5 GB). Set to 0 to disable the per-endpoint check (Django's
+# DATA_UPLOAD_MAX_MEMORY_SIZE still applies to non-file form data).
+MAX_DOCUMENT_IMPORT_SIZE_BYTES = int(
+    env(
+        "MAX_DOCUMENT_IMPORT_SIZE_BYTES",
+        default=str(MAX_FILE_UPLOAD_SIZE_BYTES),
+    )
+)
 
 # Maximum metadata JSON size (in bytes) accepted by the worker upload endpoint.
 # Default: 500 MB. Set to 0 to disable the limit.
@@ -832,6 +855,7 @@ REST_FRAMEWORK = {
         "anon": "100/hour",  # Anonymous users (shouldn't hit authenticated endpoints)
         "user": "1000/hour",  # Authenticated users
         "annotation_images": "200/hour",  # Image retrieval endpoint (higher bandwidth)
+        "document_imports": "120/hour",  # Multipart document import endpoints
     },
 }
 
@@ -1054,6 +1078,17 @@ MAX_IMAGE_SIZE_BYTES = env.int(
 )
 MAX_TOTAL_IMAGES_SIZE_BYTES = env.int(
     "MAX_TOTAL_IMAGES_SIZE_BYTES", default=100 * 1024 * 1024  # 100MB total per document
+)
+# DPI for rasterising PDF pages when an embedded image stream cannot be decoded
+# directly. Page-render RSS scales as ~DPI^2, so raising this trades worker
+# memory for sharper crops. Default of 150 keeps a US-letter page render
+# under ~10 MB.
+IMAGE_EXTRACTION_DPI = env.int("IMAGE_EXTRACTION_DPI", default=150)
+# Force a full ``gc.collect()`` after this many pages of image extraction.
+# Bounds peak RSS by reclaiming Poppler/PIL buffers proactively. Set to 0
+# to disable explicit collection (rely on CPython's threshold-based GC).
+IMAGE_EXTRACTION_GC_INTERVAL_PAGES = env.int(
+    "IMAGE_EXTRACTION_GC_INTERVAL_PAGES", default=1
 )
 
 # Thumbnail extraction tasks

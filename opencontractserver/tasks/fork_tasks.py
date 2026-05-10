@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
@@ -13,6 +13,7 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     LabelSet,
     Relationship,
+    StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.documents.models import Document, DocumentPath
@@ -36,8 +37,8 @@ def fork_corpus(
     folder_ids: list[str],
     relationship_ids: list[str],
     user_id: str,
-    metadata_column_ids: list[str] = None,
-    metadata_datacell_ids: list[str] = None,
+    metadata_column_ids: Optional[list[str]] = None,
+    metadata_datacell_ids: Optional[list[str]] = None,
 ) -> Optional[str]:
 
     # Handle None defaults for backward compatibility with queued tasks
@@ -87,15 +88,12 @@ def fork_corpus(
                     logger.info(f"Cloned labelset: {label_set}")
 
                     # If there's an icon... copy it to a new file
-                    if old_label_set.icon:
-                        icon_obj = default_storage.open(old_label_set.icon.name)
+                    if old_label_set.icon and old_label_set.icon.name:
+                        icon_name = old_label_set.icon.name
+                        icon_obj = default_storage.open(icon_name)
                         icon_file = ContentFile(icon_obj.read())
-                        logger.info(
-                            f"Label set icon name: {Path(old_label_set.icon.name).name}"
-                        )
-                        label_set.icon.save(
-                            Path(old_label_set.icon.name).name, icon_file
-                        )
+                        logger.info(f"Label set icon name: {Path(icon_name).name}")
+                        label_set.icon.save(Path(icon_name).name, icon_file)
                         label_set.save()
 
                 except Exception as e:
@@ -220,7 +218,7 @@ def fork_corpus(
             # ============================================================
             # Clone folder structure (must be before documents)
             # ============================================================
-            folder_map = {}  # old_folder_id -> new_folder_id
+            folder_map: dict[int, int] = {}  # old_folder_id -> new_folder_id
 
             logger.info(f"Cloning {len(folder_ids)} folders")
             # Note: with_tree_fields() provides default tree_ordering which ensures parents before children
@@ -257,7 +255,9 @@ def fork_corpus(
             # ============================================================
             # Track duplicated structural_annotation_sets to preserve sharing
             # (docs with same content hash should share the same set after forking)
-            structural_set_map = {}  # old_structural_set_id -> new_structural_set
+            structural_set_map: dict[int, StructuralAnnotationSet] = (
+                {}
+            )  # old_structural_set_id -> new_structural_set
 
             for document in Document.objects.filter(pk__in=doc_ids):
 
@@ -287,7 +287,9 @@ def fork_corpus(
                                 )
 
                     # Check if we should reuse an already-duplicated structural_annotation_set
-                    add_doc_kwargs = {"title": f"[FORK] {document.title}"}
+                    add_doc_kwargs: dict[str, Any] = {
+                        "title": f"[FORK] {document.title}"
+                    }
                     old_struct_set_id = document.structural_annotation_set_id
                     if old_struct_set_id and old_struct_set_id in structural_set_map:
                         # Reuse the already-duplicated set

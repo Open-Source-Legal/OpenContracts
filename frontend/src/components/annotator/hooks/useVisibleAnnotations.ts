@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { useAllAnnotations } from "./useAllAnnotations";
+import { useAllRelations } from "./useAllRelations";
 import { useAnnotationDisplay } from "../context/UISettingsAtom";
 import { useAnnotationControls } from "../context/UISettingsAtom";
 import { useAnnotationSelection } from "../context/UISettingsAtom";
-import { usePdfAnnotations } from "./AnnotationHooks";
 import {
   ServerTokenAnnotation,
   ServerSpanAnnotation,
@@ -23,7 +23,11 @@ export function useVisibleAnnotations(): (
 )[] {
   /* ---------------- raw data ---------------------------------------- */
   const allAnnotations = useAllAnnotations();
-  const { pdfAnnotations } = usePdfAnnotations();
+  // Combined view of regular + structural relations. Structural relations
+  // arrive via the lazy GET_DOCUMENT_STRUCTURAL_ANNOTATIONS query, so we
+  // can't read them off ``pdfAnnotations.relations`` (which is reserved
+  // for user-editable, non-structural relations).
+  const allRelations = useAllRelations();
 
   /* ---------------- ui-state ---------------------------------------- */
   const { showStructural, showStructuralRelationships, showSelectedOnly } =
@@ -45,7 +49,7 @@ export function useVisibleAnnotations(): (
 
     const forcedByRelationships = new Set<string>();
     if (showStructuralRelationships) {
-      (pdfAnnotations?.relations ?? []).forEach((rel) => {
+      allRelations.forEach((rel) => {
         rel.sourceIds.forEach((id) => forcedByRelationships.add(id));
         rel.targetIds.forEach((id) => forcedByRelationships.add(id));
       });
@@ -76,7 +80,7 @@ export function useVisibleAnnotations(): (
       /* showSelectedOnly filter - only show selected annotations and their connections */
       if (showSelectedOnly) {
         // Only show if annotation is selected or connected to a selected relationship
-        const isConnected = (pdfAnnotations?.relations ?? []).some(
+        const isConnected = allRelations.some(
           (rel) =>
             selectedRelations.includes(rel) &&
             (rel.sourceIds.includes(annot.id) ||
@@ -110,6 +114,6 @@ export function useVisibleAnnotations(): (
     spanLabelsToView,
     selectedAnnotations,
     selectedRelations,
-    pdfAnnotations?.relations,
+    allRelations,
   ]);
 }

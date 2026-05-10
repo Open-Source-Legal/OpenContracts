@@ -1,11 +1,20 @@
 import { OS_LEGAL_COLORS } from "./osLegalStyles";
 
 export const VERSION_TAG = "v3.0.0.rc1";
+// Small-mobile breakpoint - used by chat widget styles for the tightest
+// viewports (very small phones), where chat-bubble arrows are removed and
+// font sizes shrink. Distinct from MOBILE_VIEW_BREAKPOINT (600).
+export const SMALL_MOBILE_BREAKPOINT = 480;
 export const MOBILE_VIEW_BREAKPOINT = 600;
 // Tablet breakpoint - used for sidebar collapse behavior (larger than mobile)
 export const TABLET_BREAKPOINT = 768;
 // Desktop breakpoint - minimum width for desktop-only features (TABLET_BREAKPOINT + 1)
 export const DESKTOP_BREAKPOINT = 769;
+// Tablet-landscape breakpoint - point where two-pane layouts compress their list
+// pane (e.g. extract split view, thread search) before fully collapsing at TABLET_BREAKPOINT.
+export const TABLET_LANDSCAPE_BREAKPOINT = 1024;
+// Cookie consent modal collapses its two-column data grid below this width.
+export const COOKIE_CONSENT_GRID_BREAKPOINT = 720;
 
 // Icon defaults
 /** Default pixel size for DynamicIcon width and height */
@@ -563,3 +572,20 @@ You have access to thread context, messages, and moderation tools. Use them judi
 // trigger is selected).
 export const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
   "You are a document processing agent for this corpus.";
+
+// Right-panel (chat / annotation tray) drag-resize bounds and snap targets.
+// Used by useResizeHandle in the document KB viewer to clamp custom widths
+// and to snap to the predefined "quarter" / "half" / "full" presets.
+// The "full" preset deliberately stops at 90 % so a 10 % strip of the
+// document remains visible behind the panel.
+export const PANEL_WIDTH_MIN_PCT = 15;
+export const PANEL_WIDTH_MAX_PCT = 95;
+export const PANEL_WIDTH_QUARTER_PCT = 25;
+export const PANEL_WIDTH_HALF_PCT = 50;
+export const PANEL_WIDTH_FULL_PCT = 90;
+export const PANEL_SNAP_THRESHOLD_PCT = 3;
+
+// Cooldown between an action-menu interaction and the next selection start.
+// Prevents the next mousedown / touchstart from being treated as a fresh
+// selection while the menu is still dismissing.
+export const SELECTION_MENU_COOLDOWN_MS = 300;

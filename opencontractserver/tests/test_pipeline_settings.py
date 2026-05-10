@@ -159,6 +159,128 @@ class PipelineSettingsModelTestCase(TestCase):
         self.assertEqual(kwargs["force_ocr"], True)
         self.assertEqual(kwargs["timeout"], 60)
 
+    def test_get_parser_kwargs_merges_encrypted_secrets(self):
+        """get_parser_kwargs overlays encrypted_secrets on top of plaintext kwargs.
+
+        Regression test for issue #1515: a parser whose api_key lives only in
+        encrypted_secrets must still receive the decrypted value at runtime.
+        """
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        parser_path = "my.parser.TestParser"
+        instance.parser_kwargs = {
+            parser_path: {"force_ocr": True, "timeout": 60},
+        }
+        instance.set_secrets({parser_path: {"api_key": "sk-real-key"}})
+        instance.save()
+
+        kwargs = instance.get_parser_kwargs(parser_path)
+        self.assertEqual(kwargs["force_ocr"], True)
+        self.assertEqual(kwargs["timeout"], 60)
+        self.assertEqual(kwargs["api_key"], "sk-real-key")
+
+    def test_get_parser_kwargs_secret_overrides_plaintext_placeholder(self):
+        """Decrypted secret wins over an empty placeholder in parser_kwargs.
+
+        Operators may leave ``api_key=""`` in parser_kwargs as a schema
+        marker; the real key in encrypted_secrets must take precedence.
+        """
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        parser_path = "my.parser.TestParser"
+        instance.parser_kwargs = {parser_path: {"api_key": "", "verbose": True}}
+        instance.set_secrets({parser_path: {"api_key": "sk-real-key"}})
+        instance.save()
+
+        kwargs = instance.get_parser_kwargs(parser_path)
+        self.assertEqual(kwargs["api_key"], "sk-real-key")
+        self.assertEqual(kwargs["verbose"], True)
+
+    def test_get_parser_kwargs_returns_secret_only_dict(self):
+        """When parser_kwargs has no entry for the parser but secrets do,
+        the secret-only dict is returned (regression for #1515)."""
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        parser_path = "my.parser.TestParser"
+        # Note: no parser_kwargs entry for parser_path at all
+        instance.set_secrets({parser_path: {"api_key": "sk-real-key"}})
+        instance.save()
+
+        kwargs = instance.get_parser_kwargs(parser_path)
+        self.assertEqual(kwargs, {"api_key": "sk-real-key"})
+
+    def test_get_parser_kwargs_does_not_mutate_stored_dict(self):
+        """Merging secrets must not leak decrypted values into self.parser_kwargs.
+
+        Memory hygiene: a long-lived PipelineSettings reference should not
+        retain decrypted secrets in the plaintext kwargs JSON field.
+        """
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        parser_path = "my.parser.TestParser"
+        instance.parser_kwargs = {parser_path: {"verbose": True}}
+        instance.set_secrets({parser_path: {"api_key": "sk-real-key"}})
+        instance.save()
+
+        instance.get_parser_kwargs(parser_path)
+        self.assertNotIn("api_key", instance.parser_kwargs[parser_path])
+
+    def test_get_parser_kwargs_no_data_returns_empty_dict(self):
+        """No parser_kwargs and no secrets returns {}."""
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+        self.assertEqual(instance.get_parser_kwargs("anything"), {})
+
+    def test_get_component_settings_merges_encrypted_secrets(self):
+        """get_component_settings overlays encrypted_secrets on plaintext settings.
+
+        Symmetric with get_parser_kwargs: the model-level component_settings
+        getter must not silently drop secrets so that direct callers (and the
+        ``get_full_component_settings`` wrapper) deliver decrypted values to
+        consumers.
+        """
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        comp_path = "my.embedder.TestEmbedder"
+        instance.component_settings = {
+            comp_path: {"timeout": 30, "api_key": ""},
+        }
+        instance.set_secrets({comp_path: {"api_key": "sk-real-component-key"}})
+        instance.save()
+
+        merged = instance.get_component_settings(comp_path)
+        # Plaintext kept, secret wins over empty placeholder
+        self.assertEqual(merged["timeout"], 30)
+        self.assertEqual(merged["api_key"], "sk-real-component-key")
+        # Stored plaintext dict must not be mutated by the merge
+        self.assertEqual(instance.component_settings[comp_path]["api_key"], "")
+
+    def test_get_parser_kwargs_log_redaction_hides_secret(self):
+        """The merged dict, after redact_sensitive_kwargs, must not leak the key.
+
+        Defense-in-depth: even though doc_tasks logs the resolved kwargs,
+        redact_sensitive_kwargs should mask any secret-looking field.
+        """
+        from opencontractserver.utils.logging import redact_sensitive_kwargs
+
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        parser_path = "my.parser.TestParser"
+        secret = "sk-very-real-and-distinctive-key-1515"
+        instance.set_secrets({parser_path: {"api_key": secret}})
+        instance.save()
+
+        merged = instance.get_parser_kwargs(parser_path)
+        redacted = redact_sensitive_kwargs(merged)
+        self.assertEqual(redacted["api_key"], "***")
+        self.assertNotIn(secret, repr(redacted))
+
     def test_get_preferred_thumbnailer(self):
         """Test that get_preferred_thumbnailer returns DB values."""
         PipelineSettings.objects.all().delete()
@@ -488,6 +610,173 @@ class PipelineSettingsGraphQLTestCase(TestCase):
                 ],
                 embedder.class_name,
             )
+
+    def _make_fake_secret_registry(self):
+        """Build a mock registry containing a parser-class fake with a SECRET field.
+
+        Returns ``(registry_mock, fake_class_name, secret_field_name)``. Tests
+        patch ``opencontractserver.pipeline.registry.get_registry`` to return
+        ``registry_mock`` so plaintext-secret rejection logic is exercised
+        regardless of which real components are installed in the test image.
+        """
+        from opencontractserver.pipeline.base.settings_schema import (
+            PipelineSetting,
+            SettingType,
+        )
+
+        @dataclass
+        class FakeSettings:
+            api_key: str = field(
+                default="",
+                metadata={
+                    "pipeline_setting": PipelineSetting(
+                        setting_type=SettingType.SECRET,
+                        required=True,
+                        description="Fake secret for tests",
+                    )
+                },
+            )
+
+        class FakeSecretParser:
+            Settings = FakeSettings
+
+        fake_class_name = "fake.module.FakeSecretParser"
+        fake_def = type(
+            "FakeDef",
+            (),
+            {
+                "component_class": FakeSecretParser,
+                "class_name": fake_class_name,
+            },
+        )()
+
+        registry_mock = type(
+            "MockRegistry",
+            (),
+            {
+                "get_by_class_name": lambda self, path: (
+                    fake_def if path == fake_class_name else None
+                ),
+                "parsers": (fake_def,),
+                "embedders": (),
+                "thumbnailers": (),
+                "post_processors": (),
+            },
+        )()
+
+        return registry_mock, fake_class_name, "api_key"
+
+    def test_update_parser_kwargs_rejects_plaintext_secret(self):
+        """parser_kwargs must reject non-empty values for SECRET-typed fields."""
+        registry_mock, fake_path, secret_field = self._make_fake_secret_registry()
+
+        mutation = """
+            mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
+                updatePipelineSettings(parserKwargs: $parserKwargs) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {
+            "parserKwargs": {
+                fake_path: {secret_field: "sk-real-secret-value"},
+            }
+        }
+
+        with patch(
+            "opencontractserver.pipeline.registry.get_registry",
+            return_value=registry_mock,
+        ):
+            result = self.superuser_client.execute(mutation, variables=variables)
+
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        message = result["data"]["updatePipelineSettings"]["message"]
+        self.assertIn(secret_field, message)
+        self.assertIn("updateComponentSecrets", message)
+        # And the secret value itself must not be echoed back
+        self.assertNotIn("sk-real-secret-value", message)
+
+    def test_update_parser_kwargs_allows_empty_secret_placeholder(self):
+        """Empty-string placeholders for SECRET fields are allowed as schema markers."""
+        registry_mock, fake_path, secret_field = self._make_fake_secret_registry()
+
+        mutation = """
+            mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
+                updatePipelineSettings(parserKwargs: $parserKwargs) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {
+            "parserKwargs": {fake_path: {secret_field: ""}},
+        }
+
+        with patch(
+            "opencontractserver.pipeline.registry.get_registry",
+            return_value=registry_mock,
+        ):
+            result = self.superuser_client.execute(mutation, variables=variables)
+
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(
+            result["data"]["updatePipelineSettings"]["ok"],
+            msg=result["data"]["updatePipelineSettings"]["message"],
+        )
+
+    def test_update_parser_kwargs_rejects_non_dict_value(self):
+        """parser_kwargs entries must be dicts; non-dict values produce a clear error."""
+        mutation = """
+            mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
+                updatePipelineSettings(parserKwargs: $parserKwargs) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {
+            "parserKwargs": {"my.parser.P": "not-a-dict"},
+        }
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        message = result["data"]["updatePipelineSettings"]["message"]
+        self.assertIn("my.parser.P", message)
+        self.assertIn("must be dicts", message)
+
+    def test_update_component_settings_rejects_plaintext_secret(self):
+        """component_settings must also reject plaintext secrets (audit-siblings)."""
+        registry_mock, fake_path, secret_field = self._make_fake_secret_registry()
+
+        mutation = """
+            mutation UpdatePipelineSettings($componentSettings: GenericScalar) {
+                updatePipelineSettings(componentSettings: $componentSettings) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {
+            "componentSettings": {
+                fake_path: {secret_field: "sk-leak-attempt"},
+            }
+        }
+
+        with patch(
+            "opencontractserver.pipeline.registry.get_registry",
+            return_value=registry_mock,
+        ):
+            result = self.superuser_client.execute(mutation, variables=variables)
+
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        message = result["data"]["updatePipelineSettings"]["message"]
+        self.assertIn(secret_field, message)
+        self.assertIn("updateComponentSecrets", message)
+        self.assertNotIn("sk-leak-attempt", message)
 
 
 class EnabledComponentsMutationTestCase(TestCase):

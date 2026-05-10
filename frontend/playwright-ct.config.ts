@@ -16,8 +16,10 @@ export default defineConfig({
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only - 3 retries helps with flaky Vite dynamic import errors */
-  retries: process.env.CI ? 3 : 0,
+  /* Retry on CI only - 3 retries helps with flaky Vite dynamic import errors.
+   * 1 local retry catches the occasional Vite module-load race when large test
+   * files run concurrently (e.g. DocumentKnowledgeBase + Corpusless together). */
+  retries: process.env.CI ? 3 : 1,
   /* Use 2 workers on CI for better balance of speed vs stability */
   workers: process.env.CI ? 2 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */

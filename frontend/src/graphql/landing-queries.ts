@@ -146,6 +146,7 @@ export const GET_RECENT_DISCUSSIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -181,7 +182,7 @@ export interface GetCommunityStatsOutput {
  */
 export interface LeaderboardEntry {
   id: string;
-  username: string;
+  displayName: string;
   slug?: string;
   reputationGlobal?: number;
   badges?: {
@@ -270,6 +271,7 @@ export const GET_DISCOVERY_DATA = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -291,7 +293,7 @@ export const GET_DISCOVERY_DATA = gql`
     }
     globalLeaderboard(limit: $leaderboardLimit) {
       id
-      username
+      displayName
       slug
       reputationGlobal
       badges(first: 3) {

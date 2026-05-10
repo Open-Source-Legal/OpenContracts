@@ -21,8 +21,7 @@ export enum LeaderboardScope {
 
 export interface LeaderboardUser {
   id: string;
-  username: string;
-  email?: string;
+  displayName: string;
   slug: string;
   isProfilePublic: boolean;
 }

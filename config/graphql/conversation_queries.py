@@ -3,10 +3,12 @@ GraphQL query mixin for conversation, message, and moderation queries.
 """
 
 import logging
+from datetime import timedelta
 from typing import Any, Optional
 
 import graphene
 from django.db.models import Count, Prefetch, Q
+from django.utils import timezone
 from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
 from graphql_jwt.decorators import login_required
@@ -252,7 +254,7 @@ class ConversationQueryMixin:
     def resolve_chat_messages(
         self,
         info: graphene.ResolveInfo,
-        conversation_id: Optional[str],
+        conversation_id: str,
         order_by: Optional[str] = None,
         **kwargs,
     ) -> Any:
@@ -372,7 +374,7 @@ class ConversationQueryMixin:
         Raises:
             ChatMessage.DoesNotExist: If the object doesn't exist or is inaccessible.
         """
-        django_pk = from_global_id(kwargs.get("id"))[1]
+        django_pk = from_global_id(kwargs["id"])[1]
         return ChatMessage.objects.visible_to_user(info.context.user).get(pk=django_pk)
 
     # MODERATION QUERIES ##################################################
@@ -436,7 +438,7 @@ class ConversationQueryMixin:
 
         # Apply optional filters
         if corpus_id:
-            corpus_pk = from_global_id(corpus_id)[1]
+            corpus_pk = int(from_global_id(corpus_id)[1])
             qs = qs.filter(conversation__chat_with_corpus_id=corpus_pk)
 
         if thread_id:
@@ -444,7 +446,7 @@ class ConversationQueryMixin:
             qs = qs.filter(conversation_id=thread_pk)
 
         if moderator_id:
-            moderator_pk = from_global_id(moderator_id)[1]
+            moderator_pk = int(from_global_id(moderator_id)[1])
             qs = qs.filter(moderator_id=moderator_pk)
 
         if action_types:
@@ -466,10 +468,19 @@ class ConversationQueryMixin:
         """
         Resolve a single moderation action by ID.
 
-        Permissions:
+        Permissions (delegated to ``Conversation.can_moderate``):
             - Superusers: can see any action
-            - Corpus owners/moderators: can see actions on their corpuses
+            - Conversation creator: can see actions on their conversations
+            - Corpus owner / designated moderator (when chat_with_corpus is set)
+            - Document owner (when chat_with_document is set)
             - Returns None if user lacks permission (prevents ID enumeration)
+
+        Closes #1594: previously the resolver short-circuited to ``return
+        action`` whenever ``conversation.chat_with_corpus`` was ``None``,
+        leaking document-only and orphaned moderation actions to any
+        authenticated user. We now route every case through
+        ``Conversation.can_moderate``, which is the canonical authorization
+        helper used by the moderation mutations themselves.
 
         Args:
             id: Global ID of the moderation action
@@ -481,26 +492,29 @@ class ConversationQueryMixin:
             action = ModerationAction.objects.select_related(
                 "conversation",
                 "conversation__chat_with_corpus",
+                "conversation__chat_with_document",
                 "message",
                 "moderator",
             ).get(pk=pk)
-
-            # Check permission
-            if not user.is_superuser:
-                corpus = (
-                    action.conversation.chat_with_corpus
-                    if action.conversation
-                    else None
-                )
-                if corpus:
-                    is_owner = corpus.creator == user
-                    is_moderator = corpus.moderators.filter(user=user).exists()
-                    if not is_owner and not is_moderator:
-                        return None
-
-            return action
         except ModerationAction.DoesNotExist:
             return None
+
+        # Superusers always see every action, including the rare orphan
+        # rows where ``conversation`` itself is NULL (the FK is nullable for
+        # historical reasons; in practice every real action has one).
+        if user.is_superuser:
+            return action
+
+        if action.conversation is None:
+            # No conversation context → no per-action gate to evaluate
+            # safely. Fail closed to mirror the list resolver, which never
+            # surfaces these to non-superusers either.
+            return None
+
+        if not action.conversation.can_moderate(user):
+            return None
+
+        return action
 
     moderation_metrics = graphene.Field(
         ModerationMetricsType,
@@ -532,8 +546,6 @@ class ConversationQueryMixin:
         Returns:
             ModerationMetricsType with counts, rates, and threshold warnings
         """
-        from django.utils import timezone
-
         user = info.context.user
         corpus_pk = from_global_id(corpus_id)[1]
 
@@ -542,15 +554,12 @@ class ConversationQueryMixin:
         except Corpus.DoesNotExist:
             return None
 
-        # Check permission
-        if not user.is_superuser:
-            is_owner = corpus.creator == user
-            is_moderator = corpus.moderators.filter(user=user).exists()
-            if not is_owner and not is_moderator:
-                return None
+        # Check permission via the canonical Corpus.user_can_moderate helper
+        if not corpus.user_can_moderate(user):
+            return None
 
         end_time = timezone.now()
-        start_time = end_time - timezone.timedelta(hours=time_range_hours)
+        start_time = end_time - timedelta(hours=time_range_hours)
 
         # Get actions in time range
         actions = ModerationAction.objects.filter(

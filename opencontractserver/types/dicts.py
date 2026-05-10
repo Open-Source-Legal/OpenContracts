@@ -23,8 +23,8 @@ class LabelLookupPythonType(TypedDict):
     once with only a very small memory cost.
     """
 
-    text_labels: dict[str | int, AnnotationLabelPythonType]
-    doc_labels: dict[str | int, AnnotationLabelPythonType]
+    text_labels: dict[str, AnnotationLabelPythonType]
+    doc_labels: dict[str, AnnotationLabelPythonType]
 
 
 class PawlsPageBoundaryPythonType(TypedDict):

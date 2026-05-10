@@ -1,13 +1,18 @@
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import graphene
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db.models import Model
 from graphene.types.generic import GenericScalar
 
 from config.graphql.permissioning.permission_annotator.middleware import (
     get_permissions_for_user_on_model_in_app,
+)
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
 )
 
 User = get_user_model()
@@ -16,6 +21,21 @@ logger = logging.getLogger(__name__)
 
 
 class AnnotatePermissionsForReadMixin:
+    """Adds ``my_permissions``, ``is_published``, and ``object_shared_with``
+    fields to GraphQL types for Django models that carry guardian permission
+    tables.
+
+    The mixin is always combined with a ``DjangoObjectType`` whose ``_meta.model``
+    is a Django ``Model`` subclass — so ``self._meta``, ``self.is_public``, and
+    the related ``*userobjectpermission_set`` / ``*groupobjectpermission_set``
+    accessors exist at runtime. The ``TYPE_CHECKING`` block below tells mypy
+    about that contract without affecting runtime behaviour.
+    """
+
+    if TYPE_CHECKING:
+        # Provided by the Django model the GraphQL type wraps.
+        _meta: Any
+        is_public: bool
 
     my_permissions = GenericScalar()
     is_published = graphene.Boolean()
@@ -29,8 +49,10 @@ class AnnotatePermissionsForReadMixin:
             f"resolve_shared_with - info context permissions: {info.context.permission_annotations}"
         )
 
-        values = []
-        anon = User.get_anonymous()
+        values: list[dict[str, Any]] = []
+        # ``get_anonymous`` is added to the User model by django-guardian's
+        # ``GuardianUserMixin``; not visible to mypy without guardian stubs.
+        anon = User.get_anonymous()  # type: ignore[attr-defined]
         context = info.context
 
         if context and hasattr(context, "user"):
@@ -44,7 +66,7 @@ class AnnotatePermissionsForReadMixin:
             this_model_permission_id_map = permission_annotations.get(
                 "this_model_permission_id_map", {}
             )
-            user_permission_map = {}
+            user_permission_map: dict[int, dict[str, Any]] = {}
             model_name = self._meta.model_name
             this_user_perms = getattr(self, f"{model_name}userobjectpermission_set")
 
@@ -91,7 +113,9 @@ class AnnotatePermissionsForReadMixin:
     def resolve_my_permissions(self, info) -> list[str]:
 
         # logger.info(f"resolve_my_permissions() - Start")
-        anon = User.get_anonymous()
+        # ``get_anonymous`` is added to the User model by django-guardian's
+        # ``GuardianUserMixin``; not visible to mypy without guardian stubs.
+        anon = User.get_anonymous()  # type: ignore[attr-defined]
         # logger.info(f"resolve_my_permissions() - anon: {anon}")
         context = info.context
         # logger.info(f"resolve_my_permissions() - context: {context}")
@@ -268,27 +292,25 @@ class AnnotatePermissionsForReadMixin:
                         # )
                         #####################################################################
 
-                        # Check if permissions were prefetched (for documents)
-                        if hasattr(self, "_prefetched_user_perms"):
-                            # Use prefetched permissions to avoid database hit
-                            this_user_perms = self._prefetched_user_perms
+                        # Prefer per-user prefetch (set by _apply_document_prefetches);
+                        # ``.filter()`` on the related manager bypasses the cache.
+                        prefetched_user_perms_attr = user_perm_attr(user.id)
+                        if hasattr(self, prefetched_user_perms_attr):
+                            this_user_perms = getattr(self, prefetched_user_perms_attr)
                         else:
-                            # Fallback to original query
                             this_user_perms = getattr(
                                 self, f"{model_name}userobjectpermission_set"
+                            ).filter(user_id=user.id)
+
+                        prefetched_group_perms_attr = user_group_perm_attr(user.id)
+                        if hasattr(self, prefetched_group_perms_attr):
+                            this_users_group_perms = getattr(
+                                self, prefetched_group_perms_attr
                             )
-                            # logger.info(
-                            #     f"resolve_my_permissions() - this_user_perms: {this_user_perms}"
-                            # )
-
-                            this_user_perms = this_user_perms.filter(user_id=user.id)
-                            # logger.info(
-                            #     f"resolve_my_permissions() - filtered this_user_perms: {this_user_perms}"
-                            # )
-
-                        this_users_group_perms = getattr(
-                            self, f"{model_name}groupobjectpermission_set"
-                        ).filter(group_id__in=this_user_group_ids)
+                        else:
+                            this_users_group_perms = getattr(
+                                self, f"{model_name}groupobjectpermission_set"
+                            ).filter(group_id__in=this_user_group_ids)
                         # logger.info(
                         #     f"resolve_my_permissions() - this_users_group_perms:"
                         #     f"{this_users_group_perms}"
@@ -345,9 +367,13 @@ class AnnotatePermissionsForReadMixin:
 
         from guardian.shortcuts import get_groups_with_perms
 
-        return (
-            get_groups_with_perms(self, attach_perms=False)
-            .filter(name=settings.DEFAULT_PERMISSIONS_GROUP)
-            .count()
-            == 1
+        # ``self`` is always a Django Model instance at runtime (the mixin is
+        # combined with a ``DjangoObjectType``). ``get_groups_with_perms`` is
+        # typed in django-guardian-stubs to return ``Group | dict``, but with
+        # ``attach_perms=False`` (the default) it always returns a queryset
+        # of ``Group``s.
+        groups = cast(
+            "Any",
+            get_groups_with_perms(cast(Model, self), attach_perms=False),
         )
+        return groups.filter(name=settings.DEFAULT_PERMISSIONS_GROUP).count() == 1

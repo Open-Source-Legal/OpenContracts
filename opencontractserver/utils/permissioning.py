@@ -6,15 +6,20 @@ from typing import TYPE_CHECKING
 
 import django
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import AnonymousUser, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from guardian.shortcuts import assign_perm, remove_perm
 
 from config.graphql.permissioning.permission_annotator.middleware import combine
+from opencontractserver.shared.prefetch_attrs import (
+    user_group_perm_attr,
+    user_perm_attr,
+)
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
+    from opencontractserver.corpuses.models import Corpus
     from opencontractserver.users.models import User as UserModel
 
 User = get_user_model()
@@ -280,6 +285,37 @@ def get_users_permissions_for_obj(
             f"permission_{model_name}",
         }
 
+    # Fast path: consume per-user guardian prefetches if attached. Missing attr
+    # (different user, or no prefetch) falls through to the guardian path below.
+    prefetched_user_perms = getattr(instance, user_perm_attr(user.id), None)
+    if prefetched_user_perms is not None:
+        model_permissions_for_user = {
+            perm.permission.codename for perm in prefetched_user_perms
+        }
+        if hasattr(instance, "is_public") and instance.is_public:
+            model_permissions_for_user.add(f"read_{model_name}")
+
+        if include_group_permissions:
+            prefetched_group_perms = getattr(
+                instance, user_group_perm_attr(user.id), None
+            )
+            if prefetched_group_perms is not None:
+                for perm in prefetched_group_perms:
+                    model_permissions_for_user.add(perm.permission.codename)
+            else:
+                # Partial prefetch: user perms cached but group perms not — fall back for groups only.
+                permission_id_to_name_map = get_permission_id_to_name_map_for_model(
+                    instance=instance
+                )
+                this_users_group_perms = getattr(
+                    instance, f"{model_name}groupobjectpermission_set"
+                ).filter(group_id__in=get_users_group_ids(user_instance=user))
+                for perm in this_users_group_perms:
+                    model_permissions_for_user.add(
+                        permission_id_to_name_map[perm.permission_id]
+                    )
+        return model_permissions_for_user
+
     this_user_perms = getattr(instance, f"{model_name}userobjectpermission_set")
 
     logger.debug(f"get_users_permissions_for_obj - this_user_perms: {this_user_perms}")
@@ -363,13 +399,14 @@ def user_has_permission_for_obj(
         user = user_val
 
     model_name = instance._meta.model_name
-    logger.info(
-        f"get_users_permissions_for_obj() - Starting check for {user.username} with model type {model_name} for"
-        f"permission {permission}"
-    )
-
     app_label = instance._meta.app_label
-    logger.info(f"get_users_permissions_for_obj - App name: {app_label}")
+    logger.debug(
+        "user_has_permission_for_obj() - check %s on %s.%s for %s",
+        permission,
+        app_label,
+        model_name,
+        user.username,
+    )
 
     # Special handling for annotations with privacy fields
     if model_name == "annotation" and app_label == "annotations":
@@ -600,3 +637,70 @@ def user_has_permission_for_obj(
         )
     else:
         return False
+
+
+def user_can_modify_corpus(
+    user_val: int | str | UserModel | AnonymousUser | None,
+    corpus: Corpus,
+    *,
+    include_group_permissions: bool = True,
+) -> bool:
+    """
+    Single-source-of-truth check for "can this user modify this corpus".
+
+    Canonical pattern, replacing inline
+    ``user.is_superuser or corpus.creator_id == user.id or
+    user_has_permission_for_obj(user, corpus, UPDATE, ...)`` checks
+    scattered across mutations. Centralizing keeps mutation paths
+    consistent as the permission model evolves (sharing, group
+    inheritance, MIN(doc, corpus)).
+
+    Returns True iff:
+        - user is a superuser, OR
+        - user is the corpus creator, OR
+        - user has explicit guardian UPDATE on the corpus (optionally
+          via group permissions).
+
+    Anonymous / unauthenticated users always get False. A non-existent
+    user id is also rejected with ``False`` (rather than raising) so
+    callers can hand-resolve dangling/external ids without a try/except.
+
+    Args:
+        user_val: A user id (int or string-encoded int), a User
+            instance, ``AnonymousUser``, or ``None``. ``None`` and
+            unauthenticated users are rejected.
+        corpus: The Corpus instance to check against.
+        include_group_permissions: Whether to consult group-level
+            guardian permissions in addition to user-level ones.
+            Defaults to True, matching the call sites this helper
+            replaces.
+    """
+    if user_val is None:
+        return False
+
+    if isinstance(user_val, AnonymousUser):
+        return False
+
+    if isinstance(user_val, (str, int)):
+        try:
+            user = User.objects.get(id=user_val)
+        except User.DoesNotExist:
+            return False
+    else:
+        user = user_val
+
+    if not getattr(user, "is_authenticated", False):
+        return False
+
+    if user.is_superuser:
+        return True
+
+    if getattr(corpus, "creator_id", None) == user.id:
+        return True
+
+    return user_has_permission_for_obj(
+        user,
+        corpus,
+        PermissionTypes.UPDATE,
+        include_group_permissions=include_group_permissions,
+    )

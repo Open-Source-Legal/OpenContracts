@@ -26,6 +26,7 @@ const GET_EDITABLE_CORPUSES = gql`
           icon
           title
           creator {
+            id
             email
           }
           description
@@ -46,7 +47,7 @@ const mockCorpuses = [
     id: "Q29ycHVzVHlwZTox",
     icon: "folder",
     title: "Contract Analysis",
-    creator: { email: "admin@example.com" },
+    creator: { id: "VXNlclR5cGU6MQ==", email: "admin@example.com" },
     description: "A corpus for analyzing contracts",
     documentCount: 15,
     labelSet: { id: "TGFiZWxTZXRUeXBlOjE=", title: "Legal Terms" },
@@ -56,7 +57,7 @@ const mockCorpuses = [
     id: "Q29ycHVzVHlwZToy",
     icon: null,
     title: "NDA Collection",
-    creator: { email: "user@example.com" },
+    creator: { id: "VXNlclR5cGU6Mg==", email: "user@example.com" },
     description: "Collection of non-disclosure agreements",
     documentCount: 8,
     labelSet: null,
@@ -64,7 +65,15 @@ const mockCorpuses = [
   },
 ];
 
-// Query with empty search term (initial load)
+// Query with empty search term (initial load).
+// The modal's ``useEffect(() => refetch(), [open, refetch])`` re-fires
+// whenever Apollo's ``useQuery`` returns a new ``refetch`` reference, and
+// ``notifyOnNetworkStatusChange: true`` causes that on every network state
+// change. Combined with React 18's double-render in the CT harness, the
+// modal can issue many ``GetEditableCorpuses`` requests per mount.
+// ``result`` as a callback + ``maxUsageCount: Number.POSITIVE_INFINITY`` is
+// the Apollo-recommended way to make a mock re-supply itself indefinitely
+// instead of being consumed once and triggering "No more mocked responses".
 const getCorpusesMock = {
   request: {
     query: GET_EDITABLE_CORPUSES,
@@ -83,11 +92,8 @@ const getCorpusesMock = {
       },
     },
   },
+  maxUsageCount: Number.POSITIVE_INFINITY,
 };
-
-// Duplicate for refetches
-const getCorpusesMockDuplicate = { ...getCorpusesMock };
-const getCorpusesMockTriplicate = { ...getCorpusesMock };
 
 // Empty results mock
 const getCorpusesEmptyMock = {
@@ -108,6 +114,7 @@ const getCorpusesEmptyMock = {
       },
     },
   },
+  maxUsageCount: Number.POSITIVE_INFINITY,
 };
 
 test.describe("AddToCorpusModal - Rendering", () => {
@@ -116,14 +123,7 @@ test.describe("AddToCorpusModal - Rendering", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider
-        mocks={[
-          getCorpusesMock,
-          getCorpusesMockDuplicate,
-          getCorpusesMockTriplicate,
-        ]}
-        addTypename={false}
-      >
+      <MockedProvider mocks={[getCorpusesMock]} addTypename={false}>
         <AddToCorpusModal
           documentId={DOCUMENT_ID}
           open={true}
@@ -187,14 +187,7 @@ test.describe("AddToCorpusModal - Behavior", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider
-        mocks={[
-          getCorpusesMock,
-          getCorpusesMockDuplicate,
-          getCorpusesMockTriplicate,
-        ]}
-        addTypename={false}
-      >
+      <MockedProvider mocks={[getCorpusesMock]} addTypename={false}>
         <AddToCorpusModal
           documentId={DOCUMENT_ID}
           open={true}
@@ -227,14 +220,7 @@ test.describe("AddToCorpusModal - Behavior", () => {
     let closeCalled = false;
 
     const component = await mount(
-      <MockedProvider
-        mocks={[
-          getCorpusesMock,
-          getCorpusesMockDuplicate,
-          getCorpusesMockTriplicate,
-        ]}
-        addTypename={false}
-      >
+      <MockedProvider mocks={[getCorpusesMock]} addTypename={false}>
         <AddToCorpusModal
           documentId={DOCUMENT_ID}
           open={true}
@@ -257,14 +243,7 @@ test.describe("AddToCorpusModal - Behavior", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider
-        mocks={[
-          getCorpusesEmptyMock,
-          { ...getCorpusesEmptyMock },
-          { ...getCorpusesEmptyMock },
-        ]}
-        addTypename={false}
-      >
+      <MockedProvider mocks={[getCorpusesEmptyMock]} addTypename={false}>
         <AddToCorpusModal
           documentId={DOCUMENT_ID}
           open={true}

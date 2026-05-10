@@ -1,7 +1,8 @@
+import { NetworkStatus } from "@apollo/client";
 import { Table } from "@os-legal/ui";
-import { ExportObject } from "../../types/graphql-api";
-import { PageInfo } from "../../types/graphql-api";
+import { ExportObject, PageInfo } from "../../types/graphql-api";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { ExportItemRow } from "./ExportItemRow";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 
@@ -9,6 +10,8 @@ interface ExportListProps {
   items: ExportObject[] | undefined;
   pageInfo: PageInfo | undefined;
   loading: boolean;
+  /** NetworkStatus from useQuery. When omitted, footer falls back to `loading && hasNextPage`. */
+  networkStatus?: NetworkStatus;
   style?: Record<string, any>;
   fetchMore: (args?: any) => void | any;
   onDelete: (args?: any) => void | any;
@@ -30,6 +33,7 @@ export function ExportList({
   items,
   pageInfo,
   loading,
+  networkStatus,
   style,
   fetchMore,
   onDelete,
@@ -51,11 +55,17 @@ export function ExportList({
       ))
     : [];
 
+  const itemCount = items?.length ?? 0;
+
   return (
     <div
       style={{ ...styles.container, ...(style || {}), position: "relative" }}
     >
-      <LoadingOverlay active={loading} content="Loading Exports..." />
+      {/* Initial-load only — refetches/deletes/fetchMore keep existing rows visible (callers needing a full block during deletes should layer their own overlay). */}
+      <LoadingOverlay
+        active={loading && itemCount === 0}
+        content="Loading Exports..."
+      />
 
       <Table variant="bordered">
         <Table.Head>
@@ -71,6 +81,16 @@ export function ExportList({
       </Table>
 
       <FetchMoreOnVisible fetchNextPage={handleUpdate} />
+      <FetchMoreFooter
+        visible={
+          networkStatus === NetworkStatus.fetchMore ||
+          (networkStatus === undefined &&
+            loading &&
+            Boolean(pageInfo?.hasNextPage))
+        }
+        message="Loading more exports…"
+        data-testid="exports-fetch-more-spinner"
+      />
     </div>
   );
 }

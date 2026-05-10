@@ -49,7 +49,12 @@ class AgentConfigurationManager(BaseVisibilityManager):
     def get_queryset(self):
         return AgentConfigurationQuerySet(self.model, using=self._db)
 
-    def visible_to_user(self, user=None, lightweight: bool = False):
+    def visible_to_user(
+        self,
+        user=None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ):
         return self.get_queryset().visible_to_user(user, lightweight=lightweight)
 
 
@@ -224,7 +229,12 @@ class AgentActionResultManager(BaseVisibilityManager):
     def get_queryset(self):
         return AgentActionResultQuerySet(self.model, using=self._db)
 
-    def visible_to_user(self, user=None, lightweight: bool = False):
+    def visible_to_user(
+        self,
+        user=None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ):
         return self.get_queryset().visible_to_user(user, lightweight=lightweight)
 
 

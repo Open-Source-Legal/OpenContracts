@@ -284,7 +284,17 @@ export const cache = new InMemoryCache({
           "hasCorpus",
           "hasDocument",
         ]),
-        corpuses: relayStylePagination(),
+        // Tab filters (mine/isPublic/sharedWithMe) and textSearch must be in
+        // keyArgs so each filter context gets its own cached connection. Without
+        // this, switching tabs (or refetching after delete) bleeds entries
+        // across filters.
+        corpuses: relayStylePagination([
+          "textSearch",
+          "usesLabelsetId",
+          "mine",
+          "isPublic",
+          "sharedWithMe",
+        ]),
         userexports: relayStylePagination(),
         labelsets: relayStylePagination(),
         annotationLabels: relayStylePagination(),

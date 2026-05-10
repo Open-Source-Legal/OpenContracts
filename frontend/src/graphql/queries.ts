@@ -43,6 +43,14 @@ export interface RequestDocumentsOutputs {
   };
 }
 
+// NOTE: The shape of this query is matched by ``requests_doc_label_annotations``
+// in config/graphql/custom_resolvers.py (it walks the AST looking for
+// ``documents → edges → node → docAnnotations(annotationLabel_LabelType:
+// "DOC_TYPE_LABEL")``) so the resolver can opt into a focused doc-label
+// prefetch. Restructuring the connection (extra wrapping levels, renames, or
+// moving docAnnotations into a fragment at the top level) silently disables
+// that optimisation and returns the per-row N+1 — update the AST helper there
+// in lockstep with any structural change.
 export const GET_DOCUMENTS = gql`
   query (
     $inCorpusWithId: String
@@ -84,6 +92,7 @@ export const GET_DOCUMENTS = gql`
           isPublic
           myPermissions
           creator {
+            id
             slug
           }
           is_selected @client
@@ -110,6 +119,116 @@ export const GET_DOCUMENTS = gql`
                 }
               }
             }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
+
+// Aggregate stats for the Documents view tile counters. Computed by a single
+// backend ``aggregate()`` over ``Document.objects.visible_to_user`` so the
+// numbers reflect the user's full permission scope rather than the paginated
+// edges currently sitting in Apollo's cache.
+export interface RequestDocumentStatsInputs {
+  textSearch?: string;
+  hasLabelWithId?: string;
+  inCorpusWithId?: string;
+  includeCaml?: boolean;
+}
+
+export interface RequestDocumentStatsOutputs {
+  documentStats: {
+    totalDocs: number;
+    totalPages: number;
+    processedCount: number;
+    processingCount: number;
+  };
+}
+
+export const GET_DOCUMENT_STATS = gql`
+  query GetDocumentStats(
+    $textSearch: String
+    $hasLabelWithId: String
+    $inCorpusWithId: String
+    $includeCaml: Boolean
+  ) {
+    documentStats(
+      textSearch: $textSearch
+      hasLabelWithId: $hasLabelWithId
+      inCorpusWithId: $inCorpusWithId
+      includeCaml: $includeCaml
+    ) {
+      totalDocs
+      totalPages
+      processedCount
+      processingCount
+    }
+  }
+`;
+
+// Slim list-view query for the top-level Documents view (frontend/src/views/Documents.tsx).
+//
+// GET_DOCUMENTS is shared by many surfaces (modals, corpus tabs, upload flow,
+// metadata workflow tests) and selects a kitchen-sink of fields — including
+// expensive per-row resolvers like ``versionCount`` (an N+1 ``.count()`` per
+// document on the backend), ``canViewHistory`` / ``canRetry`` (per-row
+// ``user_has_permission_for_obj`` checks), and four file-URL fields the list
+// view never renders. The Documents view only paints id / title / fileType /
+// backendLock / pageCount / icon / created / creator initials, with creator
+// slugs needed for ``navigateToDocument``. Keeping a focused query here lets
+// the list view skip the heavy fan-out without disturbing the other consumers
+// of GET_DOCUMENTS.
+export interface RequestDocumentsForListInputs {
+  textSearch?: string;
+  inCorpusWithId?: string;
+  hasLabelWithId?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface RequestDocumentsForListOutputs {
+  documents: {
+    edges: DocumentTypeEdge[];
+    pageInfo: PageInfo;
+  };
+}
+
+export const GET_DOCUMENTS_FOR_LIST = gql`
+  query GetDocumentsForList(
+    $inCorpusWithId: String
+    $textSearch: String
+    $hasLabelWithId: String
+    $cursor: String
+    $limit: Int
+  ) {
+    documents(
+      inCorpusWithId: $inCorpusWithId
+      textSearch: $textSearch
+      hasLabelWithId: $hasLabelWithId
+      first: $limit
+      after: $cursor
+    ) {
+      edges {
+        node {
+          id
+          slug
+          title
+          fileType
+          backendLock
+          pageCount
+          icon
+          created
+          creator {
+            id
+            slug
+            email
           }
         }
       }
@@ -377,6 +496,7 @@ export const SEARCH_DOCUMENTS = gql`
           isPublic
           myPermissions
           creator {
+            id
             slug
           }
           is_selected @client
@@ -596,6 +716,11 @@ export interface GetCorpusesInputs {
   usesLabelsetId?: string;
   cursor?: string;
   limit?: number;
+  // Tab filters for the Corpuses view. Server applies these on top of the
+  // user-visible queryset so pagination + badge counts stay correct.
+  mine?: boolean;
+  isPublic?: boolean;
+  sharedWithMe?: boolean;
 }
 
 export interface GetCorpusesOutputs {
@@ -611,10 +736,16 @@ export const GET_CORPUSES = gql`
     $usesLabelsetId: String
     $cursor: String
     $limit: Int
+    $mine: Boolean
+    $isPublic: Boolean
+    $sharedWithMe: Boolean
   ) {
     corpuses(
       textSearch: $textSearch
       usesLabelsetId: $usesLabelsetId
+      mine: $mine
+      isPublic: $isPublic
+      sharedWithMe: $sharedWithMe
       first: $limit
       after: $cursor
     ) {
@@ -631,6 +762,7 @@ export const GET_CORPUSES = gql`
           icon
           title
           creator {
+            id
             email
             slug
           }
@@ -663,6 +795,32 @@ export const GET_CORPUSES = gql`
           licenseLink
         }
       }
+    }
+  }
+`;
+
+export interface CorpusFilterCounts {
+  all: number;
+  mine: number;
+  shared: number;
+  public: number;
+}
+
+export interface GetCorpusFilterCountsInputs {
+  textSearch?: string;
+}
+
+export interface GetCorpusFilterCountsOutputs {
+  corpusFilterCounts: CorpusFilterCounts;
+}
+
+export const GET_CORPUS_FILTER_COUNTS = gql`
+  query CorpusFilterCounts($textSearch: String) {
+    corpusFilterCounts(textSearch: $textSearch) {
+      all
+      mine
+      shared
+      public
     }
   }
 `;
@@ -2038,6 +2196,7 @@ export const GET_EXTRACT_GRID_EMBED = gql`
         id
         slug
         creator {
+          id
           slug
         }
       }
@@ -2065,6 +2224,7 @@ export const GET_EXTRACT_GRID_EMBED = gql`
           title
           slug
           creator {
+            id
             slug
           }
         }
@@ -2595,6 +2755,7 @@ export const SEARCH_CORPUSES_FOR_MENTION = gql`
           slug
           title
           creator {
+            id
             slug
           }
         }
@@ -2656,6 +2817,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
           slug
           title
           creator {
+            id
             slug
           }
           pathRecords(first: 1) {
@@ -2666,6 +2828,7 @@ export const SEARCH_DOCUMENTS_FOR_MENTION = gql`
                   slug
                   title
                   creator {
+                    id
                     slug
                   }
                 }
@@ -3018,8 +3181,17 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         created
       }
 
-      # Annotation fields (structural annotations loaded lazily for performance)
-      allAnnotations(corpusId: $corpusId, analysisId: $analysisId) {
+      # Annotation fields — structural annotations and structural relationships
+      # are excluded here and loaded on demand via
+      # GET_DOCUMENT_STRUCTURAL_ANNOTATIONS when the user toggles the
+      # corresponding visibility flag. Documents can have thousands of
+      # structural annotations, so eagerly serialising them on every open
+      # was the dominant cost of this query.
+      allAnnotations(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         page
         analysis {
@@ -3050,7 +3222,11 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         structural
         contentModalities
       }
-      allRelationships(corpusId: $corpusId, analysisId: $analysisId) {
+      allRelationships(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         structural
         relationshipLabel {
@@ -3123,7 +3299,11 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
   ) {
     document(id: $documentId) {
       id
-      allAnnotations(corpusId: $corpusId, analysisId: $analysisId) {
+      allAnnotations(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         page
         analysis {
@@ -3154,7 +3334,11 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
         structural
         contentModalities
       }
-      allRelationships(corpusId: $corpusId, analysisId: $analysisId) {
+      allRelationships(
+        corpusId: $corpusId
+        analysisId: $analysisId
+        isStructural: false
+      ) {
         id
         structural
         relationshipLabel {
@@ -3190,8 +3374,16 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
  * Structural annotations are analysis-independent and only need to be
  * fetched once per document.
  *
+ * Also returns the document's structural relationships in the same
+ * round-trip — they connect structural annotations and are toggled by
+ * the same UI control, so loading them together avoids a second fetch
+ * when the user enables structural visibility.
+ *
  * Supports optional `annotationIds` filter to fetch only specific
- * structural annotations (used for deep-link navigation).
+ * structural annotations (used for deep-link navigation). Structural
+ * relationships are returned in full regardless of `annotationIds`
+ * because they're tiny compared to the annotation set and the deep-link
+ * path only needs them when navigating into structural data.
  */
 export interface GetDocumentStructuralAnnotationsInput {
   documentId: string;
@@ -3202,6 +3394,7 @@ export interface GetDocumentStructuralAnnotationsOutput {
   document: {
     id: string;
     allStructuralAnnotations: ServerAnnotationType[];
+    allStructuralRelationships: RelationshipType[];
   };
 }
 
@@ -3232,6 +3425,31 @@ export const GET_DOCUMENT_STRUCTURAL_ANNOTATIONS = gql`
         myPermissions
         structural
         contentModalities
+      }
+      allStructuralRelationships {
+        id
+        structural
+        relationshipLabel {
+          id
+          text
+          color
+          icon
+          description
+        }
+        sourceAnnotations {
+          edges {
+            node {
+              id
+            }
+          }
+        }
+        targetAnnotations {
+          edges {
+            node {
+              id
+            }
+          }
+        }
       }
     }
   }
@@ -3584,6 +3802,7 @@ export const GET_CORPUS_CONVERSATIONS = gql`
             totalCount
           }
           creator {
+            id
             email
           }
         }
@@ -3611,6 +3830,7 @@ export const GET_CORPUS_CHAT_MESSAGES = gql`
           createdAt
           data
           creator {
+            id
             email
           }
         }
@@ -4355,6 +4575,7 @@ export const SEARCH_CONVERSATIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -4363,6 +4584,7 @@ export const SEARCH_CONVERSATIONS = gql`
             title
             slug
             creator {
+              id
               slug
             }
           }
@@ -5058,6 +5280,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             icon
             slug
             creator {
+              id
               slug
             }
           }
@@ -5069,6 +5292,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             icon
             slug
             creator {
+              id
               slug
             }
           }
@@ -5082,6 +5306,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
             id
             slug
             creator {
+              id
               slug
             }
           }
@@ -5151,6 +5376,7 @@ export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
           icon
           fileType
           creator {
+            id
             slug
           }
         }
@@ -5185,6 +5411,7 @@ export const GET_CORPUS_ARTICLE = gql`
           txtExtractFile
           modified
           creator {
+            id
             email
           }
         }
@@ -5207,6 +5434,7 @@ export interface GetCorpusArticleOutput {
         txtExtractFile: string | null;
         modified: string;
         creator: {
+          id: string;
           email: string;
         };
       };

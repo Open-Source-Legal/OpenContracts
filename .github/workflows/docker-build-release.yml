@@ -56,19 +56,26 @@ jobs:
             type=semver,pattern={{major}}
             type=sha,prefix={{tag}}-
 
-      - name: Build and push Docker image
-        id: build
+      # Django gets a two-step build: first build+load locally so the image
+      # is on the daemon for the size-budget gate, then `docker push` each
+      # tag separately. This is split intentionally — combining `load: true`
+      # with `push: true` in a single `docker/build-push-action` step works
+      # only on single-platform builds, is not well-documented across Buildx
+      # versions, and some runner/daemon configurations reject it. Splitting
+      # makes the contract explicit and resilient to future runner changes.
+      - name: Build Django image (load locally for size budget gate)
+        if: matrix.image == 'django'
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
-          load: ${{ matrix.image == 'django' }}
           build-args: |
             BUILD_ENVIRONMENT=production
 
@@ -94,3 +101,33 @@ jobs:
             echo "::error::Django image $human_size exceeds the $human_budget budget. See issue #1494."
             exit 1
           fi
+
+      # Push only after the size gate passes. Each tag in steps.meta.outputs.tags
+      # already points at the image loaded above (same reference Buildx tagged
+      # locally), so `docker push <tag>` re-uses the local layers — no rebuild.
+      - name: Push Django image to registry
+        if: matrix.image == 'django'
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Pushing $tag"
+            docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+      # Non-Django images do not have a size budget today, so the original
+      # combined build-and-push path stays — no `load` involved.
+      - name: Build and push non-Django image
+        if: matrix.image != 'django'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          build-args: |
+            BUILD_ENVIRONMENT=production

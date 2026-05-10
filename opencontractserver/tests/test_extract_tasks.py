@@ -382,3 +382,11 @@ class ExtractOrchestrationTestCase(TransactionTestCase):
         # Extract should NOT have a started timestamp (task aborted)
         extract.refresh_from_db()
         self.assertIsNone(extract.started)
+
+    def test_run_extract_aborts_for_none_extract_id(self):
+        """run_extract returns early when extract_id is None (PR #1482 typing fix)."""
+        # Should not raise — guard at the top of the task aborts before any DB hit.
+        result = run_extract.si(None, self.user.id).apply()
+
+        # Eager-mode return value must be None (the guard ``return`` clause).
+        self.assertIsNone(result.result)

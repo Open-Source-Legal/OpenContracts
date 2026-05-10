@@ -1,10 +1,8 @@
-from typing import TYPE_CHECKING, Literal, Optional
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser
+from typing import TYPE_CHECKING, Literal
 
 import django
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import models
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
@@ -18,6 +16,9 @@ from opencontractserver.shared.fields import NullableJSONField
 from opencontractserver.shared.Managers import BaseVisibilityManager
 from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.shared.Models import BaseOCModel
+
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User as UserModel
 
 User = get_user_model()
 
@@ -72,7 +73,6 @@ class SoftDeleteQuerySet(models.QuerySet):
         Maintains soft-delete filtering from the base queryset.
         """
         from django.apps import apps
-        from django.contrib.auth.models import AnonymousUser
         from django.db.models import Q
 
         # Handle None user as anonymous
@@ -126,7 +126,7 @@ class ConversationQuerySet(SoftDeleteQuerySet):
     EMBEDDING_RELATED_NAME = "embedding_set"
 
     def visible_to_user(
-        self, user: Optional["AbstractBaseUser"] = None
+        self, user: "UserModel | AnonymousUser | None" = None
     ) -> "ConversationQuerySet":
         """
         Returns queryset filtered to conversations visible to the user.
@@ -155,7 +155,6 @@ class ConversationQuerySet(SoftDeleteQuerySet):
             QuerySet of visible conversations, ordered by -created (newest first).
         """
         from django.apps import apps
-        from django.contrib.auth.models import AnonymousUser
         from django.db.models import Q
 
         from opencontractserver.corpuses.models import Corpus
@@ -306,21 +305,17 @@ class ConversationQuerySet(SoftDeleteQuerySet):
             raise ValueError(f"Unsupported embedding dimension: {dimension}")
         vector_field = f"{self.EMBEDDING_RELATED_NAME}__{field_name}"
 
-        # Filter for embeddings with matching embedder_path and non-null vector
+        # Separate local avoids django-stubs generic mismatch on annotate() rebind.
         base_qs = self.filter(
             **{
                 f"{self.EMBEDDING_RELATED_NAME}__embedder_path": embedder_path,
                 f"{vector_field}__isnull": False,
             }
         )
-
-        # Annotate with similarity score using cosine distance
-        base_qs = base_qs.annotate(
+        annotated_qs = base_qs.annotate(
             similarity_score=CosineDistance(vector_field, query_vector)
         )
-
-        # Order by similarity and limit to top_k
-        return base_qs.order_by("similarity_score")[:top_k]
+        return annotated_qs.order_by("similarity_score")[:top_k]
 
 
 class ChatMessageQuerySet(SoftDeleteQuerySet):
@@ -336,7 +331,7 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
     EMBEDDING_RELATED_NAME = "embedding_set"
 
     def visible_to_user(
-        self, user: Optional["AbstractBaseUser"] = None
+        self, user: "UserModel | AnonymousUser | None" = None
     ) -> "ChatMessageQuerySet":
         """
         Returns queryset filtered to messages visible to the user.
@@ -357,7 +352,6 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
         corpus/document owners to see all messages for moderation purposes, even
         if they wouldn't normally see the conversation.
         """
-        from django.contrib.auth.models import AnonymousUser
         from django.db.models import Q
 
         from opencontractserver.corpuses.models import Corpus
@@ -461,21 +455,17 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
             raise ValueError(f"Unsupported embedding dimension: {dimension}")
         vector_field = f"{self.EMBEDDING_RELATED_NAME}__{field_name}"
 
-        # Filter for embeddings with matching embedder_path and non-null vector
+        # Separate local avoids django-stubs generic mismatch on annotate() rebind.
         base_qs = self.filter(
             **{
                 f"{self.EMBEDDING_RELATED_NAME}__embedder_path": embedder_path,
                 f"{vector_field}__isnull": False,
             }
         )
-
-        # Annotate with similarity score using cosine distance
-        base_qs = base_qs.annotate(
+        annotated_qs = base_qs.annotate(
             similarity_score=CosineDistance(vector_field, query_vector)
         )
-
-        # Order by similarity and limit to top_k
-        return base_qs.order_by("similarity_score")[:top_k]
+        return annotated_qs.order_by("similarity_score")[:top_k]
 
 
 # Custom manager for soft delete functionality
@@ -495,12 +485,25 @@ class SoftDeleteManager(BaseVisibilityManager):
             deleted_at__isnull=True
         )
 
-    def visible_to_user(self, user=None):
+    def visible_to_user(
+        self,
+        user=None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ):
         """
         Override to apply soft-delete filtering on top of visibility filtering.
+
+        ``lightweight`` and ``with_doc_label_annotations`` are forwarded to
+        ``BaseVisibilityManager`` for signature parity but have no effect on
+        soft-deleted models (no heavy prefetches involved).
         """
         # Get the visibility-filtered queryset from parent
-        queryset = super().visible_to_user(user)
+        queryset = super().visible_to_user(
+            user,
+            lightweight=lightweight,
+            with_doc_label_annotations=with_doc_label_annotations,
+        )
         # Then filter out soft-deleted objects
         return queryset.filter(deleted_at__isnull=True)
 
@@ -514,10 +517,19 @@ class ConversationManager(SoftDeleteManager):
             deleted_at__isnull=True
         )
 
-    def visible_to_user(self, user=None):
+    def visible_to_user(
+        self,
+        user=None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ):
         """
         Delegate to the queryset's visible_to_user method.
-        This ensures the custom visibility logic in SoftDeleteQuerySet is used.
+        This ensures the custom visibility logic in ConversationQuerySet is used.
+
+        ``lightweight`` and ``with_doc_label_annotations`` are accepted for
+        signature parity with ``BaseVisibilityManager`` but unused — the
+        underlying queryset has no heavy prefetches.
         """
         return self.get_queryset().visible_to_user(user)
 
@@ -539,10 +551,19 @@ class ChatMessageManager(SoftDeleteManager):
             deleted_at__isnull=True
         )
 
-    def visible_to_user(self, user=None):
+    def visible_to_user(
+        self,
+        user=None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ):
         """
         Delegate to the queryset's visible_to_user method.
-        This ensures the custom visibility logic in SoftDeleteQuerySet is used.
+        This ensures the custom visibility logic in ChatMessageQuerySet is used.
+
+        ``lightweight`` and ``with_doc_label_annotations`` are accepted for
+        signature parity with ``BaseVisibilityManager`` but unused — the
+        underlying queryset has no heavy prefetches.
         """
         return self.get_queryset().visible_to_user(user)
 
@@ -721,7 +742,7 @@ class Conversation(BaseOCModel, HasEmbeddingMixin):
     )
 
     # Managers
-    objects = ConversationManager()  # Default manager with vector search support
+    objects = ConversationManager()  # type: ignore[misc]  # Default manager with vector search support
     all_objects = models.Manager()  # Access all objects including soft-deleted
 
     class Meta:
@@ -1113,7 +1134,7 @@ class ChatMessage(BaseOCModel, HasEmbeddingMixin):
     )
 
     # Managers
-    objects = ChatMessageManager()  # Default manager with vector search support
+    objects = ChatMessageManager()  # type: ignore[misc]  # Default manager with vector search support
     all_objects = models.Manager()  # Access all objects including soft-deleted
 
     def soft_delete_message(self, moderator, reason: str = "") -> "ModerationAction":
@@ -1598,11 +1619,15 @@ class ModerationAction(BaseOCModel):
     )
 
     def __str__(self) -> str:
-        target = (
-            f"conversation {self.conversation.pk}"
-            if self.conversation
-            else f"message {self.message.pk}"
-        )
+        if self.conversation:
+            target = f"conversation {self.conversation.pk}"
+        elif self.message is not None:
+            # Every ModerationAction is created with either conversation or message set;
+            # this branch is the normal path when only a message is moderated.
+            target = f"message {self.message.pk}"
+        else:
+            # Should never happen given construction invariants, but guard defensively.
+            target = "unknown target"
         moderator_name = self.moderator.username if self.moderator else "Unknown"
         return f"{self.action_type} on {target} by {moderator_name}"
 

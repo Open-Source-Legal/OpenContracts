@@ -851,6 +851,10 @@ def _search_global(query: str, limit: int, user) -> JsonResponse:
         public_corpus_ids = Corpus.objects.visible_to_user(user).values_list(
             "id", flat=True
         )
+        # Don't chain ``.only(...)``: DocumentManager unconditionally
+        # ``select_related``s creator/user_lock/parent (cheap JOINs that
+        # GraphQL list views need), which makes deferring those FK columns
+        # raise FieldError.
         matching_docs = list(
             Document.objects.visible_to_user(user, lightweight=True)
             .filter(
@@ -859,7 +863,6 @@ def _search_global(query: str, limit: int, user) -> JsonResponse:
                 path_records__is_deleted=False,
             )
             .filter(Q(title__icontains=query) | Q(description__icontains=query))
-            .only("slug", "title", "description", "modified")
             .distinct()
             .order_by("-modified")[:doc_limit]
         )

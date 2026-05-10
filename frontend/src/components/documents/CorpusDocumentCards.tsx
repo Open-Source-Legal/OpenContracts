@@ -132,6 +132,7 @@ export const CorpusDocumentCards = ({
   const {
     refetch: refetchDocuments,
     loading: documents_loading,
+    networkStatus: documents_network_status,
     error: documents_error,
     data: documents_response,
     fetchMore: fetchMoreDocuments,
@@ -195,33 +196,75 @@ export const CorpusDocumentCards = ({
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // Query to shape item data
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  const document_data = documents_response?.documents?.edges
-    ? documents_response.documents.edges
-    : [];
-  const document_items = document_data
-    .map((edge) => (edge?.node ? edge.node : undefined))
-    .filter((item): item is DocumentType => !!item);
+  // Memoize on the stable Apollo edges reference so identity only changes
+  // when the query result itself changes. Without this, .map().filter()
+  // produced a fresh array every render, which made the [document_items]
+  // effect below fire its cleanup-then-set cycle on every render and
+  // thrash the currentViewDocumentIds reactive var.
+  const document_items = useMemo<DocumentType[]>(() => {
+    const edges = documents_response?.documents?.edges ?? [];
+    return edges
+      .map((edge) => (edge?.node ? edge.node : undefined))
+      .filter((item): item is DocumentType => !!item);
+  }, [documents_response?.documents?.edges]);
 
-  // Update the global reactive var with current view document IDs for toolbar's Select All functionality
+  // Memoize the id array on the same input as document_items so we can hand
+  // it to the reactive var without re-deriving on every render.
+  const document_ids = useMemo(
+    () => document_items.map((doc) => doc.id),
+    [document_items]
+  );
+
+  // Stable, primitive key derived from the ids so the effect only re-runs
+  // when the actual id set changes (not just the array reference). We use the
+  // joined string purely as the dep key — the effect body reads the array
+  // directly so we don't have to rely on ids being comma-free.
+  const document_ids_key = useMemo(
+    () => document_ids.join(","),
+    [document_ids]
+  );
+
+  // Update the global reactive var with current view document IDs for toolbar's Select All functionality.
+  // CRITICAL: Do NOT return a cleanup that resets the var here. Returning
+  // `() => currentViewDocumentIds([])` from this effect makes every
+  // dep change fire two writes (cleanup → []  then  body → new ids),
+  // which re-renders every subscriber twice per change. Worse, subscribers
+  // (e.g. FolderDocumentBrowser via useReactiveVar) re-render this
+  // component, and any reference instability in the dep used to feed an
+  // infinite reload loop. Only write when the value actually changed,
+  // and put the unmount-only reset in a separate `[]`-deps effect below.
   useEffect(() => {
-    const ids = document_items.map((doc) => doc.id);
-    currentViewDocumentIds(ids);
-
-    // Clear on unmount
-    return () => {
+    const current = currentViewDocumentIds();
+    const next = document_ids;
+    if (
+      current.length !== next.length ||
+      current.some((id, i) => id !== next[i])
+    ) {
+      currentViewDocumentIds(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document_ids_key]);
+  useEffect(
+    () => () => {
       currentViewDocumentIds([]);
-    };
-  }, [document_items]);
+    },
+    []
+  );
 
-  // Sync loading state to reactive var for toolbar to disable Select All while loading
+  // Sync loading state to reactive var. Same rule: no cleanup-then-set on
+  // dep change, and skip identical writes so we don't notify subscribers
+  // for no-op transitions.
   useEffect(() => {
-    documentsLoadingVar(documents_loading);
-
-    // Clear on unmount
-    return () => {
-      documentsLoadingVar(false);
-    };
+    if (documentsLoadingVar() !== documents_loading) {
+      documentsLoadingVar(documents_loading);
+    }
   }, [documents_loading]);
+  useEffect(
+    () => () => {
+      documentsLoadingVar(false);
+    },
+    []
+  );
 
   const handleRemoveContracts = (delete_ids: string[]) => {
     removeDocumentsFromCorpus({
@@ -385,6 +428,7 @@ export const CorpusDocumentCards = ({
           <DocumentCards
             items={document_items}
             loading={documents_loading}
+            networkStatus={documents_network_status}
             loading_message="Documents Loading..."
             pageInfo={documents_response?.documents.pageInfo}
             containerStyle={{

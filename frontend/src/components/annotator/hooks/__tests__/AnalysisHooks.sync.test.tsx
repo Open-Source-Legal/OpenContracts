@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook } from "@testing-library/react-hooks";
-import { waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "../../../../test-utils/renderHook";
 import { MockedProvider } from "@apollo/client/testing";
 import { Provider } from "jotai";
 import { useHydrateAtoms } from "jotai/utils";

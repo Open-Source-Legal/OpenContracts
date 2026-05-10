@@ -69,6 +69,7 @@ from opencontractserver.llms.context_guardrails import (
 )
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.core_tools import (
+    AnnotationItem,
     aadd_annotations_from_exact_strings,
     aadd_document_note,
     aduplicate_annotations_with_label,
@@ -254,7 +255,7 @@ def _extract_tool_result_summary(event: Any, tool_name: str) -> str:
     from .timeline_utils import MAX_TOOL_RESULT_LENGTH
 
     try:
-        result_content = event.result.content  # type: ignore[attr-defined]
+        result_content = event.result.content
         summary = ""
         if isinstance(result_content, dict):
             # ask_document returns {"answer": ..., "sources": ..., "timeline": ...}
@@ -618,14 +619,24 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
     async def _stream_core(
         self,
         message: str,
-        *,
-        force_llm_id: int | None = None,
-        force_user_msg_id: int | None = None,
-        initial_timeline: list[dict] | None = None,
-        deps: Any | None = None,
-        message_history: list[Any] | None = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[UnifiedStreamEvent, None]:
-        """Internal streaming generator – TimelineStreamMixin adds timeline."""
+        """Internal streaming generator – TimelineStreamMixin adds timeline.
+
+        Accepts a small set of typed keyword arguments via ``**kwargs`` so
+        the signature stays compatible with the mixin's contract while
+        callers can still pass ``force_llm_id``/``force_user_msg_id``/etc.
+        """
+
+        force_llm_id: Optional[int] = kwargs.pop("force_llm_id", None)
+        force_user_msg_id: Optional[int] = kwargs.pop("force_user_msg_id", None)
+        initial_timeline: Optional[list[dict]] = kwargs.pop("initial_timeline", None)
+        deps: Any = kwargs.pop("deps", None)
+        message_history: Optional[list[Any]] = kwargs.pop("message_history", None)
+        if kwargs:
+            raise TypeError(
+                f"_stream_core got unexpected keyword arguments: {sorted(kwargs)}"
+            )
 
         logger.info(f"[PydanticAI stream] Starting stream with message: {message!r}")
 
@@ -661,6 +672,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         # Re-hydrate the historical context for Pydantic-AI, if any exists.
         # Callers (e.g. resume_with_approval) may override via the explicit
         # ``message_history`` param; otherwise we load from the DB.
+        effective_history: Optional[list[Any]]
         if message_history is not None:
             effective_history = message_history
             context_status = {
@@ -854,7 +866,19 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                                 logger.debug(
                                     "[DIAGNOSTIC] Entered tool_stream context - starting iteration"
                                 )
-                                async for event in tool_stream:
+                                # ``[assignment]`` ignore — both this loop and
+                                # the model_stream loop above reuse the name
+                                # ``event``, but pydantic-ai infers different
+                                # element types for the two streams. Removing
+                                # the ignore would either require renaming the
+                                # loop var (~30 reference sites in this branch)
+                                # or a ``cast(Any, ...)`` that silently widens
+                                # downstream usages of ``event.part`` /
+                                # ``event.result`` and surfaces unrelated
+                                # mypy errors. Kept narrow ([assignment] only)
+                                # so the runtime kind-dispatch below is the
+                                # type contract.
+                                async for event in tool_stream:  # type: ignore[assignment]
                                     tool_event_count += 1
                                     logger.debug(
                                         f"[DIAGNOSTIC] Tool stream event #{tool_event_count}: "
@@ -962,13 +986,13 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                                         logger.debug(
                                             "[DIAGNOSTIC] Processing function_tool_result event"
                                         )
-                                        tool_name = event.result.tool_name  # type: ignore[attr-defined]
+                                        tool_name = event.result.tool_name
                                         logger.debug(
                                             f"[DIAGNOSTIC] Tool result received: tool_name={tool_name}"
                                         )
                                         # Capture vector-search results (our canonical source provider)
                                         if tool_name == "similarity_search":
-                                            raw_sources = event.result.content  # type: ignore[attr-defined]
+                                            raw_sources = event.result.content
                                             logger.debug(
                                                 f"[DIAGNOSTIC] similarity_search returned "
                                                 f"{len(raw_sources) if isinstance(raw_sources, list) else 'non-list'} "
@@ -1019,7 +1043,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
 
                                         # Capture exact text search results (similar to similarity_search)
                                         elif tool_name == "search_exact_text":
-                                            raw_sources = event.result.content  # type: ignore[attr-defined]
+                                            raw_sources = event.result.content
                                             if (
                                                 isinstance(raw_sources, list)
                                                 and raw_sources
@@ -1066,7 +1090,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                                         elif tool_name == "ask_document":
                                             # The ask_document tool returns a dict with keys: answer, sources, timeline
                                             try:
-                                                result_payload = event.result.content  # type: ignore[attr-defined]
+                                                result_payload = event.result.content
                                                 # Ensure we have a dict (pydantic may already return dict object)
                                                 if isinstance(result_payload, str):
                                                     import json as _json
@@ -1288,18 +1312,19 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             final_event.metadata["timeline"] = builder.timeline
 
             # Persist – this is idempotent even if CoreAgentBase finalises later
-            try:
-                await self._finalise_llm_message(
-                    llm_msg_id,
-                    accumulated_content,
-                    accumulated_sources,
-                    final_usage_data,
-                    builder.timeline,
-                )
-            except Exception as _err:
-                logger.exception(
-                    "Failed to persist LLM message with timeline: %s", _err
-                )
+            if llm_msg_id is not None:
+                try:
+                    await self._finalise_llm_message(
+                        llm_msg_id,
+                        accumulated_content,
+                        accumulated_sources,
+                        final_usage_data,
+                        builder.timeline,
+                    )
+                except Exception as _err:
+                    logger.exception(
+                        "Failed to persist LLM message with timeline: %s", _err
+                    )
 
             # Emit to caller (frontend)
             yield final_event
@@ -1315,19 +1340,20 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                 e.tool_name,
             )
 
-            await self.complete_message(
-                llm_msg_id,
-                content="Awaiting user approval for tool execution.",
-                metadata={
-                    "state": str(MessageState.AWAITING_APPROVAL),
-                    "pending_tool_call": {
-                        "name": e.tool_name,
-                        "arguments": e.tool_args,
-                        "tool_call_id": e.tool_call_id,
+            if llm_msg_id is not None:
+                await self.complete_message(
+                    llm_msg_id,
+                    content="Awaiting user approval for tool execution.",
+                    metadata={
+                        "state": str(MessageState.AWAITING_APPROVAL),
+                        "pending_tool_call": {
+                            "name": e.tool_name,
+                            "arguments": e.tool_args,
+                            "tool_call_id": e.tool_call_id,
+                        },
+                        "framework": "pydantic_ai",
                     },
-                    "framework": "pydantic_ai",
-                },
-            )
+                )
 
             # Emit explicit approval-needed event (non-final).
             yield ApprovalNeededEvent(
@@ -1546,7 +1572,12 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             completed_states = [MessageState.COMPLETED, MessageState.CANCELLED]
             completed_values = [str(s) for s in completed_states]
             if hasattr(MessageState.COMPLETED, "value"):
-                completed_values.extend([s.value for s in completed_states])
+                # MessageState is a string-constant class today; the guard
+                # is there for any future migration to ``enum.Enum`` (whose
+                # members would expose ``.value``).
+                completed_values.extend(
+                    [getattr(s, "value", str(s)) for s in completed_states]
+                )
 
             if current_state in completed_values:
                 logger.info("Message was already processed, likely a duplicate request")
@@ -1557,7 +1588,17 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             )
 
         pending = paused_msg.data.get("pending_tool_call") or {}
-        tool_name = pending.get("name")
+        # Schema invariant: when a message is awaiting approval the
+        # pending_tool_call payload always carries a "name" string. Warn if
+        # missing so malformed persistence state surfaces in logs instead of
+        # silently driving downstream lookups with an empty tool name.
+        tool_name = str(pending.get("name") or "")
+        if not tool_name:
+            logger.warning(
+                "pending_tool_call missing 'name' for paused message %s; "
+                "downstream tool dispatch will fail",
+                paused_msg.id,
+            )
         tool_args_raw = pending.get("arguments", {})
 
         # Log the raw state for debugging
@@ -2145,7 +2186,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         # Ensure a vector search tool is always available so that the agent
         # can reference the primary document and emit `sources`.
         # ------------------------------------------------------------------
-        _vs_kwargs = dict(
+        _vs_kwargs: dict[str, Any] = dict(
             user_id=config.user_id,
             corpus_id=context.corpus.id if context.corpus is not None else None,
             document_id=context.document.id,
@@ -2324,12 +2365,16 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
 
         async def add_document_note_tool(title: str, content: str) -> dict[str, int]:
             """Create a new note attached to this document and return its id."""
+            if config.user_id is None:
+                raise PermissionError(
+                    "add_document_note requires an authenticated user"
+                )
             note = await aadd_document_note(
                 document_id=context.document.id,
                 title=title,
                 content=content,
                 creator_id=config.user_id,
-                corpus_id=context.corpus.id,
+                corpus_id=context.corpus.id if context.corpus else None,
             )
             return {"note_id": note.id}
 
@@ -2388,6 +2433,10 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 Dict with key ``annotation_ids`` listing newly created IDs.
             """
 
+            if config.user_id is None:
+                raise PermissionError(
+                    "duplicate_annotations_with_label requires an authenticated user"
+                )
             new_ids = await aduplicate_annotations_with_label(
                 annotation_ids,
                 new_label_text=new_label_text,
@@ -2431,14 +2480,22 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                         "Unsupported entry type for add_exact_string_annotations"
                     )
 
-            items = [
-                {
-                    "label_text": e.label_text,
-                    "exact_string": e.exact_string,
-                }
+            items: list[AnnotationItem] = [
+                AnnotationItem(
+                    label_text=e.label_text,
+                    exact_string=e.exact_string,
+                )
                 for e in norm_entries
             ]
 
+            if config.user_id is None:
+                raise PermissionError(
+                    "add_exact_string_annotations requires an authenticated user"
+                )
+            if context.corpus is None:
+                raise ValueError(
+                    "add_exact_string_annotations requires the agent to be scoped to a corpus"
+                )
             new_ids = await aadd_annotations_from_exact_strings(
                 items,
                 document_id=context.document.id,
@@ -2883,11 +2940,11 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
                         logger.exception("stream_observer raised during ask_document")
 
                 # Capture mid-stream sources
-                if getattr(ev, "type", "") == "sources":
+                if isinstance(ev, SourceEvent):
                     captured_sources.extend([s.to_dict() for s in ev.sources])
 
                 # Capture timeline (thought events etc.)
-                if getattr(ev, "type", "") == "thought":
+                if isinstance(ev, ThoughtEvent):
                     captured_timeline.append(
                         {
                             "type": ev.type,
@@ -2896,7 +2953,7 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
                         }
                     )
 
-                if getattr(ev, "type", "") == "final":
+                if isinstance(ev, FinalEvent):
                     # Merge any final sources / timeline injected by the adapter
                     captured_sources = [
                         s.to_dict() for s in ev.sources
@@ -2992,6 +3049,7 @@ def _event_to_text_and_meta(event: Any) -> tuple[str, bool, dict[str, Any]]:
     is_answer = False
     meta: dict[str, Any] = {}
 
+    part: Any
     if isinstance(event, PartStartEvent):
         part = event.part
     elif isinstance(event, PartDeltaEvent):
@@ -3002,21 +3060,25 @@ def _event_to_text_and_meta(event: Any) -> tuple[str, bool, dict[str, Any]]:
     # ------------------------------------------------------------------
     # Full parts
     # ------------------------------------------------------------------
-    if isinstance(part, TextPart):
-        text = part.content
+    # ``part`` is the union of every full-part *and* delta-part class. Treat it
+    # as ``Any`` for the dispatch below so mypy doesn't complain about each
+    # ``isinstance`` narrowing into a sibling-incompatible class.
+    inspected: Any = part
+    if isinstance(inspected, TextPart):
+        text = inspected.content
         is_answer = True
-    elif isinstance(part, ToolCallPart):
+    elif isinstance(inspected, ToolCallPart):
         # Tool invocation text should not reach the user; surface via metadata only.
-        meta = {"tool_name": part.tool_name, "args": part.args}
+        meta = {"tool_name": inspected.tool_name, "args": inspected.args}
         text = ""  # suppress chatter
-    elif isinstance(part, TextPartDelta):
-        text = part.content_delta
+    elif isinstance(inspected, TextPartDelta):
+        text = inspected.content_delta
         is_answer = True
-    elif isinstance(part, ToolCallPartDelta):
+    elif isinstance(inspected, ToolCallPartDelta):
         # Suppress incremental tool chatter as well
         meta = {
-            "tool_name_delta": part.tool_name_delta,
-            "args_delta": part.args_delta,
+            "tool_name_delta": inspected.tool_name_delta,
+            "args_delta": inspected.args_delta,
         }
         text = ""
 
@@ -3039,11 +3101,13 @@ def _usage_to_dict(usage: Any) -> Optional[dict[str, Any]]:
         logger.info(
             "[_usage_to_dict] Found model_dump method, using pydantic v2 conversion"
         )
-        result = usage.model_dump()  # type: ignore[arg-type]
+        result = usage.model_dump()
         logger.info(f"[_usage_to_dict] Pydantic v2 conversion result: {result!r}")
         return result
 
-    if dataclasses.is_dataclass(usage):  # dataclass
+    if dataclasses.is_dataclass(usage) and not isinstance(
+        usage, type
+    ):  # dataclass instance
         logger.info("[_usage_to_dict] Object is a dataclass, using dataclasses.asdict")
         result = dataclasses.asdict(usage)
         logger.info(f"[_usage_to_dict] Dataclass conversion result: {result!r}")

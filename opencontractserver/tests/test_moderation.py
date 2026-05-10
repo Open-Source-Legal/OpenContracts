@@ -1305,6 +1305,170 @@ class ModerationQueriesTest(TestCase):
         self.assertEqual(metrics["automatedActions"], 0)
 
 
+class ResolveModerationActionAuthGateTest(TestCase):
+    """Pin authorization for the single-action ``moderationAction`` resolver.
+
+    Regression coverage for #1594: the resolver previously short-circuited
+    to ``return action`` whenever ``conversation.chat_with_corpus`` was
+    ``None``, leaking document-only and orphaned moderation actions to any
+    authenticated user. The resolver now routes every case through
+    :meth:`Conversation.can_moderate`.
+    """
+
+    def setUp(self):
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+        from opencontractserver.documents.models import Document
+
+        # Cast of users covering each branch of ``can_moderate``.
+        self.corpus_owner = User.objects.create_user(
+            username="auth_gate_corpus_owner", password="pw"
+        )
+        self.corpus_moderator = User.objects.create_user(
+            username="auth_gate_corpus_moderator", password="pw"
+        )
+        self.doc_owner = User.objects.create_user(
+            username="auth_gate_doc_owner", password="pw"
+        )
+        self.thread_creator = User.objects.create_user(
+            username="auth_gate_thread_creator", password="pw"
+        )
+        self.unrelated = User.objects.create_user(
+            username="auth_gate_unrelated", password="pw"
+        )
+        self.superuser = User.objects.create_superuser(
+            username="auth_gate_superuser",
+            password="pw",
+            email="auth_gate_superuser@test.com",
+        )
+
+        self.corpus = Corpus.objects.create(
+            title="Auth Gate Corpus", creator=self.corpus_owner
+        )
+        CorpusModerator.objects.create(
+            corpus=self.corpus,
+            user=self.corpus_moderator,
+            creator=self.corpus_owner,
+            permissions=[ModeratorPermissionChoices.LOCK_THREADS.value],
+        )
+
+        # Two parallel conversations: corpus-attached and document-only.
+        self.corpus_conversation = Conversation.objects.create(
+            title="Auth Gate Corpus Thread",
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=self.corpus,
+            creator=self.thread_creator,
+        )
+        self.corpus_action = self.corpus_conversation.lock(self.corpus_owner)
+
+        self.document = Document.objects.create(
+            title="Auth Gate Doc",
+            creator=self.doc_owner,
+            file_type="application/pdf",
+        )
+        self.doc_only_conversation = Conversation.objects.create(
+            title="Auth Gate Doc-only Thread",
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_document=self.document,
+            creator=self.thread_creator,
+        )
+        self.doc_only_action = self.doc_only_conversation.lock(self.doc_owner)
+
+        self.client = Client(schema)
+
+    def _query(self, action_pk: int, user) -> dict:
+        from graphql_relay import to_global_id
+
+        action_global_id = to_global_id("ModerationActionType", action_pk)
+        return self.client.execute(
+            f"""
+            query {{
+                moderationAction(id: "{action_global_id}") {{
+                    id
+                    actionType
+                }}
+            }}
+            """,
+            context_value=type("Request", (), {"user": user})(),
+        )
+
+    def _assert_visible(self, action_pk: int, user) -> None:
+        result = self._query(action_pk, user)
+        self.assertIsNone(result.get("errors"))
+        self.assertIsNotNone(
+            result["data"]["moderationAction"],
+            f"User {user.username!r} should see action {action_pk}",
+        )
+
+    def _assert_hidden(self, action_pk: int, user) -> None:
+        result = self._query(action_pk, user)
+        self.assertIsNone(result.get("errors"))
+        self.assertIsNone(
+            result["data"]["moderationAction"],
+            f"User {user.username!r} must NOT see action {action_pk}",
+        )
+
+    # ------- corpus-attached conversation -------
+
+    def test_corpus_owner_sees_corpus_action(self):
+        self._assert_visible(self.corpus_action.pk, self.corpus_owner)
+
+    def test_corpus_moderator_sees_corpus_action(self):
+        self._assert_visible(self.corpus_action.pk, self.corpus_moderator)
+
+    def test_thread_creator_sees_corpus_action(self):
+        # Conversation creator gets moderation rights independent of corpus.
+        self._assert_visible(self.corpus_action.pk, self.thread_creator)
+
+    def test_unrelated_user_cannot_see_corpus_action(self):
+        self._assert_hidden(self.corpus_action.pk, self.unrelated)
+
+    def test_superuser_sees_corpus_action(self):
+        self._assert_visible(self.corpus_action.pk, self.superuser)
+
+    # ------- document-only conversation (regression for #1594) -------
+
+    def test_doc_owner_sees_doc_only_action(self):
+        self._assert_visible(self.doc_only_action.pk, self.doc_owner)
+
+    def test_thread_creator_sees_doc_only_action(self):
+        self._assert_visible(self.doc_only_action.pk, self.thread_creator)
+
+    def test_superuser_sees_doc_only_action(self):
+        self._assert_visible(self.doc_only_action.pk, self.superuser)
+
+    def test_unrelated_user_cannot_see_doc_only_action(self):
+        # Pre-fix this returned the action because chat_with_corpus was None
+        # and the resolver fell through. Pin the closure so the leak doesn't
+        # silently come back.
+        self._assert_hidden(self.doc_only_action.pk, self.unrelated)
+
+    def test_corpus_owner_cannot_see_unrelated_doc_only_action(self):
+        # An unrelated corpus owner has no claim on a document-only thread
+        # — confirms the gate doesn't accidentally widen to "any moderator
+        # of any corpus".
+        self._assert_hidden(self.doc_only_action.pk, self.corpus_owner)
+
+    # ------- orphaned action (conversation FK is NULL) -------
+
+    def test_orphaned_action_visible_only_to_superuser(self):
+        # ``conversation`` is a nullable FK on ModerationAction. Pin that
+        # the resolver fails closed for non-superusers in this edge case
+        # rather than re-opening the leak.
+        orphaned = ModerationAction.objects.create(
+            conversation=None,
+            action_type=ModerationActionType.LOCK_THREAD.value,
+            reason="orphan",
+            moderator=self.corpus_owner,
+            creator=self.corpus_owner,
+        )
+        self._assert_hidden(orphaned.pk, self.corpus_owner)
+        self._assert_hidden(orphaned.pk, self.thread_creator)
+        self._assert_hidden(orphaned.pk, self.unrelated)
+        self._assert_visible(orphaned.pk, self.superuser)
+
+
 class ModerationMethodReturnValueTest(TestCase):
     """Test that moderation methods return the created ModerationAction."""
 
@@ -1403,3 +1567,168 @@ class ModerationMethodReturnValueTest(TestCase):
 
         self.assertIsInstance(action, ModerationAction)
         self.assertEqual(action.action_type, ModerationActionType.RESTORE_MESSAGE.value)
+
+
+class ModerationActionStrTest(TestCase):
+    """
+    Tests for ModerationAction.__str__ covering all branches introduced by the
+    defensive guard that replaced the bare ``assert self.message is not None``.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="str_owner", password="pw")
+        self.corpus = Corpus.objects.create(title="Str Corpus", creator=self.owner)
+        self.conversation = Conversation.objects.create(
+            title="Str Thread",
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=self.corpus,
+            creator=self.owner,
+        )
+        self.message = ChatMessage.objects.create(
+            conversation=self.conversation,
+            msg_type="HUMAN",
+            content="Hello",
+            creator=self.owner,
+        )
+
+    def test_str_with_conversation_set(self):
+        """__str__ uses conversation pk when conversation is set."""
+        action = ModerationAction.objects.create(
+            conversation=self.conversation,
+            action_type=ModerationActionType.LOCK_THREAD.value,
+            moderator=self.owner,
+            creator=self.owner,
+        )
+        expected = f"lock_thread on conversation {self.conversation.pk} by {self.owner.username}"
+        self.assertEqual(str(action), expected)
+
+    def test_str_with_message_set_and_no_conversation(self):
+        """__str__ uses message pk when only message is set (normal moderated-message path)."""
+        action = ModerationAction.objects.create(
+            message=self.message,
+            conversation=self.conversation,
+            action_type=ModerationActionType.DELETE_MESSAGE.value,
+            moderator=self.owner,
+            creator=self.owner,
+        )
+        # conversation is set, so conversation branch wins
+        self.assertIn(f"conversation {self.conversation.pk}", str(action))
+
+        # Now force the message-only path by using update() to clear conversation
+        ModerationAction.objects.filter(pk=action.pk).update(conversation=None)
+        action.refresh_from_db()
+        expected = (
+            f"delete_message on message {self.message.pk} by {self.owner.username}"
+        )
+        self.assertEqual(str(action), expected)
+
+    def test_str_with_both_none_falls_back_to_unknown_target(self):
+        """__str__ returns 'unknown target' when both conversation and message are None."""
+        action = ModerationAction.objects.create(
+            conversation=self.conversation,
+            action_type=ModerationActionType.LOCK_THREAD.value,
+            moderator=self.owner,
+            creator=self.owner,
+        )
+        # Bypass construction invariant via update() to exercise the defensive branch
+        ModerationAction.objects.filter(pk=action.pk).update(
+            conversation=None, message=None
+        )
+        action.refresh_from_db()
+        self.assertIn("unknown target", str(action))
+
+    def test_str_with_no_moderator(self):
+        """__str__ shows 'Unknown' when moderator is None."""
+        action = ModerationAction.objects.create(
+            conversation=self.conversation,
+            action_type=ModerationActionType.LOCK_THREAD.value,
+            moderator=None,
+            creator=self.owner,
+        )
+        self.assertIn("by Unknown", str(action))
+
+
+class ManagerVisibleToUserNoneTest(TestCase):
+    """
+    Tests for the user=None path through ConversationManager and
+    ChatMessageManager to ensure anonymous visibility is correct and
+    that the lightweight / with_doc_label_annotations kwargs are accepted
+    by all manager overrides without raising TypeError.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="mgr_owner", password="pw")
+        self.corpus = Corpus.objects.create(
+            title="Mgr Corpus", creator=self.owner, is_public=True
+        )
+        self.public_conv = Conversation.objects.create(
+            title="Public Thread",
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=self.corpus,
+            creator=self.owner,
+            is_public=True,
+        )
+        self.private_conv = Conversation.objects.create(
+            title="Private Chat",
+            conversation_type=ConversationTypeChoices.CHAT,
+            creator=self.owner,
+            is_public=False,
+        )
+
+    def test_conversation_manager_visible_to_user_none(self):
+        """Passing user=None treats the caller as anonymous."""
+        qs = Conversation.objects.visible_to_user(user=None)
+        pks = list(qs.values_list("pk", flat=True))
+        # Public THREAD on public corpus should be visible to anonymous
+        self.assertIn(self.public_conv.pk, pks)
+        # Private CHAT should NOT be visible to anonymous
+        self.assertNotIn(self.private_conv.pk, pks)
+
+    def test_conversation_manager_visible_to_user_accepts_lightweight_kwarg(self):
+        """ConversationManager.visible_to_user must accept lightweight= without TypeError."""
+        qs = Conversation.objects.visible_to_user(user=self.owner, lightweight=True)
+        self.assertIsNotNone(qs)
+
+    def test_conversation_manager_visible_to_user_accepts_doc_label_annotations_kwarg(
+        self,
+    ):
+        """ConversationManager.visible_to_user accepts with_doc_label_annotations=."""
+        qs = Conversation.objects.visible_to_user(
+            user=self.owner, with_doc_label_annotations=True
+        )
+        self.assertIsNotNone(qs)
+
+    def test_chat_message_manager_visible_to_user_none(self):
+        """ChatMessageManager.visible_to_user(user=None) returns only
+        messages whose parent conversation the anonymous caller can see.
+
+        Symmetric assertions confirm a public-conversation message IS
+        visible AND a private-conversation message is NOT visible — the
+        latter mirrors what test_conversation_manager_visible_to_user_none
+        pins for the conversation manager itself.
+        """
+        public_msg = ChatMessage.objects.create(
+            conversation=self.public_conv,
+            msg_type="HUMAN",
+            content="Hello world",
+            creator=self.owner,
+        )
+        private_msg = ChatMessage.objects.create(
+            conversation=self.private_conv,
+            msg_type="HUMAN",
+            content="Secret",
+            creator=self.owner,
+        )
+        qs = ChatMessage.objects.visible_to_user(user=None)
+        pks = list(qs.values_list("pk", flat=True))
+        # Public conversation's message is visible to anonymous
+        self.assertIn(public_msg.pk, pks)
+        # Private conversation's message is NOT visible to anonymous
+        self.assertNotIn(private_msg.pk, pks)
+
+    def test_chat_message_manager_visible_to_user_accepts_kwargs(self):
+        """ChatMessageManager.visible_to_user accepts lightweight= and with_doc_label_annotations=."""
+        qs = ChatMessage.objects.visible_to_user(
+            user=self.owner, lightweight=True, with_doc_label_annotations=False
+        )
+        self.assertIsNotNone(qs)

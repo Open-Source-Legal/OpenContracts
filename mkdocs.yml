@@ -57,6 +57,7 @@ nav:
         - Annotation Creation Logic: architecture/components/annotator/current-state/how-annotations-are-created.md
         - State Management: architecture/components/annotator/current-state/state-management.md
         - Virtualized Rendering: architecture/components/annotator/current-state/virtualized-rendering.md
+        - User Handles: architecture/user_handles.md
     - Acknowledgements: acknowledgements.md
   - Walkthrough:
       - Key Concepts: walkthrough/key-concepts.md

@@ -12,12 +12,34 @@ from config.graphql.base import CountableConnection
 from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
 )
+from opencontractserver.constants.auth import OAUTH_SUB_DISPLAY_SUFFIX_LENGTH
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 User = get_user_model()
 
 
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    display_name = graphene.String(
+        description=(
+            "Resolved display name with PII-safe fallback chain. Order: "
+            "name → given_name + family_name → first_name + last_name → "
+            "auto-assigned handle → username (local users only) → redacted "
+            "'user_<sub_suffix>' fallback for social users → 'user_<pk>'."
+        )
+    )
+
+    # Overrides DjangoObjectType's auto-exposed model field so the
+    # ``resolve_email`` gate below runs — without this declaration the
+    # resolver is bypassed for cross-user reads.
+    email = graphene.String(
+        description=(
+            "Email address. Returned only when the requesting user is viewing "
+            "themselves or is a superuser; ``null`` otherwise. This prevents "
+            "the leaderboard / public-profile surfaces from leaking other "
+            "users' email addresses to clients that select the field."
+        )
+    )
+
     # Reputation fields (Epic #565)
     reputation_global = graphene.Int(
         description="Global reputation score across all corpuses"
@@ -50,12 +72,89 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
     )
 
+    def resolve_email(self, info) -> str | None:
+        """Gate ``email`` to self-views and superusers.
+
+        ``DjangoObjectType`` would otherwise auto-expose the model field to
+        any client that selected it (e.g. on a leaderboard ``user`` subtree),
+        which is more PII than the leaderboard needs. Self / superuser views
+        — ``me``, profile settings, admin tooling — still get the real value.
+        """
+        requester = getattr(info.context, "user", None)
+        if requester is None or not requester.is_authenticated:
+            return None
+        if requester.is_superuser or requester.pk == self.pk:
+            return self.email or None
+        return None
+
     def resolve_can_import_corpus(self, info) -> bool:
         if not self.is_authenticated:
             return False
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
             return False
         return True
+
+    def resolve_display_name(self, info) -> str:
+        """Pick the first non-empty branch of the display-name chain.
+
+        Resolution order:
+            1. ``name`` (Auth0 ``name`` claim).
+            2. ``given_name`` + ``family_name`` (Auth0).
+            3. ``first_name`` + ``last_name`` (local Django fields).
+            4. ``handle`` (Reddit-style auto-assigned handle).
+            5. ``username`` verbatim — ONLY when ``is_social_user=False``.
+               ``UserUnicodeUsernameValidator`` (see
+               ``opencontractserver/users/validators.py``) explicitly allows
+               ``|`` in locally-chosen usernames, so a local username like
+               ``alice|admin`` is legitimate and must NOT be redacted.
+            6. ``user_<last N chars after the last "|">`` for social users.
+               The raw OAuth ``sub`` (e.g. ``google-oauth2|114688...``) is
+               never returned — ``rsplit("|", 1)[-1]`` strips the provider
+               prefix even when the sub is short, and we keep only the last
+               ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` chars.
+            7. ``user_<pk>`` / ``user_unknown`` last-resort fallback. With a
+               populated handle column (see migration 0028) this branch is
+               effectively unreachable for any user touched by the backfill.
+
+        The chain is the single rendering choke point for "what should the UI
+        show?" and gracefully degrades for users the handle backfill hasn't
+        reached yet (e.g. inserted via ``QuerySet.update`` that bypasses
+        ``save()``).
+        """
+        name = (self.name or "").strip()
+        if name:
+            return name
+
+        given = (self.given_name or "").strip()
+        family = (self.family_name or "").strip()
+        if given or family:
+            return f"{given} {family}".strip()
+
+        first = (self.first_name or "").strip()
+        last = (self.last_name or "").strip()
+        if first or last:
+            return f"{first} {last}".strip()
+
+        handle = (self.handle or "").strip()
+        if handle:
+            return handle
+
+        username = (self.username or "").strip()
+        is_social = bool(getattr(self, "is_social_user", False))
+
+        # Local users get their chosen username verbatim. ``|`` is allowed
+        # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
+        # username like ``alice|admin`` is legitimate and not an OAuth sub.
+        if username and not is_social:
+            return username
+
+        if username:
+            # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
+            # strips the provider prefix even when the sub is short.
+            sub = username.rsplit("|", 1)[-1]
+            return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
+
+        return f"user_{self.pk}" if self.pk is not None else "user_unknown"
 
     def resolve_reputation_global(self, info) -> Any:
         """
@@ -221,6 +320,23 @@ class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
         from django.db.models import QuerySet
+
+        # When the parent resolver prefetched the reverse relation
+        # (see ``AnnotationQueryOptimizer.get_document_annotations`` which
+        # registers a ``Prefetch("user_feedback", ...)``), the manager passed
+        # in here has its parent's ``_prefetched_objects_cache`` populated.
+        # Re-applying ``.visible_to_user(...)`` invalidates that cache and
+        # forces a fresh SELECT per parent row — the original N+1 storm we
+        # were trying to eliminate. Detect the prefetch and pass through.
+        # ``instance``, ``prefetch_cache_name``, and ``_prefetched_objects_cache``
+        # are Django RelatedManager internals — if their shape changes in a
+        # future release the fallback (re-applying ``visible_to_user``) keeps
+        # correctness intact, only losing the per-row optimisation.
+        instance = getattr(queryset, "instance", None)
+        cache_name = getattr(queryset, "prefetch_cache_name", None)
+        prefetched = getattr(instance, "_prefetched_objects_cache", None) or {}
+        if instance is not None and cache_name is not None and cache_name in prefetched:
+            return queryset
 
         if issubclass(type(queryset), QuerySet):
             return queryset.visible_to_user(info.context.user)
