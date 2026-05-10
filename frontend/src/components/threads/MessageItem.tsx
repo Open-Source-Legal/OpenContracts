@@ -32,7 +32,7 @@ import { MessageNode } from "./utils";
 import { RelativeTime } from "./RelativeTime";
 import { MessageBadges } from "../badges/MessageBadges";
 import { MarkdownMessageRenderer } from "./MarkdownMessageRenderer";
-import { formatUsername } from "./userUtils";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 import { VoteButtons } from "./VoteButtons";
 import { UserBadgeType, AgentConfigurationType } from "../../types/graphql-api";
 import {
@@ -722,10 +722,7 @@ export const MessageItem = React.memo(function MessageItem({
   parentAuthor,
 }: MessageItemProps) {
   const isDeleted = !!message.deletedAt;
-  const username = formatUsername(
-    message.creator?.username,
-    message.creator?.email
-  );
+  const username = getCreatorDisplay(message.creator);
 
   // Detect if message is from an agent (Issue #688)
   const agentData = useMemo(

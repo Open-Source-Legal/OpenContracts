@@ -17,8 +17,7 @@ const createMockVersions = (count: number): DocumentSummaryRevision[] => {
     diff: "",
     author: {
       id: `user-${(i % 3) + 1}`,
-      username: `user${(i % 3) + 1}`,
-      email: `user${(i % 3) + 1}@example.com`,
+      slug: `user${(i % 3) + 1}`,
     },
   }));
 };

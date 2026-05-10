@@ -22,6 +22,7 @@ import { UserStats } from "../components/profile/UserStats";
 import { RecentActivity } from "../components/profile/RecentActivity";
 import { showUserSettingsModal } from "../graphql/cache";
 import { color } from "../theme/colors";
+import { getCreatorInitials } from "../utils/userDisplay";
 
 // Outer scroll container with proper overflow handling
 const ProfileContainer = styled.div`
@@ -295,14 +296,18 @@ const SectionTitle = styled.h2`
 `;
 
 export interface UserProfileProps {
+  // ``username``, ``name``, ``firstName``, ``lastName`` and ``email`` are
+  // redacted to ``null`` for non-self viewers per the user privacy
+  // contract (see ``config/graphql/user_types.py``). Only ``id`` and
+  // ``slug`` are guaranteed cross-user.
   user: {
     id: string;
-    username: string;
+    username: string | null;
     slug: string;
-    name: string;
-    firstName: string;
-    lastName: string;
-    email: string;
+    name: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
     isProfilePublic: boolean;
     reputationGlobal: number;
     totalMessages: number;
@@ -317,7 +322,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   user,
   isOwnProfile,
 }) => {
-  // Get initials for avatar
+  // Get initials for avatar. Self-views walk the rich PII fallback chain
+  // (firstName/lastName, name, username); cross-user views fall through to
+  // ``getCreatorInitials`` so the slug-based fallback matches every other
+  // surface that derives initials from a public creator reference.
   const getInitials = () => {
     if (user.firstName && user.lastName) {
       return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
@@ -329,13 +337,17 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       }
       return user.name.substring(0, 2).toUpperCase();
     }
-    return user.username.substring(0, 2).toUpperCase();
+    if (user.username) {
+      return user.username.substring(0, 2).toUpperCase();
+    }
+    return getCreatorInitials({ id: user.id, slug: user.slug });
   };
 
+  const handle = user.username || user.slug;
   const displayName =
     user.name ||
     `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-    user.username;
+    handle;
 
   // Placeholder — reputation change tracking requires a backend time-series model.
   const recentChange = 0;
@@ -347,7 +359,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <Avatar>{getInitials()}</Avatar>
           <ProfileInfo>
             <ProfileName>{displayName}</ProfileName>
-            <ProfileUsername>@{user.username}</ProfileUsername>
+            <ProfileUsername>@{handle}</ProfileUsername>
             {isOwnProfile && user.email && (
               <ProfileEmail>{user.email}</ProfileEmail>
             )}

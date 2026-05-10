@@ -89,7 +89,7 @@ class WorkerQueryMixin:
                 name=a.name,
                 description=a.description,
                 is_active=a.is_active,
-                creator_name=a.creator.username if a.creator else None,
+                creator_name=a.creator.slug if a.creator else None,
                 created=a.created,
                 modified=a.modified,
                 token_count=a._token_count if user.is_superuser else 0,

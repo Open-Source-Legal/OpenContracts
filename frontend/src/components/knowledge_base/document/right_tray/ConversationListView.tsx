@@ -30,6 +30,7 @@ import {
 import { FetchMoreOnVisible } from "../../../widgets/infinite_scroll/FetchMoreOnVisible";
 import { calculateMessageStats, getMessageCountColor } from "./chatUtils";
 import type { ConversationType } from "../../../../types/graphql-api";
+import { getCreatorDisplay } from "../../../../utils/userDisplay";
 
 /* ------------------------------------------------------------------ */
 /* Props                                                               */
@@ -273,7 +274,7 @@ export const DocumentConversationListView: React.FC<
                   <TimeStamp>
                     {formatDistanceToNow(new Date(conv.createdAt))} ago
                   </TimeStamp>
-                  <Creator>{conv.creator?.email}</Creator>
+                  <Creator>{getCreatorDisplay(conv.creator)}</Creator>
                 </div>
               </CardContent>
             </ConversationCard>

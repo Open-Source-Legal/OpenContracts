@@ -573,6 +573,16 @@ You have access to thread context, messages, and moderation tools. Use them judi
 export const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
   "You are a document processing agent for this corpus.";
 
+// User identity / privacy display constants
+//
+// Number of trailing pk characters used in ``getCreatorDisplay``'s
+// ``user_<suffix>`` fallback when a user has no ``slug``. Mirrors
+// ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` in
+// ``opencontractserver/constants/auth.py`` so the frontend redacted
+// handle matches the backend's ``redacted_handle`` shape — keep in
+// sync if the backend constant ever changes.
+export const REDACTED_HANDLE_PK_SUFFIX_LENGTH = 6;
+
 // Right-panel (chat / annotation tray) drag-resize bounds and snap targets.
 // Used by useResizeHandle in the document KB viewer to clamp custom widths
 // and to snap to the predefined "quarter" / "half" / "full" presets.

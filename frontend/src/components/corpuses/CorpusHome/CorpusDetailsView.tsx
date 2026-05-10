@@ -25,6 +25,7 @@ import {
 import { CorpusType } from "../../../types/graphql-api";
 import { PermissionTypes } from "../../types";
 import { getPermissions } from "../../../utils/transform";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 import { tocExpandAll } from "../../../graphql/cache";
 import { updateTocExpandedParam } from "../../../utils/navigationUtils";
 import { CorpusAbout } from "../CorpusAbout/CorpusAbout";
@@ -150,7 +151,7 @@ export const CorpusDetailsView: React.FC<CorpusDetailsViewProps> = ({
     PermissionTypes.CAN_UPDATE
   );
 
-  const creatorName = fullCorpus.creator?.email?.split("@")[0] || "Unknown";
+  const creatorName = getCreatorDisplay(fullCorpus.creator);
   const createdDate = fullCorpus.created
     ? formatDistanceToNow(new Date(fullCorpus.created), { addSuffix: true })
     : "recently";

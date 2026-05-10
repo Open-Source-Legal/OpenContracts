@@ -24,4 +24,9 @@ WS_AUTH_REFRESH_GRACE_SECONDS = 30.0
 # across users in the same UI context, short enough that the redacted form
 # does not effectively expose the full sub. See ``UserType.resolve_display_name``
 # (issue #1557).
+#
+# Mirrored in
+# ``frontend/src/assets/configurations/constants.ts::REDACTED_HANDLE_PK_SUFFIX_LENGTH``
+# so both ends of the privacy contract render the same fallback. If you change
+# this number, change the frontend constant in the same commit.
 OAUTH_SUB_DISPLAY_SUFFIX_LENGTH = 6

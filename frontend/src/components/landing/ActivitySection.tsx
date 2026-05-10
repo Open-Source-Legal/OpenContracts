@@ -15,6 +15,7 @@ import type { ActivityItemData } from "@os-legal/ui";
 import { GetRecentDiscussionsOutput } from "../../graphql/landing-queries";
 import { getCorpusThreadUrl } from "../../utils/navigationUtils";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay, getCreatorInitials } from "../../utils/userDisplay";
 
 interface ActivitySectionProps {
   discussions: GetRecentDiscussionsOutput["conversations"]["edges"] | null;
@@ -123,41 +124,6 @@ function formatRelativeTime(dateString: string): string {
 }
 
 /**
- * Formats username, handling OAuth identifiers and long names
- */
-function formatUsername(username: string | undefined): string {
-  if (!username) return "Anonymous";
-  // Handle OAuth IDs like "google-oauth2|114688257717759010643"
-  if (username.includes("|")) {
-    const provider = username.split("|")[0];
-    if (provider.includes("google")) return "Google User";
-    if (provider.includes("github")) return "GitHub User";
-    if (provider.includes("auth0")) return "User";
-    return "User";
-  }
-  // Truncate very long usernames
-  if (username.length > 20) {
-    return username.substring(0, 17) + "...";
-  }
-  return username;
-}
-
-/**
- * Gets initials from username for avatar display
- */
-function getInitials(username?: string): string {
-  if (!username) return "?";
-  // Handle OAuth usernames
-  if (username.includes("|")) {
-    const provider = username.split("|")[0];
-    if (provider.includes("google")) return "G";
-    if (provider.includes("github")) return "GH";
-    return "U";
-  }
-  return username.substring(0, 2).toUpperCase();
-}
-
-/**
  * Gets consistent avatar color for a user based on their ID
  */
 function getAvatarColor(userId?: string): string {
@@ -201,8 +167,8 @@ export const ActivitySection: React.FC<ActivitySectionProps> = ({
 
       return {
         id: discussion.id,
-        name: formatUsername(discussion.creator?.username),
-        initials: getInitials(discussion.creator?.username),
+        name: getCreatorDisplay(discussion.creator),
+        initials: getCreatorInitials(discussion.creator),
         action: "started discussion",
         target: discussion.title || "Untitled Discussion",
         targetUrl: targetUrl !== "#" ? targetUrl : undefined,

@@ -32,6 +32,7 @@ import {
 import { CorpusType, DocumentType } from "../../types/graphql-api";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 // Styled components for better UI
 const SearchWrapper = styled.div`
@@ -330,7 +331,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
                     color: OS_LEGAL_COLORS.textSecondary,
                   }}
                 >
-                  by {corpus.creator?.email || "Unknown"}
+                  by {getCreatorDisplay(corpus.creator)}
                 </div>
                 {corpus.description && (
                   <div
@@ -417,7 +418,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
                         color: OS_LEGAL_COLORS.textSecondary,
                       }}
                     >
-                      by {doc.creator?.email || "Unknown"}
+                      by {getCreatorDisplay(doc.creator)}
                     </div>
                   </div>
                 </DocumentListItem>

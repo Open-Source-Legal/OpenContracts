@@ -19,6 +19,7 @@ import {
   getLeaderboardAvatarColor as getAvatarColor,
   getLeaderboardInitials as getInitials,
 } from "../../utils/leaderboardAvatar";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 interface CompactLeaderboardProps {
   contributors: LeaderboardEntry[] | null;
@@ -359,15 +360,27 @@ export const CompactLeaderboard: React.FC<CompactLeaderboardProps> = ({
               <RankChip $rank={rank}>{rank}</RankChip>
 
               <UserInfo>
+                {/*
+                  Avatar initials and visible username are both derived
+                  from the public ``slug`` — the leaderboard is a public
+                  surface that must never surface a user's chosen
+                  ``displayName`` (which still falls back to the user's
+                  real name for self-views). Backend already redacts
+                  ``displayName`` to slug for non-self viewers, but
+                  reading the slug field directly avoids any chance of
+                  a stale Apollo cache entry leaking the self-view
+                  rendering when a logged-in user looks at their own
+                  row.
+                */}
                 <Avatar
                   size="sm"
-                  fallback={getInitials(contributor.displayName)}
+                  fallback={getInitials(contributor.slug)}
                   style={{
                     backgroundColor: getAvatarColor(contributor.id),
                     color: "white",
                   }}
                 />
-                <Username>{contributor.displayName || "Anonymous"}</Username>
+                <Username>{getCreatorDisplay(contributor)}</Username>
               </UserInfo>
 
               {badges.length > 0 && (

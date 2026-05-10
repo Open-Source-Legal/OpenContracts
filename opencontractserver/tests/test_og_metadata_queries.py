@@ -104,7 +104,10 @@ class OGCorpusMetadataTestCase(TestCase):
         self.assertEqual(data["title"], "Public Test Corpus")
         self.assertEqual(data["description"], "A public corpus for OG metadata testing")
         self.assertEqual(data["documentCount"], 3)
-        self.assertEqual(data["creatorName"], "og_test_user")
+        # ``creatorName`` now surfaces the public slug, not the username.
+        # Underscores in the username are normalised to hyphens by the
+        # slug sanitizer (see ``opencontractserver.shared.slug_utils``).
+        self.assertEqual(data["creatorName"], self.user.slug)
         self.assertTrue(data["isPublic"])
 
     def test_private_corpus_returns_none(self):
@@ -230,7 +233,8 @@ class OGDocumentMetadataTestCase(TestCase):
         self.assertEqual(
             data["description"], "A public document for OG metadata testing"
         )
-        self.assertEqual(data["creatorName"], "og_doc_user")
+        # ``creatorName`` is the public slug (see OG_metadata privacy fix).
+        self.assertEqual(data["creatorName"], self.user.slug)
         self.assertTrue(data["isPublic"])
 
     def test_private_document_returns_none(self):
@@ -349,7 +353,8 @@ class OGDocumentInCorpusMetadataTestCase(TestCase):
         self.assertEqual(
             data["corpusDescription"], "Corpus for analyzing legal contracts"
         )
-        self.assertEqual(data["creatorName"], "og_doc_corpus_user")
+        # ``creatorName`` is the public slug (see OG_metadata privacy fix).
+        self.assertEqual(data["creatorName"], self.user.slug)
 
     def test_doc_added_as_private_to_public_corpus_inherits_public(self):
         """Test that a document added to a public corpus inherits is_public=True
@@ -388,7 +393,8 @@ class OGDocumentInCorpusMetadataTestCase(TestCase):
             "Document in public corpus should be public and return OG metadata",
         )
         self.assertEqual(data["title"], "Private Doc in Corpus")
-        self.assertEqual(data["creatorName"], "og_doc_corpus_user")
+        # ``creatorName`` is the public slug (see OG_metadata privacy fix).
+        self.assertEqual(data["creatorName"], self.user.slug)
 
     def test_doc_in_private_corpus_returns_none(self):
         """Test that any doc in private corpus returns None."""
@@ -512,7 +518,8 @@ class OGThreadMetadataTestCase(TestCase):
         self.assertEqual(data["title"], "Test Discussion Thread")
         self.assertEqual(data["corpusTitle"], "Public Corpus with Thread")
         self.assertEqual(data["messageCount"], 5)
-        self.assertEqual(data["creatorName"], "og_thread_user")
+        # ``creatorName`` is the public slug (see OG_metadata privacy fix).
+        self.assertEqual(data["creatorName"], self.user.slug)
 
     def test_thread_in_public_corpus_with_relay_id(self):
         """Test that thread query works with GraphQL Relay global ID."""
@@ -655,7 +662,8 @@ class OGExtractMetadataTestCase(TestCase):
         self.assertEqual(data["name"], "Test Data Extract")
         self.assertEqual(data["corpusTitle"], "Public Corpus with Extract")
         self.assertEqual(data["fieldsetName"], "Test Fieldset")
-        self.assertEqual(data["creatorName"], "og_extract_user")
+        # ``creatorName`` is the public slug (see OG_metadata privacy fix).
+        self.assertEqual(data["creatorName"], self.user.slug)
 
     def test_extract_in_public_corpus_with_relay_id(self):
         """Test that extract query works with GraphQL Relay global ID."""

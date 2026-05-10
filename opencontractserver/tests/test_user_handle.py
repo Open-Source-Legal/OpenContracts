@@ -274,15 +274,27 @@ query Me {
 
 
 class DisplayNameResolverTests(TestCase):
-    """Resolution-chain priority for ``UserType.displayName``."""
+    """Resolution-chain priority for ``UserType.displayName``.
 
-    @staticmethod
-    def _resolve_for(user) -> str:
+    The resolver returns the slug-only public path for non-self viewers
+    (see ``_is_self_view`` in ``config/graphql/user_types``); to exercise
+    the rich self-view chain we must construct an info mock whose
+    ``context.user`` *is* the user being resolved.
+    """
+
+    class _SelfInfo:
+        """Minimal Graphene info stand-in that passes ``_is_self_view``."""
+
+        def __init__(self, user):
+            self.context = type("Ctx", (), {"user": user})()
+
+    @classmethod
+    def _resolve_for(cls, user) -> str:
         # Calling the resolver directly avoids depending on a `me`-style query
         # we may not control, while still exercising the production code path.
         from config.graphql.user_types import UserType
 
-        return UserType.resolve_display_name(user, info=None)
+        return UserType.resolve_display_name(user, info=cls._SelfInfo(user))
 
     def test_name_takes_priority(self):
         user = User.objects.create_user(

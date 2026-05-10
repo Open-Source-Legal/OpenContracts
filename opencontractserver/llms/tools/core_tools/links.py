@@ -4,6 +4,25 @@ from opencontractserver.constants.truncation import MAX_LINK_TITLE_LENGTH
 from opencontractserver.utils.text import truncate
 
 
+def _require_creator_slug(entity, entity_label: str, entity_id: int) -> str:
+    """Pull ``entity.creator.slug`` or raise with a precise diagnostic.
+
+    The two failure modes — no creator at all vs. a creator without a
+    populated slug — produce distinct error messages so log triage isn't
+    misled when the creator FK is intact but the slug column is empty
+    (e.g. for users predating the slug backfill migration).
+    """
+    if not entity.creator:
+        raise ValueError(
+            f"{entity_label} {entity_id} has no creator and cannot generate a link."
+        )
+    if not entity.creator.slug:
+        raise ValueError(
+            f"{entity_label} {entity_id} creator has no slug and cannot generate a link."
+        )
+    return entity.creator.slug
+
+
 def create_markdown_link(
     entity_type: str,
     entity_id: int,
@@ -66,11 +85,7 @@ def create_markdown_link(
             corpus = annotation.corpus
 
             # Get user slug from document creator
-            if not doc.creator or not doc.creator.username:
-                raise ValueError(
-                    f"Document {doc.id} has no creator and cannot generate a link."
-                )
-            user_slug = doc.creator.username
+            user_slug = _require_creator_slug(doc, "Document", doc.id)
 
             # Build document path
             if corpus and corpus.slug:
@@ -102,16 +117,11 @@ def create_markdown_link(
             # Corpus link: /c/{userSlug}/{corpusSlug}
             corpus = Corpus.objects.select_related("creator").get(pk=entity_id)
 
-            if not corpus.creator or not corpus.creator.username:
-                raise ValueError(
-                    f"Corpus {entity_id} has no creator and cannot generate a link."
-                )
+            user_slug = _require_creator_slug(corpus, "Corpus", entity_id)
             if not corpus.slug:
                 raise ValueError(
                     f"Corpus {entity_id} has no slug and cannot generate a link."
                 )
-
-            user_slug = corpus.creator.username
             url = f"/c/{user_slug}/{corpus.slug}"
             title = corpus.title if corpus.title else f"Corpus {entity_id}"
 
@@ -122,16 +132,11 @@ def create_markdown_link(
             # or /d/{userSlug}/{docSlug} (standalone)
             doc = Document.objects.select_related("creator").get(pk=entity_id)
 
-            if not doc.creator or not doc.creator.username:
-                raise ValueError(
-                    f"Document {entity_id} has no creator and cannot generate a link."
-                )
+            user_slug = _require_creator_slug(doc, "Document", entity_id)
             if not doc.slug:
                 raise ValueError(
                     f"Document {entity_id} has no slug and cannot generate a link."
                 )
-
-            user_slug = doc.creator.username
 
             # Check if document belongs to a corpus (via annotations)
             # Documents don't have direct corpus FK, but annotations do
@@ -168,16 +173,11 @@ def create_markdown_link(
                 )
 
             corpus = conversation.chat_with_corpus
-            if not corpus.creator or not corpus.creator.username:
-                raise ValueError(
-                    f"Corpus {corpus.id} has no creator and cannot generate a link."
-                )
+            user_slug = _require_creator_slug(corpus, "Corpus", corpus.id)
             if not corpus.slug:
                 raise ValueError(
                     f"Corpus {corpus.id} has no slug and cannot generate a link."
                 )
-
-            user_slug = corpus.creator.username
             url = f"/c/{user_slug}/{corpus.slug}/discussions/{entity_id}"
             title = (
                 conversation.title if conversation.title else f"Discussion {entity_id}"
@@ -242,11 +242,7 @@ async def acreate_markdown_link(
             doc = annotation.document
             corpus = annotation.corpus
 
-            if not doc.creator or not doc.creator.username:
-                raise ValueError(
-                    f"Document {doc.id} has no creator and cannot generate a link."
-                )
-            user_slug = doc.creator.username
+            user_slug = _require_creator_slug(doc, "Document", doc.id)
 
             if corpus and corpus.slug:
                 if not doc.slug:
@@ -273,16 +269,11 @@ async def acreate_markdown_link(
         elif entity_type == "corpus":
             corpus = await Corpus.objects.select_related("creator").aget(pk=entity_id)
 
-            if not corpus.creator or not corpus.creator.username:
-                raise ValueError(
-                    f"Corpus {entity_id} has no creator and cannot generate a link."
-                )
+            user_slug = _require_creator_slug(corpus, "Corpus", entity_id)
             if not corpus.slug:
                 raise ValueError(
                     f"Corpus {entity_id} has no slug and cannot generate a link."
                 )
-
-            user_slug = corpus.creator.username
             url = f"/c/{user_slug}/{corpus.slug}"
             title = corpus.title if corpus.title else f"Corpus {entity_id}"
 
@@ -291,16 +282,11 @@ async def acreate_markdown_link(
         elif entity_type == "document":
             doc = await Document.objects.select_related("creator").aget(pk=entity_id)
 
-            if not doc.creator or not doc.creator.username:
-                raise ValueError(
-                    f"Document {entity_id} has no creator and cannot generate a link."
-                )
+            user_slug = _require_creator_slug(doc, "Document", entity_id)
             if not doc.slug:
                 raise ValueError(
                     f"Document {entity_id} has no slug and cannot generate a link."
                 )
-
-            user_slug = doc.creator.username
 
             corpus = None
             first_annotation = await (
@@ -333,16 +319,11 @@ async def acreate_markdown_link(
                 )
 
             corpus = conversation.chat_with_corpus
-            if not corpus.creator or not corpus.creator.username:
-                raise ValueError(
-                    f"Corpus {corpus.id} has no creator and cannot generate a link."
-                )
+            user_slug = _require_creator_slug(corpus, "Corpus", corpus.id)
             if not corpus.slug:
                 raise ValueError(
                     f"Corpus {corpus.id} has no slug and cannot generate a link."
                 )
-
-            user_slug = corpus.creator.username
             url = f"/c/{user_slug}/{corpus.slug}/discussions/{entity_id}"
             title = (
                 conversation.title if conversation.title else f"Discussion {entity_id}"

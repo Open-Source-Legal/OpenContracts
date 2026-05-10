@@ -3,9 +3,9 @@
 import logging
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
 from opencontractserver.llms.tools.image_tools import (
@@ -16,9 +16,38 @@ logger = logging.getLogger(__name__)
 
 
 class AnnotationImagesThrottle(UserRateThrottle):
-    """Rate limiting for annotation image retrieval endpoint."""
+    """Rate limiting for annotation image retrieval endpoint (authenticated only).
+
+    Bypasses anonymous requests so each user-type has a single dedicated
+    bucket — anon traffic is metered exclusively by ``AnnotationImagesAnonThrottle``.
+    Without this gate, ``UserRateThrottle`` would IP-key anonymous requests
+    against ``annotation_images`` while ``AnonRateThrottle`` IP-keyed them
+    against ``annotation_images_anon``, consuming two cache slots per call
+    in lockstep.
+    """
 
     scope = "annotation_images"
+
+    def allow_request(self, request, view):
+        if not request.user.is_authenticated:
+            return True
+        return super().allow_request(request, view)
+
+
+class AnnotationImagesAnonThrottle(AnonRateThrottle):
+    """Rate limiting for annotation image retrieval endpoint (anonymous only).
+
+    Bypasses authenticated requests; the matching ``AnnotationImagesThrottle``
+    handles those. See that class for the rationale behind splitting the
+    two scopes.
+    """
+
+    scope = "annotation_images_anon"
+
+    def allow_request(self, request, view):
+        if request.user.is_authenticated:
+            return True
+        return super().allow_request(request, view)
 
 
 class AnnotationImagesView(APIView):
@@ -27,16 +56,19 @@ class AnnotationImagesView(APIView):
 
     GET /api/annotations/<annotation_id>/images/
 
-    Returns JSON with base64-encoded images for the specified annotation.
-    Uses get_annotation_images_with_permission() which:
-    - Verifies user has READ permission on annotation's document
-    - Returns empty array for unauthorized/missing (IDOR protection)
+    Image visibility is **identical** to annotation visibility — the
+    single source of truth is ``AnnotationQuerySet.visible_to_user``.
+    If the caller can see the annotation through the GraphQL feed,
+    they can fetch its images here; otherwise they receive an empty
+    array (IDOR protection: same response for missing or unauthorized).
 
-    Rate limited to 200 requests/hour per user to prevent resource exhaustion.
+    Rate limited to 200 requests/hour per user/IP. Authenticated and
+    anonymous callers each have their own bucket so anonymous traffic
+    cannot starve the authenticated quota and vice versa.
     """
 
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [AnnotationImagesThrottle]
+    permission_classes = [AllowAny]
+    throttle_classes = [AnnotationImagesThrottle, AnnotationImagesAnonThrottle]
 
     def get(self, request, annotation_id):
         """
