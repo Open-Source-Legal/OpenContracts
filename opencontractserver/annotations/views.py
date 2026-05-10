@@ -56,19 +56,15 @@ class AnnotationImagesView(APIView):
 
     GET /api/annotations/<annotation_id>/images/
 
-    Returns JSON with base64-encoded images for the specified annotation.
-    Uses get_annotation_images_with_permission() which mirrors the visibility
-    rules of AnnotationQuerySet.visible_to_user:
-    - Authenticated users: requires READ permission on document AND corpus,
-      respects analysis/extract privacy fields
-    - Anonymous users: only structural annotations on public document +
-      public corpus (matches the public/anonymous read access defined in
-      docs/permissioning/consolidated_permissioning_guide.md)
-    - Returns empty array for unauthorized/missing (IDOR protection)
+    Image visibility is **identical** to annotation visibility — the
+    single source of truth is ``AnnotationQuerySet.visible_to_user``.
+    If the caller can see the annotation through the GraphQL feed,
+    they can fetch its images here; otherwise they receive an empty
+    array (IDOR protection: same response for missing or unauthorized).
 
-    Rate limited to 200 requests/hour per user/IP to prevent resource exhaustion.
-    Authenticated and anonymous callers each have their own bucket so anon
-    traffic cannot starve the authenticated quota and vice versa.
+    Rate limited to 200 requests/hour per user/IP. Authenticated and
+    anonymous callers each have their own bucket so anonymous traffic
+    cannot starve the authenticated quota and vice versa.
     """
 
     permission_classes = [AllowAny]

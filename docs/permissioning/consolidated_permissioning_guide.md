@@ -430,17 +430,9 @@ Privacy Filter = IF created_by_analysis/extract THEN require source permission
 
 ##### Annotation Images (`/api/annotations/<id>/images/`)
 
-Annotation **thumbnails / cropped image data** (extracted from PAWLs image tokens or `image_content_file`) follow the same visibility rules as the annotation itself — *if you can read the annotation, you can read its images*. The REST view is `AnnotationImagesView` at `opencontractserver/annotations/views.py`; permission decisions live in `get_annotation_images_with_permission` at `opencontractserver/llms/tools/image_tools.py`.
+Annotation **thumbnails / cropped image data** (extracted from PAWLs image tokens or `image_content_file`) follow **the same visibility rule as the annotation itself** — *if you can read the annotation, you can read its images*. The REST view is `AnnotationImagesView` at `opencontractserver/annotations/views.py`; the permission gate in `get_annotation_images_with_permission` (`opencontractserver/llms/tools/image_tools.py`) delegates directly to `AnnotationQuerySet.visible_to_user` so the rules cannot drift.
 
-| Viewer | Allowed when |
-|--------|--------------|
-| Superuser | Always |
-| Authenticated | Effective Permission = MIN(document, corpus) ≥ READ; analysis/extract privacy enforced for non-structural annotations |
-| Anonymous | Annotation `structural=True` AND `document.is_public=True` AND (corpus is null OR `corpus.is_public=True`). Also admits the `structural_set`-linked branch: when the annotation row's own `document` is null but at least one `Document` using its `structural_set` is `is_public=True`, with the same corpus rule. |
-
-The anonymous rule is intentionally narrower than the authenticated rule because `AnnotationQuerySet.visible_to_user` only exposes structural annotations to anonymous users — the image endpoint mirrors that filter exactly so an anonymous user never receives an image for an annotation they cannot otherwise see in the GraphQL feed.
-
-The endpoint always returns `200 OK` with `{"images": [], "count": 0}` for missing/unauthorized requests (IDOR protection); shape is identical whether the annotation does not exist, the user lacks permission, or the annotation simply has no image content.
+The endpoint always returns `200 OK` with `{"images": [], "count": 0}` for missing/unauthorized requests (IDOR protection); the response shape is identical whether the annotation does not exist, the user lacks permission, or the annotation simply has no image content.
 
 #### Analyses & Extracts (Hybrid Model)
 ```
