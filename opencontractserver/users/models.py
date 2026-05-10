@@ -192,8 +192,10 @@ class User(AbstractUser):
     def __str__(self) -> str:
         # Avoid leaking email into __repr__/admin/log surfaces. Slug is the
         # public handle; falls back to username only when slug is unset
-        # (pre-migration rows or save() failures).
-        return self.slug or self.username
+        # (pre-migration rows or save() failures), then to ``user_<pk>`` so
+        # admin/log lines never collapse to the empty string for users that
+        # somehow have neither (matches the GraphQL ``redacted_handle`` shape).
+        return self.slug or self.username or f"user_{self.pk}"
 
     def get_absolute_url(self) -> str:
         """Get url for user's detail view.

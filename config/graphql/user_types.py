@@ -97,7 +97,7 @@ def _self_only(user_obj: Any, info: Any, attr: str) -> Optional[Any]:
     return value
 
 
-def _redacted_handle(user_obj: Any) -> str:
+def redacted_handle(user_obj: Any) -> str:
     """Stable, non-PII fallback when no ``slug`` is available.
 
     Uses the user's primary key suffix so two distinct users never collide
@@ -307,7 +307,7 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         if not _is_self_view(self, info):
             slug = _stripped(getattr(self, "slug", ""))
-            return slug or _redacted_handle(self)
+            return slug or redacted_handle(self)
 
         name = _stripped(getattr(self, "name", ""))
         if name:
@@ -342,7 +342,7 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             sub = username.rsplit("|", 1)[-1]
             return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
 
-        return _redacted_handle(self)
+        return redacted_handle(self)
 
     def resolve_reputation_global(self, info) -> Any:
         """

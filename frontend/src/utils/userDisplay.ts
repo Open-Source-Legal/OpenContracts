@@ -11,12 +11,12 @@
  * re-derive them and silently regress if the privacy contract changes.
  */
 
+import { REDACTED_HANDLE_PK_SUFFIX_LENGTH } from "../assets/configurations/constants";
+
 export interface CreatorRef {
   id?: string | null;
   slug?: string | null;
 }
-
-import { REDACTED_HANDLE_PK_SUFFIX_LENGTH } from "../assets/configurations/constants";
 
 /**
  * Decode the numeric primary key from a Relay global ID

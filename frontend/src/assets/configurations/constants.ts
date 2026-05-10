@@ -579,6 +579,6 @@ export const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
 // ``user_<suffix>`` fallback when a user has no ``slug``. Mirrors
 // ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` in
 // ``opencontractserver/constants/auth.py`` so the frontend redacted
-// handle matches the backend's ``_redacted_handle`` shape — keep in
+// handle matches the backend's ``redacted_handle`` shape — keep in
 // sync if the backend constant ever changes.
 export const REDACTED_HANDLE_PK_SUFFIX_LENGTH = 6;
