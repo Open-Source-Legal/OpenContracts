@@ -316,6 +316,21 @@ export const blackAlpha = (opacity: number): string =>
   `rgba(0, 0, 0, ${opacity})`;
 
 /**
+ * Create an rgba color string from coolGray400 (#9ca3af = rgb(156, 163, 175))
+ * with a given opacity. Use instead of hardcoded rgba(156, 163, 175, ...) values
+ * for neutral borders and subtle backgrounds (e.g. timeline panel chrome).
+ */
+export const coolGray400Alpha = (opacity: number): string =>
+  `rgba(156, 163, 175, ${opacity})`;
+
+/**
+ * Create an rgba color string from the success green (#22c55e = rgb(34, 197, 94))
+ * with a given opacity. Use instead of hardcoded rgba(34, 197, 94, ...) values.
+ */
+export const greenAlpha = (opacity: number): string =>
+  `rgba(34, 197, 94, ${opacity})`;
+
+/**
  * Typography definitions for the OS Legal design system.
  */
 export const OS_LEGAL_TYPOGRAPHY = {

@@ -14,6 +14,7 @@ import { motion } from "framer-motion";
 import {
   OS_LEGAL_COLORS,
   blackAlpha,
+  coolGray400Alpha,
   primaryBlueAlpha,
   whiteAlpha,
 } from "../../../assets/configurations/osLegalStyles";
@@ -24,7 +25,7 @@ export const TimelineContainer = styled.div`
   position: relative;
   background: ${whiteAlpha(0.7)};
   border-radius: 0.75rem;
-  border: 1px solid rgba(156, 163, 175, 0.2);
+  border: 1px solid ${coolGray400Alpha(0.2)};
   overflow: hidden;
   transition: all 0.2s ease-in-out;
   margin-top: 0.75rem;
@@ -35,13 +36,13 @@ export const TimelineHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 0.75rem;
-  background: rgba(156, 163, 175, 0.05);
-  border-bottom: 1px solid rgba(156, 163, 175, 0.1);
+  background: ${coolGray400Alpha(0.05)};
+  border-bottom: 1px solid ${coolGray400Alpha(0.1)};
   cursor: pointer;
   transition: all 0.2s ease-in-out;
 
   &:hover {
-    background: rgba(156, 163, 175, 0.1);
+    background: ${coolGray400Alpha(0.1)};
   }
 `;
 
@@ -81,7 +82,7 @@ export const AutoScrollIndicator = styled(motion.div)<{ $active: boolean }>`
       : "linear-gradient(to top, rgba(245,245,245,0.95), rgba(245,245,245,0.8))"};
   border-top: 1px solid
     ${(props) =>
-      props.$active ? primaryBlueAlpha(0.2) : "rgba(156, 163, 175, 0.2)"};
+      props.$active ? primaryBlueAlpha(0.2) : coolGray400Alpha(0.2)};
   font-size: 0.7rem;
   color: ${(props) =>
     props.$active ? OS_LEGAL_COLORS.primaryBlue : OS_LEGAL_COLORS.textMuted};

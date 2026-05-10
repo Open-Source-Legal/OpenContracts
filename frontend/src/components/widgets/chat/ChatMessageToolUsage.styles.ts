@@ -11,7 +11,9 @@ import { motion } from "framer-motion";
 import {
   OS_LEGAL_COLORS,
   blackAlpha,
+  greenAlpha,
   primaryBlueAlpha,
+  whiteAlpha,
 } from "../../../assets/configurations/osLegalStyles";
 import {
   POPOVER_Z_INDEX,
@@ -68,7 +70,7 @@ export const ToolPopover = styled(motion.div)`
   z-index: ${POPOVER_Z_INDEX};
   min-width: 320px;
   max-width: 440px;
-  background: rgba(255, 255, 255, 0.98);
+  background: ${whiteAlpha(0.98)};
   backdrop-filter: blur(16px);
   border: 1px solid ${primaryBlueAlpha(0.15)};
   border-radius: 0.75rem;
@@ -174,8 +176,8 @@ export const ToolCallCodeBlock = styled.pre`
 export const ToolCallResultBlock = styled.div`
   margin: 0;
   padding: 0.375rem 0.5rem;
-  background: rgba(34, 197, 94, 0.05);
-  border: 1px solid rgba(34, 197, 94, 0.15);
+  background: ${greenAlpha(0.05)};
+  border: 1px solid ${greenAlpha(0.15)};
   border-radius: 0.375rem;
   font-size: 0.75rem;
   color: ${OS_LEGAL_COLORS.successText};

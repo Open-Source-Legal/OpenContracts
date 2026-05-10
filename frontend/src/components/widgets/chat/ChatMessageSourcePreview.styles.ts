@@ -14,6 +14,7 @@ import {
   chatSourceBlueAlpha,
   whiteAlpha,
 } from "../../../assets/configurations/osLegalStyles";
+import { POPOVER_Z_INDEX } from "../../../assets/configurations/constants";
 
 export const SourcePreviewContainer = styled.div`
   position: relative;
@@ -184,7 +185,7 @@ export const LabelMenu = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  z-index: 2000;
+  z-index: ${POPOVER_Z_INDEX};
 `;
 
 export const LabelButton = styled.button`
