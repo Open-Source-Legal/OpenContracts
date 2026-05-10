@@ -292,45 +292,47 @@ test.describe("NavMenu Component", () => {
 });
 
 test.describe("NavMenu Responsive Behavior", () => {
-  // Note: These tests verify responsive behavior at mobile viewport widths.
-  // The NavBar component from @os-legal/ui handles responsive behavior internally.
+  // At < 1100px the NavMenu swaps in the custom MobileNavMenu (a hamburger
+  // toggle + a floating sheet that overlays the page rather than expanding
+  // inline). These tests target that component via its accessible labels,
+  // which are more stable than internal CSS class names.
 
-  test("should show hamburger menu on mobile viewport", async ({
+  test("should show hamburger toggle on mobile viewport", async ({
     mount,
     page,
   }) => {
-    // Set mobile viewport before mounting
     await page.setViewportSize({ width: 800, height: 600 });
 
     const component = await mount(<NavMenuTestWrapper />);
 
-    // Hamburger/mobile menu toggle should be visible on narrow viewport
-    await expect(page.locator(".oc-navbar__mobile-toggle")).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible({ timeout: 5000 });
 
     await component.unmount();
   });
 
-  test("should toggle mobile menu when hamburger is clicked", async ({
+  test("should reveal nav items in the floating sheet when hamburger is clicked", async ({
     mount,
     page,
   }) => {
-    // Set mobile viewport before mounting
     await page.setViewportSize({ width: 800, height: 600 });
 
     const component = await mount(<NavMenuTestWrapper />);
 
-    // Click hamburger menu to open mobile nav
-    const hamburger = page.locator(".oc-navbar__mobile-toggle");
+    const hamburger = page.locator('button[aria-label="Open navigation"]');
     await expect(hamburger).toBeVisible({ timeout: 5000 });
     await hamburger.click();
 
-    // After clicking, mobile menu should be visible with nav items
-    // Use the mobile-specific link class to target the mobile menu
+    // Sheet appears as a dialog with the site-navigation aria-label.
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+    await expect(sheet.getByText("Discover")).toBeVisible();
+
+    // The toggle now reads "Close navigation" while the sheet is open.
     await expect(
-      page.locator(".oc-navbar__mobile-link:has-text('Discover')")
-    ).toBeVisible({ timeout: 2000 });
+      page.locator('button[aria-label="Close navigation"]')
+    ).toBeVisible();
 
     await component.unmount();
   });
