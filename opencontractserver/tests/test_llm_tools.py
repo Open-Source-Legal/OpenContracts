@@ -2224,6 +2224,55 @@ class TestCreateMarkdownLink(TestCase):
         ):
             create_markdown_link("conversation", conversation_no_corpus.id)
 
+    # -------------------------------------------------------------------------
+    # Slug-missing branches
+    #
+    # The privacy refactor switched ``creator.username`` → ``creator.slug``;
+    # ``User.save()`` auto-assigns a slug, so to exercise the
+    # ``if not creator.slug`` validation guards we strip the slug via
+    # ``QuerySet.update()`` (which bypasses ``save()``).
+    # -------------------------------------------------------------------------
+
+    def _strip_creator_slug(self) -> None:
+        User.objects.filter(pk=self.user.pk).update(slug="")
+        self.user.refresh_from_db()
+
+    def test_create_markdown_link_corpus_without_creator_slug(self):
+        """Corpus link surfaces a ValueError when creator slug is missing."""
+        self._strip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+        ):
+            create_markdown_link("corpus", self.corpus.id)
+
+    def test_create_markdown_link_document_without_creator_slug(self):
+        """Document link surfaces a ValueError when creator slug is missing."""
+        self._strip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Document {self.doc.id} has no creator and cannot generate a link.",
+        ):
+            create_markdown_link("document", self.doc.id)
+
+    def test_create_markdown_link_annotation_without_creator_slug(self):
+        """Annotation link surfaces a ValueError when creator slug is missing."""
+        self._strip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Document {self.doc.id} has no creator and cannot generate a link.",
+        ):
+            create_markdown_link("annotation", self.annotation.id)
+
+    def test_create_markdown_link_conversation_without_creator_slug(self):
+        """Conversation link surfaces a ValueError when corpus creator slug is missing."""
+        self._strip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+        ):
+            create_markdown_link("conversation", self.conversation.id)
+
 
 class AsyncTestCreateMarkdownLink(TransactionTestCase):
     """Async tests for :func:`acreate_markdown_link`."""
@@ -2501,3 +2550,50 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
             f"Conversation {conversation_no_corpus.id} has no associated corpus",
         ):
             await acreate_markdown_link("conversation", conversation_no_corpus.id)
+
+    # -------------------------------------------------------------------------
+    # Slug-missing branches (async parity with the sync suite). See the
+    # sync ``_strip_creator_slug`` docstring for why we bypass ``save()``.
+    # -------------------------------------------------------------------------
+
+    async def _astrip_creator_slug(self) -> None:
+        from channels.db import database_sync_to_async
+
+        @database_sync_to_async
+        def strip():
+            User.objects.filter(pk=self.user.pk).update(slug="")
+            self.user.refresh_from_db()
+
+        await strip()
+
+    async def test_acreate_markdown_link_corpus_without_creator_slug(self):
+        await self._astrip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+        ):
+            await acreate_markdown_link("corpus", self.corpus.id)
+
+    async def test_acreate_markdown_link_document_without_creator_slug(self):
+        await self._astrip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Document {self.doc.id} has no creator and cannot generate a link.",
+        ):
+            await acreate_markdown_link("document", self.doc.id)
+
+    async def test_acreate_markdown_link_annotation_without_creator_slug(self):
+        await self._astrip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Document {self.doc.id} has no creator and cannot generate a link.",
+        ):
+            await acreate_markdown_link("annotation", self.annotation.id)
+
+    async def test_acreate_markdown_link_conversation_without_creator_slug(self):
+        await self._astrip_creator_slug()
+        with self.assertRaisesRegex(
+            ValueError,
+            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+        ):
+            await acreate_markdown_link("conversation", self.conversation.id)

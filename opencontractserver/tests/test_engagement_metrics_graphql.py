@@ -308,11 +308,13 @@ class TestLeaderboardGraphQL(TestCase):
 
     def test_query_global_leaderboard(self):
         """Test querying global leaderboard."""
+        # ``username`` is now self-only PII and resolves to ``null`` for the
+        # other entries on the leaderboard; ``slug`` is the public identifier.
         query = """
             query {
                 globalLeaderboard(limit: 10) {
                     id
-                    username
+                    slug
                     reputationGlobal
                 }
             }
@@ -327,9 +329,9 @@ class TestLeaderboardGraphQL(TestCase):
         self.assertEqual(len(leaderboard), 3)
 
         # Should be ordered by reputation score descending
-        self.assertEqual(leaderboard[0]["username"], "leader2")  # 150
-        self.assertEqual(leaderboard[1]["username"], "leader1")  # 100
-        self.assertEqual(leaderboard[2]["username"], "leader3")  # 75
+        self.assertEqual(leaderboard[0]["slug"], "leader2")  # 150
+        self.assertEqual(leaderboard[1]["slug"], "leader1")  # 100
+        self.assertEqual(leaderboard[2]["slug"], "leader3")  # 75
 
     def test_query_corpus_leaderboard(self):
         """Test querying corpus-specific leaderboard."""
@@ -339,7 +341,7 @@ class TestLeaderboardGraphQL(TestCase):
             query GetCorpusLeaderboard($corpusId: ID!) {
                 corpusLeaderboard(corpusId: $corpusId, limit: 10) {
                     id
-                    username
+                    slug
                     reputationForCorpus(corpusId: $corpusId)
                 }
             }
@@ -354,9 +356,9 @@ class TestLeaderboardGraphQL(TestCase):
         self.assertEqual(len(leaderboard), 3)
 
         # Should be ordered by corpus reputation score descending
-        self.assertEqual(leaderboard[0]["username"], "leader3")  # 80
-        self.assertEqual(leaderboard[1]["username"], "leader1")  # 60
-        self.assertEqual(leaderboard[2]["username"], "leader2")  # 40
+        self.assertEqual(leaderboard[0]["slug"], "leader3")  # 80
+        self.assertEqual(leaderboard[1]["slug"], "leader1")  # 60
+        self.assertEqual(leaderboard[2]["slug"], "leader2")  # 40
 
     def test_leaderboard_with_limit(self):
         """Test leaderboard query with limit parameter."""

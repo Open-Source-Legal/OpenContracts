@@ -103,10 +103,16 @@ def _redacted_handle(user_obj: Any) -> str:
     Uses the user's primary key suffix so two distinct users never collide
     on the same fallback. Mirrors the ``user_<sub>`` shape used elsewhere
     so frontend code can format both consistently.
+
+    Reads ``pk`` defensively: ``str(... or "")`` would silently coerce a
+    falsy ``pk=0`` to the empty string and emit ``user_unknown``, which
+    would alias every pk=0 user to the same handle. Autoincrement PKs
+    never hit 0 in practice, but checking ``is None`` keeps the function
+    correct for any backend that allows zero-valued primary keys.
     """
-    pk_suffix = str(getattr(user_obj, "pk", "") or "")[
-        -OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:
-    ]
+    pk = getattr(user_obj, "pk", None)
+    pk_str = str(pk) if pk is not None else ""
+    pk_suffix = pk_str[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]
     return f"user_{pk_suffix or 'unknown'}"
 
 
