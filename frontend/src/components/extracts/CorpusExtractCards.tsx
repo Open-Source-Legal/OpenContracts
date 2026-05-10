@@ -94,7 +94,6 @@ export const CorpusExtractCards: React.FC<CorpusExtractCardsProps> = ({
       fetchMore={fetchMoreExtracts}
       useInlineSelection={useInlineSelection}
       activeFilter={activeFilter}
-      style={{ minHeight: "70vh", overflowY: "unset" }}
     />
   );
 };

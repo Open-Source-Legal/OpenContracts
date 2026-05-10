@@ -602,6 +602,18 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   // Add new state for floating panels
   const [showAnalysesPanel, setShowAnalysesPanel] = useState(false);
   const [showExtractsPanel, setShowExtractsPanel] = useState(false);
+
+  // When the chat panel takes over the right tray, ``hideDocumentTools`` on
+  // ``FloatingDocumentControls`` removes the toggle FABs for the floating
+  // analyses / extracts panels. Close any panel that's already open on that
+  // transition so the user isn't left with a panel they can no longer dismiss
+  // via the (now-hidden) FAB.
+  useEffect(() => {
+    if (showRightPanel && sidebarViewMode === "chat") {
+      setShowAnalysesPanel(false);
+      setShowExtractsPanel(false);
+    }
+  }, [showRightPanel, sidebarViewMode]);
   // showLoad was lifted onto chatTrayStateAtom — see ChatTray.tsx and
   // UISettingsAtom.tsx (ChatTrayPersist.showLoad). Owning it here as a
   // useState made ChatTray's mount-time setShowLoad(false) call a
@@ -941,6 +953,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
                 autoZoomEnabled={autoZoomEnabled}
                 onAutoZoomChange={setAutoZoomEnabled}
                 isMobile={isMobile}
+                hideDocumentTools={showRightPanel && sidebarViewMode === "chat"}
               />
 
               {/* Floating Analyses Panel - only show with corpus and when no analysis selected (results now in sidebar) */}

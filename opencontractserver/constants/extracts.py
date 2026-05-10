@@ -22,3 +22,10 @@ in sync when adjusting.
 # ``frontend/src/assets/configurations/constants.ts`` at the same time.
 # An automated CI sync-check is tracked in issue #1256.
 MAX_FULL_DATACELL_LIST_LIMIT = 500
+
+# Server cap on the ``extracts`` Relay connection page size. Must be >=
+# the frontend ``EXTRACT_PAGINATION.PAGE_SIZE`` in
+# ``frontend/src/assets/configurations/constants.ts``; otherwise Graphene
+# silently clamps every request and the slim list query is back to the
+# pre-#1602 broken-pagination shape.
+EXTRACT_LIST_MAX_PAGE_SIZE = 20

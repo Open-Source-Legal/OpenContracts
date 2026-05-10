@@ -60,6 +60,10 @@ const StyledModalWrapper = styled.div`
   .oc-modal-overlay {
     z-index: 2000;
     backdrop-filter: blur(4px);
+
+    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+      padding: 0;
+    }
   }
 
   .oc-modal {
@@ -72,6 +76,7 @@ const StyledModalWrapper = styled.div`
       width: 100%;
       max-width: 100%;
       max-height: 100vh;
+      max-height: 100dvh;
       border-radius: 0;
     }
   }
@@ -99,12 +104,9 @@ const StyledModalWrapper = styled.div`
 
   .oc-modal-body {
     padding: 1.5rem 1.75rem 1.25rem;
-    max-height: 70vh;
-    overflow-y: auto;
 
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
       padding: 1.25rem;
-      max-height: calc(100vh - 180px);
     }
   }
 

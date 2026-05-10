@@ -515,3 +515,31 @@ test.describe("Extracts View - Error States", () => {
     await component.unmount();
   });
 });
+
+test.describe("Extracts View - Variable Builder Branch Coverage", () => {
+  // Pinned for the PR #1602 ``extractVariables`` useMemo. Mounting with
+  // ``initialSearchTerm`` set drives the truthy half of the
+  // ``...(extract_search_term && { searchText: extract_search_term })``
+  // spread, which the other tests skip (their search defaults to "").
+  test("seeds searchText when initialSearchTerm is non-empty", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <ExtractsTestWrapper extracts={allExtracts} initialSearchTerm="lease" />
+    );
+
+    // The search input should reflect the seeded reactive var, and the
+    // existing extracts should still render through the same query path
+    // (the wrapper's variableMatcher is wildcard, so the truthy-search
+    // variables are accepted).
+    await expect(page.locator('input[placeholder*="Search"]')).toHaveValue(
+      "lease"
+    );
+    await expect(page.locator("text=Running Extract")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+});

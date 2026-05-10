@@ -1336,6 +1336,11 @@ export interface FieldsetType extends Node {
   description: string;
   columns: ColumnTypeEdge;
   fullColumnList?: ColumnType[];
+  /**
+   * Number of columns in the fieldset. Use instead of `fullColumnList { id }`
+   * for list views — see backend `FieldsetType.resolve_column_count`.
+   */
+  columnCount?: number | null;
   inUse?: boolean;
 }
 
@@ -1393,6 +1398,12 @@ export interface ExtractType extends Node {
    */
   fullDatacellList?: DatacellType[];
   fullDocumentList?: DocumentType[];
+  /**
+   * Number of documents associated with the extract. Use instead of
+   * `fullDocumentList { id }` for list views — see backend
+   * `ExtractType.resolve_document_count`.
+   */
+  documentCount?: number | null;
   /**
    * Total number of datacells visible to the current user, ignoring any
    * `limit`/`offset` applied to `fullDatacellList`. Used alongside a bounded

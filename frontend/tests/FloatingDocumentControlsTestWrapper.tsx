@@ -93,6 +93,9 @@ interface FloatingDocumentControlsTestWrapperProps {
   extractsOpen?: boolean;
   panelOffset?: number;
   readOnly?: boolean;
+  hideDocumentTools?: boolean;
+  isMobile?: boolean;
+  showRightPanel?: boolean;
   // Test configuration props
   showBoundingBoxes?: boolean;
   showStructural?: boolean;
@@ -239,37 +242,43 @@ const TestSetup: React.FC<{
       isLoading: false,
     });
 
-    // Set document state with permissions (FloatingDocumentControls now uses document permissions)
-    setSelectedDocument({
-      id: "test-document-id",
-      title: "Test Document",
-      myPermissions: corpusPermissions,
-      pdfFile: null,
-      backendLock: false,
-      isPublic: false,
-      // Add any other required fields for DocumentType
-    } as any);
-
-    // Also set raw permissions which get processed into the permissions atom
-    // Convert PermissionTypes to raw strings
+    // `getPermissions` (frontend/src/utils/transform.tsx) matches Django-style
+    // permission strings like "update_document" / "view_document", not the
+    // PermissionTypes enum values themselves, so we map to the underscore form.
+    // FloatingDocumentControls' useEffect copies `activeDocument.myPermissions`
+    // back into rawPermissionsAtom on every change, so we MUST also set the
+    // document's myPermissions in the same Django-style format — otherwise the
+    // effect overwrites our raw permissions with unmapped enum strings and
+    // canCreateAnalysis silently flips back to false.
     const rawPerms = corpusPermissions
       .map((perm) => {
         switch (perm) {
           case PermissionTypes.CAN_READ:
-            return "READ";
+            return "read_document";
           case PermissionTypes.CAN_UPDATE:
-            return "UPDATE";
+            return "update_document";
           case PermissionTypes.CAN_CREATE:
-            return "CREATE";
+            return "create_document";
           case PermissionTypes.CAN_REMOVE:
-            return "DELETE";
+            return "remove_document";
           case PermissionTypes.CAN_PUBLISH:
-            return "PUBLISH";
+            return "publish_document";
           default:
             return "";
         }
       })
       .filter((p) => p);
+
+    // Set document state with permissions (FloatingDocumentControls now uses document permissions)
+    setSelectedDocument({
+      id: "test-document-id",
+      title: "Test Document",
+      myPermissions: rawPerms,
+      pdfFile: null,
+      backendLock: false,
+      isPublic: false,
+      // Add any other required fields for DocumentType
+    } as any);
 
     setRawPermissions(rawPerms);
   }, [
@@ -292,6 +301,9 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
   extractsOpen = false,
   panelOffset = 0,
   readOnly = false,
+  hideDocumentTools = false,
+  isMobile = false,
+  showRightPanel = false,
   showBoundingBoxes = false,
   showStructural = false,
   showSelectedOnly = false,
@@ -369,6 +381,9 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
                 extractsOpen={extractsOpen}
                 panelOffset={panelOffset}
                 readOnly={readOnly}
+                hideDocumentTools={hideDocumentTools}
+                isMobile={isMobile}
+                showRightPanel={showRightPanel}
               />
             </div>
           </TestSetup>

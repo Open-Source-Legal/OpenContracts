@@ -1930,6 +1930,108 @@ export const GET_EXTRACTS = gql`
   }
 `;
 
+// Slim list-view query for the top-level Extracts view (frontend/src/views/Extracts.tsx).
+//
+// GET_EXTRACTS is shared by ExtractItem, CorpusExtractCards, CamlArticleEditor
+// and CreateExtractModal — all of which select fullDocumentList / fullColumnList
+// because they actually walk the lists. The Extracts view only renders counts,
+// so paying for ``fullDocumentList { id }`` (which triggers an N+1 per-doc
+// permission filter on the backend's resolve_full_document_list) and
+// ``fieldset.fullColumnList { id }`` is wasted work. The slim query swaps both
+// for the new ``documentCount`` / ``fieldset.columnCount`` fields and also
+// drops creator.username / creator.slug and fieldset.name / fieldset.inUse
+// (none of which the list card or stats tiles read). It additionally wires
+// ``first`` / ``after`` into the connection so infinite scroll actually
+// paginates — the legacy GET_EXTRACTS sent the cursor as a variable but never
+// passed it to the connection arguments.
+export interface GetExtractsForListInput {
+  searchText?: string;
+  corpusId?: string;
+  corpusAction_Isnull?: boolean;
+  cursor?: string;
+  limit?: number;
+}
+
+/**
+ * Slim per-extract node returned by ``GET_EXTRACTS_FOR_LIST``. Exported
+ * separately from ``GetExtractsForListOutput`` so call sites that need to
+ * type the materialised list (Extracts view, ExtractListCard) can do so
+ * without ``as unknown as ExtractType`` casts that erase compile-time
+ * field guarantees.
+ */
+export interface ExtractListItem {
+  id: string;
+  name: string;
+  created: string;
+  started?: string | null;
+  finished?: string | null;
+  error?: string | null;
+  myPermissions?: string[];
+  documentCount?: number | null;
+  corpus?: {
+    id: string;
+    title?: string;
+  } | null;
+  fieldset?: {
+    id: string;
+    columnCount?: number | null;
+  } | null;
+}
+
+export interface GetExtractsForListOutput {
+  extracts: {
+    pageInfo: PageInfo;
+    edges: {
+      node: ExtractListItem;
+    }[];
+  };
+}
+
+export const GET_EXTRACTS_FOR_LIST = gql`
+  query GetExtractsForList(
+    $searchText: String
+    $corpusId: ID
+    $corpusAction_Isnull: Boolean
+    $cursor: String
+    $limit: Int
+  ) {
+    extracts(
+      name_Contains: $searchText
+      corpus: $corpusId
+      corpusAction_Isnull: $corpusAction_Isnull
+      first: $limit
+      after: $cursor
+    ) {
+      edges {
+        node {
+          id
+          name
+          created
+          started
+          finished
+          error
+          myPermissions
+          documentCount
+          corpus {
+            id
+            title
+          }
+          fieldset {
+            id
+            columnCount
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
+
 export interface GetRegisteredExtractTasksOutput {
   registeredExtractTasks: Record<string, string>;
 }

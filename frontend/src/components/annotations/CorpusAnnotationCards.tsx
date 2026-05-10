@@ -430,7 +430,6 @@ export const CorpusAnnotationCards = ({
       similarityScores={similarityScoreMap}
       searchError={semanticSearchError}
       isSemanticSearch={isSemanticSearchActive}
-      style={{ minHeight: "70vh" }}
       emptyStateMessage="No annotations found in this corpus"
     />
   );

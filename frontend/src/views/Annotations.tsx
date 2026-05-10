@@ -24,7 +24,6 @@ import type { FilterTabItem } from "@os-legal/ui";
 import { FileText, AlignLeft, User, ChevronDown, PenLine } from "lucide-react";
 
 import {
-  authToken,
   annotationContentSearchTerm,
   filterToLabelsetId,
   openedCorpus,
@@ -45,6 +44,7 @@ import {
   SEMANTIC_SEARCH_ANNOTATIONS,
 } from "../graphql/queries";
 import { ServerAnnotationType } from "../types/graphql-api";
+import { ANNOTATION_PAGINATION } from "../assets/configurations/constants";
 import { getDocumentUrl } from "../utils/navigationUtils";
 import {
   AnnotationsPanel,
@@ -250,7 +250,6 @@ export const Annotations = () => {
   const filtered_to_corpus = useReactiveVar(filterToCorpus);
   const filter_to_label_id = useReactiveVar(filterToLabelId);
   const opened_corpus = useReactiveVar(openedCorpus);
-  const auth_token = useReactiveVar(authToken);
   const exclude_structural_annotations = useReactiveVar(
     filterToStructuralAnnotations
   );
@@ -268,37 +267,48 @@ export const Annotations = () => {
   >([]);
   const [hasMoreSemanticResults, setHasMoreSemanticResults] = useState(true);
 
-  // Number of annotations to load per page
-  const ANNOTATIONS_PAGE_SIZE = 20;
-
-  // Build query variables
-  let annotation_variables: LooseObject = {
-    label_Type: "TEXT_LABEL",
-    limit: ANNOTATIONS_PAGE_SIZE,
-  };
-
-  if (exclude_structural_annotations === "EXCLUDE") {
-    annotation_variables["structural"] = false;
-  } else if (exclude_structural_annotations === "ONLY") {
-    annotation_variables["structural"] = true;
-  }
-
-  if (annotation_search_term) {
-    annotation_variables["rawText_Contains"] = annotation_search_term;
-  }
-  if (filter_to_labelset_id) {
-    annotation_variables["usesLabelFromLabelsetId"] = filter_to_labelset_id;
-  }
-  if (filtered_to_corpus) {
-    annotation_variables["corpusId"] = filtered_to_corpus.id;
-  }
-  if (filter_to_label_id) {
-    annotation_variables["annotationLabelId"] = filter_to_label_id;
-  }
+  // Memoize the query variables on the underlying primitives so Apollo's
+  // ``useQuery`` only re-fetches when something the user actually changed.
+  // Building the object inline (the prior ``let annotation_variables = ...``)
+  // produced a fresh reference each render and forced Apollo to deep-compare
+  // every time any sibling reactive var (auth, route, opened corpus) updated.
+  const annotation_variables = useMemo<LooseObject>(() => {
+    const vars: LooseObject = {
+      label_Type: "TEXT_LABEL",
+      limit: ANNOTATION_PAGINATION.PAGE_SIZE,
+    };
+    if (exclude_structural_annotations === "EXCLUDE") {
+      vars.structural = false;
+    } else if (exclude_structural_annotations === "ONLY") {
+      vars.structural = true;
+    }
+    if (annotation_search_term) {
+      vars.rawText_Contains = annotation_search_term;
+    }
+    if (filter_to_labelset_id) {
+      vars.usesLabelFromLabelsetId = filter_to_labelset_id;
+    }
+    if (filtered_to_corpus) {
+      vars.corpusId = filtered_to_corpus.id;
+    }
+    if (filter_to_label_id) {
+      vars.annotationLabelId = filter_to_label_id;
+    }
+    return vars;
+    // Depend on the primitive `id` rather than the whole `filtered_to_corpus`
+    // object so a reactive-var emit that swaps the reference but keeps the
+    // same id (e.g. corpus list re-fetched from the network) doesn't churn
+    // the memo and trigger a no-op Apollo refetch.
+  }, [
+    exclude_structural_annotations,
+    annotation_search_term,
+    filter_to_labelset_id,
+    filtered_to_corpus?.id,
+    filter_to_label_id,
+  ]);
 
   // GraphQL queries
   const {
-    refetch: refetch_annotations,
     loading: annotation_loading,
     data: annotation_data,
     fetchMore: fetchMoreAnnotations,
@@ -310,16 +320,19 @@ export const Annotations = () => {
     }
   );
 
-  const { refetch: refetch_corpus } = useQuery<
-    GetCorpusLabelsetAndLabelsOutputs,
-    GetCorpusLabelsetAndLabelsInputs
-  >(GET_CORPUS_LABELSET_AND_LABELS, {
-    variables: {
-      corpusId: filtered_to_corpus?.id || opened_corpus?.id || "",
-    },
-    skip: !filtered_to_corpus?.id && !opened_corpus?.id,
-    notifyOnNetworkStatusChange: true,
-  });
+  // Stable scope id for GET_CORPUS_LABELSET_AND_LABELS so the queryKey only
+  // changes when the actually-scoped corpus changes (skip is honoured when
+  // empty, so feeding the empty-string variable on first render is safe).
+  const corpus_scope_id = filtered_to_corpus?.id || opened_corpus?.id || "";
+
+  useQuery<GetCorpusLabelsetAndLabelsOutputs, GetCorpusLabelsetAndLabelsInputs>(
+    GET_CORPUS_LABELSET_AND_LABELS,
+    {
+      variables: { corpusId: corpus_scope_id },
+      skip: !corpus_scope_id,
+      notifyOnNetworkStatusChange: true,
+    }
+  );
 
   // Semantic search query
   const [
@@ -349,25 +362,15 @@ export const Annotations = () => {
   // Determine if we're in semantic search mode
   const isSemanticSearchActive = searchValue.trim().length > 0;
 
-  // Consolidated effect for refetching annotations on filter changes
-  useEffect(() => {
-    refetch_annotations();
-  }, [
-    filter_to_label_id,
-    filter_to_labelset_id,
-    filtered_to_corpus,
-    annotation_search_term,
-    exclude_structural_annotations,
-    auth_token,
-    refetch_annotations,
-  ]);
-
-  useEffect(() => {
-    if (opened_corpus) {
-      refetch_annotations();
-      refetch_corpus();
-    }
-  }, [opened_corpus, refetch_annotations, refetch_corpus]);
+  // Apollo's ``useQuery`` automatically refetches when ``variables`` change
+  // (deep-compared), so the previous "consolidated" filter-change effect
+  // here was firing a second refetch on top of the implicit one — a refetch
+  // storm on every filter toggle. The same applies to ``opened_corpus`` /
+  // ``filtered_to_corpus``: their ids are part of ``annotation_variables`` and
+  // ``corpus_scope_id`` respectively, so the explicit refetches are redundant.
+  // The auth-token refetch was also dropped because ``AuthGate`` already
+  // clears Apollo's cache (``resetOnAuthChange``) before authInitComplete
+  // flips, so the next render mounts a clean view with the new credentials.
 
   // Sync source filter with structural annotations reactive var
   useEffect(() => {
@@ -535,7 +538,7 @@ export const Annotations = () => {
       if (!annotation_loading && pageInfo?.hasNextPage) {
         fetchMoreAnnotations({
           variables: {
-            limit: ANNOTATIONS_PAGE_SIZE,
+            limit: ANNOTATION_PAGINATION.PAGE_SIZE,
             cursor: pageInfo.endCursor,
           },
         });

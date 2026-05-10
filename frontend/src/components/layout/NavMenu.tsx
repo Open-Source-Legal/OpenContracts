@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { NavBar } from "@os-legal/ui";
 import type { NavItem, UserMenuItem } from "@os-legal/ui";
 import { useNavigate } from "react-router-dom";
@@ -9,6 +10,11 @@ import { VERSION_TAG } from "../../assets/configurations/constants";
 import { useNavMenu } from "./useNavMenu";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import logo from "../../assets/images/os_legal_128.png";
+import {
+  MobileNavMenu,
+  type MobileNavItem,
+  type MobileUserAction,
+} from "./MobileNavMenu";
 
 /**
  * User display properties accessed by NavMenu.
@@ -46,19 +52,22 @@ const LoginButton = styled.button`
   }
 `;
 
-// Custom styles for navbar - overrides for @os-legal/ui NavBar
-// Note: These use !important due to specificity requirements with external component
+// Custom styles for the desktop @os-legal/ui NavBar.
+// Note: the !important is needed to win the specificity battle with the
+// library's own CSS. Mobile uses a custom component (MobileNavMenu) and
+// is not affected by these rules.
 const navbarCustomStyles = `
   /* Version badge - filled background */
   .oc-navbar .oc-chip {
     background: rgba(255, 255, 255, 0.15) !important;
     color: rgba(255, 255, 255, 0.9) !important;
   }
-  /* Keep brand name visible on mobile */
-  .oc-navbar__brand-name {
-    display: block !important;
-  }
 `;
+
+// Width threshold below which we render the custom mobile nav. Matches
+// the prior @os-legal/ui NavBar collapse breakpoint so tablet behaviour
+// stays consistent.
+const MOBILE_BREAKPOINT_PX = 1100;
 
 export const NavMenu = () => {
   const {
@@ -76,12 +85,13 @@ export const NavMenu = () => {
   const navigate = useNavigate();
   const { width } = useWindowDimensions();
 
-  // On mobile (< 1100px where NavBar collapses), hide version badge but keep brand name
-  const isMobile = width < 1100;
-  const versionDisplay = isMobile ? undefined : VERSION_TAG;
+  const isMobile = width < MOBILE_BREAKPOINT_PX;
 
   // Extract typed user properties for display (name/username)
   const userProps = getUserProps(user);
+  const displayName = user
+    ? userProps.name || userProps.username || undefined
+    : undefined;
 
   // Build nav items from menu configuration
   const baseNavItems = [
@@ -172,24 +182,73 @@ export const NavMenu = () => {
     item?.onClick?.();
   };
 
+  // Mobile: dividers are stripped since the sheet renders its own
+  // section header.
+  const mobileNavItems: MobileNavItem[] = useMemo(
+    () =>
+      navItems.map((item) => ({
+        id: item.id,
+        label: item.label,
+        onClick: () => item.onClick?.(),
+      })),
+    [navItems]
+  );
+
+  const mobileUserActions: MobileUserAction[] = useMemo(
+    () =>
+      userMenuItems
+        .filter((item) => !item.divider)
+        .map((item) => ({
+          id: item.id,
+          label: item.label,
+          icon: item.icon,
+          onClick: () => item.onClick?.(),
+          danger: item.danger,
+        })),
+    [userMenuItems]
+  );
+
+  const logoNode = useMemo(
+    () => (
+      <img
+        src={logo}
+        alt="Open Contracts Logo"
+        style={{ width: 32, height: 32, objectFit: "contain" }}
+      />
+    ),
+    []
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        <UserSettingsModal />
+        <MobileNavMenu
+          logo={logoNode}
+          brandName="Open Contracts"
+          items={mobileNavItems}
+          activeId={activeId}
+          userName={displayName}
+          userActions={mobileUserActions}
+          onLogin={handleLogin}
+          hideAuth={isLoading}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <style>{navbarCustomStyles}</style>
       <UserSettingsModal />
       <NavBar
-        logo={
-          <img
-            src={logo}
-            alt="Open Contracts Logo"
-            style={{ width: 32, height: 32, objectFit: "contain" }}
-          />
-        }
+        logo={logoNode}
         brandName="Open Contracts"
-        version={versionDisplay}
+        version={VERSION_TAG}
         items={navItems}
         activeId={activeId}
         onNavigate={handleNavigate}
-        userName={user ? userProps.name || userProps.username : undefined}
+        userName={displayName}
         userMenuItems={userMenuItems}
         hideUserMenu={isLoading || !user}
         actions={

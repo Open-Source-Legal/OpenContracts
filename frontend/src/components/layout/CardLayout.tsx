@@ -57,51 +57,13 @@ const SearchBarWrapper = styled.div`
 `;
 
 const ScrollableSegment = styled(StyledSegment)`
-  flex: 1;
-  min-height: 0;
-  max-height: 100%;
-  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   width: 100%;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #888 #f1f1f1;
   border-radius: 12px;
   background: #ffffff;
   margin: 0;
-
-  &:hover {
-    background: #ffffff;
-  }
-
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: #888;
-    border-radius: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb:hover {
-    background: #555;
-  }
-
-  ${mediaQuery.mobile} {
-    overflow-y: hidden;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-  }
 `;
 
 export const CardLayout: React.FC<CardLayoutProps> = ({
@@ -136,8 +98,6 @@ export const CardLayout: React.FC<CardLayoutProps> = ({
         id="ScrollableSegment"
         style={{
           padding: 0,
-          flex: 1,
-          minHeight: 0,
           marginBottom: 0,
           boxShadow: "0 2px 8px rgba(0, 0, 0, 0.12)",
         }}
@@ -153,44 +113,23 @@ type CardContainerArgs = {
   width: number;
 };
 
+// Natural-flow container — let content stack and the document scroll naturally
+// rather than forcing a viewport-stuck flex chain with internal scroll panels.
+// The App shell already provides a sticky-footer outer (min-height: 100vh).
 const CardContainer = styled.div<CardContainerArgs>(({ width }) => {
-  const baseStyling = `
+  const padding =
+    width <= 600 ? "0.25rem" : width <= 1000 ? "0.5rem" : "0.75rem";
+
+  return `
     display: flex;
     width: 100%;
     flex: 1;
     flex-direction: column;
-    justify-content: flex-start;
     align-items: stretch;
-    overflow: hidden;
     background-color: #f0f2f5;
-    min-height: 0;
-    max-height: 100vh;
-    height: 100%;
     box-sizing: border-box;
+    padding: ${padding};
   `;
-
-  if (width <= 600) {
-    return `
-      ${baseStyling}
-      max-height: 100vh;
-      height: 100%;
-      padding: 0.25rem;
-    `;
-  } else if (width <= 1000 && width > 600) {
-    return `
-      ${baseStyling}
-      max-height: 100vh;
-      height: 100%;
-      padding: 0.5rem;
-    `;
-  } else {
-    return `
-      ${baseStyling}
-      max-height: 100vh;
-      height: 100%;
-      padding: 0.75rem;
-    `;
-  }
 });
 
 export default CardLayout;

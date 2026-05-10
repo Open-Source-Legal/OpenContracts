@@ -19,7 +19,13 @@ import useWindowDimensions from "../components/hooks/WindowDimensionHook";
 // Cap on motion-wrapper height so the composer never overflows the viewport
 // when child rendering reports unusually tall content (e.g. virtualized chat
 // transcripts during a layout shift).
-const COMPOSER_MAX_HEIGHT = "99vh";
+// Height for the home-tab views (chat-expanded, dashboard, conversation list).
+// Matches the available viewport area below the App-shell navbar so the chat
+// input stays pinned at the bottom of the viewport instead of being pushed
+// below it. Override via the --oc-navbar-height CSS variable when the navbar
+// height changes (defaults to 4.5rem, ~72px, which matches the @os-legal/ui
+// .oc-navbar default).
+const COMPOSER_MAX_HEIGHT = "calc(100dvh - var(--oc-navbar-height, 4.5rem))";
 // Delay (ms) before focusing the search input on initial desktop mount —
 // the longer wait gives the textarea time to mount inside CorpusHome.
 const MOUNT_FOCUS_DELAY_MS = 150;
@@ -342,8 +348,8 @@ export const CorpusQueryView = ({
             flexDirection: "column",
             overflow: "hidden",
             minHeight: 0,
+            height: COMPOSER_MAX_HEIGHT,
             maxHeight: COMPOSER_MAX_HEIGHT,
-            height: "100%",
           }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -379,8 +385,8 @@ export const CorpusQueryView = ({
           flexDirection: "column",
           overflow: "hidden",
           minHeight: 0,
+          height: COMPOSER_MAX_HEIGHT,
           maxHeight: COMPOSER_MAX_HEIGHT,
-          height: "100%",
           width: "100%",
         }}
         initial={{ opacity: 0 }}
@@ -433,8 +439,8 @@ export const CorpusQueryView = ({
           display: "flex",
           flexDirection: "column",
           minHeight: 0,
+          height: COMPOSER_MAX_HEIGHT,
           maxHeight: COMPOSER_MAX_HEIGHT,
-          height: "100%",
         }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}

@@ -364,6 +364,12 @@ interface FloatingDocumentControlsProps {
   onAutoZoomChange?: (enabled: boolean) => void;
   /** Whether to use mobile speed dial layout */
   isMobile?: boolean;
+  /**
+   * When true, hides document-tool FABs (analyses, extracts, create-analysis)
+   * to declutter the area around the right tray's chat input. The panel-width
+   * control is kept since it's directly relevant to the open panel.
+   */
+  hideDocumentTools?: boolean;
 }
 
 export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
@@ -383,6 +389,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
       autoZoomEnabled = true,
       onAutoZoomChange,
       isMobile = false,
+      hideDocumentTools = false,
     }) => {
       const [expandedSettings, setExpandedSettings] = useState(false);
       const [expandedWidthMenu, setExpandedWidthMenu] = useState(false);
@@ -482,37 +489,46 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
         }
 
         // Analyses button
-        speedDialButtons.push({
-          icon: <BarChart3 />,
-          color: OS_LEGAL_COLORS.folderIcon,
-          onClick: () => {
-            if (!analysesOpen && extractsOpen && onExtractsClick) {
-              onExtractsClick();
-            }
-            if (onAnalysesClick) onAnalysesClick();
-            setSpeedDialExpanded(false);
-          },
-          title: "View Analyses",
-          testId: "analyses-button",
-        });
+        if (!hideDocumentTools) {
+          speedDialButtons.push({
+            icon: <BarChart3 />,
+            color: OS_LEGAL_COLORS.folderIcon,
+            onClick: () => {
+              if (!analysesOpen && extractsOpen && onExtractsClick) {
+                onExtractsClick();
+              }
+              if (onAnalysesClick) onAnalysesClick();
+              setSpeedDialExpanded(false);
+            },
+            title: "View Analyses",
+            testId: "analyses-button",
+          });
+        }
 
         // Extracts button
-        speedDialButtons.push({
-          icon: <Database />,
-          color: "#8b5cf6",
-          onClick: () => {
-            if (!extractsOpen && analysesOpen && onAnalysesClick) {
-              onAnalysesClick();
-            }
-            if (onExtractsClick) onExtractsClick();
-            setSpeedDialExpanded(false);
-          },
-          title: "View Extracts",
-          testId: "extracts-button",
-        });
+        if (!hideDocumentTools) {
+          speedDialButtons.push({
+            icon: <Database />,
+            color: "#8b5cf6",
+            onClick: () => {
+              if (!extractsOpen && analysesOpen && onAnalysesClick) {
+                onAnalysesClick();
+              }
+              if (onExtractsClick) onExtractsClick();
+              setSpeedDialExpanded(false);
+            },
+            title: "View Extracts",
+            testId: "extracts-button",
+          });
+        }
 
         // Create analysis button (if user has permissions)
-        if (canCreateAnalysis && !readOnly && selectedCorpus) {
+        if (
+          !hideDocumentTools &&
+          canCreateAnalysis &&
+          !readOnly &&
+          selectedCorpus
+        ) {
           speedDialButtons.push({
             icon: <Plus />,
             color: OS_LEGAL_COLORS.greenMedium,
@@ -793,80 +809,68 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
             </ActionButton>
           )}
 
-          <ActionButton
-            $color="#8b5cf6"
-            data-testid="extracts-button"
-            onClick={() => {
-              /*
-               * Ensure exclusivity: if the analyses panel is open we close it before
-               * toggling the extracts panel open, and vice-versa. This guarantees
-               * that both panels are never visible at the same time.
-               */
-              if (!extractsOpen) {
-                // Opening extracts – make sure analyses panel is closed first
-                if (analysesOpen && onAnalysesClick) {
-                  onAnalysesClick();
-                }
-              }
-              if (onExtractsClick) onExtractsClick();
-            }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            title="View Extracts"
-          >
-            <Database />
-          </ActionButton>
-
-          <ActionButton
-            $color={OS_LEGAL_COLORS.folderIcon}
-            data-testid="analyses-button"
-            onClick={() => {
-              /*
-               * Mirror logic for analyses button.
-               */
-              if (!analysesOpen) {
-                // Opening analyses – close extracts first if open
-                if (extractsOpen && onExtractsClick) {
-                  onExtractsClick();
-                }
-              }
-              if (onAnalysesClick) onAnalysesClick();
-            }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            title="View Analyses"
-          >
-            <BarChart3 />
-          </ActionButton>
-
-          {/* New button: Start Analysis - only show if user has permissions and not in readOnly mode */}
-          {(() => {
-            const shouldShowAnalysisButton =
-              canCreateAnalysis && !readOnly && selectedCorpus;
-
-            return shouldShowAnalysisButton ? (
+          {!hideDocumentTools && (
+            <>
               <ActionButton
-                $color={OS_LEGAL_COLORS.greenMedium}
-                data-testid="create-analysis-button"
+                $color="#8b5cf6"
+                data-testid="extracts-button"
                 onClick={() => {
-                  // Note: openedCorpus is managed by CentralRouteManager, not set here
-                  // Modal reads corpus from reactive var or component state as needed
-                  if (selectedCorpus) {
-                    showSelectCorpusAnalyzerOrFieldsetModal(true);
-                  } else {
-                    console.warn(
-                      "FloatingDocumentControls: No corpus context available for analysis"
-                    );
+                  /*
+                   * Ensure exclusivity: if the analyses panel is open we close it before
+                   * toggling the extracts panel open, and vice-versa. This guarantees
+                   * that both panels are never visible at the same time.
+                   */
+                  if (!extractsOpen) {
+                    // Opening extracts – make sure analyses panel is closed first
+                    if (analysesOpen && onAnalysesClick) {
+                      onAnalysesClick();
+                    }
                   }
+                  if (onExtractsClick) onExtractsClick();
                 }}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                title="Start New Analysis"
+                title="View Extracts"
               >
-                <Plus />
+                <Database />
               </ActionButton>
-            ) : null;
-          })()}
+
+              <ActionButton
+                $color={OS_LEGAL_COLORS.folderIcon}
+                data-testid="analyses-button"
+                onClick={() => {
+                  /*
+                   * Mirror logic for analyses button.
+                   */
+                  if (!analysesOpen) {
+                    // Opening analyses – close extracts first if open
+                    if (extractsOpen && onExtractsClick) {
+                      onExtractsClick();
+                    }
+                  }
+                  if (onAnalysesClick) onAnalysesClick();
+                }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                title="View Analyses"
+              >
+                <BarChart3 />
+              </ActionButton>
+
+              {canCreateAnalysis && !readOnly && selectedCorpus && (
+                <ActionButton
+                  $color={OS_LEGAL_COLORS.greenMedium}
+                  data-testid="create-analysis-button"
+                  onClick={() => showSelectCorpusAnalyzerOrFieldsetModal(true)}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  title="Start New Analysis"
+                >
+                  <Plus />
+                </ActionButton>
+              )}
+            </>
+          )}
         </ControlsContainer>
       );
     }
