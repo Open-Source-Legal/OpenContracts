@@ -900,6 +900,136 @@ class TestLoadDocumentTextDriftMath(SimpleTestCase):
 
 
 # ---------------------------------------------------------------------------
+# load_document_text closure — end-to-end integration
+# ---------------------------------------------------------------------------
+
+
+class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
+    """Drive the actual ``_make_load_document_text_tool`` closure with a
+    stubbed cache. Exercises the full dict-shape contract (``returned_range``,
+    ``budget_was_applied``, etc.) and verifies that
+    ``turn_implicit_doc_text_chars`` is mutated through the closure
+    reference — the property the per-turn drift compensation depends on."""
+
+    DOC_ID = 999
+    # Larger than ``recommended_chunk_chars`` for the configured budget so
+    # successive implicit calls actually advance the in-turn tally instead
+    # of exhausting the document on the first read.
+    DOC_LEN = 1_000_000
+
+    def _make_deps(self):
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        return PydanticAIDependencies(
+            document_id=self.DOC_ID,
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+            model_name="gpt-4o",
+        )
+
+    def _patches(self):
+        """Patch the cache helpers used by the closure.
+
+        ``aload_document_txt_extract`` is async; ``get_cached_txt_extract_length``
+        is sync. Returning a fixed length keeps the math predictable and
+        the slice text deterministic so the test can pin ``returned_range``.
+        """
+        from opencontractserver.llms.agents import pydantic_ai_agents as mod
+
+        async def fake_load(doc_id, start=None, end=None, refresh=False):
+            if start is None and end is None:
+                return "x" * self.DOC_LEN
+            return "x" * (end - start)
+
+        return (
+            patch.object(
+                mod, "get_cached_txt_extract_length", return_value=self.DOC_LEN
+            ),
+            patch.object(
+                mod, "aload_document_txt_extract", new=AsyncMock(side_effect=fake_load)
+            ),
+        )
+
+    async def test_implicit_call_returns_full_dict_shape(self):
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _make_load_document_text_tool,
+        )
+
+        deps = self._make_deps()
+        cache_patch, load_patch = self._patches()
+        with cache_patch, load_patch:
+            tool = _make_load_document_text_tool(deps, self.DOC_ID)
+            result = await tool()
+
+        self.assertEqual(
+            set(result.keys()),
+            {
+                "text",
+                "total_chars",
+                "returned_range",
+                "chars_remaining",
+                "suggested_next_start",
+                "context_budget_chars",
+                "budget_was_applied",
+            },
+        )
+        self.assertTrue(result["budget_was_applied"])
+        self.assertEqual(result["total_chars"], self.DOC_LEN)
+        # Exclusive end: returned_range[1] == start_idx + len(text).
+        self.assertEqual(result["returned_range"][0], 0)
+        self.assertEqual(result["returned_range"][1], len(result["text"]))
+        # suggested_next_start either the next index or None when fully read.
+        if result["chars_remaining"] > 0:
+            self.assertEqual(
+                result["suggested_next_start"], result["returned_range"][1]
+            )
+        else:
+            self.assertIsNone(result["suggested_next_start"])
+
+    async def test_explicit_end_marks_budget_not_applied(self):
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _make_load_document_text_tool,
+        )
+
+        deps = self._make_deps()
+        cache_patch, load_patch = self._patches()
+        with cache_patch, load_patch:
+            tool = _make_load_document_text_tool(deps, self.DOC_ID)
+            result = await tool(start=100, end=500)
+
+        self.assertFalse(result["budget_was_applied"])
+        self.assertEqual(result["returned_range"], [100, 500])
+        # Explicit-end calls must NOT advance the in-turn tally.
+        self.assertEqual(deps.turn_implicit_doc_text_chars, 0)
+
+    async def test_implicit_calls_advance_turn_tally(self):
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _make_load_document_text_tool,
+        )
+
+        deps = self._make_deps()
+        cache_patch, load_patch = self._patches()
+        with cache_patch, load_patch:
+            tool = _make_load_document_text_tool(deps, self.DOC_ID)
+
+            first = await tool()
+            tally_after_first = deps.turn_implicit_doc_text_chars
+            second_budget_seen = deps.recommended_chunk_chars()
+
+            second = await tool(start=first["returned_range"][1])
+
+        # Closure reference is shared — mutation visible across calls.
+        self.assertGreater(tally_after_first, 0)
+        self.assertGreater(deps.turn_implicit_doc_text_chars, tally_after_first)
+        # The second implicit call's effective budget must shrink relative
+        # to the fresh recommendation (the drift compensation kicked in).
+        self.assertLessEqual(second["context_budget_chars"], second_budget_seen)
+
+
+# ---------------------------------------------------------------------------
 # _refresh_context_budget — falsy-zero fallback semantics
 # ---------------------------------------------------------------------------
 
@@ -910,16 +1040,23 @@ class TestRefreshContextBudgetFallback(SimpleTestCase):
     per-model registry rather than treating 0 as a legitimate window."""
 
     def _make_history_result(self, context_window: int):
+        """Return a ``_HistoryResult`` overriding only ``context_window``.
+
+        Uses ``dataclasses.replace`` against the dataclass's default
+        construction so this helper survives the addition of new fields
+        on ``_HistoryResult`` (which would otherwise silently feed the
+        old required-arg list into the constructor and either raise or
+        construct stale objects).
+        """
+        import dataclasses
+
         from opencontractserver.llms.agents.pydantic_ai_agents import (
             _HistoryResult,
         )
 
-        return _HistoryResult(
-            messages=[],
+        return dataclasses.replace(
+            _HistoryResult(messages=[]),
             context_window=context_window,
-            estimated_tokens=0,
-            was_compacted=False,
-            tokens_before_compaction=0,
         )
 
     def test_zero_context_window_falls_back_to_model_registry(self):
@@ -990,8 +1127,7 @@ class TestHistoryResultFromMessages(SimpleTestCase):
             PydanticAICoreAgent,
         )
 
-        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
-        agent.config = AgentConfig(
+        config = AgentConfig(
             model_name="gpt-4o", system_prompt="You are a helpful assistant."
         )
 
@@ -1002,7 +1138,7 @@ class TestHistoryResultFromMessages(SimpleTestCase):
             ModelRequest(parts=[UserPromptPart(content="hello world " * 50)])
         ]
 
-        history = agent._history_result_from_messages(messages)
+        history = PydanticAICoreAgent._history_result_from_messages(config, messages)
 
         self.assertGreater(history.estimated_tokens, 0)
         self.assertGreater(history.context_window, 0)
@@ -1016,12 +1152,11 @@ class TestHistoryResultFromMessages(SimpleTestCase):
         )
         from opencontractserver.llms.context_guardrails import estimate_token_count
 
-        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
-        agent.config = AgentConfig(
+        config = AgentConfig(
             model_name="gpt-4o", system_prompt="You are a helpful assistant."
         )
 
-        history = agent._history_result_from_messages([])
+        history = PydanticAICoreAgent._history_result_from_messages(config, [])
         # Only system-prompt tokens should contribute.
         self.assertEqual(
             history.estimated_tokens,
@@ -1035,10 +1170,9 @@ class TestHistoryResultFromMessages(SimpleTestCase):
         )
         from opencontractserver.llms.context_guardrails import estimate_token_count
 
-        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
-        agent.config = AgentConfig(model_name="gpt-4o", system_prompt="System.")
+        config = AgentConfig(model_name="gpt-4o", system_prompt="System.")
 
-        history = agent._history_result_from_messages(None)
+        history = PydanticAICoreAgent._history_result_from_messages(config, None)
         self.assertEqual(history.estimated_tokens, estimate_token_count("System."))
 
 

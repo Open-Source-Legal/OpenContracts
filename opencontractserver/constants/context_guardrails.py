@@ -91,14 +91,19 @@ TOOL_OUTPUT_TRUNCATION_NOTICE: str = (
 # slice that's useless for whole-document tasks.
 MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS: int = 5_000
 
-# Soft warning threshold for the budget-derived implicit chunk size. When
-# ``recommended_chunk_chars`` returns more than this, ``load_document_text``
-# emits a warning so the heuristic's drift is observable in production
-# logs (e.g. when ``CHARS_PER_TOKEN_ESTIMATE`` no longer reflects the
-# tokenisation density of multilingual or code-heavy documents). This is
-# only an observability signal — the chunk is still served at the
-# budgeted size.
-LARGE_IMPLICIT_CHUNK_WARN_THRESHOLD: int = 200_000
+# Soft warning threshold for the budget-derived implicit chunk size,
+# expressed as a fraction of the model's full context window in characters
+# (``context_window_tokens * CHARS_PER_TOKEN_ESTIMATE``). When
+# ``recommended_chunk_chars`` exceeds this fraction of the window,
+# ``load_document_text`` emits a warning so the heuristic's drift is
+# observable in production logs (e.g. when ``CHARS_PER_TOKEN_ESTIMATE``
+# no longer reflects the tokenisation density of multilingual or code-heavy
+# documents). The threshold is *relative* so 1M-token models (Gemini 1.5,
+# Claude Opus large-context) don't spam the warning on legitimately large
+# recommendations — half the entire window is the sign of real drift, not
+# just a big context. This is only an observability signal — the chunk is
+# still served at the budgeted size.
+LARGE_IMPLICIT_CHUNK_WARN_RATIO: float = 0.5
 
 # ---------------------------------------------------------------------------
 # Compaction summary budget

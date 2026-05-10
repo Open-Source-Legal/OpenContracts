@@ -3,7 +3,7 @@
 import dataclasses
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable
 from typing import Any, Callable, Optional, TypeVar, Union
 from uuid import uuid4
 
@@ -33,8 +33,9 @@ from pydantic_ai.toolsets import FunctionToolset
 from pydantic_graph import End
 
 from opencontractserver.constants.context_guardrails import (
+    CHARS_PER_TOKEN_ESTIMATE,
     COMPACTION_SUMMARY_PREFIX,
-    LARGE_IMPLICIT_CHUNK_WARN_THRESHOLD,
+    LARGE_IMPLICIT_CHUNK_WARN_RATIO,
     MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
 )
 from opencontractserver.constants.llm import STRUCTURED_OUTPUT_RETRIES
@@ -184,6 +185,83 @@ class _HistoryResult:
     context_window: int = 0  # model's context window size
     was_compacted: bool = False  # whether compaction ran this turn
     tokens_before_compaction: int = 0  # 0 if no compaction
+
+
+def _make_load_document_text_tool(
+    agent_deps: "PydanticAIDependencies", doc_id: int
+) -> Callable[..., Awaitable[dict[str, Any]]]:
+    """Build the budget-aware ``load_document_text`` async closure.
+
+    Module-level (not nested inside the agent factory) so unit tests can
+    drive the closure directly with a stubbed cache instead of building
+    a real ``DocumentAgentContext``. The returned coroutine captures
+    ``agent_deps`` by reference, so an in-process mutation to
+    ``agent_deps.turn_implicit_doc_text_chars`` is visible on the next
+    call — the property the per-turn drift compensation relies on.
+
+    The full design rationale (budget snapshot, per-turn tally, floor /
+    warn-threshold semantics) lives at the call site in
+    ``PydanticAIDocumentAgent.create``. This helper is the pure
+    transformation; do not add side effects beyond the cache and the
+    counter mutation.
+    """
+
+    async def load_document_text_tool(
+        start: int | None = None,
+        end: int | None = None,
+        refresh: bool = False,
+    ) -> dict[str, Any]:
+        start_idx = 0 if start is None else max(0, int(start))
+
+        cached_len = get_cached_txt_extract_length(doc_id)
+        if cached_len == 0 or refresh:
+            await aload_document_txt_extract(doc_id, 0, 1, refresh=refresh)
+            cached_len = get_cached_txt_extract_length(doc_id)
+        total_chars = cached_len
+
+        recommended = agent_deps.recommended_chunk_chars()
+        window_chars = agent_deps.context_window_tokens * CHARS_PER_TOKEN_ESTIMATE
+        warn_threshold = window_chars * LARGE_IMPLICIT_CHUNK_WARN_RATIO
+        if recommended > warn_threshold:
+            logger.warning(
+                "load_document_text: recommended chunk (%d chars) exceeds "
+                "%.0f%% of model %s's context window (%d chars) — verify "
+                "CHARS_PER_TOKEN_ESTIMATE still reflects the model's "
+                "tokenisation density.",
+                recommended,
+                LARGE_IMPLICIT_CHUNK_WARN_RATIO * 100,
+                agent_deps.model_name,
+                int(window_chars),
+            )
+
+        budget_after_in_turn_use = max(
+            0, recommended - agent_deps.turn_implicit_doc_text_chars
+        )
+        budget_chars = max(budget_after_in_turn_use, MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS)
+        if end is None:
+            end_idx = min(total_chars, start_idx + budget_chars)
+        else:
+            end_idx = max(start_idx, min(int(end), total_chars))
+
+        text = await aload_document_txt_extract(
+            doc_id, start_idx, end_idx, refresh=refresh
+        )
+
+        if end is None:
+            agent_deps.turn_implicit_doc_text_chars += end_idx - start_idx
+
+        chars_remaining = max(0, total_chars - end_idx)
+        return {
+            "text": text,
+            "total_chars": total_chars,
+            "returned_range": [start_idx, end_idx],
+            "chars_remaining": chars_remaining,
+            "suggested_next_start": end_idx if chars_remaining > 0 else None,
+            "context_budget_chars": budget_chars,
+            "budget_was_applied": end is None,
+        }
+
+    return load_document_text_tool
 
 
 def _build_tools_from_registry(
@@ -354,8 +432,9 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         """
         self._apply_context_budget(self.agent_deps, self.config, history_result)
 
+    @staticmethod
     def _history_result_from_messages(
-        self, messages: Optional[list[ModelMessage]]
+        config: "AgentConfig", messages: Optional[list[ModelMessage]]
     ) -> _HistoryResult:
         """Build a ``_HistoryResult`` from an explicit Pydantic-AI message list.
 
@@ -366,8 +445,12 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         mirrors the token-estimation logic in ``_get_message_history``
         so the explicit-history path can refresh through the same
         ``_refresh_context_budget`` codepath.
+
+        Static so unit tests can drive it directly with a constructed
+        ``AgentConfig`` instead of bypassing ``__init__`` on the agent —
+        keeps the test surface stable as ``__init__`` evolves.
         """
-        system_text = self.config.system_prompt or ""
+        system_text = config.system_prompt or ""
         if messages:
             msg_tokens = sum(
                 estimate_token_count(
@@ -383,7 +466,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         return _HistoryResult(
             messages=messages,
             estimated_tokens=estimate_token_count(system_text) + msg_tokens,
-            context_window=get_context_window_for_model(self.config.model_name),
+            context_window=get_context_window_for_model(config.model_name),
         )
 
     async def _initialise_llm_message(self, user_text: str) -> tuple[int, int]:
@@ -776,7 +859,9 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             # wrong baseline. Build a synthetic ``_HistoryResult`` from
             # the explicit messages and feed it through the same code
             # path the canonical caller uses.
-            history_result = self._history_result_from_messages(message_history)
+            history_result = self._history_result_from_messages(
+                self.config, message_history
+            )
             self._refresh_context_budget(history_result)
             context_status = {
                 "used_tokens": history_result.estimated_tokens,
@@ -2432,103 +2517,14 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         # ``_refresh_context_budget`` at the start of every turn.
         # -----------------------------
 
-        async def load_document_text_tool(
-            start: int | None = None,
-            end: int | None = None,
-            refresh: bool = False,
-        ) -> dict[str, Any]:
-            """Load a slice of the document's plain-text extract.
-
-            When ``end`` is omitted the tool defaults to a slice sized
-            against the agent's *remaining context budget* (75% of the
-            tokens left before the compaction threshold trips, converted
-            to characters).  This lets the agent load large chunks for
-            whole-document tasks (e.g. summarisation) without making
-            hundreds of tiny calls, while still backing off when the
-            conversation is approaching the model's context window.
-
-            Returns a structured payload so the LLM can decide what to do
-            next without making another exploratory call:
-
-            * ``text`` — the requested slice
-            * ``total_chars`` — full length of the document text
-            * ``returned_range`` — ``[start, end]`` actually served
-            * ``chars_remaining`` — characters still unread after this slice
-            * ``suggested_next_start`` — character index to resume from
-              (``None`` if the document was fully read)
-            * ``context_budget_chars`` — the budget that was applied
-
-            Note: explicit ``end`` values are not counted against the
-            in-turn implicit-chunk tally — only ``end``-less calls back
-            off proportionally as the turn progresses.
-            """
-            doc_id = context.document.id
-            start_idx = 0 if start is None else max(0, int(start))
-
-            # Resolve total length cheaply via the cache.
-            # ``aload_document_txt_extract`` always reads and caches the
-            # *full* file (not the requested slice), so a ``(0, 1)`` call
-            # costs one disk read but the cached length is then the real
-            # total. ``get_cached_txt_extract_length`` returns 0 on
-            # cache miss; use that as a sentinel to force a populating
-            # call.
-            cached_len = get_cached_txt_extract_length(doc_id)
-            if cached_len == 0 or refresh:
-                await aload_document_txt_extract(doc_id, 0, 1, refresh=refresh)
-                cached_len = get_cached_txt_extract_length(doc_id)
-            total_chars = cached_len
-
-            # Compute the budget-driven default end when the caller didn't
-            # specify one.  An explicit ``end`` is honoured verbatim — the
-            # agent has already decided how much it wants.
-            recommended = agent_deps_instance.recommended_chunk_chars()
-            # Cheap observable: warn when the budget heuristic returns an
-            # implausibly large slice. The 25% reserve_ratio is a fixed
-            # estimate; if CHARS_PER_TOKEN_ESTIMATE drifts (e.g. for
-            # multilingual or code-heavy documents) the recommendation can
-            # quietly push past the real context budget. This is a
-            # production-only signal, not a hard cap.
-            if recommended > LARGE_IMPLICIT_CHUNK_WARN_THRESHOLD:
-                logger.warning(
-                    "load_document_text: recommended chunk (%d chars) is very "
-                    "large for model %s — verify CHARS_PER_TOKEN_ESTIMATE "
-                    "still reflects the model's tokenisation density.",
-                    recommended,
-                    agent_deps_instance.model_name,
-                )
-            # Subtract whatever implicit chunks we've already returned this
-            # turn so successive ``end``-less calls don't keep returning the
-            # same large default and overflow the real (post-tool-output)
-            # context budget. The ``MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS``
-            # floor still applies after the deduction.
-            budget_after_in_turn_use = max(
-                0,
-                recommended - agent_deps_instance.turn_implicit_doc_text_chars,
-            )
-            budget_chars = max(
-                budget_after_in_turn_use, MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS
-            )
-            if end is None:
-                end_idx = min(total_chars, start_idx + budget_chars)
-            else:
-                end_idx = max(start_idx, min(int(end), total_chars))
-
-            text = await aload_document_txt_extract(
-                doc_id, start_idx, end_idx, refresh=refresh
-            )
-
-            if end is None:
-                agent_deps_instance.turn_implicit_doc_text_chars += end_idx - start_idx
-
-            chars_remaining = max(0, total_chars - end_idx)
-            return {
-                "text": text,
-                "total_chars": total_chars,
-                "returned_range": [start_idx, end_idx],
-                "chars_remaining": chars_remaining,
-                "suggested_next_start": end_idx if chars_remaining > 0 else None,
-                "context_budget_chars": budget_chars,
-            }
+        # Built by ``_make_load_document_text_tool`` so the closure body
+        # can be unit-tested directly without standing up a full
+        # ``DocumentAgentContext``. The closure shares
+        # ``agent_deps_instance`` by reference, so mutations to
+        # ``turn_implicit_doc_text_chars`` are visible across calls.
+        load_document_text_tool = _make_load_document_text_tool(
+            agent_deps_instance, context.document.id
+        )
 
         load_document_text_wrapped = PydanticAIToolFactory.from_function(
             load_document_text_tool,
@@ -2539,13 +2535,17 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "context budget — pass no ``end`` for whole-document tasks "
                 "(e.g. summarisation) to avoid making many small calls. "
                 "Pass explicit ``start``/``end`` when targeting a known "
-                "character range. Returns a dict with ``text``, "
+                "character range; explicit ``end`` calls bypass the "
+                "per-turn budget tally, so use them only when you have a "
+                "specific target window. Returns a dict with ``text``, "
                 "``total_chars``, ``returned_range`` (``[start, end)`` — "
                 "the exclusive end is reported), ``chars_remaining``, "
                 "``suggested_next_start`` (use this — not "
-                "``returned_range[1]`` — as the next ``start``), and "
-                "``context_budget_chars`` so you can plan follow-up reads "
-                "without a separate length call. After reading, call "
+                "``returned_range[1]`` — as the next ``start``), "
+                "``context_budget_chars`` (the budget that *would* drive "
+                "an implicit call right now), and ``budget_was_applied`` "
+                "(``True`` when the slice was budget-driven, ``False`` "
+                "when ``end`` was explicit). After reading, call "
                 "``search_exact_text`` on key passages to create citations."
             ),
             parameter_descriptions={
