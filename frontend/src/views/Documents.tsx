@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import _ from "lodash";
@@ -8,6 +13,17 @@ import {
   OS_LEGAL_COLORS,
   accentAlpha,
 } from "../assets/configurations/osLegalStyles";
+import {
+  PageContainer,
+  ContentContainer,
+  HeroSection,
+  HeroTitle,
+  HeroSubtitle,
+  StatsContainer,
+  SectionHeader,
+  SectionTitle,
+  EmptyStateWrapper,
+} from "../components/layout/PageLayout";
 import {
   SearchBox,
   FilterTabs,
@@ -80,6 +96,7 @@ import { FilterToLabelsetSelector } from "../components/widgets/model-filters/Fi
 import { FilterToCorpusSelector } from "../components/widgets/model-filters/FilterToCorpusSelector";
 import { BulkUploadModal } from "../components/widgets/modals/BulkUploadModal";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { navigateToDocument } from "../utils/navigationUtils";
 import {
@@ -109,53 +126,6 @@ const DOCUMENTS_PAGE_SIZE = 20;
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLED COMPONENTS - Following CorpusListView/DiscoveryLanding patterns
 // ═══════════════════════════════════════════════════════════════════════════════
-
-const PageContainer = styled.div`
-  height: 100%;
-  background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-y: auto;
-  overflow-x: hidden;
-`;
-
-const ContentContainer = styled.main`
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 48px 24px 80px;
-
-  @media (max-width: 768px) {
-    padding: 32px 16px 60px;
-  }
-`;
-
-const HeroSection = styled.section`
-  margin-bottom: 48px;
-`;
-
-const HeroTitle = styled.h1`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 42px;
-  font-weight: 400;
-  line-height: 1.2;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  margin: 0 0 16px;
-
-  span {
-    color: ${OS_LEGAL_COLORS.accent};
-  }
-
-  @media (max-width: 768px) {
-    font-size: 32px;
-  }
-`;
-
-const HeroSubtitle = styled.p`
-  font-size: 17px;
-  line-height: 1.6;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  margin: 0 0 32px;
-  max-width: 600px;
-`;
 
 const SearchContainer = styled.div`
   margin-bottom: 16px;
@@ -325,43 +295,6 @@ const ClearFiltersButton = styled.button`
   }
 `;
 
-const StatsContainer = styled.div`
-  margin-bottom: 48px;
-  padding: 32px 0;
-
-  /* Override stat value size like StatsSection does */
-  [class*="StatBlock"] > *:first-child,
-  [data-testid="stat-value"] {
-    font-size: 36px !important;
-  }
-
-  @media (max-width: 768px) {
-    padding: 24px 0;
-
-    [class*="StatBlock"] > *:first-child,
-    [data-testid="stat-value"] {
-      font-size: 28px !important;
-    }
-  }
-`;
-
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  gap: 16px;
-  flex-wrap: wrap;
-`;
-
-const SectionTitle = styled.h2`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 24px;
-  font-weight: 400;
-  color: ${OS_LEGAL_COLORS.accent};
-  margin: 0;
-`;
-
 const ActionButtons = styled.div`
   display: flex;
   align-items: center;
@@ -401,34 +334,6 @@ const ViewToggleButton = styled.button<{ $active?: boolean }>`
 const DocumentsListContainer = styled.section`
   position: relative;
   min-height: 200px;
-`;
-
-// Footer-pinned spinner shown beneath the grid while a `fetchMore` is in flight.
-const FetchMoreFooter = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 16px 0 24px;
-  color: ${OS_LEGAL_COLORS.textMuted};
-  font-size: 0.875rem;
-
-  svg {
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-`;
-
-const EmptyStateWrapper = styled.div`
-  padding: 48px 24px;
-  background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 16px;
 `;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -906,6 +811,7 @@ export const Documents = () => {
   const {
     refetch: refetchDocuments,
     loading: documents_loading,
+    networkStatus: documents_network_status,
     error: documents_error,
     data: documents_data,
     fetchMore: fetchMoreDocuments,
@@ -1679,17 +1585,11 @@ export const Documents = () => {
               )}
 
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
-              {documents_loading &&
-                documents_data?.documents?.pageInfo?.hasNextPage && (
-                  <FetchMoreFooter
-                    role="status"
-                    aria-live="polite"
-                    data-testid="documents-fetch-more-spinner"
-                  >
-                    <Loader2 size={16} aria-hidden="true" />
-                    <span>Loading more documents…</span>
-                  </FetchMoreFooter>
-                )}
+              <FetchMoreFooter
+                visible={documents_network_status === NetworkStatus.fetchMore}
+                message="Loading more documents…"
+                data-testid="documents-fetch-more-spinner"
+              />
             </>
           ) : documents_error ? (
             <EmptyStateWrapper>

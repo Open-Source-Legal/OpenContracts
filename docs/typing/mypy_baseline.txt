@@ -337,43 +337,6 @@ opencontractserver/mcp/tests/test_mcp.py:983: error: "type[MCPResourcesDocumentT
 opencontractserver/mcp/tests/test_mcp.py:988: error: "type[MCPResourcesDocumentTest]" has no attribute "document"  [attr-defined]
 opencontractserver/mcp/tests/test_mcp.py:989: error: "type[MCPResourcesDocumentTest]" has no attribute "corpus"  [attr-defined]
 opencontractserver/mcp/tests/test_mcp.py:994: error: "type[MCPResourcesDocumentTest]" has no attribute "owner"  [attr-defined]
-opencontractserver/shared/Managers.py:136: error: "type[_T]" has no attribute "objects"  [attr-defined]
-opencontractserver/shared/Managers.py:140: error: "type[_T]" has no attribute "objects"  [attr-defined]
-opencontractserver/shared/Managers.py:143: error: "type[_T]" has no attribute "objects"  [attr-defined]
-opencontractserver/shared/Managers.py:146: error: "type[_T]" has no attribute "objects"  [attr-defined]
-opencontractserver/shared/Managers.py:159: error: "type[_T]" has no attribute "objects"  [attr-defined]
-opencontractserver/shared/Managers.py:170: error: "type[_T]" has no attribute "objects"  [attr-defined]
-opencontractserver/shared/Managers.py:175: error: Item "None" of "str | None" has no attribute "upper"  [union-attr]
-opencontractserver/shared/Managers.py:184: error: Item "None" of "str | None" has no attribute "upper"  [union-attr]
-opencontractserver/shared/Managers.py:221: error: Signature of "visible_to_user" incompatible with supertype "BaseVisibilityManager"  [override]
-opencontractserver/shared/Managers.py:221: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/shared/Managers.py:221: note:          def visible_to_user(self, user: Any) -> PermissionQuerySet[Any, Any]
-opencontractserver/shared/Managers.py:221: note:      Subclass:
-opencontractserver/shared/Managers.py:221: note:      Superclass:
-opencontractserver/shared/Managers.py:234: error: Signature of "visible_to_user" incompatible with supertype "BaseVisibilityManager"  [override]
-opencontractserver/shared/Managers.py:234: note:          def visible_to_user(self, user: Any = ..., lightweight: Any = ...) -> QuerySet[Any, Any]
-opencontractserver/shared/Managers.py:234: note:          def visible_to_user(self, user: Any) -> Any
-opencontractserver/shared/Managers.py:234: note:      Subclass:
-opencontractserver/shared/Managers.py:234: note:      Superclass:
-opencontractserver/shared/Managers.py:241: error: "type[_T]" has no attribute "DoesNotExist"  [attr-defined]
-opencontractserver/shared/Managers.py:301: error: Unsupported dynamic base class "PermissionManager.from_queryset"  [misc]
-opencontractserver/shared/Managers.py:312: error: Variable "opencontractserver.shared.Managers.User" is not valid as a type  [valid-type]
-opencontractserver/shared/Managers.py:312: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/shared/Managers.py:317: error: "AnnotationQuerySet[Any, Any]" has no attribute "for_user"  [attr-defined]
-opencontractserver/shared/Managers.py:330: error: Unsupported dynamic base class "PermissionManager.from_queryset"  [misc]
-opencontractserver/shared/Managers.py:341: error: Variable "opencontractserver.shared.Managers.User" is not valid as a type  [valid-type]
-opencontractserver/shared/Managers.py:341: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/shared/Managers.py:346: error: "NoteQuerySet[Any, Any]" has no attribute "for_user"  [attr-defined]
-opencontractserver/shared/Managers.py:386: error: Variable "opencontractserver.shared.Managers.User" is not valid as a type  [valid-type]
-opencontractserver/shared/Managers.py:386: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-opencontractserver/shared/decorators.py:123: error: callable? not callable  [misc]
-opencontractserver/shared/decorators.py:235: error: Item "list[Any]" of "Any | list[Any]" has no attribute "create_opencontract_annotation_from_span"  [union-attr]
-opencontractserver/shared/decorators.py:272: error: Value of type "Any | None" is not indexable  [index]
-opencontractserver/shared/decorators.py:33: error: Function "builtins.callable" is not valid as a type  [valid-type]
-opencontractserver/shared/decorators.py:33: note: Perhaps you meant "typing.Callable" instead of "callable"?
-opencontractserver/shared/decorators.py:52: error: Function "builtins.callable" is not valid as a type  [valid-type]
-opencontractserver/shared/decorators.py:52: note: Perhaps you meant "typing.Callable" instead of "callable"?
-opencontractserver/shared/decorators.py:584: error: Item "list[Any]" of "Any | list[Any]" has no attribute "create_opencontract_annotation_from_span"  [union-attr]
 opencontractserver/tests/base.py:111: error: "_pre_setup" undefined in superclass  [misc]
 opencontractserver/tests/base.py:118: error: "_post_teardown" undefined in superclass  [misc]
 opencontractserver/tests/base.py:437: error: Argument 1 to "set_permissions_for_obj_to_user" has incompatible type "User"; expected "int | str | type[User?]"  [arg-type]

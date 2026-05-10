@@ -6,6 +6,9 @@ export const MOBILE_VIEW_BREAKPOINT = 600;
 export const TABLET_BREAKPOINT = 768;
 // Desktop breakpoint - minimum width for desktop-only features (TABLET_BREAKPOINT + 1)
 export const DESKTOP_BREAKPOINT = 769;
+// Tablet-landscape breakpoint - point where two-pane layouts compress their list
+// pane (e.g. extract split view, thread search) before fully collapsing at TABLET_BREAKPOINT.
+export const TABLET_LANDSCAPE_BREAKPOINT = 1024;
 // Cookie consent modal collapses its two-column data grid below this width.
 export const COOKIE_CONSENT_GRID_BREAKPOINT = 720;
 

@@ -78,14 +78,29 @@ class DisplayNameResolverTestCase(TestCase):
         self.assertEqual(_resolve(user), "Grace Hopper")
 
     def test_uses_username_when_not_oauth_sub(self):
-        """Local-auth usernames (no ``|`` separator) pass through unchanged."""
+        """Local-auth usernames (no ``|`` separator) pass through unchanged.
+
+        ``handle`` is cleared so the test exercises the username branch
+        rather than the higher-priority handle branch (issue #1574).
+        """
         user = User.objects.create_user(username="alice")
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         self.assertEqual(_resolve(user), "alice")
 
     def test_redacts_oauth_sub_when_no_profile_fields(self):
-        """Raw OAuth ``sub`` MUST never be returned — only a redacted suffix."""
+        """Raw OAuth ``sub`` MUST never be returned — only a redacted suffix.
+
+        ``handle`` is cleared to exercise the OAuth-sub redaction fallback
+        path; in production, users without a handle (pre-backfill) and
+        without profile claims still take this branch.
+        """
         username = "google-oauth2|114688257717759010643"
         user = User.objects.create_user(username=username, is_social_user=True)
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         display = _resolve(user)
         # Suffix only — must not contain the provider prefix or the pipe.
         self.assertEqual(display, "user_010643")
@@ -113,6 +128,9 @@ class DisplayNameResolverTestCase(TestCase):
         )
         username = f"auth0|{sub}"
         user = User.objects.create_user(username=username, is_social_user=True)
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         display = _resolve(user)
         self.assertEqual(display, f"user_{sub}")
         self.assertNotIn("|", display)
@@ -121,8 +139,15 @@ class DisplayNameResolverTestCase(TestCase):
         """Local users (``is_social_user=False``) keep their ``|``-containing
         username verbatim — ``UserUnicodeUsernameValidator`` allows ``|``,
         so a local user named ``alice|admin`` is legitimate and the
-        OAuth-sub redaction must not fire."""
+        OAuth-sub redaction must not fire.
+
+        ``handle`` is cleared so this exercises the username branch rather
+        than the higher-priority handle branch (issue #1574).
+        """
         user = User.objects.create_user(username="alice|admin", is_social_user=False)
+        # Use queryset update to bypass save()'s handle auto-assignment.
+        User.objects.filter(pk=user.pk).update(handle=None)
+        user.refresh_from_db()
         self.assertEqual(_resolve(user), "alice|admin")
 
     def test_whitespace_only_name_is_skipped(self):

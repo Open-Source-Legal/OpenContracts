@@ -6,9 +6,24 @@ import React, {
   useRef,
 } from "react";
 import styled from "styled-components";
-import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
+import {
+  PageContainer,
+  ContentContainer,
+  HeroSection,
+  HeroTitle,
+  HeroSubtitle,
+  StatsContainer,
+  SectionHeader,
+  SectionTitle,
+  EmptyStateWrapper,
+} from "../components/layout/PageLayout";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import {
+  NetworkStatus,
+  useMutation,
+  useQuery,
+  useReactiveVar,
+} from "@apollo/client";
 import {
   SearchBox,
   FilterTabs,
@@ -45,97 +60,14 @@ import { ExtractListCard } from "../components/extracts/ExtractListCard";
 import { ConfirmModal } from "../components/widgets/modals/ConfirmModal";
 import { CreateExtractModal } from "../components/widgets/modals/CreateExtractModal";
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
+import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
 import { DEBOUNCE } from "../assets/configurations/constants";
 
-// Styled Components - Following LabelSets patterns
-
-const PageContainer = styled.div`
-  height: 100%;
-  background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-y: auto;
-  overflow-x: hidden;
-`;
-
-const ContentContainer = styled.main`
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 48px 24px 80px;
-
-  @media (max-width: 768px) {
-    padding: 32px 16px 60px;
-  }
-`;
-
-const HeroSection = styled.section`
-  margin-bottom: 48px;
-`;
-
-const HeroTitle = styled.h1`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 42px;
-  font-weight: 400;
-  line-height: 1.2;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  margin: 0 0 16px;
-
-  span {
-    color: ${OS_LEGAL_COLORS.accent};
-  }
-
-  @media (max-width: 768px) {
-    font-size: 32px;
-  }
-`;
-
-const HeroSubtitle = styled.p`
-  font-size: 17px;
-  line-height: 1.6;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  margin: 0 0 32px;
-  max-width: 600px;
-`;
+// Styled Components
 
 const SearchContainer = styled.div`
   margin-bottom: 16px;
-`;
-
-const StatsContainer = styled.div`
-  margin-bottom: 48px;
-  padding: 32px 0;
-
-  /* Override stat value size like StatsSection does */
-  [class*="StatBlock"] > *:first-child,
-  [data-testid="stat-value"] {
-    font-size: 36px !important;
-  }
-
-  @media (max-width: 768px) {
-    padding: 24px 0;
-
-    [class*="StatBlock"] > *:first-child,
-    [data-testid="stat-value"] {
-      font-size: 28px !important;
-    }
-  }
-`;
-
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  gap: 16px;
-  flex-wrap: wrap;
-`;
-
-const SectionTitle = styled.h2`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 24px;
-  font-weight: 400;
-  color: ${OS_LEGAL_COLORS.accent};
-  margin: 0;
 `;
 
 const ActionButtons = styled.div`
@@ -147,13 +79,6 @@ const ActionButtons = styled.div`
 const ListContainer = styled.section`
   position: relative;
   min-height: 200px;
-`;
-
-const EmptyStateWrapper = styled.div`
-  padding: 48px 24px;
-  background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 16px;
 `;
 
 // Icons
@@ -211,7 +136,7 @@ export const Extracts = () => {
   };
 
   // GraphQL Query
-  const { refetch, loading, data, fetchMore } = useQuery<
+  const { refetch, loading, networkStatus, data, fetchMore } = useQuery<
     GetExtractsOutput,
     GetExtractsInput
   >(GET_EXTRACTS, {
@@ -491,9 +416,9 @@ export const Extracts = () => {
 
         {/* Extracts List Section */}
         <ListContainer>
+          {/* Cover the list only on the initial load — fetchMore keeps existing rows visible. */}
           <LoadingOverlay
-            active={loading}
-            inverted
+            active={loading && filteredExtracts.length === 0}
             size="large"
             content="Loading extracts..."
           />
@@ -536,6 +461,11 @@ export const Extracts = () => {
 
               {/* Infinite scroll trigger */}
               <FetchMoreOnVisible fetchNextPage={handleFetchMore} />
+              <FetchMoreFooter
+                visible={networkStatus === NetworkStatus.fetchMore}
+                message="Loading more extracts…"
+                data-testid="extracts-fetch-more-spinner"
+              />
             </>
           ) : !loading ? (
             <EmptyStateWrapper>

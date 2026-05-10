@@ -360,6 +360,75 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         parameters=(("new_content", "Full markdown content", True),),
     ),
     ToolDefinition(
+        name="read_corpus_caml_article",
+        description=(
+            "Read the corpus's Readme.CAML article for citation review. Returns "
+            "the markdown content split into blocks (paragraphs) with each "
+            "block's existing inline directives and a heuristic flag marking "
+            "prose blocks that lack a {{@cite ...}} directive. Use this first "
+            "to identify candidate locations before proposing citations."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+    ),
+    ToolDefinition(
+        name="propose_caml_citation_match",
+        description=(
+            "Propose annotation citation candidates for a CAML prose snippet. "
+            "Runs the same semantic search the renderer uses over annotations "
+            "visible to the current user in this corpus and returns ranked "
+            "candidates. Use this to verify a citation match before asking the "
+            "user to approve an edit via apply_caml_article_edit."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        parameters=(
+            (
+                "query_text",
+                "The CAML prose snippet (sentence or paragraph) to find citations for",
+                True,
+            ),
+            (
+                "limit",
+                "Maximum number of candidates to return (default 5, capped at 25)",
+                False,
+            ),
+        ),
+    ),
+    ToolDefinition(
+        name="apply_caml_article_edit",
+        description=(
+            "Replace a single occurrence of target_text inside the corpus's "
+            "Readme.CAML with replacement_text. Each call requires explicit "
+            "approval and only mutates one location at a time, so the agent "
+            "can step through citations one-by-one. target_text MUST match "
+            "exactly once in the article -- the call fails closed otherwise."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(
+            (
+                "target_text",
+                "Exact substring to replace. Must occur exactly once in the article.",
+                True,
+            ),
+            (
+                "replacement_text",
+                "Replacement content (typically the original sentence plus "
+                "an inline {{@cite ...}} directive).",
+                True,
+            ),
+            (
+                "rationale",
+                "Short explanation surfaced in the approval modal so the user "
+                "understands why the edit was proposed.",
+                True,
+            ),
+        ),
+    ),
+    ToolDefinition(
         name="move_document",
         description=(
             "Move a document to a different folder within the current corpus. "
@@ -877,6 +946,7 @@ class ToolFunctionRegistry:
         from opencontractserver.llms.tools.core_tools import (
             aadd_annotations_from_exact_strings,
             aadd_document_note,
+            aapply_caml_article_edit,
             acreate_document_index,
             acreate_markdown_link,
             aduplicate_annotations_with_label,
@@ -892,6 +962,8 @@ class ToolFunctionRegistry:
             aload_document_md_summary,
             aload_document_txt_extract,
             amove_document,
+            apropose_caml_citation_match,
+            aread_corpus_caml_article,
             asearch_document_notes,
             asearch_exact_text_as_sources,
             asuggest_memory_update,
@@ -964,6 +1036,10 @@ class ToolFunctionRegistry:
             "get_corpus_description": (aget_corpus_description, ()),
             "update_corpus_description": (aupdate_corpus_description, ()),
             "move_document": (amove_document, ()),
+            # CAML article review tools (corpus-scoped Readme.CAML editor)
+            "read_corpus_caml_article": (aread_corpus_caml_article, ()),
+            "propose_caml_citation_match": (apropose_caml_citation_match, ()),
+            "apply_caml_article_edit": (aapply_caml_article_edit, ()),
             # Image tools
             "list_document_images": (alist_document_images, ()),
             "get_document_image": (aget_document_image, ()),

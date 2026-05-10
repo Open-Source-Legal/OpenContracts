@@ -673,3 +673,66 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
         self.assertEqual(span_annotation.raw_text, "Async Span!")
         self.assertDictEqual(span_annotation.json, {"start": 0, "end": 12})
         self.assertEqual(span_annotation.annotation_label.text, "TEXT_SPAN_ASYNC")
+
+    def test_async_doc_analyzer_task_txt_no_extract_file_raises(self) -> None:
+        """Mirror of the sync ``DocAnalyzerTaskTestCase``
+        ``test_doc_analyzer_task_txt_no_extract_file_raises``: when
+        ``async_doc_analyzer_task`` post-processes a ``text/plain``
+        document whose ``txt_extract_file`` is absent, the wrapper must
+        raise the same ``ValueError`` the sync wrapper raises (issue
+        flagged in the PR #1533 review — the async wrapper had the
+        type annotation but not the runtime guard).
+        """
+        bare_txt_document = Document.objects.create(
+            title="Bare TXT Document - no extract (async)",
+            creator=self.user,
+            file_type="text/plain",
+            # intentionally no txt_extract_file
+        )
+
+        @async_doc_analyzer_task()
+        async def task_returning_span(
+            *args: Any, **kwargs: Any
+        ) -> tuple[list[str], list[tuple[TextSpan, str]], list[dict[str, Any]], bool]:
+            return (
+                [],
+                [(TextSpan(id="1", start=0, end=5, text="hello"), "LABEL")],
+                [{"data": {}}],
+                True,
+            )
+
+        with self.assertRaisesRegex(
+            ValueError, "txt_extract_file is required for text documents"
+        ):
+            task_returning_span.si(
+                doc_id=bare_txt_document.id, analysis_id=self.analysis.id
+            ).apply().get()
+
+    def test_async_doc_analyzer_task_application_txt_no_extract_raises(self) -> None:
+        """Same async guard contract for the alternate ``application/txt``
+        MIME type — both fall through the same elif branch in the
+        async post-processing loop."""
+        bare_app_txt_document = Document.objects.create(
+            title="Bare application/txt Document - no extract (async)",
+            creator=self.user,
+            file_type="application/txt",
+            # intentionally no txt_extract_file
+        )
+
+        @async_doc_analyzer_task()
+        async def task_returning_span(
+            *args: Any, **kwargs: Any
+        ) -> tuple[list[str], list[tuple[TextSpan, str]], list[dict[str, Any]], bool]:
+            return (
+                [],
+                [(TextSpan(id="1", start=0, end=3, text="abc"), "LABEL")],
+                [{"data": {}}],
+                True,
+            )
+
+        with self.assertRaisesRegex(
+            ValueError, "txt_extract_file is required for text documents"
+        ):
+            task_returning_span.si(
+                doc_id=bare_app_txt_document.id, analysis_id=self.analysis.id
+            ).apply().get()
