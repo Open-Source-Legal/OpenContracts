@@ -20,7 +20,7 @@ import {
 } from "./DiscussionTypeBadge";
 import { RelativeTime } from "./RelativeTime";
 import { getCorpusThreadUrl } from "../../utils/navigationUtils";
-import { formatUsername } from "./userUtils";
+import { getCreatorDisplay, getCreatorInitials } from "../../utils/userDisplay";
 import { ConversationVoteButtons } from "./ConversationVoteButtons";
 import { backendUserObj } from "../../graphql/cache";
 
@@ -313,21 +313,6 @@ const MoreParticipants = styled.span`
 `;
 
 /**
- * Get initials from username or email
- */
-function getInitials(username?: string | null, email?: string | null): string {
-  const name = username || email || "?";
-  if (name.includes("@")) {
-    return name.charAt(0).toUpperCase();
-  }
-  const parts = name.split(/[\s_-]+/);
-  if (parts.length >= 2) {
-    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
-  }
-  return name.substring(0, 2).toUpperCase();
-}
-
-/**
  * Extract unique participants from thread messages
  */
 function getParticipants(
@@ -337,10 +322,7 @@ function getParticipants(
 
   // Add creator
   if (thread.creator) {
-    participants.set(
-      thread.creator.id,
-      getInitials(thread.creator.username, thread.creator.email)
-    );
+    participants.set(thread.creator.id, getCreatorInitials(thread.creator));
   }
 
   return Array.from(participants.entries()).map(([id, initials]) => ({
@@ -412,14 +394,8 @@ export const ThreadListItem = React.memo(function ThreadListItem({
   // Placeholder view count (not tracked yet in backend)
   const viewCount = 0;
 
-  const authorName = formatUsername(
-    thread.creator?.username,
-    thread.creator?.email
-  );
-  const authorInitials = getInitials(
-    thread.creator?.username,
-    thread.creator?.email
-  );
+  const authorName = getCreatorDisplay(thread.creator);
+  const authorInitials = getCreatorInitials(thread.creator);
 
   return (
     <ThreadCard

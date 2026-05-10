@@ -854,7 +854,8 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "100/hour",  # Anonymous users (shouldn't hit authenticated endpoints)
         "user": "1000/hour",  # Authenticated users
-        "annotation_images": "200/hour",  # Image retrieval endpoint (higher bandwidth)
+        "annotation_images": "200/hour",  # Image retrieval endpoint, authenticated (higher bandwidth)
+        "annotation_images_anon": "200/hour",  # Image retrieval endpoint, anonymous
         "document_imports": "120/hour",  # Multipart document import endpoints
     },
 }

@@ -471,7 +471,7 @@ class TestBadgeGraphQLMutations(TransactionTestCase):
                     message
                     userBadge {{
                         user {{
-                            username
+                            slug
                         }}
                         badge {{
                             name
@@ -488,9 +488,12 @@ class TestBadgeGraphQLMutations(TransactionTestCase):
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["awardBadge"]["ok"])
+        # ``username`` is now self-only PII and would resolve to ``null`` here
+        # (``admin_user`` viewing ``normal_user``); the public identifier is
+        # the auto-generated ``slug`` (``_`` is normalised to ``-``).
         self.assertEqual(
-            result["data"]["awardBadge"]["userBadge"]["user"]["username"],
-            "graphqlmutations_normal",
+            result["data"]["awardBadge"]["userBadge"]["user"]["slug"],
+            "graphqlmutations-normal",
         )
 
     def test_create_badge_idor_prevention(self):

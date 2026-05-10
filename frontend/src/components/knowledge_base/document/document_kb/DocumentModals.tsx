@@ -16,6 +16,7 @@ import { NoteEditor } from "../NoteEditor";
 import { NewNoteModal } from "../NewNoteModal";
 import { AddToCorpusModal } from "../../../modals/AddToCorpusModal";
 import { getDocumentUrl } from "../../../../utils/navigationUtils";
+import { getCreatorDisplay } from "../../../../utils/userDisplay";
 
 export interface DocumentModalsProps {
   /** Whether the graph modal is shown */
@@ -117,7 +118,7 @@ export const DocumentModals: React.FC<DocumentModalsProps> = ({
                 marginTop: "1rem",
               }}
             >
-              Added by {selectedNote.creator.email} on{" "}
+              Added by {getCreatorDisplay(selectedNote.creator)} on{" "}
               {new Date(selectedNote.created).toLocaleString()}
             </div>
           </ModalBody>

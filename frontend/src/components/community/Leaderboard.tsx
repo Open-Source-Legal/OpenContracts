@@ -28,6 +28,7 @@ import {
 } from "../../types/leaderboard";
 import { Badge } from "../badges/Badge";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 // File-local rank palette. Centralised here so the three RankBadge ternaries
 // stay readable and the values are easy to update in one place. These are
@@ -579,7 +580,17 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
                           </Table.Cell>
                           <Table.Cell>
                             <UsernameCell>
-                              <strong>{entry.user.displayName}</strong>
+                              {/*
+                                Render the public slug — never displayName,
+                                which still falls back to the user's
+                                preferred name for self-views. The
+                                leaderboard is a public surface so every
+                                row is identified by the slug only. The
+                                ``user_<id>`` redaction only triggers for
+                                pre-migration rows; new users always have
+                                a slug.
+                              */}
+                              <strong>{getCreatorDisplay(entry.user)}</strong>
                               {entry.isRisingStar && (
                                 <RisingStarTag>
                                   <TrendingUp size={12} />

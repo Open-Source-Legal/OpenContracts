@@ -6,6 +6,7 @@ import styled from "styled-components";
 import { Lock, Unlock, MessageSquare, Scale, ExternalLink } from "lucide-react";
 import { LICENSE_OPTIONS } from "../../../assets/configurations/constants";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 import {
   SettingsCard,
   SettingsCardHeader,
@@ -38,8 +39,12 @@ const LicenseBadge = styled.span`
 
 interface CorpusInfoSectionProps {
   corpus: {
+    // ``email`` is redacted to ``null`` for non-self viewers; the
+    // privacy contract guarantees only ``id`` and ``slug``.
     creator?: {
-      email: string;
+      id?: string | null;
+      slug?: string | null;
+      email?: string | null;
     };
     preferredEmbedder?: string | null;
     created?: string;
@@ -73,7 +78,7 @@ export const CorpusInfoSection: React.FC<CorpusInfoSectionProps> = ({
         <MetadataGrid>
           <MetadataItem>
             <div className="label">Created by</div>
-            <div className="value">{corpus.creator?.email || "Unknown"}</div>
+            <div className="value">{getCreatorDisplay(corpus.creator)}</div>
           </MetadataItem>
 
           <MetadataItem>

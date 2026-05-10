@@ -53,9 +53,10 @@ test.describe("TrashFolderView", () => {
     await expect(page.getByText("PDF").first()).toBeVisible();
     await expect(page.getByText("DOCX")).toBeVisible();
 
-    // Check usernames
-    await expect(page.getByText("john_doe")).toBeVisible();
-    await expect(page.getByText("jane_smith")).toBeVisible();
+    // ``getCreatorDisplay`` renders the public ``slug`` (``username`` is now
+    // self-only PII and resolves to ``null`` for cross-user viewers).
+    await expect(page.getByText("john-doe")).toBeVisible();
+    await expect(page.getByText("jane-smith")).toBeVisible();
 
     // Check page counts
     await expect(page.getByText("10 pages")).toBeVisible();
@@ -338,8 +339,9 @@ test.describe("TrashFolderView", () => {
       // Should display the document title
       await expect(page.getByText("Document with Null Creator")).toBeVisible();
 
-      // Should show "Unknown user" for null creator
-      await expect(page.getByText("Unknown user")).toBeVisible();
+      // ``getCreatorDisplay(null)`` returns "Unknown" — the unified fallback
+      // for any null/undefined creator across the app.
+      await expect(page.getByText("Deleted by Unknown")).toBeVisible();
     });
 
     test("handles document with null document data gracefully", async ({

@@ -46,6 +46,7 @@ import {
   CORPUS_FONTS,
 } from "../components/threads/styles/discussionStyles";
 import { getCorpusUrl, getDocumentUrl } from "../utils/navigationUtils";
+import { getCreatorDisplay } from "../utils/userDisplay";
 import { stripMarkdown } from "../utils/formatters";
 import { useDebouncedValue } from "../utils/hooks";
 import {
@@ -559,8 +560,8 @@ const NotesSection: React.FC<NotesSectionProps> = ({ query, limit }) => {
               <>
                 <span>{node.document.title}</span>
                 {node.corpus ? <span>· {node.corpus.title}</span> : null}
-                {node.creator?.username ? (
-                  <span>· by {node.creator.username}</span>
+                {node.creator ? (
+                  <span>· by {getCreatorDisplay(node.creator)}</span>
                 ) : null}
               </>
             }

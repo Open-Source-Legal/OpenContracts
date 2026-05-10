@@ -432,11 +432,14 @@ export function MessageComposer({
                   const getMentionData = (resource: UnifiedMentionResource) => {
                     switch (resource.type) {
                       case "user":
-                        // Use slug if available, fallback to ID (auto-redirects to slug)
+                        // Use slug if available, fallback to ID (auto-redirects to slug).
+                        // ``resource.title`` already carries the slug-or-redacted
+                        // display string from ``useUnifiedMentionSearch`` —
+                        // ``username`` is no longer fetched cross-user.
                         const userIdent =
                           resource.user!.slug || resource.user!.id;
                         return {
-                          label: `@${resource.user!.username}`,
+                          label: `@${resource.title}`,
                           href: `/users/${userIdent}`,
                           type: "user",
                         };

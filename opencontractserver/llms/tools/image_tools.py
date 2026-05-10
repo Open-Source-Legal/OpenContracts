@@ -474,120 +474,23 @@ def get_annotation_images_with_permission(
     annotation_id: int,
 ) -> list[ImageData]:
     """
-    Permission-checked version of get_annotation_images.
+    Permission-checked version of ``get_annotation_images``.
 
-    Follows the consolidated permissioning guide:
-    1. Effective Permission = MIN(document_permission, corpus_permission)
-    2. Privacy model: created_by_analysis/created_by_extract require source permission
-    3. Structural annotations bypass privacy (always visible if doc/corpus readable)
-    4. IDOR protection: same response for missing or unauthorized
+    Image visibility is **identical** to annotation visibility: the single
+    source of truth is ``AnnotationQuerySet.visible_to_user`` (see
+    ``opencontractserver/shared/QuerySets.py``), which already encodes
+    the consolidated permissioning guide — superuser bypass, anonymous
+    structural-only rules (including the ``structural_set``-linked
+    branch), authenticated MIN(document, corpus) with guardian
+    permissions, and the analysis/extract privacy model.
 
-    Args:
-        user: The user requesting access.
-        annotation_id: The annotation ID.
-
-    Returns:
-        List of ImageData if permitted, empty list otherwise.
+    Returns an empty list for missing **or** unauthorized annotations
+    (IDOR protection — identical response shape so callers cannot
+    enumerate object existence).
     """
-    try:
-        annotation = Annotation.objects.select_related(
-            "document",
-            "corpus",
-            "structural_set",
-            "created_by_analysis",
-            "created_by_extract",
-        ).get(pk=annotation_id)
-
-        # Superusers bypass all checks
-        if user.is_superuser:
-            return get_annotation_images(annotation_id)
-
-        # === PRIVACY MODEL CHECK ===
-        # Non-structural annotations with created_by_analysis or created_by_extract
-        # are private to that source object
-        if not annotation.structural:
-            if annotation.created_by_analysis_id:
-                # Require READ permission on the analysis
-                if not user_has_permission_for_obj(
-                    user,
-                    annotation.created_by_analysis,
-                    PermissionTypes.READ,
-                    include_group_permissions=True,
-                ):
-                    logger.debug(
-                        f"User {user} lacks analysis permission for private annotation {annotation_id}"
-                    )
-                    return []  # IDOR protection
-
-            if annotation.created_by_extract_id:
-                # Require READ permission on the extract
-                if not user_has_permission_for_obj(
-                    user,
-                    annotation.created_by_extract,
-                    PermissionTypes.READ,
-                    include_group_permissions=True,
-                ):
-                    logger.debug(
-                        f"User {user} lacks extract permission for private annotation {annotation_id}"
-                    )
-                    return []  # IDOR protection
-
-        # === DOCUMENT + CORPUS PERMISSION CHECK ===
-        # Formula: Effective Permission = MIN(document_permission, corpus_permission)
-
-        # Handle structural annotations without document reference
-        if not annotation.document and not annotation.corpus:
-            if annotation.structural_set:
-                # Find any document that uses this structural set and user has access to
-                accessible_doc = (
-                    Document.objects.filter(
-                        structural_annotation_set=annotation.structural_set
-                    )
-                    .visible_to_user(user)  # type: ignore[attr-defined]
-                    .first()
-                )
-                if not accessible_doc:
-                    logger.debug(
-                        f"User {user} lacks permission for structural annotation {annotation_id}"
-                    )
-                    return []  # IDOR protection
-                # User has access to at least one document using this structural set
-                return get_annotation_images(annotation_id)
-            else:
-                logger.warning(
-                    f"Annotation {annotation_id} has no document, corpus, or structural_set"
-                )
-                return []  # IDOR protection
-
-        # Check document permission (if document exists)
-        if annotation.document:
-            if not user_has_permission_for_obj(
-                user,
-                annotation.document,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            ):
-                logger.debug(
-                    f"User {user} lacks document permission for annotation {annotation_id}"
-                )
-                return []  # IDOR protection
-
-        # Check corpus permission (if corpus exists) - MIN rule requires BOTH
-        if annotation.corpus:
-            if not user_has_permission_for_obj(
-                user,
-                annotation.corpus,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            ):
-                logger.debug(
-                    f"User {user} lacks corpus permission for annotation {annotation_id}"
-                )
-                return []  # IDOR protection
-
+    if Annotation.objects.visible_to_user(user).filter(pk=annotation_id).exists():
         return get_annotation_images(annotation_id)
-    except Annotation.DoesNotExist:
-        return []  # Same response for missing or unauthorized (IDOR protection)
+    return []
 
 
 # =============================================================================

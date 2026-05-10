@@ -428,6 +428,12 @@ Privacy Filter = IF created_by_analysis/extract THEN require source permission
 
 **Note**: The Relationship model (for annotation-to-annotation relationships) has the same privacy fields as Annotation: `created_by_analysis`, `created_by_extract`, `structural`, and `is_public`. See model definition at `opencontractserver/annotations/models.py:155-376`.
 
+##### Annotation Images (`/api/annotations/<id>/images/`)
+
+Annotation **thumbnails / cropped image data** (extracted from PAWLs image tokens or `image_content_file`) follow **the same visibility rule as the annotation itself** — *if you can read the annotation, you can read its images*. The REST view is `AnnotationImagesView` at `opencontractserver/annotations/views.py`; the permission gate in `get_annotation_images_with_permission` (`opencontractserver/llms/tools/image_tools.py`) delegates directly to `AnnotationQuerySet.visible_to_user` so the rules cannot drift.
+
+The endpoint always returns `200 OK` with `{"images": [], "count": 0}` for missing/unauthorized requests (IDOR protection); the response shape is identical whether the annotation does not exist, the user lacks permission, or the annotation simply has no image content.
+
 #### Analyses & Extracts (Hybrid Model)
 ```
 Can See Object = has_object_permission AND can_read_corpus

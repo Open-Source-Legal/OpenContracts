@@ -72,9 +72,9 @@ test.describe("VersionHistoryPanel", () => {
 
     await page.waitForSelector("text=Version 3", { timeout: 10000 });
 
-    // Check usernames are displayed
-    await expect(page.getByText("user1").first()).toBeVisible();
-    await expect(page.getByText("user2")).toBeVisible();
+    // Check user slugs are displayed (cross-user surface — never raw usernames)
+    await expect(page.getByText("user-1").first()).toBeVisible();
+    await expect(page.getByText("user-2")).toBeVisible();
 
     // Check change types are displayed
     await expect(page.getByText("CONTENT UPDATE")).toBeVisible();

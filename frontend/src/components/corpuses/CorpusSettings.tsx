@@ -43,6 +43,7 @@ import { ActionExecutionTrail } from "./ActionExecutionTrail";
 import { PermissionTypes } from "../types";
 import { getPermissions } from "../../utils/transform";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { isOwnedBy } from "../../utils/userDisplay";
 
 // Sub-components
 import {
@@ -117,18 +118,10 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
   const canUpdate = permissions.includes(PermissionTypes.CAN_UPDATE);
   const canPermission = permissions.includes(PermissionTypes.CAN_PERMISSION);
 
-  // Owner can always change visibility (matches backend SetCorpusVisibility permission check)
-  // Compare by ID first, fallback to email comparison for reliability
-  const isOwnerByIdentity = Boolean(
-    currentUser &&
-      corpus.creator &&
-      ((currentUser.id &&
-        corpus.creator.id &&
-        currentUser.id === corpus.creator.id) ||
-        (currentUser.email &&
-          corpus.creator.email &&
-          currentUser.email === corpus.creator.email))
-  );
+  // Owner can always change visibility (matches backend SetCorpusVisibility
+  // permission check). Compare by id only — the privacy contract redacts
+  // non-self emails so email comparison is no longer reliable.
+  const isOwnerByIdentity = isOwnedBy(corpus.creator, currentUser);
 
   // Fallback: If user has all core owner permissions, they're effectively the owner
   // This handles cases where currentUser isn't loaded yet but permissions are

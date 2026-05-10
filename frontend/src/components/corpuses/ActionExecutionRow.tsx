@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { CorpusActionExecutionNode } from "../../graphql/queries";
 import { getDocumentUrl } from "../../utils/navigationUtils";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 /**
  * Status configuration
@@ -387,7 +388,9 @@ export const ActionExecutionRow: React.FC<ActionExecutionRowProps> = ({
             </DetailItem>
             <DetailItem>
               <div className="label">Created by</div>
-              <div className="value">{execution.creator.username}</div>
+              <div className="value">
+                {getCreatorDisplay(execution.creator)}
+              </div>
             </DetailItem>
           </DetailGrid>
 

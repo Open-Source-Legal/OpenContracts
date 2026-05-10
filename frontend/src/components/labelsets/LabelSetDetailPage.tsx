@@ -23,10 +23,11 @@ import {
   UPDATE_ANNOTATION_LABEL,
 } from "../../graphql/mutations";
 import { ConfirmModal } from "../widgets/modals/ConfirmModal";
-import { openedLabelset, userObj } from "../../graphql/cache";
+import { openedLabelset } from "../../graphql/cache";
 import { AnnotationLabelType, LabelType } from "../../types/graphql-api";
 import { toast } from "react-toastify";
 import { getPermissions } from "../../utils/transform";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 import { PermissionTypes } from "../types";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
@@ -190,7 +191,6 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
 }) => {
   const navigate = useNavigate();
   const opened_labelset = useReactiveVar(openedLabelset);
-  const currentUser = useReactiveVar(userObj);
 
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -1116,12 +1116,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
                   <Badge>{labelset?.isPublic ? "Public" : "Private"}</Badge>
                 </TitleRow>
                 <Meta>
-                  <span>
-                    Created by{" "}
-                    {labelset?.creator?.username ||
-                      currentUser?.email ||
-                      "Unknown"}
-                  </span>
+                  <span>Created by {getCreatorDisplay(labelset?.creator)}</span>
                   <MetaSep>·</MetaSep>
                   <span>
                     {totalLabels} {totalLabels === 1 ? "label" : "labels"}

@@ -16,7 +16,7 @@ const defaultDeletedDocuments: DeletedDocumentPathType[] = [
     modified: "2025-01-15T10:00:00Z",
     creator: {
       id: "user-1",
-      username: "john_doe",
+      slug: "john-doe",
     },
     document: {
       id: "doc-1",
@@ -39,7 +39,7 @@ const defaultDeletedDocuments: DeletedDocumentPathType[] = [
     modified: "2025-01-14T08:30:00Z",
     creator: {
       id: "user-2",
-      username: "jane_smith",
+      slug: "jane-smith",
     },
     document: {
       id: "doc-2",
@@ -84,7 +84,7 @@ const nullDocumentData: DeletedDocumentPathType[] = [
     modified: "2025-01-15T10:00:00Z",
     creator: {
       id: "user-1",
-      username: "john_doe",
+      slug: "john-doe",
     },
     document: null, // Null document
     folder: null,
@@ -100,7 +100,7 @@ const invalidDateDocuments: DeletedDocumentPathType[] = [
     modified: "invalid-date-string", // Invalid date
     creator: {
       id: "user-1",
-      username: "john_doe",
+      slug: "john-doe",
     },
     document: {
       id: "doc-invalid-date",
@@ -124,7 +124,7 @@ const mixedNullDocuments: DeletedDocumentPathType[] = [
     modified: "2025-01-15T10:00:00Z",
     creator: {
       id: "user-1",
-      username: "john_doe",
+      slug: "john-doe",
     },
     document: {
       id: "doc-valid",
@@ -144,7 +144,7 @@ const mixedNullDocuments: DeletedDocumentPathType[] = [
     modified: "2025-01-15T10:00:00Z",
     creator: {
       id: "user-2",
-      username: "jane_smith",
+      slug: "jane-smith",
     },
     document: null, // Null document - should be filtered in bulk restore
     folder: null,

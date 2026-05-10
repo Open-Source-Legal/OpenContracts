@@ -102,7 +102,6 @@ export const Extracts = () => {
   const selected_extract_ids = useReactiveVar(selectedExtractIds);
   // Use userObj for auth check - consistent with NavMenu pattern
   const isAuthenticated = Boolean(currentUser);
-  const currentUserEmail = currentUser?.email;
 
   // Local state
   const [searchCache, setSearchCache] = useState<string>(extract_search_term);
@@ -446,7 +445,6 @@ export const Extracts = () => {
                   <ExtractListCard
                     key={extract.id}
                     extract={extract}
-                    currentUserEmail={currentUserEmail}
                     onView={handleViewExtract}
                     onDelete={handleDeleteExtract}
                     isMenuOpen={openMenuId === extract.id}
