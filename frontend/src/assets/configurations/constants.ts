@@ -572,3 +572,13 @@ You have access to thread context, messages, and moderation tools. Use them judi
 // trigger is selected).
 export const DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS =
   "You are a document processing agent for this corpus.";
+
+// User identity / privacy display constants
+//
+// Number of trailing pk characters used in ``getCreatorDisplay``'s
+// ``user_<suffix>`` fallback when a user has no ``slug``. Mirrors
+// ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` in
+// ``opencontractserver/constants/auth.py`` so the frontend redacted
+// handle matches the backend's ``_redacted_handle`` shape — keep in
+// sync if the backend constant ever changes.
+export const REDACTED_HANDLE_PK_SUFFIX_LENGTH = 6;

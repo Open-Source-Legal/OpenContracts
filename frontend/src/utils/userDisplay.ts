@@ -16,11 +16,7 @@ export interface CreatorRef {
   slug?: string | null;
 }
 
-// Mirrors ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` in
-// ``opencontractserver/constants/auth.py``. Used so the no-slug fallback
-// here matches ``_redacted_handle`` on the backend (``user_<last N chars
-// of pk>``) rather than emitting a different handle for the same user.
-const REDACTED_HANDLE_PK_SUFFIX_LENGTH = 6;
+import { REDACTED_HANDLE_PK_SUFFIX_LENGTH } from "../assets/configurations/constants";
 
 /**
  * Decode the numeric primary key from a Relay global ID

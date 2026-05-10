@@ -207,6 +207,19 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
     )
 
+    # Override the auto-derived ``is_usage_capped`` field so the GraphQL
+    # schema treats it as nullable. The model column is a non-null
+    # ``BooleanField``, so without this override Graphene would infer
+    # ``Boolean!`` and the self-only ``None`` return would surface as a
+    # GraphQL "Cannot return null for non-nullable field" error.
+    is_usage_capped = graphene.Boolean(
+        description=(
+            "Whether this user has exceeded their usage cap. Self-only — "
+            "exposes paid/free account-tier status. Returns ``None`` for "
+            "non-self viewers."
+        )
+    )
+
     # ------------------------------------------------------------------
     # Self-only resolvers
     # ------------------------------------------------------------------
@@ -254,6 +267,17 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
             return False
         return True
+
+    def resolve_is_usage_capped(self, info) -> Optional[bool]:
+        # Account-tier signal — same self-only gate as
+        # ``resolve_can_import_corpus``. Without this resolver the model
+        # field ``User.is_usage_capped`` would be served raw to any
+        # authenticated viewer, letting a client probe whether another
+        # account is on a paid or free tier (the module docstring already
+        # claims this is gated; the resolver was missing).
+        if not _is_self_view(self, info):
+            return None
+        return bool(getattr(self, "is_usage_capped", False))
 
     def resolve_display_name(self, info) -> str:
         """Pick the first non-empty branch of the display-name chain.

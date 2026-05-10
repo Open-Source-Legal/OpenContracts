@@ -2706,22 +2706,23 @@ export interface SearchUsersForMentionOutput {
     edges: Array<{
       node: {
         id: string;
-        username: string;
-        email: string | null;
         slug: string | null;
       };
     }>;
   };
 }
 
+// ``username``/``email`` are now redacted for cross-user views (see
+// ``config/graphql/user_types.py``), so the only stable identifier we can
+// surface in a public mention dropdown is ``slug``. Selecting them here
+// would have returned ``null`` for every other user and rendered as
+// "null" in the menu.
 export const SEARCH_USERS_FOR_MENTION = gql`
   query SearchUsersForMention($textSearch: String!) {
     searchUsersForMention(textSearch: $textSearch, first: 10) {
       edges {
         node {
           id
-          username
-          email
           slug
         }
       }
@@ -5112,7 +5113,7 @@ export const GET_MODERATION_ACTIONS = gql`
           }
           moderator {
             id
-            username
+            slug
           }
         }
       }
@@ -5148,7 +5149,7 @@ export interface ModerationActionNode {
   } | null;
   moderator: {
     id: string;
-    username: string;
+    slug: string | null;
   } | null;
 }
 

@@ -2242,7 +2242,7 @@ class TestCreateMarkdownLink(TestCase):
         self._strip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+            f"Corpus {self.corpus.id} creator has no slug and cannot generate a link.",
         ):
             create_markdown_link("corpus", self.corpus.id)
 
@@ -2251,7 +2251,7 @@ class TestCreateMarkdownLink(TestCase):
         self._strip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Document {self.doc.id} has no creator and cannot generate a link.",
+            f"Document {self.doc.id} creator has no slug and cannot generate a link.",
         ):
             create_markdown_link("document", self.doc.id)
 
@@ -2260,7 +2260,7 @@ class TestCreateMarkdownLink(TestCase):
         self._strip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Document {self.doc.id} has no creator and cannot generate a link.",
+            f"Document {self.doc.id} creator has no slug and cannot generate a link.",
         ):
             create_markdown_link("annotation", self.annotation.id)
 
@@ -2269,7 +2269,7 @@ class TestCreateMarkdownLink(TestCase):
         self._strip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+            f"Corpus {self.corpus.id} creator has no slug and cannot generate a link.",
         ):
             create_markdown_link("conversation", self.conversation.id)
 
@@ -2570,7 +2570,7 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         await self._astrip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+            f"Corpus {self.corpus.id} creator has no slug and cannot generate a link.",
         ):
             await acreate_markdown_link("corpus", self.corpus.id)
 
@@ -2578,7 +2578,7 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         await self._astrip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Document {self.doc.id} has no creator and cannot generate a link.",
+            f"Document {self.doc.id} creator has no slug and cannot generate a link.",
         ):
             await acreate_markdown_link("document", self.doc.id)
 
@@ -2586,7 +2586,7 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         await self._astrip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Document {self.doc.id} has no creator and cannot generate a link.",
+            f"Document {self.doc.id} creator has no slug and cannot generate a link.",
         ):
             await acreate_markdown_link("annotation", self.annotation.id)
 
@@ -2594,6 +2594,6 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         await self._astrip_creator_slug()
         with self.assertRaisesRegex(
             ValueError,
-            f"Corpus {self.corpus.id} has no creator and cannot generate a link.",
+            f"Corpus {self.corpus.id} creator has no slug and cannot generate a link.",
         ):
             await acreate_markdown_link("conversation", self.conversation.id)

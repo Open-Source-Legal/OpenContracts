@@ -308,6 +308,57 @@ class UserTypePrivacyTestCase(TestCase):
         self.assertIsInstance(result["data"]["me"]["canImportCorpus"], bool)
 
     # ------------------------------------------------------------------
+    # ``isUsageCapped`` is the underlying account-tier flag that
+    # ``canImportCorpus`` derives from. Without an explicit resolver the
+    # raw model field would surface unredacted, letting any authenticated
+    # caller infer paid/free tier — the gate parallels ``canImportCorpus``.
+    # ------------------------------------------------------------------
+    def test_is_usage_capped_is_null_for_other_authenticated_user(self) -> None:
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        query = """
+            query UserBySlug($slug: String!) {
+                userBySlug(slug: $slug) {
+                    isUsageCapped
+                }
+            }
+        """
+        client = Client(schema, context_value=_Ctx(self.bob))
+        result = client.execute(query, variable_values={"slug": self.alice.slug})
+        self.assertNotIn("errors", result, msg=result)
+        self.assertIsNone(result["data"]["userBySlug"]["isUsageCapped"])
+
+    def test_is_usage_capped_is_null_for_anonymous_viewer(self) -> None:
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        query = """
+            query UserBySlug($slug: String!) {
+                userBySlug(slug: $slug) {
+                    isUsageCapped
+                }
+            }
+        """
+        client = Client(schema, context_value=_Ctx(AnonymousUser()))
+        result = client.execute(query, variable_values={"slug": self.alice.slug})
+        self.assertNotIn("errors", result, msg=result)
+        self.assertIsNone(result["data"]["userBySlug"]["isUsageCapped"])
+
+    def test_is_usage_capped_returns_boolean_for_self_view(self) -> None:
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        query = "query Me { me { isUsageCapped } }"
+        client = Client(schema, context_value=_Ctx(self.alice))
+        result = client.execute(query)
+        self.assertNotIn("errors", result, msg=result)
+        self.assertIsInstance(result["data"]["me"]["isUsageCapped"], bool)
+
+    # ------------------------------------------------------------------
     # Inactive sessions: even when ``is_authenticated`` reports True (it
     # does, statically, on every User instance), a deactivated account
     # whose session cookie is still live must not pass ``_is_self_view``.

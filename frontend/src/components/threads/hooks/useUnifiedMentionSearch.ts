@@ -23,6 +23,7 @@ import {
   MENTION_SEARCH_MIN_CHARS,
 } from "../../../assets/configurations/constants";
 import { sanitizeForMention } from "../../../utils/textSanitization";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 
 export interface UnifiedMentionResource {
   id: string;
@@ -34,9 +35,7 @@ export interface UnifiedMentionResource {
   // Type-specific data
   user?: {
     id: string;
-    username: string;
-    email?: string;
-    slug?: string | null;
+    slug: string | null;
   };
   corpus?: {
     slug: string;
@@ -224,20 +223,22 @@ export function useUnifiedMentionSearch(
 
   // Combine and categorize results
   const categorizedResults: CategorizedResults = useMemo(() => {
-    // User results
+    // User results — only ``slug`` survives cross-user privacy filtering,
+    // so it powers both the title and the embedded user payload. Title
+    // falls back to a redacted ``user_<pk-suffix>`` handle (matching the
+    // backend's ``_redacted_handle`` shape) for the rare case where slug
+    // is null — should not happen post the 0028 backfill but is defensive.
     const users: UnifiedMentionResource[] =
       userData?.searchUsersForMention?.edges
         ?.slice(0, limitPerCategory)
         .map((edge) => ({
           id: edge.node.id,
           type: "user" as const,
-          title: edge.node.username,
-          subtitle: edge.node.email || undefined,
+          title: getCreatorDisplay({ id: edge.node.id, slug: edge.node.slug }),
+          subtitle: undefined,
           user: {
             id: edge.node.id,
-            username: edge.node.username,
-            email: edge.node.email || undefined,
-            slug: edge.node.slug || undefined,
+            slug: edge.node.slug,
           },
         })) || [];
 
