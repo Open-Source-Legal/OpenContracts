@@ -808,6 +808,161 @@ class TestContextBudgetSnapshot(SimpleTestCase):
 
 
 # ---------------------------------------------------------------------------
+# load_document_text closure — multi-call drift within a single turn
+# ---------------------------------------------------------------------------
+
+
+class TestLoadDocumentTextDriftMath(SimpleTestCase):
+    """The ``load_document_text`` closure inside the agent factory subtracts
+    ``turn_implicit_doc_text_chars`` from ``recommended_chunk_chars()`` so
+    successive ``end``-less calls within the same turn back off
+    proportionally instead of all returning the same fresh budget. The math
+    below mirrors the closure's arithmetic exactly so we can pin the drift
+    behaviour without needing the full async closure environment."""
+
+    @staticmethod
+    def _budget_chars(deps) -> int:
+        """Replicates the closure body in ``load_document_text_tool`` so
+        the drift math can be exercised in isolation."""
+        from opencontractserver.constants.context_guardrails import (
+            MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
+        )
+
+        recommended = deps.recommended_chunk_chars()
+        budget_after = max(0, recommended - deps.turn_implicit_doc_text_chars)
+        return max(budget_after, MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS)
+
+    def test_second_implicit_call_receives_smaller_budget(self):
+        """After the first implicit call records its slice in the tally,
+        the second call must see a strictly smaller budget."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+
+        first = self._budget_chars(deps)
+        # Simulate the closure recording the first implicit slice it served.
+        deps.turn_implicit_doc_text_chars += first
+        second = self._budget_chars(deps)
+
+        self.assertGreater(first, second)
+
+    def test_drift_floors_at_minimum_chunk(self):
+        """Once the in-turn tally exceeds the recommended budget, the
+        closure clamps to ``MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS`` rather
+        than returning 0 — the slice must stay big enough to be useful
+        for whole-document tasks."""
+        from opencontractserver.constants.context_guardrails import (
+            MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
+        )
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+        # Burn the entire turn budget and then some.
+        deps.turn_implicit_doc_text_chars = 10_000_000
+
+        self.assertEqual(
+            self._budget_chars(deps),
+            MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
+        )
+
+    def test_reset_returns_to_full_budget(self):
+        """``_refresh_context_budget`` resets the tally; the next turn's
+        first implicit call should once again see the full recommendation."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            context_window_tokens=200_000,
+            estimated_used_tokens=20_000,
+            compaction_threshold_ratio=0.75,
+        )
+
+        baseline = self._budget_chars(deps)
+        deps.turn_implicit_doc_text_chars += 50_000
+        self.assertLess(self._budget_chars(deps), baseline)
+
+        # New turn → reset.
+        deps.turn_implicit_doc_text_chars = 0
+        self.assertEqual(self._budget_chars(deps), baseline)
+
+
+# ---------------------------------------------------------------------------
+# _refresh_context_budget — falsy-zero fallback semantics
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshContextBudgetFallback(SimpleTestCase):
+    """When ``_HistoryResult.context_window`` is 0 (e.g. on a fresh agent
+    that has never been queried), the snapshot must fall through to the
+    per-model registry rather than treating 0 as a legitimate window."""
+
+    def _make_history_result(self, context_window: int):
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _HistoryResult,
+        )
+
+        return _HistoryResult(
+            messages=[],
+            context_window=context_window,
+            estimated_tokens=0,
+            was_compacted=False,
+            tokens_before_compaction=0,
+        )
+
+    def test_zero_context_window_falls_back_to_model_registry(self):
+        from opencontractserver.constants.context_guardrails import (
+            MODEL_CONTEXT_WINDOWS,
+        )
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies()
+        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
+        agent.agent_deps = deps
+        agent.config = AgentConfig(model_name="gpt-4o")
+
+        agent._refresh_context_budget(self._make_history_result(0))
+
+        self.assertEqual(deps.context_window_tokens, MODEL_CONTEXT_WINDOWS["gpt-4o"])
+
+    def test_nonzero_context_window_is_used_verbatim(self):
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies()
+        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
+        agent.agent_deps = deps
+        agent.config = AgentConfig(model_name="gpt-4o")
+
+        agent._refresh_context_budget(self._make_history_result(99_999))
+
+        self.assertEqual(deps.context_window_tokens, 99_999)
+
+
+# ---------------------------------------------------------------------------
 # Optimistic locking in persist_compaction
 # ---------------------------------------------------------------------------
 

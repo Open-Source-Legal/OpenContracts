@@ -34,6 +34,7 @@ from pydantic_graph import End
 
 from opencontractserver.constants.context_guardrails import (
     COMPACTION_SUMMARY_PREFIX,
+    LARGE_IMPLICIT_CHUNK_WARN_THRESHOLD,
     MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
 )
 from opencontractserver.constants.llm import STRUCTURED_OUTPUT_RETRIES
@@ -313,9 +314,14 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         if self.agent_deps is None:
             return
         self.agent_deps.model_name = self.config.model_name
+        # Use the history result's context_window when present; fall back to
+        # the per-model registry only when it's missing (``0``). ``or`` would
+        # conflate "missing" with a legitimate zero — fragile if pydantic-ai
+        # ever populates 0 for a real model.
         self.agent_deps.context_window_tokens = (
             history_result.context_window
-            or get_context_window_for_model(self.config.model_name)
+            if history_result.context_window > 0
+            else get_context_window_for_model(self.config.model_name)
         )
         self.agent_deps.estimated_used_tokens = history_result.estimated_tokens
         self.agent_deps.compaction_threshold_ratio = (
@@ -714,6 +720,13 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                 "tokens_before_compaction": 0,
             }
             history_result = None
+            # When a caller passes an explicit ``message_history`` we skip
+            # ``_refresh_context_budget`` (it would re-derive history from
+            # the DB). The implicit-chunk tally must still be reset so
+            # ``load_document_text`` doesn't start the new turn with a
+            # stale char count from the previous one.
+            if self.agent_deps is not None:
+                self.agent_deps.turn_implicit_doc_text_chars = 0
         else:
             history_result = await self._get_message_history()
             self._refresh_context_budget(history_result)
@@ -2387,6 +2400,10 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             * ``suggested_next_start`` — character index to resume from
               (``None`` if the document was fully read)
             * ``context_budget_chars`` — the budget that was applied
+
+            Note: explicit ``end`` values are not counted against the
+            in-turn implicit-chunk tally — only ``end``-less calls back
+            off proportionally as the turn progresses.
             """
             doc_id = context.document.id
             start_idx = 0 if start is None else max(0, int(start))
@@ -2405,6 +2422,20 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             # specify one.  An explicit ``end`` is honoured verbatim — the
             # agent has already decided how much it wants.
             recommended = agent_deps_instance.recommended_chunk_chars()
+            # Cheap observable: warn when the budget heuristic returns an
+            # implausibly large slice. The 25% reserve_ratio is a fixed
+            # estimate; if CHARS_PER_TOKEN_ESTIMATE drifts (e.g. for
+            # multilingual or code-heavy documents) the recommendation can
+            # quietly push past the real context budget. This is a
+            # production-only signal, not a hard cap.
+            if recommended > LARGE_IMPLICIT_CHUNK_WARN_THRESHOLD:
+                logger.warning(
+                    "load_document_text: recommended chunk (%d chars) is very "
+                    "large for model %s — verify CHARS_PER_TOKEN_ESTIMATE "
+                    "still reflects the model's tokenisation density.",
+                    recommended,
+                    agent_deps_instance.model_name,
+                )
             # Subtract whatever implicit chunks we've already returned this
             # turn so successive ``end``-less calls don't keep returning the
             # same large default and overflow the real (post-tool-output)
