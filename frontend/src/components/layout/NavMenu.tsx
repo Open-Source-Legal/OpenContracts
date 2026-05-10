@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { NavBar } from "@os-legal/ui";
 import type { NavItem, UserMenuItem } from "@os-legal/ui";
 import { useNavigate } from "react-router-dom";
@@ -181,30 +182,41 @@ export const NavMenu = () => {
     item?.onClick?.();
   };
 
-  // Mobile-only: collapse user menu items into the sheet's account section.
-  // We strip dividers since the sheet renders its own section header instead.
-  const mobileNavItems: MobileNavItem[] = navItems.map((item) => ({
-    id: item.id,
-    label: item.label,
-    onClick: () => item.onClick?.(),
-  }));
+  // Mobile: dividers are stripped since the sheet renders its own
+  // section header.
+  const mobileNavItems: MobileNavItem[] = useMemo(
+    () =>
+      navItems.map((item) => ({
+        id: item.id,
+        label: item.label,
+        onClick: () => item.onClick?.(),
+      })),
+    [navItems]
+  );
 
-  const mobileUserActions: MobileUserAction[] = userMenuItems
-    .filter((item) => !item.divider)
-    .map((item) => ({
-      id: item.id,
-      label: item.label,
-      icon: item.icon,
-      onClick: () => item.onClick?.(),
-      danger: item.danger,
-    }));
+  const mobileUserActions: MobileUserAction[] = useMemo(
+    () =>
+      userMenuItems
+        .filter((item) => !item.divider)
+        .map((item) => ({
+          id: item.id,
+          label: item.label,
+          icon: item.icon,
+          onClick: () => item.onClick?.(),
+          danger: item.danger,
+        })),
+    [userMenuItems]
+  );
 
-  const logoNode = (
-    <img
-      src={logo}
-      alt="Open Contracts Logo"
-      style={{ width: 32, height: 32, objectFit: "contain" }}
-    />
+  const logoNode = useMemo(
+    () => (
+      <img
+        src={logo}
+        alt="Open Contracts Logo"
+        style={{ width: 32, height: 32, objectFit: "contain" }}
+      />
+    ),
+    []
   );
 
   if (isMobile) {

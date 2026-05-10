@@ -52,26 +52,20 @@ const HEADER_HEIGHT = 60;
 const SHEET_TOP_OFFSET = HEADER_HEIGHT + 8;
 const SHEET_SIDE_GUTTER = 12;
 
-// ``slate-950``-ish base used for the backdrop wash and sheet-shadow
-// stops. Hoisted so the three RGBA sites below stay in lockstep — and
-// so a future palette move only needs one edit. There's no
-// ``OS_LEGAL_COLORS`` token for this exact stop today; if one is added
-// later, swap the constant out.
+// Hoisted so the three RGBA sites below stay in lockstep.
 const DARK_BASE_RGB = "15, 23, 42";
 
-// Pure white, used for the four hairline overlay sites (header border,
-// toggle border, toggle hover background, toggle open state). Same
-// rationale as ``DARK_BASE_RGB`` — a single constant keeps the alpha
-// stops in sync and signals intent ("translucent white wash") rather
-// than "magic colour".
 const SURFACE_OVERLAY_RGB = "255, 255, 255";
 const surfaceAlpha = (alpha: number): string =>
   `rgba(${SURFACE_OVERLAY_RGB}, ${alpha})`;
 
-// Selector for natively-focusable elements inside the sheet. Drives
-// both the open-time focus seed and the Tab-key focus trap.
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+// Section labels in the sheet — pulled out so translations / theming
+// can swap them without hunting through JSX.
+const SECTION_LABEL_BROWSE = "Browse";
+const SECTION_LABEL_ACCOUNT = "Account";
 
 /* ------------------------------------------------------------------ */
 /*  Styled components — header                                         */
@@ -164,6 +158,13 @@ const Sheet = styled(motion.nav)`
     0 6px 18px -8px rgba(${DARK_BASE_RGB}, 0.12);
   overflow: hidden;
   font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
+
+  /* Empty-focusables fallback receives focus programmatically; the
+     default UA outline on a -1 tabindex container is jarring so we
+     suppress it. Tabbable children keep their own focus rings. */
+  &:focus-visible {
+    outline: none;
+  }
 `;
 
 const SheetScroll = styled.div`
@@ -356,24 +357,27 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   const [open, setOpen] = useState(false);
   const { pathname, search } = useLocation();
   const sheetRef = useRef<HTMLElement | null>(null);
-  // Remember the trigger so we can return focus to it on close (WCAG
-  // 2.1 SC 2.4.3 — keyboard users must land back where they came from).
+  // Restore focus to the trigger on close (WCAG 2.1 SC 2.4.3).
   const toggleRef = useRef<HTMLButtonElement | null>(null);
-  // Captured ``document.body.style.overflow`` at the moment we lock
-  // scrolling. Held in a ref so ``onExitComplete`` can restore it
-  // AFTER the exit animation finishes — restoring on the cleanup
-  // (``open`` flipping false) would let the page scroll while the
-  // sheet is still visually on screen for ~200ms.
+  // Captured overflow value; restored in onExitComplete so scroll
+  // doesn't re-enable while the exit animation is still playing.
   const savedOverflowRef = useRef<string>("");
 
-  // Close the sheet whenever the route changes — covers both in-sheet
-  // taps and external state changes. ``search`` is in the dep list so
-  // updating filter / query params (e.g. from a deep link in the sheet)
-  // also dismisses the nav; mobile flows treat such transitions as full
-  // navigations even when the pathname is unchanged.
+  // Dismiss on route change — covers in-sheet taps and external nav.
   useEffect(() => {
     setOpen(false);
   }, [pathname, search]);
+
+  // Belt-and-suspenders: if the component unmounts mid-animation
+  // (hard navigation while open), AnimatePresence#onExitComplete
+  // never fires — restore overflow on unmount instead so the page
+  // isn't left scroll-locked.
+  useEffect(
+    () => () => {
+      document.body.style.overflow = savedOverflowRef.current;
+    },
+    []
+  );
 
   // Lock body scroll, listen for ESC + Tab focus trap, and manage
   // focus while the sheet is open.
@@ -391,10 +395,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
 
       if (event.key !== "Tab") return;
 
-      // Tab-key focus trap. ``role=dialog aria-modal`` already tells
-      // assistive tech to confine its virtual cursor here, but
-      // sighted keyboard users still need a manual trap to keep Tab
-      // / Shift+Tab cycling inside the sheet (ARIA APG dialog pattern).
+      // Manual Tab trap — ARIA APG dialog pattern.
       const sheet = sheetRef.current;
       if (!sheet) return;
 
@@ -403,8 +404,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
       ).filter((el) => !el.hasAttribute("disabled"));
 
       if (focusables.length === 0) {
-        // Nothing tabbable inside — pin focus to the container so
-        // Tab can't escape the modal.
+        // Nothing tabbable — pin focus to the container.
         event.preventDefault();
         sheet.focus();
         return;
@@ -415,8 +415,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
       const active = document.activeElement as HTMLElement | null;
 
       if (!sheet.contains(active)) {
-        // Focus has somehow leaked outside the sheet (e.g., the
-        // toggle behind the backdrop). Pull it back in.
+        // Focus leaked outside the sheet — pull it back in.
         event.preventDefault();
         (event.shiftKey ? last : first).focus();
         return;
@@ -432,9 +431,8 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
     };
     window.addEventListener("keydown", handleKey);
 
-    // Focus management: move focus to the first focusable element
-    // inside the sheet on open. Falls back to the sheet container so
-    // ESC still works if nothing tabbable is rendered.
+    // Seed focus on the first focusable inside the sheet; fall back
+    // to the container so ESC still works when nothing is tabbable.
     const focusTimer = window.setTimeout(() => {
       const sheet = sheetRef.current;
       if (!sheet) return;
@@ -444,21 +442,15 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
     }, 0);
 
     return () => {
-      // NOTE: scroll restoration intentionally moved to
-      // ``AnimatePresence#onExitComplete`` — see ``savedOverflowRef``.
+      // Scroll restoration runs in onExitComplete — see savedOverflowRef.
       window.removeEventListener("keydown", handleKey);
       window.clearTimeout(focusTimer);
-      // Return focus to the toggle on close. ``open`` flipping to
-      // ``false`` is the trigger; this cleanup runs once per close.
       toggleRef.current?.focus();
     };
   }, [open]);
 
-  // Single handler for nav-item / user-action clicks — both shapes
-  // share "run onClick, then close the sheet". The try/finally
-  // guarantees the sheet still dismisses even if a handler throws —
-  // leaving the menu open on a failed action would strand the user
-  // on a dead UI.
+  // Run the action then close. try/finally so a throwing handler
+  // still dismisses the sheet (no stranded UI).
   const runAndClose = useCallback((onClick: () => void) => {
     try {
       onClick();
@@ -467,10 +459,10 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
     }
   }, []);
 
-  const handleLogin = () => {
+  const handleLogin = useCallback(() => {
     setOpen(false);
     onLogin?.();
-  };
+  }, [onLogin]);
 
   const sheetOverlay = (
     <AnimatePresence
@@ -514,7 +506,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
             }}
           >
             <SheetScroll>
-              <SectionLabel>Browse</SectionLabel>
+              <SectionLabel>{SECTION_LABEL_BROWSE}</SectionLabel>
               {items.map((item) => (
                 <NavItemButton
                   key={item.id}
@@ -530,7 +522,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
               {userName && userActions.length > 0 && (
                 <>
                   <Divider />
-                  <SectionLabel>Account</SectionLabel>
+                  <SectionLabel>{SECTION_LABEL_ACCOUNT}</SectionLabel>
                   {userActions.map((action) => (
                     <NavItemButton
                       key={action.id}
