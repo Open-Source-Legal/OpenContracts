@@ -18,20 +18,13 @@ from opencontractserver.users.models import Assignment, UserExport, UserImport
 User = get_user_model()
 
 
-def _stripped(value: object) -> str:
-    """Return a trimmed string when ``value`` is a string, else empty."""
-    return value.strip() if isinstance(value, str) else ""
-
-
 class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     display_name = graphene.String(
         description=(
-            "A safe, friendly display name for this user. Resolved in order from "
-            "``name`` → ``given_name`` + ``family_name`` → ``first_name`` + "
-            "``last_name`` → ``username`` (only when it is not an OAuth "
-            "``provider|sub`` identifier) → redacted ``user_<suffix>`` fallback. "
-            "Never returns the raw OAuth ``sub`` used as the Django ``username`` "
-            "for social-login users."
+            "Resolved display name with PII-safe fallback chain. Order: "
+            "name → given_name + family_name → first_name + last_name → "
+            "auto-assigned handle → username (local users only) → redacted "
+            "'user_<sub_suffix>' fallback for social users → 'user_<pk>'."
         )
     )
 
@@ -102,79 +95,66 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return True
 
     def resolve_display_name(self, info) -> str:
+        """Pick the first non-empty branch of the display-name chain.
+
+        Resolution order:
+            1. ``name`` (Auth0 ``name`` claim).
+            2. ``given_name`` + ``family_name`` (Auth0).
+            3. ``first_name`` + ``last_name`` (local Django fields).
+            4. ``handle`` (Reddit-style auto-assigned handle).
+            5. ``username`` verbatim — ONLY when ``is_social_user=False``.
+               ``UserUnicodeUsernameValidator`` (see
+               ``opencontractserver/users/validators.py``) explicitly allows
+               ``|`` in locally-chosen usernames, so a local username like
+               ``alice|admin`` is legitimate and must NOT be redacted.
+            6. ``user_<last N chars after the last "|">`` for social users.
+               The raw OAuth ``sub`` (e.g. ``google-oauth2|114688...``) is
+               never returned — ``rsplit("|", 1)[-1]`` strips the provider
+               prefix even when the sub is short, and we keep only the last
+               ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` chars.
+            7. ``user_<pk>`` / ``user_unknown`` last-resort fallback. With a
+               populated handle column (see migration 0028) this branch is
+               effectively unreachable for any user touched by the backfill.
+
+        The chain is the single rendering choke point for "what should the UI
+        show?" and gracefully degrades for users the handle backfill hasn't
+        reached yet (e.g. inserted via ``QuerySet.update`` that bypasses
+        ``save()``).
         """
-        Resolve a privacy-preserving display name for this user.
-
-        Priority (first non-empty wins):
-        1. ``name`` — full name claim from Auth0 profile.
-        2. ``given_name`` + ``family_name`` — Auth0 split-name claims.
-        3. ``first_name`` + ``last_name`` — legacy Django profile fields.
-        4. ``username`` — only when it does not look like a raw OAuth
-           ``provider|sub`` identifier (no ``|`` separator).
-        5. ``user_<last N chars of OAuth sub>`` — redacted fallback. The
-           bare ``"user"`` final fallback only triggers if ``username`` is
-           empty (Django enforces non-empty so this is unreachable in
-           practice) and is intentionally not a unique identifier.
-
-        ``username`` is set to the Auth0 ``sub`` for social users (see
-        ``jwt_get_username_from_payload_handler``), so the raw value must
-        never be surfaced in any UI. The expected profile fields (``name``,
-        ``given_name``, ``family_name``, ``first_name``, ``last_name``)
-        are all model columns on ``opencontractserver.users.models.User``.
-
-        The ``|`` character alone is NOT a sufficient OAuth-sub signal —
-        the project's ``UserUnicodeUsernameValidator`` allows ``|`` in
-        locally-chosen usernames. The redaction branch is gated on
-        ``is_social_user`` so a local user named e.g. ``alice|admin`` is
-        not mistakenly redacted.
-        """
-        name = _stripped(getattr(self, "name", ""))
+        name = (self.name or "").strip()
         if name:
             return name
 
-        given_family = " ".join(
-            part
-            for part in (
-                _stripped(getattr(self, "given_name", "")),
-                _stripped(getattr(self, "family_name", "")),
-            )
-            if part
-        )
-        if given_family:
-            return given_family
+        given = (self.given_name or "").strip()
+        family = (self.family_name or "").strip()
+        if given or family:
+            return f"{given} {family}".strip()
 
-        first_last = " ".join(
-            part
-            for part in (
-                _stripped(getattr(self, "first_name", "")),
-                _stripped(getattr(self, "last_name", "")),
-            )
-            if part
-        )
-        if first_last:
-            return first_last
+        first = (self.first_name or "").strip()
+        last = (self.last_name or "").strip()
+        if first or last:
+            return f"{first} {last}".strip()
 
-        username = _stripped(getattr(self, "username", ""))
+        handle = (self.handle or "").strip()
+        if handle:
+            return handle
+
+        username = (self.username or "").strip()
         is_social = bool(getattr(self, "is_social_user", False))
 
         # Local users get their chosen username verbatim. ``|`` is allowed
         # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
-        # username is legitimate and not an OAuth sub.
+        # username like ``alice|admin`` is legitimate and not an OAuth sub.
         if username and not is_social:
             return username
 
         if username:
             # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
-            # strips the provider prefix even when the sub is short
-            # (``auth0|abc`` → ``abc``); when the username has no ``|`` (a
-            # data-corruption edge case) it falls through to the whole
-            # username, which is then suffix-truncated.
+            # strips the provider prefix even when the sub is short.
             sub = username.rsplit("|", 1)[-1]
             return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
 
-        # Django enforces non-empty username, so this branch is effectively
-        # unreachable; the bare "user" sentinel is intentionally not unique.
-        return "user"
+        return f"user_{self.pk}" if self.pk is not None else "user_unknown"
 
     def resolve_reputation_global(self, info) -> Any:
         """
