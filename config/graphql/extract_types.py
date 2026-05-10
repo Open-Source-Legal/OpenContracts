@@ -60,6 +60,12 @@ class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # Reuse the prefetch cache populated by ExtractQueryOptimizer
         # (`prefetch_related("fieldset__columns")`) to avoid an N+1 COUNT
         # per row on the extracts list view.
+        #
+        # Asymmetry with ``resolve_document_count``: columns have no
+        # per-row READ permission filter (their visibility tracks the
+        # parent fieldset, mirroring ``resolve_full_column_list`` which
+        # also returns all columns unfiltered). The count is therefore a
+        # raw ``len()`` over the prefetched rows — not an oversight.
         cache = getattr(self, "_prefetched_objects_cache", {})
         if "columns" in cache:
             return len(cache["columns"])
@@ -199,6 +205,14 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return _get_datacell_qs(self, info.context.user).count()
 
     def resolve_document_count(self, info) -> int:
+        # Precondition: the caller is expected to be the list resolver
+        # ``get_visible_extracts`` so ``ExtractQueryOptimizer`` populates
+        # ``_prefetched_objects_cache["documents"]``. The cache-miss fallback
+        # path below (``self.documents.all()`` followed by an in-Python loop)
+        # is correct but pays the same per-document permission cost the slim
+        # query was introduced to avoid — if you wire ``documentCount`` into
+        # a single-extract endpoint, prefetch documents on that path too.
+        #
         # Mirror the per-document permission filter used by
         # ``resolve_full_document_list`` so the count never exceeds the list
         # length the same viewer would observe. Per CLAUDE.md the effective

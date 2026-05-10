@@ -547,9 +547,9 @@ class ExtractsQueryTestCase(TestCase):
                             fieldset {
                                 id
                                 columnCount
+                                fullColumnList { id }
                             }
                             fullDocumentList { id }
-                            fieldset { fullColumnList { id } }
                         }
                     }
                 }

@@ -25,6 +25,15 @@ import {
  * without casts. ``myPermissions`` is intentionally typed as ``string[]``
  * — ``PermissionTypes[]`` from ``ExtractType`` is assignable, and the
  * slim list shape uses unparsed strings.
+ *
+ * Type contract:
+ *   - ``ExtractListItem`` (in ``graphql/queries.ts``) is the canonical
+ *     shape going forward — match this when authoring new queries.
+ *   - ``ExtractCardItem`` (this type) is a compat shim that adds the
+ *     legacy ``fullDocumentList`` / ``fieldset.fullColumnList`` fields so
+ *     callers still on the old ``GET_EXTRACTS`` query keep typechecking
+ *     during the migration. Once those callers are gone the shim should
+ *     collapse to ``ExtractListItem``.
  */
 export type ExtractCardItem = {
   id: string;

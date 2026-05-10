@@ -78,7 +78,11 @@ describe("Annotations view refetch shape (regression)", () => {
  */
 function findUseEffectCalls(source: string, callName: string): number[] {
   const offenders: number[] = [];
-  const ENTRY_RE = /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{/g;
+  // The optional ``async`` keyword catches the
+  // ``useEffect(async () => {...})`` form so a future
+  // ``useEffect(async () => { refetch_annotations(); })`` doesn't slip past
+  // this scan.
+  const ENTRY_RE = /useEffect\s*\(\s*(?:async\s*)?\(\s*\)\s*=>\s*\{/g;
   const callRe = new RegExp(`\\b${callName}\\s*\\(`);
   let match: RegExpExecArray | null;
   while ((match = ENTRY_RE.exec(source)) !== null) {

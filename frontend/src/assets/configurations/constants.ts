@@ -233,10 +233,17 @@ export const DISCOVER_SEARCH_DEBOUNCE_MS = 250;
 // Mutation batching
 export const MUTATION_BATCH_SIZE = 10;
 
+/** Default page size for cursor-paginated list views (Annotations,
+ *  Extracts, Documents). Prefer referencing this from per-feature
+ *  pagination groups rather than re-typing ``20`` so the views stay in
+ *  lockstep. The backend ``max_limit=15`` was intentionally exceeded
+ *  here when the slim list queries were introduced — see PR #1602. */
+export const DEFAULT_LIST_PAGE_SIZE = 20;
+
 // Annotation pagination constants
 export const ANNOTATION_PAGINATION = {
   /** Number of annotations to load per page in browse mode */
-  PAGE_SIZE: 20,
+  PAGE_SIZE: DEFAULT_LIST_PAGE_SIZE,
   /** Number of results per semantic search request */
   SEMANTIC_SEARCH_LIMIT: 20,
   /** Maximum accumulated semantic search results before capping */
@@ -246,7 +253,7 @@ export const ANNOTATION_PAGINATION = {
 // Extract pagination constants
 export const EXTRACT_PAGINATION = {
   /** Number of extracts to load per page in the Extracts view */
-  PAGE_SIZE: 20,
+  PAGE_SIZE: DEFAULT_LIST_PAGE_SIZE,
 } as const;
 
 // Mention type configuration

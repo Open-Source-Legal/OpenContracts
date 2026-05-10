@@ -68,6 +68,10 @@ describe("Extracts view refetch shape (regression)", () => {
     // that legitimately walk those lists (ExtractItem, CorpusExtractCards,
     // CamlArticleEditor, CreateExtractModal).
     expect(EXTRACTS_TSX).toMatch(/\bGET_EXTRACTS_FOR_LIST\b/);
+    // The ``/s`` (dotAll) flag is required: import specifiers can span
+    // multiple lines, and ``[^}]*`` would otherwise not cross a newline.
+    // Stripping the flag during a future edit would silently make the
+    // negative-match test miss multi-line imports.
     const HEAVY_IMPORT_RE =
       /\bimport\s*\{[^}]*\bGET_EXTRACTS\b(?!_FOR_LIST)[^}]*\}\s*from\s*["']\.\.\/graphql\/queries["']/s;
     expect(
@@ -104,8 +108,12 @@ describe("Extracts view refetch shape (regression)", () => {
 function findUseEffectRefetches(source: string): number[] {
   const offenders: number[] = [];
   // Cheap entry-point match: ``useEffect`` followed by an inline arrow that
-  // opens a block. We then walk the body manually with a brace counter.
-  const ENTRY_RE = /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{/g;
+  // opens a block. The optional ``async`` keyword catches the
+  // ``useEffect(async () => {...})`` form too — ``useEffect`` returns its
+  // callback's return value, so a Promise-returning arrow is technically a
+  // bug, but if a future edit introduces one the same lint should still
+  // fire. We then walk the body manually with a brace counter.
+  const ENTRY_RE = /useEffect\s*\(\s*(?:async\s*)?\(\s*\)\s*=>\s*\{/g;
   let match: RegExpExecArray | null;
   while ((match = ENTRY_RE.exec(source)) !== null) {
     const bodyStart = match.index + match[0].length;
