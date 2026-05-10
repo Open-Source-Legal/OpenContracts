@@ -5,6 +5,16 @@ import {
   accentAlpha,
   OS_LEGAL_COLORS,
 } from "../assets/configurations/osLegalStyles";
+import {
+  DiscoveryContainer,
+  DiscoveryHeader,
+  DiscoveryTitle,
+  DiscoveryFilterBar,
+  DiscoverySectionHeader,
+  DiscoverySectionIcon,
+  DiscoverySectionTitle,
+  DiscoverySectionCount,
+} from "../components/layout/DiscoveryViewLayout";
 import { motion } from "framer-motion";
 import {
   MessageSquare,
@@ -48,62 +58,11 @@ function useDebouncedValue<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-// Styled components
-const Container = styled.div`
-  max-width: 75rem;
-  margin: 0 auto;
-  padding: 2.5rem 4rem;
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-
-  @media (max-width: 1400px) {
-    padding: 2rem 3rem;
-  }
-
-  @media (max-width: 1024px) {
-    padding: 1.5rem 2rem;
-  }
-
-  ${mediaQuery.mobile} {
-    padding: 1rem;
-  }
-`;
-
-const Header = styled.div`
-  margin-bottom: 1.5rem;
-`;
-
 const TitleRow = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.25rem;
-`;
-
-const Title = styled.h1`
-  font-family: ${CORPUS_FONTS.serif};
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${CORPUS_COLORS.slate[900]};
-  margin: 0;
-  letter-spacing: -0.02em;
-
-  ${mediaQuery.mobile} {
-    font-size: 1.5rem;
-  }
-`;
-
-const FilterBar = styled.div`
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-
-  ${mediaQuery.mobile} {
-    gap: 0.5rem;
-  }
 `;
 
 const SearchContainer = styled.div`
@@ -150,48 +109,6 @@ const FAB = styled(motion.button)`
 
 const SectionContainer = styled(motion.div)`
   margin-bottom: 2rem;
-`;
-
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.625rem;
-  border-bottom: 1px solid ${CORPUS_COLORS.slate[200]};
-`;
-
-const SectionIcon = styled.div<{ $color: string }>`
-  width: 1.625rem;
-  height: 1.625rem;
-  border-radius: ${CORPUS_RADII.sm};
-  background: ${(props) => props.$color};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: ${CORPUS_COLORS.white};
-  flex-shrink: 0;
-
-  svg {
-    width: 0.875rem;
-    height: 0.875rem;
-  }
-`;
-
-const SectionTitle = styled.h2`
-  font-family: ${CORPUS_FONTS.serif};
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: ${CORPUS_COLORS.slate[800]};
-  margin: 0;
-`;
-
-const SectionCount = styled.span`
-  font-family: ${CORPUS_FONTS.sans};
-  font-size: 0.8125rem;
-  color: ${CORPUS_COLORS.slate[400]};
-  font-weight: 500;
-  margin-left: auto;
 `;
 
 const ThreadGrid = styled.div`
@@ -315,15 +232,15 @@ const ThreadSection: React.FC<ThreadSectionProps> = ({
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.3 }}
     >
-      <SectionHeader>
-        <SectionIcon $color={iconColor}>{icon}</SectionIcon>
-        <SectionTitle>{title}</SectionTitle>
-        <SectionCount>
+      <DiscoverySectionHeader>
+        <DiscoverySectionIcon $color={iconColor}>{icon}</DiscoverySectionIcon>
+        <DiscoverySectionTitle>{title}</DiscoverySectionTitle>
+        <DiscoverySectionCount>
           {loading
             ? "..."
             : `${totalCount} ${totalCount === 1 ? "thread" : "threads"}`}
-        </SectionCount>
-      </SectionHeader>
+        </DiscoverySectionCount>
+      </DiscoverySectionHeader>
 
       {loading && !data ? (
         <LoadingContainer>
@@ -372,13 +289,13 @@ export const GlobalDiscussions: React.FC = () => {
   }, [searchParams]);
 
   return (
-    <Container>
-      <Header>
+    <DiscoveryContainer>
+      <DiscoveryHeader>
         <TitleRow>
-          <Title>Discussions</Title>
+          <DiscoveryTitle>Discussions</DiscoveryTitle>
         </TitleRow>
 
-        <FilterBar>
+        <DiscoveryFilterBar>
           <FilterTabs
             items={FILTER_ITEMS}
             value={activeTab}
@@ -397,8 +314,8 @@ export const GlobalDiscussions: React.FC = () => {
               hideButton
             />
           </SearchContainer>
-        </FilterBar>
-      </Header>
+        </DiscoveryFilterBar>
+      </DiscoveryHeader>
 
       {/* Corpus Discussions - show in "all" or "corpus" tabs */}
       {(activeTab === "all" || activeTab === "corpus") && (
@@ -444,6 +361,6 @@ export const GlobalDiscussions: React.FC = () => {
 
       {/* Placeholder — CreateThread modal not yet implemented */}
       {showCreateModal && <div>Create thread modal placeholder</div>}
-    </Container>
+    </DiscoveryContainer>
   );
 };

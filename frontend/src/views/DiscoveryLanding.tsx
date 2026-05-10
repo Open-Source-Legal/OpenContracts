@@ -1,6 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
+import {
+  PageContainer,
+  ContentContainer,
+  SectionHeader,
+  SectionTitle,
+} from "../components/layout/PageLayout";
 import { gql, useQuery, useReactiveVar } from "@apollo/client";
 import { RefreshCw, X, AlertCircle } from "lucide-react";
 import { userObj } from "../graphql/cache";
@@ -51,39 +57,6 @@ interface UserPreferencesData {
  * - Featured collections with section header
  * - Activity feed
  */
-
-const PageContainer = styled.div`
-  height: 100%;
-  background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-y: auto;
-  overflow-x: hidden;
-`;
-
-const ContentContainer = styled.main`
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 48px 24px 80px;
-
-  @media (max-width: 768px) {
-    padding: 32px 16px 60px;
-  }
-`;
-
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-`;
-
-const SectionTitle = styled.h2`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 24px;
-  font-weight: 400;
-  color: ${OS_LEGAL_COLORS.accent};
-  margin: 0;
-`;
 
 const SectionLink = styled.a`
   font-size: 14px;
@@ -365,7 +338,8 @@ export const DiscoveryLanding: React.FC<DiscoveryLandingProps> = ({
 
         {/* Featured Collections with Section Header */}
         <Section $marginBottom={56}>
-          <SectionHeader>
+          {/* $gap=0 / $wrap=false preserves the pre-refactor single-line layout. */}
+          <SectionHeader $gap={0} $wrap={false}>
             <SectionTitle>Featured Collections</SectionTitle>
             <SectionLink href="/corpuses">
               View all
