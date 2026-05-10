@@ -13,6 +13,36 @@ import {
   ContextMenuItem,
 } from "../widgets/context-menu/ContextMenu";
 
+/**
+ * Minimum field surface ``ExtractListCard`` reads from its ``extract`` prop.
+ * Accepts both the slim ``ExtractListItem`` returned by
+ * ``GET_EXTRACTS_FOR_LIST`` and the full ``ExtractType`` so legacy callers
+ * (e.g. selection views still on ``GET_EXTRACTS``) continue to compile
+ * without casts. ``myPermissions`` is intentionally typed as ``string[]``
+ * — ``PermissionTypes[]`` from ``ExtractType`` is assignable, and the
+ * slim list shape uses unparsed strings.
+ */
+export type ExtractCardItem = {
+  id: string;
+  name: string;
+  created: string;
+  started?: string | null;
+  finished?: string | null;
+  error?: string | null;
+  myPermissions?: string[];
+  documentCount?: number | null;
+  fullDocumentList?: ExtractType["fullDocumentList"];
+  fieldset?: {
+    id?: string;
+    columnCount?: number | null;
+    fullColumnList?: NonNullable<ExtractType["fieldset"]>["fullColumnList"];
+  } | null;
+  corpus?: {
+    id: string;
+    title?: string;
+  } | null;
+};
+
 // Styled Components
 
 const CardWrapper = styled.div<{ $isSelected?: boolean }>`
@@ -61,7 +91,7 @@ const KebabIcon = () => (
 
 // Helper Functions
 
-function formatStats(extract: ExtractType): string[] {
+function formatStats(extract: ExtractCardItem): string[] {
   const stats: string[] = [];
 
   // Prefer the backend-provided count (cheap aggregate); fall back to the
@@ -89,10 +119,10 @@ function formatStats(extract: ExtractType): string[] {
 // Main Component
 
 interface ExtractListCardProps {
-  extract: ExtractType;
+  extract: ExtractCardItem;
   currentUserEmail?: string;
-  onView?: (extract: ExtractType) => void;
-  onDelete?: (extract: ExtractType) => void;
+  onView?: (extract: ExtractCardItem) => void;
+  onDelete?: (extract: ExtractCardItem) => void;
   isMenuOpen?: boolean;
   menuPosition?: { x: number; y: number } | null;
   onOpenMenu?: (e: React.MouseEvent, extractId: string) => void;

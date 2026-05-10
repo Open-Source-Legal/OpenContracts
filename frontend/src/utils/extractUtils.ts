@@ -26,10 +26,16 @@ export interface ExtractStatusInfo {
 /**
  * Determines the status label and color for an extract based on its state
  *
+ * Accepts a structural subset of ``ExtractType`` so call sites driven by
+ * the slim ``ExtractListItem`` shape (no ``creator``, no ``corpus``)
+ * compile without casts.
+ *
  * @param extract - The extract to get status for
  * @returns Object containing the status label and color for display
  */
-export function getExtractStatus(extract: ExtractType): ExtractStatusInfo {
+export function getExtractStatus(
+  extract: Pick<ExtractType, "started" | "finished" | "error">
+): ExtractStatusInfo {
   if (extract.started && !extract.finished && !extract.error) {
     return {
       label: EXTRACT_STATUS.RUNNING,

@@ -30,6 +30,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ANNOTATIONS_TSX = readFileSync(join(HERE, "Annotations.tsx"), "utf8");
 
 describe("Annotations view refetch shape (regression)", () => {
+  // Legitimate exemptions: refetches inside useMutation onCompleted, modal
+  // onClose handlers, or imperative event callbacks. If a future useEffect
+  // refetch is genuinely required, route it through a helper variable so
+  // these regexes no longer match — and add a comment explaining why
+  // useQuery variable-change refetches don't already cover the case.
   it("does not call refetch_annotations() from any useEffect block", () => {
     const USE_EFFECT_REFETCH_RE =
       /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*\brefetch_annotations\s*\(/s;

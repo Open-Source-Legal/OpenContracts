@@ -199,16 +199,40 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return _get_datacell_qs(self, info.context.user).count()
 
     def resolve_document_count(self, info) -> int:
-        # Reuse the prefetch cache populated by ExtractQueryOptimizer
-        # (`prefetch_related("documents")`) to avoid an N+1 COUNT per row
-        # on the extracts list view. The count reflects every document
-        # attached to the extract — corpus visibility is already enforced
-        # by the parent extracts queryset, so the per-doc permission filter
-        # used by ``resolve_full_document_list`` is unnecessary here.
+        # Mirror the per-document permission filter used by
+        # ``resolve_full_document_list`` so the count never exceeds the list
+        # length the same viewer would observe. Per CLAUDE.md the effective
+        # document permission is ``MIN(document_permission, corpus_permission)``
+        # — corpus visibility alone is not sufficient because direct document
+        # permissions can be stricter.
+        #
+        # ``_prefetched_objects_cache`` is a Django-private API but is the
+        # only way to reuse the prefetch populated by
+        # ``ExtractQueryOptimizer`` without re-querying. Same pattern is used
+        # by ``ConversationQueryOptimizer``. The ``count()`` fallback is
+        # the cache-miss path and is itself permission-filtered to keep
+        # the contract consistent.
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import user_has_permission_for_obj
+
+        if info.context.user.is_superuser:
+            cache = getattr(self, "_prefetched_objects_cache", {})
+            if "documents" in cache:
+                return len(cache["documents"])
+            return self.documents.count()
+
         cache = getattr(self, "_prefetched_objects_cache", {})
-        if "documents" in cache:
-            return len(cache["documents"])
-        return self.documents.count()
+        documents = cache["documents"] if "documents" in cache else self.documents.all()
+        return sum(
+            1
+            for doc in documents
+            if user_has_permission_for_obj(
+                info.context.user,
+                doc,
+                PermissionTypes.READ,
+                include_group_permissions=True,
+            )
+        )
 
     def resolve_full_document_list(self, info) -> Any:
         from opencontractserver.types.enums import PermissionTypes

@@ -37,6 +37,13 @@ describe("Extracts view refetch shape (regression)", () => {
     // ``onCompleted: () => refetch()`` and the modal's onClose refetch are
     // legitimate refetch sites and are not matched by this regex (neither is
     // inside a useEffect).
+    //
+    // Legitimate exemptions: only refetches inside ``useMutation`` ``onCompleted``,
+    // ``onClose`` modal callbacks, or imperative event handlers. If a future
+    // useEffect refetch is genuinely needed (rare), exempt it by binding the
+    // refetch through a helper variable so this regex no longer matches —
+    // and add a comment explaining why ``useQuery`` variables don't already
+    // cover the case.
     const USE_EFFECT_REFETCH_RE =
       /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*\brefetch\s*\(/s;
     expect(

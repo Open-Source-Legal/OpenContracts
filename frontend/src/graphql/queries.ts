@@ -1948,28 +1948,37 @@ export interface GetExtractsForListInput {
   limit?: number;
 }
 
+/**
+ * Slim per-extract node returned by ``GET_EXTRACTS_FOR_LIST``. Exported
+ * separately from ``GetExtractsForListOutput`` so call sites that need to
+ * type the materialised list (Extracts view, ExtractListCard) can do so
+ * without ``as unknown as ExtractType`` casts that erase compile-time
+ * field guarantees.
+ */
+export interface ExtractListItem {
+  id: string;
+  name: string;
+  created: string;
+  started?: string | null;
+  finished?: string | null;
+  error?: string | null;
+  myPermissions?: string[];
+  documentCount?: number | null;
+  corpus?: {
+    id: string;
+    title?: string;
+  } | null;
+  fieldset?: {
+    id: string;
+    columnCount?: number | null;
+  } | null;
+}
+
 export interface GetExtractsForListOutput {
   extracts: {
     pageInfo: PageInfo;
     edges: {
-      node: {
-        id: string;
-        name: string;
-        created: string;
-        started?: string | null;
-        finished?: string | null;
-        error?: string | null;
-        myPermissions?: string[];
-        documentCount?: number | null;
-        corpus?: {
-          id: string;
-          title?: string;
-        } | null;
-        fieldset?: {
-          id: string;
-          columnCount?: number | null;
-        } | null;
-      };
+      node: ExtractListItem;
     }[];
   };
 }

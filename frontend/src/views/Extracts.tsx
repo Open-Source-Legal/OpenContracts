@@ -38,7 +38,6 @@ import type { FilterTabItem } from "@os-legal/ui";
 import { toast } from "react-toastify";
 import _ from "lodash";
 
-import { ExtractType } from "../types/graphql-api";
 import {
   extractSearchTerm,
   selectedExtractIds,
@@ -47,10 +46,12 @@ import {
   userObj,
 } from "../graphql/cache";
 import {
+  ExtractListItem,
   GetExtractsForListInput,
   GetExtractsForListOutput,
   GET_EXTRACTS_FOR_LIST,
 } from "../graphql/queries";
+import { ExtractCardItem } from "../components/extracts/ExtractListCard";
 import {
   REQUEST_DELETE_EXTRACT,
   RequestDeleteExtractInputType,
@@ -120,9 +121,8 @@ export const Extracts = () => {
     x: number;
     y: number;
   } | null>(null);
-  const [extractToDelete, setExtractToDelete] = useState<ExtractType | null>(
-    null
-  );
+  const [extractToDelete, setExtractToDelete] =
+    useState<ExtractCardItem | null>(null);
 
   // Debounced search
   const debouncedSearch = useRef(
@@ -181,19 +181,18 @@ export const Extracts = () => {
     },
   });
 
-  // Extract extracts from query data. The slim list query returns a subset of
-  // ExtractType's fields — cast is safe because every consumer below
-  // (filters, status helpers, ExtractListCard) only reads the fields the slim
-  // query selects (id/name/created/started/finished/error/myPermissions/
-  // documentCount/corpus.title/fieldset.columnCount). Memoize on the stable
-  // Apollo edges reference so the derived ``filteredExtracts`` / ``stats``
-  // memos don't churn on unrelated parent re-renders.
-  const extracts: ExtractType[] = useMemo(() => {
+  // Extract extracts from query data. ``ExtractListItem`` carries exactly
+  // the fields the slim ``GET_EXTRACTS_FOR_LIST`` query selects, so future
+  // reads of ``ex.fullDocumentList`` / ``ex.creator`` / etc. are caught at
+  // compile time instead of resolving to ``undefined`` at runtime. Memoize
+  // on the stable Apollo edges reference so the derived
+  // ``filteredExtracts`` / ``stats`` memos don't churn on unrelated parent
+  // re-renders.
+  const extracts: ExtractListItem[] = useMemo(() => {
     const edges = data?.extracts?.edges ?? [];
     return edges
       .map((edge) => edge?.node)
-      .filter((node): node is NonNullable<typeof node> => Boolean(node))
-      .map((node) => node as unknown as ExtractType);
+      .filter((node): node is NonNullable<typeof node> => Boolean(node));
   }, [data?.extracts?.edges]);
 
   // Filter extracts based on active filter
@@ -244,14 +243,14 @@ export const Extracts = () => {
     },
   ];
 
-  // Calculate stats. Prefer the backend-provided ``documentCount`` aggregate
-  // (one CTE per extract row, no per-doc permission fan-out); fall back to
-  // ``fullDocumentList?.length`` for callers still on the legacy query.
+  // Calculate stats. ``GET_EXTRACTS_FOR_LIST`` always returns the slim
+  // ``documentCount`` aggregate (one CTE per extract row, no per-doc
+  // permission fan-out), so we don't need a fullDocumentList fallback here.
   const stats = useMemo(() => {
     let totalDocuments = 0;
 
     extracts.forEach((ex) => {
-      totalDocuments += ex.documentCount ?? ex.fullDocumentList?.length ?? 0;
+      totalDocuments += ex.documentCount ?? 0;
     });
 
     return {
@@ -267,13 +266,13 @@ export const Extracts = () => {
 
   // Handlers
   const handleViewExtract = useCallback(
-    (extract: ExtractType) => {
+    (extract: ExtractCardItem) => {
       navigate(`/extracts/${extract.id}`);
     },
     [navigate]
   );
 
-  const handleDeleteExtract = (extract: ExtractType) => {
+  const handleDeleteExtract = (extract: ExtractCardItem) => {
     setExtractToDelete(extract);
     showDeleteExtractModal(true);
   };

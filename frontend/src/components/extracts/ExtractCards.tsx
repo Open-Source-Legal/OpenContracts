@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import { CollectionList, EmptyState, Button } from "@os-legal/ui";
 import { Plus } from "lucide-react";
 
-import { ExtractListCard } from "./ExtractListCard";
+import { ExtractListCard, ExtractCardItem } from "./ExtractListCard";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { FetchMoreOnVisible } from "../widgets/infinite_scroll/FetchMoreOnVisible";
@@ -131,7 +131,7 @@ export const ExtractCards = ({
 
   // Handle click - either navigate or select inline
   const handleSelectExtract = useCallback(
-    (extract: ExtractType) => {
+    (extract: ExtractCardItem) => {
       if (useInlineSelection) {
         // Select via URL params - CentralRouteManager will update selectedExtractIds
         updateAnnotationSelectionParams(location, navigate, {
@@ -146,7 +146,7 @@ export const ExtractCards = ({
   );
 
   const handleDeleteExtract = useCallback(
-    (extract: ExtractType) => {
+    (extract: ExtractCardItem) => {
       tryDeleteExtract({ variables: { id: extract.id } });
     },
     [tryDeleteExtract]
