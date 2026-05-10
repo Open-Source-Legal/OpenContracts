@@ -34,6 +34,13 @@ class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="True if the fieldset is used in any extract that has started."
     )
     full_column_list = graphene.List(ColumnType)
+    column_count = graphene.Int(
+        description=(
+            "Number of columns in this fieldset. Use instead of "
+            "`fullColumnList { id }` when only the count is needed — list-view "
+            "queries pay for full Column rows otherwise."
+        )
+    )
 
     class Meta:
         model = Fieldset
@@ -48,6 +55,16 @@ class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_full_column_list(self, info) -> Any:
         return self.columns.all()
+
+    def resolve_column_count(self, info) -> int:
+        # Reads the ``fieldset__columns`` prefetch populated by
+        # ``ExtractQueryOptimizer`` to avoid N+1 COUNTs on the list view.
+        # No per-column permission filter — columns inherit fieldset
+        # visibility, matching ``resolve_full_column_list``.
+        cache = getattr(self, "_prefetched_objects_cache", {})
+        if "columns" in cache:
+            return len(cache["columns"])
+        return self.columns.count()
 
 
 class DatacellType(AnnotatePermissionsForReadMixin, DjangoObjectType):
@@ -106,6 +123,14 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ),
     )
     full_document_list = graphene.List(DocumentType)
+    document_count = graphene.Int(
+        description=(
+            "Number of documents associated with this extract. Use instead of "
+            "`fullDocumentList { id }` when only the count is needed — the "
+            "full-list resolver runs a per-row permission check that turns "
+            "into an N+1 on list pages."
+        )
+    )
     datacell_count = graphene.Int(
         description=(
             "Total number of datacells in this extract visible to the current "
@@ -173,6 +198,39 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # per ExtractType instance. Safe for the single-extract embed query;
         # add a DataLoader before exposing this field on list queries.
         return _get_datacell_qs(self, info.context.user).count()
+
+    def resolve_document_count(self, info) -> int:
+        # Mirrors the per-document permission filter applied by
+        # ``resolve_full_document_list`` so the count never exceeds the list
+        # length the same viewer would observe (effective permission is
+        # ``MIN(document, corpus)`` per CLAUDE.md). Reads from the prefetch
+        # populated by ``ExtractQueryOptimizer.get_visible_extracts`` to avoid
+        # the per-extract SQL N+1; the in-Python permission loop is still
+        # ``O(n_docs)`` per row — acceptable while extracts stay small.
+        # ``_prefetched_objects_cache`` is a Django private API (also used by
+        # ``ConversationQueryOptimizer``); the ``count()``/``all()`` fallback
+        # keeps the resolver correct if the prefetch is missing.
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import user_has_permission_for_obj
+
+        if info.context.user.is_superuser:
+            cache = getattr(self, "_prefetched_objects_cache", {})
+            if "documents" in cache:
+                return len(cache["documents"])
+            return self.documents.count()
+
+        cache = getattr(self, "_prefetched_objects_cache", {})
+        documents = cache["documents"] if "documents" in cache else self.documents.all()
+        return sum(
+            1
+            for doc in documents
+            if user_has_permission_for_obj(
+                info.context.user,
+                doc,
+                PermissionTypes.READ,
+                include_group_permissions=True,
+            )
+        )
 
     def resolve_full_document_list(self, info) -> Any:
         from opencontractserver.types.enums import PermissionTypes

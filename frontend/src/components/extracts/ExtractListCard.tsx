@@ -6,12 +6,46 @@ import { Eye, Trash2 } from "lucide-react";
 import { ExtractType } from "../../types/graphql-api";
 import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
-import { getExtractStatus, formatExtractDate } from "../../utils/extractUtils";
+import {
+  getExtractStatus,
+  formatExtractDate,
+  formatExtractListStats,
+} from "../../utils/extractUtils";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import {
   ContextMenu,
   ContextMenuItem,
 } from "../widgets/context-menu/ContextMenu";
+
+/**
+ * Minimum prop shape ``ExtractListCard`` reads — duck-types both the slim
+ * ``ExtractListItem`` (``GET_EXTRACTS_FOR_LIST``) and the legacy
+ * ``ExtractType`` (``GET_EXTRACTS``) so the four heavy-query callers
+ * (``ExtractItem``, ``CorpusExtractCards``, ``CamlArticleEditor``,
+ * ``CreateExtractModal``) keep typechecking during the migration. Collapse
+ * to ``ExtractListItem`` once those callers are on the slim query —
+ * follow-up tracked alongside PR #1602.
+ */
+export type ExtractCardItem = {
+  id: string;
+  name: string;
+  created: string;
+  started?: string | null;
+  finished?: string | null;
+  error?: string | null;
+  myPermissions?: string[];
+  documentCount?: number | null;
+  fullDocumentList?: ExtractType["fullDocumentList"];
+  fieldset?: {
+    id?: string;
+    columnCount?: number | null;
+    fullColumnList?: NonNullable<ExtractType["fieldset"]>["fullColumnList"];
+  } | null;
+  corpus?: {
+    id: string;
+    title?: string;
+  } | null;
+};
 
 // Styled Components
 
@@ -59,35 +93,16 @@ const KebabIcon = () => (
   </svg>
 );
 
-// Helper Functions
-
-function formatStats(extract: ExtractType): string[] {
-  const stats: string[] = [];
-
-  // Document count (use fullDocumentList from GraphQL query)
-  const docCount = extract.fullDocumentList?.length || 0;
-  stats.push(`${docCount} ${docCount === 1 ? "document" : "documents"}`);
-
-  // Column count (from fieldset's fullColumnList)
-  const columnCount = extract.fieldset?.fullColumnList?.length || 0;
-  if (columnCount > 0) {
-    stats.push(`${columnCount} ${columnCount === 1 ? "column" : "columns"}`);
-  }
-
-  // Corpus name if available
-  if (extract.corpus?.title) {
-    stats.push(`from ${extract.corpus.title}`);
-  }
-
-  return stats;
-}
+// ``formatExtractListStats`` (pure fallback chain for documentCount →
+// fullDocumentList.length / columnCount → fullColumnList.length) lives in
+// ``utils/extractUtils`` so it can be unit-tested without mounting a card.
 
 // Main Component
 
 interface ExtractListCardProps {
-  extract: ExtractType;
-  onView?: (extract: ExtractType) => void;
-  onDelete?: (extract: ExtractType) => void;
+  extract: ExtractCardItem;
+  onView?: (extract: ExtractCardItem) => void;
+  onDelete?: (extract: ExtractCardItem) => void;
   isMenuOpen?: boolean;
   menuPosition?: { x: number; y: number } | null;
   onOpenMenu?: (e: React.MouseEvent, extractId: string) => void;
@@ -155,7 +170,7 @@ export const ExtractListCard: React.FC<ExtractListCardProps> = ({
   );
 
   const statusLabel = getExtractStatus(extract).label;
-  const stats = formatStats(extract);
+  const stats = formatExtractListStats(extract);
   const permissions = getPermissions(extract.myPermissions || []);
   const canRemove = permissions.includes(PermissionTypes.CAN_REMOVE);
 

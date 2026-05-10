@@ -20,6 +20,7 @@ import {
 } from "../src/graphql/queries";
 import { createTestCache } from "./testUtils";
 import {
+  annotationContentSearchTerm,
   authStatusVar,
   authToken,
   userObj,
@@ -49,6 +50,22 @@ interface AnnotationsSemanticSearchTestWrapperProps {
   simulateSearchDelay?: number;
   /** Optional corpus ID for filtering */
   corpusId?: string;
+  /** Pre-seed structural-annotation filter (drives the EXCLUDE/ONLY branches
+   *  of ``annotation_variables``). */
+  initialStructuralFilter?: "INCLUDE" | "EXCLUDE" | "ONLY";
+  /** Pre-seed labelset id (drives the ``usesLabelFromLabelsetId`` branch). */
+  initialLabelsetId?: string;
+  /** Pre-seed label id (drives the ``annotationLabelId`` branch). */
+  initialLabelId?: string;
+  /** Pre-seed filter-to-corpus (drives the ``corpusId`` branch and the
+   *  ``corpus_scope_id`` derivation). */
+  initialFilterCorpus?: { id: string; title?: string } | null;
+  /** Pre-seed annotation content search term (drives the
+   *  ``rawText_Contains`` branch of ``annotation_variables``). */
+  initialContentSearchTerm?: string;
+  /** Pre-seed openedCorpus to exercise the ``corpus_scope_id`` fallback when
+   *  no explicit filter-to-corpus is set. */
+  initialOpenedCorpus?: { id: string; title?: string } | null;
 }
 
 /**
@@ -64,6 +81,7 @@ const InnerWrapper: React.FC<{ children: React.ReactNode }> = ({
       filterToLabelsetId("");
       filterToLabelId("");
       openedCorpus(null);
+      annotationContentSearchTerm("");
       filterToStructuralAnnotations("INCLUDE");
       selectedAnnotationIds([]);
     };
@@ -177,6 +195,12 @@ export const AnnotationsSemanticSearchTestWrapper: React.FC<
   browseAnnotations = [],
   simulateSearchError,
   simulateSearchDelay = 0,
+  initialStructuralFilter = "INCLUDE",
+  initialLabelsetId = "",
+  initialLabelId = "",
+  initialFilterCorpus = null,
+  initialContentSearchTerm = "",
+  initialOpenedCorpus = null,
 }) => {
   // Set up authentication state SYNCHRONOUSLY before render
   // This ensures auth is available when components first render
@@ -188,12 +212,18 @@ export const AnnotationsSemanticSearchTestWrapper: React.FC<
   } as any);
   authStatusVar("AUTHENTICATED");
 
-  // Initialize filter state synchronously
-  filterToCorpus(null);
-  filterToLabelsetId("");
-  filterToLabelId("");
-  openedCorpus(null);
-  filterToStructuralAnnotations("INCLUDE");
+  // Initialize filter state synchronously. The pre-seed values exist so
+  // tests can exercise the branches inside ``annotation_variables`` without
+  // having to re-render after a reactive-var update (Apollo's variable
+  // memoisation only flips when the *primitive* dep changes, so dispatching
+  // a reactive-var update after mount produces the same coverage as
+  // setting it up-front for branch-coverage purposes).
+  filterToCorpus(initialFilterCorpus as any);
+  filterToLabelsetId(initialLabelsetId);
+  filterToLabelId(initialLabelId);
+  openedCorpus(initialOpenedCorpus as any);
+  filterToStructuralAnnotations(initialStructuralFilter);
+  annotationContentSearchTerm(initialContentSearchTerm);
   selectedAnnotationIds([]);
 
   const link = createAnnotationsWildcardLink(

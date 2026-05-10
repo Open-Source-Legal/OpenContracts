@@ -5,6 +5,7 @@
  * Covers: navigation items, auth states, superuser features, responsive behavior.
  */
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { NavMenuTestWrapper } from "./NavMenuTestWrapper";
 
 // Define mock users locally to avoid import issues with Playwright CT
@@ -292,45 +293,398 @@ test.describe("NavMenu Component", () => {
 });
 
 test.describe("NavMenu Responsive Behavior", () => {
-  // Note: These tests verify responsive behavior at mobile viewport widths.
-  // The NavBar component from @os-legal/ui handles responsive behavior internally.
+  // At < 1100px the NavMenu swaps in the custom MobileNavMenu (a hamburger
+  // toggle + a floating sheet that overlays the page rather than expanding
+  // inline). These tests target that component via its accessible labels,
+  // which are more stable than internal CSS class names.
 
-  test("should show hamburger menu on mobile viewport", async ({
+  test("should show hamburger toggle on mobile viewport", async ({
     mount,
     page,
   }) => {
-    // Set mobile viewport before mounting
     await page.setViewportSize({ width: 800, height: 600 });
 
     const component = await mount(<NavMenuTestWrapper />);
 
-    // Hamburger/mobile menu toggle should be visible on narrow viewport
-    await expect(page.locator(".oc-navbar__mobile-toggle")).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible({ timeout: 5000 });
 
     await component.unmount();
   });
 
-  test("should toggle mobile menu when hamburger is clicked", async ({
+  test("should reveal nav items in the floating sheet when hamburger is clicked", async ({
     mount,
     page,
   }) => {
-    // Set mobile viewport before mounting
     await page.setViewportSize({ width: 800, height: 600 });
 
     const component = await mount(<NavMenuTestWrapper />);
 
-    // Click hamburger menu to open mobile nav
-    const hamburger = page.locator(".oc-navbar__mobile-toggle");
+    const hamburger = page.locator('button[aria-label="Open navigation"]');
     await expect(hamburger).toBeVisible({ timeout: 5000 });
     await hamburger.click();
 
-    // After clicking, mobile menu should be visible with nav items
-    // Use the mobile-specific link class to target the mobile menu
+    // Sheet appears as a dialog with the site-navigation aria-label.
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+    await expect(sheet.getByText("Discover")).toBeVisible();
+
+    // The toggle now reads "Close navigation" while the sheet is open.
     await expect(
-      page.locator(".oc-navbar__mobile-link:has-text('Discover')")
-    ).toBeVisible({ timeout: 2000 });
+      page.locator('button[aria-label="Close navigation"]')
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should close the floating sheet when Escape is pressed", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden({ timeout: 2000 });
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should close the floating sheet when the backdrop is tapped", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // The sheet has a 12px side gutter, so clicking near the left
+    // edge — well below the 60px header — lands on the backdrop
+    // rather than the dialog or its toggle. Tapping the backdrop is
+    // the most common mobile dismissal gesture.
+    await page.mouse.click(5, 300);
+    await expect(sheet).toBeHidden({ timeout: 2000 });
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should render the sign-in CTA when no user is authenticated", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+    // Signed-out branch: AuthFooter renders the Sign-in button and
+    // omits the user chip entirely.
+    await expect(sheet.getByRole("button", { name: /sign in/i })).toBeVisible();
+    await expect(sheet.getByText("Signed in")).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("should render the user chip when authenticated", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(
+      <NavMenuTestWrapper mockUser={mockRegularUser} />
+    );
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+    // Authenticated branch: user chip with display name + "Signed in"
+    // status replaces the Sign-in CTA button.
+    await expect(sheet.getByText("Test User")).toBeVisible();
+    await expect(sheet.getByText("Signed in")).toBeVisible();
+    await expect(sheet.getByRole("button", { name: /sign in/i })).toHaveCount(
+      0
+    );
+
+    await docScreenshot(page, "nav--mobile-nav--authenticated-open");
+
+    await component.unmount();
+  });
+
+  test("should render the Account section with user actions when authenticated", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(
+      <NavMenuTestWrapper mockUser={mockRegularUser} />
+    );
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // The signed-in sheet exposes the Account section containing the
+    // collapsed user-menu actions (Profile, Exports, Logout).
+    await expect(sheet.getByText("Account")).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Profile" })).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Exports" })).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Logout" })).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should close the sheet when a nav item is tapped (runAndClose)", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // Tapping a nav item should trigger runAndClose, which fires the
+    // onClick handler and then dismisses the sheet — combined with the
+    // route-change useEffect, this guarantees the sheet doesn't linger
+    // after a navigation.
+    await sheet.getByRole("button", { name: "Discover" }).click();
+
+    await expect(sheet).toBeHidden({ timeout: 2000 });
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should close the sheet when a user action is tapped", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(
+      <NavMenuTestWrapper mockUser={mockRegularUser} />
+    );
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // Tapping a user action (Exports) opens a modal; the sheet should
+    // dismiss alongside via runAndClose's finally branch.
+    await sheet.getByRole("button", { name: "Exports" }).click();
+
+    await expect(sheet).toBeHidden({ timeout: 2000 });
+
+    await component.unmount();
+  });
+
+  test("should trap focus inside the sheet when Tab cycles past the last focusable", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // Seed focus on the last focusable inside the sheet (the Sign-in CTA
+    // is the AuthFooter's only tabbable, and lives after all nav items).
+    const signIn = sheet.getByRole("button", { name: /sign in/i });
+    await expect(signIn).toBeVisible();
+    await signIn.focus();
+    await expect(signIn).toBeFocused();
+
+    // Tab from the last focusable wraps to the first focusable INSIDE
+    // the sheet — confirming the trap. Without the trap, focus would
+    // escape to a body element outside the sheet.
+    await page.keyboard.press("Tab");
+
+    const focusInSheet = await page.evaluate(() => {
+      const dialog = document.querySelector('[aria-label="Site navigation"]');
+      const active = document.activeElement;
+      return Boolean(dialog && active && dialog.contains(active));
+    });
+    expect(focusInSheet).toBe(true);
+
+    await component.unmount();
+  });
+
+  test("should trap focus inside the sheet when Shift+Tab cycles past the first focusable", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // Move focus to the first focusable item (the first nav button).
+    const firstNav = sheet.getByRole("button", { name: "Discover" });
+    await expect(firstNav).toBeVisible();
+    await firstNav.focus();
+    await expect(firstNav).toBeFocused();
+
+    // Shift+Tab from the first focusable wraps backwards to the last
+    // focusable inside the sheet. Either way focus must remain trapped
+    // inside the dialog container.
+    await page.keyboard.press("Shift+Tab");
+
+    const focusInSheet = await page.evaluate(() => {
+      const dialog = document.querySelector('[aria-label="Site navigation"]');
+      const active = document.activeElement;
+      return Boolean(dialog && active && dialog.contains(active));
+    });
+    expect(focusInSheet).toBe(true);
+
+    await component.unmount();
+  });
+
+  test("should pull focus back into the sheet when Tab is pressed from outside", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+    const toggle = page.locator('button[aria-label="Open navigation"]');
+    await toggle.click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // Force focus back onto an element OUTSIDE the sheet. This simulates
+    // the "focus leaked outside" branch of the Tab trap that pulls focus
+    // back in on the next Tab press.
+    await page.evaluate(() => {
+      const closeBtn = document.querySelector<HTMLElement>(
+        'button[aria-label="Close navigation"]'
+      );
+      closeBtn?.focus();
+    });
+
+    await page.keyboard.press("Tab");
+
+    const focusInSheet = await page.evaluate(() => {
+      const dialog = document.querySelector('[aria-label="Site navigation"]');
+      const active = document.activeElement;
+      return Boolean(dialog && active && dialog.contains(active));
+    });
+    expect(focusInSheet).toBe(true);
+
+    await component.unmount();
+  });
+
+  test("should trigger the onLogin handler when the Sign-in CTA is clicked", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // Click the Sign-in CTA — handleLogin closes the sheet and fires
+    // onLogin (which in the test wrapper is a no-op navigate, but the
+    // close-the-sheet half is observable here).
+    await sheet.getByRole("button", { name: /sign in/i }).click();
+
+    await expect(sheet).toBeHidden({ timeout: 2000 });
+
+    await component.unmount();
+  });
+
+  test("should expose proper ARIA attributes on the toggle button", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    // Closed state — aria-expanded="false", aria-haspopup="dialog".
+    const toggle = page.locator('button[aria-label="Open navigation"]');
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toHaveAttribute("aria-haspopup", "dialog");
+    await expect(toggle).toHaveAttribute("aria-controls", "mobile-nav-sheet");
+
+    await toggle.click();
+
+    // Open state — aria-expanded flips to "true", aria-label changes.
+    const closeToggle = page.locator('button[aria-label="Close navigation"]');
+    await expect(closeToggle).toHaveAttribute("aria-expanded", "true");
+
+    await docScreenshot(page, "nav--mobile-nav--open");
+
+    await component.unmount();
+  });
+
+  test("should reflect aria-modal and aria-label on the open sheet", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    await expect(sheet).toHaveAttribute("aria-modal", "true");
+    await expect(sheet).toHaveAttribute("role", "dialog");
+
+    await component.unmount();
+  });
+
+  test("should screenshot the closed mobile nav for documentation", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    // Closed state — just the dark sticky header with the hamburger.
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible({ timeout: 5000 });
+
+    await docScreenshot(page, "nav--mobile-nav--closed");
 
     await component.unmount();
   });

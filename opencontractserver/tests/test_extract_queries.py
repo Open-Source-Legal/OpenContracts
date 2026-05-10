@@ -497,3 +497,149 @@ class ExtractsQueryTestCase(TestCase):
         )
         self.assertIsNone(result.get("errors"))
         self.assertEqual(len(result["data"]["extract"]["fullDatacellList"]), 0)
+
+    def test_extracts_list_count_fields_match_lists(self):
+        """
+        ``documentCount`` (ExtractType) and ``columnCount`` (FieldsetType) are
+        the slim list-view replacements for ``fullDocumentList { id }`` and
+        ``fieldset.fullColumnList { id }`` — see Extracts.tsx + the matching
+        slim GraphQL query. The list-view query asks for counts only so the
+        ``resolve_full_document_list`` per-row permission filter (an N+1 over
+        every document of every extract) and a full Column-row payload per
+        row no longer fire on every list paint.
+
+        This regression pins three properties:
+          1. ``documentCount`` matches ``len(fullDocumentList)`` for the
+             current user's permission scope.
+          2. ``columnCount`` on the fieldset matches the column count.
+          3. Both fields are reachable via the connection-style ``extracts``
+             list query (where the new count fields are most valuable).
+        """
+        # Add a second document so the count is something other than 1.
+        with SAMPLE_PDF_FILE_TWO_PATH.open("rb") as f:
+            second_pdf = ContentFile(f.read(), name="test_second.pdf")
+        second_doc = Document.objects.create(
+            creator=self.user,
+            title="Second Doc",
+            description="Second doc for count tests",
+            custom_meta={},
+            pdf_file=second_pdf,
+            backend_lock=True,
+        )
+        self.extract.documents.add(second_doc)
+        set_permissions_for_obj_to_user(self.user, second_doc, [PermissionTypes.READ])
+
+        # Add a second column so columnCount > 1.
+        Column.objects.create(
+            creator=self.user,
+            fieldset=self.fieldset,
+            query="TestQuery2",
+            output_type="str",
+        )
+
+        list_query = """
+            query {
+                extracts {
+                    edges {
+                        node {
+                            id
+                            documentCount
+                            fieldset {
+                                id
+                                columnCount
+                                fullColumnList { id }
+                            }
+                            fullDocumentList { id }
+                        }
+                    }
+                }
+            }
+        """
+        result = self.client.execute(list_query)
+        self.assertIsNone(result.get("errors"))
+
+        edges = result["data"]["extracts"]["edges"]
+        self.assertEqual(len(edges), 1, "Expected exactly one extract")
+        node = edges[0]["node"]
+
+        # documentCount must match the realized fullDocumentList length so the
+        # frontend can swap one for the other without changing visible totals.
+        self.assertEqual(node["documentCount"], len(node["fullDocumentList"]))
+        self.assertEqual(node["documentCount"], 2)
+
+        # columnCount must match the realized fullColumnList length.
+        self.assertEqual(
+            node["fieldset"]["columnCount"],
+            len(node["fieldset"]["fullColumnList"]),
+        )
+        self.assertEqual(node["fieldset"]["columnCount"], 2)
+
+    def test_document_count_respects_per_document_permissions(self):
+        """When a user can see the extract via its corpus but lacks READ on
+        one of the constituent documents (per CLAUDE.md
+        ``Effective Permission = MIN(document_permission, corpus_permission)``),
+        the slim ``documentCount`` aggregate must equal the filtered
+        ``fullDocumentList`` the same viewer observes — never the raw
+        attached-documents row count.
+        """
+        User = get_user_model()
+
+        # Make the corpus AND the extract public so a different user can
+        # see the extract row at all (per ``get_visible_extracts``: extract
+        # is reachable via ``is_public=True`` and the corpus check passes
+        # because the corpus is public). This isolates the test to the
+        # *count* behaviour for documents the viewer cannot read.
+        self.corpus.is_public = True
+        self.corpus.save()
+        self.extract.is_public = True
+        self.extract.save()
+
+        # Attach a second document that the new viewer will *not* have READ
+        # permission on. The first document (self.doc) is private to
+        # self.user — the new viewer must not see it either.
+        with SAMPLE_PDF_FILE_TWO_PATH.open("rb") as f:
+            second_pdf = ContentFile(f.read(), name="test_doc_perm.pdf")
+        second_doc = Document.objects.create(
+            creator=self.user,
+            title="Doc viewer can read",
+            description="Public doc viewer-can-read",
+            custom_meta={},
+            pdf_file=second_pdf,
+            backend_lock=True,
+        )
+        self.extract.documents.add(second_doc)
+        set_permissions_for_obj_to_user(self.user, second_doc, [PermissionTypes.READ])
+
+        viewer = User.objects.create_user(username="viewer", password="viewerpass")
+        # Viewer can READ the second doc but NOT the first.
+        set_permissions_for_obj_to_user(viewer, second_doc, [PermissionTypes.READ])
+
+        viewer_client = Client(schema, context_value=TestContext(viewer))
+
+        list_query = """
+            query {
+                extracts {
+                    edges {
+                        node {
+                            id
+                            documentCount
+                            fullDocumentList { id }
+                        }
+                    }
+                }
+            }
+        """
+        result = viewer_client.execute(list_query)
+        self.assertIsNone(result.get("errors"))
+        edges = result["data"]["extracts"]["edges"]
+        self.assertEqual(len(edges), 1)
+        node = edges[0]["node"]
+
+        # The aggregate must agree with the per-document permission filter
+        # the list resolver applies — both should be 1 (only second_doc),
+        # not 2 (both documents). If the count ever bypassed the filter
+        # ``documentCount`` would be 2 while ``fullDocumentList`` had 1
+        # entry, leaking the existence of the private document via the
+        # aggregate.
+        self.assertEqual(node["documentCount"], 1)
+        self.assertEqual(len(node["fullDocumentList"]), 1)

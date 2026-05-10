@@ -38,6 +38,7 @@ from config.graphql.graphene_types import (
 )
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.analyzer.models import Analyzer, GremlinEngine
+from opencontractserver.constants.extracts import EXTRACT_LIST_MAX_PAGE_SIZE
 from opencontractserver.extracts.models import Column, Datacell, Fieldset
 
 logger = logging.getLogger(__name__)
@@ -161,8 +162,13 @@ class ExtractQueryMixin:
         )
         return extract if has_perm else None
 
+    # ``max_limit`` must match (or exceed) the frontend ``EXTRACT_PAGINATION``
+    # page size — Graphene silently clamps to this value and otherwise pages
+    # never advance past the cap (the bug fixed in PR #1602).
     extracts = DjangoFilterConnectionField(
-        ExtractType, filterset_class=ExtractFilter, max_limit=15
+        ExtractType,
+        filterset_class=ExtractFilter,
+        max_limit=EXTRACT_LIST_MAX_PAGE_SIZE,
     )
 
     def resolve_extracts(self, info, **kwargs) -> Any:

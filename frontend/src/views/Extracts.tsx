@@ -38,7 +38,6 @@ import type { FilterTabItem } from "@os-legal/ui";
 import { toast } from "react-toastify";
 import _ from "lodash";
 
-import { ExtractType } from "../types/graphql-api";
 import {
   extractSearchTerm,
   selectedExtractIds,
@@ -47,10 +46,12 @@ import {
   userObj,
 } from "../graphql/cache";
 import {
-  GetExtractsOutput,
-  GetExtractsInput,
-  GET_EXTRACTS,
+  ExtractListItem,
+  GetExtractsForListInput,
+  GetExtractsForListOutput,
+  GET_EXTRACTS_FOR_LIST,
 } from "../graphql/queries";
+import { ExtractCardItem } from "../components/extracts/ExtractListCard";
 import {
   REQUEST_DELETE_EXTRACT,
   RequestDeleteExtractInputType,
@@ -62,7 +63,10 @@ import { CreateExtractModal } from "../components/widgets/modals/CreateExtractMo
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
 import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
-import { DEBOUNCE } from "../assets/configurations/constants";
+import {
+  DEBOUNCE,
+  EXTRACT_PAGINATION,
+} from "../assets/configurations/constants";
 
 // Styled Components
 
@@ -92,8 +96,6 @@ const TableIcon = () => (
   </svg>
 );
 
-// Main Component
-
 export const Extracts = () => {
   const currentUser = useReactiveVar(userObj);
   const extract_search_term = useReactiveVar(extractSearchTerm);
@@ -111,9 +113,8 @@ export const Extracts = () => {
     x: number;
     y: number;
   } | null>(null);
-  const [extractToDelete, setExtractToDelete] = useState<ExtractType | null>(
-    null
-  );
+  const [extractToDelete, setExtractToDelete] =
+    useState<ExtractCardItem | null>(null);
 
   // Debounced search
   const debouncedSearch = useRef(
@@ -134,14 +135,36 @@ export const Extracts = () => {
     debouncedSearch.current(value);
   };
 
-  // GraphQL Query
+  // Memoize variables so Apollo only re-fetches when the user actually changes
+  // a filter. Building a fresh object literal in the useQuery call below
+  // would force Apollo to deep-compare every render. ``EXTRACT_PAGINATION.PAGE_SIZE``
+  // is the shared page size across Annotations / Documents / Extracts; the
+  // legacy GET_EXTRACTS query never passed ``first``/``after`` so the server
+  // silently clamped every request to ``max_limit=15`` and fetchMore's cursor
+  // was sent but never honoured. The slim query wires the connection args
+  // properly via this memoised value, and the matching Apollo cache entry in
+  // ``cache.ts`` (``extracts: relayStylePagination(["corpus",
+  // "corpusAction_Isnull", "name_Contains"])``) keys pages by the same field
+  // arguments — without that, fetchMore would overwrite page 1 instead of
+  // appending.
+  const extractVariables: GetExtractsForListInput = useMemo(
+    () => ({
+      limit: EXTRACT_PAGINATION.PAGE_SIZE,
+      ...(extract_search_term && { searchText: extract_search_term }),
+    }),
+    [extract_search_term]
+  );
+
+  // GraphQL Query — uses the slim list query (see GET_EXTRACTS_FOR_LIST in
+  // queries.ts). Replaces ``fullDocumentList { id }`` /
+  // ``fieldset.fullColumnList { id }`` with the new ``documentCount`` /
+  // ``fieldset.columnCount`` aggregates so each row no longer pays for a
+  // per-extract per-document permission check on the backend.
   const { refetch, loading, networkStatus, data, fetchMore } = useQuery<
-    GetExtractsOutput,
-    GetExtractsInput
-  >(GET_EXTRACTS, {
-    variables: {
-      searchText: extract_search_term,
-    },
+    GetExtractsForListOutput,
+    GetExtractsForListInput
+  >(GET_EXTRACTS_FOR_LIST, {
+    variables: extractVariables,
     notifyOnNetworkStatusChange: true,
   });
 
@@ -159,15 +182,19 @@ export const Extracts = () => {
     },
   });
 
-  // Extract extracts from query data
-  const extracts: ExtractType[] = useMemo(() => {
-    if (!data?.extracts?.edges) return [];
-    return data.extracts.edges
+  // Extract extracts from query data. ``ExtractListItem`` carries exactly
+  // the fields the slim ``GET_EXTRACTS_FOR_LIST`` query selects, so future
+  // reads of ``ex.fullDocumentList`` / ``ex.creator`` / etc. are caught at
+  // compile time instead of resolving to ``undefined`` at runtime. Memoize
+  // on the stable Apollo edges reference so the derived
+  // ``filteredExtracts`` / ``stats`` memos don't churn on unrelated parent
+  // re-renders.
+  const extracts: ExtractListItem[] = useMemo(() => {
+    const edges = data?.extracts?.edges ?? [];
+    return edges
       .map((edge) => edge?.node)
-      .filter(
-        (node): node is ExtractType => node !== null && node !== undefined
-      );
-  }, [data]);
+      .filter((node): node is NonNullable<typeof node> => Boolean(node));
+  }, [data?.extracts?.edges]);
 
   // Filter extracts based on active filter
   const filteredExtracts = useMemo(() => {
@@ -185,7 +212,11 @@ export const Extracts = () => {
     }
   }, [extracts, activeFilter]);
 
-  // Calculate counts for filter tabs
+  // Calculate counts for filter tabs.
+  // NOTE: bounded by the paginated subset currently in Apollo's cache. The
+  // legacy implementation has the same limitation; promoting these to a
+  // backend ``extractStats`` aggregate (mirroring ``documentStats`` from PR
+  // #1556) is a follow-up if the badges start drifting on large libraries.
   const filterCounts = useMemo(() => {
     return {
       running: extracts.filter((ex) => ex.started && !ex.finished && !ex.error)
@@ -213,14 +244,18 @@ export const Extracts = () => {
     },
   ];
 
-  // Calculate stats
+  // Calculate stats. ``GET_EXTRACTS_FOR_LIST`` returns ``documentCount``
+  // (per-extract aggregate, single CTE, no per-doc permission fan-out)
+  // so we sum that instead of crawling fullDocumentList client-side.
+  // ``totalColumns`` is intentionally omitted — the StatGrid below renders
+  // four tiles (Total / Running / Completed / Documents) and never showed
+  // a column count, so summing ``fieldset.columnCount`` here would be
+  // dead work. Re-add it if a column-count tile is added back to the UI.
   const stats = useMemo(() => {
     let totalDocuments = 0;
-    let totalColumns = 0;
 
     extracts.forEach((ex) => {
-      totalDocuments += ex.fullDocumentList?.length || 0;
-      totalColumns += ex.fieldset?.fullColumnList?.length || 0;
+      totalDocuments += ex.documentCount ?? 0;
     });
 
     return {
@@ -236,13 +271,13 @@ export const Extracts = () => {
 
   // Handlers
   const handleViewExtract = useCallback(
-    (extract: ExtractType) => {
+    (extract: ExtractCardItem) => {
       navigate(`/extracts/${extract.id}`);
     },
     [navigate]
   );
 
-  const handleDeleteExtract = (extract: ExtractType) => {
+  const handleDeleteExtract = (extract: ExtractCardItem) => {
     setExtractToDelete(extract);
     showDeleteExtractModal(true);
   };
@@ -259,6 +294,7 @@ export const Extracts = () => {
     if (!loading && data?.extracts?.pageInfo?.hasNextPage) {
       fetchMore({
         variables: {
+          limit: EXTRACT_PAGINATION.PAGE_SIZE,
           cursor: data.extracts.pageInfo.endCursor,
         },
       });
@@ -308,12 +344,11 @@ export const Extracts = () => {
     }
   }, [openMenuId, handleCloseMenu]);
 
-  // Refetch on auth change
-  useEffect(() => {
-    if (currentUser) {
-      refetch();
-    }
-  }, [currentUser, refetch]);
+  // Apollo's ``useQuery`` automatically refetches when ``variables`` change
+  // (deep-compared), so we no longer need the explicit ``useEffect(refetch)``
+  // that previously fired on every ``currentUser`` reactive-var update. That
+  // effect double-fetched on first auth settle (initial useQuery + the effect
+  // both ran) and re-fetched on any unrelated ``userObj`` update.
 
   // Determine section title based on filter
   const getSectionTitle = () => {
