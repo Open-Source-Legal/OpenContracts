@@ -75,6 +75,7 @@ const StyledModalWrapper = styled.div`
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
       width: 100%;
       max-width: 100%;
+      max-height: 100vh;
       max-height: 100dvh;
       border-radius: 0;
     }

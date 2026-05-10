@@ -1027,10 +1027,42 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   // If the GraphQL query fails entirely:
   if (error) {
     return (
-      <ErrorContainer initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <AlertCircle size={24} />
-        Failed to load corpus conversations
-      </ErrorContainer>
+      <ChatContainer id="corpus-chat-container">
+        {onNavigateHome && (
+          <ChatNavigationHeader>
+            <BackButton
+              aria-label="Return to dashboard"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onNavigateHome();
+              }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              style={{ cursor: "pointer" }}
+            >
+              <ArrowLeft size={20} />
+            </BackButton>
+            <NavigationTitle>Chat unavailable</NavigationTitle>
+            <IconButton
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onNavigateHome();
+              }}
+              title="Return to Dashboard"
+              whileTap={{ scale: 0.95 }}
+              style={{ cursor: "pointer" }}
+            >
+              <Home size={20} />
+            </IconButton>
+          </ChatNavigationHeader>
+        )}
+        <ErrorContainer initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <AlertCircle size={24} />
+          Failed to load corpus conversations
+        </ErrorContainer>
+      </ChatContainer>
     );
   }
 

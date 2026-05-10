@@ -610,10 +610,10 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   // via the (now-hidden) FAB.
   useEffect(() => {
     if (showRightPanel && sidebarViewMode === "chat") {
-      if (showAnalysesPanel) setShowAnalysesPanel(false);
-      if (showExtractsPanel) setShowExtractsPanel(false);
+      setShowAnalysesPanel(false);
+      setShowExtractsPanel(false);
     }
-  }, [showRightPanel, sidebarViewMode, showAnalysesPanel, showExtractsPanel]);
+  }, [showRightPanel, sidebarViewMode]);
   // showLoad was lifted onto chatTrayStateAtom — see ChatTray.tsx and
   // UISettingsAtom.tsx (ChatTrayPersist.showLoad). Owning it here as a
   // useState made ChatTray's mount-time setShowLoad(false) call a

@@ -16,6 +16,9 @@ import {
 // ===============================================
 // SIDEBAR NAVIGATION
 // ===============================================
+// Fill at least the visible area below the navbar so short tabs don't leave
+// dead space, but never exceed it — the chat tray needs its input pinned at
+// the bottom of the viewport, not pushed below it.
 export const CorpusViewContainer = styled.div`
   display: flex;
   flex-direction: row;
@@ -23,7 +26,8 @@ export const CorpusViewContainer = styled.div`
   position: relative;
   flex: 1;
   align-items: stretch;
-  min-height: 100dvh;
+  min-height: calc(100vh - var(--oc-navbar-height, 4.5rem));
+  min-height: calc(100dvh - var(--oc-navbar-height, 4.5rem));
 `;
 
 export const NavigationSidebar = styled(motion.div)<{ $isExpanded: boolean }>`
