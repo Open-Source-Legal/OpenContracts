@@ -141,9 +141,12 @@ test.describe("CorpusQueryView - direct mount", () => {
         initialQueryViewState="VIEW"
       />
     );
-    // Both action buttons in the VIEW header are titled — assert the Dashboard
-    // one is present (renders the lucide Home icon path).
-    await expect(page.locator('[title="Return to Dashboard"]')).toBeVisible({
+    // Assert the outer nav header's Home button is present (distinct from the
+    // identically-titled button inside CorpusChat which would cause a strict-
+    // mode violation if matched by title alone).
+    await expect(
+      page.locator('[data-testid="corpus-query-view-home-btn"]')
+    ).toBeVisible({
       timeout: 10000,
     });
   });
@@ -158,7 +161,7 @@ test.describe("CorpusQueryView - direct mount", () => {
         initialQueryViewState="VIEW"
       />
     );
-    const homeBtn = page.locator('[title="Return to Dashboard"]');
+    const homeBtn = page.locator('[data-testid="corpus-query-view-home-btn"]');
     await expect(homeBtn).toBeVisible({ timeout: 10000 });
     await homeBtn.click();
     // After click, the VIEW header text disappears (reactive var flipped to

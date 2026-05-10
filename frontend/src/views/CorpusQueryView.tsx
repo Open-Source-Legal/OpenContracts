@@ -323,6 +323,7 @@ export const CorpusQueryView = ({
             <ActionButton
               onClick={() => showQueryViewState("ASK")}
               title="Return to Dashboard"
+              data-testid="corpus-query-view-home-btn"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
