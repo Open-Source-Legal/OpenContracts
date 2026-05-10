@@ -14,6 +14,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `get_annotation_images_with_permission` (`opencontractserver/llms/tools/image_tools.py:472`) gained an explicit anonymous gate: `if user.is_anonymous and not annotation.structural: return []`. This closes a gap where the helper would otherwise grant images for non-structural public annotations that anonymous users cannot see via the queryset (the queryset filters anon visibility down to `Q(structural=True) & doc_public & corpus_public_or_null` in `opencontractserver/shared/QuerySets.py:282-296`). The existing document/corpus public-flag checks via `user_has_permission_for_obj` continue to enforce the "public document AND public corpus" half of the rule. IDOR protection is unchanged — same empty 200 response for missing/unauthorized.
   - `test_fetch_images_unauthenticated` was renamed to `test_fetch_images_unauthenticated_private` and updated from "expect 401/403" to "expect 200 with empty array" (IDOR-consistent shape). Added regression tests pinning all three new anonymous paths: `test_fetch_images_anonymous_public_structural` (allowed → 2 images), `test_fetch_images_anonymous_non_structural_blocked` (denied → empty), `test_fetch_images_anonymous_private_corpus_blocked` (denied → empty).
 
+### Added
+
+- **Agent tools for step-by-step CAML article citation review**
+  (`opencontractserver/llms/tools/core_tools/caml_article.py`,
+  registered in `opencontractserver/llms/tools/tool_registry.py`). Three new
+  async tools compose into a "find a candidate → verify the match → ask the
+  user → replace one location" loop the agent can run against the corpus's
+  `Readme.CAML` article:
+  - `read_corpus_caml_article` (read-only, `requires_corpus`) loads the
+    article via `Document.objects.visible_to_user(user)` and returns it as
+    blank-line-delimited blocks with each block's existing `{{@cite ...}}`
+    directives plus a `needs_citation_candidate` heuristic that flags prose
+    blocks lacking a citation. Headings, lists, code fences, blockquotes,
+    table rows, and `[component:…]` markers are excluded so the candidate
+    list stays focused on text the user would actually want to cite.
+  - `propose_caml_citation_match` (read-only, `requires_corpus`) runs the
+    same `CoreAnnotationVectorStore.async_search` path the renderer's
+    `useCiteHandler` uses, scoped to the invoking user's `user_id` so
+    `Annotation` visibility is honoured. Returns ranked
+    `{annotation_id, raw_text, label_text, label_color, document_id,
+    document_title, corpus_id, page, similarity_score}` candidates capped at
+    25 entries.
+  - `apply_caml_article_edit` (`requires_approval=True`,
+    `requires_write_permission=True`, `requires_corpus`) replaces a single
+    occurrence of `target_text` inside `Readme.CAML` with `replacement_text`.
+    Fails closed if the substring matches zero or more than one location, and
+    layers a defense-in-depth UPDATE check (`is_superuser` /
+    `creator_id == user.id` / `user_has_permission_for_obj(... UPDATE)`) on
+    top of the wrapper's READ check on `deps.corpus_id`. The edit rewrites
+    `Document.txt_extract_file` in place via `FieldFile.save`, so the
+    existing Document row is preserved and frontend deep-links to
+    `Readme.CAML` continue to resolve. The `rationale` argument is surfaced
+    in the approval modal so the user can see why each replacement was
+    proposed.
+  - Agent flow is one approval prompt per replacement, matching the issue
+    request to "step through changes with the user — one citation at a
+    time". The directive registry on the frontend is already extensible
+    (`frontend/src/components/corpuses/caml/directiveRegistry.ts`), so the
+    inserted `{{@cite scope}}` markers are resolved at render time by the
+    existing `useCiteHandler` semantic search; no frontend changes needed.
+  - Tests in `opencontractserver/tests/test_caml_review_tools.py` cover
+    block parsing, candidate heuristics, IDOR-safe error messages, the
+    single-occurrence rule, the creator/superuser/UPDATE check matrix, and
+    registry resolution including the `requires_approval` /
+    `requires_write_permission` / `requires_corpus` flags.
+  - Each `apply_caml_article_edit` call rotates `Document.txt_extract_file`
+    to a fresh storage blob and queues an `on_commit` cleanup that deletes
+    the previous blob, so long-lived corpora don't accumulate orphan files
+    on every citation edit. The UPDATE permission check runs **inside** the
+    `select_for_update` transaction so a permission revocation between the
+    initial load and the locked write cannot slip through. The prose
+    heuristic also rejects `***` / `* * *` thematic breaks (previously only
+    `-`/`_`/`=` runs were excluded). `CAML_CITATION_MAX_CANDIDATES` and
+    `CAML_EDIT_PREVIEW_RADIUS_CHARS` moved to
+    `opencontractserver/constants/document_processing.py`.
+  - `propose_caml_citation_match` now wraps **both** `CoreAnnotationVectorStore`
+    construction and the `async_search` call in the same try/except, so a
+    corpus that has no `preferred_embedder` and no `PipelineSettings` default
+    surfaces the same friendly "Semantic search failed" `ValueError` the
+    agent already knows how to recover from instead of leaking the raw
+    `get_embedder() resolved no embedder_path` error from `__init__`. Pinned
+    by a new `test_constructor_failure_surfaces_as_value_error` test.
+  - `ProposeCamlCitationMatchTests` now patches `__init__` alongside
+    `async_search` on `CoreAnnotationVectorStore`. The real constructor calls
+    `get_embedder()` against the migration-seeded `PipelineSettings`
+    singleton, but `TransactionTestCase` truncates that row between tests
+    (`serialized_rollback=False` default), so any other class running first
+    on the same pytest-xdist `--dist loadscope` worker would leave us with no
+    default embedder and the constructor would raise before the patched
+    `async_search` could execute. Coverage of `caml_article.py` is now 100%
+    via additional tests for `_safe_delete_storage_path`, `_read_caml_content`
+    on a falsy `txt_extract_file`, the `User.DoesNotExist` branches in
+    `_read_corpus_caml_article` / `_apply_caml_article_edit` /
+    `_assert_corpus_visible_to_user`, the empty-`target_text` guard, and
+    component-marker / numbered-list rejection in `_looks_like_prose`.
+
+### Fixed
+
+- **`get_embedder` redundant tuple cast** (`opencontractserver/utils/embeddings.py:132`). The follow-up patch in commit 85496ad re-introduced a `cast(tuple[Optional[type[BaseEmbedder]], Optional[str]], ...)` on the return statement that mypy now flags as redundant -- the function's declared return type already matches what mypy infers, so the cast trips `warn_redundant_casts = True`. This was the only mypy error on the branch and was blocking pre-commit (and therefore Backend CI's lint step) for any new commit. Reverted to the bare `return embedder_class, embedder_path` from PR #1545, which both satisfies mypy and matches the function's declared return type.
+- **Reddit-style auto-assigned user handles** (issue #1574). Auth0 social-login users without a populated `name`/`given_name`/`first_name` previously rendered as the redacted `user_<id>` fallback in the GraphQL `displayName` resolver chain. New `User.handle` field (`opencontractserver/users/models.py`) is auto-assigned on `save()` from a curated `adjective × noun` namespace (`opencontractserver/users/handle_wordlists.py`, ~56k base combos) via `opencontractserver/users/handle_generator.py`. Handles surface as a higher-priority branch in `UserType.displayName` (`config/graphql/user_types.py`) — chain order: `name` → `given_name + family_name` → `first_name + last_name` → `handle` → `username` (only when not a `provider|sub` Auth0 identifier) → redacted `user_<id>` fallback. Schema + data migrations (`opencontractserver/users/migrations/0027_user_handle.py`, `0028_backfill_user_handles.py`) backfill existing users in one pass; the same generator powers the `regenerate_user_handles` management command for re-running with `--reroll-suffixed` (after the word list grows) or `--reroll-all`. User-facing handle editing is intentionally out of scope; the resolver still degrades to the redacted fallback for any user the migration hasn't reached. Coverage in `opencontractserver/tests/test_user_handle.py` pins generator uniqueness, no-PII-leakage, fixed-seed determinism, suffix promotion under saturation, the resolver chain priority, and the management command's three modes.
+  - The django-guardian Anonymous system user is excluded from auto-assignment, the migration backfill, and the `regenerate_user_handles` queryset — it never surfaces to other users and so never needs a handle. Without this exclusion the post-migrate signal that creates Anonymous (after `0028_backfill_user_handles` runs) could leave it with `handle=NULL`, which made `regenerate_user_handles` see two candidates instead of one in a freshly-bootstrapped DB.
+  - `User.save()` no longer string-parses the `IntegrityError` message to detect handle-uniqueness collisions; instead it queries for an existing row holding the chosen handle and only re-rolls when that hit confirms the conflict. The previous `"handle" in str(exc)` heuristic was Postgres-specific and would silently swallow non-handle integrity errors if the constraint were ever renamed.
+  - Curated word list cleanup: `flora` and `ladybug` moved from `ADJECTIVES` to `NOUNS` so `flying ladybug` no longer surfaces as a noun-noun pairing in generated handles.
+  - `regenerate_user_handles --reroll-suffixed`: keep the user's own row in `scope_qs` (rather than excluding by pk) so its current DB handle blocks `generate_handle` from re-selecting the same value. Setting `user.handle = None` in Python alone does not reach the DB, so excluding the pk could let `cleverFox42` round-trip through the generator and back to itself, defeating the flag's purpose. Same change applies to `--reroll-all`. Regression coverage in `test_user_handle.py::RegenerateUserHandlesCommandTests::test_reroll_suffixed_targets_only_numeric_tails` (now reliably re-rolls under the fix).
+  - Anonymous-user exclusion is now pinned by tests in `test_user_handle.py::UserModelHandleAutoAssignTests` (one test for `User.save()`, one for `regenerate_user_handles --reroll-all`) so the four exclusion sites (model save, schema migration, data migration, management command) cannot drift apart silently.
+  - Architecture doc at `docs/architecture/user_handles.md` (wired into `mkdocs.yml`) documents the resolution chain, generator semantics, migrations, management command modes, and tunables.
+  - Post-merge cleanup pass on the handles PR: (1) `regenerate_user_handles` now raises `CommandError` when `--reroll-all` and `--reroll-suffixed` are passed together (previously the narrower flag was silently dropped); (2) the `\d+$` "is suffixed" regex is now sourced from a single `_SUFFIXED_RE` constant used by both the queryset filter and the compiled `_SUFFIXED_PATTERN` (eliminates a drift trap); (3) removed the unused `handle_field` parameter from `generate_handle` per YAGNI — every caller used the default; (4) added explanatory comment in `User.save()` that `self.pk` stays `None` across failed INSERT retries (so `scope_qs.exclude(pk=self.pk) if self.pk else scope_qs` is correct without a committed-row guard); (5) trimmed `"ox"` from `NOUNS` so the wordlist actually honours its documented 3-12 character bound; (6) tightened the `test_wordlists_provide_a_meaningful_namespace` floor from 10k to 40k and added `test_wordlists_respect_length_bounds` plus `test_reroll_all_and_reroll_suffixed_are_mutually_exclusive`.
+
 ### Security
 
 - **Close corpus-less `ModerationAction` auth gap in `resolve_moderation_action`** (`config/graphql/conversation_queries.py`, closes #1594). `resolve_moderation_action` previously short-circuited to `return action` whenever `conversation.chat_with_corpus` was `None`, leaking document-only and orphaned moderation actions to any authenticated user via direct ID lookup. The resolver now routes every case through `Conversation.can_moderate` (the same canonical authorization helper used by the moderation mutations), which accepts: superuser; conversation creator; corpus owner/designated moderator (when `chat_with_corpus` is set); document owner (when `chat_with_document` is set). Actions whose `conversation` FK is `NULL` (a rare historical edge — the column is nullable but every real action has one) fail closed for non-superusers. New regression coverage in `opencontractserver/tests/test_moderation.py` pins all four allowed paths plus the previously-leaking unauthorized-user case for both document-only and corpus-less conversations.
