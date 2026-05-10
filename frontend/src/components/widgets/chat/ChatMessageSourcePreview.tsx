@@ -32,7 +32,7 @@ import {
   SourcePreviewTitle,
   SourceText,
   SourceTitle,
-} from "./ChatMessage.styles";
+} from "./ChatMessageSourcePreview.styles";
 
 interface SourceItemProps {
   messageId: string;

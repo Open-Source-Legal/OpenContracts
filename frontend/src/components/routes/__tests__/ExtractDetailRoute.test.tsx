@@ -107,4 +107,33 @@ describe("ExtractDetailRoute", () => {
     expect(screen.getByText("ExtractDetail Component")).toBeInTheDocument();
     expect(screen.queryByText("Loading...")).toBeNull();
   });
+
+  // Regression guard for the navigation-loop fix (#1601). The deleted
+  // ExtractLandingRoute used to redirect /e/:user/:extract → /extracts/:id,
+  // which fought CentralRouteManager Phase 3's reverse redirect and tripped
+  // the circuit breaker. The fix is that ExtractDetailRoute is the single
+  // dumb consumer for both URL shapes; this test pins that contract by
+  // confirming no internal navigation occurs from a canonical /e/ URL when
+  // the extract is already resolved.
+  it("renders for canonical /e/:user/:extract without redirecting", () => {
+    openedExtract(mockExtract);
+    render(
+      <MockedProvider mocks={[]} addTypename={false}>
+        <MemoryRouter initialEntries={["/e/alice/test-extract"]}>
+          <Routes>
+            <Route
+              path="/e/:userIdent/:extractIdent"
+              element={<ExtractDetailRoute />}
+            />
+            <Route
+              path="/extracts/:extractId"
+              element={<div>SHOULD-NOT-RENDER</div>}
+            />
+          </Routes>
+        </MemoryRouter>
+      </MockedProvider>
+    );
+    expect(screen.getByText("ExtractDetail Component")).toBeInTheDocument();
+    expect(screen.queryByText("SHOULD-NOT-RENDER")).toBeNull();
+  });
 });
