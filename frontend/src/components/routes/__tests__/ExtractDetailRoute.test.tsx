@@ -116,7 +116,7 @@ describe("ExtractDetailRoute", () => {
   // confirming no internal navigation occurs from a canonical /e/ URL when
   // the extract is already resolved.
   it("renders for canonical /e/:user/:extract without redirecting", () => {
-    openedExtract(mockExtract as any);
+    openedExtract(mockExtract);
     render(
       <MockedProvider mocks={[]} addTypename={false}>
         <MemoryRouter initialEntries={["/e/alice/test-extract"]}>
