@@ -22,6 +22,7 @@ import {
 
 import { ServerAnnotationType } from "../../types/graphql-api";
 import { sanitizeForTooltip } from "../../utils/textSanitization";
+import { getCreatorDisplay, isOwnedBy } from "../../utils/userDisplay";
 import { useAnnotationImages } from "../annotator/hooks/useAnnotationImages";
 import { AnnotationImagePreview } from "../annotator/sidebar/AnnotationImagePreview";
 import { ModalityBadge } from "../annotator/sidebar/ModalityBadge";
@@ -339,17 +340,20 @@ export function getAnnotationSource(
 }
 
 /**
- * Determine visibility based on annotation properties
+ * Determine visibility based on annotation properties.
+ *
+ * Compares ownership by user ``id`` (the privacy contract redacts
+ * non-self emails to ``null``, so email comparison is unreliable).
  */
 export function getAnnotationVisibility(
   annotation: ServerAnnotationType,
-  currentUserEmail?: string
+  currentUserId?: string
 ): AnnotationVisibilityType {
   if (annotation.isPublic) {
     return "public";
   }
 
-  const isOwner = annotation.creator?.email === currentUserEmail;
+  const isOwner = isOwnedBy(annotation.creator, { id: currentUserId });
   if (isOwner) {
     return "private";
   }
@@ -476,10 +480,7 @@ export const ModernAnnotationCard: React.FC<ModernAnnotationCardProps> = ({
   const labelColor =
     annotation.annotationLabel?.color || OS_LEGAL_COLORS.textMuted;
   const labelName = annotation.annotationLabel?.text || "Unknown Label";
-  const creatorName =
-    annotation.creator?.email?.split("@")[0] ||
-    annotation.creator?.username ||
-    "Unknown";
+  const creatorName = getCreatorDisplay(annotation.creator);
   const documentName = annotation.document?.title || "Unknown Document";
 
   // Get labelset name from the corpus if available

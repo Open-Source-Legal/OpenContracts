@@ -14,7 +14,7 @@ test.describe("HeaderBar", () => {
         metadata={{
           title: "Quarterly Earnings Report",
           fileType: "application/pdf",
-          creator: { email: "alice@example.com" },
+          creator: { id: "user-1", slug: "alice" },
           created: "2025-09-10T12:00:00Z",
         }}
       />
@@ -22,7 +22,8 @@ test.describe("HeaderBar", () => {
 
     await expect(page.getByText("Quarterly Earnings Report")).toBeVisible();
     await expect(page.getByText("application/pdf")).toBeVisible();
-    await expect(page.getByText("alice@example.com")).toBeVisible();
+    // Slug-only privacy: cross-user surfaces render the slug, never email.
+    await expect(page.getByText("alice")).toBeVisible();
     await expect(page.getByText(/Created:/)).toBeVisible();
     // Confirm a real date is rendered (not the em-dash placeholder).
     await expect(page.getByText("—")).toHaveCount(0);
@@ -44,7 +45,7 @@ test.describe("HeaderBar", () => {
         metadata={{
           title: "Loading Document",
           fileType: "application/pdf",
-          creator: { email: "bob@example.com" },
+          creator: { id: "user-2", slug: "bob" },
           created: null,
         }}
       />
@@ -71,7 +72,7 @@ test.describe("HeaderBar", () => {
         metadata={{
           title: "Standalone Document",
           fileType: "application/pdf",
-          creator: { email: "alice@example.com" },
+          creator: { id: "user-1", slug: "alice" },
           created: "2025-09-10T12:00:00Z",
         }}
       />
@@ -97,7 +98,7 @@ test.describe("HeaderBar", () => {
         metadata={{
           title: "Corpus Document",
           fileType: "application/pdf",
-          creator: { email: "alice@example.com" },
+          creator: { id: "user-1", slug: "alice" },
           created: "2025-09-10T12:00:00Z",
         }}
       />
@@ -121,7 +122,7 @@ test.describe("HeaderBar", () => {
         metadata={{
           title: "Read-only Document",
           fileType: "application/pdf",
-          creator: { email: "alice@example.com" },
+          creator: { id: "user-1", slug: "alice" },
           created: "2025-09-10T12:00:00Z",
         }}
       />

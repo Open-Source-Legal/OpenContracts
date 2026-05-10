@@ -7,6 +7,12 @@ and ``username`` is set to the Auth0 ``sub`` claim for social-login users.
 
 These tests pin down the resolution priority and the redaction fallback so
 that a future regression cannot quietly re-expose the raw ``sub``.
+
+Privacy follow-up: the resolver now branches on whether the requester *is*
+the user being resolved. Self-views walk the rich profile-name fallback;
+non-self views always receive the user's ``slug`` (or a redacted
+``user_<pk-suffix>`` when slug is unset). The helpers below construct the
+appropriate ``info`` value for each kind of test.
 """
 
 from typing import Any, Optional
@@ -19,13 +25,35 @@ from config.graphql.user_types import UserType
 User = get_user_model()
 
 
-def _resolve(user) -> str:
-    """Invoke ``UserType.resolve_display_name`` against a real ``User`` row.
+class _FakeRequest:
+    """Minimal stand-in for ``info.context`` carrying just ``user``."""
 
-    The resolver is a plain method so we don't need a request/info object —
-    passing ``None`` keeps the test focused on the resolution priority.
+    def __init__(self, user) -> None:
+        self.user = user
+
+
+class _FakeInfo:
+    """Minimal stand-in for ``graphene.ResolveInfo`` carrying just ``context``."""
+
+    def __init__(self, user) -> None:
+        self.context = _FakeRequest(user)
+
+
+def _resolve(user) -> str:
+    """Resolve ``displayName`` as if the user is viewing their own profile.
+
+    The original tests in this module test the *self-view* fallback
+    chain (name → given+family → first+last → username/redaction). Wrap
+    every call in a self-view ``info`` so those assertions still target
+    the same logic after the privacy gate was added.
     """
-    return UserType.resolve_display_name(user, None)
+    return UserType.resolve_display_name(user, _FakeInfo(user))
+
+
+def _resolve_as_other(target, viewer) -> str:
+    """Resolve ``displayName`` as ``viewer`` looking at ``target`` — the
+    cross-user (non-self) branch. Always returns slug / redacted handle."""
+    return UserType.resolve_display_name(target, _FakeInfo(viewer))
 
 
 def _resolve_email(user, info) -> Optional[str]:
@@ -180,27 +208,16 @@ class DisplayNameResolverTestCase(TestCase):
         self.assertEqual(_resolve(user), "Lovelace")
 
 
-class _FakeRequest:
-    """Minimal stand-in for ``info.context`` carrying just ``user``."""
-
-    def __init__(self, user) -> None:
-        self.user = user
-
-
-class _FakeInfo:
-    """Minimal stand-in for ``graphene.ResolveInfo`` carrying just ``context``."""
-
-    def __init__(self, user) -> None:
-        self.context = _FakeRequest(user)
-
-
 class EmailResolverTestCase(TestCase):
-    """Pin down the email-gating contract: self / superuser only.
+    """Pin down the email-gating contract: self only.
 
     Issue: #1557 follow-up — even with the leaderboard query no longer
     selecting ``email``, ``DjangoObjectType`` would auto-expose the field
     to any client that selected it on a public ``user`` subtree. The
-    resolver must redact ``email`` for cross-user reads.
+    resolver must redact ``email`` for cross-user reads. The privacy
+    hardening that landed alongside the slug-only display policy removed
+    the superuser exception too: PII access is now reserved for Django
+    admin, not the public GraphQL API.
     """
 
     alice: Any
@@ -226,9 +243,11 @@ class EmailResolverTestCase(TestCase):
         info = _FakeInfo(self.alice)
         self.assertEqual(_resolve_email(self.alice, info), "alice@example.com")
 
-    def test_returns_email_for_superuser_view_of_other(self):
+    def test_redacts_email_for_superuser_view_of_other(self):
+        # The superuser exception was removed: even admins go through
+        # Django admin (server-side) for PII access, not the GraphQL API.
         info = _FakeInfo(self.admin)
-        self.assertEqual(_resolve_email(self.bob, info), "bob@example.com")
+        self.assertIsNone(_resolve_email(self.bob, info))
 
     def test_redacts_email_when_other_user_views(self):
         info = _FakeInfo(self.alice)
@@ -256,3 +275,31 @@ class EmailResolverTestCase(TestCase):
         no_email_user = User.objects.create_user(username="noemail", email="")
         info = _FakeInfo(no_email_user)
         self.assertIsNone(_resolve_email(no_email_user, info))
+
+
+class CrossUserDisplayNameTestCase(TestCase):
+    """Non-self views always receive the user's slug, never a real name.
+
+    Pinned alongside the privacy hardening that gates ``email`` /
+    ``name`` / ``firstName`` / ``lastName`` etc. to self-views only.
+    """
+
+    def test_other_user_view_returns_slug(self):
+        target = User.objects.create_user(
+            username="cross-target",
+            name="Real Name",
+            given_name="Real",
+            family_name="Name",
+            first_name="Real",
+            last_name="Name",
+        )
+        viewer = User.objects.create_user(username="cross-viewer")
+        self.assertEqual(_resolve_as_other(target, viewer), target.slug)
+
+    def test_other_user_view_never_returns_real_name(self):
+        target = User.objects.create_user(
+            username="cross-target-2",
+            name="Real Name",
+        )
+        viewer = User.objects.create_user(username="cross-viewer-2")
+        self.assertNotIn("Real Name", _resolve_as_other(target, viewer))

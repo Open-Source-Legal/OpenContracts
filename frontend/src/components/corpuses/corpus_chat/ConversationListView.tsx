@@ -16,6 +16,7 @@ import {
   IconButton,
 } from "../../knowledge_base/document/FilterContainers";
 import { FetchMoreOnVisible } from "../../widgets/infinite_scroll/FetchMoreOnVisible";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 
 import {
   EnhancedFilterContainer,
@@ -46,8 +47,12 @@ export interface ConversationNode {
   chatMessages: {
     totalCount: number;
   };
+  // ``email`` is redacted to ``null`` for non-self viewers per the user
+  // privacy contract — only ``id`` and ``slug`` are guaranteed.
   creator: {
-    email: string;
+    id?: string | null;
+    slug?: string | null;
+    email?: string | null;
   };
 }
 
@@ -248,10 +253,10 @@ export const CorpusConversationListView: React.FC<
                     <span>
                       {formatDistanceToNow(new Date(conv.createdAt))} ago
                     </span>
-                    {conv.creator?.email && (
+                    {conv.creator && (
                       <>
                         <span>·</span>
-                        <span>{conv.creator.email}</span>
+                        <span>{getCreatorDisplay(conv.creator)}</span>
                       </>
                     )}
                   </ChatItemMeta>

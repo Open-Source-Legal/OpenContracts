@@ -55,6 +55,7 @@ import {
   PICKER_DROPDOWN_WIDTH,
   PICKER_DROPDOWN_VIEWPORT_PADDING,
 } from "../../../assets/configurations/constants";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 
 // ============================================================================
 // Types
@@ -71,7 +72,13 @@ interface CorpusAction {
   agentConfig?: { id: string; name: string; description?: string } | null;
   taskInstructions?: string | null;
   preAuthorizedTools?: string[] | null;
-  creator: { username: string };
+  // ``username`` is redacted to ``null`` for non-self viewers per the
+  // user privacy contract — only ``id`` and ``slug`` are guaranteed.
+  creator: {
+    id?: string | null;
+    slug?: string | null;
+    username?: string | null;
+  };
   created: string;
   sourceTemplate?: { id: string; name: string } | null;
 }
@@ -473,7 +480,7 @@ export const CorpusActionsSection: React.FC<CorpusActionsSectionProps> = ({
                         }}
                       >
                         <User size={16} />
-                        {action.creator.username}
+                        {getCreatorDisplay(action.creator)}
                       </div>
                       <div
                         style={{

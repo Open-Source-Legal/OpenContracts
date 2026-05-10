@@ -556,7 +556,6 @@ export const GET_CORPUS_WITH_HISTORY = gql`
       licenseLink
       creator {
         id
-        email
         slug
         __typename
       }
@@ -570,7 +569,7 @@ export const GET_CORPUS_WITH_HISTORY = gql`
         version
         author {
           id
-          email
+          slug
           __typename
         }
         created
@@ -1141,8 +1140,7 @@ export const GET_ANNOTATIONS_FOR_CARDS = gql`
           created
           creator {
             id
-            email
-            username
+            slug
             __typename
           }
           corpus {
@@ -1532,6 +1530,7 @@ export const GET_ANALYSES = gql`
           id
           creator {
             id
+            slug
             email
           }
           isPublic
@@ -1656,6 +1655,7 @@ export const GET_FIELDSETS = gql`
           id
           creator {
             id
+            slug
             username
           }
           name
@@ -1699,6 +1699,7 @@ export const REQUEST_GET_FIELDSET = gql`
       inUse
       creator {
         id
+        slug
         username
       }
       fullColumnList {
@@ -1752,6 +1753,7 @@ export const REQUEST_GET_EXTRACT = gql`
       }
       creator {
         id
+        slug
         username
       }
       created
@@ -1774,6 +1776,7 @@ export const REQUEST_GET_EXTRACT = gql`
         iterationAxis
         creator {
           id
+          slug
           username
         }
       }
@@ -1836,6 +1839,7 @@ export const REQUEST_GET_EXTRACT = gql`
           }
           creator {
             id
+            slug
             email
           }
           isPublic
@@ -2501,6 +2505,7 @@ export const GET_CONVERSATIONS = gql`
           updatedAt
           creator {
             id
+            slug
             username
             email
           }
@@ -2580,6 +2585,7 @@ export const GET_THREAD_DETAIL = gql`
       updatedAt
       creator {
         id
+        slug
         username
         email
       }
@@ -2640,6 +2646,7 @@ export const GET_THREAD_DETAIL = gql`
         modified
         creator {
           id
+          slug
           username
           email
         }
@@ -2699,22 +2706,23 @@ export interface SearchUsersForMentionOutput {
     edges: Array<{
       node: {
         id: string;
-        username: string;
-        email: string | null;
         slug: string | null;
       };
     }>;
   };
 }
 
+// ``username``/``email`` are now redacted for cross-user views (see
+// ``config/graphql/user_types.py``), so the only stable identifier we can
+// surface in a public mention dropdown is ``slug``. Selecting them here
+// would have returned ``null`` for every other user and rendered as
+// "null" in the menu.
 export const SEARCH_USERS_FOR_MENTION = gql`
   query SearchUsersForMention($textSearch: String!) {
     searchUsersForMention(textSearch: $textSearch, first: 10) {
       edges {
         node {
           id
-          username
-          email
           slug
         }
       }
@@ -3146,6 +3154,7 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
       fileType
       creator {
         id
+        slug
         email
       }
       created
@@ -3162,6 +3171,7 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         created
         creator {
           id
+          slug
           email
         }
       }
@@ -3497,6 +3507,7 @@ export const GET_DOCUMENT_WITH_STRUCTURE = gql`
       fileType
       creator {
         id
+        slug
         email
       }
       created
@@ -3540,6 +3551,7 @@ export const GET_DOCUMENT_WITH_STRUCTURE = gql`
         content
         creator {
           id
+          slug
           email
         }
         created
@@ -3681,6 +3693,7 @@ export const GET_CHAT_MESSAGES = gql`
       data
       creator {
         id
+        slug
         username
         email
       }
@@ -3700,6 +3713,7 @@ export const GET_CORPUS_ACTIONS = gql`
           runOnAllCorpuses
           creator {
             id
+            slug
             username
           }
           fieldset {
@@ -3803,6 +3817,7 @@ export const GET_CORPUS_CONVERSATIONS = gql`
           }
           creator {
             id
+            slug
             email
           }
         }
@@ -3831,6 +3846,7 @@ export const GET_CORPUS_CHAT_MESSAGES = gql`
           data
           creator {
             id
+            slug
             email
           }
         }
@@ -3951,14 +3967,17 @@ export interface GetUserInput {
 }
 
 export interface GetUserOutput {
+  // The privacy contract redacts ``username``, ``name``, ``firstName``,
+  // ``lastName`` and ``email`` to ``null`` for non-self viewers. Only
+  // ``id`` and ``slug`` are guaranteed non-null cross-user.
   userBySlug: {
     id: string;
-    username: string;
+    username: string | null;
     slug: string;
-    name: string;
-    firstName: string;
-    lastName: string;
-    email: string;
+    name: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
     isProfilePublic: boolean;
     reputationGlobal: number;
     totalMessages: number;
@@ -4094,6 +4113,7 @@ export const GET_BADGES = gql`
           }
           creator {
             id
+            slug
             username
           }
           created
@@ -4562,6 +4582,7 @@ export const SEARCH_CONVERSATIONS = gql`
           modified
           creator {
             id
+            slug
             username
           }
           chatMessages {
@@ -4749,6 +4770,7 @@ export const GET_CORPUS_AGENTS = gql`
           isPublic
           creator {
             id
+            slug
             username
           }
           created
@@ -4912,6 +4934,7 @@ export const GET_CORPUS_ACTION_EXECUTIONS = gql`
           }
           creator {
             id
+            slug
             username
           }
         }
@@ -5090,7 +5113,7 @@ export const GET_MODERATION_ACTIONS = gql`
           }
           moderator {
             id
-            username
+            slug
           }
         }
       }
@@ -5126,7 +5149,7 @@ export interface ModerationActionNode {
   } | null;
   moderator: {
     id: string;
-    username: string;
+    slug: string | null;
   } | null;
 }
 
@@ -5312,6 +5335,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
           }
           creator {
             id
+            slug
             username
           }
           created
@@ -5412,6 +5436,7 @@ export const GET_CORPUS_ARTICLE = gql`
           modified
           creator {
             id
+            slug
             email
           }
         }

@@ -37,6 +37,7 @@ import {
 import { SafeMarkdown } from "../knowledge_base/markdown/SafeMarkdown";
 import { ErrorMessage } from "../widgets/feedback";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 // Styled Components
 const StyledModalWrapper = styled.div`
@@ -965,7 +966,7 @@ export const CorpusDescriptionEditor: React.FC<
                 <div className="meta">
                   <div className="meta-item">
                     <User size={14} />
-                    {data?.corpus.creator.email || "Creator"}
+                    {getCreatorDisplay(data?.corpus.creator)}
                   </div>
                   <div className="meta-item">
                     <GitBranch size={14} />
@@ -1099,7 +1100,7 @@ export const CorpusDescriptionEditor: React.FC<
                               <div className="version-meta">
                                 <div className="meta-row">
                                   <User size={12} />
-                                  {revision.author.email}
+                                  {getCreatorDisplay(revision.author)}
                                 </div>
                                 <div className="meta-row">
                                   <Clock size={12} />

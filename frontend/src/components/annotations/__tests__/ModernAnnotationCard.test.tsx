@@ -56,8 +56,8 @@ const createMockAnnotation = (
   isPublic: false,
   created: new Date().toISOString(),
   creator: {
-    email: "test@example.com",
-    username: "testuser",
+    id: "user-test",
+    slug: "testuser",
   } as ServerAnnotationType["creator"],
   ...overrides,
 });
@@ -145,24 +145,20 @@ describe("ModernAnnotationCard", () => {
         const annotation = createMockAnnotation({
           isPublic: false,
           creator: {
-            email: "me@example.com",
+            id: "user-1",
           } as ServerAnnotationType["creator"],
         });
-        expect(getAnnotationVisibility(annotation, "me@example.com")).toBe(
-          "private"
-        );
+        expect(getAnnotationVisibility(annotation, "user-1")).toBe("private");
       });
 
       it("returns 'shared' for non-public annotations not created by current user", () => {
         const annotation = createMockAnnotation({
           isPublic: false,
           creator: {
-            email: "other@example.com",
+            id: "user-2",
           } as ServerAnnotationType["creator"],
         });
-        expect(getAnnotationVisibility(annotation, "me@example.com")).toBe(
-          "shared"
-        );
+        expect(getAnnotationVisibility(annotation, "user-1")).toBe("shared");
       });
     });
   });

@@ -10,6 +10,7 @@ import {
 } from "../widgets/context-menu/ContextMenu";
 import { getLabelsetUrl } from "../../utils/navigationUtils";
 import { getPermissions } from "../../utils/transform";
+import { isOwnedBy } from "../../utils/userDisplay";
 import { PermissionTypes } from "../types";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
@@ -60,9 +61,9 @@ const KebabIcon = () => (
 
 function getVisibilityStatus(
   labelset: LabelSetType,
-  currentUserEmail?: string
+  currentUserId?: string
 ): string {
-  const isOwner = labelset.creator?.email === currentUserEmail;
+  const isOwner = isOwnedBy(labelset.creator, { id: currentUserId });
   if (labelset.isPublic) return "Public";
   if (isOwner) return "Private";
   return "Shared";
@@ -112,7 +113,7 @@ function formatStats(labelset: LabelSetType): string[] {
 
 interface LabelSetListCardProps {
   labelset: LabelSetType;
-  currentUserEmail?: string;
+  currentUserId?: string;
   onEdit?: (labelset: LabelSetType) => void;
   onView?: (labelset: LabelSetType) => void;
   onDelete?: (labelset: LabelSetType) => void;
@@ -125,7 +126,7 @@ interface LabelSetListCardProps {
 
 export const LabelSetListCard: React.FC<LabelSetListCardProps> = ({
   labelset,
-  currentUserEmail,
+  currentUserId,
   onEdit,
   onView,
   onDelete,
@@ -162,7 +163,7 @@ export const LabelSetListCard: React.FC<LabelSetListCardProps> = ({
     }
   };
 
-  const visibilityStatus = getVisibilityStatus(labelset, currentUserEmail);
+  const visibilityStatus = getVisibilityStatus(labelset, currentUserId);
   const stats = formatStats(labelset);
   const permissions = getPermissions(labelset.myPermissions || []);
   const canUpdate = permissions.includes(PermissionTypes.CAN_UPDATE);

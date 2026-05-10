@@ -24,6 +24,7 @@ import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import { CorpusType } from "../../../types/graphql-api";
 import { PermissionTypes } from "../../types";
 import { getPermissions } from "../../../utils/transform";
+import { getCreatorDisplay } from "../../../utils/userDisplay";
 import { InlineChatBar } from "../CorpusHero/InlineChatBar";
 import { MCPShareButton } from "../../common/MCPShareButton";
 import { RecentDiscussions } from "./RecentDiscussions";
@@ -208,7 +209,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
     PermissionTypes.CAN_UPDATE
   );
 
-  const creatorName = fullCorpus.creator?.email?.split("@")[0] || "Unknown";
+  const creatorName = getCreatorDisplay(fullCorpus.creator);
   const createdDate = fullCorpus.created
     ? formatDistanceToNow(new Date(fullCorpus.created), { addSuffix: true })
     : "recently";

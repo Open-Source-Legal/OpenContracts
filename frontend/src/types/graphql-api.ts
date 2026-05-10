@@ -941,8 +941,11 @@ export type UserType = Node & {
   id?: Scalars["ID"];
   password?: Scalars["String"];
   lastLogin?: Maybe<Scalars["DateTime"]>;
-  isUsageCapped?: Scalars["Boolean"];
-  canImportCorpus?: Scalars["Boolean"];
+  // Self-only fields under the slug-only privacy policy: cross-user /
+  // anonymous viewers receive ``null``. Matches the backend resolver gate in
+  // ``config/graphql/user_types.py``.
+  isUsageCapped?: Maybe<Scalars["Boolean"]>;
+  canImportCorpus?: Maybe<Scalars["Boolean"]>;
   isSuperuser?: Scalars["Boolean"];
   username?: Scalars["String"];
   email: Scalars["String"];

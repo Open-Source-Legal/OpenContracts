@@ -3,7 +3,7 @@ import { MessageNode } from "./utils";
 import { MessageItem } from "./MessageItem";
 import { UserBadgeType } from "../../types/graphql-api";
 import { PermissionTypes } from "../types";
-import { formatUsername } from "./userUtils";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 /**
  * Props for the MessageTree component.
@@ -132,10 +132,7 @@ export const MessageTree = React.memo(function MessageTree({
                 corpusId={corpusId}
                 onMessageUpdated={onMessageUpdated}
                 onMessageDeleted={onMessageDeleted}
-                parentAuthor={formatUsername(
-                  message.creator?.username,
-                  message.creator?.email
-                )}
+                parentAuthor={getCreatorDisplay(message.creator)}
               />
             )}
           </React.Fragment>

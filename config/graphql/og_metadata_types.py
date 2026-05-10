@@ -20,7 +20,7 @@ class OGCorpusMetadataType(graphene.ObjectType):
     description = graphene.String(description="Corpus description (truncated)")
     icon_url = graphene.String(description="URL to corpus icon/thumbnail")
     document_count = graphene.Int(description="Number of documents in corpus")
-    creator_name = graphene.String(description="Username of corpus creator")
+    creator_name = graphene.String(description="Public slug of corpus creator")
     is_public = graphene.Boolean(description="Always True for returned entities")
 
 
@@ -36,7 +36,7 @@ class OGDocumentMetadataType(graphene.ObjectType):
     corpus_description = graphene.String(
         description="Description of parent corpus (if document is in a corpus)"
     )
-    creator_name = graphene.String(description="Username of document creator")
+    creator_name = graphene.String(description="Public slug of document creator")
     is_public = graphene.Boolean(description="Always True for returned entities")
 
 
@@ -46,7 +46,7 @@ class OGThreadMetadataType(graphene.ObjectType):
     title = graphene.String(description="Thread title or default 'Discussion'")
     corpus_title = graphene.String(description="Title of parent corpus")
     message_count = graphene.Int(description="Number of messages in thread")
-    creator_name = graphene.String(description="Username of thread creator")
+    creator_name = graphene.String(description="Public slug of thread creator")
     is_public = graphene.Boolean(description="Always True for returned entities")
 
 
@@ -56,5 +56,5 @@ class OGExtractMetadataType(graphene.ObjectType):
     name = graphene.String(description="Extract name")
     corpus_title = graphene.String(description="Title of source corpus")
     fieldset_name = graphene.String(description="Name of fieldset used for extraction")
-    creator_name = graphene.String(description="Username of extract creator")
+    creator_name = graphene.String(description="Public slug of extract creator")
     is_public = graphene.Boolean(description="Always True for returned entities")

@@ -70,7 +70,10 @@ class AnnotatePermissionsForReadMixin:
             model_name = self._meta.model_name
             this_user_perms = getattr(self, f"{model_name}userobjectpermission_set")
 
-            for perm in this_user_perms.all():
+            # ``select_related("user")`` collapses what was an N+1 across
+            # ``perm.user.slug`` for shared corpuses with many collaborators
+            # into a single JOIN — only the slug is read per user, never PII.
+            for perm in this_user_perms.select_related("user").all():
 
                 logger.info(f"perm: {perm}")
 
@@ -84,10 +87,14 @@ class AnnotatePermissionsForReadMixin:
                             perm.permission_id
                         ]: this_model_permission_id_map[perm.permission_id]
                     }
+                    # Only the case-sensitive ``slug`` is exposed for the
+                    # users an object is shared with — never ``email`` or
+                    # ``username``. The slug is the public handle; emitting
+                    # email here previously leaked PII to every viewer of
+                    # any shared corpus / document / labelset.
                     user_permission_map[perm.user_id] = {
                         "id": perm.user_id,
-                        "email": perm.user.email,
-                        "username": perm.user.username,
+                        "slug": perm.user.slug,
                         "permissions": seed_permission,
                     }
 
@@ -96,8 +103,7 @@ class AnnotatePermissionsForReadMixin:
                 values.append(
                     {
                         "id": value["id"],
-                        "email": value["email"],
-                        "username": value["username"],
+                        "slug": value["slug"],
                         "permissions": list(value["permissions"].values()),
                     }
                 )

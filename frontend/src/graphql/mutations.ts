@@ -192,6 +192,7 @@ export const UPDATE_CORPUS_DESCRIPTION = gql`
           version
           author {
             id
+            slug
             email
           }
           created
@@ -2502,8 +2503,7 @@ export const CREATE_THREAD_MESSAGE = gql`
         modified
         creator {
           id
-          username
-          email
+          slug
         }
         conversation {
           id
@@ -2533,8 +2533,7 @@ export interface CreateThreadMessageOutput {
       modified: string;
       creator: {
         id: string;
-        username: string;
-        email: string;
+        slug: string | null;
       };
       conversation: {
         id: string;
@@ -2559,15 +2558,14 @@ export const REPLY_TO_MESSAGE = gql`
         modified
         creator {
           id
-          username
-          email
+          slug
         }
         parentMessage {
           id
           content
           creator {
             id
-            username
+            slug
           }
         }
         conversation {
@@ -2598,15 +2596,14 @@ export interface ReplyToMessageOutput {
       modified: string;
       creator: {
         id: string;
-        username: string;
-        email: string;
+        slug: string | null;
       };
       parentMessage: {
         id: string;
         content: string;
         creator: {
           id: string;
-          username: string;
+          slug: string | null;
         };
       } | null;
       conversation: {
@@ -3296,6 +3293,7 @@ export const CREATE_DOCUMENT_RELATIONSHIP = gql`
         }
         creator {
           id
+          slug
           username
         }
         created

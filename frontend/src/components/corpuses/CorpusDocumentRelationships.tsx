@@ -29,6 +29,7 @@ import {
 import { openedCorpus } from "../../graphql/cache";
 import { navigateToRelationshipDocument } from "../../utils/navigationUtils";
 import { getPermissions } from "../../utils/transform";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 import { PermissionTypes } from "../types";
 import {
   OS_LEGAL_COLORS,
@@ -551,7 +552,7 @@ export const CorpusDocumentRelationships: React.FC<
                     )}
                   </td>
                   <td>
-                    <CreatorCell>{rel.creator?.username || "—"}</CreatorCell>
+                    <CreatorCell>{getCreatorDisplay(rel.creator)}</CreatorCell>
                   </td>
                   <td>
                     <DateCell>
