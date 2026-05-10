@@ -342,4 +342,44 @@ describe("useDocumentLoader", () => {
 
     unmount();
   });
+
+  it("does not toast or transition viewState when the TXT body load resolves after unmount", async () => {
+    // Hold the text fetch open so we can unmount before it resolves and
+    // assert that the cancellation guard prevents a setState-after-unmount.
+    let resolveText!: (txt: string) => void;
+    const pendingText = new Promise<string>((resolve) => {
+      resolveText = resolve;
+    });
+    getDocumentRawTextMock.mockReturnValue(pendingText);
+
+    const { toast } = await import("react-toastify");
+
+    const { result, unmount } = renderHook(
+      () => useDocumentLoader({ ...baseParams, corpusId: undefined }),
+      {
+        wrapper: buildWrapper({
+          mocks: [documentOnlyMock("doc-1"), conversationsMock("doc-1", 0)],
+        }),
+      }
+    );
+
+    // Wait one tick so the document-only query resolves and the TXT body
+    // fetch has actually been kicked off (mock function called).
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getDocumentRawTextMock).toHaveBeenCalled();
+
+    // Unmount BEFORE the body promise settles. The body load's
+    // ``cancelled`` flag (added by the unmount-cancellation fix) should
+    // suppress both the LOADED setViewState and any error toast when the
+    // late resolution lands.
+    unmount();
+    resolveText("late body");
+    await new Promise((r) => setTimeout(r, 10));
+
+    // ``result.current`` is the final live snapshot from before unmount,
+    // so it must NOT have advanced to LOADED — proving setViewState was
+    // never called for this stale resolution.
+    expect(result.current.viewState).toBe(ViewState.LOADING);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
 });

@@ -68,6 +68,19 @@ import {
 import { routingLogger } from "../../../../utils/routingLogger";
 import { relationToGroup } from "./helpers";
 
+/**
+ * Sentinel rejection used to short-circuit the PDF promise chain when a
+ * mid-flight load is cancelled (doc switch / unmount). Carrying this through
+ * a typed rejection lets the catch handler distinguish cancellation from a
+ * real load failure without having to inspect the global ``cancelled`` flag.
+ */
+class DocumentLoadCancelled extends Error {
+  constructor() {
+    super("Document body load cancelled");
+    this.name = "DocumentLoadCancelled";
+  }
+}
+
 interface UseDocumentLoaderParams {
   documentId: string;
   corpusId?: string;
@@ -141,7 +154,12 @@ export function useDocumentLoader({
   selectedExtractId,
 }: UseDocumentLoaderParams): UseDocumentLoaderReturn {
   const [viewState, setViewState] = useState<ViewState>(ViewState.LOADING);
-  const docxLoadCancelRef = useRef<() => void>(() => {});
+  // Single cancellation handle shared across PDF / TXT / DOCX body loads:
+  // a doc switch (or unmount) mid-load must prevent the in-flight promise
+  // chain from writing into the *next* document's atoms. Each branch
+  // installs a fresh canceller before kicking off its fetch and reads the
+  // captured ``cancelled`` flag inside every settle handler.
+  const bodyLoadCancelRef = useRef<() => void>(() => {});
 
   const { setDocumentType } = useDocumentType();
   const { setDocument } = useDocumentState();
@@ -160,16 +178,16 @@ export function useDocumentLoader({
   const [, setPdfAnnotations] = useAtom(pdfAnnotationsAtom);
 
   /**
-   * DOCX body loader. Cancellable via `docxLoadCancelRef` so a doc switch
+   * DOCX body loader. Cancellable via `bodyLoadCancelRef` so a doc switch
    * mid-load doesn't write stale bytes/text into the new document's atoms.
    */
   const loadDocxDocument = useCallback(
     (doc: DocumentBodyData) => {
       if (!doc.pdfFile) return;
 
-      docxLoadCancelRef.current();
+      bodyLoadCancelRef.current();
       let cancelled = false;
-      docxLoadCancelRef.current = () => {
+      bodyLoadCancelRef.current = () => {
         cancelled = true;
       };
 
@@ -405,6 +423,13 @@ export function useDocumentLoader({
         routingLogger.debug("Type: PDF");
         routingLogger.debug("Document ID:", doc.id);
         routingLogger.debug("Hash:", doc.pdfFileHash || "no hash");
+
+        bodyLoadCancelRef.current();
+        let cancelled = false;
+        bodyLoadCancelRef.current = () => {
+          cancelled = true;
+        };
+
         setViewState(ViewState.LOADING);
 
         const pawlsPath = doc.pawlsParseFile || "";
@@ -418,13 +443,16 @@ export function useDocumentLoader({
 
         pdfUrlPromise
           .then((pdfUrl) => {
+            if (cancelled) return Promise.reject(new DocumentLoadCancelled());
             const loadingTask: PDFDocumentLoadingTask = getDocument(pdfUrl);
             loadingTask.onProgress = (p: { loaded: number; total: number }) => {
+              if (cancelled) return;
               setProgress(Math.round((p.loaded / p.total) * 100));
             };
             return Promise.all([loadingTask.promise, pawlsPromise]);
           })
           .then(([pdfDocProxy, pawlsData]) => {
+            if (cancelled) return;
             if (!pawlsData) {
               console.error(
                 "onCompleted: PAWLS data received is null or undefined!"
@@ -436,8 +464,12 @@ export function useDocumentLoader({
             setPdfDoc(pdfDocProxy);
             return buildPdfPages(pdfDocProxy, pawlsData);
           })
-          .then(finalizePdfLoad)
+          .then((pages) => {
+            if (cancelled || !pages) return;
+            finalizePdfLoad(pages);
+          })
           .catch((err) => {
+            if (cancelled || err instanceof DocumentLoadCancelled) return;
             console.error("Error during PDF/PAWLS loading Promise.all:", err);
             routingLogger.debug("=== DOCUMENT LOAD FAILED ===");
             setViewState(ViewState.ERROR);
@@ -456,6 +488,13 @@ export function useDocumentLoader({
         routingLogger.debug("Document ID:", doc.id);
         routingLogger.debug("Hash:", doc.pdfFileHash || "no hash");
         routingLogger.debug("File URL:", doc.txtExtractFile);
+
+        bodyLoadCancelRef.current();
+        let cancelled = false;
+        bodyLoadCancelRef.current = () => {
+          cancelled = true;
+        };
+
         setViewState(ViewState.LOADING);
         const textPromise = useCachedFetch
           ? getDocumentRawText(
@@ -467,6 +506,7 @@ export function useDocumentLoader({
 
         textPromise
           .then((txt) => {
+            if (cancelled) return;
             routingLogger.debug(
               "[Text Load] Batching text completion state updates"
             );
@@ -478,6 +518,7 @@ export function useDocumentLoader({
             routingLogger.debug("=== DOCUMENT LOAD COMPLETE ===");
           })
           .catch((err) => {
+            if (cancelled) return;
             setViewState(ViewState.ERROR);
             routingLogger.debug("=== DOCUMENT LOAD FAILED ===");
             toast.error(
@@ -656,10 +697,12 @@ export function useDocumentLoader({
 
   // Re-fetch annotations when the active analysis changes.
   // Deps intentionally omit `refetchAnnotationsOnly` and
-  // `processAnnotationsOnlyData`: Apollo's `useLazyQuery` returns a new
-  // function identity on every render, and the callback is recreated each
-  // time as well. Including either would re-trigger this effect on every
-  // parent render and turn it into a refetch loop.
+  // `processAnnotationsOnlyData`. ``refetch`` from ``useQuery`` is in fact
+  // identity-stable; the omission is for ``processAnnotationsOnlyData``,
+  // whose ``setPdfAnnotations`` dependency rebuilds the callback each
+  // render and would re-fire this effect on every parent render. Listing
+  // ``refetch`` alongside it keeps the dep array honest about what we
+  // intentionally omit instead of pretending only one is the problem.
   useEffect(() => {
     if (!loading && corpusId) {
       refetchAnnotationsOnly({
@@ -691,7 +734,7 @@ export function useDocumentLoader({
   // Reset DOCX bytes on unmount to avoid stale WASM data when navigating away.
   useEffect(() => {
     return () => {
-      docxLoadCancelRef.current();
+      bodyLoadCancelRef.current();
       setDocxBytes(null);
     };
   }, [setDocxBytes]);

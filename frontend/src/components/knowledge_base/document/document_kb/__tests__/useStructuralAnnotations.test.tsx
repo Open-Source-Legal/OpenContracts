@@ -1,5 +1,11 @@
-import { renderHook } from "../../../../../test-utils/renderHook";
-import { render, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "../../../../../test-utils/renderHook";
+// ``render`` here is from @testing-library/react; ``waitFor`` deliberately
+// uses the project's act-wrapped variant. The library's own ``waitFor`` does
+// not flush React 18 updates from useEffect chains under the
+// ``IS_REACT_ACT_ENVIRONMENT`` flag, so atom updates triggered by
+// ``useLazyQuery`` never reach the rendered probe and the predicate spins
+// against stale state. See ``test-utils/renderHook.tsx`` for the rationale.
+import { render } from "@testing-library/react";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { Provider, useAtomValue } from "jotai";
 import * as React from "react";
