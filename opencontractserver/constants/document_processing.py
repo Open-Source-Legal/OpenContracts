@@ -10,6 +10,20 @@ AppRegistryNotReady errors during settings loading.
 # ingestion and in the parser pipeline for type detection.
 MARKDOWN_MIME_TYPE = "text/markdown"
 
+# Title used for the corpus-level CAML article — the "Readme.CAML" Markdown
+# document attached to a corpus that drives the citation-review tooling.
+#
+# The frontend stores the same string under the name ``CAML_ARTICLE_FILENAME``
+# in ``frontend/src/assets/configurations/constants.ts`` because the
+# frontend treats the article as a synthetic file the user opens from the
+# document list (it sets ``Document.title = CAML_ARTICLE_FILENAME`` when
+# creating the row).  The backend treats it as a *title* — it queries
+# ``Document.objects.filter(title=CAML_ARTICLE_TITLE)``.  The two names
+# refer to the same literal value (``"Readme.CAML"``) and MUST stay in
+# sync; the rename divergence is intentional so each side reads naturally
+# in its own context.
+CAML_ARTICLE_TITLE = "Readme.CAML"
+
 # MIME type for Microsoft Word (DOCX) documents.
 DOCX_MIME_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -168,3 +182,16 @@ DEFAULT_SLIDING_WINDOW_OVERLAP = 200
 # inputs (e.g. a 10MB log line with no spaces) that would otherwise make the
 # inner scan O(n²) relative to the span length.
 MAX_WORD_BOUNDARY_SCAN_CHARS = 512
+
+# ---------------------------------------------------------------------------
+# CAML article citation review tools
+# ---------------------------------------------------------------------------
+
+# Cap on candidates returned by ``apropose_caml_citation_match`` -- keeps the
+# tool output bounded regardless of what the LLM passes for ``limit``.
+CAML_CITATION_MAX_CANDIDATES = 25
+
+# Window of surrounding text returned in ``aapply_caml_article_edit``'s preview
+# so the approval modal can show "before/after" context without dumping the
+# whole document.
+CAML_EDIT_PREVIEW_RADIUS_CHARS = 80
