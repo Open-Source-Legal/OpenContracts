@@ -363,6 +363,56 @@ class AnnotationImagesAPITestCase(TestCase):
         self.assertEqual(data["count"], 0)
         self.assertEqual(len(data["images"]), 0)
 
+    def test_fetch_images_anonymous_corpus_none_structural(self):
+        """
+        Anonymous users CAN fetch images for structural annotations on public
+        documents even when ``corpus`` is NULL — the queryset's
+        ``Q(corpus__isnull=True) | Q(corpus__is_public=True)`` branch
+        explicitly admits this case (see AnnotationQuerySet.visible_to_user).
+        """
+        client = APIClient()  # no auth
+
+        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
+        document = Document.objects.create(
+            creator=self.user,
+            title="Public Doc Corpusless",
+            description="Public, no corpus binding",
+            pdf_file="test.pdf",
+            is_public=True,
+        )
+        pawls_json = json.dumps(pawls_data).encode("utf-8")
+        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
+
+        # Structural annotation with corpus=None — the queryset accepts this
+        # via the Q(corpus__isnull=True) branch when document is public.
+        annotation = Annotation.objects.create(
+            document=document,
+            corpus=None,
+            creator=self.user,
+            page=0,
+            annotation_label=self.annotation_label,
+            raw_text="",
+            structural=True,
+            json={
+                "0": {
+                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 1},
+                        {"pageIndex": 0, "tokenIndex": 2},
+                    ],
+                    "rawText": "",
+                }
+            },
+            content_modalities=["IMAGE"],
+        )
+
+        response = client.get(f"/api/annotations/{annotation.id}/images/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(len(data["images"]), 2)
+
     def test_fetch_images_for_text_only_annotation(self):
         """Test fetching images for annotation with no images."""
         client = APIClient()

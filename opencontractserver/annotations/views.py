@@ -22,9 +22,16 @@ class AnnotationImagesThrottle(UserRateThrottle):
 
 
 class AnnotationImagesAnonThrottle(AnonRateThrottle):
-    """Rate limiting for annotation image retrieval endpoint (anonymous)."""
+    """Rate limiting for annotation image retrieval endpoint (anonymous).
 
-    scope = "annotation_images"
+    Distinct scope from the authenticated throttle so the two cache keys
+    don't collide on IP for anonymous requests. ``UserRateThrottle`` falls
+    back to IP for unauthenticated callers, and a shared scope would mean
+    every anonymous request consumed *two* slots from the same bucket —
+    halving the effective rate.
+    """
+
+    scope = "annotation_images_anon"
 
 
 class AnnotationImagesView(APIView):
@@ -44,6 +51,8 @@ class AnnotationImagesView(APIView):
     - Returns empty array for unauthorized/missing (IDOR protection)
 
     Rate limited to 200 requests/hour per user/IP to prevent resource exhaustion.
+    Authenticated and anonymous callers each have their own bucket so anon
+    traffic cannot starve the authenticated quota and vice versa.
     """
 
     permission_classes = [AllowAny]
