@@ -307,6 +307,22 @@ class PydanticAIDependencies(BaseModel):
         ),
     )
 
+    # Per-turn running tally of characters returned by *implicit* (no-end)
+    # ``load_document_text`` calls. Reset by ``_refresh_context_budget`` at
+    # the start of each turn. Lets the second/third implicit call back off
+    # against a budget that already accounts for what earlier calls in the
+    # same turn consumed — without this counter every implicit call sees the
+    # same fresh ``recommended_chunk_chars()`` snapshot and could keep
+    # returning an equally-large chunk.
+    turn_implicit_doc_text_chars: int = Field(
+        default=0,
+        description=(
+            "Per-turn running tally of characters returned by implicit "
+            "(no-end) load_document_text calls; reset by the agent at "
+            "the start of each turn."
+        ),
+    )
+
     def remaining_tokens_until_compaction(self) -> int:
         """Tokens still available before the compaction threshold trips.
 

@@ -73,6 +73,15 @@ TOOL_OUTPUT_TRUNCATION_NOTICE: str = (
     "use start/end parameters to load specific sections]"
 )
 
+# Floor (in characters) for the budget-derived default chunk size used by
+# ``load_document_text`` when ``end`` is omitted. Keeps the implicit slice
+# big enough to be useful for whole-document tasks (summarisation, full-text
+# Q&A) even when the per-turn context budget is starved. ``MAX_TOOL_OUTPUT_CHARS``
+# is the wrapper-level ceiling for stringified tool returns; the dict-returning
+# ``load_document_text`` deliberately bypasses that truncation, so a 5K floor
+# is comfortably below any model's residual context.
+MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS: int = 5_000
+
 # ---------------------------------------------------------------------------
 # Compaction summary budget
 # ---------------------------------------------------------------------------

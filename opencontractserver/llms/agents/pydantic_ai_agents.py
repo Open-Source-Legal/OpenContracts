@@ -32,7 +32,10 @@ from pydantic_ai.messages import (
 from pydantic_ai.toolsets import FunctionToolset
 from pydantic_graph import End
 
-from opencontractserver.constants.context_guardrails import COMPACTION_SUMMARY_PREFIX
+from opencontractserver.constants.context_guardrails import (
+    COMPACTION_SUMMARY_PREFIX,
+    MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
+)
 from opencontractserver.constants.llm import STRUCTURED_OUTPUT_RETRIES
 from opencontractserver.conversations.models import Conversation
 from opencontractserver.corpuses.models import Corpus
@@ -69,6 +72,7 @@ from opencontractserver.llms.context_guardrails import (
 )
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.core_tools import (
+    _DOC_TXT_CACHE,
     AnnotationItem,
     aadd_annotations_from_exact_strings,
     aadd_document_note,
@@ -317,6 +321,10 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         self.agent_deps.compaction_threshold_ratio = (
             self.config.compaction.threshold_ratio
         )
+        # Reset the per-turn tally of implicit-chunk characters. Without this
+        # the counter would accumulate across turns and starve the budget on
+        # long-running streaming sessions.
+        self.agent_deps.turn_implicit_doc_text_chars = 0
 
     async def _initialise_llm_message(self, user_text: str) -> tuple[int, int]:
         """Ensure messages are persisted exactly once per turn.
@@ -2306,11 +2314,13 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         # -----------------------------
         async def get_document_text_length_tool() -> int:
             """Get the total character length of the document's plain-text extract."""
-            # Load just the first character to get the full text length from cache
-            full_text = await aload_document_txt_extract(context.document.id, 0, 1)
-            # The function caches the full text, so we can get the length efficiently
-            from opencontractserver.llms.tools.core_tools import _DOC_TXT_CACHE
-
+            # ``aload_document_txt_extract`` always reads the *full* file into
+            # ``_DOC_TXT_CACHE[doc_id] = (timestamp, full_content_str)`` and
+            # then slices from that cached string before returning. So a
+            # ``(0, 1)`` call costs one disk read but populates the whole
+            # document — ``len(_DOC_TXT_CACHE[doc_id][1])`` is the real
+            # total. The fallback below covers the cache-miss edge case.
+            await aload_document_txt_extract(context.document.id, 0, 1)
             if context.document.id in _DOC_TXT_CACHE:
                 _, cached_content = _DOC_TXT_CACHE[context.document.id]
                 return len(cached_content)
@@ -2335,13 +2345,22 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         # the tool returns large slices (cutting tool-call counts on
         # whole-document tasks like summarisation); when headroom is
         # tight it returns smaller slices to avoid forcing compaction.
+        #
+        # The implicit chunk has a floor (``MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS``,
+        # see opencontractserver/constants/context_guardrails.py) so a
+        # starved budget snapshot still hands back a useful slice.
+        #
+        # Multi-call drift: the budget snapshot is refreshed once per *turn*,
+        # not once per *tool call*. Two ``load_document_text`` calls in a
+        # single turn therefore see the same ``recommended_chunk_chars()``
+        # — the second call cannot tell the first already consumed budget.
+        # ``agent_deps_instance.turn_implicit_doc_text_chars`` accumulates
+        # the implicit-chunk bytes already returned within the turn (callers
+        # that pass an explicit ``end`` opt out — they have decided their
+        # own size). That counter is folded into the budget so successive
+        # implicit reads back off proportionally; it is reset to ``0`` by
+        # ``_refresh_context_budget`` at the start of every turn.
         # -----------------------------
-        # Floor for the implicit chunk size: even if the budget snapshot
-        # is starved, we still hand back a slice large enough to be
-        # useful.  Anything above ``max_tool_output_chars`` (default 50K)
-        # is fine — this dict-returning tool intentionally bypasses the
-        # wrapper's string-only truncation by returning structured data.
-        _MIN_IMPLICIT_CHUNK_CHARS = 5_000
 
         async def load_document_text_tool(
             start: int | None = None,
@@ -2369,13 +2388,13 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
               (``None`` if the document was fully read)
             * ``context_budget_chars`` — the budget that was applied
             """
-            from opencontractserver.llms.tools.core_tools import _DOC_TXT_CACHE
-
             doc_id = context.document.id
             start_idx = 0 if start is None else max(0, int(start))
 
-            # Resolve total length cheaply via the cache (one read populates
-            # it for the rest of the run).
+            # Resolve total length cheaply via the cache. ``aload_document_txt_extract``
+            # always reads and caches the *full* file (not the requested
+            # slice), so a ``(0, 1)`` call costs one disk read but
+            # ``len(_DOC_TXT_CACHE[doc_id][1])`` is then the real total.
             if doc_id not in _DOC_TXT_CACHE or refresh:
                 await aload_document_txt_extract(doc_id, 0, 1, refresh=refresh)
             total_chars = (
@@ -2386,7 +2405,18 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             # specify one.  An explicit ``end`` is honoured verbatim — the
             # agent has already decided how much it wants.
             recommended = agent_deps_instance.recommended_chunk_chars()
-            budget_chars = max(recommended, _MIN_IMPLICIT_CHUNK_CHARS)
+            # Subtract whatever implicit chunks we've already returned this
+            # turn so successive ``end``-less calls don't keep returning the
+            # same large default and overflow the real (post-tool-output)
+            # context budget. The ``MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS``
+            # floor still applies after the deduction.
+            budget_after_in_turn_use = max(
+                0,
+                recommended - agent_deps_instance.turn_implicit_doc_text_chars,
+            )
+            budget_chars = max(
+                budget_after_in_turn_use, MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS
+            )
             if end is None:
                 end_idx = min(total_chars, start_idx + budget_chars)
             else:
@@ -2395,6 +2425,9 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             text = await aload_document_txt_extract(
                 doc_id, start_idx, end_idx, refresh=refresh
             )
+
+            if end is None:
+                agent_deps_instance.turn_implicit_doc_text_chars += end_idx - start_idx
 
             chars_remaining = max(0, total_chars - end_idx)
             return {

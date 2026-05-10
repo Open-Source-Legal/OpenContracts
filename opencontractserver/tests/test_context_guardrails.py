@@ -782,6 +782,30 @@ class TestContextBudgetSnapshot(SimpleTestCase):
             expected_chars,
         )
 
+    def test_turn_implicit_doc_text_chars_defaults_to_zero(self):
+        """The per-turn implicit-chunk tally starts at 0 so the first
+        load_document_text call sees the unmodified recommended budget."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies()
+        self.assertEqual(deps.turn_implicit_doc_text_chars, 0)
+
+    def test_turn_implicit_doc_text_chars_is_mutable(self):
+        """The accumulator is plain Pydantic state — assignable so the
+        agent factory's load_document_text closure can fold it into the
+        budget on subsequent calls within the same turn."""
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies()
+        deps.turn_implicit_doc_text_chars += 12_000
+        self.assertEqual(deps.turn_implicit_doc_text_chars, 12_000)
+        deps.turn_implicit_doc_text_chars = 0
+        self.assertEqual(deps.turn_implicit_doc_text_chars, 0)
+
 
 # ---------------------------------------------------------------------------
 # Optimistic locking in persist_compaction
