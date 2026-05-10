@@ -4,10 +4,7 @@ import { DocumentVersionSelector } from "../../../documents/DocumentVersionSelec
 import { HeaderContainer, MetadataRow } from "../styled/HeaderAndLayout";
 import { HeaderButtonGroup, HeaderButton } from "./styles";
 import { routingLogger } from "../../../../utils/routingLogger";
-import {
-  CreatorRef,
-  getCreatorDisplay,
-} from "../../../../utils/userDisplay";
+import { CreatorRef, getCreatorDisplay } from "../../../../utils/userDisplay";
 
 export interface DocumentMetadata {
   title?: string | null;
