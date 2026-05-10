@@ -35,24 +35,28 @@ describe("Extracts view refetch shape (regression)", () => {
     // refetches when its variables change, and AuthGate clears the cache on
     // login/logout — the explicit refetch is double work. The mutation
     // ``onCompleted: () => refetch()`` and the modal's onClose refetch are
-    // legitimate refetch sites and are not matched by this regex (neither is
+    // legitimate refetch sites and not matched by this scan (neither is
     // inside a useEffect).
     //
-    // Legitimate exemptions: only refetches inside ``useMutation`` ``onCompleted``,
+    // Legitimate exemptions: refetches inside ``useMutation`` ``onCompleted``,
     // ``onClose`` modal callbacks, or imperative event handlers. If a future
-    // useEffect refetch is genuinely needed (rare), exempt it by binding the
-    // refetch through a helper variable so this regex no longer matches —
-    // and add a comment explaining why ``useQuery`` variables don't already
-    // cover the case.
-    const USE_EFFECT_REFETCH_RE =
-      /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*\brefetch\s*\(/s;
+    // useEffect refetch is genuinely needed (rare), bind the refetch through
+    // a helper variable so this scan no longer matches — and add a comment
+    // explaining why ``useQuery`` variables don't already cover the case.
+    //
+    // The scan is implemented as a balanced-brace walk rather than a regex
+    // because a regex with ``[^}]*`` between ``useEffect(... => {`` and
+    // ``refetch(`` stops at the first inner ``}``, so a ``refetch()`` nested
+    // inside an ``if`` block (or any other brace pair) inside the effect
+    // body would slip past undetected.
+    const offenders = findUseEffectRefetches(EXTRACTS_TSX);
     expect(
-      USE_EFFECT_REFETCH_RE.test(EXTRACTS_TSX),
+      offenders,
       "Extracts.tsx must not call refetch() from a useEffect — " +
         "Apollo's useQuery already refetches when its variables change. " +
         "AuthGate already clears the cache on login/logout. See the " +
         "comment block where the auth-change effect was removed."
-    ).toBe(false);
+    ).toEqual([]);
   });
 
   it("imports the slim GET_EXTRACTS_FOR_LIST query, not the heavy GET_EXTRACTS", () => {
@@ -77,11 +81,48 @@ describe("Extracts view refetch shape (regression)", () => {
     // The legacy fetchMore call passed only ``cursor`` as a variable, but
     // the original GET_EXTRACTS query did not include ``$cursor`` / ``$limit``
     // among its operation parameters at all — pagination silently broke.
-    // The slim query wires both, and the view passes them through.
-    expect(EXTRACTS_TSX).toMatch(/\bEXTRACTS_PAGE_SIZE\b/);
-    expect(EXTRACTS_TSX).toMatch(/limit\s*:\s*EXTRACTS_PAGE_SIZE/);
+    // The slim query wires both, and the view passes them through. The page
+    // size is sourced from the shared ``EXTRACT_PAGINATION.PAGE_SIZE``
+    // constant so the Annotations / Documents / Extracts views stay in sync
+    // (Claude review on PR #1602: per-view magic numbers drift over time).
+    expect(EXTRACTS_TSX).toMatch(/\bEXTRACT_PAGINATION\.PAGE_SIZE\b/);
+    expect(EXTRACTS_TSX).toMatch(/limit\s*:\s*EXTRACT_PAGINATION\.PAGE_SIZE/);
     expect(EXTRACTS_TSX).toMatch(
       /cursor\s*:\s*data\.extracts\.pageInfo\.endCursor/
     );
   });
 });
+
+/**
+ * Walk ``source`` and return any ``refetch(`` call sites whose enclosing
+ * function body is the body of a ``useEffect(() => { ... })`` callback.
+ * Implemented as a balanced-brace scanner so calls nested inside ``if``
+ * blocks, ternaries, or other inner braces are still detected.
+ *
+ * Returns the 1-based line numbers of each match — empty array means clean.
+ */
+function findUseEffectRefetches(source: string): number[] {
+  const offenders: number[] = [];
+  // Cheap entry-point match: ``useEffect`` followed by an inline arrow that
+  // opens a block. We then walk the body manually with a brace counter.
+  const ENTRY_RE = /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = ENTRY_RE.exec(source)) !== null) {
+    const bodyStart = match.index + match[0].length;
+    let depth = 1;
+    let cursor = bodyStart;
+    while (cursor < source.length && depth > 0) {
+      const ch = source[cursor];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      cursor++;
+    }
+    const body = source.slice(bodyStart, Math.max(bodyStart, cursor - 1));
+    const refetchInBody = /\brefetch\s*\(/.exec(body);
+    if (refetchInBody) {
+      const linesBefore = source.slice(0, bodyStart + refetchInBody.index);
+      offenders.push((linesBefore.match(/\n/g)?.length ?? 0) + 1);
+    }
+  }
+  return offenders;
+}

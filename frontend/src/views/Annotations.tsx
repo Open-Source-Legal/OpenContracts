@@ -44,6 +44,7 @@ import {
   SEMANTIC_SEARCH_ANNOTATIONS,
 } from "../graphql/queries";
 import { ServerAnnotationType } from "../types/graphql-api";
+import { ANNOTATION_PAGINATION } from "../assets/configurations/constants";
 import { getDocumentUrl } from "../utils/navigationUtils";
 import {
   AnnotationsPanel,
@@ -266,9 +267,6 @@ export const Annotations = () => {
   >([]);
   const [hasMoreSemanticResults, setHasMoreSemanticResults] = useState(true);
 
-  // Number of annotations to load per page
-  const ANNOTATIONS_PAGE_SIZE = 20;
-
   // Memoize the query variables on the underlying primitives so Apollo's
   // ``useQuery`` only re-fetches when something the user actually changed.
   // Building the object inline (the prior ``let annotation_variables = ...``)
@@ -277,7 +275,7 @@ export const Annotations = () => {
   const annotation_variables = useMemo<LooseObject>(() => {
     const vars: LooseObject = {
       label_Type: "TEXT_LABEL",
-      limit: ANNOTATIONS_PAGE_SIZE,
+      limit: ANNOTATION_PAGINATION.PAGE_SIZE,
     };
     if (exclude_structural_annotations === "EXCLUDE") {
       vars.structural = false;
@@ -540,7 +538,7 @@ export const Annotations = () => {
       if (!annotation_loading && pageInfo?.hasNextPage) {
         fetchMoreAnnotations({
           variables: {
-            limit: ANNOTATIONS_PAGE_SIZE,
+            limit: ANNOTATION_PAGINATION.PAGE_SIZE,
             cursor: pageInfo.endCursor,
           },
         });

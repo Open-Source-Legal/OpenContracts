@@ -6,7 +6,11 @@ import { Eye, Trash2 } from "lucide-react";
 import { ExtractType } from "../../types/graphql-api";
 import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
-import { getExtractStatus, formatExtractDate } from "../../utils/extractUtils";
+import {
+  getExtractStatus,
+  formatExtractDate,
+  formatExtractListStats,
+} from "../../utils/extractUtils";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import {
   ContextMenu,
@@ -89,32 +93,9 @@ const KebabIcon = () => (
   </svg>
 );
 
-// Helper Functions
-
-function formatStats(extract: ExtractCardItem): string[] {
-  const stats: string[] = [];
-
-  // Prefer the backend-provided count (cheap aggregate); fall back to the
-  // legacy fullDocumentList / fullColumnList lengths so consumers still on
-  // GET_EXTRACTS keep working without extra plumbing.
-  const docCount =
-    extract.documentCount ?? extract.fullDocumentList?.length ?? 0;
-  stats.push(`${docCount} ${docCount === 1 ? "document" : "documents"}`);
-
-  const columnCount =
-    extract.fieldset?.columnCount ??
-    extract.fieldset?.fullColumnList?.length ??
-    0;
-  if (columnCount > 0) {
-    stats.push(`${columnCount} ${columnCount === 1 ? "column" : "columns"}`);
-  }
-
-  if (extract.corpus?.title) {
-    stats.push(`from ${extract.corpus.title}`);
-  }
-
-  return stats;
-}
+// ``formatExtractListStats`` (pure fallback chain for documentCount →
+// fullDocumentList.length / columnCount → fullColumnList.length) lives in
+// ``utils/extractUtils`` so it can be unit-tested without mounting a card.
 
 // Main Component
 
@@ -191,7 +172,7 @@ export const ExtractListCard: React.FC<ExtractListCardProps> = ({
   );
 
   const statusLabel = getExtractStatus(extract).label;
-  const stats = formatStats(extract);
+  const stats = formatExtractListStats(extract);
   const permissions = getPermissions(extract.myPermissions || []);
   const canRemove = permissions.includes(PermissionTypes.CAN_REMOVE);
 

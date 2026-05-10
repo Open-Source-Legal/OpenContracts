@@ -243,6 +243,12 @@ export const ANNOTATION_PAGINATION = {
   MAX_SEMANTIC_RESULTS: 500,
 } as const;
 
+// Extract pagination constants
+export const EXTRACT_PAGINATION = {
+  /** Number of extracts to load per page in the Extracts view */
+  PAGE_SIZE: 20,
+} as const;
+
 // Mention type configuration
 // Defines which mention types have active navigation routes
 // When a route is added for a type, set navigable: true

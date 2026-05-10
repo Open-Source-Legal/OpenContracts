@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { getExtractStatus, formatExtractDate } from "../extractUtils";
+import {
+  getExtractStatus,
+  formatExtractDate,
+  formatExtractListStats,
+} from "../extractUtils";
 import {
   EXTRACT_STATUS,
   EXTRACT_STATUS_COLORS,
@@ -64,6 +68,85 @@ describe("extractUtils", () => {
     it("produces a non-empty localized string", () => {
       const result = formatExtractDate("2024-01-15T12:00:00Z");
       expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("formatExtractListStats", () => {
+    it("uses backend ``documentCount`` aggregate when present", () => {
+      const stats = formatExtractListStats({ documentCount: 5 });
+      expect(stats[0]).toBe("5 documents");
+    });
+
+    it("singularises ``document`` when count is exactly 1", () => {
+      const stats = formatExtractListStats({ documentCount: 1 });
+      expect(stats[0]).toBe("1 document");
+    });
+
+    it("falls back to ``fullDocumentList.length`` when ``documentCount`` is unset", () => {
+      const stats = formatExtractListStats({
+        fullDocumentList: [{}, {}, {}],
+      });
+      expect(stats[0]).toBe("3 documents");
+    });
+
+    it("treats ``documentCount: null`` (server null) as missing and falls through", () => {
+      const stats = formatExtractListStats({
+        documentCount: null,
+        fullDocumentList: [{}],
+      });
+      expect(stats[0]).toBe("1 document");
+    });
+
+    it("emits ``0 documents`` when neither aggregate nor list is supplied", () => {
+      expect(formatExtractListStats({})[0]).toBe("0 documents");
+    });
+
+    it("appends the column line only when columnCount > 0", () => {
+      expect(
+        formatExtractListStats({
+          documentCount: 1,
+          fieldset: { columnCount: 0 },
+        })
+      ).toEqual(["1 document"]);
+      expect(
+        formatExtractListStats({
+          documentCount: 1,
+          fieldset: { columnCount: 4 },
+        })
+      ).toEqual(["1 document", "4 columns"]);
+    });
+
+    it("falls back to ``fullColumnList.length`` for the column count", () => {
+      const stats = formatExtractListStats({
+        documentCount: 0,
+        fieldset: { fullColumnList: [{}, {}] },
+      });
+      expect(stats).toContain("2 columns");
+    });
+
+    it("singularises ``column`` when count is exactly 1", () => {
+      const stats = formatExtractListStats({
+        documentCount: 0,
+        fieldset: { columnCount: 1 },
+      });
+      expect(stats).toContain("1 column");
+    });
+
+    it("appends the corpus line when ``corpus.title`` is non-empty", () => {
+      const stats = formatExtractListStats({
+        documentCount: 1,
+        corpus: { title: "Contracts" },
+      });
+      expect(stats).toContain("from Contracts");
+    });
+
+    it("omits the corpus line when corpus is null or untitled", () => {
+      expect(
+        formatExtractListStats({ documentCount: 1, corpus: null })
+      ).toEqual(["1 document"]);
+      expect(
+        formatExtractListStats({ documentCount: 1, corpus: { title: "" } })
+      ).toEqual(["1 document"]);
     });
   });
 });

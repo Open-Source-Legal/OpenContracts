@@ -63,7 +63,10 @@ import { CreateExtractModal } from "../components/widgets/modals/CreateExtractMo
 import { FetchMoreOnVisible } from "../components/widgets/infinite_scroll/FetchMoreOnVisible";
 import { FetchMoreFooter } from "../components/widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../components/common/LoadingOverlay";
-import { DEBOUNCE } from "../assets/configurations/constants";
+import {
+  DEBOUNCE,
+  EXTRACT_PAGINATION,
+} from "../assets/configurations/constants";
 
 // Styled Components
 
@@ -93,13 +96,13 @@ const TableIcon = () => (
   </svg>
 );
 
-// Initial page size for the list. Subsequent pages match — see handleFetchMore.
-// The legacy GET_EXTRACTS query did not pass `first`/`after` to the connection
-// at all, so the server quietly clamped every request to ``max_limit=15`` and
-// fetchMore's cursor was sent but never honoured (broken pagination). The slim
-// query wires the connection args properly; explicit ``first: 20`` matches the
-// Documents view convention.
-const EXTRACTS_PAGE_SIZE = 20;
+// Page size for the list — sourced from the shared
+// ``EXTRACT_PAGINATION.PAGE_SIZE`` so the Annotations / Documents / Extracts
+// views stay in sync if the default ever changes. The legacy GET_EXTRACTS
+// query did not pass ``first``/``after`` to the connection at all, so the
+// server quietly clamped every request to ``max_limit=15`` and fetchMore's
+// cursor was sent but never honoured (broken pagination). The slim query
+// wires the connection args properly via this constant.
 
 // Main Component
 
@@ -148,7 +151,7 @@ export const Extracts = () => {
   // would force Apollo to deep-compare every render.
   const extractVariables: GetExtractsForListInput = useMemo(
     () => ({
-      limit: EXTRACTS_PAGE_SIZE,
+      limit: EXTRACT_PAGINATION.PAGE_SIZE,
       ...(extract_search_term && { searchText: extract_search_term }),
     }),
     [extract_search_term]
@@ -289,7 +292,7 @@ export const Extracts = () => {
     if (!loading && data?.extracts?.pageInfo?.hasNextPage) {
       fetchMore({
         variables: {
-          limit: EXTRACTS_PAGE_SIZE,
+          limit: EXTRACT_PAGINATION.PAGE_SIZE,
           cursor: data.extracts.pageInfo.endCursor,
         },
       });

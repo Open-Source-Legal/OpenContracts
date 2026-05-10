@@ -33,19 +33,22 @@ describe("Annotations view refetch shape (regression)", () => {
   // Legitimate exemptions: refetches inside useMutation onCompleted, modal
   // onClose handlers, or imperative event callbacks. If a future useEffect
   // refetch is genuinely required, route it through a helper variable so
-  // these regexes no longer match — and add a comment explaining why
-  // useQuery variable-change refetches don't already cover the case.
+  // ``findUseEffectCalls`` no longer matches — and add a comment explaining
+  // why useQuery variable-change refetches don't already cover the case.
+  //
+  // The detector walks the source with a balanced-brace scanner instead of
+  // a regex with ``[^}]*``: a regex stops at the first inner ``}``, so a
+  // call nested inside an ``if`` block (or any brace pair) within the
+  // effect body would slip past undetected.
   it("does not call refetch_annotations() from any useEffect block", () => {
-    const USE_EFFECT_REFETCH_RE =
-      /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*\brefetch_annotations\s*\(/s;
     expect(
-      USE_EFFECT_REFETCH_RE.test(ANNOTATIONS_TSX),
+      findUseEffectCalls(ANNOTATIONS_TSX, "refetch_annotations"),
       "Annotations.tsx must not call refetch_annotations() from a " +
         "useEffect — Apollo's useQuery already refetches when its " +
         "variables change. AuthGate clears the cache on login/logout. " +
         "If you need a refetch trigger, add the value to " +
         "annotation_variables instead."
-    ).toBe(false);
+    ).toEqual([]);
   });
 
   it("does not call refetch_corpus() from any useEffect block", () => {
@@ -53,12 +56,10 @@ describe("Annotations view refetch shape (regression)", () => {
     // GET_CORPUS_LABELSET_AND_LABELS query already refetches on
     // ``corpus_scope_id`` change because corpus_scope_id is a query
     // variable. The explicit refetch_corpus() call doubled the request.
-    const USE_EFFECT_REFETCH_CORPUS_RE =
-      /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*\brefetch_corpus\s*\(/s;
     expect(
-      USE_EFFECT_REFETCH_CORPUS_RE.test(ANNOTATIONS_TSX),
+      findUseEffectCalls(ANNOTATIONS_TSX, "refetch_corpus"),
       "Annotations.tsx must not call refetch_corpus() from a useEffect."
-    ).toBe(false);
+    ).toEqual([]);
   });
 
   it("memoises annotation_variables on its filter dependencies", () => {
@@ -69,3 +70,33 @@ describe("Annotations view refetch shape (regression)", () => {
     expect(ANNOTATIONS_TSX).toMatch(/const annotation_variables = useMemo</);
   });
 });
+
+/**
+ * Return the 1-based line numbers of any ``${callName}(`` site whose
+ * enclosing function body is the body of a ``useEffect(() => { ... })``
+ * callback. Empty array means clean.
+ */
+function findUseEffectCalls(source: string, callName: string): number[] {
+  const offenders: number[] = [];
+  const ENTRY_RE = /useEffect\s*\(\s*\(\s*\)\s*=>\s*\{/g;
+  const callRe = new RegExp(`\\b${callName}\\s*\\(`);
+  let match: RegExpExecArray | null;
+  while ((match = ENTRY_RE.exec(source)) !== null) {
+    const bodyStart = match.index + match[0].length;
+    let depth = 1;
+    let cursor = bodyStart;
+    while (cursor < source.length && depth > 0) {
+      const ch = source[cursor];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      cursor++;
+    }
+    const body = source.slice(bodyStart, Math.max(bodyStart, cursor - 1));
+    const hit = callRe.exec(body);
+    if (hit) {
+      const linesBefore = source.slice(0, bodyStart + hit.index);
+      offenders.push((linesBefore.match(/\n/g)?.length ?? 0) + 1);
+    }
+  }
+  return offenders;
+}
