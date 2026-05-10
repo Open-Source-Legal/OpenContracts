@@ -40,8 +40,10 @@ export { StreamingThoughtTicker } from "./ChatMessageTimeline";
 
 // Timeline entry type — definition lives in `./types` so sibling style
 // modules can import it without creating a `ChatMessage` ↔ styles cycle.
-export type { TimelineEntry } from "./types";
+// Imported locally for use in `ChatMessageProps`, then re-exported so the
+// public API of this module stays unchanged for existing importers.
 import type { TimelineEntry } from "./types";
+export type { TimelineEntry };
 
 export interface ChatMessageProps {
   messageId?: string; // Optional because some messages (like streaming ones) might not have an ID yet

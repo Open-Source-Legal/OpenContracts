@@ -231,6 +231,8 @@ export const CorpusQueryView = ({
       MOUNT_FOCUS_DELAY_MS
     );
     return () => clearTimeout(id);
+    // intentional: mount-only; isDesktop is read once to avoid re-firing on
+    // viewport resize (which would pop the mobile keyboard mid-session).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
