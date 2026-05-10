@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import styled, { css } from "styled-components";
@@ -9,6 +9,7 @@ import {
   OS_LEGAL_TYPOGRAPHY,
   accentAlpha,
 } from "../../assets/configurations/osLegalStyles";
+import { initialsFor } from "../../utils/initials";
 
 /**
  * Lightweight nav-item shape used by the mobile menu. Mirrors the subset of
@@ -50,6 +51,13 @@ export interface MobileNavMenuProps {
 const HEADER_HEIGHT = 60;
 const SHEET_TOP_OFFSET = HEADER_HEIGHT + 8;
 const SHEET_SIDE_GUTTER = 12;
+
+// ``slate-950``-ish base used for the backdrop wash and sheet-shadow
+// stops. Hoisted so the three RGBA sites below stay in lockstep — and
+// so a future palette move only needs one edit. There's no
+// ``OS_LEGAL_COLORS`` token for this exact stop today; if one is added
+// later, swap the constant out.
+const DARK_BASE_RGB = "15, 23, 42";
 
 /* ------------------------------------------------------------------ */
 /*  Styled components — header                                         */
@@ -123,7 +131,7 @@ const Backdrop = styled(motion.div)`
   position: fixed;
   inset: 0;
   z-index: 1090;
-  background: rgba(15, 23, 42, 0.42);
+  background: rgba(${DARK_BASE_RGB}, 0.42);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 `;
@@ -140,8 +148,8 @@ const Sheet = styled(motion.nav)`
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 16px;
-  box-shadow: 0 20px 50px -12px rgba(15, 23, 42, 0.28),
-    0 6px 18px -8px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 20px 50px -12px rgba(${DARK_BASE_RGB}, 0.28),
+    0 6px 18px -8px rgba(${DARK_BASE_RGB}, 0.12);
   overflow: hidden;
   font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
 `;
@@ -314,17 +322,6 @@ const UserStatusLabel = styled.span`
 `;
 
 /* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
-
-const initialsFor = (name: string): string => {
-  const trimmed = name.trim();
-  if (!trimmed) return "?";
-  const parts = trimmed.split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-};
-
-/* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -347,14 +344,21 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   const [open, setOpen] = useState(false);
   const { pathname, search } = useLocation();
   const sheetRef = useRef<HTMLElement | null>(null);
+  // Remember the trigger so we can return focus to it on close (WCAG
+  // 2.1 SC 2.4.3 — keyboard users must land back where they came from).
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
 
-  // Close the sheet whenever the route changes (handles in-sheet navigation
-  // taps as well as external state changes).
+  // Close the sheet whenever the route changes — covers both in-sheet
+  // taps and external state changes. ``search`` is in the dep list so
+  // updating filter / query params (e.g. from a deep link in the sheet)
+  // also dismisses the nav; mobile flows treat such transitions as full
+  // navigations even when the pathname is unchanged.
   useEffect(() => {
     setOpen(false);
   }, [pathname, search]);
 
-  // Lock body scroll while the sheet is open, and listen for ESC to close.
+  // Lock body scroll, listen for ESC, and manage focus while the sheet
+  // is open.
   useEffect(() => {
     if (!open) return;
 
@@ -366,21 +370,34 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
     };
     window.addEventListener("keydown", handleKey);
 
+    // Focus management: move focus to the first focusable element
+    // inside the sheet on open. Falls back to the sheet container so
+    // ESC still works if nothing tabbable is rendered.
+    const focusTimer = window.setTimeout(() => {
+      const sheet = sheetRef.current;
+      if (!sheet) return;
+      const firstFocusable = sheet.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      (firstFocusable ?? sheet).focus();
+    }, 0);
+
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKey);
+      window.clearTimeout(focusTimer);
+      // Return focus to the toggle on close. ``open`` flipping to
+      // ``false`` is the trigger; this cleanup runs once per close.
+      toggleRef.current?.focus();
     };
   }, [open]);
 
-  const handleItemClick = (item: MobileNavItem) => {
-    item.onClick();
+  // Single handler for nav-item / user-action clicks — both shapes
+  // share "run onClick, then close the sheet".
+  const runAndClose = useCallback((onClick: () => void) => {
+    onClick();
     setOpen(false);
-  };
-
-  const handleUserAction = (action: MobileUserAction) => {
-    action.onClick();
-    setOpen(false);
-  };
+  }, []);
 
   const handleLogin = () => {
     setOpen(false);
@@ -407,6 +424,11 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
             role="dialog"
             aria-modal="true"
             aria-label="Site navigation"
+            // ``tabIndex={-1}`` lets the sheet itself receive
+            // programmatic focus from the focus-management effect when
+            // no nav item is tabbable yet (auth still loading, items
+            // empty), without making it appear in the natural tab order.
+            tabIndex={-1}
             initial={{ opacity: 0, y: -10, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.99 }}
@@ -425,7 +447,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
                   id={item.id}
                   type="button"
                   $active={item.id === activeId}
-                  onClick={() => handleItemClick(item)}
+                  onClick={() => runAndClose(item.onClick)}
                 >
                   {item.label}
                 </NavItemButton>
@@ -440,7 +462,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
                       key={action.id}
                       type="button"
                       $danger={action.danger}
-                      onClick={() => handleUserAction(action)}
+                      onClick={() => runAndClose(action.onClick)}
                     >
                       <NavItemIcon $danger={action.danger}>
                         {action.icon}
@@ -484,8 +506,10 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
           <BrandName>{brandName}</BrandName>
         </Brand>
         <ToggleButton
+          ref={toggleRef}
           type="button"
           $open={open}
+          aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls="mobile-nav-sheet"
           aria-label={open ? "Close navigation" : "Open navigation"}

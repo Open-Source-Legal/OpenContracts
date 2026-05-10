@@ -336,4 +336,50 @@ test.describe("NavMenu Responsive Behavior", () => {
 
     await component.unmount();
   });
+
+  test("should close the floating sheet when Escape is pressed", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden({ timeout: 2000 });
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should render the user chip when authenticated", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(
+      <NavMenuTestWrapper mockUser={mockRegularUser} />
+    );
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+    // Authenticated branch: user chip with display name + "Signed in"
+    // status replaces the Sign-in CTA button.
+    await expect(sheet.getByText("Test User")).toBeVisible();
+    await expect(sheet.getByText("Signed in")).toBeVisible();
+    await expect(sheet.getByRole("button", { name: /sign in/i })).toHaveCount(
+      0
+    );
+
+    await component.unmount();
+  });
 });
