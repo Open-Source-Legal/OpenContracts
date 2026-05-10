@@ -111,15 +111,12 @@ export const CorpusQueryViewTestWrapper: React.FC<Props> = ({
   initialQueryViewState = "ASK",
   canUpdate = false,
 }) => {
-  // Set the reactive var once before first render (and only once per mount).
-  // A bare top-level call would re-fire on every parent re-render — benign for
-  // a test, but the `useState` initializer pattern restricts the mutation to
-  // one occurrence per `mount()` and signals "this is initial setup, not a
-  // hot recompute" to the next reader.
-  React.useState(() => {
+  // Seed the reactive var on mount so CorpusQueryView reads the requested
+  // state. `initialQueryViewState` is a fixed test prop that never changes
+  // during a single mount, so this effectively runs once per `mount()`.
+  React.useEffect(() => {
     showQueryViewState(initialQueryViewState);
-    return null;
-  });
+  }, [initialQueryViewState]);
 
   const cache = new InMemoryCache({
     typePolicies: {
