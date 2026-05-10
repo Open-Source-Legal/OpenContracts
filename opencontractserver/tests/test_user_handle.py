@@ -221,6 +221,41 @@ class UserModelHandleAutoAssignTests(TestCase):
         self.assertNotIn("|", user.handle)
         self.assertNotIn("abc123", user.handle)
 
+    def test_slug_does_not_leak_oauth_id(self):
+        """An OAuth/social user's slug must never be derived from the raw
+        ``provider|sub`` username — it must be based on the auto-assigned
+        handle instead."""
+        user = User.objects.create_user(
+            username="google-oauth2|114688257717759010643",
+            email="goog@x.com",
+        )
+        assert user.slug is not None, "slug must be set"
+        assert user.handle is not None, "handle must be set"
+        self.assertNotIn("google-oauth2", user.slug)
+        self.assertNotIn("114688", user.slug)
+        self.assertNotIn("|", user.slug)
+        # The slug must match the handle (or be a handle-derived variant).
+        self.assertTrue(
+            user.slug == user.handle or user.slug.startswith(user.handle + "-"),
+            f"Expected slug based on handle {user.handle!r}, got {user.slug!r}",
+        )
+
+    def test_slug_matches_handle_for_new_social_user(self):
+        """For a brand-new social user the slug is generated from the handle
+        in the same save() call, so slug and handle share the same base."""
+        user = User.objects.create_user(
+            username="auth0|xyz987",
+            email="auth0user@x.com",
+            is_social_user=True,
+        )
+        assert user.handle is not None, "handle must be set"
+        assert user.slug is not None, "slug must be set"
+        # Slug must be handle or handle with a collision suffix like "handle-2".
+        self.assertTrue(
+            user.slug == user.handle or user.slug.startswith(user.handle + "-"),
+            f"slug {user.slug!r} does not match handle {user.handle!r}",
+        )
+
     def test_anonymous_user_save_skips_handle_assignment(self):
         """The django-guardian Anonymous account is a system row; it must
         never receive an auto-handle so the migration / management command /
@@ -467,3 +502,69 @@ class HandleGeneratorTunablesTests(TestCase):
             User.objects.create_user(username="a", email="a@x.com", handle="onlyOne")
             handle = generate_handle(scope_qs=User.objects.all(), rng=random.Random(0))
         self.assertTrue(re.search(r"\d+$", handle), f"Expected suffix on {handle!r}")
+
+
+# ---------------------------------------------------------------------------
+# regenerate_user_slugs management command
+# ---------------------------------------------------------------------------
+
+
+class RegenerateUserSlugsCommandTests(TestCase):
+    """Verify the ``regenerate_user_slugs`` management command detects and
+    repairs OAuth-sub-derived slugs without touching legitimate slugs."""
+
+    def _make_oauth_user_with_bad_slug(self, username, email):
+        """Create a user whose slug was synthetically derived from their OAuth username."""
+        from opencontractserver.shared.slug_utils import sanitize_slug
+
+        user = User.objects.create_user(username=username, email=email)
+        # Force the slug to the old (broken) OAuth-derived value so we can test repair.
+        bad_slug = sanitize_slug(username, max_length=64)
+        User.objects.filter(pk=user.pk).update(slug=bad_slug)
+        user.refresh_from_db()
+        return user
+
+    def test_dry_run_does_not_write(self):
+        user = self._make_oauth_user_with_bad_slug(
+            "google-oauth2|111222333", "dry@x.com"
+        )
+        original_slug = user.slug
+        out = StringIO()
+        call_command("regenerate_user_slugs", "--dry-run", stdout=out)
+        user.refresh_from_db()
+        self.assertEqual(user.slug, original_slug)
+        self.assertIn("would update", out.getvalue())
+
+    def test_replaces_oauth_derived_slug_with_handle_slug(self):
+        user = self._make_oauth_user_with_bad_slug(
+            "google-oauth2|444555666", "fix@x.com"
+        )
+        old_slug = user.slug
+        self.assertIn("google-oauth2", old_slug)
+
+        call_command("regenerate_user_slugs", stdout=StringIO())
+        user.refresh_from_db()
+
+        self.assertNotIn("google-oauth2", user.slug)
+        self.assertNotIn("444555666", user.slug)
+        # New slug must be based on the user's handle.
+        self.assertTrue(
+            user.slug == user.handle or user.slug.startswith(user.handle + "-"),
+            f"New slug {user.slug!r} not derived from handle {user.handle!r}",
+        )
+
+    def test_leaves_clean_slug_untouched(self):
+        """A social user who already has a handle-based slug must not be changed."""
+        user = User.objects.create_user(
+            username="auth0|cleanslug",
+            email="clean@x.com",
+            is_social_user=True,
+        )
+        # After our fix, the slug is already handle-derived.
+        assert user.slug is not None, "slug must be set after fix"
+        original_slug: str = user.slug
+        self.assertNotIn("auth0", original_slug)
+
+        call_command("regenerate_user_slugs", stdout=StringIO())
+        user.refresh_from_db()
+        self.assertEqual(user.slug, original_slug)

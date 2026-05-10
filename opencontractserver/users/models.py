@@ -207,43 +207,13 @@ class User(AbstractUser):
         return reverse("users:detail", kwargs={"username": self.username})
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Avoid referencing the slug column before it exists in initial migrations
-        slug_column_exists = table_has_column(self._meta.db_table, "slug")
-
-        # Skip slug processing when saving unrelated fields (e.g. last_login)
         update_fields = kwargs.get("update_fields")
-        slug_being_saved = update_fields is None or "slug" in update_fields
 
-        if slug_column_exists and slug_being_saved:
-            # Ensure slug exists and is valid
-            if not self.slug or not isinstance(self.slug, str) or not self.slug.strip():
-                # Generate a unique slug from username
-                base_value = self.username or self.email or "user"
-                # We cannot query without saving if no PK yet; use all users for uniqueness
-                scope_qs = get_user_model().objects.all()
-                self.slug = generate_unique_slug(
-                    base_value=base_value,
-                    scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
-                    slug_field="slug",
-                    max_length=64,
-                    fallback_prefix="user",
-                )
-            else:
-                # Sanitize and validate provided slug
-                sanitized = sanitize_slug(self.slug, max_length=64)
-                if not sanitized:
-                    from django.core.exceptions import ValidationError
-
-                    raise ValidationError({"slug": "Slug cannot be empty."})
-                validate_user_slug_or_raise(sanitized)
-                self.slug = sanitized
-
-        # Auto-assign Reddit-style display handle. Mirrors the slug guard so
-        # initial migrations that pre-date the column don't explode on save.
+        # ── Step 1: pre-compute handle (without saving) ──────────────────────
+        # Handle is generated before slug so that OAuth/social users can use
+        # it as the slug base rather than falling back to "user-N".
         # The django-guardian Anonymous user is a system account that never
-        # surfaces to other users, so it never needs (or wants) a handle —
-        # excluding it here also keeps the management command, migration,
-        # and ``DisplayName`` query symmetric.
+        # surfaces to other users and must never receive a handle.
         handle_column_exists = table_has_column(self._meta.db_table, "handle")
         handle_being_saved = update_fields is None or "handle" in update_fields
         needs_handle = (
@@ -253,6 +223,56 @@ class User(AbstractUser):
             and self.username != "Anonymous"
         )
 
+        user_cls = type(self)
+        if needs_handle:
+            # Assign the first candidate to ``self.handle`` now so the slug
+            # generation below can use it. The actual save (with IntegrityError
+            # retry) happens in Step 3.
+            scope_qs = user_cls.objects.all()
+            self.handle = generate_handle(
+                scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
+            )
+
+        # ── Step 2: ensure slug exists and is valid ───────────────────────────
+        # Avoid referencing the slug column before it exists in early migrations.
+        slug_column_exists = table_has_column(self._meta.db_table, "slug")
+        slug_being_saved = update_fields is None or "slug" in update_fields
+
+        if slug_column_exists and slug_being_saved:
+            if not self.slug or not isinstance(self.slug, str) or not self.slug.strip():
+                # For social/OAuth users the Django ``username`` is the raw
+                # provider sub (e.g. ``google-oauth2|114688...``). Sanitizing
+                # that as a slug base strips the ``|`` separator and exposes
+                # the OAuth identity publicly. Use the friendly handle instead;
+                # Step 1 above pre-populates ``self.handle`` for new users so
+                # it is already available here — no "user-N" fallback needed.
+                is_oauth_user = "|" in (self.username or "") or bool(
+                    getattr(self, "is_social_user", False)
+                )
+                if is_oauth_user:
+                    base_value = self.handle or "user"
+                else:
+                    base_value = self.username or self.email or "user"
+                scope_qs_slug = get_user_model().objects.all()
+                self.slug = generate_unique_slug(
+                    base_value=base_value,
+                    scope_qs=(
+                        scope_qs_slug.exclude(pk=self.pk) if self.pk else scope_qs_slug
+                    ),
+                    slug_field="slug",
+                    max_length=64,
+                    fallback_prefix="user",
+                )
+            else:
+                sanitized = sanitize_slug(self.slug, max_length=64)
+                if not sanitized:
+                    from django.core.exceptions import ValidationError
+
+                    raise ValidationError({"slug": "Slug cannot be empty."})
+                validate_user_slug_or_raise(sanitized)
+                self.slug = sanitized
+
+        # ── Step 3: save (with handle collision retry when needed) ────────────
         created = self.id is None
 
         if needs_handle:
@@ -268,15 +288,10 @@ class User(AbstractUser):
             # row. For a brand-new INSERT, ``self.pk`` is ``None`` and stays
             # ``None`` even across failed attempts: Django captures the
             # RETURNING id only on a successful INSERT, so an IntegrityError
-            # below leaves ``self.pk`` unset for the next iteration. That's
-            # the correct behaviour — there's no committed row of ours to
-            # exclude from the uniqueness check.
-            user_cls = type(self)
+            # leaves ``self.pk`` unset for the next iteration — there is no
+            # committed row of ours to exclude from the uniqueness check.
             scope_qs = user_cls.objects.all()
             for attempt in range(HANDLE_INSERT_RETRY_ATTEMPTS):
-                self.handle = generate_handle(
-                    scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
-                )
                 try:
                     super().save(*args, **kwargs)
                     break
@@ -297,7 +312,31 @@ class User(AbstractUser):
                         raise
                     if attempt == HANDLE_INSERT_RETRY_ATTEMPTS - 1:
                         raise
-                    continue
+                    # Re-roll handle and regenerate any handle-derived slug.
+                    self.handle = generate_handle(
+                        scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
+                    )
+                    is_oauth_user = "|" in (self.username or "") or bool(
+                        getattr(self, "is_social_user", False)
+                    )
+                    if (
+                        is_oauth_user
+                        and slug_column_exists
+                        and slug_being_saved
+                        and self.slug
+                    ):
+                        scope_qs_slug = get_user_model().objects.all()
+                        self.slug = generate_unique_slug(
+                            base_value=self.handle,
+                            scope_qs=(
+                                scope_qs_slug.exclude(pk=self.pk)
+                                if self.pk
+                                else scope_qs_slug
+                            ),
+                            slug_field="slug",
+                            max_length=64,
+                            fallback_prefix="user",
+                        )
         else:
             super().save(*args, **kwargs)
 

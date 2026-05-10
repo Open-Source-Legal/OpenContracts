@@ -63,7 +63,7 @@ class SearchQueryMixin:
     search_users_for_mention = DjangoConnectionField(
         UserType,
         text_search=graphene.String(
-            description="Search query to find users by username or email"
+            description="Search query to find users by slug or display handle"
         ),
     )
 
@@ -359,12 +359,16 @@ class SearchQueryMixin:
         - Requesting user shares corpus membership with > READ permission
         - It's the requesting user's own profile
 
+        Searches only the public ``slug`` and ``handle`` fields so that
+        OAuth provider subs and email addresses cannot be used as a
+        discovery oracle (even though those fields are self-only gated in
+        the response, allowing search-by-email would confirm membership).
+
         PERFORMANCE NOTES:
         - Uses UserQueryOptimizer for efficient visibility filtering
-        - Searches username (indexed, fast)
-        - Searches email (indexed, fast)
+        - Searches slug and handle (both indexed)
 
-        @param text_search: Search query for username or email
+        @param text_search: Search query for slug or display handle
         """
         from django.contrib.auth import get_user_model
 
@@ -381,13 +385,13 @@ class SearchQueryMixin:
         qs = UserQueryOptimizer.get_visible_users(user)
 
         if text_search:
-            # Search username and email
+            # Only search public identifiers — never username (OAuth sub) or email.
             qs = qs.filter(
-                Q(username__icontains=text_search) | Q(email__icontains=text_search)
+                Q(slug__icontains=text_search) | Q(handle__icontains=text_search)
             )
 
-        # Order by username for consistent results
-        qs = qs.order_by("username")
+        # Order by slug for consistent, publicly-meaningful results
+        qs = qs.order_by("slug")
 
         # Note: DjangoConnectionField handles pagination automatically
         return qs
