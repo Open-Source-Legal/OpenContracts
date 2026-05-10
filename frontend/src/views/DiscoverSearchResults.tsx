@@ -14,6 +14,16 @@ import {
 import { FilterTabs, SearchBox } from "@os-legal/ui";
 import type { FilterTabItem } from "@os-legal/ui";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
+import {
+  DiscoveryContainer,
+  DiscoveryHeader,
+  DiscoveryTitle,
+  DiscoveryFilterBar,
+  DiscoverySectionHeader,
+  DiscoverySectionIcon,
+  DiscoverySectionTitle,
+  DiscoverySectionCount,
+} from "../components/layout/DiscoveryViewLayout";
 
 import {
   GET_CONVERSATIONS,
@@ -34,8 +44,6 @@ import { ModernLoadingDisplay } from "../components/widgets/ModernLoadingDisplay
 import {
   CORPUS_COLORS,
   CORPUS_FONTS,
-  CORPUS_RADII,
-  mediaQuery,
 } from "../components/threads/styles/discussionStyles";
 import { getCorpusUrl, getDocumentUrl } from "../utils/navigationUtils";
 import { stripMarkdown } from "../utils/formatters";
@@ -52,54 +60,11 @@ import { ConversationType } from "../types/graphql-api";
 // Styled primitives
 // ---------------------------------------------------------------------------
 
-const Container = styled.div`
-  max-width: 75rem;
-  margin: 0 auto;
-  padding: 2.5rem 4rem;
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-
-  @media (max-width: 1400px) {
-    padding: 2rem 3rem;
-  }
-  @media (max-width: 1024px) {
-    padding: 1.5rem 2rem;
-  }
-  ${mediaQuery.mobile} {
-    padding: 1rem;
-  }
-`;
-
-const Header = styled.div`
-  margin-bottom: 1.5rem;
-`;
-
-const Title = styled.h1`
-  font-family: ${CORPUS_FONTS.serif};
-  font-size: 2rem;
-  font-weight: 700;
-  color: ${CORPUS_COLORS.slate[900]};
-  margin: 0 0 0.25rem 0;
-  letter-spacing: -0.02em;
-  ${mediaQuery.mobile} {
-    font-size: 1.5rem;
-  }
-`;
-
 const SubTitle = styled.p`
   font-family: ${CORPUS_FONTS.sans};
   font-size: 0.95rem;
   color: ${CORPUS_COLORS.slate[500]};
   margin: 0 0 1.25rem 0;
-`;
-
-const FilterBar = styled.div`
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
 `;
 
 const SearchContainer = styled.div`
@@ -110,47 +75,6 @@ const SearchContainer = styled.div`
 
 const SectionContainer = styled.section`
   margin-bottom: 2rem;
-`;
-
-const SectionHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.625rem;
-  border-bottom: 1px solid ${CORPUS_COLORS.slate[200]};
-`;
-
-const SectionIcon = styled.div<{ $color: string }>`
-  width: 1.625rem;
-  height: 1.625rem;
-  border-radius: ${CORPUS_RADII.sm};
-  background: ${(p) => p.$color};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: ${CORPUS_COLORS.white};
-  flex-shrink: 0;
-  svg {
-    width: 0.875rem;
-    height: 0.875rem;
-  }
-`;
-
-const SectionTitle = styled.h2`
-  font-family: ${CORPUS_FONTS.serif};
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: ${CORPUS_COLORS.slate[800]};
-  margin: 0;
-`;
-
-const SectionCount = styled.span`
-  font-family: ${CORPUS_FONTS.sans};
-  font-size: 0.8125rem;
-  color: ${CORPUS_COLORS.slate[400]};
-  font-weight: 500;
-  margin-left: auto;
 `;
 
 const ResultGrid = styled.div`
@@ -358,13 +282,13 @@ const Section: React.FC<SectionWrapperProps> = ({
   children,
 }) => (
   <SectionContainer>
-    <SectionHeader>
-      <SectionIcon $color={iconColor}>{icon}</SectionIcon>
-      <SectionTitle>{title}</SectionTitle>
-      <SectionCount>
+    <DiscoverySectionHeader>
+      <DiscoverySectionIcon $color={iconColor}>{icon}</DiscoverySectionIcon>
+      <DiscoverySectionTitle>{title}</DiscoverySectionTitle>
+      <DiscoverySectionCount>
         {loading ? "…" : errorMessage ? "error" : countLabel}
-      </SectionCount>
-    </SectionHeader>
+      </DiscoverySectionCount>
+    </DiscoverySectionHeader>
     {loading ? (
       <LoadingContainer>
         <ModernLoadingDisplay message="Searching…" size="small" />
@@ -690,13 +614,13 @@ export const DiscoverSearchResults: React.FC = () => {
   const showEmptyPrompt = !trimmed;
 
   return (
-    <Container>
-      <Header>
-        <Title>Search</Title>
+    <DiscoveryContainer>
+      <DiscoveryHeader>
+        <DiscoveryTitle $marginBottom="0.25rem">Search</DiscoveryTitle>
         <SubTitle>
           Find discussions, annotations, collections, and notes you can access.
         </SubTitle>
-        <FilterBar>
+        <DiscoveryFilterBar>
           <SearchContainer>
             <SearchBox
               placeholder="Search across legal knowledge…"
@@ -714,8 +638,8 @@ export const DiscoverSearchResults: React.FC = () => {
               }
             }}
           />
-        </FilterBar>
-      </Header>
+        </DiscoveryFilterBar>
+      </DiscoveryHeader>
 
       {showEmptyPrompt ? (
         <EmptyState>Type to search across content you can access.</EmptyState>
@@ -763,7 +687,7 @@ export const DiscoverSearchResults: React.FC = () => {
           )}
         </>
       )}
-    </Container>
+    </DiscoveryContainer>
   );
 };
 

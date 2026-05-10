@@ -7,6 +7,10 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
+import {
+  PageContainer,
+  ContentContainer,
+} from "../components/layout/PageLayout";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import { toast } from "react-toastify";
@@ -79,24 +83,6 @@ import { useExtractCompletionNotification } from "../hooks/useExtractCompletionN
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
-
-const PageContainer = styled.div`
-  height: 100%;
-  background: ${OS_LEGAL_COLORS.background};
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-y: auto;
-  overflow-x: hidden;
-`;
-
-const ContentContainer = styled.main`
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px 24px 80px;
-
-  @media (max-width: 768px) {
-    padding: 24px 16px 60px;
-  }
-`;
 
 const BackButton = styled.button`
   display: inline-flex;
@@ -720,7 +706,7 @@ export const ExtractDetail: React.FC = () => {
   if (!extract) {
     return (
       <PageContainer>
-        <ContentContainer>
+        <ContentContainer $maxWidth="wide" $compact>
           <BackButton onClick={handleBack}>
             <ArrowLeft size={16} />
             Back to Extracts
@@ -745,7 +731,7 @@ export const ExtractDetail: React.FC = () => {
 
   return (
     <PageContainer>
-      <ContentContainer>
+      <ContentContainer $maxWidth="wide" $compact>
         {/* Back link */}
         <BackButton onClick={handleBack}>
           <ArrowLeft size={16} />
