@@ -139,6 +139,7 @@ export const GET_RECENT_DISCUSSIONS = gql`
           isLocked
           creator {
             id
+            slug
             username
           }
           chatWithCorpus {
@@ -264,6 +265,7 @@ export const GET_DISCOVERY_DATA = gql`
           isLocked
           creator {
             id
+            slug
             username
           }
           chatWithCorpus {

@@ -31,6 +31,7 @@ const dummyCorpus: CorpusType = {
   modified: new Date().toISOString(),
   creator: {
     id: "USER_1",
+    slug: "tester",
     email: "tester@example.com",
     __typename: "UserType",
   },

@@ -29,7 +29,7 @@ const mockModerationAction = {
   message: null,
   moderator: {
     id: "VXNlclR5cGU6MQ==",
-    username: "moderator_user",
+    slug: "moderator-user",
   },
 };
 
@@ -297,8 +297,8 @@ test(
     // Check thread titles
     await expect(page.getByText("Another Thread")).toBeVisible();
 
-    // Check moderator
-    await expect(page.getByText("moderator_user")).toBeVisible();
+    // Check moderator (slug is rendered cross-user; underscores are not used in slugs)
+    await expect(page.getByText("moderator-user")).toBeVisible();
 
     // Check automated badge (span contains SVG icon + "Auto" text)
     await expect(

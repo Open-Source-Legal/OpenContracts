@@ -49,6 +49,7 @@ import {
   RollbackModerationActionInput,
   RollbackModerationActionOutput,
 } from "../../graphql/mutations";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 /** Page size for moderation actions list */
 const MODERATION_PAGE_SIZE = 10;
@@ -564,7 +565,7 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
                             }}
                           >
                             <User size={14} />
-                            {node.moderator.username}
+                            {getCreatorDisplay(node.moderator)}
                           </span>
                         ) : (
                           <span

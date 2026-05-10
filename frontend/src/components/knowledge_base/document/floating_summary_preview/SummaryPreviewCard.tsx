@@ -8,6 +8,7 @@ import { SafeMarkdown } from "../../markdown/SafeMarkdown";
 import { DocumentSummaryRevision } from "./graphql/documentSummaryQueries";
 import { useReactiveVar } from "@apollo/client";
 import { backendUserObj } from "../../../../graphql/cache";
+import { getCreatorDisplay } from "../../../../utils/userDisplay";
 
 interface SummaryPreviewCardProps {
   version: DocumentSummaryRevision;
@@ -308,7 +309,7 @@ export const SummaryPreviewCard: React.FC<SummaryPreviewCardProps> = ({
               ) : (
                 <>
                   <User size={10} />
-                  {version.author.email.split("@")[0]}
+                  {getCreatorDisplay(version.author)}
                 </>
               )}
             </div>

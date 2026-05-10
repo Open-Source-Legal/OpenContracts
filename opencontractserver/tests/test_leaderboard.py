@@ -154,7 +154,7 @@ class LeaderboardQueryTestCase(TestCase):
                         rank
                         score
                         user {
-                            username
+                            slug
                         }
                     }
                 }
@@ -175,11 +175,11 @@ class LeaderboardQueryTestCase(TestCase):
 
         # Check entries are sorted by badge count
         entries = leaderboard["entries"]
-        self.assertEqual(entries[0]["user"]["username"], "testuser1")
+        self.assertEqual(entries[0]["user"]["slug"], "testuser1")
         self.assertEqual(entries[0]["score"], 2)  # user1 has 2 badges
         self.assertEqual(entries[0]["rank"], 1)
 
-        self.assertEqual(entries[1]["user"]["username"], "testuser2")
+        self.assertEqual(entries[1]["user"]["slug"], "testuser2")
         self.assertEqual(entries[1]["score"], 1)  # user2 has 1 badge
         self.assertEqual(entries[1]["rank"], 2)
 
@@ -192,7 +192,7 @@ class LeaderboardQueryTestCase(TestCase):
                         rank
                         score
                         user {
-                            username
+                            slug
                         }
                     }
                 }
@@ -207,10 +207,10 @@ class LeaderboardQueryTestCase(TestCase):
         entries = result["data"]["leaderboard"]["entries"]
 
         # user1 has 5 messages, user2 has 3 messages
-        self.assertEqual(entries[0]["user"]["username"], "testuser1")
+        self.assertEqual(entries[0]["user"]["slug"], "testuser1")
         self.assertEqual(entries[0]["score"], 5)
 
-        self.assertEqual(entries[1]["user"]["username"], "testuser2")
+        self.assertEqual(entries[1]["user"]["slug"], "testuser2")
         self.assertEqual(entries[1]["score"], 3)
 
     def test_leaderboard_threads_metric(self):
@@ -222,7 +222,7 @@ class LeaderboardQueryTestCase(TestCase):
                         rank
                         score
                         user {
-                            username
+                            slug
                         }
                     }
                 }
@@ -238,7 +238,7 @@ class LeaderboardQueryTestCase(TestCase):
 
         # Both users created 1 thread each
         self.assertGreaterEqual(len(entries), 2)
-        usernames = [e["user"]["username"] for e in entries]
+        usernames = [e["user"]["slug"] for e in entries]
         self.assertIn("testuser1", usernames)
         self.assertIn("testuser2", usernames)
 
@@ -252,7 +252,7 @@ class LeaderboardQueryTestCase(TestCase):
                         rank
                         score
                         user {
-                            username
+                            slug
                         }
                     }
                 }
@@ -280,7 +280,7 @@ class LeaderboardQueryTestCase(TestCase):
                         rank
                         score
                         user {
-                            username
+                            slug
                         }
                     }
                 }
@@ -295,13 +295,13 @@ class LeaderboardQueryTestCase(TestCase):
         entries = result["data"]["leaderboard"]["entries"]
 
         # Sorted by reputation
-        self.assertEqual(entries[0]["user"]["username"], "testuser1")
+        self.assertEqual(entries[0]["user"]["slug"], "testuser1")
         self.assertEqual(entries[0]["score"], 150)
 
-        self.assertEqual(entries[1]["user"]["username"], "testuser2")
+        self.assertEqual(entries[1]["user"]["slug"], "testuser2")
         self.assertEqual(entries[1]["score"], 100)
 
-        self.assertEqual(entries[2]["user"]["username"], "testuser3")
+        self.assertEqual(entries[2]["user"]["slug"], "testuser3")
         self.assertEqual(entries[2]["score"], 75)
 
     def test_leaderboard_respects_user_privacy(self):
@@ -316,7 +316,7 @@ class LeaderboardQueryTestCase(TestCase):
                 leaderboard(metric: BADGES, scope: ALL_TIME, limit: 10) {
                     entries {
                         user {
-                            username
+                            slug
                         }
                     }
                 }
@@ -331,7 +331,7 @@ class LeaderboardQueryTestCase(TestCase):
         entries = result["data"]["leaderboard"]["entries"]
 
         # Private user should not appear in leaderboard
-        usernames = [e["user"]["username"] for e in entries]
+        usernames = [e["user"]["slug"] for e in entries]
         self.assertNotIn("privateuser", usernames)
 
     def test_leaderboard_current_user_rank(self):
@@ -435,7 +435,7 @@ class LeaderboardQueryTestCase(TestCase):
                     corpusId
                     entries {
                         user {
-                            username
+                            slug
                         }
                         score
                     }

@@ -24,6 +24,7 @@ import {
 } from "@os-legal/ui";
 import { formatDistanceToNow, format } from "date-fns";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 // GraphQL query for fetching version history
 export const GET_DOCUMENT_VERSION_HISTORY = gql`
@@ -38,7 +39,8 @@ export const GET_DOCUMENT_VERSION_HISTORY = gql`
           hash
           createdAt
           createdBy {
-            username
+            id
+            slug
           }
           sizeBytes
           changeType
@@ -227,7 +229,8 @@ interface DocumentVersion {
   hash: string;
   createdAt: string;
   createdBy: {
-    username: string;
+    id: string;
+    slug: string | null;
   };
   sizeBytes?: number;
   changeType: string;
@@ -433,7 +436,7 @@ export const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
                 <VersionMeta>
                   <div className="meta-item">
                     <User size={11} />
-                    {version.createdBy.username}
+                    {getCreatorDisplay(version.createdBy)}
                   </div>
                   <div className="meta-item">
                     <Clock size={11} />

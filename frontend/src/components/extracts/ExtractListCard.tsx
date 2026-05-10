@@ -110,7 +110,6 @@ const KebabIcon = () => (
 
 interface ExtractListCardProps {
   extract: ExtractCardItem;
-  currentUserEmail?: string;
   onView?: (extract: ExtractCardItem) => void;
   onDelete?: (extract: ExtractCardItem) => void;
   isMenuOpen?: boolean;
@@ -123,7 +122,6 @@ interface ExtractListCardProps {
 
 export const ExtractListCard: React.FC<ExtractListCardProps> = ({
   extract,
-  currentUserEmail,
   onView,
   onDelete,
   isMenuOpen,

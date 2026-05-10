@@ -32,6 +32,7 @@ export const GET_DOCUMENT_METADATA_DATACELLS = gql`
       }
       creator {
         id
+        slug
         email
       }
     }
@@ -59,6 +60,7 @@ export const GET_DOCUMENTS_METADATA_BATCH = gql`
         }
         creator {
           id
+          slug
           email
         }
       }

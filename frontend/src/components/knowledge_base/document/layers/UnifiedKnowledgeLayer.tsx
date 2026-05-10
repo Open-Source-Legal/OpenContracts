@@ -34,6 +34,7 @@ import {
   MarkdownEditor,
 } from "../StyledContainers";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../../../utils/userDisplay";
 import { useSummaryVersions } from "../floating_summary_preview/hooks/useSummaryVersions";
 import { SafeMarkdown } from "../../markdown/SafeMarkdown";
 import { toast } from "react-toastify";
@@ -206,7 +207,7 @@ const UnifiedKnowledgeLayer: React.FC<Props> = ({
                     </div>
                     <div className="version-meta">
                       <div className="meta-row">
-                        <UserIcon /> {version.author?.email || "Unknown"}
+                        <UserIcon /> {getCreatorDisplay(version.author)}
                       </div>
                       <div className="meta-row">
                         <Clock />

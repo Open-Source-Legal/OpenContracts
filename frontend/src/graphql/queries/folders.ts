@@ -49,9 +49,11 @@ export interface DeletedDocumentPathType {
   path: string;
   versionNumber: number;
   modified: string;
+  // ``username`` is now self-only PII (resolves to ``null`` for cross-user
+  // viewers); ``slug`` is the public identifier ``getCreatorDisplay`` uses.
   creator: {
     id: string;
-    username: string;
+    slug?: string | null;
   } | null;
   document: {
     id: string;
@@ -77,7 +79,7 @@ export const GET_DELETED_DOCUMENTS_IN_CORPUS = gql`
       modified
       creator {
         id
-        username
+        slug
       }
       document {
         id

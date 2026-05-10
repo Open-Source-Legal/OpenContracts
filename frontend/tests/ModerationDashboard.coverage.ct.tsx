@@ -40,7 +40,7 @@ const manualAction = {
   message: null,
   moderator: {
     id: "VXNlclR5cGU6MQ==",
-    username: "alice_mod",
+    slug: "alice-mod",
   },
 };
 

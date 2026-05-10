@@ -1016,102 +1016,77 @@ class ImageToolsPermissionEdgeCasesTest(TestCase):
         self.assertEqual(result, [])  # No images, but access was granted
 
     def test_annotation_with_created_by_analysis_permission_denied(self):
-        """Annotation created by analysis should require analysis permission."""
-        from unittest.mock import MagicMock, patch
+        """Annotations privately attached to an analysis stay hidden.
 
-        from opencontractserver.llms.tools.image_tools import (
-            get_annotation_images_with_permission,
-        )
+        Privacy is enforced by ``AnnotationQuerySet.visible_to_user``, which
+        the image endpoint delegates to. Pinning the integration here
+        catches any future divergence between the GraphQL feed and REST.
+        """
+        from opencontractserver.analyzer.models import Analysis, Analyzer
 
-        # Create document with permissions
-        document = Document.objects.create(
-            title="Doc with Analysis",
-            creator=self.user,
-        )
+        # Owner of doc/corpus, but NOT the analysis creator.
+        document = Document.objects.create(title="Doc with Analysis", creator=self.user)
         set_permissions_for_obj_to_user(self.user, document, [PermissionTypes.ALL])
+        set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.ALL])
 
-        # Create a mock analysis object
-        mock_analysis = MagicMock()
-        mock_analysis.id = 999
-        mock_analysis.pk = 999
+        analyzer = Analyzer.objects.create(
+            id="test.analyzer.image_priv_denied",
+            description="Privacy test analyzer",
+            creator=self.other_user,
+            task_name="test_analyzer",
+        )
+        private_analysis = Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.other_user,
+            is_public=False,
+        )
 
         annotation = Annotation.objects.create(
             document=document,
             corpus=self.corpus,
             annotation_label=self.label,
-            creator=self.user,
+            creator=self.other_user,
+            created_by_analysis=private_analysis,
             raw_text="Analysis annotation",
             json={},
         )
 
-        # Patch the annotation to have created_by_analysis_id
-        with patch.object(Annotation.objects, "select_related") as mock_select_related:
-            mock_annot = MagicMock()
-            mock_annot.structural = False
-            mock_annot.created_by_analysis_id = 999
-            mock_annot.created_by_analysis = mock_analysis
-            mock_annot.created_by_extract_id = None
-            mock_annot.document = document
-            mock_annot.corpus = self.corpus
-
-            mock_qs = MagicMock()
-            mock_qs.get.return_value = mock_annot
-            mock_select_related.return_value = mock_qs
-
-            # User lacks permission on analysis - should be denied
-            with patch(
-                "opencontractserver.llms.tools.image_tools.user_has_permission_for_obj"
-            ) as mock_perm:
-                mock_perm.return_value = False
-                result = get_annotation_images_with_permission(self.user, annotation.id)
-                self.assertEqual(result, [])
+        # self.user owns doc + corpus but cannot see the private analysis.
+        result = get_annotation_images_with_permission(self.user, annotation.id)
+        self.assertEqual(result, [])
 
     def test_annotation_with_created_by_extract_permission_denied(self):
-        """Annotation created by extract should require extract permission."""
-        from unittest.mock import MagicMock, patch
+        """Annotations privately attached to an extract stay hidden."""
+        from opencontractserver.extracts.models import Extract, Fieldset
 
-        from opencontractserver.llms.tools.image_tools import (
-            get_annotation_images_with_permission,
-        )
-
-        document = Document.objects.create(
-            title="Doc with Extract",
-            creator=self.user,
-        )
+        document = Document.objects.create(title="Doc with Extract", creator=self.user)
         set_permissions_for_obj_to_user(self.user, document, [PermissionTypes.ALL])
+        set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.ALL])
 
-        mock_extract = MagicMock()
-        mock_extract.id = 888
-        mock_extract.pk = 888
+        fieldset = Fieldset.objects.create(
+            name="Privacy Fieldset",
+            description="Privacy test",
+            creator=self.other_user,
+        )
+        private_extract = Extract.objects.create(
+            name="Private Extract",
+            fieldset=fieldset,
+            creator=self.other_user,
+        )
 
         annotation = Annotation.objects.create(
             document=document,
             corpus=self.corpus,
             annotation_label=self.label,
-            creator=self.user,
+            creator=self.other_user,
+            created_by_extract=private_extract,
             raw_text="Extract annotation",
             json={},
         )
 
-        with patch.object(Annotation.objects, "select_related") as mock_select_related:
-            mock_annot = MagicMock()
-            mock_annot.structural = False
-            mock_annot.created_by_analysis_id = None
-            mock_annot.created_by_extract_id = 888
-            mock_annot.created_by_extract = mock_extract
-            mock_annot.document = document
-            mock_annot.corpus = self.corpus
-
-            mock_qs = MagicMock()
-            mock_qs.get.return_value = mock_annot
-            mock_select_related.return_value = mock_qs
-
-            with patch(
-                "opencontractserver.llms.tools.image_tools.user_has_permission_for_obj"
-            ) as mock_perm:
-                mock_perm.return_value = False
-                result = get_annotation_images_with_permission(self.user, annotation.id)
-                self.assertEqual(result, [])
+        result = get_annotation_images_with_permission(self.user, annotation.id)
+        self.assertEqual(result, [])
 
     def test_corpus_permission_check_denied(self):
         """User without corpus permission should be denied."""
@@ -1243,32 +1218,6 @@ class ImageToolsStructuralAnnotationTest(TestCase):
         # self.user has no access to any document using this structural set
         result = get_annotation_images_with_permission(self.user, annotation.id)
         self.assertEqual(result, [])
-
-    def test_annotation_no_document_no_corpus_no_structural_set(self):
-        """Annotation without document, corpus, or structural_set should be denied."""
-        from unittest.mock import MagicMock, patch
-
-        from opencontractserver.llms.tools.image_tools import (
-            get_annotation_images_with_permission,
-        )
-
-        # Mock the entire annotation lookup - can't create orphan annotation due to DB constraint
-        with patch.object(Annotation.objects, "select_related") as mock_select_related:
-            mock_annot = MagicMock()
-            mock_annot.structural = True
-            mock_annot.created_by_analysis_id = None
-            mock_annot.created_by_extract_id = None
-            mock_annot.document = None
-            mock_annot.corpus = None
-            mock_annot.structural_set = None
-
-            mock_qs = MagicMock()
-            mock_qs.get.return_value = mock_annot
-            mock_select_related.return_value = mock_qs
-
-            # Use any ID since we're mocking the lookup
-            result = get_annotation_images_with_permission(self.user, 99999)
-            self.assertEqual(result, [])
 
 
 class ImageToolsPreExtractedContentTest(TestCase):

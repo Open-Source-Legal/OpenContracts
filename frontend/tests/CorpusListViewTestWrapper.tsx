@@ -4,7 +4,7 @@ import { InMemoryCache } from "@apollo/client";
 import { Provider } from "jotai";
 import { MemoryRouter } from "react-router-dom";
 import { CorpusListView } from "../src/components/corpuses/CorpusListView";
-import { authToken, userObj } from "../src/graphql/cache";
+import { authToken, userObj, backendUserObj } from "../src/graphql/cache";
 import { CorpusType, PageInfo } from "../src/types/graphql-api";
 import { START_FORK_CORPUS } from "../src/graphql/mutations";
 
@@ -105,14 +105,26 @@ export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
   onImportCorpus,
   allowImport = false,
 }) => {
-  // Set up auth state for tests
+  // Set up auth state for tests. CorpusListView's ownership comparison runs
+  // through `isOwnedBy(creator, { id: currentUserId })` (sourced from
+  // `backendUserObj`, not `userObj`) after the slug-only privacy migration,
+  // so the wrapper must seed an `id` on both reactive vars — not just
+  // `email` — for the "🔒 Private" status to render on owned cards. The id
+  // is derived from the email's local-part so the mock data factory (which
+  // mints ids the same way for "currentuser@example.com") lines up.
   React.useEffect(() => {
     if (isAuthenticated && userEmail) {
       authToken("test-token");
-      userObj({ email: userEmail } as any);
+      const userId =
+        userEmail === "currentuser@example.com"
+          ? "current-user"
+          : `user-${userEmail.split("@")[0]}`;
+      userObj({ id: userId, email: userEmail } as any);
+      backendUserObj({ id: userId, email: userEmail } as any);
     } else {
       authToken("");
       userObj(null);
+      backendUserObj(null);
     }
   }, [isAuthenticated, userEmail]);
 

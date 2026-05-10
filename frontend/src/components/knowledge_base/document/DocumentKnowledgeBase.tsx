@@ -540,7 +540,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   const metadata = combinedData?.document ?? {
     title: "Loading...",
     fileType: "",
-    creator: { email: "" },
+    creator: { id: "", slug: "" },
     created: new Date().toISOString(),
   };
 

@@ -43,7 +43,7 @@ import { PlaceholderCard } from "../placeholders/PlaceholderCard";
 import { useMessageBadges } from "../../hooks/useMessageBadges";
 import { openedCorpus, backendUserObj } from "../../graphql/cache";
 import { ReplyForm } from "./ReplyForm";
-import { formatUsername } from "./userUtils";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 import { getCorpusUrl } from "../../utils/navigationUtils";
 
 interface ThreadDetailProps {
@@ -507,12 +507,7 @@ export function ThreadDetail({
           <MetaRow>
             <MetaItem>
               <Users />
-              <strong>
-                {formatUsername(
-                  thread.creator?.username,
-                  thread.creator?.email
-                )}
-              </strong>
+              <strong>{getCreatorDisplay(thread.creator)}</strong>
             </MetaItem>
             <MetaDot>•</MetaDot>
             <MetaItem>
@@ -564,10 +559,7 @@ export function ThreadDetail({
               parentMessageId={replyingToMessageId || undefined}
               replyingToUsername={
                 replyTargetMessage
-                  ? formatUsername(
-                      replyTargetMessage.creator?.username,
-                      replyTargetMessage.creator?.email
-                    )
+                  ? getCreatorDisplay(replyTargetMessage.creator)
                   : undefined
               }
               parentMessageContent={replyTargetMessage?.content || undefined}

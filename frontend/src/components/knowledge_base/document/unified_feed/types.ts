@@ -15,8 +15,12 @@ export interface Note {
   id: string;
   title?: string;
   content: string;
+  // ``email`` is redacted to ``null`` for non-self viewers per the user
+  // privacy contract — only ``id`` and ``slug`` are guaranteed.
   creator: {
-    email: string;
+    id?: string | null;
+    slug?: string | null;
+    email?: string | null;
   };
   created: string;
 }

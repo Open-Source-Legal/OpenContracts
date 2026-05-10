@@ -43,9 +43,11 @@ import {
   labelsetSearchTerm,
   showNewLabelsetModal,
   userObj,
+  backendUserObj,
   deletingLabelset,
   editingLabelset,
 } from "../graphql/cache";
+import { isOwnedBy } from "../utils/userDisplay";
 import {
   GetLabelsetsWithLabelsInputs,
   GetLabelsetsWithLabelsOutputs,
@@ -109,12 +111,16 @@ const TagsIcon = () => (
 export const Labelsets = () => {
   const navigate = useNavigate();
   const currentUser = useReactiveVar(userObj);
+  const backendUser = useReactiveVar(backendUserObj);
   const labelset_search_term = useReactiveVar(labelsetSearchTerm);
   const show_new_label_modal = useReactiveVar(showNewLabelsetModal);
   const labelset_to_delete = useReactiveVar(deletingLabelset);
   // Use userObj for auth check - consistent with NavMenu pattern
   const isAuthenticated = Boolean(currentUser);
-  const currentUserEmail = currentUser?.email;
+  // Ownership and "mine" filtering keys off the backend user id (the public
+  // GraphQL UserType). Email is no longer reliable because the privacy
+  // contract redacts non-self emails to null.
+  const currentUserId = backendUser?.id;
 
   // Local state
   const [searchCache, setSearchCache] = useState<string>(labelset_search_term);
@@ -170,14 +176,15 @@ export const Labelsets = () => {
 
   // Filter labelsets based on active filter
   const filteredLabelsets = useMemo(() => {
+    const me = { id: currentUserId };
     switch (activeFilter) {
       case "my":
-        return labelsets.filter((ls) => ls.creator?.email === currentUserEmail);
+        return labelsets.filter((ls) => isOwnedBy(ls.creator, me));
       case "shared":
         return labelsets.filter(
           (ls) =>
             !ls.isPublic &&
-            ls.creator?.email !== currentUserEmail &&
+            !isOwnedBy(ls.creator, me) &&
             (ls.myPermissions?.length || 0) > 0
         );
       case "public":
@@ -185,22 +192,22 @@ export const Labelsets = () => {
       default:
         return labelsets;
     }
-  }, [labelsets, activeFilter, currentUserEmail]);
+  }, [labelsets, activeFilter, currentUserId]);
 
   // Calculate counts for filter tabs
   const filterCounts = useMemo(() => {
+    const me = { id: currentUserId };
     return {
-      my: labelsets.filter((ls) => ls.creator?.email === currentUserEmail)
-        .length,
+      my: labelsets.filter((ls) => isOwnedBy(ls.creator, me)).length,
       shared: labelsets.filter(
         (ls) =>
           !ls.isPublic &&
-          ls.creator?.email !== currentUserEmail &&
+          !isOwnedBy(ls.creator, me) &&
           (ls.myPermissions?.length || 0) > 0
       ).length,
       public: labelsets.filter((ls) => ls.isPublic).length,
     };
-  }, [labelsets, currentUserEmail]);
+  }, [labelsets, currentUserId]);
 
   // Filter tabs configuration
   const filterItems: FilterTabItem[] = [
@@ -451,7 +458,7 @@ export const Labelsets = () => {
                   <LabelSetListCard
                     key={labelset.id}
                     labelset={labelset}
-                    currentUserEmail={currentUserEmail}
+                    currentUserId={currentUserId}
                     onEdit={(ls) => editingLabelset(ls)}
                     onView={(ls) => navigate(getLabelsetUrl(ls))}
                     onDelete={(ls) => deletingLabelset(ls)}

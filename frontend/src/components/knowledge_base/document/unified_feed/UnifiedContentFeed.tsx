@@ -37,6 +37,7 @@ import { ContentItemRenderer } from "./ContentItemRenderer";
 import { RelationshipActionModal } from "./RelationshipActionModal";
 import { useRelationshipActions } from "../../../annotator/hooks/useRelationshipActions";
 import { STRUCTURAL_LABEL_PREFIX } from "../../../../assets/configurations/constants";
+import { getCreatorDisplay } from "../../../../utils/userDisplay";
 
 interface UnifiedContentFeedProps {
   /** Document notes */
@@ -233,7 +234,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
           const matchesSearch =
             note.title?.toLowerCase().includes(query) ||
             note.content.toLowerCase().includes(query) ||
-            note.creator.email.toLowerCase().includes(query);
+            getCreatorDisplay(note.creator).toLowerCase().includes(query);
           if (!matchesSearch) return;
         }
 

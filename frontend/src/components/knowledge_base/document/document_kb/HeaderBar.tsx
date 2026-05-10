@@ -4,11 +4,14 @@ import { DocumentVersionSelector } from "../../../documents/DocumentVersionSelec
 import { HeaderContainer, MetadataRow } from "../styled/HeaderAndLayout";
 import { HeaderButtonGroup, HeaderButton } from "./styles";
 import { routingLogger } from "../../../../utils/routingLogger";
+import { CreatorRef, getCreatorDisplay } from "../../../../utils/userDisplay";
 
 export interface DocumentMetadata {
   title?: string | null;
   fileType?: string | null;
-  creator?: { email?: string | null } | null;
+  // Privacy contract: viewers cross-user only see ``slug`` (or a
+  // ``user_<pk-suffix>`` fallback). ``email`` is no longer rendered.
+  creator?: CreatorRef | null;
   created?: string | null;
 }
 
@@ -62,7 +65,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <FileType size={16} /> {metadata.fileType}
           </span>
           <span>
-            <User size={16} /> {metadata.creator?.email ?? ""}
+            <User size={16} /> {getCreatorDisplay(metadata.creator)}
           </span>
           <span>
             <Calendar size={16} /> Created:{" "}

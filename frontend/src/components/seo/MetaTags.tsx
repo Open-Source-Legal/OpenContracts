@@ -3,6 +3,7 @@ import { Helmet } from "react-helmet-async";
 import { useLocation } from "react-router-dom";
 import { CorpusType, DocumentType, ExtractType } from "../../types/graphql-api";
 import { buildCanonicalPath } from "../../utils/navigationUtils";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 // Note: You'll need to install react-helmet-async:
 // yarn add react-helmet-async
@@ -103,7 +104,7 @@ export const MetaTags: React.FC<MetaTagsProps> = ({
       {/* Additional meta tags for entity-specific pages */}
       {entity && (
         <>
-          <meta name="author" content={entity.creator?.username || "Unknown"} />
+          <meta name="author" content={getCreatorDisplay(entity.creator)} />
           {"isPublic" in entity && entity.isPublic === false && (
             <meta name="robots" content="noindex, nofollow" />
           )}
