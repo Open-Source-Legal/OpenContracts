@@ -323,6 +323,19 @@ class PydanticAIDependencies(BaseModel):
         ),
     )
 
+    # Guards against the large-chunk warning firing on every implicit call
+    # during fresh large-context sessions (where recommended >> warn_threshold
+    # right from turn 1). Reset by _refresh_context_budget at the start of
+    # each turn so the diagnostic still fires once per turn if appropriate.
+    large_chunk_warning_emitted_this_turn: bool = Field(
+        default=False,
+        description=(
+            "True after the large-implicit-chunk warning has been emitted "
+            "once this turn; prevents repeated warnings when the model has "
+            "a large context window and the recommended chunk is always big."
+        ),
+    )
+
     def remaining_tokens_until_compaction(self) -> int:
         """Tokens still available before the compaction threshold trips.
 

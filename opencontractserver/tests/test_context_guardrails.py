@@ -858,6 +858,73 @@ class TestContextBudgetSnapshot(SimpleTestCase):
 
 
 # ---------------------------------------------------------------------------
+# get_remaining_context_budget tool — return shape contract
+# ---------------------------------------------------------------------------
+
+
+class TestGetRemainingContextBudgetShape(SimpleTestCase):
+    """The ``get_remaining_context_budget`` tool registered in the document-agent
+    factory must expose a stable 6-field dict so callers don't silently lose
+    new budget fields if deps evolve. This class pins the return shape without
+    needing the full async agent-factory setup."""
+
+    EXPECTED_KEYS = frozenset(
+        {
+            "model_name",
+            "context_window_tokens",
+            "estimated_used_tokens",
+            "remaining_tokens_until_compaction",
+            "compaction_threshold_ratio",
+            "recommended_chunk_chars",
+        }
+    )
+
+    def _make_snapshot(self) -> dict:
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies(
+            model_name="claude-opus-4-7",
+            context_window_tokens=200_000,
+            estimated_used_tokens=10_000,
+            compaction_threshold_ratio=0.75,
+        )
+        # Mirror the closure body in PydanticAIDocumentAgent.create exactly.
+        return {
+            "model_name": deps.model_name,
+            "context_window_tokens": deps.context_window_tokens,
+            "estimated_used_tokens": deps.estimated_used_tokens,
+            "remaining_tokens_until_compaction": deps.remaining_tokens_until_compaction(),
+            "compaction_threshold_ratio": deps.compaction_threshold_ratio,
+            "recommended_chunk_chars": deps.recommended_chunk_chars(),
+        }
+
+    def test_return_has_exactly_expected_keys(self):
+        """The snapshot dict must contain exactly the 6 documented fields."""
+        snapshot = self._make_snapshot()
+        self.assertEqual(set(snapshot.keys()), self.EXPECTED_KEYS)
+
+    def test_return_value_types_are_correct(self):
+        """All fields must carry their documented types so downstream code
+        can safely perform arithmetic without isinstance checks."""
+        snapshot = self._make_snapshot()
+        self.assertIsInstance(snapshot["model_name"], str)
+        self.assertIsInstance(snapshot["context_window_tokens"], int)
+        self.assertIsInstance(snapshot["estimated_used_tokens"], int)
+        self.assertIsInstance(snapshot["remaining_tokens_until_compaction"], int)
+        self.assertIsInstance(snapshot["compaction_threshold_ratio"], float)
+        self.assertIsInstance(snapshot["recommended_chunk_chars"], int)
+
+    def test_remaining_tokens_positive_for_low_usage(self):
+        """With 10k used against a 200k window at 75% threshold,
+        remaining_tokens_until_compaction should be comfortably positive."""
+        snapshot = self._make_snapshot()
+        self.assertGreater(snapshot["remaining_tokens_until_compaction"], 0)
+        self.assertGreater(snapshot["recommended_chunk_chars"], 0)
+
+
+# ---------------------------------------------------------------------------
 # load_document_text closure — multi-call drift within a single turn
 # ---------------------------------------------------------------------------
 

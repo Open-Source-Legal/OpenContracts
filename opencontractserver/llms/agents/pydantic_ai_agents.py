@@ -218,13 +218,22 @@ def _make_load_document_text_tool(
         # (``is_txt_extract_cached``) — NOT ``length == 0`` — so a genuinely
         # empty document doesn't trigger a redundant re-load on every call.
         if refresh or not is_txt_extract_cached(doc_id):
+            # aload_document_txt_extract caches the full document text regardless
+            # of the requested slice — the (0, 1) here is a cheap probe that
+            # triggers that side-effect without loading any data we didn't ask for.
+            # If the implementation is ever changed to cache only the requested
+            # slice, get_cached_txt_extract_length would return 1 here and every
+            # subsequent end_idx would be wrong.
             await aload_document_txt_extract(doc_id, 0, 1, refresh=refresh)
         total_chars = get_cached_txt_extract_length(doc_id)
 
         recommended = agent_deps.recommended_chunk_chars()
         window_chars = agent_deps.context_window_tokens * CHARS_PER_TOKEN_ESTIMATE
         warn_threshold = window_chars * LARGE_IMPLICIT_CHUNK_WARN_RATIO
-        if recommended > warn_threshold:
+        if (
+            recommended > warn_threshold
+            and not agent_deps.large_chunk_warning_emitted_this_turn
+        ):
             logger.warning(
                 "load_document_text: recommended chunk (%d chars) exceeds "
                 "%.0f%% of model %s's context window (%d chars) — verify "
@@ -235,6 +244,7 @@ def _make_load_document_text_tool(
                 agent_deps.model_name,
                 int(window_chars),
             )
+            agent_deps.large_chunk_warning_emitted_this_turn = True
 
         budget_after_in_turn_use = max(
             0, recommended - agent_deps.turn_implicit_doc_text_chars
@@ -419,6 +429,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         # the counter would accumulate across turns and starve the budget on
         # long-running streaming sessions.
         agent_deps.turn_implicit_doc_text_chars = 0
+        agent_deps.large_chunk_warning_emitted_this_turn = False
 
     def _refresh_context_budget(self, history_result: _HistoryResult) -> None:
         """Snapshot the per-turn context budget onto ``self.agent_deps``.
@@ -454,12 +465,19 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         """
         system_text = config.system_prompt or ""
         if messages:
+
+            def _part_text(part: Any) -> str:
+                # ToolCallPart stores arguments in ``args``, not ``content``.
+                # Falling back to ``args`` prevents material under-counting
+                # when history contains tool calls with large argument payloads.
+                content = (
+                    getattr(part, "content", None) or getattr(part, "args", None) or ""
+                )
+                return content if isinstance(content, str) else str(content)
+
             msg_tokens = sum(
                 estimate_token_count(
-                    " ".join(
-                        getattr(part, "content", "") or ""
-                        for part in getattr(m, "parts", [])
-                    )
+                    " ".join(_part_text(p) for p in getattr(m, "parts", []))
                 )
                 for m in messages
             )
