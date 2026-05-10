@@ -97,6 +97,7 @@ from .search import (  # noqa: F401
 from .text_extracts import (  # noqa: F401
     _DOC_TXT_CACHE,
     aload_document_txt_extract,
+    get_cached_txt_extract_length,
     load_document_txt_extract,
 )
 
@@ -134,6 +135,7 @@ __all__ = [
     "update_document_note",
     # Plain-text extracts
     "aload_document_txt_extract",
+    "get_cached_txt_extract_length",
     "load_document_txt_extract",
     # Descriptions
     "aget_corpus_description",

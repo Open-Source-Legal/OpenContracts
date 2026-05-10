@@ -80,6 +80,15 @@ TOOL_OUTPUT_TRUNCATION_NOTICE: str = (
 # is the wrapper-level ceiling for stringified tool returns; the dict-returning
 # ``load_document_text`` deliberately bypasses that truncation, so a 5K floor
 # is comfortably below any model's residual context.
+#
+# Trade-off: when the agent is genuinely starved (≈4K-token effective budget,
+# ≈14K chars residual), several end-less ``load_document_text`` calls will
+# each individually clear the floor but can collectively overflow. The
+# in-turn deduction (``turn_implicit_doc_text_chars``) backs successive
+# implicit reads off proportionally, but a single call still serves at
+# least 5K chars even if that crosses the residual budget. We accept this
+# usability tax over the alternative of the agent receiving a sub-1K
+# slice that's useless for whole-document tasks.
 MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS: int = 5_000
 
 # Soft warning threshold for the budget-derived implicit chunk size. When

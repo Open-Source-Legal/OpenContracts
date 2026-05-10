@@ -187,15 +187,14 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
     ToolDefinition(
         name="load_document_text",
         description=(
-            "Load a slice of the document's plain-text extract. The "
-            "document agent serves an adaptive variant: omit ``end`` to "
-            "auto-size the slice to the agent's remaining context budget "
-            "(ideal for whole-document tasks like summarisation), and "
-            "pass explicit ``start``/``end`` only when targeting a known "
-            "byte range. Use ``get_remaining_context_budget`` to inspect "
-            "the budget directly when planning multi-step reads. After "
+            "Load a slice of the document's plain-text extract by "
+            "character index. ``start`` defaults to 0; if ``end`` is "
+            "omitted the slice runs to the end of the file. After "
             "reading, call ``search_exact_text`` on key passages to "
-            "create citations."
+            "create citations. (The document agent overrides this tool "
+            "with an adaptive variant that auto-sizes ``end`` to the "
+            "agent's remaining context budget when omitted — that "
+            "variant ships its own description.)"
         ),
         category=ToolCategory.DOCUMENT,
         parameters=(

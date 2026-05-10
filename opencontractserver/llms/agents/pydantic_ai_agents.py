@@ -73,7 +73,6 @@ from opencontractserver.llms.context_guardrails import (
 )
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.core_tools import (
-    _DOC_TXT_CACHE,
     AnnotationItem,
     aadd_annotations_from_exact_strings,
     aadd_document_note,
@@ -84,6 +83,7 @@ from opencontractserver.llms.tools.core_tools import (
     asearch_exact_text_as_sources,
     aupdate_corpus_description,
     aupdate_document_note,
+    get_cached_txt_extract_length,
 )
 from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIDependencies,
@@ -300,37 +300,91 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         self.pydantic_ai_agent = pydantic_ai_agent
         self.agent_deps = agent_deps
 
-    def _refresh_context_budget(self, history_result: _HistoryResult) -> None:
-        """Snapshot the per-turn context budget onto ``self.agent_deps``.
+    @staticmethod
+    def _apply_context_budget(
+        agent_deps: Optional["PydanticAIDependencies"],
+        config: "AgentConfig",
+        history_result: _HistoryResult,
+    ) -> None:
+        """Pure transformation of an in-flight turn's context budget.
 
-        Called once per turn after :meth:`_get_message_history` so that
-        budget-aware tools (e.g. ``load_document_text``) can read the
-        agent's remaining headroom from ``ctx.deps`` and self-size their
-        return values rather than chunking blindly at a fixed length.
+        Extracted as a static helper so unit tests can drive it directly
+        with a constructed ``_HistoryResult`` instead of bypassing
+        ``__init__`` on the agent — keeps the test surface stable as
+        ``__init__`` evolves.
 
-        The snapshot reflects the state *entering* the turn — it does
-        not update as tool returns accumulate within a single run.
+        ``turn_implicit_doc_text_chars`` is reset here even though it
+        only tracks one tool's output (``load_document_text``); other
+        heavy tools (vector search, annotation listing) still consume
+        budget but are not deducted. The counter is therefore a
+        *partial* correction that prevents two adjacent
+        ``load_document_text`` calls from each handing back a full
+        budget-sized slice — it is not a full per-turn accounting.
         """
-        if self.agent_deps is None:
+        if agent_deps is None:
             return
-        self.agent_deps.model_name = self.config.model_name
+        agent_deps.model_name = config.model_name
         # Use the history result's context_window when present; fall back to
         # the per-model registry only when it's missing (``0``). ``or`` would
         # conflate "missing" with a legitimate zero — fragile if pydantic-ai
         # ever populates 0 for a real model.
-        self.agent_deps.context_window_tokens = (
+        agent_deps.context_window_tokens = (
             history_result.context_window
             if history_result.context_window > 0
-            else get_context_window_for_model(self.config.model_name)
+            else get_context_window_for_model(config.model_name)
         )
-        self.agent_deps.estimated_used_tokens = history_result.estimated_tokens
-        self.agent_deps.compaction_threshold_ratio = (
-            self.config.compaction.threshold_ratio
-        )
+        agent_deps.estimated_used_tokens = history_result.estimated_tokens
+        agent_deps.compaction_threshold_ratio = config.compaction.threshold_ratio
         # Reset the per-turn tally of implicit-chunk characters. Without this
         # the counter would accumulate across turns and starve the budget on
         # long-running streaming sessions.
-        self.agent_deps.turn_implicit_doc_text_chars = 0
+        agent_deps.turn_implicit_doc_text_chars = 0
+
+    def _refresh_context_budget(self, history_result: _HistoryResult) -> None:
+        """Snapshot the per-turn context budget onto ``self.agent_deps``.
+
+        Called once per turn after :meth:`_get_message_history` (or
+        :meth:`_history_result_from_messages` when the caller passed an
+        explicit message list) so budget-aware tools — e.g.
+        ``load_document_text`` — can read the agent's remaining headroom
+        from ``ctx.deps`` and self-size their return values.
+
+        The snapshot reflects the state *entering* the turn — it does
+        not update as tool returns accumulate within a single run.
+        """
+        self._apply_context_budget(self.agent_deps, self.config, history_result)
+
+    def _history_result_from_messages(
+        self, messages: Optional[list[ModelMessage]]
+    ) -> _HistoryResult:
+        """Build a ``_HistoryResult`` from an explicit Pydantic-AI message list.
+
+        ``_get_message_history`` is the canonical path and reads from the
+        DB; callers that pass an explicit ``message_history`` (notably
+        :meth:`resume_with_approval`) skip it and would otherwise leave
+        the budget snapshot stale on ``self.agent_deps``. This helper
+        mirrors the token-estimation logic in ``_get_message_history``
+        so the explicit-history path can refresh through the same
+        ``_refresh_context_budget`` codepath.
+        """
+        system_text = self.config.system_prompt or ""
+        if messages:
+            msg_tokens = sum(
+                estimate_token_count(
+                    " ".join(
+                        getattr(part, "content", "") or ""
+                        for part in getattr(m, "parts", [])
+                    )
+                )
+                for m in messages
+            )
+        else:
+            msg_tokens = 0
+        return _HistoryResult(
+            messages=messages,
+            estimated_tokens=estimate_token_count(system_text) + msg_tokens,
+            context_window=get_context_window_for_model(self.config.model_name),
+        )
 
     async def _initialise_llm_message(self, user_text: str) -> tuple[int, int]:
         """Ensure messages are persisted exactly once per turn.
@@ -713,20 +767,23 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         effective_history: Optional[list[Any]]
         if message_history is not None:
             effective_history = message_history
+            # Even though the caller bypassed the DB-driven
+            # ``_get_message_history`` path, we still need to refresh the
+            # full budget snapshot — not just the per-turn tally —
+            # otherwise ``estimated_used_tokens`` (and the rest of the
+            # snapshot fields) carry over stale values from the previous
+            # turn, which would give ``recommended_chunk_chars()`` the
+            # wrong baseline. Build a synthetic ``_HistoryResult`` from
+            # the explicit messages and feed it through the same code
+            # path the canonical caller uses.
+            history_result = self._history_result_from_messages(message_history)
+            self._refresh_context_budget(history_result)
             context_status = {
-                "used_tokens": 0,
-                "context_window": 0,
+                "used_tokens": history_result.estimated_tokens,
+                "context_window": history_result.context_window,
                 "was_compacted": False,
                 "tokens_before_compaction": 0,
             }
-            history_result = None
-            # When a caller passes an explicit ``message_history`` we skip
-            # ``_refresh_context_budget`` (it would re-derive history from
-            # the DB). The implicit-chunk tally must still be reset so
-            # ``load_document_text`` doesn't start the new turn with a
-            # stale char count from the previous one.
-            if self.agent_deps is not None:
-                self.agent_deps.turn_implicit_doc_text_chars = 0
         else:
             history_result = await self._get_message_history()
             self._refresh_context_budget(history_result)
@@ -2327,16 +2384,16 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         # -----------------------------
         async def get_document_text_length_tool() -> int:
             """Get the total character length of the document's plain-text extract."""
-            # ``aload_document_txt_extract`` always reads the *full* file into
-            # ``_DOC_TXT_CACHE[doc_id] = (timestamp, full_content_str)`` and
-            # then slices from that cached string before returning. So a
-            # ``(0, 1)`` call costs one disk read but populates the whole
-            # document — ``len(_DOC_TXT_CACHE[doc_id][1])`` is the real
-            # total. The fallback below covers the cache-miss edge case.
+            # ``aload_document_txt_extract`` always reads the *full* file
+            # into the module's text-extract cache before returning a
+            # slice, so a ``(0, 1)`` call costs one disk read but
+            # populates the whole document — the cached length is then
+            # the real total. The fallback below covers the cache-miss
+            # edge case (e.g. a future cache backend that drops entries).
             await aload_document_txt_extract(context.document.id, 0, 1)
-            if context.document.id in _DOC_TXT_CACHE:
-                _, cached_content = _DOC_TXT_CACHE[context.document.id]
-                return len(cached_content)
+            cached_len = get_cached_txt_extract_length(context.document.id)
+            if cached_len > 0:
+                return cached_len
             # Fallback: load the full text if not cached
             full_text = await aload_document_txt_extract(context.document.id)
             return len(full_text)
@@ -2408,15 +2465,18 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             doc_id = context.document.id
             start_idx = 0 if start is None else max(0, int(start))
 
-            # Resolve total length cheaply via the cache. ``aload_document_txt_extract``
-            # always reads and caches the *full* file (not the requested
-            # slice), so a ``(0, 1)`` call costs one disk read but
-            # ``len(_DOC_TXT_CACHE[doc_id][1])`` is then the real total.
-            if doc_id not in _DOC_TXT_CACHE or refresh:
+            # Resolve total length cheaply via the cache.
+            # ``aload_document_txt_extract`` always reads and caches the
+            # *full* file (not the requested slice), so a ``(0, 1)`` call
+            # costs one disk read but the cached length is then the real
+            # total. ``get_cached_txt_extract_length`` returns 0 on
+            # cache miss; use that as a sentinel to force a populating
+            # call.
+            cached_len = get_cached_txt_extract_length(doc_id)
+            if cached_len == 0 or refresh:
                 await aload_document_txt_extract(doc_id, 0, 1, refresh=refresh)
-            total_chars = (
-                len(_DOC_TXT_CACHE[doc_id][1]) if doc_id in _DOC_TXT_CACHE else 0
-            )
+                cached_len = get_cached_txt_extract_length(doc_id)
+            total_chars = cached_len
 
             # Compute the budget-driven default end when the caller didn't
             # specify one.  An explicit ``end`` is honoured verbatim — the
@@ -2479,12 +2539,14 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "context budget — pass no ``end`` for whole-document tasks "
                 "(e.g. summarisation) to avoid making many small calls. "
                 "Pass explicit ``start``/``end`` when targeting a known "
-                "byte range. Returns a dict with ``text``, ``total_chars``, "
-                "``returned_range``, ``chars_remaining``, "
-                "``suggested_next_start``, and ``context_budget_chars`` so "
-                "you can plan follow-up reads without a separate length "
-                "call. After reading, call ``search_exact_text`` on key "
-                "passages to create citations."
+                "character range. Returns a dict with ``text``, "
+                "``total_chars``, ``returned_range`` (``[start, end)`` — "
+                "the exclusive end is reported), ``chars_remaining``, "
+                "``suggested_next_start`` (use this — not "
+                "``returned_range[1]`` — as the next ``start``), and "
+                "``context_budget_chars`` so you can plan follow-up reads "
+                "without a separate length call. After reading, call "
+                "``search_exact_text`` on key passages to create citations."
             ),
             parameter_descriptions={
                 "start": "Inclusive start character index (default 0)",

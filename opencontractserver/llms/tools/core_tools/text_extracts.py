@@ -14,6 +14,19 @@ logger = logging.getLogger(__name__)
 _DOC_TXT_CACHE: dict[int, tuple["datetime", str]] = {}
 
 
+def get_cached_txt_extract_length(document_id: int) -> int:
+    """Return the character length of a document's cached text extract.
+
+    Returns ``0`` when the document has not been cached yet (e.g. no
+    ``aload_document_txt_extract`` call has populated it). Callers in
+    other modules use this in place of poking ``_DOC_TXT_CACHE`` directly
+    so the cache's storage shape can evolve (e.g. move to Redis or wrap
+    in an async-safe structure) without rippling across the codebase.
+    """
+    cached = _DOC_TXT_CACHE.get(document_id)
+    return len(cached[1]) if cached else 0
+
+
 def load_document_txt_extract(
     document_id: int,
     start: int | None = None,

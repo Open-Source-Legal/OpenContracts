@@ -935,11 +935,13 @@ class TestRefreshContextBudgetFallback(SimpleTestCase):
         )
 
         deps = PydanticAIDependencies()
-        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
-        agent.agent_deps = deps
-        agent.config = AgentConfig(model_name="gpt-4o")
+        config = AgentConfig(model_name="gpt-4o")
 
-        agent._refresh_context_budget(self._make_history_result(0))
+        # Drive the pure transformation directly — no ``__new__`` bypass on
+        # the agent class, so the test stays stable as ``__init__`` evolves.
+        PydanticAICoreAgent._apply_context_budget(
+            deps, config, self._make_history_result(0)
+        )
 
         self.assertEqual(deps.context_window_tokens, MODEL_CONTEXT_WINDOWS["gpt-4o"])
 
@@ -953,13 +955,91 @@ class TestRefreshContextBudgetFallback(SimpleTestCase):
         )
 
         deps = PydanticAIDependencies()
-        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
-        agent.agent_deps = deps
-        agent.config = AgentConfig(model_name="gpt-4o")
+        config = AgentConfig(model_name="gpt-4o")
 
-        agent._refresh_context_budget(self._make_history_result(99_999))
+        PydanticAICoreAgent._apply_context_budget(
+            deps, config, self._make_history_result(99_999)
+        )
 
         self.assertEqual(deps.context_window_tokens, 99_999)
+
+    def test_none_deps_is_noop(self):
+        """Passing ``None`` for deps should be a silent no-op."""
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+
+        # Should not raise.
+        PydanticAICoreAgent._apply_context_budget(
+            None, AgentConfig(model_name="gpt-4o"), self._make_history_result(0)
+        )
+
+
+class TestHistoryResultFromMessages(SimpleTestCase):
+    """`_history_result_from_messages` builds a ``_HistoryResult`` from an
+    explicit Pydantic-AI message list. Pins the codepath that
+    ``resume_with_approval`` uses to refresh the budget snapshot when it
+    bypasses ``_get_message_history``."""
+
+    def test_explicit_history_estimates_tokens_and_window(self):
+        from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
+
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+
+        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
+        agent.config = AgentConfig(
+            model_name="gpt-4o", system_prompt="You are a helpful assistant."
+        )
+
+        # Annotate as ``list[ModelMessage]`` so mypy treats the literal as
+        # the union the helper accepts (``list`` is invariant; a bare
+        # ``list[ModelRequest]`` would be rejected).
+        messages: list[ModelMessage] = [
+            ModelRequest(parts=[UserPromptPart(content="hello world " * 50)])
+        ]
+
+        history = agent._history_result_from_messages(messages)
+
+        self.assertGreater(history.estimated_tokens, 0)
+        self.assertGreater(history.context_window, 0)
+        self.assertEqual(history.messages, messages)
+        self.assertFalse(history.was_compacted)
+
+    def test_empty_messages_estimates_only_system_prompt(self):
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.context_guardrails import estimate_token_count
+
+        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
+        agent.config = AgentConfig(
+            model_name="gpt-4o", system_prompt="You are a helpful assistant."
+        )
+
+        history = agent._history_result_from_messages([])
+        # Only system-prompt tokens should contribute.
+        self.assertEqual(
+            history.estimated_tokens,
+            estimate_token_count("You are a helpful assistant."),
+        )
+
+    def test_none_messages_estimates_only_system_prompt(self):
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.context_guardrails import estimate_token_count
+
+        agent = PydanticAICoreAgent.__new__(PydanticAICoreAgent)
+        agent.config = AgentConfig(model_name="gpt-4o", system_prompt="System.")
+
+        history = agent._history_result_from_messages(None)
+        self.assertEqual(history.estimated_tokens, estimate_token_count("System."))
 
 
 # ---------------------------------------------------------------------------
