@@ -2271,13 +2271,13 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
     async def test_acreate_markdown_link_for_corpus(self):
         """Test async creation of corpus markdown link."""
         result = await acreate_markdown_link("corpus", self.corpus.id)
-        expected = f"[Async Test Corpus](/c/{self.user.username}/{self.corpus.slug})"
+        expected = f"[Async Test Corpus](/c/{self.user.slug}/{self.corpus.slug})"
         self.assertEqual(result, expected)
 
     async def test_acreate_markdown_link_for_document(self):
         """Test async creation of document markdown link."""
         result = await acreate_markdown_link("document", self.doc.id)
-        expected = f"[Async Test Document](/d/{self.user.username}/{self.corpus.slug}/{self.doc.slug})"
+        expected = f"[Async Test Document](/d/{self.user.slug}/{self.corpus.slug}/{self.doc.slug})"
         self.assertEqual(result, expected)
 
     async def test_acreate_markdown_link_for_annotation(self):
@@ -2285,7 +2285,7 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         result = await acreate_markdown_link("annotation", self.annotation.id)
         expected = (
             f"[Async test annotation]"
-            f"(/d/{self.user.username}/{self.corpus.slug}/{self.doc.slug}?ann={self.annotation.id})"
+            f"(/d/{self.user.slug}/{self.corpus.slug}/{self.doc.slug}?ann={self.annotation.id})"
         )
         self.assertEqual(result, expected)
 
@@ -2294,7 +2294,7 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         result = await acreate_markdown_link("conversation", self.conversation.id)
         expected = (
             f"[Async Test Discussion]"
-            f"(/c/{self.user.username}/{self.corpus.slug}/discussions/{self.conversation.id})"
+            f"(/c/{self.user.slug}/{self.corpus.slug}/discussions/{self.conversation.id})"
         )
         self.assertEqual(result, expected)
 
@@ -2365,7 +2365,7 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         result = await acreate_markdown_link("annotation", standalone_annotation.id)
         expected = (
             f"[Async Standalone annotation]"
-            f"(/d/{self.user.username}/async-standalone-doc?ann={standalone_annotation.id})"
+            f"(/d/{self.user.slug}/async-standalone-doc?ann={standalone_annotation.id})"
         )
         self.assertEqual(result, expected)
 
@@ -2384,7 +2384,7 @@ class AsyncTestCreateMarkdownLink(TransactionTestCase):
         standalone_doc = await create_standalone_doc()
 
         result = await acreate_markdown_link("document", standalone_doc.id)
-        expected = f"[Async Standalone Document](/d/{self.user.username}/async-standalone-document)"
+        expected = f"[Async Standalone Document](/d/{self.user.slug}/async-standalone-document)"
         self.assertEqual(result, expected)
 
     async def test_acreate_markdown_link_for_corpus_without_title(self):

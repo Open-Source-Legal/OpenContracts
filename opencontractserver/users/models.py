@@ -12,12 +12,17 @@ from django.contrib.auth.models import (
     Group,
 )
 from django.contrib.auth.models import UserManager as DjangoUserManager
+from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 
+from opencontractserver.constants.users import (
+    HANDLE_INSERT_RETRY_ATTEMPTS,
+    USER_HANDLE_MAX_LENGTH,
+)
 from opencontractserver.shared.db_utils import table_has_column
 from opencontractserver.shared.defaults import jsonfield_default_value
 from opencontractserver.shared.fields import NullableJSONField
@@ -29,6 +34,7 @@ from opencontractserver.shared.slug_utils import (
 )
 from opencontractserver.shared.utils import calc_oc_file_path
 from opencontractserver.types.enums import ExportType
+from opencontractserver.users.handle_generator import generate_handle
 from opencontractserver.users.validators import UserUnicodeUsernameValidator
 
 logger = logging.getLogger(__name__)
@@ -136,6 +142,23 @@ class User(AbstractUser):
         ),
     )
 
+    # Reddit-style display handle. Auto-assigned on save when missing;
+    # surfaced via the ``UserType.displayName`` GraphQL resolver so users
+    # without populated Auth0 ``name``/``given_name`` claims don't fall
+    # through to the redacted ``user_<id>`` fallback.
+    handle = django.db.models.CharField(
+        "Display Handle",
+        max_length=USER_HANDLE_MAX_LENGTH,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text=(
+            "Auto-assigned Reddit-style handle (e.g. 'cleverFox', 'cleverFox42'). "
+            "Used by the displayName resolver when Auth0 name claims are absent. "
+            "User-facing editing is out of scope for the initial rollout."
+        ),
+    )
+
     # Cookie consent tracking
     cookie_consent_accepted = django.db.models.BooleanField(
         "Cookie Consent Accepted",
@@ -213,8 +236,68 @@ class User(AbstractUser):
                 validate_user_slug_or_raise(sanitized)
                 self.slug = sanitized
 
+        # Auto-assign Reddit-style display handle. Mirrors the slug guard so
+        # initial migrations that pre-date the column don't explode on save.
+        # The django-guardian Anonymous user is a system account that never
+        # surfaces to other users, so it never needs (or wants) a handle —
+        # excluding it here also keeps the management command, migration,
+        # and ``DisplayName`` query symmetric.
+        handle_column_exists = table_has_column(self._meta.db_table, "handle")
+        handle_being_saved = update_fields is None or "handle" in update_fields
+        needs_handle = (
+            handle_column_exists
+            and handle_being_saved
+            and (not self.handle or not str(self.handle).strip())
+            and self.username != "Anonymous"
+        )
+
         created = self.id is None
-        super().save(*args, **kwargs)
+
+        if needs_handle:
+            # Bounded retry loop: ``generate_handle`` checks uniqueness with a
+            # non-locking ``.exists()`` query, so two concurrent inserts can
+            # sample the same candidate before either commits. Catch the
+            # resulting unique-constraint IntegrityError on the ``handle``
+            # column and re-roll. With the ~56k-pair namespace the first
+            # attempt almost always wins; the bound prevents pathological
+            # loops if the namespace is misconfigured.
+            #
+            # ``scope_qs`` excludes ``self.pk`` only when re-saving an existing
+            # row. For a brand-new INSERT, ``self.pk`` is ``None`` and stays
+            # ``None`` even across failed attempts: Django captures the
+            # RETURNING id only on a successful INSERT, so an IntegrityError
+            # below leaves ``self.pk`` unset for the next iteration. That's
+            # the correct behaviour — there's no committed row of ours to
+            # exclude from the uniqueness check.
+            user_cls = type(self)
+            scope_qs = user_cls.objects.all()
+            for attempt in range(HANDLE_INSERT_RETRY_ATTEMPTS):
+                self.handle = generate_handle(
+                    scope_qs=scope_qs.exclude(pk=self.pk) if self.pk else scope_qs,
+                )
+                try:
+                    super().save(*args, **kwargs)
+                    break
+                except IntegrityError:
+                    # Don't string-parse the DB error message — formats vary
+                    # across drivers and constraint names. Instead query for
+                    # an existing row holding our chosen handle: a hit means
+                    # this WAS a handle collision and we should re-roll; a
+                    # miss means the IntegrityError came from another column
+                    # (username, slug, …) and must propagate.
+                    chosen = self.handle
+                    self.handle = None
+                    if not chosen or not (
+                        user_cls.objects.exclude(pk=self.pk)
+                        .filter(handle=chosen)
+                        .exists()
+                    ):
+                        raise
+                    if attempt == HANDLE_INSERT_RETRY_ATTEMPTS - 1:
+                        raise
+                    continue
+        else:
+            super().save(*args, **kwargs)
 
         # after save user has ID
         # add user to group only after creating

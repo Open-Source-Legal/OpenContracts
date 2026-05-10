@@ -70,7 +70,10 @@ class AnnotatePermissionsForReadMixin:
             model_name = self._meta.model_name
             this_user_perms = getattr(self, f"{model_name}userobjectpermission_set")
 
-            for perm in this_user_perms.all():
+            # ``select_related("user")`` collapses what was an N+1 across
+            # ``perm.user.slug`` for shared corpuses with many collaborators
+            # into a single JOIN — only the slug is read per user, never PII.
+            for perm in this_user_perms.select_related("user").all():
 
                 logger.info(f"perm: {perm}")
 

@@ -89,6 +89,17 @@ test.describe("PageLayout primitives - Transient prop overrides", () => {
     expect(maxWidth).toBe("900px");
   });
 
+  test("ContentContainer $compact reduces top padding", async ({
+    mount,
+    page,
+  }) => {
+    await mount(<PageLayoutPropsHarness $compact />);
+    const padding = await page
+      .locator('[data-testid="content-container"]')
+      .evaluate((el) => window.getComputedStyle(el).paddingTop);
+    expect(padding).toBe("32px");
+  });
+
   test("HeroSection / HeroTitle margin-bottom overrides apply", async ({
     mount,
     page,

@@ -33,6 +33,12 @@ from .annotations import (  # noqa: F401
     aduplicate_annotations_with_label,
     duplicate_annotations_with_label,
 )
+from .caml_article import (  # noqa: F401
+    CAML_ARTICLE_TITLE,
+    aapply_caml_article_edit,
+    apropose_caml_citation_match,
+    aread_corpus_caml_article,
+)
 from .descriptions import (  # noqa: F401
     aget_corpus_description,
     aget_document_description,
@@ -155,6 +161,11 @@ __all__ = [
     "add_annotations_from_exact_strings",
     "aduplicate_annotations_with_label",
     "duplicate_annotations_with_label",
+    # CAML article review (Readme.CAML)
+    "CAML_ARTICLE_TITLE",
+    "aapply_caml_article_edit",
+    "apropose_caml_citation_match",
+    "aread_corpus_caml_article",
     # Document indexing
     "IndexEntryItem",
     "acreate_document_index",

@@ -10,6 +10,16 @@ metadata, UI preferences) are gated to *self-only* reads. Non-self viewers
 — see ``None`` for these fields. The ``slug`` is the only public identifier
 and the ``display_name`` resolver returns the slug for non-self viewers.
 
+Account-tier signals (``can_import_corpus``, ``is_usage_capped``-derived
+booleans) are also gated self-only — they could otherwise be probed to
+fingerprint paid-vs-free accounts.
+
+``is_profile_public`` is intentionally *not* gated: it is a public-by-design
+opt-in flag, and the ``userBySlug`` queryset already filters to
+``is_profile_public=True`` for non-self viewers, so any user reachable
+through the cross-user lookup path is, by definition, public — re-emitting
+``true`` reveals nothing the lookup path has not already.
+
 This is enforced uniformly via :func:`_is_self_view` so any future PII
 fields that need similar treatment can reuse the same gate. ``Meta.exclude``
 hides fields that should never be reachable through GraphQL (passwords,
@@ -96,9 +106,13 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     display_name = graphene.String(
         description=(
             "Privacy-preserving display name. Non-self viewers always receive "
-            "the user's ``slug`` (or a redacted ``user_<id>`` fallback when "
-            "no slug exists). Self-views still get the rich profile-name "
-            "fallback for personal-settings UI. The raw OAuth ``provider|sub`` "
+            "the user's ``slug`` (or a redacted ``user_<pk-suffix>`` fallback "
+            "when no slug exists). Self-views walk the rich PII-safe fallback "
+            "chain so personal-settings UIs greet the user with their chosen "
+            "name. Self-view chain: name → given_name + family_name → "
+            "first_name + last_name → auto-assigned handle → username (local "
+            "users only) → redacted 'user_<sub_suffix>' for social users → "
+            "redacted 'user_<pk-suffix>'. The raw OAuth ``provider|sub`` "
             "value used as the Django ``username`` for social-login users is "
             "never returned."
         )
@@ -167,9 +181,11 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     can_import_corpus = graphene.Boolean(
         description=(
-            "Whether this user is permitted to import a corpus. Mirrors the "
-            "server-side check in UploadCorpusImportZip / ImportZipToCorpus: "
-            "false for usage-capped users when "
+            "Whether this user is permitted to import a corpus. Self-only — "
+            "this exposes account-tier (usage-capped) status, which is PII. "
+            "Returns ``None`` for non-self viewers. Self-views see the same "
+            "gate the server enforces in UploadCorpusImportZip / "
+            "ImportZipToCorpus: false for usage-capped users when "
             "USAGE_CAPPED_USER_CAN_IMPORT_CORPUS is disabled."
         )
     )
@@ -211,13 +227,13 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return None
         return bool(getattr(self, "is_social_user", False))
 
-    def resolve_can_import_corpus(self, info) -> bool:
-        # ``self`` here is the User model instance being resolved on, not
-        # necessarily the requester. ``can_import_corpus`` is a property of
-        # *that* user; the cap-based gating is the same regardless of viewer
-        # because the leaderboard etc. don't surface this field cross-user.
-        if not getattr(self, "is_authenticated", False):
-            return False
+    def resolve_can_import_corpus(self, info) -> Optional[bool]:
+        # Self-only gate: ``is_usage_capped`` reflects account-tier status,
+        # so exposing this cross-user would let any client probe whether
+        # another account is paid/free. Returns ``None`` for non-self
+        # viewers (parallel to the other PII resolvers above).
+        if not _is_self_view(self, info):
+            return None
         from django.conf import settings
 
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
@@ -225,28 +241,30 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return True
 
     def resolve_display_name(self, info) -> str:
-        """
-        Resolve a privacy-preserving display name for this user.
+        """Pick the first non-empty branch of the display-name chain.
+
+        Resolution order:
+            1. ``name`` (Auth0 ``name`` claim).
+            2. ``given_name`` + ``family_name`` (Auth0).
+            3. ``first_name`` + ``last_name`` (local Django fields).
+            4. ``handle`` (Reddit-style auto-assigned handle).
+            5. ``username`` verbatim — ONLY when ``is_social_user=False``.
+               ``UserUnicodeUsernameValidator`` (see
+               ``opencontractserver/users/validators.py``) explicitly allows
+               ``|`` in locally-chosen usernames, so a local username like
+               ``alice|admin`` is legitimate and must NOT be redacted.
+            6. ``user_<last N chars after the last "|">`` for social users.
+               The raw OAuth ``sub`` (e.g. ``google-oauth2|114688...``) is
+               never returned — ``rsplit("|", 1)[-1]`` strips the provider
+               prefix even when the sub is short, and we keep only the last
+               ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` chars.
+            7. ``user_<pk>`` / ``user_unknown`` last-resort fallback. With a
+               populated handle column (see migration 0028) this branch is
+               effectively unreachable for any user touched by the backfill.
 
         Non-self viewers always get the user's ``slug`` (or a redacted
         ``user_<pk-suffix>`` fallback when slug is unset — should not
         happen post-migration, but is defensive against partial data).
-
-        Self-views walk the rich profile-name fallback so settings UIs
-        can show "Welcome, Alice". The raw OAuth ``provider|sub`` used as
-        the Django ``username`` for social-login users is never returned;
-        we redact it to ``user_<sub-suffix>``.
-
-        Priority for self-views (first non-empty wins):
-        1. ``name`` — full-name claim from Auth0 profile.
-        2. ``given_name`` + ``family_name`` — Auth0 split-name claims.
-        3. ``first_name`` + ``last_name`` — legacy Django profile fields.
-        4. ``username`` — only for non-social local users (no OAuth sub).
-        5. Redacted ``user_<sub-suffix>`` fallback.
-
-        ``slug`` is intentionally not in the self-view chain: the user's
-        choice of personal name should win for "what does my settings
-        page greet me with?", and slug is what other people see anyway.
         """
         if not _is_self_view(self, info):
             slug = _stripped(getattr(self, "slug", ""))
@@ -256,34 +274,32 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if name:
             return name
 
-        given_family = " ".join(
-            part
-            for part in (
-                _stripped(getattr(self, "given_name", "")),
-                _stripped(getattr(self, "family_name", "")),
-            )
-            if part
-        )
-        if given_family:
-            return given_family
+        given = _stripped(getattr(self, "given_name", ""))
+        family = _stripped(getattr(self, "family_name", ""))
+        if given or family:
+            return f"{given} {family}".strip()
 
-        first_last = " ".join(
-            part
-            for part in (
-                _stripped(getattr(self, "first_name", "")),
-                _stripped(getattr(self, "last_name", "")),
-            )
-            if part
-        )
-        if first_last:
-            return first_last
+        first = _stripped(getattr(self, "first_name", ""))
+        last = _stripped(getattr(self, "last_name", ""))
+        if first or last:
+            return f"{first} {last}".strip()
+
+        handle = _stripped(getattr(self, "handle", ""))
+        if handle:
+            return handle
 
         username = _stripped(getattr(self, "username", ""))
         is_social = bool(getattr(self, "is_social_user", False))
+
+        # Local users get their chosen username verbatim. ``|`` is allowed
+        # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
+        # username like ``alice|admin`` is legitimate and not an OAuth sub.
         if username and not is_social:
             return username
 
         if username:
+            # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
+            # strips the provider prefix even when the sub is short.
             sub = username.rsplit("|", 1)[-1]
             return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
 
