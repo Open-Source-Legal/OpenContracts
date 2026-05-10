@@ -176,6 +176,7 @@ def configure_user(user):
     """
     logger.debug("configure_user() - Configuring new user: %s", user)
     user.is_active = True
+    user.is_social_user = True
     user.set_password(
         uuid.uuid4().__str__()
     )  # Random django password to prevent malicious use of user with no pass
