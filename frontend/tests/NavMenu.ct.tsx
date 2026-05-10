@@ -358,6 +358,51 @@ test.describe("NavMenu Responsive Behavior", () => {
     await component.unmount();
   });
 
+  test("should close the floating sheet when the backdrop is tapped", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // The sheet has a 12px side gutter, so clicking near the left
+    // edge — well below the 60px header — lands on the backdrop
+    // rather than the dialog or its toggle. Tapping the backdrop is
+    // the most common mobile dismissal gesture.
+    await page.mouse.click(5, 300);
+    await expect(sheet).toBeHidden({ timeout: 2000 });
+    await expect(
+      page.locator('button[aria-label="Open navigation"]')
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("should render the sign-in CTA when no user is authenticated", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+
+    const sheet = page.locator('[aria-label="Site navigation"]');
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+    // Signed-out branch: AuthFooter renders the Sign-in button and
+    // omits the user chip entirely.
+    await expect(sheet.getByRole("button", { name: /sign in/i })).toBeVisible();
+    await expect(sheet.getByText("Signed in")).toHaveCount(0);
+
+    await component.unmount();
+  });
+
   test("should render the user chip when authenticated", async ({
     mount,
     page,

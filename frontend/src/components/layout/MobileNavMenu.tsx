@@ -24,7 +24,7 @@ export interface MobileNavItem {
 export interface MobileUserAction {
   id: string;
   label: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   onClick: () => void;
   danger?: boolean;
 }
@@ -59,6 +59,20 @@ const SHEET_SIDE_GUTTER = 12;
 // later, swap the constant out.
 const DARK_BASE_RGB = "15, 23, 42";
 
+// Pure white, used for the four hairline overlay sites (header border,
+// toggle border, toggle hover background, toggle open state). Same
+// rationale as ``DARK_BASE_RGB`` — a single constant keeps the alpha
+// stops in sync and signals intent ("translucent white wash") rather
+// than "magic colour".
+const SURFACE_OVERLAY_RGB = "255, 255, 255";
+const surfaceAlpha = (alpha: number): string =>
+  `rgba(${SURFACE_OVERLAY_RGB}, ${alpha})`;
+
+// Selector for natively-focusable elements inside the sheet. Drives
+// both the open-time focus seed and the Tab-key focus trap.
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 /* ------------------------------------------------------------------ */
 /*  Styled components — header                                         */
 /* ------------------------------------------------------------------ */
@@ -74,7 +88,7 @@ const Header = styled.header`
   padding: 0 16px;
   background: ${OS_LEGAL_COLORS.darkSurface};
   color: ${OS_LEGAL_COLORS.surface};
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid ${surfaceAlpha(0.06)};
 `;
 
 const Brand = styled.div`
@@ -104,17 +118,15 @@ const ToggleButton = styled.button<{ $open: boolean }>`
   height: 40px;
   border-radius: 10px;
   border: 1px solid
-    ${(props) =>
-      props.$open ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 255, 255, 0.08)"};
-  background: ${(props) =>
-    props.$open ? "rgba(255, 255, 255, 0.08)" : "transparent"};
+    ${(props) => (props.$open ? surfaceAlpha(0.18) : surfaceAlpha(0.08))};
+  background: ${(props) => (props.$open ? surfaceAlpha(0.08) : "transparent")};
   color: ${OS_LEGAL_COLORS.surface};
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: ${surfaceAlpha(0.1)};
+    border-color: ${surfaceAlpha(0.18)};
   }
 
   &:focus-visible {
@@ -347,6 +359,12 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   // Remember the trigger so we can return focus to it on close (WCAG
   // 2.1 SC 2.4.3 — keyboard users must land back where they came from).
   const toggleRef = useRef<HTMLButtonElement | null>(null);
+  // Captured ``document.body.style.overflow`` at the moment we lock
+  // scrolling. Held in a ref so ``onExitComplete`` can restore it
+  // AFTER the exit animation finishes — restoring on the cleanup
+  // (``open`` flipping false) would let the page scroll while the
+  // sheet is still visually on screen for ~200ms.
+  const savedOverflowRef = useRef<string>("");
 
   // Close the sheet whenever the route changes — covers both in-sheet
   // taps and external state changes. ``search`` is in the dep list so
@@ -357,16 +375,60 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
     setOpen(false);
   }, [pathname, search]);
 
-  // Lock body scroll, listen for ESC, and manage focus while the sheet
-  // is open.
+  // Lock body scroll, listen for ESC + Tab focus trap, and manage
+  // focus while the sheet is open.
   useEffect(() => {
     if (!open) return;
 
-    const previousOverflow = document.body.style.overflow;
+    savedOverflowRef.current = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      // Tab-key focus trap. ``role=dialog aria-modal`` already tells
+      // assistive tech to confine its virtual cursor here, but
+      // sighted keyboard users still need a manual trap to keep Tab
+      // / Shift+Tab cycling inside the sheet (ARIA APG dialog pattern).
+      const sheet = sheetRef.current;
+      if (!sheet) return;
+
+      const focusables = Array.from(
+        sheet.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      ).filter((el) => !el.hasAttribute("disabled"));
+
+      if (focusables.length === 0) {
+        // Nothing tabbable inside — pin focus to the container so
+        // Tab can't escape the modal.
+        event.preventDefault();
+        sheet.focus();
+        return;
+      }
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+
+      if (!sheet.contains(active)) {
+        // Focus has somehow leaked outside the sheet (e.g., the
+        // toggle behind the backdrop). Pull it back in.
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", handleKey);
 
@@ -376,14 +438,14 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
     const focusTimer = window.setTimeout(() => {
       const sheet = sheetRef.current;
       if (!sheet) return;
-      const firstFocusable = sheet.querySelector<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      );
+      const firstFocusable =
+        sheet.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
       (firstFocusable ?? sheet).focus();
     }, 0);
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      // NOTE: scroll restoration intentionally moved to
+      // ``AnimatePresence#onExitComplete`` — see ``savedOverflowRef``.
       window.removeEventListener("keydown", handleKey);
       window.clearTimeout(focusTimer);
       // Return focus to the toggle on close. ``open`` flipping to
@@ -393,10 +455,16 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   }, [open]);
 
   // Single handler for nav-item / user-action clicks — both shapes
-  // share "run onClick, then close the sheet".
+  // share "run onClick, then close the sheet". The try/finally
+  // guarantees the sheet still dismisses even if a handler throws —
+  // leaving the menu open on a failed action would strand the user
+  // on a dead UI.
   const runAndClose = useCallback((onClick: () => void) => {
-    onClick();
-    setOpen(false);
+    try {
+      onClick();
+    } finally {
+      setOpen(false);
+    }
   }, []);
 
   const handleLogin = () => {
@@ -405,7 +473,13 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   };
 
   const sheetOverlay = (
-    <AnimatePresence>
+    <AnimatePresence
+      onExitComplete={() => {
+        // Restore body scroll only after the exit animation finishes.
+        // See ``savedOverflowRef`` declaration for the rationale.
+        document.body.style.overflow = savedOverflowRef.current;
+      }}
+    >
       {open && (
         <>
           <Backdrop
@@ -464,9 +538,11 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
                       $danger={action.danger}
                       onClick={() => runAndClose(action.onClick)}
                     >
-                      <NavItemIcon $danger={action.danger}>
-                        {action.icon}
-                      </NavItemIcon>
+                      {action.icon && (
+                        <NavItemIcon $danger={action.danger}>
+                          {action.icon}
+                        </NavItemIcon>
+                      )}
                       {action.label}
                     </NavItemButton>
                   ))}
