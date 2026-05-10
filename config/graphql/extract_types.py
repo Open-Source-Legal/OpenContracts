@@ -57,15 +57,10 @@ class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return self.columns.all()
 
     def resolve_column_count(self, info) -> int:
-        # Reuse the prefetch cache populated by ExtractQueryOptimizer
-        # (`prefetch_related("fieldset__columns")`) to avoid an N+1 COUNT
-        # per row on the extracts list view.
-        #
-        # Asymmetry with ``resolve_document_count``: columns have no
-        # per-row READ permission filter (their visibility tracks the
-        # parent fieldset, mirroring ``resolve_full_column_list`` which
-        # also returns all columns unfiltered). The count is therefore a
-        # raw ``len()`` over the prefetched rows — not an oversight.
+        # Reads the ``fieldset__columns`` prefetch populated by
+        # ``ExtractQueryOptimizer`` to avoid N+1 COUNTs on the list view.
+        # No per-column permission filter — columns inherit fieldset
+        # visibility, matching ``resolve_full_column_list``.
         cache = getattr(self, "_prefetched_objects_cache", {})
         if "columns" in cache:
             return len(cache["columns"])
@@ -205,41 +200,16 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return _get_datacell_qs(self, info.context.user).count()
 
     def resolve_document_count(self, info) -> int:
-        # Precondition: the caller is expected to be the list resolver
-        # ``get_visible_extracts`` so ``ExtractQueryOptimizer`` populates
-        # ``_prefetched_objects_cache["documents"]``. The cache-miss fallback
-        # path below (``self.documents.all()`` followed by an in-Python loop)
-        # is correct but pays the same per-document permission cost the slim
-        # query was introduced to avoid — if you wire ``documentCount`` into
-        # a single-extract endpoint, prefetch documents on that path too.
-        #
-        # Mirror the per-document permission filter used by
+        # Mirrors the per-document permission filter applied by
         # ``resolve_full_document_list`` so the count never exceeds the list
-        # length the same viewer would observe. Per CLAUDE.md the effective
-        # document permission is ``MIN(document_permission, corpus_permission)``
-        # — corpus visibility alone is not sufficient because direct document
-        # permissions can be stricter.
-        #
-        # Performance: the prefetch eliminates the per-extract SQL N+1 (one
-        # DB roundtrip per row), but for non-superusers we still loop in
-        # Python over the prefetched documents calling
-        # ``user_has_permission_for_obj`` once per doc. So the wall-clock
-        # work is O(n_extracts × n_documents_per_extract) Python checks,
-        # not SQL queries — same shape as ``resolve_full_document_list``.
-        # Acceptable today (extracts typically reference a small bounded
-        # set of documents); if extracts grow document-heavy we'd need a
-        # batched permission resolver.
-        #
-        # ``_prefetched_objects_cache`` is a Django-private API but is the
-        # only way to reuse the prefetch populated by
-        # ``ExtractQueryOptimizer`` without re-querying. Same pattern is used
-        # by ``ConversationQueryOptimizer``. The ``count()`` fallback is
-        # the cache-miss path and is itself permission-filtered to keep
-        # the contract consistent.
-        # Inline imports avoid an apps-not-loaded circular at module
-        # import time (extract_types.py is imported very early during
-        # schema construction, before the permissioning helpers are safe
-        # to resolve).
+        # length the same viewer would observe (effective permission is
+        # ``MIN(document, corpus)`` per CLAUDE.md). Reads from the prefetch
+        # populated by ``ExtractQueryOptimizer.get_visible_extracts`` to avoid
+        # the per-extract SQL N+1; the in-Python permission loop is still
+        # ``O(n_docs)`` per row — acceptable while extracts stay small.
+        # ``_prefetched_objects_cache`` is a Django private API (also used by
+        # ``ConversationQueryOptimizer``); the ``count()``/``all()`` fallback
+        # keeps the resolver correct if the prefetch is missing.
         from opencontractserver.types.enums import PermissionTypes
         from opencontractserver.utils.permissioning import user_has_permission_for_obj
 

@@ -18,22 +18,13 @@ import {
 } from "../widgets/context-menu/ContextMenu";
 
 /**
- * Minimum field surface ``ExtractListCard`` reads from its ``extract`` prop.
- * Accepts both the slim ``ExtractListItem`` returned by
- * ``GET_EXTRACTS_FOR_LIST`` and the full ``ExtractType`` so legacy callers
- * (e.g. selection views still on ``GET_EXTRACTS``) continue to compile
- * without casts. ``myPermissions`` is intentionally typed as ``string[]``
- * — ``PermissionTypes[]`` from ``ExtractType`` is assignable, and the
- * slim list shape uses unparsed strings.
- *
- * Type contract:
- *   - ``ExtractListItem`` (in ``graphql/queries.ts``) is the canonical
- *     shape going forward — match this when authoring new queries.
- *   - ``ExtractCardItem`` (this type) is a compat shim that adds the
- *     legacy ``fullDocumentList`` / ``fieldset.fullColumnList`` fields so
- *     callers still on the old ``GET_EXTRACTS`` query keep typechecking
- *     during the migration. Once those callers are gone the shim should
- *     collapse to ``ExtractListItem``.
+ * Minimum prop shape ``ExtractListCard`` reads — duck-types both the slim
+ * ``ExtractListItem`` (``GET_EXTRACTS_FOR_LIST``) and the legacy
+ * ``ExtractType`` (``GET_EXTRACTS``) so the four heavy-query callers
+ * (``ExtractItem``, ``CorpusExtractCards``, ``CamlArticleEditor``,
+ * ``CreateExtractModal``) keep typechecking during the migration. Collapse
+ * to ``ExtractListItem`` once those callers are on the slim query —
+ * follow-up tracked alongside PR #1602.
  */
 export type ExtractCardItem = {
   id: string;

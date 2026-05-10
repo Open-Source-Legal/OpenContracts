@@ -234,10 +234,9 @@ export const DISCOVER_SEARCH_DEBOUNCE_MS = 250;
 export const MUTATION_BATCH_SIZE = 10;
 
 /** Default page size for cursor-paginated list views (Annotations,
- *  Extracts, Documents). Prefer referencing this from per-feature
- *  pagination groups rather than re-typing ``20`` so the views stay in
- *  lockstep. The backend ``max_limit=15`` was intentionally exceeded
- *  here when the slim list queries were introduced — see PR #1602. */
+ *  Extracts, Documents). Reference this from per-feature pagination
+ *  groups so the views stay in lockstep; the backend ``max_limit`` on
+ *  the matching Relay connection must be >= this value. */
 export const DEFAULT_LIST_PAGE_SIZE = 20;
 
 // Annotation pagination constants
