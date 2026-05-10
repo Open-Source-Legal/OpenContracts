@@ -16,14 +16,48 @@ export interface CreatorRef {
   slug?: string | null;
 }
 
+// Mirrors ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` in
+// ``opencontractserver/constants/auth.py``. Used so the no-slug fallback
+// here matches ``_redacted_handle`` on the backend (``user_<last N chars
+// of pk>``) rather than emitting a different handle for the same user.
+const REDACTED_HANDLE_PK_SUFFIX_LENGTH = 6;
+
+/**
+ * Decode the numeric primary key from a Relay global ID
+ * (``base64("TypeName:pk")``). Returns ``null`` when the input is not a
+ * valid Relay ID — caller should fall back to the raw value or a generic
+ * placeholder. Pure helper, exported for tests.
+ */
+export function decodeRelayPk(id: string | null | undefined): string | null {
+  if (!id) return null;
+  try {
+    const decoded =
+      typeof atob === "function"
+        ? atob(id)
+        : Buffer.from(id, "base64").toString("binary");
+    const sep = decoded.lastIndexOf(":");
+    if (sep === -1) return null;
+    const pk = decoded.slice(sep + 1);
+    return pk || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Public display for a user reference. Always returns a non-empty
- *  string. Prefer slug; fall back to a redacted ``user_<id>`` handle. */
+ *  string. Prefer slug; fall back to a ``user_<pk-suffix>`` handle that
+ *  matches the backend ``_redacted_handle`` shape so two surfaces don't
+ *  render different strings for the same user. */
 export function getCreatorDisplay(
   creator: CreatorRef | null | undefined
 ): string {
   if (!creator) return "Unknown";
   if (creator.slug) return creator.slug;
-  if (creator.id) return `user_${creator.id}`;
+  if (creator.id) {
+    const pk = decodeRelayPk(creator.id);
+    const suffix = (pk ?? creator.id).slice(-REDACTED_HANDLE_PK_SUFFIX_LENGTH);
+    return `user_${suffix || "unknown"}`;
+  }
   return "Unknown";
 }
 

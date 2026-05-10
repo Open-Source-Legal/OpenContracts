@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  decodeRelayPk,
   getCreatorDisplay,
   getCreatorInitials,
   isOwnedBy,
@@ -35,6 +36,50 @@ describe("userDisplay", () => {
 
     it("falls back to user_<id> when slug is null", () => {
       expect(getCreatorDisplay({ id: "42", slug: null })).toBe("user_42");
+    });
+
+    it("decodes a Relay global ID and uses the pk suffix to match _redacted_handle", () => {
+      // base64("UserType:1") === "VXNlclR5cGU6MQ==" — backend
+      // _redacted_handle returns "user_1" for pk=1, so the frontend
+      // fallback must too.
+      expect(getCreatorDisplay({ id: "VXNlclR5cGU6MQ==" })).toBe("user_1");
+    });
+
+    it("uses last 6 chars of the pk for long Relay IDs to mirror the backend suffix", () => {
+      // base64("UserType:1234567") === "VXNlclR5cGU6MTIzNDU2Nw==" — pk is
+      // "1234567", suffix length is 6, so we expect "user_234567".
+      expect(getCreatorDisplay({ id: "VXNlclR5cGU6MTIzNDU2Nw==" })).toBe(
+        "user_234567"
+      );
+    });
+  });
+
+  describe("decodeRelayPk", () => {
+    it("decodes a valid Relay global ID", () => {
+      expect(decodeRelayPk("VXNlclR5cGU6MQ==")).toBe("1");
+    });
+
+    it("handles a multi-segment type name by splitting on the last colon", () => {
+      // base64("Some:Type:99") — only the final segment is the pk.
+      const id = btoa("Some:Type:99");
+      expect(decodeRelayPk(id)).toBe("99");
+    });
+
+    it("returns null for an undecodable input", () => {
+      // Plain numeric strings aren't base64-decodable to a "<type>:<pk>" form.
+      // Either atob throws or the decoded payload has no colon — both must
+      // resolve to null so callers fall back gracefully.
+      expect(decodeRelayPk("42")).toBeNull();
+    });
+
+    it("returns null for null/undefined", () => {
+      expect(decodeRelayPk(null)).toBeNull();
+      expect(decodeRelayPk(undefined)).toBeNull();
+    });
+
+    it("returns null when the decoded payload has no colon separator", () => {
+      const id = btoa("nopk");
+      expect(decodeRelayPk(id)).toBeNull();
     });
   });
 

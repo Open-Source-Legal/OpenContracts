@@ -250,6 +250,87 @@ class UserTypePrivacyTestCase(TestCase):
             self.assertIsNone(node[field])
         self.assertEqual(node["displayName"], self.alice.slug)
 
+    # ------------------------------------------------------------------
+    # ``canImportCorpus`` is account-tier sensitive — same self-only
+    # gate as the PII fields above.
+    # ------------------------------------------------------------------
+    def test_can_import_corpus_is_null_for_other_authenticated_user(self) -> None:
+        # Reuse alice's profile as the resolution target; bob queries it.
+        # ``canImportCorpus`` reflects ``is_usage_capped`` — leaking it
+        # cross-user would let any client probe whether another account
+        # is paid/free. Must redact to ``null`` for non-self viewers.
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        query = """
+            query UserBySlug($slug: String!) {
+                userBySlug(slug: $slug) {
+                    canImportCorpus
+                }
+            }
+        """
+        client = Client(schema, context_value=_Ctx(self.bob))
+        result = client.execute(query, variable_values={"slug": self.alice.slug})
+        self.assertNotIn("errors", result, msg=result)
+        self.assertIsNone(result["data"]["userBySlug"]["canImportCorpus"])
+
+    def test_can_import_corpus_is_null_for_anonymous_viewer(self) -> None:
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        query = """
+            query UserBySlug($slug: String!) {
+                userBySlug(slug: $slug) {
+                    canImportCorpus
+                }
+            }
+        """
+        client = Client(schema, context_value=_Ctx(AnonymousUser()))
+        result = client.execute(query, variable_values={"slug": self.alice.slug})
+        self.assertNotIn("errors", result, msg=result)
+        self.assertIsNone(result["data"]["userBySlug"]["canImportCorpus"])
+
+    def test_can_import_corpus_returns_boolean_for_self_view(self) -> None:
+        # Self-view: alice queries herself via ``me`` — gets a real
+        # boolean (not ``null``). The exact value depends on
+        # ``is_usage_capped`` × ``USAGE_CAPPED_USER_CAN_IMPORT_CORPUS``;
+        # we just assert the shape here.
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        query = "query Me { me { canImportCorpus } }"
+        client = Client(schema, context_value=_Ctx(self.alice))
+        result = client.execute(query)
+        self.assertNotIn("errors", result, msg=result)
+        self.assertIsInstance(result["data"]["me"]["canImportCorpus"], bool)
+
+    # ------------------------------------------------------------------
+    # Inactive sessions: even when ``is_authenticated`` reports True (it
+    # does, statically, on every User instance), a deactivated account
+    # whose session cookie is still live must not pass ``_is_self_view``.
+    # ------------------------------------------------------------------
+    def test_deactivated_user_does_not_see_their_own_pii(self) -> None:
+        self.alice.is_active = False
+        self.alice.save(update_fields=["is_active"])
+        node = self._query_self_as_me(self.alice)
+        # ``me`` returns ``null`` for unauthenticated requesters via the
+        # resolve_me short-circuit; for a deactivated user the
+        # ``is_authenticated`` flag is still True, so ``me`` does
+        # resolve, but every PII field must redact.
+        if node is None:
+            return  # short-circuit branch — also acceptable
+        for field in ("email", "username", "name", "firstName", "lastName"):
+            self.assertIsNone(
+                node[field],
+                msg=(
+                    f"Deactivated user saw {field}={node[field]!r} via me — "
+                    "_is_self_view should fail closed when is_active=False."
+                ),
+            )
+
 
 class UserDisplayNameSlugFallbackTestCase(TestCase):
     """Cover the redacted-handle path when ``slug`` is unset.

@@ -12,6 +12,15 @@ class UserSerializer(serializers.ModelSerializer):
     are deliberately omitted — see :class:`config.graphql.user_types.UserType`
     for the canonical privacy policy. Detail-view lookup uses ``slug`` so
     the URL itself never leaks the OAuth ``sub`` for social-login users.
+
+    .. note::
+       The ``lookup_field`` below only controls how this serializer
+       *generates* hyperlinked ``url`` values. The actual route resolution
+       requires the corresponding ``UserViewSet`` to also set
+       ``lookup_field = "slug"`` (and the router registration to match).
+       This serializer is currently unwired in production routes; if/when
+       it is wired up, verify both ends agree or generated URLs will
+       silently 404.
     """
 
     class Meta:

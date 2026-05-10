@@ -30,6 +30,7 @@ auto-exposure for fields the user themselves still needs to read.
 from typing import Any, Optional
 
 import graphene
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from graphene import relay
 from graphene_django import DjangoObjectType
@@ -53,10 +54,18 @@ def _is_self_view(user_obj: Any, info: Any) -> bool:
     """True iff the requester *is* the user object being resolved.
 
     Authentication is required: anonymous viewers, server-side ``None``
-    contexts (e.g. internal callers passing ``info=None``), and inactive
-    sessions all return ``False``. Superusers deliberately do not bypass
-    this gate — PII access is reserved for Django admin, not the public
-    GraphQL API.
+    contexts (e.g. internal callers passing ``info=None``), and deactivated
+    accounts (``is_active=False``) all return ``False``. Superusers
+    deliberately do not bypass this gate — PII access is reserved for
+    Django admin, not the public GraphQL API.
+
+    The ``is_active`` check is explicit because Django's
+    ``AbstractBaseUser.is_authenticated`` is a ``True`` constant for any
+    User instance regardless of activation status, and
+    ``AuthenticationMiddleware`` does not invalidate sessions when an
+    admin flips ``is_active=False``. Without this check, a deactivated
+    user with a still-live session cookie would continue to read their
+    own PII.
     """
     if info is None:
         return False
@@ -67,6 +76,8 @@ def _is_self_view(user_obj: Any, info: Any) -> bool:
     if requester is None:
         return False
     if not getattr(requester, "is_authenticated", False):
+        return False
+    if not getattr(requester, "is_active", False):
         return False
     return requester.pk == user_obj.pk
 
@@ -234,8 +245,6 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # viewers (parallel to the other PII resolvers above).
         if not _is_self_view(self, info):
             return None
-        from django.conf import settings
-
         if self.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
             return False
         return True
