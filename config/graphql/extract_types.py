@@ -206,12 +206,26 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # — corpus visibility alone is not sufficient because direct document
         # permissions can be stricter.
         #
+        # Performance: the prefetch eliminates the per-extract SQL N+1 (one
+        # DB roundtrip per row), but for non-superusers we still loop in
+        # Python over the prefetched documents calling
+        # ``user_has_permission_for_obj`` once per doc. So the wall-clock
+        # work is O(n_extracts × n_documents_per_extract) Python checks,
+        # not SQL queries — same shape as ``resolve_full_document_list``.
+        # Acceptable today (extracts typically reference a small bounded
+        # set of documents); if extracts grow document-heavy we'd need a
+        # batched permission resolver.
+        #
         # ``_prefetched_objects_cache`` is a Django-private API but is the
         # only way to reuse the prefetch populated by
         # ``ExtractQueryOptimizer`` without re-querying. Same pattern is used
         # by ``ConversationQueryOptimizer``. The ``count()`` fallback is
         # the cache-miss path and is itself permission-filtered to keep
         # the contract consistent.
+        # Inline imports avoid an apps-not-loaded circular at module
+        # import time (extract_types.py is imported very early during
+        # schema construction, before the permissioning helpers are safe
+        # to resolve).
         from opencontractserver.types.enums import PermissionTypes
         from opencontractserver.utils.permissioning import user_has_permission_for_obj
 

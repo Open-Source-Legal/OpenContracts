@@ -96,16 +96,6 @@ const TableIcon = () => (
   </svg>
 );
 
-// Page size for the list — sourced from the shared
-// ``EXTRACT_PAGINATION.PAGE_SIZE`` so the Annotations / Documents / Extracts
-// views stay in sync if the default ever changes. The legacy GET_EXTRACTS
-// query did not pass ``first``/``after`` to the connection at all, so the
-// server quietly clamped every request to ``max_limit=15`` and fetchMore's
-// cursor was sent but never honoured (broken pagination). The slim query
-// wires the connection args properly via this constant.
-
-// Main Component
-
 export const Extracts = () => {
   const currentUser = useReactiveVar(userObj);
   const extract_search_term = useReactiveVar(extractSearchTerm);
@@ -148,7 +138,16 @@ export const Extracts = () => {
 
   // Memoize variables so Apollo only re-fetches when the user actually changes
   // a filter. Building a fresh object literal in the useQuery call below
-  // would force Apollo to deep-compare every render.
+  // would force Apollo to deep-compare every render. ``EXTRACT_PAGINATION.PAGE_SIZE``
+  // is the shared page size across Annotations / Documents / Extracts; the
+  // legacy GET_EXTRACTS query never passed ``first``/``after`` so the server
+  // silently clamped every request to ``max_limit=15`` and fetchMore's cursor
+  // was sent but never honoured. The slim query wires the connection args
+  // properly via this memoised value, and the matching Apollo cache entry in
+  // ``cache.ts`` (``extracts: relayStylePagination(["corpus",
+  // "corpusAction_Isnull", "name_Contains"])``) keys pages by the same field
+  // arguments — without that, fetchMore would overwrite page 1 instead of
+  // appending.
   const extractVariables: GetExtractsForListInput = useMemo(
     () => ({
       limit: EXTRACT_PAGINATION.PAGE_SIZE,
@@ -246,9 +245,13 @@ export const Extracts = () => {
     },
   ];
 
-  // Calculate stats. ``GET_EXTRACTS_FOR_LIST`` always returns the slim
-  // ``documentCount`` aggregate (one CTE per extract row, no per-doc
-  // permission fan-out), so we don't need a fullDocumentList fallback here.
+  // Calculate stats. ``GET_EXTRACTS_FOR_LIST`` returns ``documentCount``
+  // (per-extract aggregate, single CTE, no per-doc permission fan-out)
+  // so we sum that instead of crawling fullDocumentList client-side.
+  // ``totalColumns`` is intentionally omitted — the StatGrid below renders
+  // four tiles (Total / Running / Completed / Documents) and never showed
+  // a column count, so summing ``fieldset.columnCount`` here would be
+  // dead work. Re-add it if a column-count tile is added back to the UI.
   const stats = useMemo(() => {
     let totalDocuments = 0;
 
