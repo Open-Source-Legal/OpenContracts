@@ -352,6 +352,134 @@ class AnnotationImagesAPITestCase(TestCase):
         self.assertEqual(data["count"], 0)
         self.assertEqual(len(data["images"]), 0)
 
+    def test_fetch_images_anonymous_structural_set_with_public_doc(self):
+        """
+        Anonymous users CAN fetch images for ``structural_set``-linked
+        annotations when at least one document using the set is public —
+        ``AnnotationQuerySet.visible_to_user`` admits this branch via
+        ``Q(document__isnull=True) & Q(structural_set__isnull=False) &
+        Q(structural_set__documents__is_public=True)``.  The image
+        endpoint mirrors that path so anonymous users don't see the row
+        in the GraphQL feed but get an empty array from REST.
+        """
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+
+        client = APIClient()  # no auth
+
+        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
+        pawls_json = json.dumps(pawls_data).encode("utf-8")
+
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="anon_structural_set_public",
+            parser_name="test_parser",
+            page_count=1,
+        )
+        structural_set.pawls_parse_file.save(
+            "structural_pawls.json", ContentFile(pawls_json)
+        )
+
+        # Public document linked to the structural set.
+        Document.objects.create(
+            creator=self.user,
+            title="Public Structural Doc",
+            description="Public, drives anon visibility for the set",
+            pdf_file="test.pdf",
+            structural_annotation_set=structural_set,
+            is_public=True,
+        )
+
+        # Annotation row carries no document FK — mirrors the
+        # production shape for structural-set-only annotations.
+        annotation = Annotation.objects.create(
+            document=None,
+            corpus=None,
+            structural_set=structural_set,
+            structural=True,
+            creator=self.user,
+            page=0,
+            annotation_label=self.annotation_label,
+            raw_text="",
+            json={
+                "0": {
+                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 1},
+                        {"pageIndex": 0, "tokenIndex": 2},
+                    ],
+                    "rawText": "",
+                }
+            },
+            content_modalities=["IMAGE"],
+        )
+
+        response = client.get(f"/api/annotations/{annotation.id}/images/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(len(data["images"]), 2)
+
+    def test_fetch_images_anonymous_structural_set_no_public_doc_blocked(self):
+        """
+        Anonymous users CANNOT fetch images for a ``structural_set``-linked
+        annotation when no document using the set is public.  Mirrors the
+        queryset's intersection with ``structural_set__documents__is_public=True``.
+        """
+        from opencontractserver.annotations.models import StructuralAnnotationSet
+
+        client = APIClient()  # no auth
+
+        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
+        pawls_json = json.dumps(pawls_data).encode("utf-8")
+
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="anon_structural_set_private",
+            parser_name="test_parser",
+            page_count=1,
+        )
+        structural_set.pawls_parse_file.save(
+            "structural_pawls.json", ContentFile(pawls_json)
+        )
+
+        # Private document linked to the structural set — anon should
+        # not be able to reach the images.
+        Document.objects.create(
+            creator=self.user,
+            title="Private Structural Doc",
+            description="Private — should block anon from set images",
+            pdf_file="test.pdf",
+            structural_annotation_set=structural_set,
+            is_public=False,
+        )
+
+        annotation = Annotation.objects.create(
+            document=None,
+            corpus=None,
+            structural_set=structural_set,
+            structural=True,
+            creator=self.user,
+            page=0,
+            annotation_label=self.annotation_label,
+            raw_text="",
+            json={
+                "0": {
+                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 1},
+                    ],
+                    "rawText": "",
+                }
+            },
+            content_modalities=["IMAGE"],
+        )
+
+        response = client.get(f"/api/annotations/{annotation.id}/images/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(len(data["images"]), 0)
+
     def test_fetch_images_anonymous_corpus_none_structural(self):
         """
         Anonymous users CAN fetch images for structural annotations on public

@@ -505,26 +505,69 @@ def get_annotation_images_with_permission(
             return get_annotation_images(annotation_id)
 
         # Anonymous users: enforce the full visibility rule self-contained,
-        # mirroring AnnotationQuerySet.visible_to_user which restricts
+        # mirroring ``AnnotationQuerySet.visible_to_user`` which restricts
         # anonymous callers to structural annotations on public documents
-        # whose corpus is null or public. Done explicitly here (rather than
-        # relying on the downstream user_has_permission_for_obj checks for
-        # document/corpus) so the anonymous path doesn't silently break if
-        # guardian's behavior for AnonymousUser ever changes.
+        # — including the ``structural_set``-linked branch where the row
+        # itself has ``document=None`` but the structural set is shared
+        # by at least one public document.  Done explicitly here (rather
+        # than relying on the downstream ``user_has_permission_for_obj``
+        # checks for document/corpus) so the anonymous path doesn't
+        # silently break if guardian's behavior for AnonymousUser ever
+        # changes.
         if user.is_anonymous:
             if not annotation.structural:
                 logger.debug(
-                    f"Anonymous user denied image access for non-structural annotation {annotation_id}"
+                    "Anonymous user denied image access for non-structural annotation %s",
+                    annotation_id,
                 )
                 return []  # IDOR protection
-            if annotation.document is None or not annotation.document.is_public:
+
+            # ``structural_set`` branch: the queryset admits these when
+            # any document using the set is public, even when the
+            # annotation row's own ``document`` FK is null. Mirror that
+            # path here so REST and GraphQL stay symmetrical.
+            if annotation.document is None:
+                if annotation.structural_set is None:
+                    logger.debug(
+                        "Anonymous user denied image access — annotation %s has no "
+                        "document and no structural_set",
+                        annotation_id,
+                    )
+                    return []  # IDOR protection
+                has_public_doc = Document.objects.filter(
+                    structural_annotation_set=annotation.structural_set,
+                    is_public=True,
+                ).exists()
+                if not has_public_doc:
+                    logger.debug(
+                        "Anonymous user denied image access — structural_set on "
+                        "annotation %s has no public document",
+                        annotation_id,
+                    )
+                    return []  # IDOR protection
+                # Corpus visibility still applies: the queryset's
+                # anon branch requires ``corpus is null OR
+                # corpus.is_public`` regardless of how the doc binding
+                # is established.
+                if annotation.corpus is not None and not annotation.corpus.is_public:
+                    logger.debug(
+                        "Anonymous user denied image access for non-public corpus "
+                        "on structural_set annotation %s",
+                        annotation_id,
+                    )
+                    return []  # IDOR protection
+                return get_annotation_images(annotation_id)
+
+            if not annotation.document.is_public:
                 logger.debug(
-                    f"Anonymous user denied image access for non-public document on annotation {annotation_id}"
+                    "Anonymous user denied image access for non-public document on annotation %s",
+                    annotation_id,
                 )
                 return []  # IDOR protection
             if annotation.corpus is not None and not annotation.corpus.is_public:
                 logger.debug(
-                    f"Anonymous user denied image access for non-public corpus on annotation {annotation_id}"
+                    "Anonymous user denied image access for non-public corpus on annotation %s",
+                    annotation_id,
                 )
                 return []  # IDOR protection
             return get_annotation_images(annotation_id)
