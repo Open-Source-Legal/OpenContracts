@@ -20,6 +20,12 @@ import {
 import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 
 // GraphQL queries/mutations used by GlobalAgentManagement
+// Mirror of the production GET_GLOBAL_AGENTS in
+// `src/components/admin/global_agent_management.graphql.ts`. Apollo's
+// MockedProvider matches mocks by the `print()`ed query body, so any drift
+// (extra/missing fields, different aliases) means the mock silently fails
+// to match and the component never sees its data. Keep this in sync — and
+// never speculatively widen the selection set "for safety".
 const GET_GLOBAL_AGENTS = gql`
   query GetGlobalAgents {
     agentConfigurations(scope: "GLOBAL") {
@@ -39,7 +45,6 @@ const GET_GLOBAL_AGENTS = gql`
           isPublic
           creator {
             id
-            slug
             username
           }
           created
