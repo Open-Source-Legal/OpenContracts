@@ -1406,12 +1406,7 @@
   dependencies:
     "@os-legal/caml" "workspace:*"
 
-"@os-legal/caml@^0.1.0", "@os-legal/caml@workspace:*":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@os-legal/caml/-/caml-0.1.0.tgz#c5254b010ddce55d279fb45ac146e78bc4a88751"
-  integrity sha512-K5zcqUl8TaRlH0/2kYbKPmqVq7O1S+jBR5weCHnaB9PXykIRJEakzeYygQu32eaNk2P4jrCfZ0KSJ0JBUpd5/Q==
-
-"@os-legal/caml@^0.1.2":
+"@os-legal/caml@^0.1.2", "@os-legal/caml@workspace:*":
   version "0.1.2"
   resolved "https://registry.yarnpkg.com/@os-legal/caml/-/caml-0.1.2.tgz#403fcd236c5206abd9ed3d5657e95a898a67bda2"
   integrity sha512-7Kdhu5ziXMepoDg+ONC041vag4kHAQfam98R0pvmPST7xbfZCu+oY3jDdVtPuNjcVgbKZWh223VfStJCAKExQQ==
