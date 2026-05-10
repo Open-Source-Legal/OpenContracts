@@ -602,11 +602,12 @@ test("renders TXT document with chat panel open", async ({ mount, page }) => {
   await expect(feedToggle).toBeVisible({ timeout: LONG_TIMEOUT });
   await feedToggle.click();
 
-  // TXT content should be visible
-  await expect(page.locator("#pdf-container")).toBeVisible({
+  // TXT content should be visible. Container id is ``text-container``
+  // for TXT docs after PR #1580 split the viewer into per-filetype branches.
+  await expect(page.locator("#text-container")).toBeVisible({
     timeout: LONG_TIMEOUT,
   });
-  await expect(page.locator("#pdf-container")).toContainText(
+  await expect(page.locator("#text-container")).toContainText(
     `Lorem ipsum dolor sit amet, consectetur adipiscing elit. This is a much longer test document with multiple lines of text. 
 The quick brown fox jumps over the lazy dog. We need enough text content here to ensure that annotations can be created 
 without interference from the floating controls at the bottom of the screen. 
