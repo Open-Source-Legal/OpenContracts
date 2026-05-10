@@ -504,15 +504,30 @@ def get_annotation_images_with_permission(
         if user.is_superuser:
             return get_annotation_images(annotation_id)
 
-        # Anonymous users may only see images for structural annotations.
-        # AnnotationQuerySet.visible_to_user restricts anonymous users to
-        # structural annotations on public docs/corpuses; the doc/corpus
-        # public-flag check below enforces the "public" half of that rule.
-        if user.is_anonymous and not annotation.structural:
-            logger.debug(
-                f"Anonymous user denied image access for non-structural annotation {annotation_id}"
-            )
-            return []  # IDOR protection
+        # Anonymous users: enforce the full visibility rule self-contained,
+        # mirroring AnnotationQuerySet.visible_to_user which restricts
+        # anonymous callers to structural annotations on public documents
+        # whose corpus is null or public. Done explicitly here (rather than
+        # relying on the downstream user_has_permission_for_obj checks for
+        # document/corpus) so the anonymous path doesn't silently break if
+        # guardian's behavior for AnonymousUser ever changes.
+        if user.is_anonymous:
+            if not annotation.structural:
+                logger.debug(
+                    f"Anonymous user denied image access for non-structural annotation {annotation_id}"
+                )
+                return []  # IDOR protection
+            if annotation.document is None or not annotation.document.is_public:
+                logger.debug(
+                    f"Anonymous user denied image access for non-public document on annotation {annotation_id}"
+                )
+                return []  # IDOR protection
+            if annotation.corpus is not None and not annotation.corpus.is_public:
+                logger.debug(
+                    f"Anonymous user denied image access for non-public corpus on annotation {annotation_id}"
+                )
+                return []  # IDOR protection
+            return get_annotation_images(annotation_id)
 
         # === PRIVACY MODEL CHECK ===
         # Non-structural annotations with created_by_analysis or created_by_extract

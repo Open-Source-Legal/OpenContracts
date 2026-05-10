@@ -16,22 +16,38 @@ logger = logging.getLogger(__name__)
 
 
 class AnnotationImagesThrottle(UserRateThrottle):
-    """Rate limiting for annotation image retrieval endpoint (authenticated)."""
+    """Rate limiting for annotation image retrieval endpoint (authenticated only).
+
+    Bypasses anonymous requests so each user-type has a single dedicated
+    bucket — anon traffic is metered exclusively by ``AnnotationImagesAnonThrottle``.
+    Without this gate, ``UserRateThrottle`` would IP-key anonymous requests
+    against ``annotation_images`` while ``AnonRateThrottle`` IP-keyed them
+    against ``annotation_images_anon``, consuming two cache slots per call
+    in lockstep.
+    """
 
     scope = "annotation_images"
 
+    def allow_request(self, request, view):
+        if not request.user.is_authenticated:
+            return True
+        return super().allow_request(request, view)
+
 
 class AnnotationImagesAnonThrottle(AnonRateThrottle):
-    """Rate limiting for annotation image retrieval endpoint (anonymous).
+    """Rate limiting for annotation image retrieval endpoint (anonymous only).
 
-    Distinct scope from the authenticated throttle so the two cache keys
-    don't collide on IP for anonymous requests. ``UserRateThrottle`` falls
-    back to IP for unauthenticated callers, and a shared scope would mean
-    every anonymous request consumed *two* slots from the same bucket —
-    halving the effective rate.
+    Bypasses authenticated requests; the matching ``AnnotationImagesThrottle``
+    handles those. See that class for the rationale behind splitting the
+    two scopes.
     """
 
     scope = "annotation_images_anon"
+
+    def allow_request(self, request, view):
+        if request.user.is_authenticated:
+            return True
+        return super().allow_request(request, view)
 
 
 class AnnotationImagesView(APIView):

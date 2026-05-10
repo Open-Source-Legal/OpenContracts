@@ -98,6 +98,68 @@ class AnnotationImagesAPITestCase(TestCase):
             )
         return pages
 
+    # Sentinel for "use the test class's default corpus" without conflating
+    # with the legitimate ``corpus=None`` test case (anonymous structural on
+    # a corpusless public document).
+    _DEFAULT_CORPUS = object()
+
+    def _create_public_annotated_document(
+        self,
+        *,
+        structural: bool = True,
+        document_is_public: bool = True,
+        corpus: object = _DEFAULT_CORPUS,
+        corpus_is_public: bool = True,
+        title: str = "Public Doc",
+    ) -> Annotation:
+        """Build a document + image-bearing annotation for anonymous-access tests.
+
+        Returns the annotation; the test only needs the URL it produces. Pass
+        ``corpus=None`` to test the corpusless branch; otherwise a fresh corpus
+        is created with ``is_public=corpus_is_public``.
+        """
+        if corpus is self._DEFAULT_CORPUS:
+            corpus_obj: Corpus | None = Corpus.objects.create(
+                title=f"{title} corpus",
+                creator=self.user,
+                label_set=self.label_set,
+                is_public=corpus_is_public,
+            )
+        else:
+            corpus_obj = corpus  # type: ignore[assignment]
+
+        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
+        document = Document.objects.create(
+            creator=self.user,
+            title=title,
+            description="Test fixture",
+            pdf_file="test.pdf",
+            is_public=document_is_public,
+        )
+        pawls_json = json.dumps(pawls_data).encode("utf-8")
+        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
+
+        return Annotation.objects.create(
+            document=document,
+            corpus=corpus_obj,
+            creator=self.user,
+            page=0,
+            annotation_label=self.annotation_label,
+            raw_text="",
+            structural=structural,
+            json={
+                "0": {
+                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
+                    "tokensJsons": [
+                        {"pageIndex": 0, "tokenIndex": 1},
+                        {"pageIndex": 0, "tokenIndex": 2},
+                    ],
+                    "rawText": "",
+                }
+            },
+            content_modalities=["IMAGE"],
+        )
+
     def _create_test_document_with_images(
         self, owner: User
     ) -> tuple[Document, Annotation]:
@@ -209,44 +271,11 @@ class AnnotationImagesAPITestCase(TestCase):
         """
         client = APIClient()  # no auth
 
-        # Public corpus + public document
-        public_corpus = Corpus.objects.create(
-            title="Public Corpus",
-            creator=self.user,
-            label_set=self.label_set,
-            is_public=True,
-        )
-        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
-        document = Document.objects.create(
-            creator=self.user,
-            title="Public Doc",
-            description="Public",
-            pdf_file="test.pdf",
-            is_public=True,
-        )
-        pawls_json = json.dumps(pawls_data).encode("utf-8")
-        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
-
-        # Structural annotation (the only kind anonymous users can see)
-        annotation = Annotation.objects.create(
-            document=document,
-            corpus=public_corpus,
-            creator=self.user,
-            page=0,
-            annotation_label=self.annotation_label,
-            raw_text="",
+        annotation = self._create_public_annotated_document(
             structural=True,
-            json={
-                "0": {
-                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
-                    "tokensJsons": [
-                        {"pageIndex": 0, "tokenIndex": 1},
-                        {"pageIndex": 0, "tokenIndex": 2},
-                    ],
-                    "rawText": "",
-                }
-            },
-            content_modalities=["IMAGE"],
+            document_is_public=True,
+            corpus_is_public=True,
+            title="Public Doc",
         )
 
         response = client.get(f"/api/annotations/{annotation.id}/images/")
@@ -265,42 +294,11 @@ class AnnotationImagesAPITestCase(TestCase):
         """
         client = APIClient()  # no auth
 
-        public_corpus = Corpus.objects.create(
-            title="Public Corpus 2",
-            creator=self.user,
-            label_set=self.label_set,
-            is_public=True,
-        )
-        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
-        document = Document.objects.create(
-            creator=self.user,
-            title="Public Doc 2",
-            description="Public",
-            pdf_file="test.pdf",
-            is_public=True,
-        )
-        pawls_json = json.dumps(pawls_data).encode("utf-8")
-        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
-
-        # NON-structural annotation
-        annotation = Annotation.objects.create(
-            document=document,
-            corpus=public_corpus,
-            creator=self.user,
-            page=0,
-            annotation_label=self.annotation_label,
-            raw_text="",
+        annotation = self._create_public_annotated_document(
             structural=False,
-            json={
-                "0": {
-                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
-                    "tokensJsons": [
-                        {"pageIndex": 0, "tokenIndex": 1},
-                    ],
-                    "rawText": "",
-                }
-            },
-            content_modalities=["IMAGE"],
+            document_is_public=True,
+            corpus_is_public=True,
+            title="Public Doc Non-Structural",
         )
 
         response = client.get(f"/api/annotations/{annotation.id}/images/")
@@ -318,42 +316,33 @@ class AnnotationImagesAPITestCase(TestCase):
         """
         client = APIClient()  # no auth
 
-        # Private corpus, public document
-        private_corpus = Corpus.objects.create(
-            title="Private Corpus",
-            creator=self.user,
-            label_set=self.label_set,
-            is_public=False,
-        )
-        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
-        document = Document.objects.create(
-            creator=self.user,
-            title="Public Doc 3",
-            description="Public",
-            pdf_file="test.pdf",
-            is_public=True,
-        )
-        pawls_json = json.dumps(pawls_data).encode("utf-8")
-        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
-
-        annotation = Annotation.objects.create(
-            document=document,
-            corpus=private_corpus,
-            creator=self.user,
-            page=0,
-            annotation_label=self.annotation_label,
-            raw_text="",
+        annotation = self._create_public_annotated_document(
             structural=True,
-            json={
-                "0": {
-                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
-                    "tokensJsons": [
-                        {"pageIndex": 0, "tokenIndex": 1},
-                    ],
-                    "rawText": "",
-                }
-            },
-            content_modalities=["IMAGE"],
+            document_is_public=True,
+            corpus_is_public=False,
+            title="Public Doc Private Corpus",
+        )
+
+        response = client.get(f"/api/annotations/{annotation.id}/images/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(len(data["images"]), 0)
+
+    def test_fetch_images_anonymous_private_document_blocked(self):
+        """
+        Anonymous users CANNOT fetch images when the document is NOT public,
+        even for a structural annotation in an otherwise-public corpus.
+        Pins the ``document.is_public`` half of the visibility rule.
+        """
+        client = APIClient()  # no auth
+
+        annotation = self._create_public_annotated_document(
+            structural=True,
+            document_is_public=False,
+            corpus_is_public=True,
+            title="Private Doc Public Corpus",
         )
 
         response = client.get(f"/api/annotations/{annotation.id}/images/")
@@ -372,38 +361,11 @@ class AnnotationImagesAPITestCase(TestCase):
         """
         client = APIClient()  # no auth
 
-        pawls_data = self._create_pawls_with_images(num_pages=1, images_per_page=2)
-        document = Document.objects.create(
-            creator=self.user,
-            title="Public Doc Corpusless",
-            description="Public, no corpus binding",
-            pdf_file="test.pdf",
-            is_public=True,
-        )
-        pawls_json = json.dumps(pawls_data).encode("utf-8")
-        document.pawls_parse_file.save("test_pawls.json", ContentFile(pawls_json))
-
-        # Structural annotation with corpus=None — the queryset accepts this
-        # via the Q(corpus__isnull=True) branch when document is public.
-        annotation = Annotation.objects.create(
-            document=document,
-            corpus=None,
-            creator=self.user,
-            page=0,
-            annotation_label=self.annotation_label,
-            raw_text="",
+        annotation = self._create_public_annotated_document(
             structural=True,
-            json={
-                "0": {
-                    "bounds": {"top": 50, "bottom": 110, "left": 50, "right": 230},
-                    "tokensJsons": [
-                        {"pageIndex": 0, "tokenIndex": 1},
-                        {"pageIndex": 0, "tokenIndex": 2},
-                    ],
-                    "rawText": "",
-                }
-            },
-            content_modalities=["IMAGE"],
+            document_is_public=True,
+            corpus=None,  # exercise the Q(corpus__isnull=True) branch
+            title="Public Doc Corpusless",
         )
 
         response = client.get(f"/api/annotations/{annotation.id}/images/")
