@@ -556,7 +556,6 @@ export const GET_CORPUS_WITH_HISTORY = gql`
       licenseLink
       creator {
         id
-        email
         slug
         __typename
       }
@@ -571,7 +570,6 @@ export const GET_CORPUS_WITH_HISTORY = gql`
         author {
           id
           slug
-          email
           __typename
         }
         created
@@ -1143,8 +1141,6 @@ export const GET_ANNOTATIONS_FOR_CARDS = gql`
           creator {
             id
             slug
-            email
-            username
             __typename
           }
           corpus {

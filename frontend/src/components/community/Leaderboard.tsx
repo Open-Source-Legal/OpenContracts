@@ -28,6 +28,7 @@ import {
 } from "../../types/leaderboard";
 import { Badge } from "../badges/Badge";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 // File-local rank palette. Centralised here so the three RankBadge ternaries
 // stay readable and the values are easy to update in one place. These are
@@ -589,9 +590,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ corpusId }) => {
                                 pre-migration rows; new users always have
                                 a slug.
                               */}
-                              <strong>
-                                {entry.user.slug || `user_${entry.user.id}`}
-                              </strong>
+                              <strong>{getCreatorDisplay(entry.user)}</strong>
                               {entry.isRisingStar && (
                                 <RisingStarTag>
                                   <TrendingUp size={12} />

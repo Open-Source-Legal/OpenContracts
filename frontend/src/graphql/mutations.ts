@@ -2504,8 +2504,6 @@ export const CREATE_THREAD_MESSAGE = gql`
         creator {
           id
           slug
-          username
-          email
         }
         conversation {
           id
@@ -2535,8 +2533,7 @@ export interface CreateThreadMessageOutput {
       modified: string;
       creator: {
         id: string;
-        username: string;
-        email: string;
+        slug: string | null;
       };
       conversation: {
         id: string;
@@ -2562,8 +2559,6 @@ export const REPLY_TO_MESSAGE = gql`
         creator {
           id
           slug
-          username
-          email
         }
         parentMessage {
           id
@@ -2571,7 +2566,6 @@ export const REPLY_TO_MESSAGE = gql`
           creator {
             id
             slug
-            username
           }
         }
         conversation {
@@ -2602,15 +2596,14 @@ export interface ReplyToMessageOutput {
       modified: string;
       creator: {
         id: string;
-        username: string;
-        email: string;
+        slug: string | null;
       };
       parentMessage: {
         id: string;
         content: string;
         creator: {
           id: string;
-          username: string;
+          slug: string | null;
         };
       } | null;
       conversation: {

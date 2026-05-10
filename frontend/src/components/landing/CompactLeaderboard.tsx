@@ -19,6 +19,7 @@ import {
   getLeaderboardAvatarColor as getAvatarColor,
   getLeaderboardInitials as getInitials,
 } from "../../utils/leaderboardAvatar";
+import { getCreatorDisplay } from "../../utils/userDisplay";
 
 interface CompactLeaderboardProps {
   contributors: LeaderboardEntry[] | null;
@@ -379,9 +380,7 @@ export const CompactLeaderboard: React.FC<CompactLeaderboardProps> = ({
                     color: "white",
                   }}
                 />
-                <Username>
-                  {contributor.slug || `user_${contributor.id}`}
-                </Username>
+                <Username>{getCreatorDisplay(contributor)}</Username>
               </UserInfo>
 
               {badges.length > 0 && (

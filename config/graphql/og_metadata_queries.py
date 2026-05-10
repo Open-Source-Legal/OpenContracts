@@ -21,6 +21,7 @@ from config.graphql.og_metadata_types import (
     OGThreadMetadataType,
 )
 from config.graphql.ratelimits import graphql_ratelimit
+from config.graphql.user_types import _redacted_handle
 from opencontractserver.conversations.models import Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -101,7 +102,7 @@ class OGMetadataQueryMixin:
                 description=corpus.description or "",
                 icon_url=icon_url,
                 document_count=corpus.doc_count,
-                creator_name=corpus.creator.slug,
+                creator_name=corpus.creator.slug or _redacted_handle(corpus.creator),
                 is_public=True,
             )
         except (User.DoesNotExist, Corpus.DoesNotExist):
@@ -136,7 +137,8 @@ class OGMetadataQueryMixin:
                 icon_url=icon_url,
                 corpus_title=None,
                 corpus_description=None,
-                creator_name=document.creator.slug,
+                creator_name=document.creator.slug
+                or _redacted_handle(document.creator),
                 is_public=True,
             )
         except (User.DoesNotExist, Document.DoesNotExist):
@@ -180,7 +182,8 @@ class OGMetadataQueryMixin:
                 icon_url=icon_url,
                 corpus_title=corpus.title,
                 corpus_description=corpus.description or "",
-                creator_name=document.creator.slug,
+                creator_name=document.creator.slug
+                or _redacted_handle(document.creator),
                 is_public=True,
             )
         except (User.DoesNotExist, Corpus.DoesNotExist, Document.DoesNotExist):
@@ -227,7 +230,11 @@ class OGMetadataQueryMixin:
                 title=thread.title or "Discussion",
                 corpus_title=corpus.title,
                 message_count=thread.msg_count,
-                creator_name=(thread.creator.slug if thread.creator else "Anonymous"),
+                creator_name=(
+                    (thread.creator.slug or _redacted_handle(thread.creator))
+                    if thread.creator
+                    else "Anonymous"
+                ),
                 is_public=True,
             )
         except (User.DoesNotExist, Corpus.DoesNotExist, Conversation.DoesNotExist):
@@ -268,7 +275,11 @@ class OGMetadataQueryMixin:
                 name=extract.name,
                 corpus_title=corpus.title,
                 fieldset_name=extract.fieldset.name if extract.fieldset else "Custom",
-                creator_name=(extract.creator.slug if extract.creator else "System"),
+                creator_name=(
+                    (extract.creator.slug or _redacted_handle(extract.creator))
+                    if extract.creator
+                    else "System"
+                ),
                 is_public=True,
             )
         except Extract.DoesNotExist:

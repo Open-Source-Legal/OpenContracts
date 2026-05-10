@@ -56,8 +56,7 @@ test.describe("ReplyForm - Top-level Message", () => {
                 modified: "2025-01-01T00:00:00Z",
                 creator: {
                   id: "user-1",
-                  username: "testuser",
-                  email: "test@example.com",
+                  slug: "testuser",
                 },
                 conversation: {
                   id: "conv-1",
@@ -203,15 +202,14 @@ test.describe("ReplyForm - Nested Reply", () => {
                 modified: "2025-01-01T00:00:00Z",
                 creator: {
                   id: "user-2",
-                  username: "replier",
-                  email: "replier@example.com",
+                  slug: "replier",
                 },
                 parentMessage: {
                   id: "msg-1",
                   content: "<p>Original message</p>",
                   creator: {
                     id: "user-1",
-                    username: "testuser",
+                    slug: "testuser",
                   },
                 },
                 conversation: {
@@ -368,15 +366,14 @@ test.describe("ReplyForm - Nested Reply", () => {
                 modified: "2025-01-01T00:00:00Z",
                 creator: {
                   id: "user-2",
-                  username: "replier",
-                  email: "replier@example.com",
+                  slug: "replier",
                 },
                 parentMessage: {
                   id: "msg-1",
                   content: "<p>Original message</p>",
                   creator: {
                     id: "user-1",
-                    username: "testuser",
+                    slug: "testuser",
                   },
                 },
                 conversation: {

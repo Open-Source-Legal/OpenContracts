@@ -22,6 +22,7 @@ import { UserStats } from "../components/profile/UserStats";
 import { RecentActivity } from "../components/profile/RecentActivity";
 import { showUserSettingsModal } from "../graphql/cache";
 import { color } from "../theme/colors";
+import { getCreatorInitials } from "../utils/userDisplay";
 
 // Outer scroll container with proper overflow handling
 const ProfileContainer = styled.div`
@@ -321,8 +322,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   user,
   isOwnProfile,
 }) => {
-  // Get initials for avatar. Names are redacted for non-self viewers, so
-  // we fall back to the slug (and ultimately to ``user_<id>``).
+  // Get initials for avatar. Self-views walk the rich PII fallback chain
+  // (firstName/lastName, name, username); cross-user views fall through to
+  // ``getCreatorInitials`` so the slug-based fallback matches every other
+  // surface that derives initials from a public creator reference.
   const getInitials = () => {
     if (user.firstName && user.lastName) {
       return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
@@ -337,12 +340,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     if (user.username) {
       return user.username.substring(0, 2).toUpperCase();
     }
-    if (user.slug) {
-      const parts = user.slug.split("-").filter(Boolean);
-      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-      return (parts[0] || "?").substring(0, 2).toUpperCase();
-    }
-    return "?";
+    return getCreatorInitials({ id: user.id, slug: user.slug });
   };
 
   const handle = user.username || user.slug;
