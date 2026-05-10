@@ -35,10 +35,20 @@ const createMockCorpus = (
   description: `Description for ${title}`,
   created: new Date().toISOString(),
   modified: new Date().toISOString(),
+  // Map mock email back to a stable id so ownership comparisons (now id-based
+  // after the slug-only privacy gate) treat the "currentuser@example.com"
+  // mock as the same id the wrapper passes via `userEmail`. Other mocks get
+  // their own ids so they correctly read as not-mine.
   creator: {
-    id: "user-1",
+    id:
+      (options.creatorEmail ?? "tester@example.com") ===
+      "currentuser@example.com"
+        ? "current-user"
+        : `user-${
+            (options.creatorEmail ?? "tester@example.com").split("@")[0]
+          }`,
     email: options.creatorEmail ?? "tester@example.com",
-    slug: "tester",
+    slug: (options.creatorEmail ?? "tester@example.com").split("@")[0],
     __typename: "UserType",
   },
   labelSet: options.hasLabelSet
