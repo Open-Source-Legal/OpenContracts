@@ -2,7 +2,12 @@ import React from "react";
 import { Spinner } from "@os-legal/ui";
 import { FileText } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
-import { PDFContainer } from "../../../annotator/display/viewer/DocumentViewer";
+// ``PDFContainer`` is the styled.div used by every renderer (PDF, TXT,
+// DOCX). The exported name is historical — re-aliased here as
+// ``ViewerContainer`` so the per-filetype branches below don't read as
+// "wrap text/DOCX in a PDF container". The styling contract is shared
+// across renderers; renaming the source export is tracked separately.
+import { PDFContainer as ViewerContainer } from "../../../annotator/display/viewer/DocumentViewer";
 import { PDF } from "../../../annotator/renderers/pdf/PDF";
 import TxtAnnotatorWrapper from "../../../annotator/components/wrappers/TxtAnnotatorWrapper";
 import DocxAnnotatorWrapper from "../../../annotator/components/wrappers/DocxAnnotatorWrapper";
@@ -95,7 +100,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 }) => {
   if (isPdfFileType(fileType)) {
     return (
-      <PDFContainer id="pdf-container" ref={containerRefCallback}>
+      <ViewerContainer id="pdf-container" ref={containerRefCallback}>
         <ViewerStatus
           loadingLabel="Loading PDF..."
           errorTitle="Error Loading PDF"
@@ -108,13 +113,13 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             createAnnotationHandler={createAnnotationHandler}
           />
         </ViewerStatus>
-      </PDFContainer>
+      </ViewerContainer>
     );
   }
 
   if (isTextFileType(fileType)) {
     return (
-      <PDFContainer id="text-container" ref={containerRefCallback}>
+      <ViewerContainer id="text-container" ref={containerRefCallback}>
         <ViewerStatus
           loadingLabel="Loading Text..."
           errorTitle="Error Loading Text"
@@ -123,13 +128,13 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         >
           <TxtAnnotatorWrapper readOnly={!canEdit} allowInput={canEdit} />
         </ViewerStatus>
-      </PDFContainer>
+      </ViewerContainer>
     );
   }
 
   if (isDocxFileType(fileType)) {
     return (
-      <PDFContainer id="docx-container" ref={containerRefCallback}>
+      <ViewerContainer id="docx-container" ref={containerRefCallback}>
         <ViewerStatus
           loadingLabel="Loading DOCX..."
           errorTitle="Error Loading DOCX"
@@ -138,7 +143,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         >
           <DocxAnnotatorWrapper readOnly={!canEdit} allowInput={canEdit} />
         </ViewerStatus>
-      </PDFContainer>
+      </ViewerContainer>
     );
   }
 

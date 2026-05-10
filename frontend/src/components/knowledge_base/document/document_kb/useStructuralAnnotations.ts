@@ -47,58 +47,26 @@ export function useStructuralAnnotations(documentId: string): void {
   const showStructural = useReactiveVar(showStructuralAnnotations);
   const deepLinkedAnnotationIds = useReactiveVar(selectedAnnotationIds);
 
-  const [fetchAllStructural] = useLazyQuery<
+  // ``useLazyQuery`` exposes ``data`` from the latest completion. We
+  // intentionally do NOT use ``onCompleted`` here: with
+  // ``fetchPolicy: "cache-and-network"`` Apollo fires ``onCompleted``
+  // twice per call — once for the cached result and again for the
+  // network response. The all-structural path's "replace" semantics
+  // would then overwrite optimistic merges from the targeted path on
+  // the second fire. Reading ``data`` from a ``useEffect`` makes the
+  // cached/network rerun behaviour explicit and idempotent.
+  const [fetchAllStructural, allStructuralResult] = useLazyQuery<
     GetDocumentStructuralAnnotationsOutput,
     GetDocumentStructuralAnnotationsInput
   >(GET_DOCUMENT_STRUCTURAL_ANNOTATIONS, {
     fetchPolicy: "cache-and-network",
-    onCompleted: (data) => {
-      if (data?.document?.allStructuralAnnotations) {
-        const structuralAnns = data.document.allStructuralAnnotations.map(
-          (ann) => convertToServerAnnotation(ann)
-        );
-        setStructuralAnnotations(structuralAnns);
-        setStructuralAnnotationsLoaded(true);
-      }
-      if (data?.document?.allStructuralRelationships) {
-        const structuralRels = data.document.allStructuralRelationships.map(
-          (rel) => relationToGroup(rel, true)
-        );
-        setStructuralRelationships(structuralRels);
-      }
-    },
   });
 
-  const [fetchTargetedStructural] = useLazyQuery<
+  const [fetchTargetedStructural, targetedStructuralResult] = useLazyQuery<
     GetDocumentStructuralAnnotationsOutput,
     GetDocumentStructuralAnnotationsInput
   >(GET_DOCUMENT_STRUCTURAL_ANNOTATIONS, {
     fetchPolicy: "cache-and-network",
-    onCompleted: (data) => {
-      if (data?.document?.allStructuralAnnotations) {
-        const structuralAnns = data.document.allStructuralAnnotations.map(
-          (ann) => convertToServerAnnotation(ann)
-        );
-        setStructuralAnnotations((prev) => {
-          const existingIds = new Set(prev.map((a) => a.id));
-          const newAnns = structuralAnns.filter((a) => !existingIds.has(a.id));
-          return newAnns.length > 0 ? [...prev, ...newAnns] : prev;
-        });
-      }
-      // Targeted fetch returns the document's full structural relationship
-      // set (the optimizer ignores annotation IDs for relationships) — merge
-      // by id so we don't drop already-loaded entries.
-      if (data?.document?.allStructuralRelationships) {
-        const structuralRels = data.document.allStructuralRelationships.map(
-          (rel) => relationToGroup(rel, true)
-        );
-        setStructuralRelationships((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id));
-          const newRels = structuralRels.filter((r) => !existingIds.has(r.id));
-          return newRels.length > 0 ? [...prev, ...newRels] : prev;
-        });
-      }
-    },
   });
 
   // Reset when navigating to a different document.
@@ -145,5 +113,67 @@ export function useStructuralAnnotations(documentId: string): void {
     documentId,
     structuralAnnotationsLoaded,
     fetchTargetedStructural,
+  ]);
+
+  // Apply the all-structural result to atoms when ``data`` settles.
+  // ``cache-and-network`` will fire this twice per fetch — the second
+  // run is a no-op because ``setStructuralAnnotationsLoaded(true)`` has
+  // already gated future fetches and the array shape is identical.
+  useEffect(() => {
+    const data = allStructuralResult.data;
+    if (!data?.document) return;
+    if (data.document.allStructuralAnnotations) {
+      const structuralAnns = data.document.allStructuralAnnotations.map((ann) =>
+        convertToServerAnnotation(ann)
+      );
+      setStructuralAnnotations(structuralAnns);
+      setStructuralAnnotationsLoaded(true);
+    }
+    if (data.document.allStructuralRelationships) {
+      const structuralRels = data.document.allStructuralRelationships.map(
+        (rel) => relationToGroup(rel, true)
+      );
+      setStructuralRelationships(structuralRels);
+    }
+  }, [
+    allStructuralResult.data,
+    setStructuralAnnotations,
+    setStructuralAnnotationsLoaded,
+    setStructuralRelationships,
+  ]);
+
+  // Apply the targeted-fetch result by merging into existing atom state.
+  // Idempotent across the cache + network fires because the merge is
+  // keyed on ``id``.
+  useEffect(() => {
+    const data = targetedStructuralResult.data;
+    if (!data?.document) return;
+    if (data.document.allStructuralAnnotations) {
+      const structuralAnns = data.document.allStructuralAnnotations.map((ann) =>
+        convertToServerAnnotation(ann)
+      );
+      setStructuralAnnotations((prev) => {
+        const existingIds = new Set(prev.map((a) => a.id));
+        const newAnns = structuralAnns.filter((a) => !existingIds.has(a.id));
+        return newAnns.length > 0 ? [...prev, ...newAnns] : prev;
+      });
+    }
+    // Targeted fetch returns the document's full structural relationship
+    // set (the optimizer ignores annotation IDs for relationships) — merge
+    // by id so we don't drop already-loaded entries.
+    if (data.document.allStructuralRelationships) {
+      const structuralRels = data.document.allStructuralRelationships.map(
+        (rel) => relationToGroup(rel, true)
+      );
+      setStructuralRelationships((prev) => {
+        const existingIds = new Set(prev.map((r) => r.id));
+        const newRels = structuralRels.filter((r) => !existingIds.has(r.id));
+        return newRels.length > 0 ? [...prev, ...newRels] : prev;
+      });
+    }
+  }, [
+    targetedStructuralResult.data,
+    setStructuralAnnotations,
+    setStructuralRelationships,
   ]);
 }
