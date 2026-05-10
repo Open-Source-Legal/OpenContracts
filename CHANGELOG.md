@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Strip per-request `.count()` debug logs from `resolve_annotations`** (`config/graphql/annotation_queries.py`). The resolver had seven `logger.info` statements that embedded `{queryset.count()}` in their format strings — every annotations request issued ~5 extra `SELECT COUNT(*)` queries (pre-corpus filter, post-corpus filter, pre-label-type filter, post-label-type filter, pre-analysis-isnull filter, post-analysis-isnull filter, plus the `visible_to_user` fallback log) regardless of log level, since f-string interpolation runs unconditionally. The chatty filter-application log statements (`"Filtering by labelset_id: ..."`) were also removed — they did not embed counts but added noise to every request without helping debug a real production issue. The `structural_set__documents` prefetch is intentionally retained because `AnnotationType.resolve_document` walks it for structural annotations.
 
+### Changed
+
+- **Tokenize hardcoded navigation colors and tighten test-wrapper / focus-effect conventions in the Corpuses split** (`frontend/src/views/Corpuses.styles.ts`, `frontend/src/views/CorpusQueryView.tsx`, `frontend/tests/CorpusQueryViewTestWrapper.tsx`, `frontend/src/assets/configurations/osLegalStyles.ts`). Follow-up to PR #1578 review feedback:
+  - Added `OS_LEGAL_COLORS.navBlue` (`#4a90e2`) and `navIndigo` (`#6366f1`) tokens plus matching `navBlueAlpha` / `navIndigoAlpha` rgba helpers. These are intentionally distinct from `primaryBlue` (`#3b82f6`) — they capture the slightly-different navigation/sidebar blue that recurs across legacy chat, search, and note components, so multiple files can converge on a single named source. Cross-file harmonization with `primaryBlue` is tracked in #1446.
+  - Replaced ten hardcoded `rgba(74, 144, 226, ...)` / `rgba(99, 102, 241, ...)` / `#4a90e2` / `#6366f1` literals across `NavigationItem`, `NavigationToggle`, `NavigationItems` (scrollbar focus ring), and `BackNavButton` with the new tokens / helpers — visual fidelity preserved exactly.
+  - Replaced `React.useState(() => { showQueryViewState(initialQueryViewState); return null; })` in `CorpusQueryViewTestWrapper.tsx` with a plain `useEffect` keyed on `[initialQueryViewState]`. The `useState` initializer pattern was an unconventional way to fire a side effect during render; `useEffect` clearly signals "side effect on mount" and is lint-clean. All 7 `CorpusQueryViewCoverage.ct.tsx` tests continue to pass.
+  - Annotated the `eslint-disable react-hooks/exhaustive-deps` on the mount-only focus effect in `CorpusQueryView.tsx` with a one-line WHY: `isDesktop` is read once to avoid re-firing on viewport resize (which would pop the mobile keyboard mid-session).
+
 ### Added
 
 - **Agent tools for step-by-step CAML article citation review**
