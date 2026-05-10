@@ -65,6 +65,12 @@ import { FloatingAnalysesPanel } from "./FloatingAnalysesPanel";
 import { FloatingExtractsPanel } from "./FloatingExtractsPanel";
 import UnifiedKnowledgeLayer from "./layers/UnifiedKnowledgeLayer";
 
+import {
+  PANEL_WIDTH_QUARTER_PCT,
+  PANEL_WIDTH_HALF_PCT,
+  PANEL_WIDTH_FULL_PCT,
+} from "../../../assets/configurations/constants";
+
 // Sub-components extracted from DocumentKnowledgeBase
 import { FloatingInputWrapper, ZoomIndicator } from "./document_kb/styles";
 import { useZoomManager } from "./document_kb/useZoomManager";
@@ -115,6 +121,43 @@ interface DocumentKnowledgeBaseProps {
   showSuccessMessage?: string;
 }
 
+/**
+ * Renders the "Invalid Document" error modal as its own component so the
+ * parent `DocumentKnowledgeBase` can short-circuit BEFORE invoking any of
+ * its data/UI hooks. Calling hooks above an early return is a Rules-of-Hooks
+ * violation; isolating the error path here keeps the parent's hook list
+ * stable across renders for any non-empty `documentId`.
+ */
+const InvalidDocumentIdModal: React.FC<{ onClose?: () => void }> = ({
+  onClose,
+}) => {
+  const navigate = useNavigate();
+  const handleClose = useCallback(() => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    const historyIdx = (window.history.state as { idx?: number })?.idx ?? 0;
+    if (historyIdx > 0) navigate(-1);
+    else navigate("/documents");
+  }, [onClose, navigate]);
+
+  return (
+    <Modal open onClose={handleClose} size="sm">
+      <ModalBody>
+        <ErrorMessage title="Invalid Document">
+          Cannot load document: Invalid document ID
+        </ErrorMessage>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="secondary" onClick={handleClose}>
+          Close
+        </Button>
+      </ModalFooter>
+    </Modal>
+  );
+};
+
 const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   documentId,
   corpusId,
@@ -124,6 +167,18 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   showCorpusInfo,
   showSuccessMessage,
 }) => {
+  // Validate documentId BEFORE invoking any hooks. Returning the error modal
+  // from a sibling component keeps this component's hook list stable across
+  // renders (prevents Rules-of-Hooks violation when the prop transitions
+  // between empty and non-empty).
+  if (!documentId || documentId === "") {
+    console.error(
+      "DocumentKnowledgeBase: Invalid documentId provided:",
+      documentId
+    );
+    return <InvalidDocumentIdModal onClose={onClose} />;
+  }
+
   routingLogger.debug("[DocumentKnowledgeBase] 🎬 Component render", {
     documentId,
     corpusId,
@@ -232,58 +287,36 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     }
   }, [onClose, navigate, documentId, corpusId]);
 
-  // Validate documentId - must be non-empty
-  if (!documentId || documentId === "") {
-    console.error(
-      "DocumentKnowledgeBase: Invalid documentId provided:",
-      documentId
-    );
-    return (
-      <Modal open onClose={handleClose} size="sm">
-        <ModalBody>
-          <ErrorMessage title="Invalid Document">
-            Cannot load document: Invalid document ID
-          </ErrorMessage>
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="secondary" onClick={handleClose}>
-            Close
-          </Button>
-        </ModalFooter>
-      </Modal>
-    );
-  }
-
   // Chat panel width management
   const { mode, customWidth, setMode, setCustomWidth, minimize, restore } =
     useChatPanelWidth();
 
   // Calculate actual panel width based on mode
   const getPanelWidthPercentage = useCallback((): number => {
-    let width: number;
+    let panelWidth: number;
     switch (mode) {
       case "quarter":
-        width = 25;
+        panelWidth = PANEL_WIDTH_QUARTER_PCT;
         break;
       case "half":
-        width = 50;
+        panelWidth = PANEL_WIDTH_HALF_PCT;
         break;
       case "full":
-        width = 90;
+        panelWidth = PANEL_WIDTH_FULL_PCT;
         break;
       case "custom":
-        width = customWidth || 50;
+        panelWidth = customWidth || PANEL_WIDTH_HALF_PCT;
         break;
       default:
-        width = 50;
+        panelWidth = PANEL_WIDTH_HALF_PCT;
     }
     routingLogger.debug(
       "Panel width calculation - mode:",
       mode,
       "width:",
-      width
+      panelWidth
     );
-    return width;
+    return panelWidth;
   }, [mode, customWidth]);
 
   // Resize drag state — see useResizeHandle for the snap/clamp logic.
@@ -311,10 +344,13 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     }
 
     const panelWidthPercent = getPanelWidthPercentage();
-    const windowWidth = window.innerWidth;
-    const panelWidthPx = (panelWidthPercent / 100) * windowWidth;
+    // Use the tracked viewport width from useWindowDimensions so this memo
+    // stays in sync with `width` in the dep array — reading window.innerWidth
+    // directly would silently snapshot the wrong size when only `width`
+    // (without an isMobile crossing) updates.
+    const panelWidthPx = (panelWidthPercent / 100) * width;
     const remainingSpacePercent = 100 - panelWidthPercent;
-    const remainingSpacePx = windowWidth - panelWidthPx;
+    const remainingSpacePx = width - panelWidthPx;
 
     // Hide controls if less than 10% viewport or less than 100px remaining
     const shouldHide = remainingSpacePercent < 10 || remainingSpacePx < 100;

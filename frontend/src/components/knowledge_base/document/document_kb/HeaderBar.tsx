@@ -21,8 +21,8 @@ export interface HeaderBarProps {
   readOnly: boolean;
   /** Open the AddToCorpus modal — only rendered when no corpus is bound and the user can edit */
   onAddToCorpus: () => void;
-  /** Back-button handler. Receives the click event so callers can log it. */
-  onClose: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  /** Back-button handler. */
+  onClose: () => void;
 }
 
 /**
@@ -62,7 +62,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <FileType size={16} /> {metadata.fileType}
           </span>
           <span>
-            <User size={16} /> {metadata.creator?.email}
+            <User size={16} /> {metadata.creator?.email ?? ""}
           </span>
           <span>
             <Calendar size={16} /> Created:{" "}
@@ -103,7 +103,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               target: e.target,
               currentUrl: window.location.pathname + window.location.search,
             });
-            onClose(e);
+            onClose();
           }}
           title="Go back"
           data-testid="back-button"

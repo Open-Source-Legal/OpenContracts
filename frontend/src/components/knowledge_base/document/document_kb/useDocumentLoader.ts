@@ -655,6 +655,11 @@ export function useDocumentLoader({
   const loading = corpusLoading || documentLoading;
 
   // Re-fetch annotations when the active analysis changes.
+  // Deps intentionally omit `refetchAnnotationsOnly` and
+  // `processAnnotationsOnlyData`: Apollo's `useLazyQuery` returns a new
+  // function identity on every render, and the callback is recreated each
+  // time as well. Including either would re-trigger this effect on every
+  // parent render and turn it into a refetch loop.
   useEffect(() => {
     if (!loading && corpusId) {
       refetchAnnotationsOnly({
@@ -669,6 +674,7 @@ export function useDocumentLoader({
   }, [selectedAnalysisId, corpusId, loading, documentId]);
 
   // Re-fetch annotations when the active extract changes.
+  // Same dep-array rationale as the analysis-id effect above.
   useEffect(() => {
     if (!loading && corpusId) {
       refetchAnnotationsOnly({

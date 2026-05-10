@@ -22,6 +22,10 @@ export function useDocumentMarkdown(
   useEffect(() => {
     if (!mdSummaryFile) {
       setMarkdownContent(null);
+      // Reset error state so a stale `true` from a previous document with a
+      // broken summary URL doesn't bleed through after navigating to a
+      // document that has no summary at all.
+      setMarkdownError(false);
       return;
     }
 

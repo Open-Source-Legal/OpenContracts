@@ -94,6 +94,16 @@ const SelectionLayer = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const MENU_INTERACTION_COOLDOWN = 300; // 300ms cooldown after menu interaction
 
+  // Reentrant guard for finalizeSelection: when the mouse releases on the
+  // SelectionLayer element itself, BOTH the React onMouseUp handler and the
+  // document-level mouseup listener fire in the same event cycle. The
+  // `if (!localPageSelection) return` check at the top of finalizeSelection
+  // reads the *closure* value of localPageSelection (still non-null before
+  // the first call's setLocalPageSelection has propagated through React's
+  // state queue), so without this synchronous flag both calls would proceed
+  // and we'd push the same bounds onto multiSelections twice.
+  const finalizingRef = useRef<boolean>(false);
+
   // Check if corpus has labelset
   const hasLabelset = Boolean(selectedCorpus?.labelSet);
   const hasLabels = humanTokenLabels.length > 0 || humanSpanLabels.length > 0;
@@ -267,7 +277,8 @@ const SelectionLayer = ({
    */
   const finalizeSelection = useCallback(
     (clientX: number, clientY: number, shiftKey: boolean) => {
-      if (!localPageSelection) return;
+      if (!localPageSelection || finalizingRef.current) return;
+      finalizingRef.current = true;
       const pageNum = pageNumber;
 
       setMultiSelections((prev) => {
@@ -286,6 +297,9 @@ const SelectionLayer = ({
           setShowActionMenu(true);
         }
 
+        // Release the reentrant guard for the next selection. State updates
+        // queued above will reset the closure value before the next mouseup.
+        finalizingRef.current = false;
         return updatedSelections;
       });
     },
