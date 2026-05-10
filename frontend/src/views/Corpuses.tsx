@@ -1062,9 +1062,7 @@ export const Corpuses = () => {
         icon: <FileText />,
         badge: stats.totalDocs,
         component: (
-          <div
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-          >
+          <div style={{ display: "flex", flexDirection: "column" }}>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1082,7 +1080,7 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div>
               {opened_corpus_id && (
                 <FolderDocumentBrowser
                   corpusId={opened_corpus_id}
@@ -1107,9 +1105,7 @@ export const Corpuses = () => {
         icon: <MessageSquare />,
         badge: stats.totalAnnotations,
         component: (
-          <div
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-          >
+          <div style={{ display: "flex", flexDirection: "column" }}>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1127,7 +1123,7 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div>
               <CorpusAnnotationCards opened_corpus_id={opened_corpus_id} />
             </div>
           </div>
@@ -1139,9 +1135,7 @@ export const Corpuses = () => {
         icon: <Factory />,
         badge: stats.totalAnalyses,
         component: (
-          <div
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-          >
+          <div style={{ display: "flex", flexDirection: "column" }}>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1159,7 +1153,7 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div>
               <CorpusAnalysesCards />
             </div>
           </div>
@@ -1183,9 +1177,7 @@ export const Corpuses = () => {
         icon: <Link2 />,
         badge: stats.totalRelationships,
         component: opened_corpus?.id ? (
-          <div
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-          >
+          <div style={{ display: "flex", flexDirection: "column" }}>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1203,7 +1195,7 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div>
               <CorpusDocumentRelationships corpusId={opened_corpus.id} />
             </div>
           </div>
@@ -1215,9 +1207,7 @@ export const Corpuses = () => {
         icon: <MessageSquare />,
         badge: stats.totalThreads || 0,
         component: opened_corpus?.id ? (
-          <div
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-          >
+          <div style={{ display: "flex", flexDirection: "column" }}>
             {/* Only show parent header when viewing thread list */}
             {/* When viewing inline thread detail, CorpusDiscussionsView handles its own */}
             {!discussionInThreadView && (
@@ -1239,7 +1229,7 @@ export const Corpuses = () => {
                 </MobileKebabButton>
               </TabNavigationHeader>
             )}
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div>
               <CorpusDiscussionsView corpusId={opened_corpus.id} hideHeader />
             </div>
           </div>
@@ -1251,9 +1241,7 @@ export const Corpuses = () => {
         icon: <Brain />,
         badge: stats.totalChats,
         component: opened_corpus?.id ? (
-          <div
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-          >
+          <div style={{ display: "flex", flexDirection: "column" }}>
             {/* Only show parent header when CorpusChat is in list view */}
             {/* When in conversation view, CorpusChat renders its own navigation */}
             {!chatInConversation && (
@@ -1275,7 +1263,7 @@ export const Corpuses = () => {
                 </MobileKebabButton>
               </TabNavigationHeader>
             )}
-            <div style={{ flex: 1, overflow: "hidden" }}>
+            <div>
               <CorpusChat
                 corpusId={opened_corpus.id}
                 showLoad={true}
@@ -1309,13 +1297,7 @@ export const Corpuses = () => {
               label: "Settings",
               icon: <Settings />,
               component: opened_corpus?.title ? (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    height: "100%",
-                  }}
-                >
+                <div style={{ display: "flex", flexDirection: "column" }}>
                   <TabNavigationHeader>
                     <BackNavButton
                       onClick={() => setActiveTab(0)}
@@ -1333,7 +1315,7 @@ export const Corpuses = () => {
                       <MoreVertical />
                     </MobileKebabButton>
                   </TabNavigationHeader>
-                  <div style={{ flex: 1, overflow: "hidden" }}>
+                  <div>
                     <CorpusSettings
                       corpus={{
                         id: opened_corpus.id,
@@ -1359,13 +1341,7 @@ export const Corpuses = () => {
               label: "Badges",
               icon: <Trophy />,
               component: opened_corpus?.id ? (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    height: "100%",
-                  }}
-                >
+                <div style={{ display: "flex", flexDirection: "column" }}>
                   <TabNavigationHeader>
                     <BackNavButton
                       onClick={() => setActiveTab(0)}

@@ -115,11 +115,7 @@ export const CorpusAnalysesCards = () => {
       loading_message="Analyses Loading..."
       pageInfo={analyses_response?.analyses?.pageInfo}
       fetchMore={fetchMoreAnalyses}
-      style={{
-        minHeight: "70vh",
-        overflowY: "unset",
-        ...(width > 400 && width < 600 ? { paddingLeft: "2rem" } : {}),
-      }}
+      style={width > 400 && width < 600 ? { paddingLeft: "2rem" } : undefined}
     />
   );
 };

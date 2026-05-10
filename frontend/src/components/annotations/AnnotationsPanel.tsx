@@ -74,10 +74,7 @@ export interface AnnotationsPanelProps {
 const Container = styled.div`
   display: flex;
   flex-direction: column;
-  flex: 1;
   width: 100%;
-  height: 100%;
-  overflow: hidden;
   background: ${OS_LEGAL_COLORS.background};
 `;
 
@@ -118,11 +115,8 @@ const AnnotationsGrid = styled.div`
 `;
 
 const AnnotationsListContainer = styled.section`
-  flex: 1;
-  overflow-y: auto;
   position: relative;
   padding: 1rem;
-  min-height: 0; /* Important for flex children to allow shrinking */
 `;
 
 const EmptyStateWrapper = styled.div`

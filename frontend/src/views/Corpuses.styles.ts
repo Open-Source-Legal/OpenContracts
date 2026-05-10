@@ -21,12 +21,9 @@ export const CorpusViewContainer = styled.div`
   flex-direction: row;
   width: 100%;
   position: relative;
-  overflow: hidden;
   flex: 1;
   align-items: stretch;
-  min-height: 0;
-  max-height: 100dvh;
-  height: 100%;
+  min-height: 100dvh;
 `;
 
 export const NavigationSidebar = styled(motion.div)<{ $isExpanded: boolean }>`
@@ -481,14 +478,10 @@ export const NavigationItem = styled(motion.button)<{
 
 export const MainContentArea = styled.div`
   flex: 1;
-  overflow: hidden;
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 0;
   min-width: 0;
-  max-height: 100%;
-  height: 100%;
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     margin-left: 0;

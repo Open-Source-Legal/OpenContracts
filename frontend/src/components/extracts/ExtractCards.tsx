@@ -26,10 +26,7 @@ import { updateAnnotationSelectionParams } from "../../utils/navigationUtils";
 
 // Modern styled components matching standalone Extracts view
 const Container = styled.div`
-  flex: 1;
   width: 100%;
-  height: 100%;
-  overflow-y: auto;
   position: relative;
   padding: 1rem;
   background: ${OS_LEGAL_COLORS.background};
