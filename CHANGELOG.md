@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Cookie consent modal visual polish on mobile** (`frontend/src/components/cookies/CookieConsent.tsx`). The mobile presentation of the consent modal was cramped and felt off-brand compared with the rest of the OS Legal surfaces. Reworked mobile styling without touching desktop: `.oc-modal` now uses `display: flex; flex-direction: column` with a `flex-shrink: 0` header, a `flex: 1 1 auto; overflow-y: auto` body, and a `flex-shrink: 0` footer so the Accept button stays anchored above the safe-area inset with a soft top shadow instead of relying purely on `position: sticky`. The body's mobile background switches to `OS_LEGAL_COLORS.background` so the white data cards lift off the surface with their new `OS_LEGAL_SHADOWS.card` shadow. Data list items adopt `accentSurface` + `textPrimary` on mobile (replacing the heavier slate-chip look) to feel brand-cohesive. The demo banner gains a 3px warning-text left bar for clearer hierarchy; the header icon badge gains an inner accent ring; section labels, lead copy, and disclaimer text get tighter mobile sizing. The Accept & Continue footer button is 48px tall with `font-weight: 600` for a comfortable thumb target and visual weight.
+
 ### Fixed
 
 - **Dark mode contrast in CAML article renderer** (`frontend/package.json`). Upgraded `@os-legal/caml` and `@os-legal/caml-react` from 0.1.0 to 0.1.2 to pull in a rendering fix that restores text/background contrast in dark-mode CAML article views. Also updated the `resolutions` entry so both the top-level app and `caml-react`'s own peer resolve to the same 0.1.2 version (previously the stale `^0.1.0` resolution caused `caml-react` to bundle caml 0.1.0 internally despite the dependency version bump).

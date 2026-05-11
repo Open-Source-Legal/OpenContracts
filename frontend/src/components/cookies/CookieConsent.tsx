@@ -78,6 +78,8 @@ const StyledModalWrapper = styled.div`
       max-height: 100vh;
       max-height: 100dvh;
       border-radius: 0;
+      display: flex;
+      flex-direction: column;
     }
   }
 
@@ -86,7 +88,8 @@ const StyledModalWrapper = styled.div`
     padding: 1.5rem 1.75rem;
 
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      padding: 1.25rem;
+      padding: 1rem 1.125rem;
+      flex-shrink: 0;
     }
   }
 
@@ -98,7 +101,8 @@ const StyledModalWrapper = styled.div`
     color: ${OS_LEGAL_COLORS.textPrimary};
 
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      font-size: 1.25rem;
+      font-size: 1.1875rem;
+      letter-spacing: -0.005em;
     }
   }
 
@@ -106,7 +110,11 @@ const StyledModalWrapper = styled.div`
     padding: 1.5rem 1.75rem 1.25rem;
 
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      padding: 1.25rem;
+      padding: 1rem 1.125rem 1.25rem;
+      flex: 1 1 auto;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: ${OS_LEGAL_COLORS.background};
     }
   }
 
@@ -118,8 +126,18 @@ const StyledModalWrapper = styled.div`
     justify-content: flex-end;
 
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      padding-left: 1.25rem;
-      padding-right: 1.25rem;
+      padding: 0.875rem 1.125rem;
+      padding-bottom: calc(0.875rem + env(safe-area-inset-bottom, 0px));
+      background: ${OS_LEGAL_COLORS.surface};
+      box-shadow: 0 -8px 24px -12px rgba(15, 23, 42, 0.18);
+      flex-shrink: 0;
+
+      button {
+        height: 48px;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
+      }
     }
   }
 `;
@@ -129,6 +147,10 @@ const HeaderTitleRow = styled.span`
   align-items: center;
   gap: 0.875rem;
   min-width: 0;
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    gap: 0.625rem;
+  }
 `;
 
 const IconBadge = styled.span`
@@ -141,10 +163,16 @@ const IconBadge = styled.span`
   background: ${OS_LEGAL_COLORS.accentSurface};
   color: ${OS_LEGAL_COLORS.accent};
   flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accentMedium};
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    width: ${OS_LEGAL_SPACING.iconBadgeMobile};
-    height: ${OS_LEGAL_SPACING.iconBadgeMobile};
+    width: 32px;
+    height: 32px;
+
+    svg {
+      width: 17px;
+      height: 17px;
+    }
   }
 `;
 
@@ -155,6 +183,7 @@ const DemoBanner = styled.div`
   padding: 0.875rem 1rem;
   background: ${OS_LEGAL_COLORS.warningSurface};
   border: 1px solid ${OS_LEGAL_COLORS.warningBorder};
+  border-left: 3px solid ${OS_LEGAL_COLORS.warningText};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
   margin-bottom: 1.5rem;
 
@@ -162,6 +191,12 @@ const DemoBanner = styled.div`
     flex-shrink: 0;
     color: ${OS_LEGAL_COLORS.warningText};
     margin-top: 1px;
+  }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: 0.75rem 0.875rem;
+    gap: 0.625rem;
+    margin-bottom: 1.125rem;
   }
 `;
 
@@ -171,10 +206,19 @@ const DemoBannerText = styled.p`
   line-height: 1.5;
   color: ${OS_LEGAL_COLORS.warningText};
   ${sansFont}
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
 `;
 
 const LeadSection = styled.section`
   margin: 0 0 1.25rem;
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    margin: 0 0 1rem;
+  }
 `;
 
 const SectionLabel = styled.h4`
@@ -193,6 +237,11 @@ const SectionLabel = styled.h4`
     flex-shrink: 0;
     color: ${OS_LEGAL_COLORS.accent};
   }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    font-size: 0.6875rem;
+    letter-spacing: 0.07em;
+  }
 `;
 
 const LeadBody = styled.p`
@@ -201,6 +250,11 @@ const LeadBody = styled.p`
   line-height: 1.6;
   color: ${OS_LEGAL_COLORS.textSecondary};
   ${sansFont}
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    font-size: 0.875rem;
+    line-height: 1.55;
+  }
 `;
 
 const TwoColumnGrid = styled.div`
@@ -213,6 +267,10 @@ const TwoColumnGrid = styled.div`
     grid-template-columns: 1fr;
     gap: 0.75rem;
   }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    margin-bottom: 1rem;
+  }
 `;
 
 const DataCard = styled.section`
@@ -223,9 +281,20 @@ const DataCard = styled.section`
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
+  box-shadow: ${OS_LEGAL_SHADOWS.card};
 
   &.cookie-consent__analytics {
     margin-bottom: 1.25rem;
+  }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: 0.875rem 0.875rem 0.9375rem;
+    gap: 0.5rem;
+    border-radius: 10px;
+
+    &.cookie-consent__analytics {
+      margin-bottom: 1rem;
+    }
   }
 `;
 
@@ -235,6 +304,11 @@ const DataCardLead = styled.p`
   line-height: 1.5;
   color: ${OS_LEGAL_COLORS.textSecondary};
   ${sansFont}
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
 `;
 
 const DataList = styled.ul`
@@ -244,6 +318,10 @@ const DataList = styled.ul`
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    gap: 0.3125rem;
+  }
 `;
 
 const DataListItem = styled.li`
@@ -263,6 +341,19 @@ const DataListItem = styled.li`
     flex-shrink: 0;
     color: ${OS_LEGAL_COLORS.accent};
   }
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: 0.5rem 0.625rem;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    background: ${OS_LEGAL_COLORS.accentSurface};
+    color: ${OS_LEGAL_COLORS.textPrimary};
+
+    svg {
+      width: 13px;
+      height: 13px;
+    }
+  }
 `;
 
 const AnalyticsNote = styled.p`
@@ -279,6 +370,10 @@ const DisclaimerBlock = styled.aside`
   border-left: ${OS_LEGAL_SPACING.borderAccentWidth} solid
     ${OS_LEGAL_COLORS.borderHover};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: 0.625rem 0.75rem;
+  }
 `;
 
 const Disclaimer = styled.p`
@@ -289,6 +384,11 @@ const Disclaimer = styled.p`
   letter-spacing: 0.01em;
   color: ${OS_LEGAL_COLORS.textMuted};
   ${sansFont}
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    font-size: 0.6875rem;
+    line-height: 1.5;
+  }
 `;
 
 export const CookieConsentDialog = () => {
