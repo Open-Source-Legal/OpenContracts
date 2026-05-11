@@ -4031,6 +4031,9 @@ export const GET_ME = gql`
       isUsageCapped # Crucially, fetch this field
       canImportCorpus # Server-side gate for corpus-import UI
       isProfilePublic # Issue #611
+      profileHeadline
+      profileAboutMarkdown
+      profileLinksMarkdown
     }
   }
 `;
@@ -4055,6 +4058,9 @@ export const GET_USER = gql`
       lastName
       email
       isProfilePublic
+      profileHeadline
+      profileAboutMarkdown
+      profileLinksMarkdown
       reputationGlobal
       totalMessages
       totalThreadsCreated
@@ -4081,6 +4087,9 @@ export interface GetUserOutput {
     lastName: string | null;
     email: string | null;
     isProfilePublic: boolean;
+    profileHeadline: string | null;
+    profileAboutMarkdown: string | null;
+    profileLinksMarkdown: string | null;
     reputationGlobal: number;
     totalMessages: number;
     totalThreadsCreated: number;

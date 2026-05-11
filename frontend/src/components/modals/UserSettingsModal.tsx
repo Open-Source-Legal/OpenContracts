@@ -63,6 +63,9 @@ interface EditableProfileState {
   phone?: string;
   slug?: string;
   isProfilePublic?: boolean; // Issue #611
+  profileHeadline?: string;
+  profileAboutMarkdown?: string;
+  profileLinksMarkdown?: string;
 }
 
 const UserSettingsModal: React.FC = () => {
@@ -80,6 +83,9 @@ const UserSettingsModal: React.FC = () => {
         phone: (user as any).phone,
         slug: (user as any).slug,
         isProfilePublic: (user as any).isProfilePublic ?? true, // Issue #611
+        profileHeadline: (user as any).profileHeadline ?? "",
+        profileAboutMarkdown: (user as any).profileAboutMarkdown ?? "",
+        profileLinksMarkdown: (user as any).profileLinksMarkdown ?? "",
       });
       setDirty(false);
     }
@@ -170,6 +176,35 @@ const UserSettingsModal: React.FC = () => {
             value={form.phone || ""}
             onChange={(e) => onChange("phone", e.target.value)}
           />
+          <div style={{ height: "1rem" }} />
+          <Input
+            label="Profile Headline"
+            fullWidth
+            placeholder="What do you do? (e.g. Contracts counsel + legal ops)"
+            value={form.profileHeadline || ""}
+            onChange={(e) => onChange("profileHeadline", e.target.value)}
+          />
+          <div style={{ height: "1rem" }} />
+          <FormField>
+            <label>About (Markdown)</label>
+            <textarea
+              rows={6}
+              value={form.profileAboutMarkdown || ""}
+              onChange={(e) => onChange("profileAboutMarkdown", e.target.value)}
+              placeholder="Write a short bio in Markdown"
+              style={{ width: "100%", padding: "0.5rem", resize: "vertical" }}
+            />
+          </FormField>
+          <FormField>
+            <label>Links (Markdown)</label>
+            <textarea
+              rows={4}
+              value={form.profileLinksMarkdown || ""}
+              onChange={(e) => onChange("profileLinksMarkdown", e.target.value)}
+              placeholder="- [Website](https://example.com)"
+              style={{ width: "100%", padding: "0.5rem", resize: "vertical" }}
+            />
+          </FormField>
           <div style={{ height: "1rem" }} />
           <FormField>
             <label>Profile Visibility</label>
