@@ -2,11 +2,52 @@ from datetime import timedelta
 from typing import Any, Optional
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from tree_queries.query import TreeQuerySet
 
 from opencontractserver.shared.mixins import VectorSearchViaEmbeddingMixin
+
+
+def _exclude_soft_deleted_doc_orphans(qs: models.QuerySet) -> models.QuerySet:
+    """Hide rows whose ``(document, corpus)`` pair has been soft-deleted.
+
+    Used by Annotation and Relationship visibility logic. A row is treated as
+    orphaned (and excluded) when:
+      - it has both ``document_id`` and ``corpus_id`` set, AND
+      - at least one ``DocumentPath`` exists for that pair (so the doc was
+        ever pathed into this corpus), AND
+      - NO ``DocumentPath`` row for that pair has
+        ``is_current=True, is_deleted=False``.
+
+    Rows on standalone documents (never pathed) and structural rows
+    (``document_id IS NULL``) are kept — the predicate intentionally does
+    nothing for them so that test fixtures and pre-corpus-isolation data
+    keep working.
+
+    Mirrors the same predicate as ``Corpus.get_documents()`` and
+    ``AnnotationQueryOptimizer.get_corpus_annotations()`` so visibility
+    is consistent across the codebase.
+    """
+    from opencontractserver.documents.models import DocumentPath
+
+    any_path_for_pair = DocumentPath.objects.filter(
+        document_id=OuterRef("document_id"),
+        corpus_id=OuterRef("corpus_id"),
+    )
+    active_path_for_pair = DocumentPath.objects.filter(
+        document_id=OuterRef("document_id"),
+        corpus_id=OuterRef("corpus_id"),
+        is_current=True,
+        is_deleted=False,
+    )
+
+    return qs.exclude(
+        Q(document_id__isnull=False)
+        & Q(corpus_id__isnull=False)
+        & Exists(any_path_for_pair)
+        & ~Exists(active_path_for_pair)
+    )
 
 
 class PermissionedTreeQuerySet(TreeQuerySet):
@@ -261,6 +302,16 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         Override to properly handle annotation privacy model.
         This ensures that even when AnnotationQueryOptimizer isn't used,
         the privacy model is still respected.
+
+        Soft-deleted documents stay in the DB so that "Restore from trash"
+        can recover their annotations, but they must NOT surface in
+        user-facing queries — otherwise global annotation searches show
+        rows pointing at documents the user cannot navigate to (issue
+        symptom: "annotations linked to unknown document"). The
+        ``_exclude_soft_deleted_doc_orphans`` helper applies the same
+        ``DocumentPath(is_current=True, is_deleted=False)`` predicate used
+        by ``Corpus.get_documents()`` and
+        ``AnnotationQueryOptimizer.get_corpus_annotations()``.
         """
         from opencontractserver.analyzer.models import (
             Analysis,
@@ -271,12 +322,15 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             ExtractUserObjectPermission,
         )
 
-        # Superusers see everything
+        # Superusers see everything — including trashed-doc annotations,
+        # since superuser tooling (admin, audit) intentionally bypasses
+        # visibility filtering.
         if user.is_superuser:
             return self.all()
 
-        # Start with base queryset
-        qs = self.all()
+        # Start with base queryset, then hide rows whose linked doc is
+        # in trash for the relevant corpus.
+        qs = _exclude_soft_deleted_doc_orphans(self.all())
 
         # For anonymous users, only show public structural annotations
         if user.is_anonymous:
