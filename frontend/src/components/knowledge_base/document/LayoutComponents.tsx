@@ -30,6 +30,13 @@ const FullScreenModalBodyStyles = createGlobalStyle`
     width: 100% !important;
   }
 
+  html.document-kb-scroll-lock #root {
+    height: var(--oc-visible-viewport-height, 100vh) !important;
+    min-height: 0 !important;
+    max-height: var(--oc-visible-viewport-height, 100vh) !important;
+    overflow: hidden !important;
+  }
+
   .fullscreen-modal-overlay {
     position: fixed !important;
     inset: 0 !important;
@@ -55,6 +62,13 @@ const FullScreenModalBodyStyles = createGlobalStyle`
     border-radius: 0 !important;
     overflow: hidden;
     min-height: 0;
+  }
+
+  .fullscreen-modal,
+  .fullscreen-modal *,
+  .fullscreen-modal *::before,
+  .fullscreen-modal *::after {
+    box-sizing: border-box;
   }
 
   .fullscreen-modal .oc-modal-body {

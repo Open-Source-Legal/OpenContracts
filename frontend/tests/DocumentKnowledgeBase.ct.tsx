@@ -449,9 +449,15 @@ test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
 
   const modal = page.locator(".fullscreen-modal");
   const header = page.getByTestId("document-header");
+  const contentArea = page.locator("#content-area");
+  const documentLayer = page.locator("#document-layer");
+  const pdfContainer = page.locator("#pdf-container");
   const fab = page.getByTestId("speed-dial-main-fab");
   await expect(modal).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(header).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(contentArea).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(documentLayer).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(pdfContainer).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(fab).toBeVisible({ timeout: LONG_TIMEOUT });
 
   const viewport = page.viewportSize()!;
@@ -459,6 +465,13 @@ test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
   expect(headerBox).not.toBeNull();
   expect(headerBox!.y).toBeGreaterThanOrEqual(0);
   expect(headerBox!.y + headerBox!.height).toBeLessThan(viewport.height / 4);
+
+  for (const locator of [contentArea, documentLayer, pdfContainer]) {
+    const box = await locator.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
+  }
 
   const beforeFabBox = await fab.boundingBox();
   expect(beforeFabBox).not.toBeNull();
