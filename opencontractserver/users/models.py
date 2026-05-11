@@ -179,6 +179,31 @@ class User(AbstractUser):
         help_text="Whether this user's profile is visible to other users",
     )
 
+    # User-authored profile content (rendered as Markdown on the profile page).
+    # Stored as plain text; sanitisation/rendering lives on the frontend
+    # (SafeMarkdown) so the same string can be served to API consumers.
+    profile_headline = django.db.models.CharField(
+        "Profile Headline",
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Short one-line tagline shown at the top of the profile page.",
+    )
+    profile_about_markdown = django.db.models.TextField(
+        "Profile About (Markdown)",
+        max_length=5000,
+        blank=True,
+        default="",
+        help_text="Free-form Markdown bio rendered on the public profile.",
+    )
+    profile_links_markdown = django.db.models.TextField(
+        "Profile Links (Markdown)",
+        max_length=5000,
+        blank=True,
+        default="",
+        help_text="Markdown list of links rendered on the public profile.",
+    )
+
     # UI Preferences
     dismissed_getting_started = django.db.models.BooleanField(
         "Dismissed Getting Started",

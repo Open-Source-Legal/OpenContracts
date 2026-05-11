@@ -398,10 +398,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   About
                 </SectionTitle>
                 {user.profileAboutMarkdown && (
-                  <SafeMarkdown content={user.profileAboutMarkdown} />
+                  <SafeMarkdown>{user.profileAboutMarkdown}</SafeMarkdown>
                 )}
                 {user.profileLinksMarkdown && (
-                  <SafeMarkdown content={user.profileLinksMarkdown} />
+                  <SafeMarkdown>{user.profileLinksMarkdown}</SafeMarkdown>
                 )}
               </Section>
             )}

@@ -274,3 +274,79 @@ class UserProfilePrivacyUpdateTestCase(TestCase):
 
         visible = User.objects.visible_to_user(self.user)
         self.assertIn(self.user, visible)
+
+
+class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
+    """GraphQL UpdateMe acceptance of markdown profile fields."""
+
+    def setUp(self):
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        class TestContext:
+            def __init__(self, user):
+                self.user = user
+
+        self.user = User.objects.create_user(
+            username="mdprofileuser",
+            email="mdprofile@example.com",
+            is_profile_public=True,
+        )
+        self.client = Client(schema, context_value=TestContext(self.user))
+
+    def test_update_me_persists_markdown_profile_fields(self):
+        mutation = """
+            mutation UpdateMe(
+                $profileHeadline: String,
+                $profileAboutMarkdown: String,
+                $profileLinksMarkdown: String,
+            ) {
+                updateMe(
+                    profileHeadline: $profileHeadline,
+                    profileAboutMarkdown: $profileAboutMarkdown,
+                    profileLinksMarkdown: $profileLinksMarkdown,
+                ) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {
+            "profileHeadline": "Contracts counsel",
+            "profileAboutMarkdown": "**About me.**",
+            "profileLinksMarkdown": "- [Site](https://example.com)",
+        }
+        result = self.client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updateMe"]["ok"])
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_headline, "Contracts counsel")
+        self.assertEqual(self.user.profile_about_markdown, "**About me.**")
+        self.assertEqual(
+            self.user.profile_links_markdown,
+            "- [Site](https://example.com)",
+        )
+
+    def test_user_type_exposes_markdown_profile_fields(self):
+        self.user.profile_headline = "Contracts counsel"
+        self.user.profile_about_markdown = "About text"
+        self.user.profile_links_markdown = "Links text"
+        self.user.save()
+
+        query = """
+            query Me {
+                me {
+                    profileHeadline
+                    profileAboutMarkdown
+                    profileLinksMarkdown
+                }
+            }
+        """
+        result = self.client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["me"]
+        self.assertEqual(data["profileHeadline"], "Contracts counsel")
+        self.assertEqual(data["profileAboutMarkdown"], "About text")
+        self.assertEqual(data["profileLinksMarkdown"], "Links text")

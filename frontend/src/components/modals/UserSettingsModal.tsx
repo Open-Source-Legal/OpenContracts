@@ -76,16 +76,17 @@ const UserSettingsModal: React.FC = () => {
 
   useEffect(() => {
     if (user) {
+      const u = user as Partial<EditableProfileState>;
       setForm({
-        name: (user as any).name,
-        firstName: (user as any).firstName,
-        lastName: (user as any).lastName,
-        phone: (user as any).phone,
-        slug: (user as any).slug,
-        isProfilePublic: (user as any).isProfilePublic ?? true, // Issue #611
-        profileHeadline: (user as any).profileHeadline ?? "",
-        profileAboutMarkdown: (user as any).profileAboutMarkdown ?? "",
-        profileLinksMarkdown: (user as any).profileLinksMarkdown ?? "",
+        name: u.name,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        phone: u.phone,
+        slug: u.slug,
+        isProfilePublic: u.isProfilePublic ?? true, // Issue #611
+        profileHeadline: u.profileHeadline ?? "",
+        profileAboutMarkdown: u.profileAboutMarkdown ?? "",
+        profileLinksMarkdown: u.profileLinksMarkdown ?? "",
       });
       setDirty(false);
     }
@@ -182,6 +183,7 @@ const UserSettingsModal: React.FC = () => {
             fullWidth
             placeholder="What do you do? (e.g. Contracts counsel + legal ops)"
             value={form.profileHeadline || ""}
+            maxLength={200}
             onChange={(e) => onChange("profileHeadline", e.target.value)}
           />
           <div style={{ height: "1rem" }} />
@@ -190,6 +192,7 @@ const UserSettingsModal: React.FC = () => {
             <textarea
               rows={6}
               value={form.profileAboutMarkdown || ""}
+              maxLength={5000}
               onChange={(e) => onChange("profileAboutMarkdown", e.target.value)}
               placeholder="Write a short bio in Markdown"
               style={{ width: "100%", padding: "0.5rem", resize: "vertical" }}
@@ -200,6 +203,7 @@ const UserSettingsModal: React.FC = () => {
             <textarea
               rows={4}
               value={form.profileLinksMarkdown || ""}
+              maxLength={5000}
               onChange={(e) => onChange("profileLinksMarkdown", e.target.value)}
               placeholder="- [Website](https://example.com)"
               style={{ width: "100%", padding: "0.5rem", resize: "vertical" }}

@@ -48,6 +48,9 @@ class UpdateMe(graphene.Mutation):
         phone = graphene.String(required=False)
         slug = graphene.String(required=False)
         is_profile_public = graphene.Boolean(required=False)  # Issue #611
+        profile_headline = graphene.String(required=False)
+        profile_about_markdown = graphene.String(required=False)
+        profile_links_markdown = graphene.String(required=False)
 
     ok = graphene.Boolean()
     message = graphene.String()
