@@ -5,6 +5,7 @@ import React, {
   useRef,
   useCallback,
 } from "react";
+import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
@@ -55,6 +56,12 @@ interface EnhancedLabelSelectorProps {
   hideControls?: boolean;
   readOnly?: boolean;
 }
+
+const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
+const MOBILE_ANNOTATION_TOOLS_Z_INDEX = 3048;
+const ANNOTATION_LABEL_MODAL_Z_INDEX = 3100;
+const visualViewportAwareBottom = (baseOffset: string) =>
+  `max(${baseOffset}, calc(100vh - var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) - var(--oc-dkb-visible-viewport-offset-top, 0px) + ${baseOffset}))`;
 
 export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
   activeSpanLabel,
@@ -344,7 +351,7 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
     };
   };
 
-  return (
+  const annotationControls = (
     <>
       <StyledEnhancedSelector
         {...calculatePosition()}
@@ -737,6 +744,12 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
       )}
     </>
   );
+
+  if (isMobile && typeof document !== "undefined") {
+    return createPortal(annotationControls, document.body);
+  }
+
+  return annotationControls;
 };
 
 interface StyledEnhancedSelectorProps {
@@ -756,8 +769,9 @@ const StyledEnhancedSelector = styled.div<StyledEnhancedSelectorProps>`
   filter: ${(props) => (props.$isReadOnly ? "grayscale(0.3)" : "none")};
 
   @media (max-width: 768px) {
-    bottom: 1rem;
+    bottom: ${visualViewportAwareBottom(MOBILE_ANNOTATION_TOOLS_BOTTOM)};
     right: 1rem;
+    z-index: ${MOBILE_ANNOTATION_TOOLS_Z_INDEX};
   }
 
   .selector-button {
@@ -1017,7 +1031,7 @@ const ModalOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  z-index: ${ANNOTATION_LABEL_MODAL_Z_INDEX};
   padding: 2rem;
 `;
 

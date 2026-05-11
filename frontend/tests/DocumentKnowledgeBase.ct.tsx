@@ -452,6 +452,7 @@ test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
   const contentArea = page.locator("#content-area");
   const documentLayer = page.locator("#document-layer");
   const pdfContainer = page.locator("#pdf-container");
+  const annotationTools = page.getByTestId("annotation-tools");
   const speedDialContainer = page.getByTestId("speed-dial-container");
   const fab = page.getByTestId("speed-dial-main-fab");
   await expect(modal).toBeVisible({ timeout: LONG_TIMEOUT });
@@ -459,6 +460,7 @@ test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
   await expect(contentArea).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(documentLayer).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(pdfContainer).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(annotationTools).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(speedDialContainer).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(fab).toBeVisible({ timeout: LONG_TIMEOUT });
 
@@ -476,10 +478,20 @@ test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
   }
 
   const beforeFabBox = await fab.boundingBox();
+  const annotationToolsBox = await annotationTools.boundingBox();
   expect(beforeFabBox).not.toBeNull();
+  expect(annotationToolsBox).not.toBeNull();
+  expect(
+    annotationToolsBox!.y + annotationToolsBox!.height
+  ).toBeLessThanOrEqual(viewport.height);
   expect(beforeFabBox!.y + beforeFabBox!.height).toBeLessThanOrEqual(
     viewport.height
   );
+  expect(
+    await annotationTools.evaluate((el) =>
+      Boolean(el.closest("#main-content-area"))
+    )
+  ).toBe(false);
   expect(
     await speedDialContainer.evaluate((el) =>
       Boolean(el.closest("#main-content-area"))
