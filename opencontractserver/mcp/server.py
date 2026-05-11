@@ -38,6 +38,7 @@ from starlette.routing import Mount, Route
 
 from config.ratelimit.decorators import MCPRateLimitError, check_mcp_rate_limit
 from config.ratelimit.keys import get_client_ip_from_scope
+from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 
 from .resources import (
     get_annotation_resource,
@@ -54,6 +55,7 @@ from .telemetry import (
     set_request_context,
 )
 from .tools import (
+    create_thread_message,
     get_document_text,
     get_scoped_tool_handlers,
     get_thread_messages,
@@ -72,6 +74,16 @@ logger = logging.getLogger(__name__)
 _mcp_asgi_scope: ContextVar[MutableMapping[str, Any] | None] = ContextVar(
     "mcp_asgi_scope", default=None
 )
+_mcp_user: ContextVar[Any] = ContextVar("mcp_user", default=None)
+
+
+def _extract_bearer_token(scope: MutableMapping[str, Any]) -> str | None:
+    for name, value in scope.get("headers", []):
+        if name.lower() == b"authorization":
+            auth_header = value.decode("utf-8", errors="ignore")
+            if auth_header.lower().startswith("bearer "):
+                return auth_header[7:].strip() or None
+    return None
 
 
 async def _check_per_tool_rate_limit(name: str) -> None:
@@ -110,6 +122,7 @@ TOOL_HANDLERS: dict[str, Callable[..., Any]] = {
     "search_corpus": search_corpus,
     "list_threads": list_threads,
     "get_thread_messages": get_thread_messages,
+    "create_thread_message": create_thread_message,
 }
 
 
@@ -270,7 +283,11 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
 
     try:
         # Run synchronous Django ORM handlers in thread pool
-        result = await sync_to_async(handler)(**arguments)
+        user = _mcp_user.get()
+        if user is not None:
+            result = await sync_to_async(handler)(user=user, **arguments)
+        else:
+            result = await sync_to_async(handler)(**arguments)
         await arecord_mcp_tool_call(
             name,
             success=True,
@@ -463,6 +480,20 @@ def create_mcp_server() -> Server:
                         },
                     },
                     "required": ["corpus_slug", "thread_id"],
+                },
+            ),
+            Tool(
+                name="create_thread_message",
+                description="Create a new message in a thread (requires authenticated MCP session)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "corpus_slug": {"type": "string"},
+                        "thread_id": {"type": "integer"},
+                        "content": {"type": "string"},
+                        "parent_message_id": {"type": "integer"},
+                    },
+                    "required": ["corpus_slug", "thread_id", "content"],
                 },
             ),
         ]
@@ -1183,11 +1214,35 @@ def create_mcp_asgi_app() -> ASGIApp:
         # reset it in the finally block, preventing stale scope data
         # from leaking into subsequent requests on the same task.
         _scope_token = _mcp_asgi_scope.set(scope)
+        _user_token = _mcp_user.set(None)
 
         try:
+            token = _extract_bearer_token(scope)
+            if token:
+                from config.jwt_utils import get_user_from_jwt_token
+
+                try:
+                    user = await sync_to_async(get_user_from_jwt_token)(token)
+                    _mcp_user.set(user)
+                except (JSONWebTokenExpired, JSONWebTokenError) as auth_error:
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 401,
+                            "headers": [[b"content-type", b"application/json"]],
+                        }
+                    )
+                    await send(
+                        {
+                            "type": "http.response.body",
+                            "body": json.dumps({"error": str(auth_error)}).encode(),
+                        }
+                    )
+                    return
             await _handle_mcp_request(scope, receive, send)
         finally:
             _mcp_asgi_scope.reset(_scope_token)
+            _mcp_user.reset(_user_token)
 
     async def _handle_mcp_request(
         scope: ASGIScope, receive: ASGIReceive, send: ASGISend

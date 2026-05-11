@@ -26,7 +26,9 @@ if TYPE_CHECKING:
     from opencontractserver.users.types import UserOrAnonymous
 
 
-def list_public_corpuses(limit: int = 20, offset: int = 0, search: str = "") -> dict:
+def list_public_corpuses(
+    limit: int = 20, offset: int = 0, search: str = "", user: UserOrAnonymous | None = None
+) -> dict:
     """
     List public corpuses visible to anonymous users.
 
@@ -43,8 +45,8 @@ def list_public_corpuses(limit: int = 20, offset: int = 0, search: str = "") -> 
     # Enforce max limit
     limit = min(limit, 100)
 
-    anonymous = AnonymousUser()
-    qs = Corpus.objects.visible_to_user(anonymous)
+    user = user or AnonymousUser()
+    qs = Corpus.objects.visible_to_user(user)
 
     if search:
         qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search))
@@ -59,7 +61,7 @@ def list_public_corpuses(limit: int = 20, offset: int = 0, search: str = "") -> 
 
 
 def list_documents(
-    corpus_slug: str, limit: int = 50, offset: int = 0, search: str = ""
+    corpus_slug: str, limit: int = 50, offset: int = 0, search: str = "", user: UserOrAnonymous | None = None
 ) -> dict:
     """
     List documents in a public corpus.
@@ -77,15 +79,15 @@ def list_documents(
     from opencontractserver.corpuses.models import Corpus
 
     limit = min(limit, 100)
-    anonymous = AnonymousUser()
+    user = user or AnonymousUser()
 
     # Get corpus (raises Corpus.DoesNotExist if not found or not public)
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
     # Use DocumentFolderService for optimized single-query document retrieval
     # This handles corpus membership and visibility in one query
     qs = DocumentFolderService.get_corpus_documents(
-        user=anonymous, corpus=corpus, include_deleted=False
+        user=user, corpus=corpus, include_deleted=False
     )
 
     if search:
@@ -100,7 +102,7 @@ def list_documents(
     }
 
 
-def get_document_text(corpus_slug: str, document_slug: str) -> dict:
+def get_document_text(corpus_slug: str, document_slug: str, user: UserOrAnonymous | None = None) -> dict:
     """
     Retrieve full extracted text from a document.
 
@@ -114,12 +116,12 @@ def get_document_text(corpus_slug: str, document_slug: str) -> dict:
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
 
-    anonymous = AnonymousUser()
+    user = user or AnonymousUser()
 
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
     # Get document in corpus via DocumentPath, filtered by visibility and slug
     corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
-    document = Document.objects.visible_to_user(anonymous).get(
+    document = Document.objects.visible_to_user(user).get(
         id__in=corpus_doc_ids, slug=document_slug
     )
 
@@ -165,18 +167,18 @@ def list_annotations(
     from opencontractserver.documents.models import Document
 
     limit = min(limit, 100)
-    anonymous = AnonymousUser()
+    user = user or AnonymousUser()
 
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
     # Get document in corpus via DocumentPath, filtered by visibility and slug
     corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
-    document = Document.objects.visible_to_user(anonymous).get(
+    document = Document.objects.visible_to_user(user).get(
         id__in=corpus_doc_ids, slug=document_slug
     )
 
     # Use query optimizer - eliminates N+1 permission queries
     qs = AnnotationQueryOptimizer.get_document_annotations(
-        document_id=document.id, user=anonymous, corpus_id=corpus.id
+        document_id=document.id, user=user, corpus_id=corpus.id
     )
 
     # Apply filters
@@ -195,7 +197,7 @@ def list_annotations(
     }
 
 
-def search_corpus(corpus_slug: str, query: str, limit: int = 10) -> dict:
+def search_corpus(corpus_slug: str, query: str, limit: int = 10, user: UserOrAnonymous | None = None) -> dict:
     """
     Semantic search within a corpus using vector embeddings.
 
@@ -213,8 +215,8 @@ def search_corpus(corpus_slug: str, query: str, limit: int = 10) -> dict:
     from opencontractserver.documents.models import Document
 
     limit = min(limit, 50)
-    anonymous = AnonymousUser()
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    user = user or AnonymousUser()
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
     # Try to use vector search
     try:
@@ -226,7 +228,7 @@ def search_corpus(corpus_slug: str, query: str, limit: int = 10) -> dict:
             corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
             # Search documents using vector similarity, filtered by corpus membership
             doc_results = list(
-                Document.objects.visible_to_user(anonymous)
+                Document.objects.visible_to_user(user)
                 .filter(id__in=corpus_doc_ids)
                 .search_by_embedding(  # type: ignore[attr-defined]
                     query_vector, embedder_path, top_k=limit
@@ -255,7 +257,7 @@ def search_corpus(corpus_slug: str, query: str, limit: int = 10) -> dict:
         logging.getLogger(__name__).debug(f"Vector search unavailable: {e}")
 
     # Fallback to text search
-    return _text_search_fallback(corpus, query, limit, anonymous)
+    return _text_search_fallback(corpus, query, limit, user)
 
 
 def _text_search_fallback(
@@ -287,7 +289,7 @@ def _text_search_fallback(
 
 
 def list_threads(
-    corpus_slug: str, document_slug: str | None = None, limit: int = 20, offset: int = 0
+    corpus_slug: str, document_slug: str | None = None, limit: int = 20, offset: int = 0, user: UserOrAnonymous | None = None
 ) -> dict:
     """
     List discussion threads in a corpus or document.
@@ -309,11 +311,11 @@ def list_threads(
     from opencontractserver.documents.models import Document
 
     limit = min(limit, 100)
-    anonymous = AnonymousUser()
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    user = user or AnonymousUser()
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
     qs = (
-        Conversation.objects.visible_to_user(anonymous)
+        Conversation.objects.visible_to_user(user)
         .filter(
             conversation_type=ConversationTypeChoices.THREAD, chat_with_corpus=corpus
         )
@@ -323,7 +325,7 @@ def list_threads(
     if document_slug:
         # Get document in corpus via DocumentPath, filtered by visibility and slug
         corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
-        document = Document.objects.visible_to_user(anonymous).get(
+        document = Document.objects.visible_to_user(user).get(
             id__in=corpus_doc_ids, slug=document_slug
         )
         qs = qs.filter(chat_with_document=document)
@@ -341,7 +343,7 @@ def list_threads(
 
 
 def get_thread_messages(
-    corpus_slug: str, thread_id: int, flatten: bool = False
+    corpus_slug: str, thread_id: int, flatten: bool = False, user: UserOrAnonymous | None = None
 ) -> dict:
     """
     Retrieve all messages in a thread with hierarchical structure.
@@ -363,11 +365,11 @@ def get_thread_messages(
     )
     from opencontractserver.corpuses.models import Corpus
 
-    anonymous = AnonymousUser()
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    user = user or AnonymousUser()
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
     thread = (
-        Conversation.objects.visible_to_user(anonymous)
+        Conversation.objects.visible_to_user(user)
         .filter(
             conversation_type=ConversationTypeChoices.THREAD,
             chat_with_corpus=corpus,
@@ -381,7 +383,7 @@ def get_thread_messages(
 
     if flatten:
         messages = list(
-            ChatMessage.objects.visible_to_user(anonymous)
+            ChatMessage.objects.visible_to_user(user)
             .filter(conversation=thread)
             .order_by("created_at")
         )
@@ -393,7 +395,7 @@ def get_thread_messages(
 
     # Build hierarchical structure with prefetch
     root_messages = list(
-        ChatMessage.objects.visible_to_user(anonymous)
+        ChatMessage.objects.visible_to_user(user)
         .filter(conversation=thread, parent_message__isnull=True)
         .prefetch_related("replies__replies")
         .order_by("created_at")
@@ -402,8 +404,41 @@ def get_thread_messages(
     return {
         "thread_id": str(thread.id),
         "title": thread.title or "",
-        "messages": [format_message_with_replies(m, anonymous) for m in root_messages],
+        "messages": [format_message_with_replies(m, user) for m in root_messages],
     }
+
+
+def create_thread_message(
+    corpus_slug: str,
+    thread_id: int,
+    content: str,
+    parent_message_id: int | None = None,
+    user: UserOrAnonymous | None = None,
+) -> dict:
+    """Create a message in an existing thread (authenticated users only)."""
+    from django.contrib.auth.models import AnonymousUser
+    from django.core.exceptions import PermissionDenied
+    from opencontractserver.conversations.models import ChatMessage, Conversation, ConversationTypeChoices
+    from opencontractserver.corpuses.models import Corpus
+
+    if user is None or isinstance(user, AnonymousUser):
+        raise PermissionDenied("Authentication required for write tools")
+
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
+    thread = Conversation.objects.visible_to_user(user).get(
+        id=thread_id, conversation_type=ConversationTypeChoices.THREAD, chat_with_corpus=corpus
+    )
+    parent = None
+    if parent_message_id is not None:
+        parent = ChatMessage.objects.visible_to_user(user).get(id=parent_message_id, conversation=thread)
+
+    message = ChatMessage.objects.create(
+        conversation=thread,
+        content=content,
+        creator=user,
+        parent_message=parent,
+    )
+    return {"id": str(message.id), "thread_id": str(thread.id), "content": message.content}
 
 
 # =============================================================================
