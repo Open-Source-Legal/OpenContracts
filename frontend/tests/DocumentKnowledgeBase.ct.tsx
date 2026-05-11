@@ -377,6 +377,54 @@ test("fullscreen modal covers the entire viewport", async ({ mount, page }) => {
   expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1);
 });
 
+test("mobile fullscreen modal appears above the app nav", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => {
+    const nav = document.createElement("div");
+    nav.id = "mobile-nav-z-index-regression";
+    Object.assign(nav.style, {
+      position: "fixed",
+      top: "0",
+      left: "0",
+      right: "0",
+      height: "60px",
+      zIndex: "1100",
+    });
+    document.body.appendChild(nav);
+  });
+
+  await mount(
+    <DocumentKnowledgeBaseTestWrapper
+      mocks={graphqlMocksWithChat}
+      documentId={PDF_DOC_ID}
+      corpusId={CORPUS_ID}
+    />
+  );
+
+  await expect(
+    page.getByRole("heading", { name: mockPdfDocument.title ?? "" })
+  ).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  const overlay = page.locator(".fullscreen-modal-overlay");
+  const modal = page.locator(".fullscreen-modal");
+  await expect(overlay).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(modal).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  const overlayZIndex = await overlay.evaluate((el) =>
+    Number(window.getComputedStyle(el).zIndex)
+  );
+  expect(overlayZIndex).toBeGreaterThan(1100);
+
+  const viewport = page.viewportSize()!;
+  const box = await modal.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeGreaterThanOrEqual(viewport.width - 1);
+  expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1);
+});
+
 test("renders PDF document and can open summary via floating preview", async ({
   mount,
   page,

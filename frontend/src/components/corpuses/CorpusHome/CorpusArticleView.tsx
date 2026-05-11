@@ -29,6 +29,7 @@ import {
 import { useCiteHandler } from "../caml/useCiteHandler";
 import { ArticleDocumentsDrawer } from "./ArticleDocumentsDrawer";
 import { CAML_COMPONENTS } from "../../../utils/camlComponentRegistry";
+import { CamlArticleFrame } from "../caml/CamlArticleFrame";
 
 // ---------------------------------------------------------------------------
 // Styled components
@@ -36,9 +37,10 @@ import { CAML_COMPONENTS } from "../../../utils/camlComponentRegistry";
 
 const ArticleViewContainer = styled.div`
   width: 100%;
-  min-height: 100vh;
+  min-height: 100%;
   background: ${OS_LEGAL_COLORS.surface};
   overflow-x: hidden;
+  box-sizing: border-box;
 `;
 
 const ArticleToolbar = styled.div`
@@ -340,13 +342,15 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
         />
       )}
 
-      <CamlDirectiveRenderer
-        document={parsedDocument}
-        handlerContext={handlerContext}
-        stats={stats}
-        resolveImageSrc={resolveImageSrc}
-        componentRegistry={CAML_COMPONENTS}
-      />
+      <CamlArticleFrame $bottomInset="var(--oc-article-bottom-clearance, 0px)">
+        <CamlDirectiveRenderer
+          document={parsedDocument}
+          handlerContext={handlerContext}
+          stats={stats}
+          resolveImageSrc={resolveImageSrc}
+          componentRegistry={CAML_COMPONENTS}
+        />
+      </CamlArticleFrame>
     </ArticleViewContainer>
   );
 };

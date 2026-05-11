@@ -16,6 +16,7 @@ export const HeaderContainer = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-shrink: 0;
 
   /* Mobile-friendly header */
   @media (max-width: 768px) {
@@ -62,9 +63,12 @@ export const MetadataRow = styled.div`
 export const ContentArea = styled.div`
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 90px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
   background: white;
   position: relative;
+  overflow: hidden;
 
   /* Stack layout on mobile */
   @media (max-width: 768px) {
@@ -74,7 +78,8 @@ export const ContentArea = styled.div`
 
 export const MainContentArea = styled.div`
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
 `;
 

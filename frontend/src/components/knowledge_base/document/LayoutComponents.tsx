@@ -10,10 +10,22 @@ import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 // Injected unconditionally when FullScreenModal is mounted (even when closed),
 // but scoped via .fullscreen-modal class to prevent leakage.
 const FullScreenModalBodyStyles = createGlobalStyle`
+  .fullscreen-modal-overlay {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0 !important;
+    z-index: var(--oc-app-modal-z-index, 3000);
+  }
+
   .fullscreen-modal {
     background: ${OS_LEGAL_COLORS.gray50};
-    max-height: 100vh !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: var(--oc-visible-viewport-height, 100vh) !important;
+    max-height: var(--oc-visible-viewport-height, 100vh) !important;
+    border-radius: 0 !important;
     overflow: hidden;
+    min-height: 0;
   }
 
   .fullscreen-modal .oc-modal-body {
@@ -44,6 +56,7 @@ export const FullScreenModal: React.FC<FullScreenModalProps> = ({
       onClose={onClose}
       size="fullscreen"
       className="fullscreen-modal"
+      overlayClassName="fullscreen-modal-overlay"
       closeOnEscape={false}
       closeOnOverlay={false}
     >

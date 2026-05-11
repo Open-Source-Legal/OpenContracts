@@ -32,6 +32,7 @@ import {
 } from "../../../utils/camlComponents";
 import { ErrorBoundary } from "../../widgets/ErrorBoundary";
 import { ComponentEmbedErrorFallback } from "../../widgets/ComponentEmbedErrorFallback";
+import { CamlArticleFrame } from "./CamlArticleFrame";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,14 +199,16 @@ export const CamlDirectiveRenderer: React.FC<CamlDirectiveRendererProps> = ({
   );
 
   return (
-    <CamlThemeProvider>
-      <CamlArticle
-        document={cleanedDocument}
-        stats={stats}
-        renderMarkdown={renderMarkdown}
-        resolveImageSrc={resolveImageSrc}
-        customBlocks={customBlocks}
-      />
-    </CamlThemeProvider>
+    <CamlArticleFrame>
+      <CamlThemeProvider>
+        <CamlArticle
+          document={cleanedDocument}
+          stats={stats}
+          renderMarkdown={renderMarkdown}
+          resolveImageSrc={resolveImageSrc}
+          customBlocks={customBlocks}
+        />
+      </CamlThemeProvider>
+    </CamlArticleFrame>
   );
 };

@@ -138,6 +138,7 @@ export const ContextBarContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
   animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
