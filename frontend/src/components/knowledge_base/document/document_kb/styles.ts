@@ -20,14 +20,16 @@ export const HeaderButton = styled.button<{
   padding: 0 ${(props) => (props.$variant === "primary" ? "14px" : "10px")};
   background: ${(props) =>
     props.$variant === "primary"
-      ? OS_LEGAL_COLORS.accent
+      ? OS_LEGAL_COLORS.accentSurface
       : OS_LEGAL_COLORS.surface};
   color: ${(props) =>
-    props.$variant === "primary" ? "white" : OS_LEGAL_COLORS.textTertiary};
+    props.$variant === "primary"
+      ? OS_LEGAL_COLORS.accent
+      : OS_LEGAL_COLORS.textTertiary};
   border: 1px solid
     ${(props) =>
       props.$variant === "primary"
-        ? OS_LEGAL_COLORS.accent
+        ? OS_LEGAL_COLORS.accentMedium
         : OS_LEGAL_COLORS.border};
   border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
   font-size: ${(props) => (props.$variant === "primary" ? "13px" : "14px")};
@@ -42,7 +44,7 @@ export const HeaderButton = styled.button<{
   gap: ${(props) => (props.$variant === "primary" ? "8px" : "0")};
   box-shadow: ${(props) =>
     props.$variant === "primary"
-      ? `0 4px 12px ${accentAlpha(0.18)}`
+      ? `0 1px 2px ${accentAlpha(0.12)}`
       : "0 1px 3px rgba(15, 23, 42, 0.06)"};
   position: relative;
   overflow: hidden;
@@ -52,15 +54,15 @@ export const HeaderButton = styled.button<{
     transform: translateY(-1px);
     background: ${(props) =>
       props.$variant === "primary"
-        ? OS_LEGAL_COLORS.accentHover
+        ? OS_LEGAL_COLORS.accentLight
         : OS_LEGAL_COLORS.surfaceHover};
     box-shadow: ${(props) =>
       props.$variant === "primary"
-        ? `0 6px 16px ${accentAlpha(0.24)}`
+        ? `0 3px 8px ${accentAlpha(0.16)}`
         : "0 4px 10px rgba(15, 23, 42, 0.08)"};
     border-color: ${(props) =>
       props.$variant === "primary"
-        ? OS_LEGAL_COLORS.accentHover
+        ? OS_LEGAL_COLORS.accent
         : OS_LEGAL_COLORS.borderHover};
   }
 
@@ -68,7 +70,7 @@ export const HeaderButton = styled.button<{
     transform: translateY(0);
     box-shadow: ${(props) =>
       props.$variant === "primary"
-        ? `0 2px 8px ${accentAlpha(0.2)}`
+        ? `0 1px 4px ${accentAlpha(0.12)}`
         : "inset 0 1px 2px rgba(15, 23, 42, 0.08)"};
   }
 
@@ -84,21 +86,23 @@ export const HeaderButton = styled.button<{
   }
 
   @media (max-width: 480px) {
-    height: 34px;
-    padding: 0 ${(props) => (props.$variant === "primary" ? "11px" : "9px")};
-    gap: ${(props) => (props.$variant === "primary" ? "6px" : "0")};
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
 
     .header-button-label--desktop {
       display: none;
     }
 
     .header-button-label--mobile {
-      display: inline;
+      display: none;
     }
 
     svg {
-      width: 16px;
-      height: 16px;
+      width: 17px;
+      height: 17px;
     }
   }
 `;

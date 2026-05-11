@@ -65,6 +65,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               $variant="primary"
               onClick={onAddToCorpus}
               title="Add this document to a corpus to unlock collaborative features"
+              aria-label="Add this document to a corpus"
               data-testid="add-to-corpus-button"
             >
               <Plus />

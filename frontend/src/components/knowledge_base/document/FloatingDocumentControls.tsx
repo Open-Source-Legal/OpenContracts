@@ -27,12 +27,9 @@ import { AnnotationControls } from "../../annotator/controls/AnnotationControls"
 import { ToggleSwitch } from "../../widgets/ToggleSwitch";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
-const DESKTOP_FLOATING_CONTROLS_BOTTOM =
-  "calc(7rem + env(safe-area-inset-bottom, 0px))";
-const MOBILE_FLOATING_CONTROLS_BOTTOM =
-  "calc(5.5rem + env(safe-area-inset-bottom, 0px))";
-const MOBILE_SETTINGS_PANEL_BOTTOM =
-  "calc(10rem + env(safe-area-inset-bottom, 0px))";
+const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
+const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
+const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
 
 const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
   position: fixed;

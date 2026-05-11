@@ -25,7 +25,7 @@ export const HeaderContainer = styled.div`
   }
 
   @media (max-width: 480px) {
-    padding: 0.75rem 0.875rem 0.65rem;
+    padding: 0.7rem 0.8rem 0.6rem;
   }
 `;
 
@@ -60,7 +60,7 @@ export const HeaderTitle = styled.h2`
   }
 
   @media (max-width: 480px) {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
   }
 `;
 
@@ -101,7 +101,7 @@ export const MetadataRow = styled.div`
   @media (max-width: 768px) {
     column-gap: 0.875rem;
     row-gap: 0.3rem;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
   }
 
   @media (max-width: 480px) {
