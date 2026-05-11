@@ -27,11 +27,16 @@ import { AnnotationControls } from "../../annotator/controls/AnnotationControls"
 import { ToggleSwitch } from "../../widgets/ToggleSwitch";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
+const DESKTOP_FLOATING_CONTROLS_BOTTOM =
+  "calc(7rem + env(safe-area-inset-bottom, 0px))";
+const MOBILE_FLOATING_CONTROLS_BOTTOM =
+  "calc(5.5rem + env(safe-area-inset-bottom, 0px))";
+const MOBILE_SETTINGS_PANEL_BOTTOM =
+  "calc(10rem + env(safe-area-inset-bottom, 0px))";
+
 const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
   position: fixed;
-  bottom: calc(
-    2rem + 48px + max(10px, 2rem)
-  ); /* UnifiedLabelSelector height (48px) + gap (2rem min 10px) */
+  bottom: ${DESKTOP_FLOATING_CONTROLS_BOTTOM};
   right: ${(props) =>
     props.$panelOffset ? `${props.$panelOffset + 32}px` : "2rem"};
   z-index: 2001;
@@ -43,9 +48,7 @@ const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
 
   @media (max-width: 768px) {
     right: 1rem;
-    bottom: calc(
-      1rem + 40px + max(10px, 2rem)
-    ); /* Smaller button size on mobile */
+    bottom: ${MOBILE_FLOATING_CONTROLS_BOTTOM};
   }
 `;
 
@@ -265,9 +268,7 @@ const WidthMenuItem = styled(motion.button)<{ $isActive: boolean }>`
 /* Mobile Speed Dial Components */
 const SpeedDialContainer = styled.div`
   position: fixed;
-  bottom: calc(
-    1rem + 40px + max(10px, 2rem)
-  ); /* Above label selector on mobile */
+  bottom: ${MOBILE_FLOATING_CONTROLS_BOTTOM};
   right: 1rem;
   z-index: 2001;
 `;
@@ -568,7 +569,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                   transition={{ duration: 0.2 }}
                   style={{
                     position: "fixed",
-                    bottom: "calc(1rem + 56px + 1rem)",
+                    bottom: MOBILE_SETTINGS_PANEL_BOTTOM,
                     right: "1rem",
                     zIndex: 2003,
                   }}

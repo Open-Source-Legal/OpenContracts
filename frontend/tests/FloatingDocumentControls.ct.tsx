@@ -573,6 +573,33 @@ test.describe("FloatingDocumentControls", () => {
     await expect(page.getByTestId("create-analysis-button")).toHaveCount(0);
   });
 
+  test("mobile speed dial stays inside the viewport", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    const fab = page.getByTestId("speed-dial-main-fab");
+    await expect(fab).toBeVisible();
+
+    const fabBox = await fab.boundingBox();
+    expect(fabBox).not.toBeNull();
+    expect(fabBox!.x).toBeGreaterThanOrEqual(0);
+    expect(fabBox!.y).toBeGreaterThanOrEqual(0);
+    expect(fabBox!.x + fabBox!.width).toBeLessThanOrEqual(402);
+    expect(fabBox!.y + fabBox!.height).toBeLessThanOrEqual(874);
+    expect(874 - (fabBox!.y + fabBox!.height)).toBeGreaterThanOrEqual(72);
+  });
+
   test("mobile speed dial: hideDocumentTools=false renders all document tool buttons", async ({
     mount,
     page,
