@@ -3,6 +3,7 @@
   --oc-mobile-navbar-height: 60px;
   --oc-visible-viewport-height: 100vh;
   --oc-app-modal-z-index: 3000;
+  --oc-app-modal-child-z-index: 3100;
 
   /* Warning semantic tokens — amber theme for caution messages.
      Keep in sync with OS_LEGAL_COLORS in osLegalStyles.ts. */

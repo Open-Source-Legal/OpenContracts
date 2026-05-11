@@ -3,12 +3,15 @@ import { Modal } from "@os-legal/ui";
 import styled, { createGlobalStyle } from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
+export const DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS =
+  "document-kb-child-modal-overlay";
+
 // Minimal overrides for the fullscreen modal body — the native size="fullscreen"
 // variant handles positioning, sizing, border-radius, and overlay padding.
 // We override max-height because the base .oc-modal sets max-height: calc(100vh - 32px)
 // which the fullscreen variant doesn't clear, and overflow: hidden to contain content.
 // Injected unconditionally when FullScreenModal is mounted (even when closed),
-// but scoped via .fullscreen-modal class to prevent leakage.
+// but scoped via DKB modal classes to prevent leakage.
 const FullScreenModalBodyStyles = createGlobalStyle`
   .fullscreen-modal-overlay {
     align-items: stretch;
@@ -32,6 +35,10 @@ const FullScreenModalBodyStyles = createGlobalStyle`
     overflow: hidden !important;
     padding: 0 !important;
     margin: 0 !important;
+  }
+
+  .oc-modal-overlay.${DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS} {
+    z-index: var(--oc-app-modal-child-z-index, 3100);
   }
 `;
 
