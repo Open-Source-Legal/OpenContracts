@@ -600,6 +600,40 @@ test.describe("FloatingDocumentControls", () => {
     expect(874 - (fabBox!.y + fabBox!.height)).toBeGreaterThanOrEqual(72);
   });
 
+  test("mobile speed dial honors DKB visual viewport height", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty(
+        "--oc-dkb-visible-viewport-height",
+        "720px"
+      );
+      document.documentElement.style.setProperty(
+        "--oc-dkb-visible-viewport-offset-top",
+        "0px"
+      );
+    });
+
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    const fab = page.getByTestId("speed-dial-main-fab");
+    await expect(fab).toBeVisible();
+
+    const fabBox = await fab.boundingBox();
+    expect(fabBox).not.toBeNull();
+    expect(fabBox!.y + fabBox!.height).toBeLessThanOrEqual(720);
+    expect(720 - (fabBox!.y + fabBox!.height)).toBeGreaterThanOrEqual(72);
+  });
+
   test("mobile speed dial: hideDocumentTools=false renders all document tool buttons", async ({
     mount,
     page,

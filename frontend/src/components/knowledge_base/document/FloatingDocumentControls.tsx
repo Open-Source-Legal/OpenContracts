@@ -30,6 +30,8 @@ import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
 const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
 const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
+const visualViewportAwareBottom = (baseOffset: string) =>
+  `max(${baseOffset}, calc(100vh - var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) - var(--oc-dkb-visible-viewport-offset-top, 0px) + ${baseOffset}))`;
 
 const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
   position: fixed;
@@ -45,7 +47,7 @@ const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
 
   @media (max-width: 768px) {
     right: 1rem;
-    bottom: ${MOBILE_FLOATING_CONTROLS_BOTTOM};
+    bottom: ${visualViewportAwareBottom(MOBILE_FLOATING_CONTROLS_BOTTOM)};
   }
 `;
 
@@ -265,7 +267,7 @@ const WidthMenuItem = styled(motion.button)<{ $isActive: boolean }>`
 /* Mobile Speed Dial Components */
 const SpeedDialContainer = styled.div`
   position: fixed;
-  bottom: ${MOBILE_FLOATING_CONTROLS_BOTTOM};
+  bottom: ${visualViewportAwareBottom(MOBILE_FLOATING_CONTROLS_BOTTOM)};
   right: 1rem;
   z-index: 2001;
 `;
@@ -566,7 +568,9 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                   transition={{ duration: 0.2 }}
                   style={{
                     position: "fixed",
-                    bottom: MOBILE_SETTINGS_PANEL_BOTTOM,
+                    bottom: visualViewportAwareBottom(
+                      MOBILE_SETTINGS_PANEL_BOTTOM
+                    ),
                     right: "1rem",
                     zIndex: 2003,
                   }}

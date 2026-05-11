@@ -15,9 +15,9 @@ export const DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS =
 const FullScreenModalBodyStyles = createGlobalStyle`
   html.document-kb-scroll-lock,
   body.document-kb-scroll-lock {
-    height: var(--oc-visible-viewport-height, 100vh) !important;
-    min-height: var(--oc-visible-viewport-height, 100vh) !important;
-    max-height: var(--oc-visible-viewport-height, 100vh) !important;
+    height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
+    min-height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
+    max-height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
     overflow: hidden !important;
     overscroll-behavior: none;
   }
@@ -31,9 +31,9 @@ const FullScreenModalBodyStyles = createGlobalStyle`
   }
 
   html.document-kb-scroll-lock #root {
-    height: var(--oc-visible-viewport-height, 100vh) !important;
+    height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
     min-height: 0 !important;
-    max-height: var(--oc-visible-viewport-height, 100vh) !important;
+    max-height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
     overflow: hidden !important;
   }
 
@@ -44,8 +44,8 @@ const FullScreenModalBodyStyles = createGlobalStyle`
     justify-content: stretch;
     padding: 0 !important;
     z-index: var(--oc-app-modal-z-index, 3000);
-    height: var(--oc-visible-viewport-height, 100vh) !important;
-    max-height: var(--oc-visible-viewport-height, 100vh) !important;
+    height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
+    max-height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
     overflow: hidden !important;
     overscroll-behavior: none;
   }
@@ -56,8 +56,8 @@ const FullScreenModalBodyStyles = createGlobalStyle`
     background: ${OS_LEGAL_COLORS.gray50};
     width: 100vw !important;
     max-width: 100vw !important;
-    height: var(--oc-visible-viewport-height, 100vh) !important;
-    max-height: var(--oc-visible-viewport-height, 100vh) !important;
+    height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
+    max-height: var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) !important;
     margin: 0 !important;
     border-radius: 0 !important;
     overflow: hidden;
@@ -98,13 +98,36 @@ export const FullScreenModal: React.FC<FullScreenModalProps> = ({
   useEffect(() => {
     if (!open) return;
 
+    const root = document.documentElement;
     const scrollY = window.scrollY;
+    const updateViewportVars = () => {
+      const visualViewport = window.visualViewport;
+      root.style.setProperty(
+        "--oc-dkb-visible-viewport-height",
+        `${visualViewport?.height ?? window.innerHeight}px`
+      );
+      root.style.setProperty(
+        "--oc-dkb-visible-viewport-offset-top",
+        `${visualViewport?.offsetTop ?? 0}px`
+      );
+    };
+
+    updateViewportVars();
+    window.addEventListener("resize", updateViewportVars);
+    window.visualViewport?.addEventListener("resize", updateViewportVars);
+    window.visualViewport?.addEventListener("scroll", updateViewportVars);
+
     window.scrollTo(0, 0);
-    document.documentElement.classList.add("document-kb-scroll-lock");
+    root.classList.add("document-kb-scroll-lock");
     document.body.classList.add("document-kb-scroll-lock");
 
     return () => {
-      document.documentElement.classList.remove("document-kb-scroll-lock");
+      window.removeEventListener("resize", updateViewportVars);
+      window.visualViewport?.removeEventListener("resize", updateViewportVars);
+      window.visualViewport?.removeEventListener("scroll", updateViewportVars);
+      root.style.removeProperty("--oc-dkb-visible-viewport-height");
+      root.style.removeProperty("--oc-dkb-visible-viewport-offset-top");
+      root.classList.remove("document-kb-scroll-lock");
       document.body.classList.remove("document-kb-scroll-lock");
       window.scrollTo(0, scrollY);
     };
