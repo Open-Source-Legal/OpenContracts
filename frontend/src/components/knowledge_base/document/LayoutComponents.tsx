@@ -12,6 +12,11 @@ export const DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS =
 // which the fullscreen variant doesn't clear, and overflow: hidden to contain content.
 // Injected unconditionally when FullScreenModal is mounted (even when closed),
 // but scoped via DKB modal classes to prevent leakage.
+//
+// The pervasive ``!important`` annotations below are fighting the higher
+// specificity of @os-legal/ui's internal modal styles. If you remove or
+// reorder them be prepared to also fix overlay positioning, modal sizing,
+// and scroll-lock behaviour on mobile — they are load-bearing, not stylistic.
 const FullScreenModalBodyStyles = createGlobalStyle`
   html.document-kb-scroll-lock,
   body.document-kb-scroll-lock {

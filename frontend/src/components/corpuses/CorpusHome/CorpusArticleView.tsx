@@ -29,7 +29,6 @@ import {
 import { useCiteHandler } from "../caml/useCiteHandler";
 import { ArticleDocumentsDrawer } from "./ArticleDocumentsDrawer";
 import { CAML_COMPONENTS } from "../../../utils/camlComponentRegistry";
-import { CamlArticleFrame } from "../caml/CamlArticleFrame";
 
 // ---------------------------------------------------------------------------
 // Styled components
@@ -342,15 +341,14 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
         />
       )}
 
-      <CamlArticleFrame $bottomInset="var(--oc-article-bottom-clearance, 0px)">
-        <CamlDirectiveRenderer
-          document={parsedDocument}
-          handlerContext={handlerContext}
-          stats={stats}
-          resolveImageSrc={resolveImageSrc}
-          componentRegistry={CAML_COMPONENTS}
-        />
-      </CamlArticleFrame>
+      <CamlDirectiveRenderer
+        document={parsedDocument}
+        handlerContext={handlerContext}
+        stats={stats}
+        resolveImageSrc={resolveImageSrc}
+        componentRegistry={CAML_COMPONENTS}
+        bottomInset="var(--oc-article-bottom-clearance, 0px)"
+      />
     </ArticleViewContainer>
   );
 };

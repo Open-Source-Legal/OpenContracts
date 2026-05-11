@@ -27,6 +27,7 @@ import { PermissionTypes } from "../../types";
 import { AnnotationControls } from "../../annotator/controls/AnnotationControls";
 import { ToggleSwitch } from "../../widgets/ToggleSwitch";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { visualViewportAwareBottom } from "../../../utils/layout";
 
 const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
 const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
@@ -34,8 +35,6 @@ const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
 const MOBILE_FLOATING_CONTROLS_Z_INDEX = 3050;
 const MOBILE_FLOATING_BACKDROP_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX - 1;
 const MOBILE_FLOATING_PANEL_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX + 1;
-const visualViewportAwareBottom = (baseOffset: string) =>
-  `max(${baseOffset}, calc(100vh - var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) - var(--oc-dkb-visible-viewport-offset-top, 0px) + ${baseOffset}))`;
 
 const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
   position: fixed;

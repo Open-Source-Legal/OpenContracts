@@ -21,6 +21,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation } from "@apollo/client";
 import { isPdfFileType, isSpanBasedFileType } from "../../../utils/files";
+import { visualViewportAwareBottom } from "../../../utils/layout";
 import { toast } from "react-toastify";
 import {
   AnnotationLabelType,
@@ -60,8 +61,6 @@ interface EnhancedLabelSelectorProps {
 const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
 const MOBILE_ANNOTATION_TOOLS_Z_INDEX = 3048;
 const ANNOTATION_LABEL_MODAL_Z_INDEX = 3100;
-const visualViewportAwareBottom = (baseOffset: string) =>
-  `max(${baseOffset}, calc(100vh - var(--oc-dkb-visible-viewport-height, var(--oc-visible-viewport-height, 100vh)) - var(--oc-dkb-visible-viewport-offset-top, 0px) + ${baseOffset}))`;
 
 export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
   activeSpanLabel,

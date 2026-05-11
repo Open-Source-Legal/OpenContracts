@@ -3,6 +3,7 @@ import styled from "styled-components";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { mediaQuery } from "../corpuses/styles/corpusDesignTokens";
+import { hasRenderableNode } from "../../utils/react";
 
 interface CardLayoutProps {
   children?: React.ReactNode;
@@ -55,25 +56,6 @@ const SearchBarWrapper = styled.div`
   width: 100%;
   margin-bottom: 1rem;
 `;
-
-const hasRenderableNode = (node: React.ReactNode): boolean => {
-  if (node === null || node === undefined || typeof node === "boolean") {
-    return false;
-  }
-
-  if (Array.isArray(node)) {
-    return node.some(hasRenderableNode);
-  }
-
-  if (React.isValidElement(node) && node.type === React.Fragment) {
-    return hasRenderableNode(
-      (node as React.ReactElement<{ children?: React.ReactNode }>).props
-        .children
-    );
-  }
-
-  return true;
-};
 
 const ScrollableSegment = styled(StyledSegment)`
   display: flex;

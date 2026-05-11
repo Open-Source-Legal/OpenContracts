@@ -54,6 +54,12 @@ export interface CamlDirectiveRendererProps {
   resolveImageSrc?: (src: string) => string | undefined;
   /** Optional registry of embedded component types (e.g. extract-grid). */
   componentRegistry?: CamlComponentRegistry;
+  /**
+   * Forwarded to the internal ``CamlArticleFrame`` so callers can reserve
+   * scroll clearance for floating bottom controls. When omitted, no extra
+   * padding is added.
+   */
+  bottomInset?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +87,7 @@ export const CamlDirectiveRenderer: React.FC<CamlDirectiveRendererProps> = ({
   stats,
   resolveImageSrc,
   componentRegistry,
+  bottomInset,
 }) => {
   // Single pass: extract directives and build cleaned document simultaneously.
   // Each prose block is parsed once via extractInlineDirectives, producing both
@@ -199,7 +206,7 @@ export const CamlDirectiveRenderer: React.FC<CamlDirectiveRendererProps> = ({
   );
 
   return (
-    <CamlArticleFrame>
+    <CamlArticleFrame $bottomInset={bottomInset}>
       <CamlThemeProvider>
         <CamlArticle
           document={cleanedDocument}

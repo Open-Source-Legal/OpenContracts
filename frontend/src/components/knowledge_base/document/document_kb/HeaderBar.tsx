@@ -72,9 +72,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <span className="header-button-label header-button-label--desktop">
                 Add to Corpus
               </span>
-              <span className="header-button-label header-button-label--mobile">
-                Add
-              </span>
             </HeaderButton>
           )}
           <HeaderButton

@@ -81,10 +81,6 @@ export const HeaderButton = styled.button<{
     flex-shrink: 0;
   }
 
-  .header-button-label--mobile {
-    display: none;
-  }
-
   @media (max-width: 480px) {
     width: 36px;
     height: 36px;
@@ -93,10 +89,6 @@ export const HeaderButton = styled.button<{
     gap: 0;
 
     .header-button-label--desktop {
-      display: none;
-    }
-
-    .header-button-label--mobile {
       display: none;
     }
 
