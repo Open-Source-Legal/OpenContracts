@@ -87,6 +87,7 @@ export interface CorpusHomeProps {
   onChatSubmit?: (query: string) => void;
   onViewChatHistory?: () => void;
   onNavigateToCorpuses?: () => void;
+  navigateBackLabel?: string;
   // Mobile navigation
   onOpenMobileMenu?: () => void;
   // Mode toggle
@@ -118,6 +119,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
   onChatSubmit,
   onViewChatHistory,
   onNavigateToCorpuses,
+  navigateBackLabel = "Corpuses",
   onOpenMobileMenu,
   onModeToggle,
   isPowerUserMode,
@@ -299,6 +301,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         onViewDetails={handleViewDetails}
         onEditDescription={onEditDescription}
         onNavigateToCorpuses={onNavigateToCorpuses}
+        navigateBackLabel={navigateBackLabel}
         chatQuery={chatQuery}
         onChatQueryChange={onChatQueryChange}
         onChatSubmit={onChatSubmit}

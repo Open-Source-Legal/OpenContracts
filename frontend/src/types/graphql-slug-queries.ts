@@ -53,6 +53,7 @@ export interface ResolveCorpusFullQuery {
     description: string;
     mdDescription: string | null;
     isPublic: boolean;
+    isPersonal?: boolean;
     creator: {
       id: string;
       username: string;

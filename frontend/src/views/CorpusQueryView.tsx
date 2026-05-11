@@ -191,6 +191,7 @@ interface CorpusQueryViewProps {
   onSourceNavigate?: (source: ChatMessageSource) => void;
   onModeToggle?: () => void;
   isPowerUserMode?: boolean;
+  navigateBackLabel?: string;
 }
 
 /**
@@ -212,6 +213,7 @@ export const CorpusQueryView = ({
   onSourceNavigate,
   onModeToggle,
   isPowerUserMode,
+  navigateBackLabel,
 }: CorpusQueryViewProps) => {
   const [chatExpanded, setChatExpanded] = useState<boolean>(false);
   // Mirrors CorpusChat's internal conversation/list view-mode. When the
@@ -424,6 +426,7 @@ export const CorpusQueryView = ({
               }}
               onViewChatHistory={openHistoryView}
               onNavigateToCorpuses={onBack}
+              navigateBackLabel={navigateBackLabel}
               onOpenMobileMenu={onOpenMobileMenu}
               onModeToggle={onModeToggle}
               isPowerUserMode={isPowerUserMode}

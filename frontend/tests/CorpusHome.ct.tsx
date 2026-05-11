@@ -204,6 +204,7 @@ const corpusHistoryMock: MockedResponse = {
         created: dummyCorpus.created,
         modified: dummyCorpus.modified,
         isPublic: dummyCorpus.isPublic,
+        isPersonal: dummyCorpus.isPersonal ?? false,
         myPermissions: dummyCorpus.myPermissions,
         creator: dummyCorpus.creator,
         labelSet: dummyCorpus.labelSet,
@@ -503,6 +504,47 @@ test("renders Browse documents link in landing view", async ({
   );
   await expect(viewDetailsBtn).toBeVisible();
   await expect(viewDetailsBtn).toContainText("Browse documents");
+});
+
+test.describe("mobile corpus landing return navigation", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("shows a mobile return control for the Documents collection", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <CorpusHomeTestWrapper
+        mocks={mocks}
+        corpus={{ ...dummyCorpus, isPersonal: true }}
+        onNavigateToCorpuses={() => {}}
+        navigateBackLabel="Documents"
+      />
+    );
+
+    const returnButton = page.getByTestId(
+      "corpus-home-landing-mobile-return-btn"
+    );
+    await expect(returnButton).toBeVisible();
+    await expect(returnButton).toHaveText(/Documents/);
+
+    await expect(page.getByTestId("corpus-home-landing-title")).toBeVisible();
+    await expect(page.getByTestId("corpus-home-landing-chat")).toBeVisible();
+
+    const returnBox = await returnButton.boundingBox();
+    const titleBox = await page
+      .getByTestId("corpus-home-landing-title")
+      .boundingBox();
+    const chatBox = await page
+      .getByTestId("corpus-home-landing-chat")
+      .boundingBox();
+
+    expect(returnBox).not.toBeNull();
+    expect(titleBox).not.toBeNull();
+    expect(chatBox).not.toBeNull();
+    expect(returnBox!.y + returnBox!.height).toBeLessThan(titleBox!.y);
+    expect(titleBox!.y + titleBox!.height).toBeLessThan(chatBox!.y);
+  });
 });
 
 test("clicking View Details switches to details view", async ({

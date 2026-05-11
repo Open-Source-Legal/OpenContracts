@@ -376,6 +376,12 @@ export const Corpuses = () => {
   }, []);
 
   const opened_corpus_id = opened_corpus?.id ? opened_corpus.id : null;
+  const corpus_exit_path = opened_corpus?.isPersonal
+    ? "/documents"
+    : "/corpuses";
+  const corpus_exit_label = opened_corpus?.isPersonal
+    ? "Documents"
+    : "Corpuses";
   let raw_permissions = opened_corpus?.myPermissions;
   if (opened_corpus && raw_permissions !== undefined) {
     raw_permissions = getPermissions(raw_permissions);
@@ -1036,7 +1042,8 @@ export const Corpuses = () => {
             setShowDescriptionEditor={setShowDescriptionEditor}
             setShowArticleEditor={setShowArticleEditor}
             onNavigate={(tabIndex) => setActiveTab(tabIndex)}
-            onBack={() => navigate("/corpuses")}
+            onBack={() => navigate(corpus_exit_path)}
+            navigateBackLabel={corpus_exit_label}
             canUpdate={canUpdateCorpus}
             stats={stats}
             statsLoading={effectiveStatsLoading}
@@ -1371,6 +1378,7 @@ export const Corpuses = () => {
   }, [
     openedCorpusId, // Use stable ID instead of full object
     opened_corpus_id,
+    opened_corpus?.isPersonal,
     stats.totalDocs,
     stats.totalAnnotations,
     stats.totalAnalyses,
@@ -1730,9 +1738,9 @@ export const Corpuses = () => {
           <SearchBarWithNav>
             <MobileBackButton
               onClick={() => {
-                navigate("/corpuses"); // CentralRouteManager will clear openedCorpus
+                navigate(corpus_exit_path); // CentralRouteManager will clear openedCorpus
               }}
-              title="Back to Corpuses"
+              title={`Back to ${corpus_exit_label}`}
             >
               <ArrowLeft />
             </MobileBackButton>
@@ -1793,9 +1801,9 @@ export const Corpuses = () => {
           <SearchBarWithNav>
             <MobileBackButton
               onClick={() => {
-                navigate("/corpuses"); // CentralRouteManager will clear openedCorpus
+                navigate(corpus_exit_path); // CentralRouteManager will clear openedCorpus
               }}
-              title="Back to Corpuses"
+              title={`Back to ${corpus_exit_label}`}
             >
               <ArrowLeft />
             </MobileBackButton>
