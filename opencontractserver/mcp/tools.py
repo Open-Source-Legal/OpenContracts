@@ -27,7 +27,10 @@ if TYPE_CHECKING:
 
 
 def list_public_corpuses(
-    limit: int = 20, offset: int = 0, search: str = "", user: UserOrAnonymous | None = None
+    limit: int = 20,
+    offset: int = 0,
+    search: str = "",
+    user: UserOrAnonymous | None = None,
 ) -> dict:
     """
     List public corpuses visible to anonymous users.
@@ -61,7 +64,11 @@ def list_public_corpuses(
 
 
 def list_documents(
-    corpus_slug: str, limit: int = 50, offset: int = 0, search: str = "", user: UserOrAnonymous | None = None
+    corpus_slug: str,
+    limit: int = 50,
+    offset: int = 0,
+    search: str = "",
+    user: UserOrAnonymous | None = None,
 ) -> dict:
     """
     List documents in a public corpus.
@@ -102,7 +109,9 @@ def list_documents(
     }
 
 
-def get_document_text(corpus_slug: str, document_slug: str, user: UserOrAnonymous | None = None) -> dict:
+def get_document_text(
+    corpus_slug: str, document_slug: str, user: UserOrAnonymous | None = None
+) -> dict:
     """
     Retrieve full extracted text from a document.
 
@@ -147,6 +156,7 @@ def list_annotations(
     label_text: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    user: UserOrAnonymous | None = None,
 ) -> dict:
     """
     List annotations on a document with optional filtering.
@@ -197,7 +207,9 @@ def list_annotations(
     }
 
 
-def search_corpus(corpus_slug: str, query: str, limit: int = 10, user: UserOrAnonymous | None = None) -> dict:
+def search_corpus(
+    corpus_slug: str, query: str, limit: int = 10, user: UserOrAnonymous | None = None
+) -> dict:
     """
     Semantic search within a corpus using vector embeddings.
 
@@ -289,7 +301,11 @@ def _text_search_fallback(
 
 
 def list_threads(
-    corpus_slug: str, document_slug: str | None = None, limit: int = 20, offset: int = 0, user: UserOrAnonymous | None = None
+    corpus_slug: str,
+    document_slug: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    user: UserOrAnonymous | None = None,
 ) -> dict:
     """
     List discussion threads in a corpus or document.
@@ -343,7 +359,10 @@ def list_threads(
 
 
 def get_thread_messages(
-    corpus_slug: str, thread_id: int, flatten: bool = False, user: UserOrAnonymous | None = None
+    corpus_slug: str,
+    thread_id: int,
+    flatten: bool = False,
+    user: UserOrAnonymous | None = None,
 ) -> dict:
     """
     Retrieve all messages in a thread with hierarchical structure.
@@ -408,6 +427,9 @@ def get_thread_messages(
     }
 
 
+MAX_THREAD_MESSAGE_LENGTH = 50_000
+
+
 def create_thread_message(
     corpus_slug: str,
     thread_id: int,
@@ -416,21 +438,37 @@ def create_thread_message(
     user: UserOrAnonymous | None = None,
 ) -> dict:
     """Create a message in an existing thread (authenticated users only)."""
-    from django.contrib.auth.models import AnonymousUser
-    from django.core.exceptions import PermissionDenied
-    from opencontractserver.conversations.models import ChatMessage, Conversation, ConversationTypeChoices
+    from django.core.exceptions import PermissionDenied, ValidationError
+
+    from opencontractserver.conversations.models import (
+        ChatMessage,
+        Conversation,
+        ConversationTypeChoices,
+    )
     from opencontractserver.corpuses.models import Corpus
 
     if user is None or isinstance(user, AnonymousUser):
         raise PermissionDenied("Authentication required for write tools")
 
+    if not content or not content.strip():
+        raise ValidationError("Message content must not be empty")
+    if len(content) > MAX_THREAD_MESSAGE_LENGTH:
+        raise ValidationError(
+            f"Message content exceeds maximum length of "
+            f"{MAX_THREAD_MESSAGE_LENGTH} characters"
+        )
+
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
     thread = Conversation.objects.visible_to_user(user).get(
-        id=thread_id, conversation_type=ConversationTypeChoices.THREAD, chat_with_corpus=corpus
+        id=thread_id,
+        conversation_type=ConversationTypeChoices.THREAD,
+        chat_with_corpus=corpus,
     )
     parent = None
     if parent_message_id is not None:
-        parent = ChatMessage.objects.visible_to_user(user).get(id=parent_message_id, conversation=thread)
+        parent = ChatMessage.objects.visible_to_user(user).get(
+            id=parent_message_id, conversation=thread
+        )
 
     message = ChatMessage.objects.create(
         conversation=thread,
@@ -438,7 +476,11 @@ def create_thread_message(
         creator=user,
         parent_message=parent,
     )
-    return {"id": str(message.id), "thread_id": str(thread.id), "content": message.content}
+    return {
+        "id": str(message.id),
+        "thread_id": str(thread.id),
+        "content": message.content,
+    }
 
 
 # =============================================================================
@@ -449,7 +491,7 @@ def create_thread_message(
 # injected into tool calls.
 
 
-def get_corpus_info(corpus_slug: str) -> dict:
+def get_corpus_info(corpus_slug: str, user: UserOrAnonymous | None = None) -> dict:
     """
     Get detailed information about the scoped corpus.
 
@@ -458,17 +500,18 @@ def get_corpus_info(corpus_slug: str) -> dict:
 
     Args:
         corpus_slug: Corpus identifier (injected from scoped endpoint)
+        user: Optional authenticated user; defaults to AnonymousUser.
 
     Returns:
         Dict with detailed corpus information including label set
     """
     from opencontractserver.corpuses.models import Corpus
 
-    anonymous = AnonymousUser()
+    user = user or AnonymousUser()
     # Use select_related for label_set and prefetch_related for annotation_labels
     # to avoid N+1 queries when accessing label data
     corpus = (
-        Corpus.objects.visible_to_user(anonymous)
+        Corpus.objects.visible_to_user(user)
         .select_related("label_set")
         .prefetch_related("label_set__annotation_labels")
         .get(slug=corpus_slug)

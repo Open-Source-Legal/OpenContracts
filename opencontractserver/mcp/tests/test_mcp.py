@@ -5125,3 +5125,245 @@ class MCPScopedCallToolTelemetryTest(TransactionTestCase):
             loop.run_until_complete(run_test())
         finally:
             loop.close()
+
+
+class MCPAuthenticatedToolsTest(TestCase):
+    """Tests for authenticated MCP tool execution.
+
+    Verifies that:
+    - Read tools honor `visible_to_user(user)` for private resources.
+    - `create_thread_message` enforces authentication, content limits,
+      and visibility checks.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.conversations.models import (
+            Conversation,
+            ConversationTypeChoices,
+        )
+
+        cls.owner = User.objects.create_user(
+            username="mcpauthowner",
+            email="mcpauth@test.com",
+            password="testpass123",
+        )
+        cls.other_user = User.objects.create_user(
+            username="mcpauthother",
+            email="mcpauthother@test.com",
+            password="testpass123",
+        )
+        cls.private_corpus = Corpus.objects.create(
+            title="MCP Auth Private Corpus",
+            creator=cls.owner,
+            is_public=False,
+        )
+        cls.private_thread = Conversation.objects.create(
+            title="Private Thread",
+            creator=cls.owner,
+            is_public=False,
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=cls.private_corpus,
+        )
+
+    def test_list_public_corpuses_returns_private_for_owner(self):
+        from opencontractserver.mcp.tools import list_public_corpuses
+
+        result = list_public_corpuses(user=self.owner)
+        slugs = [c["slug"] for c in result["corpuses"]]
+        self.assertIn(self.private_corpus.slug, slugs)
+
+    def test_list_public_corpuses_hides_private_for_anonymous(self):
+        from opencontractserver.mcp.tools import list_public_corpuses
+
+        result = list_public_corpuses(user=AnonymousUser())
+        slugs = [c["slug"] for c in result["corpuses"]]
+        self.assertNotIn(self.private_corpus.slug, slugs)
+
+    def test_list_public_corpuses_no_user_arg_behaves_anonymously(self):
+        from opencontractserver.mcp.tools import list_public_corpuses
+
+        result = list_public_corpuses()
+        slugs = [c["slug"] for c in result["corpuses"]]
+        self.assertNotIn(self.private_corpus.slug, slugs)
+
+    def test_create_thread_message_requires_authentication(self):
+        from django.core.exceptions import PermissionDenied
+
+        from opencontractserver.mcp.tools import create_thread_message
+
+        with self.assertRaises(PermissionDenied):
+            create_thread_message(
+                corpus_slug=self.private_corpus.slug,
+                thread_id=self.private_thread.id,
+                content="hi",
+                user=AnonymousUser(),
+            )
+
+        with self.assertRaises(PermissionDenied):
+            create_thread_message(
+                corpus_slug=self.private_corpus.slug,
+                thread_id=self.private_thread.id,
+                content="hi",
+            )
+
+    def test_create_thread_message_rejects_blank_content(self):
+        from django.core.exceptions import ValidationError
+
+        from opencontractserver.mcp.tools import create_thread_message
+
+        with self.assertRaises(ValidationError):
+            create_thread_message(
+                corpus_slug=self.private_corpus.slug,
+                thread_id=self.private_thread.id,
+                content="   ",
+                user=self.owner,
+            )
+
+    def test_create_thread_message_rejects_oversized_content(self):
+        from django.core.exceptions import ValidationError
+
+        from opencontractserver.mcp.tools import (
+            MAX_THREAD_MESSAGE_LENGTH,
+            create_thread_message,
+        )
+
+        with self.assertRaises(ValidationError):
+            create_thread_message(
+                corpus_slug=self.private_corpus.slug,
+                thread_id=self.private_thread.id,
+                content="x" * (MAX_THREAD_MESSAGE_LENGTH + 1),
+                user=self.owner,
+            )
+
+    def test_create_thread_message_success_sets_creator(self):
+        from opencontractserver.conversations.models import ChatMessage
+        from opencontractserver.mcp.tools import create_thread_message
+
+        result = create_thread_message(
+            corpus_slug=self.private_corpus.slug,
+            thread_id=self.private_thread.id,
+            content="Hello from owner",
+            user=self.owner,
+        )
+        message = ChatMessage.objects.get(id=int(result["id"]))
+        self.assertEqual(message.creator, self.owner)
+        self.assertEqual(message.conversation_id, self.private_thread.id)
+        self.assertEqual(message.content, "Hello from owner")
+
+    def test_create_thread_message_denies_unrelated_user(self):
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.mcp.tools import create_thread_message
+
+        with self.assertRaises(Corpus.DoesNotExist):
+            create_thread_message(
+                corpus_slug=self.private_corpus.slug,
+                thread_id=self.private_thread.id,
+                content="trying to post",
+                user=self.other_user,
+            )
+
+    def test_get_corpus_info_accepts_user(self):
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.mcp.tools import get_corpus_info
+
+        info = get_corpus_info(self.private_corpus.slug, user=self.owner)
+        self.assertEqual(info["slug"], self.private_corpus.slug)
+
+        with self.assertRaises(Corpus.DoesNotExist):
+            get_corpus_info(self.private_corpus.slug)
+
+
+class MCPCallToolHandlerAuthTest(TransactionTestCase):
+    """Tests covering the auth-aware dispatch in ``call_tool_handler``.
+
+    Uses TransactionTestCase because ``sync_to_async`` runs the handler in a
+    thread pool that does not see TestCase's open transaction.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="mcphandlerowner",
+            email="mcphandler@test.com",
+            password="testpass123",
+        )
+        self.private_corpus = Corpus.objects.create(
+            title="Handler Private Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+
+    def tearDown(self):
+        from django import db
+
+        db.connections.close_all()
+
+    def _run(self, coro):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    def test_handler_passes_user_to_tool(self):
+        import json
+
+        from opencontractserver.mcp.server import _mcp_user, call_tool_handler
+
+        owner = self.owner
+        expected_slug = self.private_corpus.slug
+
+        async def run_test():
+            token = _mcp_user.set(owner)
+            try:
+                return await call_tool_handler("list_public_corpuses", {})
+            finally:
+                _mcp_user.reset(token)
+
+        result = self._run(run_test())
+        payload = json.loads(result[0].text)
+        slugs = [c["slug"] for c in payload["corpuses"]]
+        self.assertIn(expected_slug, slugs)
+
+    def test_handler_anonymous_when_no_user_set(self):
+        import json
+
+        from opencontractserver.mcp.server import call_tool_handler
+
+        result = self._run(call_tool_handler("list_public_corpuses", {}))
+        payload = json.loads(result[0].text)
+        slugs = [c["slug"] for c in payload["corpuses"]]
+        self.assertNotIn(self.private_corpus.slug, slugs)
+
+    def test_handler_returns_permission_denied_as_error_payload(self):
+        import json
+
+        from opencontractserver.conversations.models import (
+            Conversation,
+            ConversationTypeChoices,
+        )
+        from opencontractserver.mcp.server import call_tool_handler
+
+        thread = Conversation.objects.create(
+            title="Permission Denied Thread",
+            creator=self.owner,
+            is_public=False,
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=self.private_corpus,
+        )
+
+        result = self._run(
+            call_tool_handler(
+                "create_thread_message",
+                {
+                    "corpus_slug": self.private_corpus.slug,
+                    "thread_id": thread.id,
+                    "content": "should be denied",
+                },
+            )
+        )
+        payload = json.loads(result[0].text)
+        self.assertIn("error", payload)

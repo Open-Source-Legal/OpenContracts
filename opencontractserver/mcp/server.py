@@ -22,9 +22,14 @@ from collections import OrderedDict
 from collections.abc import Awaitable, MutableMapping
 from contextlib import AbstractAsyncContextManager
 from contextvars import ContextVar
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from opencontractserver.users.types import UserOrAnonymous
 
 from asgiref.sync import sync_to_async
+from django.core.exceptions import PermissionDenied
+from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
@@ -38,7 +43,6 @@ from starlette.routing import Mount, Route
 
 from config.ratelimit.decorators import MCPRateLimitError, check_mcp_rate_limit
 from config.ratelimit.keys import get_client_ip_from_scope
-from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 
 from .resources import (
     get_annotation_resource,
@@ -74,7 +78,7 @@ logger = logging.getLogger(__name__)
 _mcp_asgi_scope: ContextVar[MutableMapping[str, Any] | None] = ContextVar(
     "mcp_asgi_scope", default=None
 )
-_mcp_user: ContextVar[Any] = ContextVar("mcp_user", default=None)
+_mcp_user: ContextVar[UserOrAnonymous | None] = ContextVar("mcp_user", default=None)
 
 
 def _extract_bearer_token(scope: MutableMapping[str, Any]) -> str | None:
@@ -282,12 +286,11 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
         raise ValueError(f"Unknown tool: {name}")
 
     try:
-        # Run synchronous Django ORM handlers in thread pool
+        # Run synchronous Django ORM handlers in thread pool.
+        # All TOOL_HANDLERS accept an optional `user`; passing None preserves
+        # anonymous semantics.
         user = _mcp_user.get()
-        if user is not None:
-            result = await sync_to_async(handler)(user=user, **arguments)
-        else:
-            result = await sync_to_async(handler)(**arguments)
+        result = await sync_to_async(handler)(user=user, **arguments)
         await arecord_mcp_tool_call(
             name,
             success=True,
@@ -295,6 +298,23 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
             document_slug=_document_slug,
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except PermissionDenied as e:
+        # Surface permission failures (e.g., write tools called by anonymous
+        # callers) as structured error results so the LLM can reason about them
+        # rather than receiving an opaque transport error.
+        await arecord_mcp_tool_call(
+            name,
+            success=False,
+            error_type=type(e).__name__,
+            corpus_slug=_corpus_slug,
+            document_slug=_document_slug,
+        )
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps({"error": str(e) or "Permission denied"}),
+            )
+        ]
     except Exception as e:
         await arecord_mcp_tool_call(
             name,
@@ -766,15 +786,17 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
     # Get scoped tool handlers
     scoped_handlers = get_scoped_tool_handlers(corpus_slug)
 
-    def _validate_corpus_sync() -> bool:
-        """Synchronously validate corpus is still public."""
+    def _validate_corpus_sync(user: UserOrAnonymous | None = None) -> bool:
+        """Synchronously validate the scoped corpus is still visible to the caller."""
         from django.contrib.auth.models import AnonymousUser
 
         from opencontractserver.corpuses.models import Corpus
 
-        anonymous = AnonymousUser()
+        effective_user = user or AnonymousUser()
         return (
-            Corpus.objects.visible_to_user(anonymous).filter(slug=corpus_slug).exists()
+            Corpus.objects.visible_to_user(effective_user)
+            .filter(slug=corpus_slug)
+            .exists()
         )
 
     @scoped_server.list_resources()
@@ -810,9 +832,13 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
         # Extract document_slug from arguments for telemetry
         _document_slug = arguments.get("document_slug")
 
+        # Pick up the authenticated user (if any) from the ASGI-level
+        # ContextVar so scoped endpoints honor per-user visibility.
+        user = _mcp_user.get()
+
         # Re-validate corpus is still accessible on every tool call
         # This prevents race condition where corpus becomes private after manager cached
-        is_valid = await sync_to_async(_validate_corpus_sync)()
+        is_valid = await sync_to_async(_validate_corpus_sync)(user)
         if not is_valid:
             await arecord_mcp_tool_call(
                 name,
@@ -821,9 +847,7 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
                 corpus_slug=corpus_slug,
                 document_slug=_document_slug,
             )
-            raise PermissionError(
-                f"Corpus '{corpus_slug}' is no longer publicly accessible"
-            )
+            raise PermissionError(f"Corpus '{corpus_slug}' is not accessible")
 
         handler = scoped_handlers.get(name)
         if not handler:
@@ -837,8 +861,10 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
             raise ValueError(f"Unknown tool: {name}")
 
         try:
-            # Run synchronous Django ORM handlers in thread pool
-            result = await sync_to_async(handler)(**arguments)
+            # Run synchronous Django ORM handlers in thread pool. All scoped
+            # handlers accept an optional `user`; passing None preserves
+            # anonymous semantics for unauthenticated callers.
+            result = await sync_to_async(handler)(user=user, **arguments)
             await arecord_mcp_tool_call(
                 name,
                 success=True,
@@ -846,6 +872,20 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
                 document_slug=_document_slug,
             )
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        except PermissionDenied as e:
+            await arecord_mcp_tool_call(
+                name,
+                success=False,
+                error_type=type(e).__name__,
+                corpus_slug=corpus_slug,
+                document_slug=_document_slug,
+            )
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": str(e) or "Permission denied"}),
+                )
+            ]
         except Exception as e:
             await arecord_mcp_tool_call(
                 name,
@@ -1224,7 +1264,7 @@ def create_mcp_asgi_app() -> ASGIApp:
                 try:
                     user = await sync_to_async(get_user_from_jwt_token)(token)
                     _mcp_user.set(user)
-                except (JSONWebTokenExpired, JSONWebTokenError) as auth_error:
+                except (JSONWebTokenExpired, JSONWebTokenError):
                     await send(
                         {
                             "type": "http.response.start",
@@ -1235,7 +1275,9 @@ def create_mcp_asgi_app() -> ASGIApp:
                     await send(
                         {
                             "type": "http.response.body",
-                            "body": json.dumps({"error": str(auth_error)}).encode(),
+                            "body": json.dumps(
+                                {"error": "Invalid or expired authentication token"}
+                            ).encode(),
                         }
                     )
                     return
