@@ -452,12 +452,14 @@ test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
   const contentArea = page.locator("#content-area");
   const documentLayer = page.locator("#document-layer");
   const pdfContainer = page.locator("#pdf-container");
+  const speedDialContainer = page.getByTestId("speed-dial-container");
   const fab = page.getByTestId("speed-dial-main-fab");
   await expect(modal).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(header).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(contentArea).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(documentLayer).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(pdfContainer).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(speedDialContainer).toBeVisible({ timeout: LONG_TIMEOUT });
   await expect(fab).toBeVisible({ timeout: LONG_TIMEOUT });
 
   const viewport = page.viewportSize()!;
@@ -478,6 +480,11 @@ test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
   expect(beforeFabBox!.y + beforeFabBox!.height).toBeLessThanOrEqual(
     viewport.height
   );
+  expect(
+    await speedDialContainer.evaluate((el) =>
+      Boolean(el.closest("#main-content-area"))
+    )
+  ).toBe(false);
 
   const scrollLockState = await page.evaluate(() => ({
     htmlLocked: document.documentElement.classList.contains(
