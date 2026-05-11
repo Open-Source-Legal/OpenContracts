@@ -998,11 +998,18 @@ export const MobileTab = styled.button<{ $active: boolean }>`
 
 /** Mobile tab content — borderless, flows naturally */
 export const MobileTabContent = styled.div`
+  display: flex;
+  flex-direction: column;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   background: ${CORPUS_COLORS.white};
   min-height: 0;
+
+  > :last-child {
+    flex: 1 0 auto;
+    min-height: 0;
+  }
 
   &::-webkit-scrollbar {
     width: 6px;

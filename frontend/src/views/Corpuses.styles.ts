@@ -734,8 +734,8 @@ export const CollapsedBadge = styled.div<{ $isZero: boolean }>`
 //
 // Height model:
 //   CardLayout → CleanViewContainer → LandingContainer
-//   - height: 100% + min-height: 0  → fills the flex parent while allowing
-//     shrink, giving LandingContainer a bounded block size.
+//   - height: 100% + visible-viewport min-height  → fills the flex parent while
+//     still giving short detail/about tabs enough block size to stretch.
 //   - overflow: hidden              → prevents this container from scrolling;
 //     all scrolling happens inside LandingContainer's overflow-y: auto.
 //   - max-height: 100dvh was removed because the flex ancestor chain already
@@ -747,7 +747,8 @@ export const CleanViewContainer = styled.div`
   flex-direction: column;
   width: 100%;
   height: 100%;
-  min-height: 0;
+  min-height: calc(100vh - var(--oc-navbar-height, 4.5rem));
+  min-height: calc(100dvh - var(--oc-navbar-height, 4.5rem));
   overflow: hidden;
 `;
 
