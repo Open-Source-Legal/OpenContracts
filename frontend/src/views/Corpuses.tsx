@@ -1725,13 +1725,8 @@ export const Corpuses = () => {
         </>
       }
       SearchBar={
-        opened_corpus === null ? (
-          // Search is now embedded in CorpusListView component
-          <></>
-        ) : currentView?.id === "home" ? (
-          // Home view uses floating chat search, no top search bar needed
-          <></>
-        ) : currentView?.id === "documents" ? (
+        opened_corpus === null ||
+        currentView?.id === "home" ? null : currentView?.id === "documents" ? (
           <SearchBarWithNav>
             <MobileBackButton
               onClick={() => {

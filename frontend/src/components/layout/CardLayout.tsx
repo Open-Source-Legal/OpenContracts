@@ -5,10 +5,10 @@ import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { mediaQuery } from "../corpuses/styles/corpusDesignTokens";
 
 interface CardLayoutProps {
-  children?: React.ReactChild | React.ReactChild[];
-  Modals?: React.ReactChild | React.ReactChild[];
-  BreadCrumbs?: React.ReactChild | null | undefined;
-  SearchBar?: React.ReactChild;
+  children?: React.ReactNode;
+  Modals?: React.ReactNode;
+  BreadCrumbs?: React.ReactNode;
+  SearchBar?: React.ReactNode;
   style?: React.CSSProperties;
 }
 
@@ -56,6 +56,25 @@ const SearchBarWrapper = styled.div`
   margin-bottom: 1rem;
 `;
 
+const hasRenderableNode = (node: React.ReactNode): boolean => {
+  if (node === null || node === undefined || typeof node === "boolean") {
+    return false;
+  }
+
+  if (Array.isArray(node)) {
+    return node.some(hasRenderableNode);
+  }
+
+  if (React.isValidElement(node) && node.type === React.Fragment) {
+    return hasRenderableNode(
+      (node as React.ReactElement<{ children?: React.ReactNode }>).props
+        .children
+    );
+  }
+
+  return true;
+};
+
 const ScrollableSegment = styled(StyledSegment)`
   display: flex;
   flex-direction: column;
@@ -75,6 +94,8 @@ export const CardLayout: React.FC<CardLayoutProps> = ({
 }) => {
   const { width } = useWindowDimensions();
   const use_mobile = width <= 600;
+  const hasSearchBar = hasRenderableNode(SearchBar);
+  const hasBreadCrumbs = hasRenderableNode(BreadCrumbs);
 
   return (
     <CardContainer
@@ -83,8 +104,8 @@ export const CardLayout: React.FC<CardLayoutProps> = ({
       style={{ ...style }}
     >
       {Modals}
-      {SearchBar && <SearchBarWrapper>{SearchBar}</SearchBarWrapper>}
-      {BreadCrumbs && (!use_mobile || width > 768) && (
+      {hasSearchBar && <SearchBarWrapper>{SearchBar}</SearchBarWrapper>}
+      {hasBreadCrumbs && (!use_mobile || width > 768) && (
         <StyledSegment
           style={{
             borderBottom: `1px solid ${OS_LEGAL_COLORS.border}`,
