@@ -439,20 +439,24 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
         return null;
       }
 
-      // Helper function to calculate orbital positions for mobile speed dial
-      // Arranges buttons in an arc above the main FAB
+      // Helper function to calculate orbital positions for mobile speed dial.
+      // CSS transform y-values grow downward, so use the upper-left quadrant
+      // and invert the sine value to keep expanded buttons out of bottom UI.
       const getOrbitPosition = (index: number, total: number) => {
-        const radius = 100; // Distance from center in pixels
+        const radius = total > 4 ? 130 : 100; // Distance from center in pixels
         const arcAngle = 90; // Total arc span in degrees
-        const startAngle = 180 - arcAngle / 2; // Start from upper-left
+        const startAngle = 90; // Start straight above the FAB
 
         // Calculate angle for this button in the arc
-        const angle = startAngle + (arcAngle / (total - 1)) * index;
+        const angle =
+          total <= 1
+            ? startAngle
+            : startAngle + (arcAngle / (total - 1)) * index;
         const radian = (angle * Math.PI) / 180;
 
         return {
           x: Math.cos(radian) * radius,
-          y: Math.sin(radian) * radius,
+          y: -Math.sin(radian) * radius,
         };
       };
 

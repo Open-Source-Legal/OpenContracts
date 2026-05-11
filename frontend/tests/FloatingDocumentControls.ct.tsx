@@ -598,6 +598,51 @@ test.describe("FloatingDocumentControls", () => {
     expect(fabBox!.x + fabBox!.width).toBeLessThanOrEqual(402);
     expect(fabBox!.y + fabBox!.height).toBeLessThanOrEqual(874);
     expect(874 - (fabBox!.y + fabBox!.height)).toBeGreaterThanOrEqual(72);
+
+    await fab.click();
+
+    const orbitButtonIds = [
+      "settings-button",
+      "analyses-button",
+      "extracts-button",
+      "create-analysis-button",
+    ];
+
+    await expect
+      .poll(async () => {
+        const mainFabBox = await fab.boundingBox();
+        if (!mainFabBox) {
+          return false;
+        }
+
+        for (const testId of orbitButtonIds) {
+          const button = page.getByTestId(testId);
+          if ((await button.count()) !== 1) {
+            return false;
+          }
+
+          const buttonBox = await button.boundingBox();
+          if (!buttonBox) {
+            return false;
+          }
+
+          const insideViewport =
+            buttonBox.x >= 0 &&
+            buttonBox.y >= 0 &&
+            buttonBox.x + buttonBox.width <= 402 &&
+            buttonBox.y + buttonBox.height <= 874;
+          const notBelowMainFab =
+            buttonBox.y + buttonBox.height <=
+            mainFabBox.y + mainFabBox.height + 1;
+
+          if (!insideViewport || !notBelowMainFab) {
+            return false;
+          }
+        }
+
+        return true;
+      })
+      .toBe(true);
   });
 
   test("mobile speed dial honors DKB visual viewport height", async ({
