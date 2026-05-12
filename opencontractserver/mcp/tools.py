@@ -440,7 +440,24 @@ def create_thread_message(
     parent_message_id: int | None = None,
     user: UserOrAnonymous | None = None,
 ) -> dict:
-    """Create a message in an existing thread (authenticated users only)."""
+    """Create a message in an existing thread (authenticated users only).
+
+    Permission model: write access intentionally piggybacks on read
+    visibility — any user who can ``visible_to_user`` the corpus and thread
+    may post into it. This mirrors the existing GraphQL ``ChatMessage``
+    contract: thread visibility (public corpus / public thread / shared
+    thread / owner) implies the right to contribute. Callers that need
+    stricter gating (e.g. read-only spectators) should use a private
+    corpus / thread or a separate role layer; this tool deliberately does
+    not introduce a write-only permission check.
+
+    Raises:
+        PermissionDenied: caller is anonymous.
+        ValidationError: content is blank or exceeds
+            ``MAX_THREAD_MESSAGE_LENGTH``.
+        Conversation.DoesNotExist / Corpus.DoesNotExist / ChatMessage.DoesNotExist:
+            the corpus, thread, or parent is not visible to the caller.
+    """
     from django.core.exceptions import PermissionDenied, ValidationError
 
     from opencontractserver.conversations.models import (

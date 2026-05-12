@@ -260,6 +260,42 @@ async def read_resource_handler(uri: str) -> str:
         raise
 
 
+def _format_tool_error_text(e: BaseException) -> str:
+    """Render a permission/validation error into the LLM-facing error string.
+
+    ``ValidationError.messages`` is preferred for structured payloads; the
+    plain ``PermissionDenied`` path falls back to ``str(e)``. Shared between
+    the non-scoped ``call_tool_handler`` and the scoped ``call_tool``
+    dispatcher so error serialisation stays in lockstep.
+    """
+    if isinstance(e, ValidationError):
+        return "; ".join(e.messages) or "Validation error"
+    return str(e) or "Permission denied"
+
+
+async def _record_and_return_tool_error(
+    e: BaseException,
+    *,
+    name: str,
+    corpus_slug: str | None,
+    document_slug: str | None,
+) -> list[TextContent]:
+    """Telemetry + structured ``error`` payload for handled tool failures."""
+    await arecord_mcp_tool_call(
+        name,
+        success=False,
+        error_type=type(e).__name__,
+        corpus_slug=corpus_slug,
+        document_slug=document_slug,
+    )
+    return [
+        TextContent(
+            type="text",
+            text=json.dumps({"error": _format_tool_error_text(e)}),
+        )
+    ]
+
+
 async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
     """
     Execute tool and return results.
@@ -308,25 +344,12 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
         # callers) and input-validation errors (blank/oversized content, etc.)
         # as structured error results so the LLM can reason about them and
         # retry/correct, rather than receiving an opaque transport error.
-        # ``ValidationError.messages`` is preferred for structured payloads;
-        # fall back to ``str(e)`` for the plain ``PermissionDenied`` case.
-        await arecord_mcp_tool_call(
-            name,
-            success=False,
-            error_type=type(e).__name__,
+        return await _record_and_return_tool_error(
+            e,
+            name=name,
             corpus_slug=_corpus_slug,
             document_slug=_document_slug,
         )
-        if isinstance(e, ValidationError):
-            error_text = "; ".join(e.messages) or "Validation error"
-        else:
-            error_text = str(e) or "Permission denied"
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": error_text}),
-            )
-        ]
     except Exception as e:
         await arecord_mcp_tool_call(
             name,
@@ -894,23 +917,12 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
             # Same rationale as the non-scoped dispatcher: surface
             # permission failures and Django input-validation errors as
             # structured tool results so the LLM can react to them.
-            await arecord_mcp_tool_call(
-                name,
-                success=False,
-                error_type=type(e).__name__,
+            return await _record_and_return_tool_error(
+                e,
+                name=name,
                 corpus_slug=corpus_slug,
                 document_slug=_document_slug,
             )
-            if isinstance(e, ValidationError):
-                error_text = "; ".join(e.messages) or "Validation error"
-            else:
-                error_text = str(e) or "Permission denied"
-            return [
-                TextContent(
-                    type="text",
-                    text=json.dumps({"error": error_text}),
-                )
-            ]
         except Exception as e:
             await arecord_mcp_tool_call(
                 name,
