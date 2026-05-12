@@ -14,7 +14,7 @@
 
 import React from "react";
 import styled from "styled-components";
-import { User, Settings, TrendingUp } from "lucide-react";
+import { User, Settings, TrendingUp, Link as LinkIcon } from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { UserBadges } from "../components/badges/UserBadges";
 import { UserProfileReputation } from "../components/threads/UserProfileReputation";
@@ -391,18 +391,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         <ContentGrid>
           <MainColumn>
-            {(user.profileAboutMarkdown || user.profileLinksMarkdown) && (
+            {user.profileAboutMarkdown && (
               <Section>
                 <SectionTitle>
                   <User />
                   About
                 </SectionTitle>
-                {user.profileAboutMarkdown && (
-                  <SafeMarkdown>{user.profileAboutMarkdown}</SafeMarkdown>
-                )}
-                {user.profileLinksMarkdown && (
-                  <SafeMarkdown>{user.profileLinksMarkdown}</SafeMarkdown>
-                )}
+                <SafeMarkdown>{user.profileAboutMarkdown}</SafeMarkdown>
+              </Section>
+            )}
+            {user.profileLinksMarkdown && (
+              <Section>
+                <SectionTitle>
+                  <LinkIcon />
+                  Links
+                </SectionTitle>
+                <SafeMarkdown>{user.profileLinksMarkdown}</SafeMarkdown>
               </Section>
             )}
             {/* Badges Section */}

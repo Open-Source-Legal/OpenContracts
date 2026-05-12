@@ -10,10 +10,18 @@ Tests the User.visible_to_user() manager method and profile privacy settings.
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
+from graphene.test import Client
 
 from opencontractserver.conversations.models import ChatMessage, Conversation
 
 User = get_user_model()
+
+
+class _TestContext:
+    """Minimal request-context shim with a ``user`` attribute for graphene tests."""
+
+    def __init__(self, user):
+        self.user = user
 
 
 class UserProfileVisibilityTestCase(TestCase):
@@ -280,20 +288,14 @@ class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
     """GraphQL UpdateMe acceptance of markdown profile fields."""
 
     def setUp(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
-
-        class TestContext:
-            def __init__(self, user):
-                self.user = user
 
         self.user = User.objects.create_user(
             username="mdprofileuser",
             email="mdprofile@example.com",
             is_profile_public=True,
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.client = Client(schema, context_value=_TestContext(self.user))
 
     def test_update_me_persists_markdown_profile_fields(self):
         mutation = """
@@ -389,10 +391,6 @@ class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
     def setUp(self):
         from config.graphql.schema import schema
 
-        class TestContext:
-            def __init__(self, user):
-                self.user = user
-
         self.public_owner = User.objects.create_user(
             username="public_owner",
             email="public_owner@example.com",
@@ -415,12 +413,9 @@ class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
             is_profile_public=True,
         )
         self.schema = schema
-        self.TestContext = TestContext
 
     def _client_as(self, user):
-        from graphene.test import Client
-
-        return Client(self.schema, context_value=self.TestContext(user))
+        return Client(self.schema, context_value=_TestContext(user))
 
     def _query_by_slug(self, viewer, slug):
         client = self._client_as(viewer)

@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm";
  * fields, corpus descriptions, agent output) flows through this component,
  * so the allowlist is intentionally narrow.
  */
-const SAFE_PROTOCOLS = /^(https?:|mailto:|tel:|#|\/)/i;
+const SAFE_PROTOCOLS = /^(https?:|mailto:|tel:)/i;
 
 function urlTransform(url: string): string {
   // Treat empty / fragment-only / relative URLs as safe.
