@@ -128,24 +128,28 @@ def _persist_annotations_sync(
     else:
         label_type_const = SPAN_LABEL
 
+    # Pre-create every label the upcoming detections need *outside* the
+    # ``transaction.atomic()`` block below. ``ensure_label_and_labelset``
+    # uses a check-then-create pattern that races under concurrent scans
+    # and a losing race inside the outer atomic block would poison the
+    # entire savepoint, rolling back all annotations created so far.
+    # Doing the get-or-create up front means the inner block only inserts
+    # ``Annotation`` rows, which carry no cross-row uniqueness constraint.
+    needed_groups = {
+        det["entity_group"]
+        for det in detections
+        if det["entity_group"] in ENTITY_GROUP_LABELS
+    }
     label_cache: dict[str, Any] = {}
-
-    def _label_for(group: str):
-        if group in label_cache:
-            return label_cache[group]
-        mapping = ENTITY_GROUP_LABELS.get(group)
-        if mapping is None:
-            raise ValueError(f"Unknown entity_group from privacy-filter: {group!r}")
-        label_text, color, icon = mapping
-        label = corpus.ensure_label_and_labelset(
+    for group in needed_groups:
+        label_text, color, icon = ENTITY_GROUP_LABELS[group]
+        label_cache[group] = corpus.ensure_label_and_labelset(
             label_text=label_text,
             creator_id=creator_id,
             label_type=label_type_const,
             color=color,
             icon=icon,
         )
-        label_cache[group] = label
-        return label
 
     persisted: list[tuple[int, Detection]] = []
     with transaction.atomic():
@@ -167,7 +171,7 @@ def _persist_annotations_sync(
                     group,
                 )
                 continue
-            label_obj = _label_for(group)
+            label_obj = label_cache[group]
             if file_type == "application/pdf":
                 span = TextSpan(
                     id=str(uuid4()), start=start, end=end, text=doc_text[start:end]
