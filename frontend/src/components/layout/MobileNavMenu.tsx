@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FC, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X, LogIn } from "lucide-react";
@@ -9,8 +9,10 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_TYPOGRAPHY,
   accentAlpha,
+  whiteSurfaceAlpha,
 } from "../../assets/configurations/osLegalStyles";
 import { initialsFor } from "../../utils/initials";
+import type { OverflowMenuLink } from "./overflowMenuItems";
 
 /**
  * Lightweight nav-item shape used by the mobile menu. Mirrors the subset of
@@ -39,6 +41,14 @@ export interface MobileNavMenuProps {
   userName?: string;
   /** Auth actions shown inside the sheet when signed in. */
   userActions?: MobileUserAction[];
+  /**
+   * Footer-essential links rendered in the sheet's "More" section so they
+   * remain reachable on long-scroll surfaces where the in-flow Footer is
+   * effectively out of reach. See issue #1609.
+   */
+  overflowLinks?: OverflowMenuLink[];
+  /** Version tag rendered at the bottom of the sheet alongside the overflow. */
+  version?: string;
   /** Triggered when the visitor taps the "Sign in" CTA (signed-out only). */
   onLogin?: () => void;
   /** Disable the auth section entirely (e.g., while Auth0 is still loading). */
@@ -56,10 +66,6 @@ const SHEET_SIDE_GUTTER = 12;
 // Hoisted so the three RGBA sites below stay in lockstep.
 const DARK_BASE_RGB = "15, 23, 42";
 
-const SURFACE_OVERLAY_RGB = "255, 255, 255";
-const surfaceAlpha = (alpha: number): string =>
-  `rgba(${SURFACE_OVERLAY_RGB}, ${alpha})`;
-
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -67,6 +73,7 @@ const FOCUSABLE_SELECTOR =
 // can swap them without hunting through JSX.
 const SECTION_LABEL_BROWSE = "Browse";
 const SECTION_LABEL_ACCOUNT = "Account";
+const SECTION_LABEL_MORE = "More";
 
 /* ------------------------------------------------------------------ */
 /*  Styled components — header                                         */
@@ -83,7 +90,7 @@ const Header = styled.header`
   padding: 0 16px;
   background: ${OS_LEGAL_COLORS.darkSurface};
   color: ${OS_LEGAL_COLORS.surface};
-  border-bottom: 1px solid ${surfaceAlpha(0.06)};
+  border-bottom: 1px solid ${whiteSurfaceAlpha(0.06)};
 `;
 
 const Brand = styled.div`
@@ -113,15 +120,17 @@ const ToggleButton = styled.button<{ $open: boolean }>`
   height: 40px;
   border-radius: 10px;
   border: 1px solid
-    ${(props) => (props.$open ? surfaceAlpha(0.18) : surfaceAlpha(0.08))};
-  background: ${(props) => (props.$open ? surfaceAlpha(0.08) : "transparent")};
+    ${(props) =>
+      props.$open ? whiteSurfaceAlpha(0.18) : whiteSurfaceAlpha(0.08)};
+  background: ${(props) =>
+    props.$open ? whiteSurfaceAlpha(0.08) : "transparent"};
   color: ${OS_LEGAL_COLORS.surface};
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: ${surfaceAlpha(0.1)};
-    border-color: ${surfaceAlpha(0.18)};
+    background: ${whiteSurfaceAlpha(0.1)};
+    border-color: ${whiteSurfaceAlpha(0.18)};
   }
 
   &:focus-visible {
@@ -262,6 +271,57 @@ const Divider = styled.div`
   background: ${OS_LEGAL_COLORS.border};
 `;
 
+// Shared styles for the "More" overflow link rows. They are visually
+// quieter than NavItemButton (lighter weight, no active rail) because
+// they are secondary destinations — privacy / terms / GitHub — not the
+// primary site navigation.
+const overflowLinkStyles = css`
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+
+  &:hover {
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+    color: ${OS_LEGAL_COLORS.accent};
+    text-decoration: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${OS_LEGAL_COLORS.accent};
+    outline-offset: 2px;
+  }
+`;
+
+const OverflowItemLink = styled(Link)`
+  ${overflowLinkStyles}
+`;
+
+const OverflowItemAnchor = styled.a`
+  ${overflowLinkStyles}
+`;
+
+const VersionRow = styled.div`
+  padding: 8px 12px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: ${OS_LEGAL_COLORS.textMuted};
+`;
+
 /* ------------------------------------------------------------------ */
 /*  Styled components — auth area                                      */
 /* ------------------------------------------------------------------ */
@@ -360,6 +420,8 @@ export const MobileNavMenu: FC<MobileNavMenuProps> = ({
   activeId,
   userName,
   userActions = [],
+  overflowLinks = [],
+  version,
   onLogin,
   hideAuth = false,
 }) => {
@@ -555,6 +617,39 @@ export const MobileNavMenu: FC<MobileNavMenuProps> = ({
                       {action.label}
                     </NavItemButton>
                   ))}
+                </>
+              )}
+
+              {overflowLinks.length > 0 && (
+                <>
+                  <Divider />
+                  <SectionLabel>{SECTION_LABEL_MORE}</SectionLabel>
+                  {overflowLinks.map((link) =>
+                    link.to ? (
+                      <OverflowItemLink
+                        key={link.id}
+                        to={link.to}
+                        onClick={() => setOpen(false)}
+                      >
+                        {link.label}
+                      </OverflowItemLink>
+                    ) : (
+                      <OverflowItemAnchor
+                        key={link.id}
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setOpen(false)}
+                      >
+                        {link.label}
+                      </OverflowItemAnchor>
+                    )
+                  )}
+                  {version && (
+                    <VersionRow aria-label={`Version ${version}`}>
+                      {version}
+                    </VersionRow>
+                  )}
                 </>
               )}
             </SheetNav>
