@@ -38,6 +38,12 @@ services:
         required: false
       privacy_filter:
         condition: service_started
+        # Opt-in service: existing deployments that don't run a privacy
+        # filter must still be able to start django / celeryworker.
+        # When PRIVACY_FILTER_URL is unset, the scan_and_annotate_pii
+        # tool raises a descriptive RuntimeError instead of breaking
+        # the whole stack.
+        required: false
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres

@@ -554,6 +554,9 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             "Scan a document for sensitive information (emails, phone numbers, "
             "people, addresses, account numbers, URLs, dates, secrets) using the "
             "privacy-filter service and create one labeled annotation per detection. "
+            "Supports PDF (token-level annotations) and plain-text documents "
+            "(character-span annotations); other file types (docx, html, etc.) "
+            "are rejected with an error. "
             "Set dry_run=True to preview detections without writing annotations. "
             "Use entity_groups to restrict the scan to specific categories and "
             "start_char/end_char to scope the scan to a slice of the document."
@@ -563,11 +566,23 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         requires_approval=True,
         requires_write_permission=True,
         parameters=(
-            ("min_score",     "Minimum confidence threshold (0..1), default 0.5",                False),
-            ("entity_groups", "Optional allowlist, e.g. ['private_email','phone_number']",        False),
-            ("dry_run",       "If True, return detections without creating annotations",          False),
-            ("start_char",    "Optional start offset into the document text (scope the scan)",    False),
-            ("end_char",      "Optional end offset into the document text",                       False),
+            ("min_score", "Minimum confidence threshold (0..1), default 0.5", False),
+            (
+                "entity_groups",
+                "Optional allowlist, e.g. ['private_email','phone_number']",
+                False,
+            ),
+            (
+                "dry_run",
+                "If True, return detections without creating annotations",
+                False,
+            ),
+            (
+                "start_char",
+                "Optional start offset into the document text (scope the scan)",
+                False,
+            ),
+            ("end_char", "Optional end offset into the document text", False),
         ),
     ),
     ToolDefinition(
@@ -994,7 +1009,6 @@ class ToolFunctionRegistry:
         from opencontractserver.llms.tools.core_tools import (
             aadd_annotations_from_exact_strings,
             aadd_document_note,
-            ascan_and_annotate_pii,
             aapply_caml_article_edit,
             acreate_document_index,
             acreate_markdown_link,
@@ -1013,6 +1027,7 @@ class ToolFunctionRegistry:
             amove_document,
             apropose_caml_citation_match,
             aread_corpus_caml_article,
+            ascan_and_annotate_pii,
             asearch_document_notes,
             asearch_exact_text_as_sources,
             asuggest_memory_update,

@@ -27,14 +27,14 @@ logger = logging.getLogger(__name__)
 # Mapping from privacy-filter entity_group → (label_text, color, icon).
 # Labels are auto-created via Corpus.ensure_label_and_labelset on first use.
 ENTITY_GROUP_LABELS: dict[str, tuple[str, str, str]] = {
-    "private_email":  ("PII: Email",          "#1f77b4", "mail"),
-    "phone_number":   ("PII: Phone",           "#ff7f0e", "phone"),
-    "person_name":    ("PII: Person Name",     "#2ca02c", "user"),
-    "address":        ("PII: Address",         "#d62728", "home"),
-    "account_number": ("PII: Account Number",  "#9467bd", "credit card"),
-    "url":            ("PII: URL",             "#8c564b", "linkify"),
-    "date":           ("PII: Date",            "#e377c2", "calendar"),
-    "secret":         ("PII: Secret",          "#7f7f7f", "key"),
+    "private_email": ("PII: Email", "#1f77b4", "mail"),
+    "phone_number": ("PII: Phone", "#ff7f0e", "phone"),
+    "person_name": ("PII: Person Name", "#2ca02c", "user"),
+    "address": ("PII: Address", "#d62728", "home"),
+    "account_number": ("PII: Account Number", "#9467bd", "credit card"),
+    "url": ("PII: URL", "#8c564b", "linkify"),
+    "date": ("PII: Date", "#e377c2", "calendar"),
+    "secret": ("PII: Secret", "#7f7f7f", "key"),
 }
 
 
@@ -69,18 +69,14 @@ def _load_doc_text_sync(
 
     if file_type in {"application/txt", "text/plain"}:
         if not doc.txt_extract_file:
-            raise ValueError(
-                f"Text document id={document_id} lacks txt_extract_file."
-            )
+            raise ValueError(f"Text document id={document_id} lacks txt_extract_file.")
         with doc.txt_extract_file.open("r") as f:
             doc_text = f.read()
         return doc, corpus, doc_text, file_type, None
 
     if file_type == "application/pdf":
         if not doc.pawls_parse_file:
-            raise ValueError(
-                f"PDF document id={document_id} lacks a PAWLS layer."
-            )
+            raise ValueError(f"PDF document id={document_id} lacks a PAWLS layer.")
         from plasmapdf.models.PdfDataLayer import build_translation_layer
 
         from opencontractserver.utils.compact_pawls import expand_pawls_pages
@@ -140,7 +136,10 @@ def _persist_annotations_sync(
             if start < 0 or end > len(doc_text) or start >= end:
                 logger.warning(
                     "scan_and_annotate_pii: skipping invalid detection "
-                    "start=%s end=%s len=%s", start, end, len(doc_text),
+                    "start=%s end=%s len=%s",
+                    start,
+                    end,
+                    len(doc_text),
                 )
                 continue
             group = det["entity_group"]
@@ -239,10 +238,24 @@ async def ascan_and_annotate_pii(
             "detections": [],
         }
 
+    # Validate the allowlist up-front: silently dropping every detection
+    # because the caller passed a typo (e.g. ``"private_emial"``) would be
+    # a frustrating failure mode for the LLM.
+    allowlist: set[str] | None
+    if entity_groups:
+        unknown = sorted(set(entity_groups) - set(ENTITY_GROUP_LABELS))
+        if unknown:
+            raise ValueError(
+                "Unknown entity_groups: "
+                f"{unknown}. Valid groups: {sorted(ENTITY_GROUP_LABELS)}."
+            )
+        allowlist = set(entity_groups)
+    else:
+        allowlist = None
+
     slice_text = doc_text[s:e]
     raw = await adetect_pii(slice_text)
 
-    allowlist = set(entity_groups) if entity_groups else None
     detections: list[Detection] = []
     for det in raw:
         if det["score"] < float(min_score):

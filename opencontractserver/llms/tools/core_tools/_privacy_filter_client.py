@@ -58,7 +58,19 @@ async def adetect_pii(text: str) -> list[Detection]:
     async with httpx.AsyncClient(timeout=timeout) as client:
         for chunk_start in _iter_chunk_starts(len(text)):
             chunk = text[chunk_start : chunk_start + CHUNK_SIZE]
-            resp = await client.post(detect_url, json={"text": chunk}, headers=headers)
+            # Surface transport-level failures (timeouts, DNS, connection
+            # refused, TLS errors, …) as plain RuntimeError. The agent tool
+            # fault-tolerance layer turns RuntimeError into an error string
+            # the LLM can react to; letting raw httpx exceptions propagate
+            # would bypass that contract.
+            try:
+                resp = await client.post(
+                    detect_url, json={"text": chunk}, headers=headers
+                )
+            except httpx.HTTPError as exc:
+                raise RuntimeError(
+                    f"privacy-filter request failed: {exc.__class__.__name__}: {exc}"
+                ) from exc
             if resp.status_code >= 400:
                 raise RuntimeError(
                     f"privacy-filter returned {resp.status_code}: {resp.text[:200]}"

@@ -155,23 +155,32 @@ class PrivacyFilterClientMultiChunkTests(TestCase):
             if call_idx == 0:
                 # chunk 1 starts at 0 — local offsets == global offsets
                 return {
-                    "detections": [{
-                        "entity_group": "private_email",
-                        "score": 0.99, "word": target,
-                        "start": global_start, "end": global_end,
-                    }],
-                    "model": "m", "model_revision": "r",
+                    "detections": [
+                        {
+                            "entity_group": "private_email",
+                            "score": 0.99,
+                            "word": target,
+                            "start": global_start,
+                            "end": global_end,
+                        }
+                    ],
+                    "model": "m",
+                    "model_revision": "r",
                 }
             # chunk 2 starts at CHUNK_SIZE - CHUNK_OVERLAP
             chunk_start_global = CHUNK_SIZE - CHUNK_OVERLAP
             return {
-                "detections": [{
-                    "entity_group": "private_email",
-                    "score": 0.99, "word": target,
-                    "start": global_start - chunk_start_global,
-                    "end":   global_end   - chunk_start_global,
-                }],
-                "model": "m", "model_revision": "r",
+                "detections": [
+                    {
+                        "entity_group": "private_email",
+                        "score": 0.99,
+                        "word": target,
+                        "start": global_start - chunk_start_global,
+                        "end": global_end - chunk_start_global,
+                    }
+                ],
+                "model": "m",
+                "model_revision": "r",
             }
 
         call_counter = {"n": 0}
@@ -197,13 +206,35 @@ class PrivacyFilterClientMultiChunkTests(TestCase):
         assert detections[0]["start"] == global_start
         assert detections[0]["end"] == global_end
 
-    async def test_non_2xx_raises_runtime_error(self) -> None:
+    async def test_transport_failure_is_converted_to_runtime_error(self) -> None:
+        """httpx.TimeoutException / ConnectError must surface as RuntimeError
+        so the agent tool fault-tolerance layer can convert them into an
+        error string the LLM can react to (raw httpx exceptions would
+        bypass that contract).
+        """
+        import httpx
+
         mock_client = MagicMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client.post = AsyncMock(
-            return_value=_mock_response({}, status_code=503)
+            side_effect=httpx.ConnectError("simulated connection refused")
         )
+
+        with patch(
+            "opencontractserver.llms.tools.core_tools._privacy_filter_client.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
+            with pytest.raises(RuntimeError) as exc:
+                await adetect_pii("hello world")
+        assert "privacy-filter request failed" in str(exc.value)
+        assert "ConnectError" in str(exc.value)
+
+    async def test_non_2xx_raises_runtime_error(self) -> None:
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=_mock_response({}, status_code=503))
 
         with patch(
             "opencontractserver.llms.tools.core_tools._privacy_filter_client.httpx.AsyncClient",

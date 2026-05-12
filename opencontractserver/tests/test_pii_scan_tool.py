@@ -26,10 +26,10 @@ from opencontractserver.tests.fixtures import (
 User = get_user_model()
 
 
-def _det(group: str, start: int, end: int, score: float = 0.95, text: str = "") -> Detection:
-    return Detection(
-        entity_group=group, score=score, start=start, end=end, text=text
-    )
+def _det(
+    group: str, start: int, end: int, score: float = 0.95, text: str = ""
+) -> Detection:
+    return Detection(entity_group=group, score=score, start=start, end=end, text=text)
 
 
 @override_settings(
@@ -53,7 +53,8 @@ class ScanAndAnnotateTextTests(TransactionTestCase):
             ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
         )
         self.txt_doc, _, _ = self.corpus.add_document(
-            document=self.txt_doc, user=self.user,
+            document=self.txt_doc,
+            user=self.user,
         )
 
         with self.txt_doc.txt_extract_file.open("r") as f:
@@ -86,8 +87,11 @@ class ScanAndAnnotateTextTests(TransactionTestCase):
         assert ann.document_id == self.txt_doc.id
 
         from opencontractserver.annotations.models import AnnotationLabel
+
         label = await AnnotationLabel.objects.aget(pk=ann.annotation_label_id)
-        expected_text, expected_color, expected_icon = ENTITY_GROUP_LABELS["private_email"]
+        expected_text, expected_color, expected_icon = ENTITY_GROUP_LABELS[
+            "private_email"
+        ]
         assert label.text == expected_text
         assert label.color == expected_color
         assert label.icon == expected_icon
@@ -116,15 +120,18 @@ class ScanAndAnnotatePdfTests(TransactionTestCase):
             SAMPLE_PAWLS_FILE_ONE_PATH.name, ContentFile(pawls_json.encode())
         )
         self.pdf_doc, _, _ = self.corpus.add_document(
-            document=self.pdf_doc, user=self.user,
+            document=self.pdf_doc,
+            user=self.user,
         )
 
         # Build the same doc_text the tool will see so we can pick a valid
         # (start, end) range that actually maps to tokens.
         import json as _json
+
         from plasmapdf.models.PdfDataLayer import build_translation_layer
 
         from opencontractserver.utils.compact_pawls import expand_pawls_pages
+
         with self.pdf_doc.pawls_parse_file.open("r") as f:
             pawls_tokens = expand_pawls_pages(_json.load(f))
         layer = build_translation_layer(pawls_tokens)
@@ -162,6 +169,7 @@ class ScanAndAnnotatePdfTests(TransactionTestCase):
         assert "Agreement" in ann.raw_text
 
         from opencontractserver.annotations.models import AnnotationLabel
+
         label = await AnnotationLabel.objects.aget(pk=ann.annotation_label_id)
         expected_text, _, _ = ENTITY_GROUP_LABELS["person_name"]
         assert label.text == expected_text
@@ -188,7 +196,8 @@ class ScanAndAnnotateKnobsTests(TransactionTestCase):
             ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
         )
         self.txt_doc, _, _ = self.corpus.add_document(
-            document=self.txt_doc, user=self.user,
+            document=self.txt_doc,
+            user=self.user,
         )
         with self.txt_doc.txt_extract_file.open("r") as f:
             self.doc_text = f.read()
@@ -231,6 +240,27 @@ class ScanAndAnnotateKnobsTests(TransactionTestCase):
         result = await self._call(fake, entity_groups=["private_email", "person_name"])
         assert result["detection_count"] == 2
         assert set(result["by_entity_group"].keys()) == {"private_email", "person_name"}
+
+    async def test_entity_groups_rejects_unknown_group(self) -> None:
+        """Typos in entity_groups must surface as a clear error, not a silent
+        no-op detection-count of 0.
+        """
+
+        async def _fake_detect(text: str):
+            return []
+
+        with patch(
+            "opencontractserver.llms.tools.core_tools.pii.adetect_pii",
+            new=_fake_detect,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await ascan_and_annotate_pii(
+                    document_id=self.txt_doc.id,
+                    corpus_id=self.corpus.id,
+                    creator_id=self.user.id,
+                    entity_groups=["private_email", "typo_email"],
+                )
+        self.assertIn("typo_email", str(ctx.exception))
 
     async def test_char_range_scopes_scan_and_remaps_offsets(self) -> None:
         # The mock receives a *slice* of doc_text; its offsets are
@@ -285,7 +315,8 @@ class ScanAndAnnotateEdgeCaseTests(TransactionTestCase):
             ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
         )
         self.txt_doc, _, _ = self.corpus.add_document(
-            document=self.txt_doc, user=self.user,
+            document=self.txt_doc,
+            user=self.user,
         )
 
     async def test_oob_detection_skipped(self) -> None:
@@ -368,6 +399,7 @@ class ScanAndAnnotateRegistryTests(TransactionTestCase):
             AVAILABLE_TOOLS,
             ToolCategory,
         )
+
         match = [t for t in AVAILABLE_TOOLS if t.name == "scan_and_annotate_pii"]
         assert len(match) == 1, "Tool must be registered exactly once."
         td = match[0]
@@ -377,18 +409,23 @@ class ScanAndAnnotateRegistryTests(TransactionTestCase):
         assert td.requires_write_permission is True
         param_names = {p[0] for p in td.parameters}
         assert param_names == {
-            "min_score", "entity_groups", "dry_run", "start_char", "end_char",
+            "min_score",
+            "entity_groups",
+            "dry_run",
+            "start_char",
+            "end_char",
         }
 
     def test_tool_resolves_to_runtime_callable(self) -> None:
         from opencontractserver.llms.tools.tool_registry import (
             ToolFunctionRegistry,
         )
+
         registry = ToolFunctionRegistry.get()
         core_tool = registry.to_core_tool("scan_and_annotate_pii")
-        assert core_tool is not None, (
-            "Tool missing from FUNCTION_MAP — agents cannot invoke it at runtime."
-        )
+        assert (
+            core_tool is not None
+        ), "Tool missing from FUNCTION_MAP — agents cannot invoke it at runtime."
         # CoreTool exposes the metadata fields too; confirm consistency.
         assert core_tool.metadata.name == "scan_and_annotate_pii"
         assert core_tool.requires_approval is True
