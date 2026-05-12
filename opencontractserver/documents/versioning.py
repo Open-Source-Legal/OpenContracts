@@ -682,16 +682,25 @@ def permanently_delete_document(
     """
     Permanently delete a soft-deleted document from a corpus.
 
-    This is IRREVERSIBLE and performs the following cleanup:
-    1. Deletes ALL DocumentPath records for this document in the corpus (entire history)
-    2. Deletes corpus-scoped user annotations (non-structural) on this document
-    3. Deletes corpus-scoped user relationships (non-structural) on this document
-    4. Deletes DocumentSummaryRevision records for this document+corpus
-    5. If no other corpus references the document (Rule Q1), deletes Document itself.
-       Cascade then cleans up notes, datacells, agent results, etc. and the
-       ``_gc_orphan_structural_set`` post_delete signal drops the
-       ``StructuralAnnotationSet`` (with its structural annotations and
-       structural relationships) iff no other Document references it.
+    This is IRREVERSIBLE and performs the following cleanup (the step
+    numbers match the inline comments in the implementation below):
+
+    1. Verify the document is currently soft-deleted in this corpus.
+    2. Collect every DocumentPath id for the (document, corpus) pair so
+       the cascade scope is bounded to this corpus' history.
+    3. Delete DocumentSummaryRevision records for the (document, corpus)
+       pair.
+    4. Delete corpus-scoped user relationships (non-structural) on this
+       document.
+    5. Delete corpus-scoped user annotations (non-structural) on this
+       document.
+    6. Delete every DocumentPath record collected in step 2.
+    7. If no other corpus references the document (Rule Q1), delete the
+       Document itself. Cascade then cleans up notes, datacells, agent
+       results, etc. and the ``_gc_orphan_structural_set`` post_delete
+       signal drops the ``StructuralAnnotationSet`` (with its structural
+       annotations and structural relationships) iff no other Document
+       references it.
 
     Args:
         corpus: The corpus to permanently delete from
@@ -752,11 +761,12 @@ def permanently_delete_document(
         # preserved here; they're garbage-collected by the
         # ``_gc_orphan_structural_set`` signal when the Document is deleted
         # below and no other Document references the set.
-        user_annotation_ids = list(
-            Annotation.objects.filter(
-                document=document,
-                structural_set__isnull=True,
-            ).values_list("id", flat=True)
+        # The annotation membership is expressed as a subquery so we don't
+        # materialise potentially-large pk lists into Python memory before
+        # the DELETE; PostgreSQL handles the IN-via-subquery plan well.
+        user_annotations_qs = Annotation.objects.filter(
+            document=document,
+            structural_set__isnull=True,
         )
         # ``distinct()`` is required because the M2M joins on
         # ``source_annotations`` / ``target_annotations`` can yield the
@@ -766,8 +776,8 @@ def permanently_delete_document(
         relationship_count = (
             Relationship.objects.filter(
                 Q(document=document, structural_set__isnull=True)
-                | Q(source_annotations__id__in=user_annotation_ids)
-                | Q(target_annotations__id__in=user_annotation_ids)
+                | Q(source_annotations__in=user_annotations_qs)
+                | Q(target_annotations__in=user_annotations_qs)
             )
             .distinct()
             .delete()[0]

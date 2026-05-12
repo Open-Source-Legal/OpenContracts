@@ -747,8 +747,17 @@ class IngestionSource(BaseOCModel):
             ),
         ]
         indexes = [
-            django.db.models.Index(fields=["source_type"]),
-            django.db.models.Index(fields=["active"]),
+            # Names pinned to match the historical names created in
+            # migration 0036_add_ingestion_source_and_lineage_fields so
+            # that adding new indexes elsewhere on the model doesn't
+            # trigger spurious RenameIndex operations against production
+            # databases.
+            django.db.models.Index(
+                fields=["source_type"], name="documents_i_source__5c7a8e_idx"
+            ),
+            django.db.models.Index(
+                fields=["active"], name="documents_i_active_3f1b2a_idx"
+            ),
         ]
         permissions = (
             ("create_ingestionsource", "create IngestionSource"),
@@ -898,7 +907,12 @@ class DocumentPath(TreeNode, BaseOCModel):
             django.db.models.Index(fields=["version_number"]),
             django.db.models.Index(fields=["creator"]),
             django.db.models.Index(fields=["created"]),
-            django.db.models.Index(fields=["ingestion_source", "external_id"]),
+            # Name pinned to match migration 0036 so unrelated index
+            # additions on this model don't generate a RenameIndex.
+            django.db.models.Index(
+                fields=["ingestion_source", "external_id"],
+                name="documents_d_ingesti_a1b2c3_idx",
+            ),
         ]
         permissions = (
             ("create_documentpath", "create DocumentPath"),

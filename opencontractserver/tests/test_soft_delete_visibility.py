@@ -173,6 +173,30 @@ class AnnotationVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
         self.assertIn(self.source_ann.id, visible_ids)
         self.assertIn(self.target_ann.id, visible_ids)
 
+    def test_hidden_after_soft_delete_for_anonymous_user(self):
+        """The anonymous-user branch of ``visible_to_user`` takes a different
+        code path (public-structural-only); make sure the soft-delete filter
+        still hides trashed-doc annotations on it.
+        """
+        # Mark one annotation structural so it would normally pass the
+        # anonymous filter — only the soft-delete predicate should hide it.
+        self.source_ann.structural = True
+        self.source_ann.save(update_fields=["structural"])
+
+        # Sanity check: before soft-delete, the anonymous viewer sees the
+        # structural public annotation.
+        baseline_ids = set(
+            Annotation.objects.visible_to_user(None).values_list("id", flat=True)
+        )
+        self.assertIn(self.source_ann.id, baseline_ids)
+
+        delete_document(self.corpus, "/vis_doc.pdf", self.user)
+
+        visible_ids = set(
+            Annotation.objects.visible_to_user(None).values_list("id", flat=True)
+        )
+        self.assertNotIn(self.source_ann.id, visible_ids)
+
     def test_standalone_doc_annotations_not_hidden(self):
         """Regression guard: annotations on a doc with NO DocumentPath at all
         (e.g. test fixtures, legacy / pre-corpus-isolation data) must remain
