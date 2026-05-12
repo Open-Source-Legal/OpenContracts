@@ -467,14 +467,10 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         if messages:
 
             def _part_text(part: Any) -> str:
-                # ToolCallPart stores arguments in ``args``, not ``content``.
-                # Falling back to ``args`` prevents material under-counting
-                # when history contains tool calls with large argument payloads.
-                # Use an explicit ``is None`` check — ``or`` would conflate
-                # a legitimate empty string (e.g. a ``ToolReturnPart`` with
-                # an empty result) with "missing" and fall through to
-                # ``args``, potentially double-counting tokens. Matches the
-                # defensive-zero pattern in ``_refresh_context_budget``.
+                # ToolCallPart stores arguments in ``args``; fall back to
+                # it only when ``content`` is missing (``is None``, not
+                # falsy) so an empty ``ToolReturnPart`` doesn't get
+                # replaced by — and double-count — the tool's arguments.
                 content = getattr(part, "content", None)
                 if content is None:
                     content = getattr(part, "args", None)
