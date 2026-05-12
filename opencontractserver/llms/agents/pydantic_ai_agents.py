@@ -470,10 +470,17 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                 # ToolCallPart stores arguments in ``args``, not ``content``.
                 # Falling back to ``args`` prevents material under-counting
                 # when history contains tool calls with large argument payloads.
-                content = (
-                    getattr(part, "content", None) or getattr(part, "args", None) or ""
-                )
-                return content if isinstance(content, str) else str(content)
+                # Use an explicit ``is None`` check — ``or`` would conflate
+                # a legitimate empty string (e.g. a ``ToolReturnPart`` with
+                # an empty result) with "missing" and fall through to
+                # ``args``, potentially double-counting tokens. Matches the
+                # defensive-zero pattern in ``_refresh_context_budget``.
+                content = getattr(part, "content", None)
+                if content is None:
+                    content = getattr(part, "args", None)
+                if isinstance(content, str):
+                    return content
+                return "" if content is None else str(content)
 
             msg_tokens = sum(
                 estimate_token_count(
@@ -2493,12 +2500,15 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
             # into the module's text-extract cache before returning a
             # slice, so a ``(0, 1)`` call costs one disk read but
             # populates the whole document — the cached length is then
-            # the real total. The fallback below covers the cache-miss
-            # edge case (e.g. a future cache backend that drops entries).
+            # the real total. Use the membership predicate
+            # (``is_txt_extract_cached``) — NOT ``length > 0`` — so a
+            # genuinely empty document (cached as ``""``) doesn't fall
+            # through to a redundant second full-document load. The
+            # fallback below covers the cache-miss edge case (e.g. a
+            # future cache backend that drops entries).
             await aload_document_txt_extract(context.document.id, 0, 1)
-            cached_len = get_cached_txt_extract_length(context.document.id)
-            if cached_len > 0:
-                return cached_len
+            if is_txt_extract_cached(context.document.id):
+                return get_cached_txt_extract_length(context.document.id)
             # Fallback: load the full text if not cached
             full_text = await aload_document_txt_extract(context.document.id)
             return len(full_text)

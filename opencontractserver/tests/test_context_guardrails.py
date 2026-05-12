@@ -1051,8 +1051,17 @@ class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
         """Patch the cache helpers used by the closure.
 
         ``aload_document_txt_extract`` is async; ``get_cached_txt_extract_length``
-        is sync. Returning a fixed length keeps the math predictable and
-        the slice text deterministic so the test can pin ``returned_range``.
+        and ``is_txt_extract_cached`` are sync. Returning a fixed length
+        keeps the math predictable and the slice text deterministic so
+        the test can pin ``returned_range``. ``is_txt_extract_cached`` is
+        patched to ``True`` so the closure's membership guard skips the
+        cache-prime fetch on every call — without this the real predicate
+        would return ``False`` (since the fake loader doesn't populate
+        ``_DOC_TXT_CACHE``) and silently re-fire the prime each call,
+        exercising the empty-document path instead of the intended
+        warm-cache one. ``test_empty_document_does_not_repopulate_cache``
+        intentionally leaves both predicates unpatched to drive the
+        membership-vs-length distinction end-to-end.
         """
         from opencontractserver.llms.agents import pydantic_ai_agents as mod
 
@@ -1065,6 +1074,7 @@ class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
             patch.object(
                 mod, "get_cached_txt_extract_length", return_value=self.DOC_LEN
             ),
+            patch.object(mod, "is_txt_extract_cached", return_value=True),
             patch.object(
                 mod, "aload_document_txt_extract", new=AsyncMock(side_effect=fake_load)
             ),
@@ -1076,8 +1086,8 @@ class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
         )
 
         deps = self._make_deps()
-        cache_patch, load_patch = self._patches()
-        with cache_patch, load_patch:
+        cache_patch, cached_patch, load_patch = self._patches()
+        with cache_patch, cached_patch, load_patch:
             tool = _make_load_document_text_tool(deps, self.DOC_ID)
             result = await tool()
 
@@ -1112,8 +1122,8 @@ class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
         )
 
         deps = self._make_deps()
-        cache_patch, load_patch = self._patches()
-        with cache_patch, load_patch:
+        cache_patch, cached_patch, load_patch = self._patches()
+        with cache_patch, cached_patch, load_patch:
             tool = _make_load_document_text_tool(deps, self.DOC_ID)
             result = await tool(start=100, end=500)
 
@@ -1128,8 +1138,8 @@ class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
         )
 
         deps = self._make_deps()
-        cache_patch, load_patch = self._patches()
-        with cache_patch, load_patch:
+        cache_patch, cached_patch, load_patch = self._patches()
+        with cache_patch, cached_patch, load_patch:
             tool = _make_load_document_text_tool(deps, self.DOC_ID)
 
             first = await tool()
