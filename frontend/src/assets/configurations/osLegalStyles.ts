@@ -299,6 +299,14 @@ export const navIndigoAlpha = (opacity: number): string =>
   `rgba(99, 102, 241, ${opacity})`;
 
 /**
+ * Create an rgba color string from pure white with a given opacity. Use for
+ * white-on-dark overlays (NavBar trigger button surfaces, hover tints, etc.)
+ * so the alpha value lives in one place rather than scattered inline.
+ */
+export const whiteSurfaceAlpha = (opacity: number): string =>
+  `rgba(255, 255, 255, ${opacity})`;
+
+/**
  * Create an rgba color string from the chat-source blue-gray (#5c7c9d = rgb(92, 124, 157))
  * with a given opacity. Use instead of hardcoded rgba(92, 124, 157, ...) values.
  */
