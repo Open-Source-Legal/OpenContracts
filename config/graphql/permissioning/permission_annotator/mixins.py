@@ -39,6 +39,16 @@ class AnnotatePermissionsForReadMixin:
 
     my_permissions = GenericScalar()
     is_published = graphene.Boolean()
+    # ``object_shared_with`` is intentionally typed as ``GenericScalar``
+    # rather than a named output type. A named type would let GraphQL
+    # enforce the inner shape on consumers, but this payload is part of a
+    # stable external contract: we've already removed ``email`` /
+    # ``username`` keys here (slug-only privacy, PR #1600), and an
+    # untyped scalar lets that change land without a schema-breaking
+    # rename. External callers MUST read ``slug`` only — ``email`` /
+    # ``username`` keys silently disappear from the runtime payload
+    # rather than triggering a schema error. See the resolver below for
+    # the precise shape.
     object_shared_with = GenericScalar()
 
     def resolve_object_shared_with(self, info) -> list[dict[str, Any]]:

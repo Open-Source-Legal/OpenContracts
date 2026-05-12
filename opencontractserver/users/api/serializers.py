@@ -13,18 +13,31 @@ class UserSerializer(serializers.ModelSerializer):
     for the canonical privacy policy. Detail-view lookup uses ``slug`` so
     the URL itself never leaks the OAuth ``sub`` for social-login users.
 
-    .. note::
-       The ``lookup_field`` below only controls how this serializer
-       *generates* hyperlinked ``url`` values. The actual route resolution
-       requires the corresponding ``UserViewSet`` to also set
-       ``lookup_field = "slug"`` (and the router registration to match).
-       This serializer is currently unwired in production routes; if/when
-       it is wired up, verify both ends agree or generated URLs will
-       silently 404.
+    .. warning::
+       **For anyone adding a ``UserViewSet``**: this serializer's
+       ``lookup_field`` only controls how *hyperlinked URL values* are
+       generated. Route resolution requires the corresponding
+       ``UserViewSet`` to also set ``lookup_field = "slug"`` (and the
+       router registration to match) — otherwise generated URLs will
+       silently 404. The viewset deliberately does not exist yet; this
+       serializer is unwired in production routes. If/when you wire it,
+       the matching viewset MUST look like::
+
+           class UserViewSet(RetrieveModelMixin, ListModelMixin, GenericViewSet):
+               # Must match UserSerializer.Meta extra_kwargs[url][lookup_field].
+               lookup_field = "slug"
+               queryset = User.objects.all()
+               serializer_class = UserSerializer
+
+       Search the repo for ``UserViewSet`` before wiring to surface this
+       contract.
     """
 
     class Meta:
         model = User
         fields = ["slug", "url"]
 
+        # ``lookup_field`` here is paired with the (future) ``UserViewSet``
+        # ``lookup_field = "slug"``. Keep the two in lockstep — see class
+        # docstring for the wiring contract.
         extra_kwargs = {"url": {"view_name": "api:user-detail", "lookup_field": "slug"}}

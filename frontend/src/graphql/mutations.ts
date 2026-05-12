@@ -39,7 +39,13 @@ export interface LoginOutputs {
       email: string;
       name: string;
       username: string;
-      isUsageCapped: boolean;
+      // ``isUsageCapped`` is part of the slug-only privacy gate (PR #1600):
+      // the GraphQL schema returns ``null`` for non-self / anonymous viewers.
+      // The login mutation always returns a self-view (the user just
+      // authenticated), so at this call site we expect a real boolean — but
+      // the type matches the schema contract so any future caller of
+      // ``data.tokenAuth.user.isUsageCapped`` is forced to handle ``null``.
+      isUsageCapped: Maybe<boolean>;
       isSuperuser: boolean;
     };
   };
