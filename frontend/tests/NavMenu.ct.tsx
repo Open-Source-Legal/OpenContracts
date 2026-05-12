@@ -325,8 +325,11 @@ test.describe("NavMenu Responsive Behavior", () => {
     await expect(hamburger).toBeVisible({ timeout: 5000 });
     await hamburger.click();
 
-    // Sheet appears as a dialog with the site-navigation aria-label.
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    // Sheet appears as the dialog container; the navigation landmark
+    // (a `<nav aria-label="Site navigation">`) lives inside it. Target
+    // the dialog directly by its stable id rather than by aria-label,
+    // since the landmark and dialog are now separate elements.
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
     await expect(sheet.getByText("Discover")).toBeVisible();
 
@@ -347,7 +350,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     const component = await mount(<NavMenuTestWrapper />);
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     await page.keyboard.press("Escape");
@@ -368,7 +371,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     const component = await mount(<NavMenuTestWrapper />);
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // The sheet has a 12px side gutter, so clicking near the left
@@ -394,7 +397,7 @@ test.describe("NavMenu Responsive Behavior", () => {
 
     await page.locator('button[aria-label="Open navigation"]').click();
 
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
     // Signed-out branch: AuthFooter renders the Sign-in button and
     // omits the user chip entirely.
@@ -416,7 +419,7 @@ test.describe("NavMenu Responsive Behavior", () => {
 
     await page.locator('button[aria-label="Open navigation"]').click();
 
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
     // Authenticated branch: user chip with display name + "Signed in"
     // status replaces the Sign-in CTA button.
@@ -442,7 +445,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     );
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // The signed-in sheet exposes the Account section containing the
@@ -464,7 +467,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     const component = await mount(<NavMenuTestWrapper />);
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // Tapping a nav item should trigger runAndClose, which fires the
@@ -492,7 +495,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     );
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // Tapping a user action (Exports) opens a modal; the sheet should
@@ -513,7 +516,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     const component = await mount(<NavMenuTestWrapper mockUser={null} />);
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // Seed focus on the last focusable inside the sheet (the Sign-in CTA
@@ -529,7 +532,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     await page.keyboard.press("Tab");
 
     const focusInSheet = await page.evaluate(() => {
-      const dialog = document.querySelector('[aria-label="Site navigation"]');
+      const dialog = document.querySelector("#mobile-nav-sheet");
       const active = document.activeElement;
       return Boolean(dialog && active && dialog.contains(active));
     });
@@ -547,7 +550,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     const component = await mount(<NavMenuTestWrapper mockUser={null} />);
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // Move focus to the first focusable item (the first nav button).
@@ -562,7 +565,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     await page.keyboard.press("Shift+Tab");
 
     const focusInSheet = await page.evaluate(() => {
-      const dialog = document.querySelector('[aria-label="Site navigation"]');
+      const dialog = document.querySelector("#mobile-nav-sheet");
       const active = document.activeElement;
       return Boolean(dialog && active && dialog.contains(active));
     });
@@ -581,7 +584,7 @@ test.describe("NavMenu Responsive Behavior", () => {
 
     const toggle = page.locator('button[aria-label="Open navigation"]');
     await toggle.click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // Force focus back onto an element OUTSIDE the sheet. This simulates
@@ -597,7 +600,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     await page.keyboard.press("Tab");
 
     const focusInSheet = await page.evaluate(() => {
-      const dialog = document.querySelector('[aria-label="Site navigation"]');
+      const dialog = document.querySelector("#mobile-nav-sheet");
       const active = document.activeElement;
       return Boolean(dialog && active && dialog.contains(active));
     });
@@ -615,7 +618,7 @@ test.describe("NavMenu Responsive Behavior", () => {
     const component = await mount(<NavMenuTestWrapper mockUser={null} />);
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     // Click the Sign-in CTA — handleLogin closes the sheet and fires
@@ -662,11 +665,51 @@ test.describe("NavMenu Responsive Behavior", () => {
     const component = await mount(<NavMenuTestWrapper />);
 
     await page.locator('button[aria-label="Open navigation"]').click();
-    const sheet = page.locator('[aria-label="Site navigation"]');
+    const sheet = page.locator("#mobile-nav-sheet");
     await expect(sheet).toBeVisible({ timeout: 2000 });
 
     await expect(sheet).toHaveAttribute("aria-modal", "true");
     await expect(sheet).toHaveAttribute("role", "dialog");
+    // The dialog carries its own accessible name ("Navigation menu");
+    // the inner `<nav aria-label="Site navigation">` provides the
+    // navigation landmark separately so neither role overrides the
+    // other (issue #1610).
+    await expect(sheet).toHaveAttribute("aria-label", "Navigation menu");
+
+    await component.unmount();
+  });
+
+  test("should expose the navigation landmark as a separate <nav> inside the dialog", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    const component = await mount(<NavMenuTestWrapper />);
+
+    await page.locator('button[aria-label="Open navigation"]').click();
+    const sheet = page.locator("#mobile-nav-sheet");
+    await expect(sheet).toBeVisible({ timeout: 2000 });
+
+    // The dialog is a `<div>`; the navigation landmark is a `<nav>`
+    // nested inside it. Splitting these prevents `role="dialog"` from
+    // erasing the implicit nav landmark from the a11y tree.
+    const navLandmark = sheet.locator('nav[aria-label="Site navigation"]');
+    await expect(navLandmark).toBeVisible();
+    await expect(navLandmark).toHaveCount(1);
+    // The nav landmark wraps the browse items but NOT the auth footer.
+    await expect(
+      navLandmark.getByRole("button", { name: "Discover" })
+    ).toBeVisible();
+    // Pin the structural contract: the AuthFooter (Sign-in CTA on
+    // anonymous, account chip when signed in) lives outside the <nav>
+    // landmark so screen readers don't expose auth state as a
+    // navigation item.
+    const authFooter = sheet.locator('[data-testqa="mobile-nav-auth-footer"]');
+    await expect(authFooter).toBeVisible();
+    await expect(
+      navLandmark.locator('[data-testqa="mobile-nav-auth-footer"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });
@@ -687,5 +730,323 @@ test.describe("NavMenu Responsive Behavior", () => {
     await docScreenshot(page, "nav--mobile-nav--closed");
 
     await component.unmount();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Overflow menu (issue #1609)
+// ----------------------------------------------------------------------------
+// On long-scroll surfaces (corpus Annotations / Analyses / Extracts), the
+// in-flow Footer is effectively unreachable. The NavMenu overflow keeps the
+// audited essential links (Privacy / Terms / GitHub) one click away from any
+// scroll position — these tests assert the trigger renders, opens, and
+// contains each link in both anonymous and authenticated states, on desktop
+// and mobile.
+
+test.describe("NavMenu Overflow", () => {
+  test.describe("Desktop", () => {
+    test("should render the overflow trigger when anonymous", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await expect(page.locator('button[aria-label="More links"]')).toBeVisible(
+        { timeout: 5000 }
+      );
+
+      await component.unmount();
+    });
+
+    test("should render the overflow trigger when authenticated", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(
+        <NavMenuTestWrapper mockUser={mockRegularUser} />
+      );
+
+      await expect(page.locator('button[aria-label="More links"]')).toBeVisible(
+        { timeout: 5000 }
+      );
+
+      await component.unmount();
+    });
+
+    test("should open the overflow menu when triggered (anonymous)", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      const trigger = page.locator('button[aria-label="More links"]');
+      await expect(trigger).toBeVisible({ timeout: 5000 });
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+      await trigger.click();
+
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+      // All audited essential links should be present.
+      await expect(
+        menu.getByRole("menuitem", { name: "Privacy Policy" })
+      ).toBeVisible();
+      await expect(
+        menu.getByRole("menuitem", { name: "Terms of Service" })
+      ).toBeVisible();
+      await expect(
+        menu.getByRole("menuitem", { name: "GitHub" })
+      ).toBeVisible();
+
+      await component.unmount();
+    });
+
+    test("should open the overflow menu when triggered (authenticated)", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(
+        <NavMenuTestWrapper mockUser={mockRegularUser} />
+      );
+
+      const trigger = page.locator('button[aria-label="More links"]');
+      await expect(trigger).toBeVisible({ timeout: 5000 });
+      await trigger.click();
+
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      // Same audited essential links — auth state should not gate them.
+      await expect(
+        menu.getByRole("menuitem", { name: "Privacy Policy" })
+      ).toBeVisible();
+      await expect(
+        menu.getByRole("menuitem", { name: "Terms of Service" })
+      ).toBeVisible();
+      await expect(
+        menu.getByRole("menuitem", { name: "GitHub" })
+      ).toBeVisible();
+
+      await component.unmount();
+    });
+
+    test("should mark the GitHub item as an external link", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+
+      const githubItem = page.locator(
+        '[role="menu"] [role="menuitem"]:has-text("GitHub")'
+      );
+      await expect(githubItem).toHaveAttribute("target", "_blank");
+      await expect(githubItem).toHaveAttribute("rel", /noopener noreferrer/);
+
+      await component.unmount();
+    });
+
+    test("should close the overflow menu when Escape is pressed", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      await page.keyboard.press("Escape");
+      await expect(menu).toBeHidden({ timeout: 2000 });
+
+      // Focus returns to the trigger (WCAG 2.4.3).
+      await expect(
+        page.locator('button[aria-label="More links"]')
+      ).toBeFocused();
+
+      await component.unmount();
+    });
+
+    test("should close the overflow menu when clicking outside", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      // Click anywhere outside the menu / trigger.
+      await page.mouse.click(10, 10);
+      await expect(menu).toBeHidden({ timeout: 2000 });
+
+      await component.unmount();
+    });
+
+    test("should expose proper ARIA attributes on the overflow trigger", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      const trigger = page.locator('button[aria-label="More links"]');
+      await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+      await component.unmount();
+    });
+
+    test("should advance focus with ArrowDown and wrap from the last item", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      const items = menu.locator('[role="menuitem"]');
+      // After opening, focus seeds the first item; pressing ArrowDown moves
+      // to the second item, ArrowDown again moves to the third (last), and a
+      // third ArrowDown wraps back to the first.
+      await expect(items.nth(0)).toBeFocused({ timeout: 2000 });
+      await page.keyboard.press("ArrowDown");
+      await expect(items.nth(1)).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(items.nth(2)).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(items.nth(0)).toBeFocused();
+
+      await component.unmount();
+    });
+
+    test("should reverse focus with ArrowUp and wrap from the first item", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      const items = menu.locator('[role="menuitem"]');
+      await expect(items.nth(0)).toBeFocused({ timeout: 2000 });
+      // From the first item, ArrowUp wraps to the last item.
+      await page.keyboard.press("ArrowUp");
+      await expect(items.nth(2)).toBeFocused();
+      await page.keyboard.press("ArrowUp");
+      await expect(items.nth(1)).toBeFocused();
+
+      await component.unmount();
+    });
+
+    test("should close the menu when an internal link item is activated", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      await menu.getByRole("menuitem", { name: "Privacy Policy" }).click();
+      await expect(menu).toBeHidden({ timeout: 2000 });
+
+      await component.unmount();
+    });
+
+    test("should render the version row inside the desktop dropdown", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      // Version row is rendered inside the dropdown so the user can see the
+      // running build version from any scroll position.
+      await expect(menu.locator("li[aria-label^='Version']")).toBeVisible();
+
+      await component.unmount();
+    });
+  });
+
+  test.describe("Mobile", () => {
+    test("should render the 'More' section with essential links (anonymous)", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 800, height: 600 });
+
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="Open navigation"]').click();
+      const sheet = page.locator('[aria-label="Site navigation"]');
+      await expect(sheet).toBeVisible({ timeout: 2000 });
+
+      await expect(sheet.getByText("More", { exact: true })).toBeVisible();
+      await expect(
+        sheet.getByRole("link", { name: "Privacy Policy" })
+      ).toBeVisible();
+      await expect(
+        sheet.getByRole("link", { name: "Terms of Service" })
+      ).toBeVisible();
+      await expect(sheet.getByRole("link", { name: "GitHub" })).toBeVisible();
+
+      await component.unmount();
+    });
+
+    test("should render the 'More' section with essential links (authenticated)", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 800, height: 600 });
+
+      const component = await mount(
+        <NavMenuTestWrapper mockUser={mockRegularUser} />
+      );
+
+      await page.locator('button[aria-label="Open navigation"]').click();
+      const sheet = page.locator('[aria-label="Site navigation"]');
+      await expect(sheet).toBeVisible({ timeout: 2000 });
+
+      await expect(sheet.getByText("More", { exact: true })).toBeVisible();
+      await expect(
+        sheet.getByRole("link", { name: "Privacy Policy" })
+      ).toBeVisible();
+      await expect(
+        sheet.getByRole("link", { name: "Terms of Service" })
+      ).toBeVisible();
+      await expect(sheet.getByRole("link", { name: "GitHub" })).toBeVisible();
+
+      await component.unmount();
+    });
+
+    test("should render the GitHub link as an external link in the sheet", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 800, height: 600 });
+
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="Open navigation"]').click();
+      const sheet = page.locator('[aria-label="Site navigation"]');
+      await expect(sheet).toBeVisible({ timeout: 2000 });
+
+      const github = sheet.getByRole("link", { name: "GitHub" });
+      await expect(github).toHaveAttribute("target", "_blank");
+      await expect(github).toHaveAttribute("rel", /noopener noreferrer/);
+
+      await component.unmount();
+    });
   });
 });

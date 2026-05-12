@@ -184,6 +184,8 @@ export const Z_INDEX = {
   DROPDOWN: 100,
   /** Modal-level overlays (dialogs, full-screen) */
   MODAL: 1000,
+  /** NavBar dropdowns / popovers anchored above the mobile sheet (z-index 1095) */
+  NAVBAR_OVERLAY: 1200,
   /** DocumentKnowledgeBase fullscreen modal (set as a CSS variable too — keep in sync). */
   APP_MODAL: 3000,
   /** Children of the DocumentKnowledgeBase fullscreen modal (nested dialogs, popovers). */
