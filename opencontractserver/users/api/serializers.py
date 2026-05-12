@@ -43,7 +43,5 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ["slug", "url"]
 
-        # ``lookup_field`` here is paired with the (future) ``UserViewSet``
-        # ``lookup_field = "slug"``. Keep the two in lockstep — see class
-        # docstring for the wiring contract.
+        # Must stay in sync with UserViewSet.lookup_field — see class docstring.
         extra_kwargs = {"url": {"view_name": "api:user-detail", "lookup_field": "slug"}}

@@ -400,8 +400,8 @@ def package_md_description_revisions(
             "version"
         )
 
+        # TODO(#1608): author_email leaks collaborator PII; migrate to slug when bumping export version.
         for revision in revisions:
-            # TODO(#1608): author_email leaks collaborator PII; migrate to slug when bumping export version.
             revisions_export.append(
                 {
                     "version": revision.version,
