@@ -405,6 +405,12 @@ export const OS_LEGAL_SPACING = {
 
   /** Border radius for inset list items inside cards. */
   borderRadiusListItem: "6px",
+  /** Border radius for cards rendered on mobile viewports (tighter than
+   *  borderRadiusCard so dense stacks read as a single visual unit). Kept
+   *  semantically distinct from borderRadiusButton even when the values
+   *  happen to match, so future button-radius design tweaks don't bleed
+   *  into card corners. */
+  borderRadiusCardMobile: "8px",
   /** Border radius for full-width empty-state cards (above borderRadiusCard). */
   borderRadiusEmptyState: "16px",
   /** Border-left thickness for callout / disclaimer blocks. */
@@ -414,6 +420,8 @@ export const OS_LEGAL_SPACING = {
   iconBadgeDesktop: "40px",
   /** Square dimension for circular icon badges (mobile). */
   iconBadgeMobile: "34px",
+  /** Inline icon dimension inside dense mobile list rows. */
+  iconInlineMobile: "13px",
 } as const;
 
 /**
@@ -456,4 +464,9 @@ export const OS_LEGAL_SHADOWS = {
   cardHover: "0 8px 24px rgba(0, 0, 0, 0.08)",
   /** Drop shadow for centred modal overlays. */
   modalOverlay: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+  /**
+   * Upward lift used on sticky mobile modal footers to visually separate them
+   * from the scrolling body above. Negative y-offset + steep spread distance.
+   */
+  footerLiftMobile: "0 -8px 24px -12px rgba(15, 23, 42, 0.18)",
 } as const;
