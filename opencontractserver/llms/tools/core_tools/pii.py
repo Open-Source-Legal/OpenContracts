@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json as _json
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 from django.db import transaction
 
 from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL, Annotation
+from opencontractserver.constants.document_processing import TEXT_MIMETYPES
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 
@@ -38,15 +39,25 @@ ENTITY_GROUP_LABELS: dict[str, tuple[str, str, str]] = {
 }
 
 
-def _load_doc_text_sync(
-    document_id: int, corpus_id: int
-) -> tuple[Any, Any, str, str, Any]:
-    """Return (document, corpus, doc_text, file_type, pdf_layer).
+class _DocTextResult(NamedTuple):
+    """Validated document text + linkage info, returned by ``_load_doc_text_sync``."""
 
-    Validates document↔corpus linkage and supported file type. For PDFs,
-    the PlasmaPDF translation layer is built here and returned so it can be
-    forwarded directly into ``_persist_annotations_sync`` without a second
-    PAWLs read.  For non-PDF documents ``pdf_layer`` is ``None``.
+    doc: Document
+    corpus: Corpus
+    doc_text: str
+    file_type: str
+    pdf_layer: Any  # plasmapdf translation layer for PDFs; None otherwise
+
+
+def _load_doc_text_sync(document_id: int, corpus_id: int) -> _DocTextResult:
+    """Validate document↔corpus linkage and return text + layer for scanning.
+
+    For PDFs the PlasmaPDF translation layer is built here and returned so
+    it can be forwarded directly into ``_persist_annotations_sync`` without
+    a second PAWLs read.  For non-PDF documents ``pdf_layer`` is ``None``.
+    Markdown documents are accepted alongside plain-text — both ride the
+    ``TEXT_MIMETYPES`` set so the supported list stays in lockstep with the
+    rest of the ingestion pipeline.
     """
     try:
         doc = Document.objects.get(pk=document_id)
@@ -67,12 +78,12 @@ def _load_doc_text_sync(
     if not file_type:
         raise ValueError(f"Document id={document_id} has no file_type set.")
 
-    if file_type in {"application/txt", "text/plain"}:
+    if file_type in TEXT_MIMETYPES:
         if not doc.txt_extract_file:
             raise ValueError(f"Text document id={document_id} lacks txt_extract_file.")
         with doc.txt_extract_file.open("r") as f:
             doc_text = f.read()
-        return doc, corpus, doc_text, file_type, None
+        return _DocTextResult(doc, corpus, doc_text, file_type, None)
 
     if file_type == "application/pdf":
         if not doc.pawls_parse_file:
@@ -84,7 +95,7 @@ def _load_doc_text_sync(
         with doc.pawls_parse_file.open("r") as f:
             pawls_tokens = expand_pawls_pages(_json.load(f))
         pdf_layer = build_translation_layer(pawls_tokens)
-        return doc, corpus, pdf_layer.doc_text, file_type, pdf_layer
+        return _DocTextResult(doc, corpus, pdf_layer.doc_text, file_type, pdf_layer)
 
     raise ValueError(
         f"Unsupported file_type {doc.file_type} for document id={document_id}"
@@ -101,8 +112,15 @@ def _persist_annotations_sync(
     file_type: str,
     detections: list[Detection],
     doc_text: str,
-) -> list[int]:
-    """Create one Annotation per detection. Returns the new annotation ids."""
+) -> list[tuple[int, Detection]]:
+    """Create one Annotation per detection.
+
+    Returns (annotation_id, detection) pairs for detections that were
+    actually persisted. Invalid spans (OOB / inverted) and unknown entity
+    groups are skipped with a warning, so the returned list may be shorter
+    than ``detections`` — callers derive ``detection_count`` and
+    ``by_entity_group`` from this list to keep the response self-consistent.
+    """
     if file_type == "application/pdf":
         from plasmapdf.models.types import SpanAnnotation, TextSpan
 
@@ -129,7 +147,7 @@ def _persist_annotations_sync(
         label_cache[group] = label
         return label
 
-    new_ids: list[int] = []
+    persisted: list[tuple[int, Detection]] = []
     with transaction.atomic():
         for det in detections:
             start, end = det["start"], det["end"]
@@ -186,8 +204,8 @@ def _persist_annotations_sync(
                     structural=False,
                 )
             ann.save()
-            new_ids.append(ann.pk)
-    return new_ids
+            persisted.append((ann.pk, det))
+    return persisted
 
 
 async def ascan_and_annotate_pii(
@@ -224,7 +242,9 @@ async def ascan_and_annotate_pii(
     """
     doc, corpus, doc_text, file_type, pdf_layer = await _db_sync_to_async(
         _load_doc_text_sync
-    )(document_id, corpus_id)
+    )(
+        document_id, corpus_id
+    )  # NamedTuple — fields stay named for IDE/grep
 
     s = 0 if start_char is None else max(0, min(start_char, len(doc_text)))
     e = len(doc_text) if end_char is None else max(0, min(end_char, len(doc_text)))
@@ -286,7 +306,7 @@ async def ascan_and_annotate_pii(
             "detections": [dict(d) for d in detections],
         }
 
-    new_ids = await _db_sync_to_async(_persist_annotations_sync)(
+    persisted = await _db_sync_to_async(_persist_annotations_sync)(
         doc=doc,
         corpus=corpus,
         pdf_layer=pdf_layer,
@@ -296,11 +316,22 @@ async def ascan_and_annotate_pii(
         detections=detections,
         doc_text=doc_text,
     )
+
+    # Derive count + per-group totals from the *persisted* detections so the
+    # returned numbers always match ``annotation_ids``. Detections that were
+    # filtered out inside ``_persist_annotations_sync`` (OOB spans, unknown
+    # groups) would otherwise inflate the counts and confuse the LLM caller.
+    new_ids = [pk for pk, _ in persisted]
+    persisted_by_group: dict[str, int] = {}
+    for _, det in persisted:
+        persisted_by_group[det["entity_group"]] = (
+            persisted_by_group.get(det["entity_group"], 0) + 1
+        )
     return {
         "document_id": document_id,
         "scanned_chars": len(slice_text),
-        "detection_count": len(detections),
-        "by_entity_group": by_group,
+        "detection_count": len(new_ids),
+        "by_entity_group": persisted_by_group,
         "annotation_ids": new_ids,
         "detections": [],
     }

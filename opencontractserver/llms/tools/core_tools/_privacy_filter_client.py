@@ -17,13 +17,14 @@ from typing import TypedDict
 import httpx
 from django.conf import settings
 
-logger = logging.getLogger(__name__)
+from opencontractserver.constants.document_processing import (
+    PRIVACY_FILTER_CHUNK_OVERLAP as CHUNK_OVERLAP,
+)
+from opencontractserver.constants.document_processing import (
+    PRIVACY_FILTER_CHUNK_SIZE as CHUNK_SIZE,
+)
 
-# Margin below the service's default MAX_INPUT_CHARS (50_000). 500 chars of
-# overlap is enough to capture full names, phone numbers, and addresses
-# spanning a chunk boundary without exploding the request count.
-CHUNK_SIZE = 40_000
-CHUNK_OVERLAP = 500
+logger = logging.getLogger(__name__)
 
 
 class Detection(TypedDict):
