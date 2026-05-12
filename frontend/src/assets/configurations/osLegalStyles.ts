@@ -414,6 +414,8 @@ export const OS_LEGAL_SPACING = {
   iconBadgeDesktop: "40px",
   /** Square dimension for circular icon badges (mobile). */
   iconBadgeMobile: "34px",
+  /** Inline icon dimension inside dense mobile list rows. */
+  iconInlineMobile: "13px",
 } as const;
 
 /**

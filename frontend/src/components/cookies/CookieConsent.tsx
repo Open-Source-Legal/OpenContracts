@@ -126,6 +126,8 @@ const StyledModalWrapper = styled.div`
 
     @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
       padding: 0.875rem 1.125rem;
+      /* bottom intentionally overrides the shorthand to extend into the
+         safe-area inset on notched devices */
       padding-bottom: calc(0.875rem + env(safe-area-inset-bottom, 0px));
       background: ${OS_LEGAL_COLORS.surface};
       box-shadow: ${OS_LEGAL_SHADOWS.footerLiftMobile};
@@ -355,8 +357,8 @@ const DataListItem = styled.li`
     color: ${OS_LEGAL_COLORS.textPrimary};
 
     svg {
-      width: 13px;
-      height: 13px;
+      width: ${OS_LEGAL_SPACING.iconInlineMobile};
+      height: ${OS_LEGAL_SPACING.iconInlineMobile};
     }
   }
 `;
