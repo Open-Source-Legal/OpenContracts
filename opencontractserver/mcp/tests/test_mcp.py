@@ -1,5 +1,6 @@
 """Tests for MCP server functionality."""
 
+import asyncio
 import json
 
 import pytest
@@ -10,6 +11,28 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from opencontractserver.corpuses.models import Corpus
 
 User = get_user_model()
+
+
+class _MCPAsyncRunMixin:
+    """Shared helper for running an async coroutine inside a sync test method.
+
+    Centralises the ``new_event_loop`` → ``run_until_complete`` → close
+    dance that the auth-related test classes share. Also calls
+    ``asyncio.set_event_loop(None)`` after ``loop.close()`` so a stale
+    *closed* loop is never left as the thread's current event loop —
+    follow-up async test utilities running in the same thread would
+    otherwise pick it up and crash with ``Event loop is closed``.
+    """
+
+    @staticmethod
+    def _run(coro):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
 
 
 class URIParserTest(TestCase):
@@ -5266,6 +5289,63 @@ class MCPAuthenticatedToolsTest(TestCase):
                 user=self.other_user,
             )
 
+    def test_create_thread_message_rejects_parent_from_other_thread(self):
+        """IDOR regression: supplying a parent message id that belongs to a
+        thread the caller cannot see must surface ChatMessage.DoesNotExist,
+        not silently graft the reply under the unrelated parent.
+        """
+        from opencontractserver.conversations.models import (
+            ChatMessage,
+            Conversation,
+            ConversationTypeChoices,
+        )
+        from opencontractserver.mcp.tools import create_thread_message
+
+        foreign_corpus = Corpus.objects.create(
+            title="Foreign Corpus",
+            creator=self.other_user,
+            is_public=False,
+        )
+        foreign_thread = Conversation.objects.create(
+            title="Foreign Thread",
+            creator=self.other_user,
+            is_public=False,
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=foreign_corpus,
+        )
+        foreign_parent = ChatMessage.objects.create(
+            conversation=foreign_thread,
+            content="parent in another thread",
+            creator=self.other_user,
+        )
+
+        with self.assertRaises(ChatMessage.DoesNotExist):
+            create_thread_message(
+                corpus_slug=self.private_corpus.slug,
+                thread_id=self.private_thread.id,
+                content="reply pretending to nest under a foreign parent",
+                parent_message_id=foreign_parent.id,
+                user=self.owner,
+            )
+
+    def test_create_thread_message_strips_content_before_save(self):
+        """Validation and persistence must agree on the same normalised value
+        so the row never carries surprising leading/trailing whitespace that
+        passed only because of the strip-only emptiness check.
+        """
+        from opencontractserver.conversations.models import ChatMessage
+        from opencontractserver.mcp.tools import create_thread_message
+
+        result = create_thread_message(
+            corpus_slug=self.private_corpus.slug,
+            thread_id=self.private_thread.id,
+            content="   leading and trailing   ",
+            user=self.owner,
+        )
+        msg = ChatMessage.objects.get(id=int(result["id"]))
+        self.assertEqual(msg.content, "leading and trailing")
+        self.assertEqual(result["content"], "leading and trailing")
+
     def test_get_corpus_info_accepts_user(self):
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.mcp.tools import get_corpus_info
@@ -5277,7 +5357,7 @@ class MCPAuthenticatedToolsTest(TestCase):
             get_corpus_info(self.private_corpus.slug)
 
 
-class MCPCallToolHandlerAuthTest(TransactionTestCase):
+class MCPCallToolHandlerAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
     """Tests covering the auth-aware dispatch in ``call_tool_handler``.
 
     Uses TransactionTestCase because ``sync_to_async`` runs the handler in a
@@ -5300,16 +5380,6 @@ class MCPCallToolHandlerAuthTest(TransactionTestCase):
         from django import db
 
         db.connections.close_all()
-
-    def _run(self, coro):
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
 
     def test_handler_passes_user_to_tool(self):
         import json
@@ -5372,7 +5442,7 @@ class MCPCallToolHandlerAuthTest(TransactionTestCase):
         self.assertIn("error", payload)
 
 
-class MCPAsgiAppAuthTest(TestCase):
+class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
     """End-to-end checks for the JWT branch of ``create_mcp_asgi_app``.
 
     A bad token must surface as a 401 response from the ASGI callable before
@@ -5380,8 +5450,6 @@ class MCPAsgiAppAuthTest(TestCase):
     """
 
     def _run_app(self, scope):
-        import asyncio
-
         from opencontractserver.mcp.server import create_mcp_asgi_app
 
         app = create_mcp_asgi_app()
@@ -5394,12 +5462,7 @@ class MCPAsgiAppAuthTest(TestCase):
         async def mock_send(message):
             received.append(message)
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(app(scope, mock_receive, mock_send))
-        finally:
-            loop.close()
+        self._run(app(scope, mock_receive, mock_send))
         return received
 
     def test_invalid_bearer_token_returns_401_response(self):
@@ -5435,7 +5498,6 @@ class MCPAsgiAppAuthTest(TestCase):
         consumes ``_mcp_user`` correctly, that fully covers the happy
         path end-to-end.
         """
-        import asyncio
         from unittest.mock import patch
 
         from opencontractserver.mcp.server import create_mcp_asgi_app
@@ -5474,19 +5536,19 @@ class MCPAsgiAppAuthTest(TestCase):
             return user
 
         async def run_test():
+            # ``server`` imports the JWT verifier at module load, so the
+            # canonical patch target is the symbol on the server module.
+            # Patching ``config.jwt_utils.get_user_from_jwt_token`` directly
+            # used to *appear* to work when the import was inline (call-time
+            # lookup), but is no longer the bound name on the runtime path.
             with patch(
-                "config.jwt_utils.get_user_from_jwt_token",
+                "opencontractserver.mcp.server.get_user_from_jwt_token",
                 side_effect=fake_verifier,
             ):
                 app = create_mcp_asgi_app()
                 await app(scope, mock_receive, mock_send)
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(run_test())
-        finally:
-            loop.close()
+        self._run(run_test())
 
         self.assertEqual(call_count["n"], 1)
         starts = [m for m in received if m.get("type") == "http.response.start"]
@@ -5496,7 +5558,7 @@ class MCPAsgiAppAuthTest(TestCase):
         self.assertNotEqual(starts[0]["status"], 401)
 
 
-class MCPCallToolHandlerValidationErrorTest(TransactionTestCase):
+class MCPCallToolHandlerValidationErrorTest(_MCPAsyncRunMixin, TransactionTestCase):
     """``ValidationError`` raised by a tool must surface as a structured
     error result, not bubble up as an MCP transport exception.
 
@@ -5534,16 +5596,6 @@ class MCPCallToolHandlerValidationErrorTest(TransactionTestCase):
 
         db.connections.close_all()
 
-    def _run(self, coro):
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-
     def test_non_scoped_validation_error_returns_error_payload(self):
         """Blank content triggers ``ValidationError`` inside the tool. The
         dispatcher must trap it and return a JSON error result.
@@ -5571,19 +5623,17 @@ class MCPCallToolHandlerValidationErrorTest(TransactionTestCase):
 
     def test_scoped_validation_error_returns_error_payload(self):
         """Same contract via the scoped corpus closure."""
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
         from opencontractserver.mcp.server import (
             _mcp_user,
             create_scoped_mcp_server,
         )
 
         server = create_scoped_mcp_server(self.corpus.slug)
-        call_tool = server.request_handlers[
-            __import__("mcp.types", fromlist=["CallToolRequest"]).CallToolRequest
-        ]
+        call_tool = server.request_handlers[CallToolRequest]
 
         async def run_test():
-            from mcp.types import CallToolRequest, CallToolRequestParams
-
             token = _mcp_user.set(self.owner)
             try:
                 request = CallToolRequest(
@@ -5592,7 +5642,7 @@ class MCPCallToolHandlerValidationErrorTest(TransactionTestCase):
                         name="create_thread_message",
                         arguments={
                             "thread_id": self.thread.id,
-                            "content": "   ",
+                            "content": "   ",  # whitespace-only -> ValidationError
                         },
                     ),
                 )

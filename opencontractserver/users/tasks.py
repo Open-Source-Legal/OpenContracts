@@ -39,7 +39,7 @@ if settings.USE_AUTH0:
         headers: dict[str, str] = {"content-type": "application/json"}
         # print(headers)
 
-        request_data: dict[str, str] = {
+        request_data: dict[str, Any] = {
             "grant_type": auth0_settings.AUTH0_M2M_MANAGEMENT_GRANT_TYPE,
             "client_id": auth0_settings.AUTH0_M2M_MANAGEMENT_API_ID,
             "client_secret": auth0_settings.AUTH0_M2M_MANAGEMENT_API_SECRET,

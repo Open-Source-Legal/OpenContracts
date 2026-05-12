@@ -41,6 +41,12 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+# Module-level import so the JWT verifier path is patch-stable. A previous
+# inline import inside the auth branch only resolved at call time, which
+# meant patching ``opencontractserver.mcp.server.get_user_from_jwt_token``
+# was a no-op until the function was actually invoked once. Tests patching
+# this symbol now bind to the same object the runtime path uses.
+from config.jwt_utils import get_user_from_jwt_token
 from config.ratelimit.decorators import MCPRateLimitError, check_mcp_rate_limit
 from config.ratelimit.keys import get_client_ip_from_scope
 
@@ -888,7 +894,14 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
                 corpus_slug=corpus_slug,
                 document_slug=_document_slug,
             )
-            raise PermissionError(f"Corpus '{corpus_slug}' is not accessible")
+            # Raise Django's PermissionDenied (not Python's PermissionError)
+            # so this path falls into the structured ``except (PermissionDenied,
+            # ValidationError)`` handler below — same JSON ``{"error": ...}``
+            # surface as a tool-level permission failure. Python's
+            # PermissionError would otherwise route through the generic
+            # ``except Exception`` branch and bubble up as a raw transport
+            # error.
+            raise PermissionDenied(f"Corpus '{corpus_slug}' is not accessible")
 
         handler = scoped_handlers.get(name)
         if not handler:
@@ -1298,8 +1311,6 @@ def create_mcp_asgi_app() -> ASGIApp:
         user_for_request: UserOrAnonymous | None = None
         token = _extract_bearer_token(scope)
         if token:
-            from config.jwt_utils import get_user_from_jwt_token
-
             try:
                 user_for_request = await sync_to_async(get_user_from_jwt_token)(token)
                 logger.info(

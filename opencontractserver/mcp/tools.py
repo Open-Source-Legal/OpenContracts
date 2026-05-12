@@ -470,9 +470,15 @@ def create_thread_message(
     if user is None or isinstance(user, AnonymousUser):
         raise PermissionDenied("Authentication required for write tools")
 
-    if not content or not content.strip():
+    # Validate and persist on the *stripped* value so the validation
+    # boundary and the stored row agree. Previously a "   hello   " input
+    # passed the strip-only emptiness check but was saved with the original
+    # leading/trailing whitespace, which created subtle UI drift and a hard
+    # diff between what the tool validated and what other readers later saw.
+    normalized = content.strip() if content else ""
+    if not normalized:
         raise ValidationError("Message content must not be empty")
-    if len(content) > MAX_THREAD_MESSAGE_LENGTH:
+    if len(normalized) > MAX_THREAD_MESSAGE_LENGTH:
         raise ValidationError(
             f"Message content exceeds maximum length of "
             f"{MAX_THREAD_MESSAGE_LENGTH} characters"
@@ -486,13 +492,17 @@ def create_thread_message(
     )
     parent = None
     if parent_message_id is not None:
+        # visible_to_user + ``conversation=thread`` together protect against
+        # IDOR: a parent id from another (even visible) thread, or a parent
+        # the caller cannot see, surfaces as ChatMessage.DoesNotExist rather
+        # than being silently accepted.
         parent = ChatMessage.objects.visible_to_user(user).get(
             id=parent_message_id, conversation=thread
         )
 
     message = ChatMessage.objects.create(
         conversation=thread,
-        content=content,
+        content=normalized,
         creator=user,
         parent_message=parent,
     )
