@@ -350,3 +350,104 @@ class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
         self.assertEqual(data["profileHeadline"], "Contracts counsel")
         self.assertEqual(data["profileAboutMarkdown"], "About text")
         self.assertEqual(data["profileLinksMarkdown"], "Links text")
+
+    def test_update_me_persists_is_profile_public_toggle(self):
+        """isProfilePublic was newly added to UpdateMeInputs — verify round-trip."""
+        mutation = """
+            mutation UpdateMe($isProfilePublic: Boolean) {
+                updateMe(isProfilePublic: $isProfilePublic) {
+                    ok
+                    message
+                }
+            }
+        """
+        # Sanity: starts public
+        self.assertTrue(self.user.is_profile_public)
+
+        result = self.client.execute(mutation, variables={"isProfilePublic": False})
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updateMe"]["ok"])
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_profile_public)
+
+        # Flip back to true and confirm
+        result = self.client.execute(mutation, variables={"isProfilePublic": True})
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updateMe"]["ok"])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_profile_public)
+
+
+class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
+    """Cross-user `userBySlug` access of markdown profile fields.
+
+    The fields are not behind the `_is_self_view` gate because `userBySlug`
+    itself filters non-self viewers to public profiles. These tests verify
+    that contract end-to-end.
+    """
+
+    def setUp(self):
+        from config.graphql.schema import schema
+
+        class TestContext:
+            def __init__(self, user):
+                self.user = user
+
+        self.public_owner = User.objects.create_user(
+            username="public_owner",
+            email="public_owner@example.com",
+            is_profile_public=True,
+            profile_headline="Headline",
+            profile_about_markdown="**bio**",
+            profile_links_markdown="- [home](https://example.com)",
+        )
+        self.private_owner = User.objects.create_user(
+            username="private_owner",
+            email="private_owner@example.com",
+            is_profile_public=False,
+            profile_headline="Hidden Headline",
+            profile_about_markdown="hidden bio",
+            profile_links_markdown="- [hidden](https://example.com)",
+        )
+        self.viewer = User.objects.create_user(
+            username="viewer",
+            email="viewer@example.com",
+            is_profile_public=True,
+        )
+        self.schema = schema
+        self.TestContext = TestContext
+
+    def _client_as(self, user):
+        from graphene.test import Client
+
+        return Client(self.schema, context_value=self.TestContext(user))
+
+    def _query_by_slug(self, viewer, slug):
+        client = self._client_as(viewer)
+        query = """
+            query UserBySlug($slug: String!) {
+                userBySlug(slug: $slug) {
+                    id
+                    slug
+                    profileHeadline
+                    profileAboutMarkdown
+                    profileLinksMarkdown
+                }
+            }
+        """
+        return client.execute(query, variables={"slug": slug})
+
+    def test_non_self_viewer_can_read_markdown_fields_on_public_profile(self):
+        result = self._query_by_slug(self.viewer, self.public_owner.slug)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["userBySlug"]
+        self.assertIsNotNone(data)
+        self.assertEqual(data["profileHeadline"], "Headline")
+        self.assertEqual(data["profileAboutMarkdown"], "**bio**")
+        self.assertEqual(data["profileLinksMarkdown"], "- [home](https://example.com)")
+
+    def test_non_self_viewer_cannot_reach_private_profile_at_all(self):
+        result = self._query_by_slug(self.viewer, self.private_owner.slug)
+        self.assertIsNone(result.get("errors"))
+        # The whole user is hidden — not just the fields.
+        self.assertIsNone(result["data"]["userBySlug"])
