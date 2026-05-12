@@ -82,6 +82,11 @@ _mcp_user: ContextVar[UserOrAnonymous | None] = ContextVar("mcp_user", default=N
 
 
 def _extract_bearer_token(scope: MutableMapping[str, Any]) -> str | None:
+    # Only HTTP scopes carry a real Authorization header in the format
+    # we expect; websocket/lifespan scopes don't, and middleware in some
+    # ASGI stacks reshapes their ``headers`` differently.
+    if scope.get("type") != "http":
+        return None
     for name, value in scope.get("headers", []):
         if name.lower() == b"authorization":
             auth_header = value.decode("utf-8", errors="ignore")
@@ -1254,33 +1259,43 @@ def create_mcp_asgi_app() -> ASGIApp:
         # reset it in the finally block, preventing stale scope data
         # from leaking into subsequent requests on the same task.
         _scope_token = _mcp_asgi_scope.set(scope)
-        _user_token = _mcp_user.set(None)
+        # Resolve the per-request user up-front so we can use a single
+        # _mcp_user.set() / .reset() pair.  Stacked sets are fragile —
+        # adding another set between the original .set(None) and .set(user)
+        # would silently break the reset chain.
+        user_for_request: UserOrAnonymous | None = None
+        token = _extract_bearer_token(scope)
+        if token:
+            from config.jwt_utils import get_user_from_jwt_token
 
+            try:
+                user_for_request = await sync_to_async(get_user_from_jwt_token)(token)
+                logger.info(
+                    "MCP: authenticated user pk=%s",
+                    getattr(user_for_request, "pk", None),
+                )
+            except (JSONWebTokenExpired, JSONWebTokenError) as exc:
+                logger.warning("MCP: rejected invalid JWT (%s)", exc.__class__.__name__)
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 401,
+                        "headers": [[b"content-type", b"application/json"]],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": json.dumps(
+                            {"error": "Invalid or expired authentication token"}
+                        ).encode(),
+                    }
+                )
+                _mcp_asgi_scope.reset(_scope_token)
+                return
+
+        _user_token = _mcp_user.set(user_for_request)
         try:
-            token = _extract_bearer_token(scope)
-            if token:
-                from config.jwt_utils import get_user_from_jwt_token
-
-                try:
-                    user = await sync_to_async(get_user_from_jwt_token)(token)
-                    _mcp_user.set(user)
-                except (JSONWebTokenExpired, JSONWebTokenError):
-                    await send(
-                        {
-                            "type": "http.response.start",
-                            "status": 401,
-                            "headers": [[b"content-type", b"application/json"]],
-                        }
-                    )
-                    await send(
-                        {
-                            "type": "http.response.body",
-                            "body": json.dumps(
-                                {"error": "Invalid or expired authentication token"}
-                            ).encode(),
-                        }
-                    )
-                    return
             await _handle_mcp_request(scope, receive, send)
         finally:
             _mcp_asgi_scope.reset(_scope_token)

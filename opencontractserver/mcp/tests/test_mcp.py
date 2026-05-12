@@ -5223,10 +5223,8 @@ class MCPAuthenticatedToolsTest(TestCase):
     def test_create_thread_message_rejects_oversized_content(self):
         from django.core.exceptions import ValidationError
 
-        from opencontractserver.mcp.tools import (
-            MAX_THREAD_MESSAGE_LENGTH,
-            create_thread_message,
-        )
+        from opencontractserver.constants.mcp import MAX_THREAD_MESSAGE_LENGTH
+        from opencontractserver.mcp.tools import create_thread_message
 
         with self.assertRaises(ValidationError):
             create_thread_message(
@@ -5255,6 +5253,11 @@ class MCPAuthenticatedToolsTest(TestCase):
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.mcp.tools import create_thread_message
 
+        # DoesNotExist is intentional here (not PermissionDenied): the tool
+        # routes everything through ``Corpus.objects.visible_to_user(...)``,
+        # which returns an empty queryset for invisible resources. Surfacing
+        # the same exception for "doesn't exist" and "you can't see it"
+        # prevents IDOR enumeration via different error classes.
         with self.assertRaises(Corpus.DoesNotExist):
             create_thread_message(
                 corpus_slug=self.private_corpus.slug,
@@ -5367,3 +5370,56 @@ class MCPCallToolHandlerAuthTest(TransactionTestCase):
         )
         payload = json.loads(result[0].text)
         self.assertIn("error", payload)
+
+
+class MCPAsgiAppAuthTest(TestCase):
+    """End-to-end checks for the JWT branch of ``create_mcp_asgi_app``.
+
+    A bad token must surface as a 401 response from the ASGI callable before
+    the request ever reaches the MCP session manager.
+    """
+
+    def _run_app(self, scope):
+        import asyncio
+
+        from opencontractserver.mcp.server import create_mcp_asgi_app
+
+        app = create_mcp_asgi_app()
+
+        received = []
+
+        async def mock_receive():
+            return {"type": "http.disconnect"}
+
+        async def mock_send(message):
+            received.append(message)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(app(scope, mock_receive, mock_send))
+        finally:
+            loop.close()
+        return received
+
+    def test_invalid_bearer_token_returns_401_response(self):
+        import json
+
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer not-a-real-token"),
+                (b"content-type", b"application/json"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        bodies = [m for m in messages if m.get("type") == "http.response.body"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        self.assertTrue(bodies)
+        payload = json.loads(bodies[0]["body"])
+        self.assertIn("Invalid", payload.get("error", ""))

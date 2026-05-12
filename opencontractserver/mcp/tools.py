@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Callable
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Q
 
+from opencontractserver.constants.mcp import MAX_THREAD_MESSAGE_LENGTH
+
 from .formatters import (
     format_annotation,
     format_corpus_summary,
@@ -33,7 +35,11 @@ def list_public_corpuses(
     user: UserOrAnonymous | None = None,
 ) -> dict:
     """
-    List public corpuses visible to anonymous users.
+    List corpuses visible to the caller.
+
+    For anonymous callers this is the set of public, published corpuses.
+    Authenticated callers additionally see private corpuses they own or
+    have been granted access to via the standard visibility rules.
 
     Args:
         limit: Number of results (default 20, max 100)
@@ -427,9 +433,6 @@ def get_thread_messages(
     }
 
 
-MAX_THREAD_MESSAGE_LENGTH = 50_000
-
-
 def create_thread_message(
     corpus_slug: str,
     thread_id: int,
@@ -480,6 +483,10 @@ def create_thread_message(
         "id": str(message.id),
         "thread_id": str(thread.id),
         "content": message.content,
+        "parent_message_id": (
+            str(message.parent_message_id) if message.parent_message_id else None
+        ),
+        "created_at": message.created_at.isoformat() if message.created_at else None,
     }
 
 
@@ -601,5 +608,11 @@ def get_scoped_tool_handlers(corpus_slug: str) -> dict[str, Callable[..., Any]]:
         "list_threads": create_scoped_tool_wrapper(list_threads, corpus_slug),
         "get_thread_messages": create_scoped_tool_wrapper(
             get_thread_messages, corpus_slug
+        ),
+        # Write tool: corpus_slug is pre-validated by the scoped endpoint and
+        # injected automatically. Authentication is still enforced inside the
+        # tool (anonymous callers raise PermissionDenied).
+        "create_thread_message": create_scoped_tool_wrapper(
+            create_thread_message, corpus_slug
         ),
     }
