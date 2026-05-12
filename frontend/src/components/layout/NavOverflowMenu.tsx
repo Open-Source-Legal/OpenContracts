@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import type { FC, ReactElement } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import styled, { css } from "styled-components";
@@ -7,13 +7,11 @@ import {
   OVERFLOW_MENU_LINKS,
   type OverflowMenuLink,
 } from "./overflowMenuItems";
-import { VERSION_TAG } from "../../assets/configurations/constants";
-import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-
-// Local white-on-dark alpha helper — mirrors the same pattern in
-// MobileNavMenu so the trigger blends with the dark NavBar surface
-// without introducing a new shared export for a one-line utility.
-const surfaceAlpha = (alpha: number): string => `rgba(255, 255, 255, ${alpha})`;
+import { VERSION_TAG, Z_INDEX } from "../../assets/configurations/constants";
+import {
+  OS_LEGAL_COLORS,
+  whiteSurfaceAlpha,
+} from "../../assets/configurations/osLegalStyles";
 
 /**
  * Desktop NavMenu overflow trigger. Renders a kebab button in the NavBar's
@@ -43,15 +41,17 @@ const TriggerButton = styled.button<{ $open: boolean }>`
   height: 36px;
   border-radius: 8px;
   border: 1px solid
-    ${(props) => (props.$open ? surfaceAlpha(0.18) : surfaceAlpha(0.08))};
-  background: ${(props) => (props.$open ? surfaceAlpha(0.12) : "transparent")};
-  color: ${surfaceAlpha(0.9)};
+    ${(props) =>
+      props.$open ? whiteSurfaceAlpha(0.18) : whiteSurfaceAlpha(0.08)};
+  background: ${(props) =>
+    props.$open ? whiteSurfaceAlpha(0.12) : "transparent"};
+  color: ${whiteSurfaceAlpha(0.9)};
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: ${surfaceAlpha(0.1)};
-    border-color: ${surfaceAlpha(0.18)};
+    background: ${whiteSurfaceAlpha(0.1)};
+    border-color: ${whiteSurfaceAlpha(0.18)};
   }
 
   &:focus-visible {
@@ -64,7 +64,7 @@ const Menu = styled.ul`
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 1200;
+  z-index: ${Z_INDEX.NAVBAR_OVERLAY};
   min-width: 200px;
   margin: 0;
   padding: 6px;
@@ -148,7 +148,7 @@ interface NavOverflowMenuProps {
 const renderLink = (
   link: OverflowMenuLink,
   onSelect: () => void
-): JSX.Element => {
+): ReactElement => {
   if (link.to !== undefined) {
     return (
       <ItemLink role="menuitem" to={link.to} onClick={onSelect}>
@@ -223,8 +223,12 @@ export const NavOverflowMenu: FC<NavOverflowMenuProps> = ({
       items[nextIndex]?.focus();
     };
 
-    // Seed focus on the first item — APG menu pattern when activated by
-    // keyboard. Mouse activation leaves the trigger focused which is fine.
+    // Seed focus on the first item whenever the menu opens. The APG menu
+    // pattern only mandates this for keyboard activation, but mouse activation
+    // also benefits from focus moving into the menu so subsequent arrow-key
+    // navigation works without an extra Tab. The 0ms timer races after the
+    // initial click so the focus lands on the menu item rather than the
+    // trigger.
     const focusTimer = window.setTimeout(() => {
       const menu = menuRef.current;
       if (!menu) return;

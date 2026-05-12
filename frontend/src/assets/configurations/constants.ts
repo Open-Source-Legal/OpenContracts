@@ -177,6 +177,8 @@ export const Z_INDEX = {
   DROPDOWN: 100,
   /** Modal-level overlays (dialogs, full-screen) */
   MODAL: 1000,
+  /** NavBar dropdowns / popovers anchored above the mobile sheet (z-index 1095) */
+  NAVBAR_OVERLAY: 1200,
   /** Full-viewport transparent overlay behind context menus (click-outside capture) */
   CONTEXT_MENU_OVERLAY: 9998,
   /** Floating context menu container */

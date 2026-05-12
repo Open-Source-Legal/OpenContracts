@@ -898,6 +898,85 @@ test.describe("NavMenu Overflow", () => {
 
       await component.unmount();
     });
+
+    test("should advance focus with ArrowDown and wrap from the last item", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      const items = menu.locator('[role="menuitem"]');
+      // After opening, focus seeds the first item; pressing ArrowDown moves
+      // to the second item, ArrowDown again moves to the third (last), and a
+      // third ArrowDown wraps back to the first.
+      await expect(items.nth(0)).toBeFocused({ timeout: 2000 });
+      await page.keyboard.press("ArrowDown");
+      await expect(items.nth(1)).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(items.nth(2)).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(items.nth(0)).toBeFocused();
+
+      await component.unmount();
+    });
+
+    test("should reverse focus with ArrowUp and wrap from the first item", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      const items = menu.locator('[role="menuitem"]');
+      await expect(items.nth(0)).toBeFocused({ timeout: 2000 });
+      // From the first item, ArrowUp wraps to the last item.
+      await page.keyboard.press("ArrowUp");
+      await expect(items.nth(2)).toBeFocused();
+      await page.keyboard.press("ArrowUp");
+      await expect(items.nth(1)).toBeFocused();
+
+      await component.unmount();
+    });
+
+    test("should close the menu when an internal link item is activated", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      await menu.getByRole("menuitem", { name: "Privacy Policy" }).click();
+      await expect(menu).toBeHidden({ timeout: 2000 });
+
+      await component.unmount();
+    });
+
+    test("should render the version row inside the desktop dropdown", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(<NavMenuTestWrapper mockUser={null} />);
+
+      await page.locator('button[aria-label="More links"]').click();
+      const menu = page.locator('[role="menu"][aria-label="More site links"]');
+      await expect(menu).toBeVisible({ timeout: 2000 });
+
+      // Version row is rendered inside the dropdown so the user can see the
+      // running build version from any scroll position.
+      await expect(menu.locator("li[aria-label^='Version']")).toBeVisible();
+
+      await component.unmount();
+    });
   });
 
   test.describe("Mobile", () => {

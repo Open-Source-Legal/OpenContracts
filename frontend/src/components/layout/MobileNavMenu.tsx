@@ -9,6 +9,7 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_TYPOGRAPHY,
   accentAlpha,
+  whiteSurfaceAlpha,
 } from "../../assets/configurations/osLegalStyles";
 import { initialsFor } from "../../utils/initials";
 import type { OverflowMenuLink } from "./overflowMenuItems";
@@ -65,10 +66,6 @@ const SHEET_SIDE_GUTTER = 12;
 // Hoisted so the three RGBA sites below stay in lockstep.
 const DARK_BASE_RGB = "15, 23, 42";
 
-const SURFACE_OVERLAY_RGB = "255, 255, 255";
-const surfaceAlpha = (alpha: number): string =>
-  `rgba(${SURFACE_OVERLAY_RGB}, ${alpha})`;
-
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -93,7 +90,7 @@ const Header = styled.header`
   padding: 0 16px;
   background: ${OS_LEGAL_COLORS.darkSurface};
   color: ${OS_LEGAL_COLORS.surface};
-  border-bottom: 1px solid ${surfaceAlpha(0.06)};
+  border-bottom: 1px solid ${whiteSurfaceAlpha(0.06)};
 `;
 
 const Brand = styled.div`
@@ -123,15 +120,17 @@ const ToggleButton = styled.button<{ $open: boolean }>`
   height: 40px;
   border-radius: 10px;
   border: 1px solid
-    ${(props) => (props.$open ? surfaceAlpha(0.18) : surfaceAlpha(0.08))};
-  background: ${(props) => (props.$open ? surfaceAlpha(0.08) : "transparent")};
+    ${(props) =>
+      props.$open ? whiteSurfaceAlpha(0.18) : whiteSurfaceAlpha(0.08)};
+  background: ${(props) =>
+    props.$open ? whiteSurfaceAlpha(0.08) : "transparent"};
   color: ${OS_LEGAL_COLORS.surface};
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: ${surfaceAlpha(0.1)};
-    border-color: ${surfaceAlpha(0.18)};
+    background: ${whiteSurfaceAlpha(0.1)};
+    border-color: ${whiteSurfaceAlpha(0.18)};
   }
 
   &:focus-visible {
