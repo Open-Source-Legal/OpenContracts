@@ -318,6 +318,8 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         by ``Corpus.get_documents()`` and
         ``AnnotationQueryOptimizer.get_corpus_annotations()``.
         """
+        from django.contrib.auth.models import AnonymousUser
+
         from opencontractserver.analyzer.models import (
             Analysis,
             AnalysisUserObjectPermission,
@@ -326,6 +328,13 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             Extract,
             ExtractUserObjectPermission,
         )
+
+        # Peer querysets (NoteQuerySet, PermissionQuerySet) normalise None
+        # to AnonymousUser at the queryset boundary. The Manager wrapper
+        # also does this conversion, but direct queryset calls would raise
+        # AttributeError on the `user.is_superuser` access below.
+        if user is None:
+            user = AnonymousUser()
 
         # Superusers see everything — including trashed-doc annotations,
         # since superuser tooling (admin, audit) intentionally bypasses
