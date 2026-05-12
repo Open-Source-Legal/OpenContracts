@@ -456,4 +456,9 @@ export const OS_LEGAL_SHADOWS = {
   cardHover: "0 8px 24px rgba(0, 0, 0, 0.08)",
   /** Drop shadow for centred modal overlays. */
   modalOverlay: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+  /**
+   * Upward lift used on sticky mobile modal footers to visually separate them
+   * from the scrolling body above. Negative y-offset + steep spread distance.
+   */
+  footerLiftMobile: "0 -8px 24px -12px rgba(15, 23, 42, 0.18)",
 } as const;
