@@ -19,16 +19,16 @@
  * per-route").
  */
 
-export interface OverflowMenuLink {
-  id: string;
-  label: string;
-  /** Internal route path; mutually exclusive with ``href``. */
-  to?: string;
-  /** External URL; mutually exclusive with ``to``. Opens in a new tab. */
-  href?: string;
-}
+/**
+ * Discriminated union so TypeScript enforces that exactly one of ``to`` or
+ * ``href`` is set — a link with neither would silently render
+ * ``<a href={undefined}>`` and a link with both would be ambiguous.
+ */
+export type OverflowMenuLink =
+  | { id: string; label: string; to: string; href?: never }
+  | { id: string; label: string; to?: never; href: string };
 
-export const overflow_menu_links: OverflowMenuLink[] = [
+export const OVERFLOW_MENU_LINKS: OverflowMenuLink[] = [
   {
     id: "overflow_privacy",
     label: "Privacy Policy",

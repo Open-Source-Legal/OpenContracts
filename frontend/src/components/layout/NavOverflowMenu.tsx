@@ -1,12 +1,19 @@
+import type { FC } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { MoreHorizontal } from "lucide-react";
 import {
-  overflow_menu_links,
+  OVERFLOW_MENU_LINKS,
   type OverflowMenuLink,
 } from "./overflowMenuItems";
 import { VERSION_TAG } from "../../assets/configurations/constants";
+import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+
+// Local white-on-dark alpha helper — mirrors the same pattern in
+// MobileNavMenu so the trigger blends with the dark NavBar surface
+// without introducing a new shared export for a one-line utility.
+const surfaceAlpha = (alpha: number): string => `rgba(255, 255, 255, ${alpha})`;
 
 /**
  * Desktop NavMenu overflow trigger. Renders a kebab button in the NavBar's
@@ -36,21 +43,19 @@ const TriggerButton = styled.button<{ $open: boolean }>`
   height: 36px;
   border-radius: 8px;
   border: 1px solid
-    ${(props) =>
-      props.$open ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 255, 255, 0.08)"};
-  background: ${(props) =>
-    props.$open ? "rgba(255, 255, 255, 0.12)" : "transparent"};
-  color: rgba(255, 255, 255, 0.9);
+    ${(props) => (props.$open ? surfaceAlpha(0.18) : surfaceAlpha(0.08))};
+  background: ${(props) => (props.$open ? surfaceAlpha(0.12) : "transparent")};
+  color: ${surfaceAlpha(0.9)};
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: ${surfaceAlpha(0.1)};
+    border-color: ${surfaceAlpha(0.18)};
   }
 
   &:focus-visible {
-    outline: 2px solid #0f766e;
+    outline: 2px solid ${OS_LEGAL_COLORS.accent};
     outline-offset: 2px;
   }
 `;
@@ -64,8 +69,8 @@ const Menu = styled.ul`
   margin: 0;
   padding: 6px;
   list-style: none;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 10px;
   box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.25),
     0 4px 12px -6px rgba(15, 23, 42, 0.1);
@@ -75,14 +80,14 @@ const MenuItem = styled.li`
   margin: 0;
 `;
 
-const itemStyles = `
+const itemStyles = css`
   display: block;
   width: 100%;
   padding: 8px 12px;
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #1e293b;
+  color: ${OS_LEGAL_COLORS.textPrimary};
   font: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -93,13 +98,13 @@ const itemStyles = `
   transition: background 0.12s ease, color 0.12s ease;
 
   &:hover {
-    background: #f8fafc;
-    color: #0f766e;
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+    color: ${OS_LEGAL_COLORS.accent};
     text-decoration: none;
   }
 
   &:focus-visible {
-    outline: 2px solid #0f766e;
+    outline: 2px solid ${OS_LEGAL_COLORS.accent};
     outline-offset: -2px;
   }
 `;
@@ -116,7 +121,7 @@ const MenuSeparator = styled.li`
   height: 1px;
   margin: 6px 4px;
   padding: 0;
-  background: #e2e8f0;
+  background: ${OS_LEGAL_COLORS.border};
   list-style: none;
 `;
 
@@ -127,7 +132,7 @@ const VersionRow = styled.li`
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: ${OS_LEGAL_COLORS.textMuted};
   list-style: none;
 `;
 
@@ -144,7 +149,7 @@ const renderLink = (
   link: OverflowMenuLink,
   onSelect: () => void
 ): JSX.Element => {
-  if (link.to) {
+  if (link.to !== undefined) {
     return (
       <ItemLink role="menuitem" to={link.to} onClick={onSelect}>
         {link.label}
@@ -164,8 +169,8 @@ const renderLink = (
   );
 };
 
-export const NavOverflowMenu: React.FC<NavOverflowMenuProps> = ({
-  links = overflow_menu_links,
+export const NavOverflowMenu: FC<NavOverflowMenuProps> = ({
+  links = OVERFLOW_MENU_LINKS,
 }) => {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
