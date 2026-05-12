@@ -104,7 +104,12 @@ repos:
           - pandas
           - tiktoken==0.12.0
           - openai>=2.11.0,<3
-          - pydantic-ai>=1.56.0,<2
+          # Mirrors the narrow-extras pin in requirements/base.txt; using the
+          # bare ``pydantic-ai`` meta-package would fan out to all ~20
+          # provider extras and break this hook the moment any one of those
+          # provider SDKs disappears from PyPI (see the mistralai 404 on
+          # 2026-05-12). Keep this extras list in lockstep with base.txt.
+          - pydantic-ai-slim[openai,anthropic,google,mcp]>=1.56.0,<2
           - spacy
           - tokenizers>=0.21,<0.23
           - posthog==7.12.0
