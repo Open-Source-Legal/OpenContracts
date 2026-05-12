@@ -205,8 +205,9 @@ const UserSettingsModal: React.FC = () => {
           />
           <div style={{ height: "1rem" }} />
           <FormField>
-            <label>About (Markdown)</label>
+            <label htmlFor="profile-about-markdown">About (Markdown)</label>
             <MarkdownTextarea
+              id="profile-about-markdown"
               rows={6}
               value={form.profileAboutMarkdown || ""}
               maxLength={5000}
@@ -215,8 +216,9 @@ const UserSettingsModal: React.FC = () => {
             />
           </FormField>
           <FormField>
-            <label>Links (Markdown)</label>
+            <label htmlFor="profile-links-markdown">Links (Markdown)</label>
             <MarkdownTextarea
+              id="profile-links-markdown"
               rows={4}
               value={form.profileLinksMarkdown || ""}
               maxLength={5000}

@@ -362,16 +362,20 @@ class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
         """
         from opencontractserver.users.models import User as UserModel
 
-        # Each field exceeds its 5000-char max_length by one character.
+        # Each field exceeds its max_length by one character — headline is
+        # the 200-char ``CharField``; about/links are the 5000-char fields.
+        oversize_headline = "h" * 201
         oversize_about = "a" * 5001
         oversize_links = "b" * 5001
 
         mutation = """
             mutation UpdateMe(
+                $profileHeadline: String,
                 $profileAboutMarkdown: String,
                 $profileLinksMarkdown: String,
             ) {
                 updateMe(
+                    profileHeadline: $profileHeadline,
                     profileAboutMarkdown: $profileAboutMarkdown,
                     profileLinksMarkdown: $profileLinksMarkdown,
                 ) {
@@ -383,6 +387,7 @@ class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
         result = self.client.execute(
             mutation,
             variables={
+                "profileHeadline": oversize_headline,
                 "profileAboutMarkdown": oversize_about,
                 "profileLinksMarkdown": oversize_links,
             },
@@ -391,6 +396,7 @@ class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
         self.assertFalse(result["data"]["updateMe"]["ok"])
         # Confirm the row wasn't mutated.
         persisted = UserModel.objects.get(pk=self.user.pk)
+        self.assertEqual(persisted.profile_headline, "")
         self.assertEqual(persisted.profile_about_markdown, "")
         self.assertEqual(persisted.profile_links_markdown, "")
 
