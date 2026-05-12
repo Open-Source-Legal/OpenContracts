@@ -8,7 +8,7 @@ ipdb==0.13.13  # https://github.com/gotcha/ipdb
 # Testing
 # ------------------------------------------------------------------------------
 
-mypy==2.0.0  # https://github.com/python/mypy
+mypy==2.1.0  # https://github.com/python/mypy
 django-stubs==6.0.3  # https://github.com/typeddjango/django-stubs
 pytest==9.0.3  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
