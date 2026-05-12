@@ -26,6 +26,8 @@ export const CorpusViewContainer = styled.div`
   position: relative;
   flex: 1;
   align-items: stretch;
+  /* Progressive enhancement: dvh overrides 100vh in supporting browsers so
+     mobile address-bar collapse doesn't cause overflow. */
   min-height: calc(100vh - var(--oc-navbar-height, 4.5rem));
   min-height: calc(100dvh - var(--oc-navbar-height, 4.5rem));
 `;
@@ -747,6 +749,8 @@ export const CleanViewContainer = styled.div`
   flex-direction: column;
   width: 100%;
   height: 100%;
+  /* Progressive enhancement: dvh overrides 100vh in supporting browsers so
+     mobile address-bar collapse doesn't cause overflow. */
   min-height: calc(100vh - var(--oc-navbar-height, 4.5rem));
   min-height: calc(100dvh - var(--oc-navbar-height, 4.5rem));
   overflow: hidden;
