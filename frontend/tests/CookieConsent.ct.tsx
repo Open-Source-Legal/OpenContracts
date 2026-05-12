@@ -46,4 +46,23 @@ test.describe("CookieConsent - Rendering", () => {
     // Capture screenshot for documentation
     await docScreenshot(page, "cookie-consent--modal--default");
   });
+
+  test("renders cleanly inside a phone viewport", async ({ mount, page }) => {
+    // iPhone 13 logical viewport — below MOBILE_VIEW_BREAKPOINT (600px),
+    // so the mobile-only flex layout, footer lift, and inline icon
+    // sizing all kick in. Catches regressions to mobile styling that
+    // would otherwise only surface on a physical device.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mount(<CookieConsentHarness />);
+
+    const modal = page.locator('[role="dialog"]');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+
+    // Accept button must still be reachable at the bottom of the modal —
+    // the new mobile flex layout anchors it above the safe-area inset.
+    const acceptBtn = page.getByRole("button", { name: /Accept/ });
+    await expect(acceptBtn).toBeVisible();
+
+    await docScreenshot(page, "cookie-consent--modal--mobile");
+  });
 });
