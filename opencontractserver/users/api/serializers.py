@@ -23,9 +23,15 @@ class UserSerializer(serializers.ModelSerializer):
        serializer is unwired in production routes. If/when you wire it,
        the matching viewset MUST look like::
 
-           class UserViewSet(RetrieveModelMixin, ListModelMixin, GenericViewSet):
+           class UserViewSet(RetrieveModelMixin, GenericViewSet):
                # Must match UserSerializer.Meta extra_kwargs[url][lookup_field].
                lookup_field = "slug"
+               # CAUTION: do NOT add ``ListModelMixin`` here without also
+               # overriding ``get_queryset`` to filter via
+               # ``User.objects.visible_to_user(self.request.user)``. A bare
+               # ``ListModelMixin`` would expose a paginated authenticated-
+               # users list, which bypasses the slug-only privacy gate that
+               # already governs the GraphQL surface.
                queryset = User.objects.all()
                serializer_class = UserSerializer
 

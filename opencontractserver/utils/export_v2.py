@@ -401,12 +401,7 @@ def package_md_description_revisions(
         )
 
         for revision in revisions:
-            # TODO(#1608): ``author_email`` still leaks the revision author's
-            # email into the export ZIP. PR #1600 closed the privacy gap at
-            # the GraphQL layer (slug-only) but left the v2 export format
-            # unchanged because switching to slug-based author resolution is
-            # a breaking change to the export schema. Migrate to ``slug``
-            # (and consume it on import) when bumping the export version.
+            # TODO(#1608): author_email leaks collaborator PII; migrate to slug when bumping export version.
             revisions_export.append(
                 {
                     "version": revision.version,
@@ -490,13 +485,8 @@ def package_conversations(
         # Build conversation ID mapping
         conv_id_map = {}
 
-        # TODO(#1608): the ``creator_email`` keys emitted by this loop and
-        # the message / vote loops below still leak collaborator emails into
-        # the export ZIP. PR #1600 closed the leak at the GraphQL layer
-        # (slug-only) but left this v2 export format unchanged because
-        # switching to slug-based identity is a breaking change to the
-        # export schema. Migrate to ``creator_slug`` (and consume it on
-        # import) when bumping the export version.
+        # TODO(#1608): creator_email here and in message/vote loops leaks PII;
+        # migrate to slug on next export version bump.
         for conv in conversations:
             conv_export_id = str(conv.id)
             conv_id_map[conv.id] = conv_export_id
