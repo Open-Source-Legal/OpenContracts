@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { FC, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import styled, { css } from "styled-components";
@@ -24,13 +25,13 @@ export interface MobileNavItem {
 export interface MobileUserAction {
   id: string;
   label: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   onClick: () => void;
   danger?: boolean;
 }
 
 export interface MobileNavMenuProps {
-  logo: React.ReactNode;
+  logo: ReactNode;
   brandName: string;
   items: MobileNavItem[];
   activeId?: string;
@@ -142,7 +143,12 @@ const Backdrop = styled(motion.div)`
   -webkit-backdrop-filter: blur(8px);
 `;
 
-const Sheet = styled(motion.nav)`
+// Modal container (NOT a landmark). `role="dialog"` on a `<nav>` would
+// override the implicit navigation landmark semantics and remove it from
+// the a11y tree — see issue #1610. The actual navigation landmark lives
+// inside this dialog as `SheetNav` below, which keeps dialog and
+// landmark roles cleanly separated.
+const Sheet = styled(motion.div)`
   position: fixed;
   top: ${SHEET_TOP_OFFSET}px;
   left: ${SHEET_SIDE_GUTTER}px;
@@ -167,7 +173,10 @@ const Sheet = styled(motion.nav)`
   }
 `;
 
-const SheetScroll = styled.div`
+// Inner navigation landmark — wraps only the nav items + Account actions
+// so the AuthFooter's Sign-in CTA / user chip stays *outside* the landmark
+// (it's not navigation, it's auth state).
+const SheetNav = styled.nav`
   flex: 1;
   overflow-y: auto;
   padding: 8px;
@@ -344,7 +353,7 @@ const UserStatusLabel = styled.span`
  * matches the os-legal design language (white surface, teal accent, soft
  * shadow, backdrop blur).
  */
-export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
+export const MobileNavMenu: FC<MobileNavMenuProps> = ({
   logo,
   brandName,
   items,
@@ -356,12 +365,16 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const { pathname, search } = useLocation();
-  const sheetRef = useRef<HTMLElement | null>(null);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
   // Restore focus to the trigger on close (WCAG 2.1 SC 2.4.3).
   const toggleRef = useRef<HTMLButtonElement | null>(null);
-  // Captured overflow value; restored in onExitComplete so scroll
+  // Captured overflow values; restored in onExitComplete so scroll
   // doesn't re-enable while the exit animation is still playing.
-  const savedOverflowRef = useRef<string>("");
+  // We lock both <body> and <html> because iOS Safari ignores
+  // ``body { overflow: hidden }`` for its rubber-band / overscroll
+  // gesture — ``documentElement`` is what actually stops the bleed-through.
+  const savedBodyOverflowRef = useRef<string>("");
+  const savedHtmlOverflowRef = useRef<string>("");
 
   // Dismiss on route change — covers in-sheet taps and external nav.
   useEffect(() => {
@@ -374,7 +387,8 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   // isn't left scroll-locked.
   useEffect(
     () => () => {
-      document.body.style.overflow = savedOverflowRef.current;
+      document.body.style.overflow = savedBodyOverflowRef.current;
+      document.documentElement.style.overflow = savedHtmlOverflowRef.current;
     },
     []
   );
@@ -384,8 +398,10 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   useEffect(() => {
     if (!open) return;
 
-    savedOverflowRef.current = document.body.style.overflow;
+    savedBodyOverflowRef.current = document.body.style.overflow;
+    savedHtmlOverflowRef.current = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -467,9 +483,10 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
   const sheetOverlay = (
     <AnimatePresence
       onExitComplete={() => {
-        // Restore body scroll only after the exit animation finishes.
-        // See ``savedOverflowRef`` declaration for the rationale.
-        document.body.style.overflow = savedOverflowRef.current;
+        // Restore body + html scroll only after the exit animation finishes.
+        // See ``savedBodyOverflowRef`` declaration for the rationale.
+        document.body.style.overflow = savedBodyOverflowRef.current;
+        document.documentElement.style.overflow = savedHtmlOverflowRef.current;
       }}
     >
       {open && (
@@ -489,7 +506,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
             id="mobile-nav-sheet"
             role="dialog"
             aria-modal="true"
-            aria-label="Site navigation"
+            aria-label="Navigation menu"
             // ``tabIndex={-1}`` lets the sheet itself receive
             // programmatic focus from the focus-management effect when
             // no nav item is tabbable yet (auth still loading, items
@@ -505,7 +522,7 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
               mass: 0.7,
             }}
           >
-            <SheetScroll>
+            <SheetNav aria-label="Site navigation">
               <SectionLabel>{SECTION_LABEL_BROWSE}</SectionLabel>
               {items.map((item) => (
                 <NavItemButton
@@ -540,10 +557,10 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
                   ))}
                 </>
               )}
-            </SheetScroll>
+            </SheetNav>
 
             {!hideAuth && (
-              <AuthFooter>
+              <AuthFooter data-testqa="mobile-nav-auth-footer">
                 {userName ? (
                   <UserChip>
                     <Avatar>{initialsFor(userName)}</Avatar>
@@ -573,6 +590,22 @@ export const MobileNavMenu: React.FC<MobileNavMenuProps> = ({
           {logo}
           <BrandName>{brandName}</BrandName>
         </Brand>
+        {/*
+          Toggle is intentionally OUTSIDE ``sheetRef`` (the focus-trap
+          container). The Header sits above the Sheet at z-index 1100 so
+          the toggle stays tap-targetable while the dialog is open;
+          tapping it closes the sheet via ``setOpen`` rather than via
+          the trap. The trap's "focus leaked outside" branch still pulls
+          focus back if the user tabs onto the toggle.
+
+          ``aria-controls`` references an element that lives in a portal
+          at ``document.body`` and only exists in the DOM while ``open``
+          is true. Screen readers tolerate the dangling reference when
+          closed and resolve it correctly once portalled; we keep the
+          attribute static (rather than toggling with ``open``) so
+          assistive tech sees a stable relationship from the toggle to
+          its controlled element.
+        */}
         <ToggleButton
           ref={toggleRef}
           type="button"
