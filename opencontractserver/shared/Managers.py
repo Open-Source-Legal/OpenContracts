@@ -564,6 +564,10 @@ class RelationshipManager(BaseVisibilityManager):
         self,
         user: Any = None,
         lightweight: bool = False,
+        # ``with_doc_label_annotations`` is part of ``BaseVisibilityManager``'s
+        # signature and is meaningless for Relationship (it only affects
+        # annotation-label prefetches). Accepted purely for compatibility with
+        # the parent manager so callers can use a uniform call shape.
         with_doc_label_annotations: bool = False,
     ) -> QuerySet:
         from opencontractserver.shared.QuerySets import (

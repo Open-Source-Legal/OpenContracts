@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import Q
 
 from opencontractserver.constants.document_processing import TEXT_MIMETYPES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
@@ -751,19 +752,26 @@ def permanently_delete_document(
         # preserved here; they're garbage-collected by the
         # ``_gc_orphan_structural_set`` signal when the Document is deleted
         # below and no other Document references the set.
-        from django.db.models import Q
-
         user_annotation_ids = list(
             Annotation.objects.filter(
                 document=document,
                 structural_set__isnull=True,
             ).values_list("id", flat=True)
         )
-        relationship_count = Relationship.objects.filter(
-            Q(document=document, structural_set__isnull=True)
-            | Q(source_annotations__id__in=user_annotation_ids)
-            | Q(target_annotations__id__in=user_annotation_ids)
-        ).delete()[0]
+        # ``distinct()`` is required because the M2M joins on
+        # ``source_annotations`` / ``target_annotations`` can yield the
+        # same Relationship row twice. ``.delete()`` itself collapses to
+        # ``pk IN (...)`` and won't double-delete, but the returned count
+        # would otherwise overstate the number of rows removed.
+        relationship_count = (
+            Relationship.objects.filter(
+                Q(document=document, structural_set__isnull=True)
+                | Q(source_annotations__id__in=user_annotation_ids)
+                | Q(target_annotations__id__in=user_annotation_ids)
+            )
+            .distinct()
+            .delete()[0]
+        )
         logger.debug("Deleted %s Relationship records", relationship_count)
 
         # Step 5: Delete user annotations (non-structural) on this document.

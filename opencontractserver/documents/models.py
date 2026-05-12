@@ -886,6 +886,14 @@ class DocumentPath(TreeNode, BaseOCModel):
         indexes = [
             django.db.models.Index(fields=["corpus", "is_current", "is_deleted"]),
             django.db.models.Index(fields=["document", "corpus"]),
+            # Covers the hot-path EXISTS subquery used by
+            # `BaseVisibilityQuerySet._exclude_soft_deleted_doc_orphans`,
+            # which filters by (document, corpus, is_current=True,
+            # is_deleted=False) to hide annotations/relationships whose
+            # underlying document was soft-deleted in their corpus.
+            django.db.models.Index(
+                fields=["document", "corpus", "is_current", "is_deleted"]
+            ),
             django.db.models.Index(fields=["path"]),
             django.db.models.Index(fields=["version_number"]),
             django.db.models.Index(fields=["creator"]),

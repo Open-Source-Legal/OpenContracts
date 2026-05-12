@@ -222,6 +222,17 @@ class RelationshipVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
         # Data is preserved for restore.
         self.assertTrue(Relationship.objects.filter(id=self.relationship.id).exists())
 
+    def test_hidden_after_soft_delete_for_other_user(self):
+        """Non-owner viewers must also lose visibility once the doc is trashed."""
+        delete_document(self.corpus, "/vis_doc.pdf", self.user)
+
+        visible_ids = set(
+            Relationship.objects.visible_to_user(self.other_user).values_list(
+                "id", flat=True
+            )
+        )
+        self.assertNotIn(self.relationship.id, visible_ids)
+
     def test_superuser_still_sees_trashed_relationships(self):
         delete_document(self.corpus, "/vis_doc.pdf", self.user)
 
@@ -374,9 +385,7 @@ class StructuralSetGCAcrossCorpusCopiesTests(TestCase):
         self.assertTrue(
             StructuralAnnotationSet.objects.filter(id=self.structural_set.id).exists()
         )
-        self.assertTrue(
-            Annotation.objects.filter(id=self.structural_ann.id).exists()
-        )
+        self.assertTrue(Annotation.objects.filter(id=self.structural_ann.id).exists())
 
     def test_structural_set_gc_when_last_copy_deleted(self):
         """Permanently delete BOTH copies; the structural set is GC'd by the
@@ -408,6 +417,4 @@ class StructuralSetGCAcrossCorpusCopiesTests(TestCase):
         self.assertFalse(
             StructuralAnnotationSet.objects.filter(id=self.structural_set.id).exists()
         )
-        self.assertFalse(
-            Annotation.objects.filter(id=self.structural_ann.id).exists()
-        )
+        self.assertFalse(Annotation.objects.filter(id=self.structural_ann.id).exists())

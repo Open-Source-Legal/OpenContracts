@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 from django.db import models
 from django.db.models import Exists, OuterRef, Q
@@ -8,8 +8,13 @@ from tree_queries.query import TreeQuerySet
 
 from opencontractserver.shared.mixins import VectorSearchViaEmbeddingMixin
 
+# Preserves the concrete QuerySet subclass (e.g. AnnotationQuerySet) across
+# ``_exclude_soft_deleted_doc_orphans`` so callers don't lose their typed
+# chain when applying the filter.
+_QS = TypeVar("_QS", bound=models.QuerySet)
 
-def _exclude_soft_deleted_doc_orphans(qs: models.QuerySet) -> models.QuerySet:
+
+def _exclude_soft_deleted_doc_orphans(qs: _QS) -> _QS:
     """Hide rows whose ``(document, corpus)`` pair has been soft-deleted.
 
     Used by Annotation and Relationship visibility logic. A row is treated as
