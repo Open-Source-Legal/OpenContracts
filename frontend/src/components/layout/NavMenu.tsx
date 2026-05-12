@@ -15,6 +15,8 @@ import {
   type MobileNavItem,
   type MobileUserAction,
 } from "./MobileNavMenu";
+import { NavOverflowMenu } from "./NavOverflowMenu";
+import { OVERFLOW_MENU_LINKS } from "./overflowMenuItems";
 
 /**
  * User display properties accessed by NavMenu.
@@ -230,6 +232,8 @@ export const NavMenu = () => {
           activeId={activeId}
           userName={displayName}
           userActions={mobileUserActions}
+          overflowLinks={OVERFLOW_MENU_LINKS}
+          version={VERSION_TAG}
           onLogin={handleLogin}
           hideAuth={isLoading}
         />
@@ -252,9 +256,12 @@ export const NavMenu = () => {
         userMenuItems={userMenuItems}
         hideUserMenu={isLoading || !user}
         actions={
-          !user && !isLoading ? (
-            <LoginButton onClick={handleLogin}>Login</LoginButton>
-          ) : undefined
+          <>
+            <NavOverflowMenu />
+            {!user && !isLoading && (
+              <LoginButton onClick={handleLogin}>Login</LoginButton>
+            )}
+          </>
         }
       />
     </>
