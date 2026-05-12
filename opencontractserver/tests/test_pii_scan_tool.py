@@ -294,6 +294,40 @@ class ScanAndAnnotateKnobsTests(TransactionTestCase):
         assert ann.json == {"start": slice_start + 5, "end": slice_start + 25}
         assert ann.raw_text == self.doc_text[slice_start + 5 : slice_start + 25]
 
+    async def test_inverted_char_range_returns_empty_without_calling_service(
+        self,
+    ) -> None:
+        # start_char > end_char (or any range that resolves to s >= e) is an
+        # explicit no-op: we must short-circuit before issuing a request
+        # against the privacy-filter service.
+        called = {"count": 0}
+
+        async def _fake_detect(text: str):
+            called["count"] += 1
+            return []
+
+        with patch(
+            "opencontractserver.llms.tools.core_tools.pii.adetect_pii",
+            new=_fake_detect,
+        ):
+            result = await ascan_and_annotate_pii(
+                document_id=self.txt_doc.id,
+                corpus_id=self.corpus.id,
+                creator_id=self.user.id,
+                start_char=400,
+                end_char=100,
+            )
+
+        assert called["count"] == 0
+        assert result == {
+            "document_id": self.txt_doc.id,
+            "scanned_chars": 0,
+            "detection_count": 0,
+            "by_entity_group": {},
+            "annotation_ids": [],
+            "detections": [],
+        }
+
 
 @override_settings(
     PRIVACY_FILTER_URL="http://privacy_filter:8000",

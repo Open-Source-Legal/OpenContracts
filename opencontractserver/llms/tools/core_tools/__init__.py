@@ -75,10 +75,6 @@ from .md_summaries import (  # noqa: F401
     load_document_md_summary,
 )
 from .memory import aget_corpus_memory, asuggest_memory_update  # noqa: F401
-from .pii import (  # noqa: F401
-    ENTITY_GROUP_LABELS,
-    ascan_and_annotate_pii,
-)
 from .notes import (  # noqa: F401
     aadd_document_note,
     add_document_note,
@@ -94,6 +90,10 @@ from .notes import (  # noqa: F401
     update_document_note,
 )
 from .page_images import aget_page_image, get_page_image  # noqa: F401
+from .pii import (  # noqa: F401
+    ENTITY_GROUP_LABELS,
+    ascan_and_annotate_pii,
+)
 from .search import (  # noqa: F401
     asearch_exact_text_as_sources,
     search_exact_text_as_sources,

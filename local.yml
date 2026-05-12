@@ -123,6 +123,10 @@ services:
   # API_KEYS value below is a LOCAL DEVELOPMENT ONLY placeholder; override via
   # environment / .env before exposing the service outside the local docker
   # bridge. The image bakes the model weights and runs CPU-only.
+  # No ``ports`` mapping: reachable only over the docker bridge from django /
+  # celeryworker (which is the only intended access pattern). To smoke-test
+  # from the host, exec into the django container and curl
+  # ``http://privacy_filter:8000/v1/detect``.
   privacy_filter:
     image: ghcr.io/open-source-legal/privacy-filter:latest
     container_name: privacy_filter

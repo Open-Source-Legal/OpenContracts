@@ -203,7 +203,7 @@ async def ascan_and_annotate_pii(
     dry_run: bool = False,
     start_char: int | None = None,
     end_char: int | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Scan ``document_id`` for PII and create labeled annotations.
 
     Args:
@@ -241,7 +241,7 @@ async def ascan_and_annotate_pii(
     # Validate the allowlist up-front: silently dropping every detection
     # because the caller passed a typo (e.g. ``"private_emial"``) would be
     # a frustrating failure mode for the LLM.
-    allowlist: set[str] | None
+    allowlist: set[str] | None = None
     if entity_groups:
         unknown = sorted(set(entity_groups) - set(ENTITY_GROUP_LABELS))
         if unknown:
@@ -250,8 +250,6 @@ async def ascan_and_annotate_pii(
                 f"{unknown}. Valid groups: {sorted(ENTITY_GROUP_LABELS)}."
             )
         allowlist = set(entity_groups)
-    else:
-        allowlist = None
 
     slice_text = doc_text[s:e]
     raw = await adetect_pii(slice_text)
