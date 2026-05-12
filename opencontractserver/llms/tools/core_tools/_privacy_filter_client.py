@@ -52,7 +52,10 @@ async def adetect_pii(text: str) -> list[Detection]:
     detect_url = f"{base_url}/v1/detect"
     headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
 
-    seen: set[tuple[int, int, str]] = set()
+    # Track the index of each unique (start, end, group) detection in
+    # ``results`` so that when chunk overlap yields the same span twice, we
+    # keep the higher-confidence score rather than the first-seen score.
+    seen: dict[tuple[int, int, str], int] = {}
     results: list[Detection] = []
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -90,13 +93,20 @@ async def adetect_pii(text: str) -> list[Detection]:
                     )
                     continue
                 key = (start, end, group)
-                if key in seen:
+                score = float(det["score"])
+                existing_index = seen.get(key)
+                if existing_index is not None:
+                    # Same span detected in an overlapping chunk — keep the
+                    # higher-confidence score so the eventual annotation
+                    # reflects the model's most confident reading.
+                    if score > results[existing_index]["score"]:
+                        results[existing_index]["score"] = score
                     continue
-                seen.add(key)
+                seen[key] = len(results)
                 results.append(
                     Detection(
                         entity_group=group,
-                        score=float(det["score"]),
+                        score=score,
                         start=start,
                         end=end,
                         text=text[start:end],

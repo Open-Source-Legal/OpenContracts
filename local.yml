@@ -134,6 +134,13 @@ services:
       API_KEYS: dev-only-not-secret
       MAX_INPUT_CHARS: "50000"
       CORS_ORIGINS: ""
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)\""
+      interval: 10s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   celeryworker:
