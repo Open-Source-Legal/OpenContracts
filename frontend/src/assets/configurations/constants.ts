@@ -212,6 +212,23 @@ export const POPOVER_GAP = 8;
  */
 export const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
 /**
+ * Bottom offset for the FloatingDocumentControls speed dial on desktop.
+ * Sits above the page footer / navbar.
+ */
+export const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
+/**
+ * Bottom offset for the FloatingDocumentControls speed dial on mobile.
+ * Used inside ``visualViewportAwareBottom`` so the dial clears the safe-area
+ * inset and mobile chrome.
+ */
+export const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
+/**
+ * Bottom offset for the settings popover anchored above the floating speed
+ * dial on mobile. Computed to clear ``MOBILE_FLOATING_CONTROLS_BOTTOM`` plus
+ * the dial's own height.
+ */
+export const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
+/**
  * Maximum height of the tool popover in pixels.
  * Must match ToolPopoverBody max-height (400px) + header height (~100px).
  * If ToolPopoverBody max-height changes, update this value accordingly.

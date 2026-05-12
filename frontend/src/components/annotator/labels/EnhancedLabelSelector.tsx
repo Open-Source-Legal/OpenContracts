@@ -747,7 +747,7 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
     </>
   );
 
-  if (isMobile && typeof document !== "undefined") {
+  if (isMobile) {
     return createPortal(annotationControls, document.body);
   }
 

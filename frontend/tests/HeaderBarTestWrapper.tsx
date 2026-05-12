@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import {
@@ -13,6 +13,8 @@ interface HeaderBarTestWrapperProps {
   documentId?: string;
   corpusId?: string;
   mocks?: MockedResponse[];
+  onClose?: () => void;
+  onAddToCorpus?: () => void;
 }
 
 /**
@@ -27,20 +29,40 @@ export const HeaderBarTestWrapper: React.FC<HeaderBarTestWrapperProps> = ({
   documentId = "doc-1",
   corpusId,
   mocks = [],
-}) => (
-  <MockedProvider mocks={mocks} addTypename={false}>
-    <MemoryRouter>
-      <div style={{ padding: "1rem", background: "#fff" }}>
-        <HeaderBar
-          metadata={metadata}
-          documentId={documentId}
-          corpusId={corpusId}
-          hasCorpus={hasCorpus}
-          readOnly={readOnly}
-          onAddToCorpus={() => {}}
-          onClose={() => {}}
-        />
-      </div>
-    </MemoryRouter>
-  </MockedProvider>
-);
+  onClose,
+  onAddToCorpus,
+}) => {
+  // Expose click counters as DOM data attributes so tests can verify
+  // handlers fired without Playwright window-bridge serialization issues.
+  const [closeCount, setCloseCount] = useState(0);
+  const [addCount, setAddCount] = useState(0);
+
+  return (
+    <MockedProvider mocks={mocks} addTypename={false}>
+      <MemoryRouter>
+        <div
+          style={{ padding: "1rem", background: "#fff" }}
+          data-testid="header-bar-test-wrapper"
+          data-close-count={closeCount}
+          data-add-count={addCount}
+        >
+          <HeaderBar
+            metadata={metadata}
+            documentId={documentId}
+            corpusId={corpusId}
+            hasCorpus={hasCorpus}
+            readOnly={readOnly}
+            onAddToCorpus={() => {
+              setAddCount((n) => n + 1);
+              onAddToCorpus?.();
+            }}
+            onClose={() => {
+              setCloseCount((n) => n + 1);
+              onClose?.();
+            }}
+          />
+        </div>
+      </MemoryRouter>
+    </MockedProvider>
+  );
+};

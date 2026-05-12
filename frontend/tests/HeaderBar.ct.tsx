@@ -150,6 +150,59 @@ test.describe("HeaderBar", () => {
     await component.unmount();
   });
 
+  test("clicking the back button invokes onClose (covers logging branch)", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <HeaderBarTestWrapper
+        hasCorpus={true}
+        corpusId="corpus-1"
+        metadata={{
+          title: "Closeable Document",
+          fileType: "application/pdf",
+          creator: { id: "user-1", slug: "alice" },
+          created: "2025-09-10T12:00:00Z",
+        }}
+      />
+    );
+
+    const wrapper = page.getByTestId("header-bar-test-wrapper");
+    await expect(wrapper).toHaveAttribute("data-close-count", "0");
+
+    await page.getByTestId("back-button").click();
+
+    await expect(wrapper).toHaveAttribute("data-close-count", "1");
+
+    await component.unmount();
+  });
+
+  test("clicking Add-to-Corpus invokes onAddToCorpus when corpus is absent", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <HeaderBarTestWrapper
+        hasCorpus={false}
+        metadata={{
+          title: "Orphan Document",
+          fileType: "application/pdf",
+          creator: { id: "user-1", slug: "alice" },
+          created: "2025-09-10T12:00:00Z",
+        }}
+      />
+    );
+
+    const wrapper = page.getByTestId("header-bar-test-wrapper");
+    await expect(wrapper).toHaveAttribute("data-add-count", "0");
+
+    await page.getByTestId("add-to-corpus-button").click();
+
+    await expect(wrapper).toHaveAttribute("data-add-count", "1");
+
+    await component.unmount();
+  });
+
   test("hides Add-to-Corpus button when readOnly even without corpus", async ({
     mount,
     page,
