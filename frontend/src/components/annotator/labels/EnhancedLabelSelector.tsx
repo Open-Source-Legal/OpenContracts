@@ -8,7 +8,10 @@ import React, {
 import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
-import { Z_INDEX } from "../../../assets/configurations/constants";
+import {
+  MOBILE_ANNOTATION_TOOLS_BOTTOM,
+  Z_INDEX,
+} from "../../../assets/configurations/constants";
 import {
   Tag,
   FileText,
@@ -59,7 +62,6 @@ interface EnhancedLabelSelectorProps {
   readOnly?: boolean;
 }
 
-const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
 const MOBILE_ANNOTATION_TOOLS_Z_INDEX = Z_INDEX.MOBILE_ANNOTATION_TOOLS;
 const ANNOTATION_LABEL_MODAL_Z_INDEX = Z_INDEX.MOBILE_ANNOTATION_LABEL_MODAL;
 

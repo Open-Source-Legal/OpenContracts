@@ -75,8 +75,8 @@ export const HeaderButton = styled.button<{
   }
 
   svg {
-    width: ${(props) => (props.$variant === "primary" ? "18px" : "18px")};
-    height: ${(props) => (props.$variant === "primary" ? "18px" : "18px")};
+    width: 18px;
+    height: 18px;
     stroke-width: 2.5;
     flex-shrink: 0;
   }

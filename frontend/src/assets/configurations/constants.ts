@@ -192,9 +192,10 @@ export const Z_INDEX = {
   MOBILE_ANNOTATION_TOOLS: 3048,
   /** Mobile floating document-controls FAB (orbit menu) rendered via portal. */
   MOBILE_FLOATING_CONTROLS: 3050,
-  /** Mobile annotation-label modal (sits above the annotation tools and the
-   *  floating controls so the label picker is always tappable). */
-  MOBILE_ANNOTATION_LABEL_MODAL: 3100,
+  /** Mobile annotation-label modal — sits above APP_MODAL_CHILD so the label
+   *  picker remains tappable even when a nested dialog is open inside the DKB
+   *  fullscreen modal. */
+  MOBILE_ANNOTATION_LABEL_MODAL: 3150,
   /** Full-viewport transparent overlay behind context menus (click-outside capture) */
   CONTEXT_MENU_OVERLAY: 9998,
   /** Floating context menu container */
@@ -202,6 +203,12 @@ export const Z_INDEX = {
 } as const;
 /** Gap in pixels between the badge and the popover */
 export const POPOVER_GAP = 8;
+/**
+ * Bottom offset for the mobile annotation tools floating bar (portalled to
+ * document.body). Used inside ``visualViewportAwareBottom`` so the bar lifts
+ * above the mobile keyboard / safe-area inset.
+ */
+export const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
 /**
  * Maximum height of the tool popover in pixels.
  * Must match ToolPopoverBody max-height (400px) + header height (~100px).

@@ -132,11 +132,12 @@ export const FullScreenModal: React.FC<FullScreenModalProps> = ({
     window.visualViewport?.addEventListener("resize", updateViewportVars);
     window.visualViewport?.addEventListener("scroll", updateViewportVars);
 
-    window.scrollTo(0, 0);
-    // Increment the global counter and only add the lock classes on the
-    // first open. Nested FullScreenModal instances share the lock.
+    // Increment the global counter and only add the lock classes (and reset
+    // page scroll to the top) on the first open. Nested FullScreenModal
+    // instances share the lock — they should not re-trigger scrollTo.
     fullScreenModalOpenCount += 1;
     if (fullScreenModalOpenCount === 1) {
+      window.scrollTo(0, 0);
       root.classList.add("document-kb-scroll-lock");
       document.body.classList.add("document-kb-scroll-lock");
     }
