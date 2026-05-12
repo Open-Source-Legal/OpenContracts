@@ -899,9 +899,12 @@ class DocumentPath(TreeNode, BaseOCModel):
             # `BaseVisibilityQuerySet._exclude_soft_deleted_doc_orphans`,
             # which filters by (document, corpus, is_current=True,
             # is_deleted=False) to hide annotations/relationships whose
-            # underlying document was soft-deleted in their corpus.
+            # underlying document was soft-deleted in their corpus. Name is
+            # pinned to migration 0038 so future index additions don't
+            # produce a no-op RenameIndex.
             django.db.models.Index(
-                fields=["document", "corpus", "is_current", "is_deleted"]
+                fields=["document", "corpus", "is_current", "is_deleted"],
+                name="documents_d_documen_224610_idx",
             ),
             django.db.models.Index(fields=["path"]),
             django.db.models.Index(fields=["version_number"]),
