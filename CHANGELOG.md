@@ -121,6 +121,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `_assert_corpus_visible_to_user`, the empty-`target_text` guard, and
     component-marker / numbered-list rejection in `_looks_like_prose`.
 
+- **PII scan & auto-annotate agent tool** (`scan_and_annotate_pii` / `ascan_and_annotate_pii`)
+  - Scans documents via the new `privacy_filter` Docker service
+    ([Open-Source-Legal/privacy-filter](https://github.com/Open-Source-Legal/privacy-filter))
+    for 8 PII categories (email, phone, person name, address, account number, URL,
+    date, secret).
+  - Creates one labeled annotation per detection — TOKEN_LABEL via PlasmaPDF for PDFs,
+    SPAN_LABEL for plain text.
+  - Agent knobs: `min_score` (default 0.5), `entity_groups` allowlist, `dry_run` preview
+    mode, `start_char` / `end_char` to scope the scan to a slice.
+  - Auto-creates 8 colored/iconed labels via `Corpus.ensure_label_and_labelset`.
+  - Files: `opencontractserver/llms/tools/core_tools/pii.py`,
+    `opencontractserver/llms/tools/core_tools/_privacy_filter_client.py`,
+    `opencontractserver/llms/tools/tool_registry.py`.
+  - New `privacy_filter` service in `local.yml` (with `required: false` so devs without
+    the image pulled can still bring up the stack) and `production.yml` (with mandatory
+    `PRIVACY_FILTER_API_KEY` env var via `${...:?}` syntax).
+  - Settings: `PRIVACY_FILTER_URL`, `PRIVACY_FILTER_API_KEY`,
+    `PRIVACY_FILTER_TIMEOUT_SECONDS` in `config/settings/base.py`.
+  - 18 unit tests (12 tool + 6 client); the client is mocked in tool tests so CI does
+    not need the privacy-filter container.
+
 ### Changed
 
 - **Adaptive `load_document_text` tool sizes its slice to the agent's remaining context budget** (`opencontractserver/llms/tools/pydantic_ai_tools.py`, `opencontractserver/llms/agents/pydantic_ai_agents.py`, `opencontractserver/llms/tools/tool_registry.py`). Whole-document tasks like summarisation used to fan out into hundreds of `load_document_text` calls because the tool description hard-coded a 5K-50K char chunk recommendation regardless of how much room the model actually had. The agent now snapshots its per-turn budget onto `PydanticAIDependencies` and the document-agent factory swaps the registry-built tool for a budget-aware variant.

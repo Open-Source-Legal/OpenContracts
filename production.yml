@@ -36,6 +36,8 @@ services:
       docxodus-parser:
         condition: service_started
         required: false
+      privacy_filter:
+        condition: service_started
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
@@ -109,6 +111,15 @@ services:
     # must use the same Docxodus version for character offset alignment.
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
+
+  privacy_filter:
+    image: ghcr.io/open-source-legal/privacy-filter:latest
+    container_name: privacy_filter
+    environment:
+      API_KEYS: ${PRIVACY_FILTER_API_KEY:?PRIVACY_FILTER_API_KEY must be set}
+      MAX_INPUT_CHARS: "50000"
+      CORS_ORIGINS: ""
+    restart: unless-stopped
 
   celeryworker:
     <<: *django

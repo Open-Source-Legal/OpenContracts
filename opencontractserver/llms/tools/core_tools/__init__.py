@@ -75,6 +75,10 @@ from .md_summaries import (  # noqa: F401
     load_document_md_summary,
 )
 from .memory import aget_corpus_memory, asuggest_memory_update  # noqa: F401
+from .pii import (  # noqa: F401
+    ENTITY_GROUP_LABELS,
+    ascan_and_annotate_pii,
+)
 from .notes import (  # noqa: F401
     aadd_document_note,
     add_document_note,
@@ -187,4 +191,7 @@ __all__ = [
     # Corpus memory
     "aget_corpus_memory",
     "asuggest_memory_update",
+    # PII scanning and annotation
+    "ENTITY_GROUP_LABELS",
+    "ascan_and_annotate_pii",
 ]
