@@ -405,6 +405,12 @@ export const OS_LEGAL_SPACING = {
 
   /** Border radius for inset list items inside cards. */
   borderRadiusListItem: "6px",
+  /** Border radius for cards rendered on mobile viewports (tighter than
+   *  borderRadiusCard so dense stacks read as a single visual unit). Kept
+   *  semantically distinct from borderRadiusButton even when the values
+   *  happen to match, so future button-radius design tweaks don't bleed
+   *  into card corners. */
+  borderRadiusCardMobile: "8px",
   /** Border radius for full-width empty-state cards (above borderRadiusCard). */
   borderRadiusEmptyState: "16px",
   /** Border-left thickness for callout / disclaimer blocks. */

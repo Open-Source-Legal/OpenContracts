@@ -291,10 +291,7 @@ const DataCard = styled.section`
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     padding: 0.875rem 0.875rem 0.9375rem;
     gap: 0.5rem;
-    /* Slightly tighter than borderRadiusCard (12px) — the smaller mobile
-       cards look balanced with a marginally smaller corner radius while
-       still feeling related to the card family. */
-    border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
+    border-radius: ${OS_LEGAL_SPACING.borderRadiusCardMobile};
     /* Subtle elevation pulls the card off the body background; only
        needed at the higher visual density of the mobile layout. */
     box-shadow: ${OS_LEGAL_SHADOWS.card};
