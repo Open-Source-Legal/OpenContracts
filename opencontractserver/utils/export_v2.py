@@ -485,8 +485,9 @@ def package_conversations(
         # Build conversation ID mapping
         conv_id_map = {}
 
-        # TODO(#1608): creator_email here and in message/vote loops leaks PII;
-        # migrate to slug on next export version bump.
+        # TODO(#1608): conv["creator_email"], msg["creator_email"], and vote["creator_email"]
+        # (built in the loops below) all leak PII; migrate each to slug on the next export
+        # version bump.
         for conv in conversations:
             conv_export_id = str(conv.id)
             conv_id_map[conv.id] = conv_export_id
