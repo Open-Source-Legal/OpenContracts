@@ -5423,3 +5423,229 @@ class MCPAsgiAppAuthTest(TestCase):
         self.assertTrue(bodies)
         payload = json.loads(bodies[0]["body"])
         self.assertIn("Invalid", payload.get("error", ""))
+
+    def test_valid_bearer_token_authenticates_and_does_not_401(self):
+        """A valid JWT must NOT trigger the 401 branch; the ASGI layer
+        must continue past the auth check with ``_mcp_user`` populated.
+
+        We can't easily peek inside the ``_handle_mcp_request`` closure,
+        so we assert the JWT verifier is invoked exactly once and the
+        response is not a 401. Combined with the
+        ``MCPCallToolHandlerAuthTest`` cases that prove tool dispatch
+        consumes ``_mcp_user`` correctly, that fully covers the happy
+        path end-to-end.
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from opencontractserver.mcp.server import create_mcp_asgi_app
+
+        user = User.objects.create_user(
+            username="mcp_jwt_owner",
+            email="mcpjwt@test.com",
+            password="testpass123",
+        )
+
+        received: list = []
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b"{}"}
+
+        async def mock_send(message):
+            received.append(message)
+
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer valid-token"),
+                (b"content-type", b"application/json"),
+            ],
+            "client": ("127.0.0.1", 12345),
+        }
+
+        call_count = {"n": 0}
+
+        def fake_verifier(token):
+            call_count["n"] += 1
+            assert token == "valid-token"
+            return user
+
+        async def run_test():
+            with patch(
+                "config.jwt_utils.get_user_from_jwt_token",
+                side_effect=fake_verifier,
+            ):
+                app = create_mcp_asgi_app()
+                await app(scope, mock_receive, mock_send)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_test())
+        finally:
+            loop.close()
+
+        self.assertEqual(call_count["n"], 1)
+        starts = [m for m in received if m.get("type") == "http.response.start"]
+        # The body is empty JSON so downstream parsing will produce some
+        # error, but the auth layer must not 401. Anything else is fine.
+        self.assertTrue(starts, "Expected a response from the ASGI app")
+        self.assertNotEqual(starts[0]["status"], 401)
+
+
+class MCPCallToolHandlerValidationErrorTest(TransactionTestCase):
+    """``ValidationError`` raised by a tool must surface as a structured
+    error result, not bubble up as an MCP transport exception.
+
+    Covers both the non-scoped (``call_tool_handler``) and the scoped
+    (``create_scoped_mcp_server`` closure) dispatch paths so both
+    branches of the except clause stay correct.
+    """
+
+    def setUp(self):
+        from opencontractserver.conversations.models import (
+            Conversation,
+            ConversationTypeChoices,
+        )
+
+        self.owner = User.objects.create_user(
+            username="mcp_validation_owner",
+            email="mcpval@test.com",
+            password="testpass123",
+        )
+        self.corpus = Corpus.objects.create(
+            title="Validation Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+        self.thread = Conversation.objects.create(
+            title="Validation Thread",
+            creator=self.owner,
+            is_public=False,
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=self.corpus,
+        )
+
+    def tearDown(self):
+        from django import db
+
+        db.connections.close_all()
+
+    def _run(self, coro):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    def test_non_scoped_validation_error_returns_error_payload(self):
+        """Blank content triggers ``ValidationError`` inside the tool. The
+        dispatcher must trap it and return a JSON error result.
+        """
+        from opencontractserver.mcp.server import _mcp_user, call_tool_handler
+
+        async def run_test():
+            token = _mcp_user.set(self.owner)
+            try:
+                return await call_tool_handler(
+                    "create_thread_message",
+                    {
+                        "corpus_slug": self.corpus.slug,
+                        "thread_id": self.thread.id,
+                        "content": "   ",  # whitespace-only -> ValidationError
+                    },
+                )
+            finally:
+                _mcp_user.reset(token)
+
+        result = self._run(run_test())
+        payload = json.loads(result[0].text)
+        self.assertIn("error", payload)
+        self.assertIn("empty", payload["error"].lower())
+
+    def test_scoped_validation_error_returns_error_payload(self):
+        """Same contract via the scoped corpus closure."""
+        from opencontractserver.mcp.server import (
+            _mcp_user,
+            create_scoped_mcp_server,
+        )
+
+        server = create_scoped_mcp_server(self.corpus.slug)
+        call_tool = server.request_handlers[
+            __import__("mcp.types", fromlist=["CallToolRequest"]).CallToolRequest
+        ]
+
+        async def run_test():
+            from mcp.types import CallToolRequest, CallToolRequestParams
+
+            token = _mcp_user.set(self.owner)
+            try:
+                request = CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="create_thread_message",
+                        arguments={
+                            "thread_id": self.thread.id,
+                            "content": "   ",
+                        },
+                    ),
+                )
+                return await call_tool(request)
+            finally:
+                _mcp_user.reset(token)
+
+        response = self._run(run_test())
+        # The MCP server wraps tool results in ServerResult; the text
+        # content is on response.root.content[0].text.
+        text = response.root.content[0].text
+        payload = json.loads(text)
+        self.assertIn("error", payload)
+        self.assertIn("empty", payload["error"].lower())
+
+    def test_scoped_authenticated_create_thread_message_succeeds(self):
+        """Closes the test-coverage gap flagged in review: the scoped
+        ``create_thread_message`` write tool must work end-to-end when an
+        authenticated user is set in ``_mcp_user``.
+        """
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        from opencontractserver.conversations.models import ChatMessage
+        from opencontractserver.mcp.server import (
+            _mcp_user,
+            create_scoped_mcp_server,
+        )
+
+        server = create_scoped_mcp_server(self.corpus.slug)
+        call_tool = server.request_handlers[CallToolRequest]
+
+        async def run_test():
+            token = _mcp_user.set(self.owner)
+            try:
+                request = CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="create_thread_message",
+                        arguments={
+                            "thread_id": self.thread.id,
+                            "content": "scoped write happy path",
+                        },
+                    ),
+                )
+                return await call_tool(request)
+            finally:
+                _mcp_user.reset(token)
+
+        response = self._run(run_test())
+        text = response.root.content[0].text
+        payload = json.loads(text)
+        self.assertNotIn("error", payload)
+        self.assertEqual(payload["content"], "scoped write happy path")
+        # And the message really was persisted with the right creator.
+        msg = ChatMessage.objects.get(id=payload["id"])
+        self.assertEqual(msg.creator, self.owner)

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from opencontractserver.users.types import UserOrAnonymous
 
 from asgiref.sync import sync_to_async
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -303,10 +303,13 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
             document_slug=_document_slug,
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
-    except PermissionDenied as e:
+    except (PermissionDenied, ValidationError) as e:
         # Surface permission failures (e.g., write tools called by anonymous
-        # callers) as structured error results so the LLM can reason about them
-        # rather than receiving an opaque transport error.
+        # callers) and input-validation errors (blank/oversized content, etc.)
+        # as structured error results so the LLM can reason about them and
+        # retry/correct, rather than receiving an opaque transport error.
+        # ``ValidationError.messages`` is preferred for structured payloads;
+        # fall back to ``str(e)`` for the plain ``PermissionDenied`` case.
         await arecord_mcp_tool_call(
             name,
             success=False,
@@ -314,10 +317,14 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
             corpus_slug=_corpus_slug,
             document_slug=_document_slug,
         )
+        if isinstance(e, ValidationError):
+            error_text = "; ".join(e.messages) or "Validation error"
+        else:
+            error_text = str(e) or "Permission denied"
         return [
             TextContent(
                 type="text",
-                text=json.dumps({"error": str(e) or "Permission denied"}),
+                text=json.dumps({"error": error_text}),
             )
         ]
     except Exception as e:
@@ -381,7 +388,13 @@ def create_mcp_server() -> Server:
         return [
             Tool(
                 name="list_public_corpuses",
-                description="List all publicly accessible corpuses",
+                description=(
+                    "List corpuses visible to the caller. Anonymous callers "
+                    "see only public, published corpuses. Authenticated "
+                    "callers additionally see private corpuses they own or "
+                    "have been granted read access to. (Name retained for "
+                    "backwards compatibility with existing MCP clients.)"
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -877,7 +890,10 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
                 document_slug=_document_slug,
             )
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
-        except PermissionDenied as e:
+        except (PermissionDenied, ValidationError) as e:
+            # Same rationale as the non-scoped dispatcher: surface
+            # permission failures and Django input-validation errors as
+            # structured tool results so the LLM can react to them.
             await arecord_mcp_tool_call(
                 name,
                 success=False,
@@ -885,10 +901,14 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
                 corpus_slug=corpus_slug,
                 document_slug=_document_slug,
             )
+            if isinstance(e, ValidationError):
+                error_text = "; ".join(e.messages) or "Validation error"
+            else:
+                error_text = str(e) or "Permission denied"
             return [
                 TextContent(
                     type="text",
-                    text=json.dumps({"error": str(e) or "Permission denied"}),
+                    text=json.dumps({"error": error_text}),
                 )
             ]
         except Exception as e:

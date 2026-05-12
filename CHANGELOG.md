@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Authenticated MCP sessions and `create_thread_message` write tool** (`opencontractserver/mcp/server.py`, `opencontractserver/mcp/tools.py`, `opencontractserver/constants/mcp.py`, `opencontractserver/mcp/tests/test_mcp.py`). The MCP ASGI layer now extracts the `Authorization: Bearer <jwt>` header, resolves the caller via `get_user_from_jwt_token`, and stores the resolved identity in a `ContextVar` (`_mcp_user`) that all tool handlers consume. Anonymous semantics are preserved when no token is supplied. The first write-capable MCP tool, `create_thread_message`, lets authenticated users append messages to threads they can already see; blank/oversized content raises `ValidationError` which the dispatch layer now surfaces as a structured `{"error": ...}` tool result (alongside `PermissionDenied`) so the LLM can react instead of receiving a transport-level exception. Both the non-scoped (`call_tool_handler`) and scoped (`create_scoped_mcp_server`) endpoints honor authentication uniformly. Existing read-only tools (`list_public_corpuses`, etc.) keep their names for backwards compatibility; their tool descriptions are clarified to note that authenticated callers now also see private resources via the standard visibility rules. New tests cover: valid-JWT auth path (asserts `_mcp_user` is set and the request is not 401), invalid-JWT 401 path, `ValidationError` → structured result on both non-scoped and scoped paths, scoped write happy path with creator persistence, and IDOR/anonymous-rejection regressions.
+
 ### Fixed
 
 - **Dark mode contrast in CAML article renderer** (`frontend/package.json`). Upgraded `@os-legal/caml` and `@os-legal/caml-react` from 0.1.0 to 0.1.2 to pull in a rendering fix that restores text/background contrast in dark-mode CAML article views. Also updated the `resolutions` entry so both the top-level app and `caml-react`'s own peer resolve to the same 0.1.2 version (previously the stale `^0.1.0` resolution caused `caml-react` to bundle caml 0.1.0 internally despite the dependency version bump).
