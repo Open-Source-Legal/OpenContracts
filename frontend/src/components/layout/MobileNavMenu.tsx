@@ -560,7 +560,7 @@ export const MobileNavMenu: FC<MobileNavMenuProps> = ({
             </SheetNav>
 
             {!hideAuth && (
-              <AuthFooter>
+              <AuthFooter data-testqa="mobile-nav-auth-footer">
                 {userName ? (
                   <UserChip>
                     <Avatar>{initialsFor(userName)}</Avatar>

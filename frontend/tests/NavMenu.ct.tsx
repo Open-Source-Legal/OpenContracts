@@ -701,6 +701,15 @@ test.describe("NavMenu Responsive Behavior", () => {
     await expect(
       navLandmark.getByRole("button", { name: "Discover" })
     ).toBeVisible();
+    // Pin the structural contract: the AuthFooter (Sign-in CTA on
+    // anonymous, account chip when signed in) lives outside the <nav>
+    // landmark so screen readers don't expose auth state as a
+    // navigation item.
+    const authFooter = sheet.locator('[data-testqa="mobile-nav-auth-footer"]');
+    await expect(authFooter).toBeVisible();
+    await expect(
+      navLandmark.locator('[data-testqa="mobile-nav-auth-footer"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });
