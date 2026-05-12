@@ -13,6 +13,14 @@ const SAFE_PROTOCOLS = /^(https?:|mailto:|tel:)/i;
 
 function urlTransform(url: string): string {
   // Treat empty / fragment-only / relative URLs as safe.
+  //
+  // We intentionally pass through absolute in-app paths like ``/settings``
+  // unchanged. There is no XSS vector (no protocol means no js: / data:
+  // execution) and rewriting them would break legitimate cross-page links
+  // inside the same SPA. The accepted trade-off: a profile author can craft
+  // in-app phishing links (e.g. ``/admin``) just like they can in any free-
+  // text field. This is *not* a license to broaden the allowlist later —
+  // anything carrying a ``:`` must still match SAFE_PROTOCOLS.
   if (!url || url.startsWith("#") || url.startsWith("/")) return url;
   return SAFE_PROTOCOLS.test(url) ? url : "";
 }

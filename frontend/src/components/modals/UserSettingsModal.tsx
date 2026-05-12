@@ -56,6 +56,23 @@ const FormField = styled.div`
   }
 `;
 
+const MarkdownTextarea = styled.textarea`
+  width: 100%;
+  padding: 0.5rem;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 6px;
+
+  &:focus {
+    outline: none;
+    border-color: ${OS_LEGAL_COLORS.accent};
+  }
+`;
+
 interface EditableProfileState {
   name?: string;
   firstName?: string;
@@ -189,24 +206,22 @@ const UserSettingsModal: React.FC = () => {
           <div style={{ height: "1rem" }} />
           <FormField>
             <label>About (Markdown)</label>
-            <textarea
+            <MarkdownTextarea
               rows={6}
               value={form.profileAboutMarkdown || ""}
               maxLength={5000}
               onChange={(e) => onChange("profileAboutMarkdown", e.target.value)}
               placeholder="Write a short bio in Markdown"
-              style={{ width: "100%", padding: "0.5rem", resize: "vertical" }}
             />
           </FormField>
           <FormField>
             <label>Links (Markdown)</label>
-            <textarea
+            <MarkdownTextarea
               rows={4}
               value={form.profileLinksMarkdown || ""}
               maxLength={5000}
               onChange={(e) => onChange("profileLinksMarkdown", e.target.value)}
               placeholder="- [Website](https://example.com)"
-              style={{ width: "100%", padding: "0.5rem", resize: "vertical" }}
             />
           </FormField>
           <div style={{ height: "1rem" }} />

@@ -353,6 +353,47 @@ class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
         self.assertEqual(data["profileAboutMarkdown"], "About text")
         self.assertEqual(data["profileLinksMarkdown"], "Links text")
 
+    def test_update_me_rejects_oversized_markdown_fields(self):
+        """`graphene.String` has no length constraint, but `UpdateMe.mutate`
+        routes through `UserUpdateSerializer` (DRF `ModelSerializer`), which
+        auto-applies each model field's `max_length` validator. An oversized
+        payload must therefore be rejected with a serializer error rather
+        than silently persisted in the row.
+        """
+        from opencontractserver.users.models import User as UserModel
+
+        # Each field exceeds its 5000-char max_length by one character.
+        oversize_about = "a" * 5001
+        oversize_links = "b" * 5001
+
+        mutation = """
+            mutation UpdateMe(
+                $profileAboutMarkdown: String,
+                $profileLinksMarkdown: String,
+            ) {
+                updateMe(
+                    profileAboutMarkdown: $profileAboutMarkdown,
+                    profileLinksMarkdown: $profileLinksMarkdown,
+                ) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.client.execute(
+            mutation,
+            variables={
+                "profileAboutMarkdown": oversize_about,
+                "profileLinksMarkdown": oversize_links,
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updateMe"]["ok"])
+        # Confirm the row wasn't mutated.
+        persisted = UserModel.objects.get(pk=self.user.pk)
+        self.assertEqual(persisted.profile_about_markdown, "")
+        self.assertEqual(persisted.profile_links_markdown, "")
+
     def test_update_me_persists_is_profile_public_toggle(self):
         """isProfilePublic was newly added to UpdateMeInputs — verify round-trip."""
         mutation = """

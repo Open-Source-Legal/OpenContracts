@@ -139,7 +139,7 @@ class DocxodusServiceParser(BaseParser):
         # Base64-encode for JSON transport
         docx_base64 = base64.b64encode(docx_bytes).decode("utf-8")
 
-        payload = {
+        payload: dict[str, Any] = {
             "filename": document.title or f"doc_{doc_id}.docx",
             "docx_base64": docx_base64,
         }
