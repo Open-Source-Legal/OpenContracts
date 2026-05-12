@@ -451,3 +451,20 @@ class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
         self.assertIsNone(result.get("errors"))
         # The whole user is hidden — not just the fields.
         self.assertIsNone(result["data"]["userBySlug"])
+
+    def test_owner_can_read_their_own_private_profile_markdown_fields(self):
+        """Closes the coverage gap flagged in review: the owner of a
+        private profile must still be able to fetch their own markdown
+        fields via ``userBySlug``. ``User.objects.visible_to_user``
+        always includes ``user == requesting_user`` in the queryset, so
+        a regression that broke this contract would be silent.
+        """
+        result = self._query_by_slug(self.private_owner, self.private_owner.slug)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["userBySlug"]
+        self.assertIsNotNone(data, "Owner must see their own private profile")
+        self.assertEqual(data["profileHeadline"], "Hidden Headline")
+        self.assertEqual(data["profileAboutMarkdown"], "hidden bio")
+        self.assertEqual(
+            data["profileLinksMarkdown"], "- [hidden](https://example.com)"
+        )

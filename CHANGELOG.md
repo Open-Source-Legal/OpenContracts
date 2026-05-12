@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Markdown-customizable user profile fields** (`opencontractserver/users/models.py`, `opencontractserver/users/migrations/0030_user_profile_about_markdown_user_profile_headline_and_more.py`, `config/graphql/{serializers,user_mutations,user_types}.py`, `frontend/src/components/modals/UserSettingsModal.tsx`, `frontend/src/views/UserProfile.tsx`, `frontend/src/graphql/{mutations,queries}.ts`). New User fields `profile_headline` (256 chars), `profile_about_markdown` (~10k chars), and `profile_links_markdown` (~5k chars) editable from the settings modal and rendered via `SafeMarkdown` on the profile view. Visibility piggybacks on the existing `User.objects.visible_to_user()` (private profiles stay hidden whole-record), and owners can still read their own fields on a private profile. `SafeMarkdown` now pins an explicit `urlTransform` allowlist (`https://`, `http://`, `mailto:`, `tel:`, relative / fragment) so `javascript:` / `data:` link targets are stripped even if `react-markdown`'s default ever loosens. Backend test `test_owner_can_read_their_own_private_profile_markdown_fields` plus a frontend CT case in `user-profile.ct.tsx` covering markdown rendering and the URL allowlist close the coverage gap flagged in review.
+
 ### Fixed
+
+- **`isProfilePublic` toggle silently dropped from UpdateMe mutation** (`frontend/src/graphql/mutations.ts`). The Profile Visibility switch in `UserSettingsModal` looked like it worked locally (optimistic state flipped), but the field was missing from both `UpdateMeInputs` (TypeScript) and the `UPDATE_ME` mutation variable list, so the toggle never reached the server. The field is now part of the input type and the mutation variables, and a backend regression test (`test_update_me_persists_is_profile_public_toggle`) pins the round-trip.
 
 - **Dark mode contrast in CAML article renderer** (`frontend/package.json`). Upgraded `@os-legal/caml` and `@os-legal/caml-react` from 0.1.0 to 0.1.2 to pull in a rendering fix that restores text/background contrast in dark-mode CAML article views. Also updated the `resolutions` entry so both the top-level app and `caml-react`'s own peer resolve to the same 0.1.2 version (previously the stale `^0.1.0` resolution caused `caml-react` to bundle caml 0.1.0 internally despite the dependency version bump).
 
