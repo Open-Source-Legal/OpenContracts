@@ -167,6 +167,13 @@ export const POPOVER_Z_INDEX = 100002;
 
 // Z-index layer constants for consistent stacking
 // Note: @os-legal/ui Modal uses z-index 400, so in-page overlays must stay below that.
+//
+// The MOBILE_* slots are reserved for floating controls / labels rendered
+// into ``document.body`` via ``createPortal`` on mobile — they intentionally
+// sit *above* MODAL (so the annotation tools and document FAB can float
+// over the DocumentKnowledgeBase fullscreen modal at z-index 3000) but
+// *below* the MOBILE_ANNOTATION_LABEL_MODAL slot (so the label picker
+// covers the annotation tools when both are visible).
 export const Z_INDEX = {
   /** In-page loading overlays (position: absolute within a relative parent) */
   OVERLAY: 10,
@@ -177,6 +184,17 @@ export const Z_INDEX = {
   DROPDOWN: 100,
   /** Modal-level overlays (dialogs, full-screen) */
   MODAL: 1000,
+  /** DocumentKnowledgeBase fullscreen modal (set as a CSS variable too — keep in sync). */
+  APP_MODAL: 3000,
+  /** Children of the DocumentKnowledgeBase fullscreen modal (nested dialogs, popovers). */
+  APP_MODAL_CHILD: 3100,
+  /** Mobile annotation tools rendered via portal into document.body. */
+  MOBILE_ANNOTATION_TOOLS: 3048,
+  /** Mobile floating document-controls FAB (orbit menu) rendered via portal. */
+  MOBILE_FLOATING_CONTROLS: 3050,
+  /** Mobile annotation-label modal (sits above the annotation tools and the
+   *  floating controls so the label picker is always tappable). */
+  MOBILE_ANNOTATION_LABEL_MODAL: 3100,
   /** Full-viewport transparent overlay behind context menus (click-outside capture) */
   CONTEXT_MENU_OVERLAY: 9998,
   /** Floating context menu container */

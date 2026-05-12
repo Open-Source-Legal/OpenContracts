@@ -8,6 +8,7 @@ import React, {
 import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { Z_INDEX } from "../../../assets/configurations/constants";
 import {
   Tag,
   FileText,
@@ -59,8 +60,8 @@ interface EnhancedLabelSelectorProps {
 }
 
 const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
-const MOBILE_ANNOTATION_TOOLS_Z_INDEX = 3048;
-const ANNOTATION_LABEL_MODAL_Z_INDEX = 3100;
+const MOBILE_ANNOTATION_TOOLS_Z_INDEX = Z_INDEX.MOBILE_ANNOTATION_TOOLS;
+const ANNOTATION_LABEL_MODAL_Z_INDEX = Z_INDEX.MOBILE_ANNOTATION_LABEL_MODAL;
 
 export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
   activeSpanLabel,

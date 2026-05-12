@@ -94,6 +94,16 @@ interface FullScreenModalProps {
   children: React.ReactNode;
 }
 
+/**
+ * Module-level counter of how many ``FullScreenModal`` instances are
+ * currently open. The scroll-lock classes are added on the first mount
+ * and only stripped on the last unmount, so nested modals (a child
+ * dialog opened on top of the DocumentKnowledgeBase fullscreen modal,
+ * for example) don't accidentally release the body scroll lock while
+ * a parent is still open.
+ */
+let fullScreenModalOpenCount = 0;
+
 export const FullScreenModal: React.FC<FullScreenModalProps> = ({
   id,
   open,
@@ -123,18 +133,28 @@ export const FullScreenModal: React.FC<FullScreenModalProps> = ({
     window.visualViewport?.addEventListener("scroll", updateViewportVars);
 
     window.scrollTo(0, 0);
-    root.classList.add("document-kb-scroll-lock");
-    document.body.classList.add("document-kb-scroll-lock");
+    // Increment the global counter and only add the lock classes on the
+    // first open. Nested FullScreenModal instances share the lock.
+    fullScreenModalOpenCount += 1;
+    if (fullScreenModalOpenCount === 1) {
+      root.classList.add("document-kb-scroll-lock");
+      document.body.classList.add("document-kb-scroll-lock");
+    }
 
     return () => {
       window.removeEventListener("resize", updateViewportVars);
       window.visualViewport?.removeEventListener("resize", updateViewportVars);
       window.visualViewport?.removeEventListener("scroll", updateViewportVars);
-      root.style.removeProperty("--oc-dkb-visible-viewport-height");
-      root.style.removeProperty("--oc-dkb-visible-viewport-offset-top");
-      root.classList.remove("document-kb-scroll-lock");
-      document.body.classList.remove("document-kb-scroll-lock");
-      window.scrollTo(0, scrollY);
+      // Only strip the lock when the last open instance unmounts so that
+      // a child modal closing first doesn't release the parent's lock.
+      fullScreenModalOpenCount = Math.max(0, fullScreenModalOpenCount - 1);
+      if (fullScreenModalOpenCount === 0) {
+        root.style.removeProperty("--oc-dkb-visible-viewport-height");
+        root.style.removeProperty("--oc-dkb-visible-viewport-offset-top");
+        root.classList.remove("document-kb-scroll-lock");
+        document.body.classList.remove("document-kb-scroll-lock");
+        window.scrollTo(0, scrollY);
+      }
     };
   }, [open]);
 

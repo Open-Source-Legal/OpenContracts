@@ -28,11 +28,12 @@ import { AnnotationControls } from "../../annotator/controls/AnnotationControls"
 import { ToggleSwitch } from "../../widgets/ToggleSwitch";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import { visualViewportAwareBottom } from "../../../utils/layout";
+import { Z_INDEX } from "../../../assets/configurations/constants";
 
 const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
 const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
 const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
-const MOBILE_FLOATING_CONTROLS_Z_INDEX = 3050;
+const MOBILE_FLOATING_CONTROLS_Z_INDEX = Z_INDEX.MOBILE_FLOATING_CONTROLS;
 const MOBILE_FLOATING_BACKDROP_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX - 1;
 const MOBILE_FLOATING_PANEL_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX + 1;
 
