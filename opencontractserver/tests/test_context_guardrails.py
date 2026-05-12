@@ -1222,6 +1222,130 @@ class TestLoadDocumentTextClosureIntegration(SimpleTestCase):
 
 
 # ---------------------------------------------------------------------------
+# _make_get_document_text_length_tool closure
+# ---------------------------------------------------------------------------
+
+
+class TestGetDocumentTextLengthClosure(SimpleTestCase):
+    """The ``get_document_text_length`` closure must use the membership
+    predicate (``is_txt_extract_cached``) to detect a successful prime,
+    NOT the length predicate — otherwise a genuinely empty document
+    (cached as ``""``) silently re-loads the full document on every call.
+
+    Also pins the cache-miss fallback (defensive against a future cache
+    backend that drops entries) so the closure still returns the correct
+    length when the prime fails to populate.
+    """
+
+    DOC_ID = 98_765
+
+    def setUp(self):
+        from opencontractserver.llms.tools.core_tools import text_extracts
+
+        text_extracts._DOC_TXT_CACHE.pop(self.DOC_ID, None)
+
+    def tearDown(self):
+        from opencontractserver.llms.tools.core_tools import text_extracts
+
+        text_extracts._DOC_TXT_CACHE.pop(self.DOC_ID, None)
+
+    async def test_returns_cached_length_for_empty_document(self):
+        """Empty document (cached as ``""``) — the membership predicate
+        sees the prime as cached and the closure returns 0 without a
+        second full load."""
+        from unittest.mock import AsyncMock
+
+        from opencontractserver.llms.agents import pydantic_ai_agents as mod
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _make_get_document_text_length_tool,
+        )
+        from opencontractserver.llms.tools.core_tools import text_extracts
+
+        load_calls: list[tuple] = []
+
+        async def fake_load(doc_id, start=None, end=None, refresh=False):
+            load_calls.append((doc_id, start, end, refresh))
+            from datetime import datetime as _dt
+
+            # Prime caches the empty document.
+            text_extracts._DOC_TXT_CACHE[doc_id] = (_dt.now(), "")
+            return ""
+
+        with patch.object(
+            mod, "aload_document_txt_extract", new=AsyncMock(side_effect=fake_load)
+        ):
+            tool = _make_get_document_text_length_tool(self.DOC_ID)
+            result = await tool()
+
+        # Empty cached doc → 0 length, exactly one load (the prime).
+        self.assertEqual(result, 0)
+        self.assertEqual(len(load_calls), 1)
+        self.assertEqual(load_calls[0][1:3], (0, 1))
+
+    async def test_returns_cached_length_for_populated_document(self):
+        """Populated document — the prime hits, the membership predicate
+        flips to True, and the closure returns the cached length."""
+        from unittest.mock import AsyncMock
+
+        from opencontractserver.llms.agents import pydantic_ai_agents as mod
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _make_get_document_text_length_tool,
+        )
+        from opencontractserver.llms.tools.core_tools import text_extracts
+
+        async def fake_load(doc_id, start=None, end=None, refresh=False):
+            from datetime import datetime as _dt
+
+            text_extracts._DOC_TXT_CACHE[doc_id] = (_dt.now(), "abcdef" * 10)
+            return "ab"
+
+        with patch.object(
+            mod, "aload_document_txt_extract", new=AsyncMock(side_effect=fake_load)
+        ):
+            tool = _make_get_document_text_length_tool(self.DOC_ID)
+            result = await tool()
+
+        self.assertEqual(result, 60)
+
+    async def test_falls_back_to_full_load_on_cache_miss(self):
+        """If the prime did NOT populate the cache (defensive fallback
+        for a future cache backend that drops entries), the closure
+        falls through to a full ``aload_document_txt_extract`` call and
+        returns ``len(full_text)``."""
+        from unittest.mock import AsyncMock
+
+        from opencontractserver.llms.agents import pydantic_ai_agents as mod
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            _make_get_document_text_length_tool,
+        )
+
+        # The prime call returns "" *and does not populate the cache* —
+        # ``is_txt_extract_cached`` will be False after the prime and the
+        # fallback branch fires. The fallback call returns the full text.
+        load_calls: list[tuple] = []
+
+        async def fake_load(doc_id, start=None, end=None, refresh=False):
+            load_calls.append((doc_id, start, end, refresh))
+            # Intentionally do NOT mutate _DOC_TXT_CACHE so the membership
+            # predicate stays False and the fallback path fires.
+            if start == 0 and end == 1:
+                return ""
+            return "the full text"
+
+        with patch.object(
+            mod, "aload_document_txt_extract", new=AsyncMock(side_effect=fake_load)
+        ):
+            tool = _make_get_document_text_length_tool(self.DOC_ID)
+            result = await tool()
+
+        # Two loads: the prime (0,1) and the fallback (no slice args).
+        self.assertEqual(len(load_calls), 2)
+        self.assertEqual(load_calls[0][1:3], (0, 1))
+        self.assertEqual(load_calls[1][1:3], (None, None))
+        self.assertEqual(result, len("the full text"))
+
+
+# ---------------------------------------------------------------------------
 # is_txt_extract_cached membership predicate
 # ---------------------------------------------------------------------------
 
@@ -1425,6 +1549,105 @@ class TestHistoryResultFromMessages(SimpleTestCase):
 
         history = PydanticAICoreAgent._history_result_from_messages(config, None)
         self.assertEqual(history.estimated_tokens, estimate_token_count("System."))
+
+    def test_part_text_empty_content_does_not_fall_through_to_args(self):
+        """An empty ``content`` string (e.g. a ``ToolReturnPart`` with an
+        empty result) must NOT trigger the args fallback — that would
+        replace the legitimately-empty content with the tool's input
+        arguments and double-count those tokens in the budget snapshot.
+
+        Pre-fix the closure used ``getattr(p, "content", None) or
+        getattr(p, "args", None)`` which short-circuited on falsy
+        empty strings. The fix uses an explicit ``is None`` guard.
+        """
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.context_guardrails import estimate_token_count
+
+        class _FakePart:
+            def __init__(self, content, args):
+                self.content = content
+                self.args = args
+
+        class _FakeMessage:
+            def __init__(self, parts):
+                self.parts = parts
+
+        # An empty ToolReturnPart-style part with large argument payload
+        # should contribute zero text — the args fallback must not fire.
+        big_args = "x" * 4000
+        msgs = [_FakeMessage([_FakePart(content="", args=big_args)])]
+
+        config = AgentConfig(model_name="gpt-4o", system_prompt="")
+        history = PydanticAICoreAgent._history_result_from_messages(
+            config, msgs  # type: ignore[arg-type]
+        )
+
+        # Tokens for "" only — system prompt is empty, the part is empty.
+        self.assertEqual(history.estimated_tokens, estimate_token_count(""))
+
+    def test_part_text_none_content_falls_back_to_args(self):
+        """A part with ``content=None`` (e.g. ``ToolCallPart`` storing
+        arguments in ``args``) must still get its tokens counted via the
+        args fallback so tool-call argument payloads contribute to the
+        budget snapshot."""
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.context_guardrails import estimate_token_count
+
+        class _FakePart:
+            def __init__(self, content, args):
+                self.content = content
+                self.args = args
+
+        class _FakeMessage:
+            def __init__(self, parts):
+                self.parts = parts
+
+        big_args = "y" * 4000
+        msgs = [_FakeMessage([_FakePart(content=None, args=big_args)])]
+
+        config = AgentConfig(model_name="gpt-4o", system_prompt="")
+        history = PydanticAICoreAgent._history_result_from_messages(
+            config, msgs  # type: ignore[arg-type]
+        )
+
+        # Tokens for the args payload — content was None so fallback fires.
+        self.assertEqual(history.estimated_tokens, estimate_token_count(big_args))
+
+    def test_part_text_non_string_content_is_stringified(self):
+        """When a part's content is something other than ``str`` (e.g.
+        a structured payload), the helper falls back to ``str(content)``
+        so the budget estimate doesn't silently drop those tokens."""
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.context_guardrails import estimate_token_count
+
+        class _FakePart:
+            def __init__(self, content, args):
+                self.content = content
+                self.args = args
+
+        class _FakeMessage:
+            def __init__(self, parts):
+                self.parts = parts
+
+        payload = {"hello": "world"}
+        msgs = [_FakeMessage([_FakePart(content=payload, args=None)])]
+
+        config = AgentConfig(model_name="gpt-4o", system_prompt="")
+        history = PydanticAICoreAgent._history_result_from_messages(
+            config, msgs  # type: ignore[arg-type]
+        )
+
+        # Tokens for str(payload) — content was non-str non-None.
+        self.assertEqual(history.estimated_tokens, estimate_token_count(str(payload)))
 
 
 # ---------------------------------------------------------------------------

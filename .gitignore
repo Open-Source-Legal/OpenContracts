@@ -207,3 +207,4 @@ docs/superpowers/
 # every number in docs/benchmarks/legalbench_rag_results.md has a
 # traceable artifact. Do not exclude that directory.
 !docs/benchmarks/runs/
+.playwright-mcp/
