@@ -386,6 +386,12 @@ class OpenContractDocExport(OpenContractsDocAnnotations):
     # V2: Reference to structural annotation set (if any)
     structural_set_hash: NotRequired[Optional[str]]
 
+    # V2: SHA-256 hash of the source file content.  Required for
+    # roundtrip-safety of DocumentPath reconstruction (path/folder/ingestion
+    # lineage lookup keys off this hash) and document-level conversation
+    # relinking (``chat_with_document_hash`` resolves through this).
+    pdf_file_hash: NotRequired[Optional[str]]
+
 
 class OpenContractsExportDataJsonPythonType(TypedDict):
     """

@@ -214,13 +214,27 @@ def import_annotations(
                     embedder_path=embedder_path,
                 )
 
-    # Second pass: Set parent relationships
+    # Second pass: Set parent relationships.
+    # Legacy V1 exports — and V2 exports written before parent_id was
+    # consistently stringified — emit ``parent_id`` as an int while ``id``
+    # is a string.  The map is keyed by whatever the ``id`` field carries,
+    # so we try the raw value first and fall back to its string form to
+    # cover that asymmetry.  Both ``str`` and ``int`` lookups go through
+    # this helper.
+    def _lookup_pk(raw: Any) -> int | None:
+        if raw is None:
+            return None
+        pk = old_id_to_new_pk.get(raw)
+        if pk is not None:
+            return pk
+        return old_id_to_new_pk.get(str(raw))
+
     for annotation_data in annotations_data:
         old_id = annotation_data.get("id")
         parent_old_id = annotation_data.get("parent_id")
         if parent_old_id is not None and old_id is not None:
-            annot_pk = old_id_to_new_pk.get(old_id)
-            parent_pk = old_id_to_new_pk.get(parent_old_id)
+            annot_pk = _lookup_pk(old_id)
+            parent_pk = _lookup_pk(parent_old_id)
             if annot_pk and parent_pk:
                 annot_obj = Annotation.objects.get(pk=annot_pk)
                 parent_annot_obj = Annotation.objects.get(pk=parent_pk)
@@ -496,6 +510,12 @@ def create_document_from_export_data(
         title=doc_data["title"],
         description=doc_data.get("description", ""),
         pdf_file=pdf_file,
+        # Preserve the source-file hash from the export when present.
+        # Required so the corpus-isolated copy created by ``add_document``
+        # (which inherits ``pdf_file_hash`` from this doc) carries the hash
+        # forward — DocumentPath reconstruction and document-level
+        # conversation relinking both key off it.
+        pdf_file_hash=doc_data.get("pdf_file_hash") or None,
         pawls_parse_file=pawls_parse_file,
         txt_extract_file=txt_extract_file,
         file_type=doc_data.get("file_type")

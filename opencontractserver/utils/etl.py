@@ -326,6 +326,11 @@ def build_document_export(
             "pawls_file_content": pawls_tokens,
             "page_count": doc.page_count,
             "file_type": doc.file_type,
+            # Preserve the source-file hash so DocumentPath reconstruction
+            # (which looks up corpus docs by hash) and document-level
+            # conversation relinking (via ``chat_with_document_hash``) both
+            # resolve correctly across roundtrips.
+            "pdf_file_hash": doc.pdf_file_hash,
         }
 
         page_highlights: dict[str, dict[int, list[dict[str, int | float]]]] = {}
@@ -353,7 +358,11 @@ def build_document_export(
                     "annotation_json": (
                         compact_annotation_json(annot.json) if annot.json else {}
                     ),
-                    "parent_id": annot.parent.id if annot.parent else None,
+                    # parent_id must use the same key type as ``id`` above
+                    # (which is always a string), otherwise the import-side
+                    # ``old_id_to_new_pk`` lookup misses on the second pass
+                    # and the parent link is silently dropped.
+                    "parent_id": (f"{annot.parent.id}" if annot.parent else None),
                     "annotation_type": annot.annotation_type,
                     "structural": annot.structural,
                 }
