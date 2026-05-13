@@ -90,6 +90,10 @@ from .notes import (  # noqa: F401
     update_document_note,
 )
 from .page_images import aget_page_image, get_page_image  # noqa: F401
+from .pii import (  # noqa: F401
+    ENTITY_GROUP_LABELS,
+    ascan_and_annotate_pii,
+)
 from .search import (  # noqa: F401
     asearch_exact_text_as_sources,
     search_exact_text_as_sources,
@@ -187,4 +191,7 @@ __all__ = [
     # Corpus memory
     "aget_corpus_memory",
     "asuggest_memory_update",
+    # PII scanning and annotation
+    "ENTITY_GROUP_LABELS",
+    "ascan_and_annotate_pii",
 ]

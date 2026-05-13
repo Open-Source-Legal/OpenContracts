@@ -36,6 +36,14 @@ services:
       docxodus-parser:
         condition: service_started
         required: false
+      privacy_filter:
+        condition: service_started
+        # Opt-in service: existing deployments that don't run a privacy
+        # filter must still be able to start django / celeryworker.
+        # When PRIVACY_FILTER_URL is unset, the scan_and_annotate_pii
+        # tool raises a descriptive RuntimeError instead of breaking
+        # the whole stack.
+        required: false
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
@@ -109,6 +117,28 @@ services:
     # must use the same Docxodus version for character offset alignment.
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
+
+  privacy_filter:
+    image: ghcr.io/open-source-legal/privacy-filter:latest
+    container_name: privacy_filter
+    # Empty default so existing deployments that don't run the privacy
+    # filter can still `docker compose -f production.yml up` without
+    # exporting PRIVACY_FILTER_API_KEY. Compose substitutes env vars at
+    # PARSE time, so the previous `${...:?...}` required-form aborted the
+    # whole stack — not just this service — when the var was unset, which
+    # contradicted the `required: false` dependency declared above.
+    environment:
+      API_KEYS: ${PRIVACY_FILTER_API_KEY:-}
+      MAX_INPUT_CHARS: "50000"
+      CORS_ORIGINS: ""
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)\""
+      interval: 10s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
 
   celeryworker:
     <<: *django
