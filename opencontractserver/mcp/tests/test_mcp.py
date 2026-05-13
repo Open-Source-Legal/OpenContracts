@@ -5746,3 +5746,104 @@ class MCPCallToolHandlerValidationErrorTest(_MCPAsyncRunMixin, TransactionTestCa
         # And the message really was persisted with the right creator.
         msg = ChatMessage.objects.get(id=payload["id"])
         self.assertEqual(msg.creator, self.owner)
+
+
+class MCPNonScopedListToolsTest(_MCPAsyncRunMixin, TestCase):
+    """Catch drift between the non-scoped ``list_tools()`` declaration and
+    the ``TOOL_HANDLERS`` dispatch dict.
+
+    The two registries are populated independently in ``server.py``; if a
+    new tool is registered in one but forgotten in the other, the MCP
+    surface either advertises a missing tool or hides a working one. This
+    test pins both directions for every tool name, with explicit coverage
+    of ``create_thread_message`` since it was the trigger for this gap
+    audit.
+    """
+
+    def test_create_thread_message_advertised_in_list_tools(self):
+        from mcp.types import ListToolsRequest
+
+        from opencontractserver.mcp.server import TOOL_HANDLERS, mcp_server
+
+        handler = mcp_server.request_handlers[ListToolsRequest]
+        result = self._run(handler(ListToolsRequest(method="tools/list")))
+        tool_names = {t.name for t in result.root.tools}
+
+        self.assertIn(
+            "create_thread_message",
+            tool_names,
+            "create_thread_message is registered in TOOL_HANDLERS but not "
+            "declared by list_tools — non-scoped MCP clients won't see it.",
+        )
+        # And every list_tools entry must have a dispatcher (and vice
+        # versa) so neither side can drift without a test failure.
+        self.assertEqual(tool_names, set(TOOL_HANDLERS.keys()))
+
+
+class MCPExtractBearerTokenTest(TestCase):
+    """Edge cases for ``_extract_bearer_token``.
+
+    The function quietly returns ``None`` on a few paths that aren't
+    obvious from the call site — non-http scopes, empty bearer payload,
+    bytes-case-insensitive header name — and each of those is load-bearing
+    for the ASGI auth branch (returning ``None`` correctly falls through
+    to the anonymous path instead of crashing on a malformed header).
+    """
+
+    def test_returns_none_for_non_http_scope(self):
+        from opencontractserver.mcp.server import _extract_bearer_token
+
+        scope = {
+            "type": "websocket",
+            "headers": [(b"authorization", b"Bearer abc123")],
+        }
+        self.assertIsNone(_extract_bearer_token(scope))
+
+    def test_returns_none_when_no_authorization_header(self):
+        from opencontractserver.mcp.server import _extract_bearer_token
+
+        scope = {
+            "type": "http",
+            "headers": [(b"content-type", b"application/json")],
+        }
+        self.assertIsNone(_extract_bearer_token(scope))
+
+    def test_returns_none_for_bearer_with_empty_value(self):
+        """``Bearer `` with nothing after the space must yield ``None``,
+        not the empty string — otherwise the JWT verifier is asked to
+        decode the empty token and the failure path becomes 401 instead
+        of the anonymous path."""
+        from opencontractserver.mcp.server import _extract_bearer_token
+
+        scope = {
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer ")],
+        }
+        self.assertIsNone(_extract_bearer_token(scope))
+
+    def test_returns_none_for_non_bearer_scheme(self):
+        from opencontractserver.mcp.server import _extract_bearer_token
+
+        scope = {
+            "type": "http",
+            "headers": [(b"authorization", b"Basic dXNlcjpwYXNz")],
+        }
+        self.assertIsNone(_extract_bearer_token(scope))
+
+    def test_case_insensitive_authorization_header_name(self):
+        from opencontractserver.mcp.server import _extract_bearer_token
+
+        scope = {
+            "type": "http",
+            "headers": [(b"Authorization", b"Bearer eyJabc")],
+        }
+        self.assertEqual(_extract_bearer_token(scope), "eyJabc")
+
+    def test_strips_surrounding_whitespace_from_token(self):
+        from opencontractserver.mcp.server import _extract_bearer_token
+
+        scope = {
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer   eyJabc  ")],
+        }
+        self.assertEqual(_extract_bearer_token(scope), "eyJabc")

@@ -41,11 +41,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
-# Module-level import so the JWT verifier path is patch-stable. A previous
-# inline import inside the auth branch only resolved at call time, which
-# meant patching ``opencontractserver.mcp.server.get_user_from_jwt_token``
-# was a no-op until the function was actually invoked once. Tests patching
-# this symbol now bind to the same object the runtime path uses.
+# Module-level import so test-time patching of this symbol is stable
+# (see MCPAsgiAppAuthTest for the patch sites).
 from config.jwt_utils import get_user_from_jwt_token
 from config.ratelimit.decorators import MCPRateLimitError, check_mcp_rate_limit
 from config.ratelimit.keys import get_client_ip_from_scope
@@ -108,6 +105,14 @@ async def _check_per_tool_rate_limit(name: str) -> None:
     Raises ``MCPRateLimitError`` if the tool is rate limited.
     Silently skips when no ASGI scope is available (e.g. stdio transport,
     tests) since there is no network-level identity to key on.
+
+    NOTE: ``create_thread_message`` (the first write tool) inherits the
+    generic per-tool limit configured for MCP, not a write-specific bucket.
+    The operator-facing knob lives in
+    ``config.ratelimit.mcp_settings`` — adding a dedicated
+    write-mutation throttle is deliberately deferred until a second write
+    tool ships so the limit shape can be designed from two data points
+    rather than guessed from one.
     """
     scope = _mcp_asgi_scope.get()
     if scope is not None:
@@ -277,7 +282,14 @@ def _format_tool_error_text(e: BaseException) -> str:
     """
     if isinstance(e, ValidationError):
         return "; ".join(e.messages) or "Validation error"
-    return str(e) or "Permission denied"
+    if isinstance(e, PermissionDenied):
+        return str(e) or "Permission denied"
+    # Anything else reaching this helper is an unexpected exception type
+    # (the call sites narrow to ``PermissionDenied``/``ValidationError``,
+    # but the body is shared so be defensive). Returning "Permission
+    # denied" for, say, a raw ``Exception`` would actively mislead the
+    # LLM about what went wrong.
+    return str(e) or "Unexpected error"
 
 
 async def _record_and_return_tool_error(
