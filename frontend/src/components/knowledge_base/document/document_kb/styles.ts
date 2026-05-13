@@ -1,86 +1,101 @@
 import styled from "styled-components";
-import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import {
+  accentAlpha,
+  OS_LEGAL_COLORS,
+  OS_LEGAL_SPACING,
+} from "../../../../assets/configurations/osLegalStyles";
 
 export const HeaderButtonGroup = styled.div`
   display: flex;
   gap: 8px;
   align-items: center;
   flex-shrink: 0;
+  min-width: 0;
 `;
 
 export const HeaderButton = styled.button<{
   $variant?: "primary" | "secondary";
 }>`
   height: 36px;
-  padding: 0 ${(props) => (props.$variant === "primary" ? "16px" : "10px")};
+  padding: 0 ${(props) => (props.$variant === "primary" ? "14px" : "10px")};
   background: ${(props) =>
     props.$variant === "primary"
-      ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-      : "rgba(255, 255, 255, 0.1)"};
+      ? OS_LEGAL_COLORS.accentSurface
+      : OS_LEGAL_COLORS.surface};
   color: ${(props) =>
-    props.$variant === "primary" ? "white" : OS_LEGAL_COLORS.textSecondary};
+    props.$variant === "primary"
+      ? OS_LEGAL_COLORS.accent
+      : OS_LEGAL_COLORS.textTertiary};
   border: 1px solid
     ${(props) =>
       props.$variant === "primary"
-        ? "rgba(102, 126, 234, 0.4)"
-        : "rgba(148, 163, 184, 0.2)"};
-  border-radius: 10px;
+        ? OS_LEGAL_COLORS.accentMedium
+        : OS_LEGAL_COLORS.border};
+  border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
   font-size: ${(props) => (props.$variant === "primary" ? "13px" : "14px")};
   font-weight: ${(props) => (props.$variant === "primary" ? "600" : "500")};
-  letter-spacing: ${(props) => (props.$variant === "primary" ? "0.3px" : "0")};
+  letter-spacing: 0;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.2s ease;
   display: flex;
   align-items: center;
   gap: ${(props) => (props.$variant === "primary" ? "8px" : "0")};
-  backdrop-filter: blur(12px);
   box-shadow: ${(props) =>
     props.$variant === "primary"
-      ? "0 4px 16px rgba(102, 126, 234, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)"
-      : "0 2px 4px rgba(0, 0, 0, 0.04)"};
+      ? `0 1px 2px ${accentAlpha(0.12)}`
+      : "0 1px 3px rgba(15, 23, 42, 0.06)"};
   position: relative;
   overflow: hidden;
-
-  &::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: ${(props) =>
-      props.$variant === "primary"
-        ? "linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 100%)"
-        : "transparent"};
-    opacity: 0;
-    transition: opacity 0.25s ease;
-  }
+  white-space: nowrap;
 
   &:hover {
-    transform: translateY(-2px);
+    transform: translateY(-1px);
+    background: ${(props) =>
+      props.$variant === "primary"
+        ? OS_LEGAL_COLORS.accentLight
+        : OS_LEGAL_COLORS.surfaceHover};
     box-shadow: ${(props) =>
       props.$variant === "primary"
-        ? "0 8px 24px rgba(102, 126, 234, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25)"
-        : "0 4px 12px rgba(0, 0, 0, 0.08)"};
+        ? `0 3px 8px ${accentAlpha(0.16)}`
+        : "0 4px 10px rgba(15, 23, 42, 0.08)"};
     border-color: ${(props) =>
       props.$variant === "primary"
-        ? "rgba(102, 126, 234, 0.6)"
-        : "rgba(148, 163, 184, 0.3)"};
-
-    &::before {
-      opacity: 1;
-    }
+        ? OS_LEGAL_COLORS.accent
+        : OS_LEGAL_COLORS.borderHover};
   }
 
   &:active {
     transform: translateY(0);
     box-shadow: ${(props) =>
       props.$variant === "primary"
-        ? "0 2px 8px rgba(102, 126, 234, 0.3), inset 0 2px 4px rgba(0, 0, 0, 0.1)"
-        : "inset 0 1px 2px rgba(0, 0, 0, 0.08)"};
+        ? `0 1px 4px ${accentAlpha(0.12)}`
+        : "inset 0 1px 2px rgba(15, 23, 42, 0.08)"};
   }
 
   svg {
-    width: ${(props) => (props.$variant === "primary" ? "18px" : "18px")};
-    height: ${(props) => (props.$variant === "primary" ? "18px" : "18px")};
+    width: 18px;
+    height: 18px;
     stroke-width: 2.5;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 480px) {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+
+    .header-button-label--desktop {
+      display: none;
+    }
+
+    svg {
+      width: 17px;
+      height: 17px;
+    }
   }
 `;
 
@@ -138,6 +153,7 @@ export const ContextBarContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
   animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
