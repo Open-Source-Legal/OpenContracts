@@ -176,6 +176,10 @@ def build_corpus_v2_zip(
     # A corpus may genuinely have no LabelSet (e.g. brand-new, empty
     # corpus).  Emit a minimal placeholder so the importer has something
     # to unpack — it will create an empty LabelSet and attach it.
+    #
+    # ``id: 0`` is not a sentinel: ``_setup_corpus_and_labels`` pops the
+    # ``id`` key off ``label_set_data`` before unpacking, so any int value
+    # is equivalent.  Zero is used for readability.
     if corpus.label_set is not None:
         label_set_export = package_label_set_for_export(corpus.label_set)
         if label_set_export is None:

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -421,8 +422,6 @@ def import_metadata_schema(
             # the Fieldset is referenced by an Extract (PROTECT FK), the
             # delete raises ProtectedError and we leave it orphaned but
             # still functional — the data isn't actually unreachable.
-            from django.db.models import ProtectedError
-
             existing = getattr(corpus, "metadata_schema", None)
             if existing is not None:
                 existing.corpus = None

@@ -351,7 +351,14 @@ def _import_corpus(
         # Aggregated old_id -> new_id; ``import_doc_annotations`` returns
         # ``dict[str | int, int]`` so the aggregator widens to match.
         all_annot_id_maps: dict[str | int, int] = {}
-        # Track doc_hash -> corpus_doc for DocumentPath reconstruction
+        # Track doc_ref -> corpus_doc for DocumentPath reconstruction.
+        # Despite the legacy name, this map is keyed by every form
+        # ``package_*_for_export`` uses for ``document_ref``: pdf_file_hash
+        # *and* basename(pdf_file.name) *and* the synthesized
+        # ``document_{id}.placeholder`` fallback.  Lookups against any of
+        # those forms resolve to the freshly-created Document on the
+        # import side, so callers (DocumentPath reconstruction, metadata
+        # schema, conversations) only need this one map.
         doc_hash_to_corpus_doc: dict[str, Document] = {}
         # Strict filename -> corpus_doc map (no hash keys mixed in).  Used
         # by CAML README rewriting where mixing in hash keys would risk a

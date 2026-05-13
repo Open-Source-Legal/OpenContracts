@@ -40,6 +40,7 @@ from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.extracts.models import Column, Datacell, Fieldset
 from opencontractserver.tasks.fork_tasks import fork_corpus
+from opencontractserver.tests._corpus_fixture import _MINIMAL_PDF_BYTES
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -286,23 +287,15 @@ class CorpusForkRoundTripTestCase(TransactionTestCase):
 
         # Create documents
         documents = []
-        # Minimal valid PDF — needed because fork now round-trips through the
-        # V2 export/import pipeline, which writes the file into a ZIP and
-        # reads it back.  Docs without files were OK under the old fork
-        # because it just shallow-copied rows.
-        minimal_pdf = (
-            b"%PDF-1.4\n"
-            b"1 0 obj <</Type/Catalog/Pages 2 0 R>>endobj\n"
-            b"2 0 obj <</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n"
-            b"3 0 obj <</Type/Page/Parent 2 0 R/Resources<<>>/MediaBox[0 0 612 792]>>endobj\n"
-            b"xref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000056 00000 n\n"
-            b"0000000115 00000 n\ntrailer <</Size 4/Root 1 0 R>>\nstartxref\n204\n%%EOF\n"
-        )
+        # Fork now round-trips through V2 export/import which writes the
+        # file into a ZIP and reads it back, so docs need real PDF bytes.
+        # Reuses the shared minimal PDF from _corpus_fixture so the literal
+        # only lives in one place.
         for i in range(num_documents):
             doc = Document.objects.create(
                 title=f"Document {i}",
                 description=f"Test document {i} for fork testing",
-                pdf_file=ContentFile(minimal_pdf, name=f"doc_{i}.pdf"),
+                pdf_file=ContentFile(_MINIMAL_PDF_BYTES, name=f"doc_{i}.pdf"),
                 pdf_file_hash=f"fork_test_hash_{i}",
                 file_type="application/pdf",
                 page_count=1,
