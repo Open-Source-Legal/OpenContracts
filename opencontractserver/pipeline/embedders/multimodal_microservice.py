@@ -16,7 +16,7 @@ import base64
 import logging
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import requests
@@ -319,7 +319,7 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
 
             response = requests.post(
                 f"{service_url}/embeddings/batch",
-                json={"texts": texts},
+                json=cast(Any, {"texts": texts}),
                 headers=headers,
                 timeout=60,
             )
@@ -408,7 +408,7 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
 
             response = requests.post(
                 f"{service_url}/embeddings/image/batch",
-                json={"images": images_base64},
+                json=cast(Any, {"images": images_base64}),
                 headers=headers,
                 timeout=120,
             )
