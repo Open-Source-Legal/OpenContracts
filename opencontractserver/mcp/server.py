@@ -94,7 +94,13 @@ def _extract_bearer_token(scope: MutableMapping[str, Any]) -> str | None:
     for name, value in scope.get("headers", []):
         if name.lower() == b"authorization":
             auth_header = value.decode("utf-8", errors="ignore")
-            if auth_header.lower().startswith("bearer "):
+            # Match exactly ``"bearer "`` (case-insensitive) — not
+            # ``startswith("bearer ")`` which silently accepted ``Bearer\t``,
+            # ``Bearer\n`` etc. and then sliced at index 7, potentially
+            # leaving whitespace inside the token. The JWT validator would
+            # have rejected that downstream, but failing here is cleaner
+            # and keeps the contract obvious.
+            if auth_header[:7].lower() == "bearer ":
                 return auth_header[7:].strip() or None
     return None
 

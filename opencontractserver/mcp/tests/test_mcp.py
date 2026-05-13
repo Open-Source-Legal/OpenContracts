@@ -16,23 +16,20 @@ User = get_user_model()
 class _MCPAsyncRunMixin:
     """Shared helper for running an async coroutine inside a sync test method.
 
-    Centralises the ``new_event_loop`` → ``run_until_complete`` → close
-    dance that the auth-related test classes share. Also calls
-    ``asyncio.set_event_loop(None)`` after ``loop.close()`` so a stale
-    *closed* loop is never left as the thread's current event loop —
-    follow-up async test utilities running in the same thread would
-    otherwise pick it up and crash with ``Event loop is closed``.
+    Uses ``asyncio.run()`` so each invocation creates and tears down a
+    fully isolated event loop without ever calling
+    ``asyncio.set_event_loop()`` on the calling thread. The earlier
+    ``new_event_loop`` → ``run_until_complete`` → ``set_event_loop(None)``
+    dance worked sequentially but mutated thread-global event-loop state,
+    which would race if pytest-xdist ever scheduled two async test
+    methods on the same OS thread. ``asyncio.run`` (Python 3.11+) is the
+    standard, race-free pattern for "run one coroutine and clean up
+    after yourself".
     """
 
     @staticmethod
     def _run(coro):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+        return asyncio.run(coro)
 
 
 class URIParserTest(TestCase):
@@ -5372,6 +5369,48 @@ class MCPAuthenticatedToolsTest(TestCase):
 
         with self.assertRaises(Corpus.DoesNotExist):
             get_corpus_info(self.private_corpus.slug)
+
+    def test_create_thread_message_unrelated_user_can_post_to_public_thread(self):
+        """Public threads on public corpuses are intentionally writable by any
+        authenticated MCP caller.
+
+        This pins the documented policy from ``create_thread_message``'s
+        docstring: write access piggybacks on read visibility. For a thread
+        on a *public* corpus, every authenticated user can ``visible_to_user``
+        the thread, so every authenticated user can post into it. Operators
+        who need stricter gating (read-only spectators) must keep the corpus
+        / thread private. If this test ever fails, the change requires an
+        explicit policy review — not a one-line fix.
+        """
+        from opencontractserver.conversations.models import (
+            ChatMessage,
+            Conversation,
+            ConversationTypeChoices,
+        )
+        from opencontractserver.mcp.tools import create_thread_message
+
+        public_corpus = Corpus.objects.create(
+            title="MCP Auth Public Corpus",
+            creator=self.owner,
+            is_public=True,
+        )
+        public_thread = Conversation.objects.create(
+            title="Public Thread",
+            creator=self.owner,
+            is_public=True,
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=public_corpus,
+        )
+
+        result = create_thread_message(
+            corpus_slug=public_corpus.slug,
+            thread_id=public_thread.id,
+            content="Posting as an unrelated authenticated user",
+            user=self.other_user,
+        )
+        message = ChatMessage.objects.get(id=int(result["id"]))
+        self.assertEqual(message.creator, self.other_user)
+        self.assertEqual(message.conversation_id, public_thread.id)
 
 
 class MCPCallToolHandlerAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
