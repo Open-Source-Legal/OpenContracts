@@ -16,6 +16,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.llms.tools.core_tools._privacy_filter_client import Detection
 from opencontractserver.llms.tools.core_tools.pii import (
     ENTITY_GROUP_LABELS,
+    _persist_annotations_sync,
     ascan_and_annotate_pii,
 )
 from opencontractserver.tests.fixtures import (
@@ -497,3 +498,140 @@ class ScanAndAnnotateRegistryTests(TransactionTestCase):
         assert core_tool.metadata.name == "scan_and_annotate_pii"
         assert core_tool.requires_approval is True
         assert core_tool.requires_write_permission is True
+
+
+@override_settings(
+    PRIVACY_FILTER_URL="http://privacy_filter:8000",
+    PRIVACY_FILTER_API_KEY="dev-only-not-secret",
+)
+class PersistAnnotationsLabelRaceTests(TransactionTestCase):
+    """Regression guard for the accepted-duplicate behavior of
+    ``Corpus.ensure_label_and_labelset`` under PostgreSQL READ COMMITTED.
+
+    The lookup at ``corpuses/models.py``'s ``ensure_label_and_labelset`` is a
+    check-then-create wrapped in ``transaction.atomic()``, but with no
+    DB-level uniqueness on ``AnnotationLabel(text, label_type)`` two
+    concurrent transactions can both pass ``filter().first()`` before either
+    commits its ``create()``, so each one inserts a fresh label. The PII
+    scan tool accepts that rare duplicate — the inner atomic block in
+    ``_persist_annotations_sync`` only inserts ``Annotation`` rows (no
+    cross-row uniqueness), so the much larger annotation batch never rolls
+    back due to a peer scan racing on the label table.
+
+    This test documents that contract. If somebody later adds a
+    ``UniqueConstraint(fields=["text", "label_type"], ...)`` on
+    ``AnnotationLabel``, this test fails and they are forced to revisit the
+    trade-off described in ``pii.py``'s ``_persist_annotations_sync``
+    block comment.
+    """
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("pii_race_user", password="pw")
+        self.corpus = Corpus.objects.create(title="PII Race Corpus", creator=self.user)
+
+        self.txt_doc = Document.objects.create(
+            creator=self.user,
+            title="PII Race Doc",
+            file_type="text/plain",
+            processing_started=timezone.now(),
+        )
+        self.txt_doc.txt_extract_file.save(
+            SAMPLE_TXT_FILE_ONE_PATH.name,
+            ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
+        )
+        self.txt_doc, _, _ = self.corpus.add_document(
+            document=self.txt_doc,
+            user=self.user,
+        )
+        with self.txt_doc.txt_extract_file.open("r") as f:
+            self.doc_text = f.read()
+
+    def test_persist_annotations_sync_duplicate_label_race(self) -> None:
+        from opencontractserver.annotations.models import AnnotationLabel, LabelSet
+
+        expected_label_text = ENTITY_GROUP_LABELS["private_email"][0]
+
+        # First scan: normal path — one label created, one annotation persisted.
+        persisted_1 = _persist_annotations_sync(
+            doc=self.txt_doc,
+            corpus=self.corpus,
+            pdf_layer=None,
+            creator_id=self.user.id,
+            corpus_action_id=None,
+            file_type="text/plain",
+            detections=[_det("private_email", 10, 30)],
+            doc_text=self.doc_text,
+        )
+        self.assertEqual(len(persisted_1), 1)
+        self.assertEqual(
+            AnnotationLabel.objects.filter(
+                text=expected_label_text, label_type=SPAN_LABEL
+            ).count(),
+            1,
+        )
+
+        # Reload corpus state so the patched method sees a non-None label_set.
+        self.corpus.refresh_from_db()
+
+        # Simulate the post-race outcome: ensure_label_and_labelset's
+        # filter(...).first() returned None even though a label already
+        # exists, so a fresh AnnotationLabel is inserted.
+        def race_ensure(
+            self_corpus,
+            *,
+            label_text,
+            creator_id,
+            label_type,
+            color="#05313d",
+            description="",
+            icon="tags",
+        ):
+            if self_corpus.label_set is None:
+                self_corpus.label_set = LabelSet.objects.create(
+                    title=f"Corpus {self_corpus.pk} Set",
+                    description="Auto-created label set",
+                    creator_id=creator_id,
+                )
+                self_corpus.save(update_fields=["label_set", "modified"])
+            label = AnnotationLabel.objects.create(
+                text=label_text,
+                label_type=label_type,
+                color=color,
+                description=description,
+                icon=icon,
+                creator_id=creator_id,
+            )
+            self_corpus.label_set.annotation_labels.add(label)
+            return label
+
+        with patch.object(Corpus, "ensure_label_and_labelset", new=race_ensure):
+            persisted_2 = _persist_annotations_sync(
+                doc=self.txt_doc,
+                corpus=self.corpus,
+                pdf_layer=None,
+                creator_id=self.user.id,
+                corpus_action_id=None,
+                file_type="text/plain",
+                detections=[_det("private_email", 50, 70)],
+                doc_text=self.doc_text,
+            )
+
+        # Annotation insert still succeeds under the simulated race.
+        self.assertEqual(len(persisted_2), 1)
+
+        # Two labels now exist for the same (text, label_type) — the
+        # accepted duplicate the comment in pii.py describes.
+        self.assertEqual(
+            AnnotationLabel.objects.filter(
+                text=expected_label_text, label_type=SPAN_LABEL
+            ).count(),
+            2,
+        )
+
+        # The two annotations point at different label rows (each scan
+        # carries its own race-created label forward onto its annotation).
+        ann_1_id = persisted_1[0][0]
+        ann_2_id = persisted_2[0][0]
+        ann_1 = Annotation.objects.get(pk=ann_1_id)
+        ann_2 = Annotation.objects.get(pk=ann_2_id)
+        self.assertNotEqual(ann_1.annotation_label_id, ann_2.annotation_label_id)
