@@ -5,6 +5,7 @@ import { CompactLeaderboard } from "../src/components/landing/CompactLeaderboard
 import { CallToAction } from "../src/components/landing/CallToAction";
 import { NewHeroSection } from "../src/components/landing/NewHeroSection";
 import { DiscoveryLanding } from "../src/views/DiscoveryLanding";
+import { FeaturedCollections } from "../src/components/landing/FeaturedCollections";
 import { LandingTestWrapper } from "./LandingTestWrapper";
 import {
   GET_DISCOVERY_DATA,
@@ -318,6 +319,100 @@ test.describe("DiscoveryLanding Page", () => {
     await releaseScreenshot(page, "v3.0.0.b3", "landing-page", {
       fullPage: true,
     });
+
+    await component.unmount();
+  });
+});
+
+// ============================================================================
+// FeaturedCollections: corpus icon rendering
+// ============================================================================
+test.describe("FeaturedCollections icon prop wiring", () => {
+  test("renders the corpus icon URL as an <img> when provided", async ({
+    mount,
+    page,
+  }) => {
+    const iconUrl =
+      "https://example.com/media/corpus-icons/legal-contracts.png";
+    const corpusesWithIcon = [
+      {
+        ...mockCorpuses[0],
+        node: {
+          ...mockCorpuses[0].node,
+          icon: iconUrl,
+        },
+      },
+      mockCorpuses[1],
+    ];
+
+    const component = await mount(
+      <LandingTestWrapper>
+        <FeaturedCollections corpuses={corpusesWithIcon} />
+      </LandingTestWrapper>
+    );
+
+    const iconImg = page.locator(`img[src="${iconUrl}"]`);
+    await expect(iconImg).toBeVisible({ timeout: 10000 });
+    await expect(iconImg).toHaveAttribute(
+      "alt",
+      mockCorpuses[0].node.title as string
+    );
+
+    await component.unmount();
+  });
+
+  test("falls back to placeholder when corpus.icon is null", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <LandingTestWrapper>
+        <FeaturedCollections corpuses={mockCorpuses} />
+      </LandingTestWrapper>
+    );
+
+    // Cards render but no img with the icon URL should appear; the
+    // CollectionCard's type-based placeholder glyph is rendered instead.
+    await expect(page.locator("text=Legal Contracts Collection")).toBeVisible({
+      timeout: 10000,
+    });
+    // Scope the assertion to the mounted component subtree so unrelated
+    // images elsewhere on the page (avatars, logos) can't cause false
+    // failures as the wrapper grows.
+    await expect(component.locator('img[src^="http"]')).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("uses the 'Corpus icon' alt fallback when corpus.title is missing", async ({
+    mount,
+    page,
+  }) => {
+    const iconUrl =
+      "https://example.com/media/corpus-icons/untitled-collection.png";
+    const corpusesWithIconNoTitle = [
+      {
+        ...mockCorpuses[0],
+        node: {
+          ...mockCorpuses[0].node,
+          icon: iconUrl,
+          // Empty title triggers the `|| "Corpus icon"` fallback in
+          // FeaturedCollections without breaking the inferred string type.
+          title: "",
+        },
+      },
+    ];
+
+    const component = await mount(
+      <LandingTestWrapper>
+        <FeaturedCollections corpuses={corpusesWithIconNoTitle} />
+      </LandingTestWrapper>
+    );
+
+    // Exercises the falsy branch of `corpus.title || "Corpus icon"`.
+    const iconImg = page.locator(`img[src="${iconUrl}"]`);
+    await expect(iconImg).toBeVisible({ timeout: 10000 });
+    await expect(iconImg).toHaveAttribute("alt", "Corpus icon");
 
     await component.unmount();
   });
