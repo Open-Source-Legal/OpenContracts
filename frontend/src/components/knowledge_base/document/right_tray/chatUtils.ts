@@ -1,9 +1,23 @@
 /**
- * Pure utility functions for chat statistics and styling.
- * These have no React dependencies and operate on plain data.
+ * Pure utility functions for chat statistics, styling, and DOM helpers.
+ * These have no React dependencies and operate on plain data / DOM nodes.
  */
 
 import { MESSAGE_COUNT_COLORS } from "../../../../assets/configurations/constants";
+
+/**
+ * Resize a textarea to fit its content, capped at `maxHeight` (default 200px).
+ * No-op when the textarea ref is null.
+ */
+export const adjustTextareaHeight = (
+  textarea: HTMLTextAreaElement | null,
+  maxHeight: number = 200
+): void => {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+  textarea.style.height = `${newHeight}px`;
+};
 
 export interface MessageStats {
   max: number;
