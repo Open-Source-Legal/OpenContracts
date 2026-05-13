@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -68,7 +68,7 @@ User = get_user_model()
 
 
 def import_corpus_v2_from_bytes(
-    zip_source: Any,
+    zip_source: IO[bytes],
     user_id: int,
     seed_corpus_id: int | None,
 ) -> int | None:
@@ -81,9 +81,10 @@ def import_corpus_v2_from_bytes(
     so they share one code path for "given a ZIP, materialize a corpus".
 
     Args:
-        zip_source: A readable binary stream (e.g. ``io.BytesIO`` from
-            :func:`build_corpus_v2_zip`, or an open ``File`` handle).
-            Caller owns the lifetime.
+        zip_source: A readable, seekable binary stream (e.g. ``io.BytesIO``
+            from :func:`build_corpus_v2_zip`, or an open ``File`` handle).
+            Anything ``zipfile.ZipFile`` accepts as a binary stream is
+            valid; caller owns the lifetime.
         user_id: User performing the import.
         seed_corpus_id: Optional corpus ID to merge into instead of
             creating a new one (used by fork to import into a shell).
@@ -115,6 +116,11 @@ def import_corpus_v2_from_bytes(
             )
 
     except Exception as e:
+        # Log full traceback for Sentry / structured logs.  Callers (e.g.
+        # ``fork_corpus``) may also need contextual error detail — they
+        # can wrap the ``None`` return into a ``RuntimeError`` themselves
+        # if they want to escalate, since this in-process entry point is
+        # also called from a Celery task that prefers ``None`` returns.
         logger.error("import_corpus_v2_from_bytes() - Exception: %s", e, exc_info=True)
         return None
 

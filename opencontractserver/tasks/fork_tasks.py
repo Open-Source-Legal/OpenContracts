@@ -114,14 +114,19 @@ def fork_corpus(
     requested_embedder: str | None = shell.preferred_embedder or None
 
     try:
-        with transaction.atomic():
-            zip_bytes = build_corpus_v2_zip(
-                corpus_pk=int(source_pk),
-                user_for_visibility=None,  # fork inherits all conversations
-                include_conversations=True,
-                include_action_trail=False,
-            )
+        # Build the export ZIP outside the write transaction.  It only
+        # reads from the DB (and constructs an in-memory ZIP), so it
+        # doesn't need to share scope with the import's writes — keeping
+        # it outside narrows the lock window to just the import phase,
+        # which can run for minutes on large corpora.
+        zip_bytes = build_corpus_v2_zip(
+            corpus_pk=int(source_pk),
+            user_for_visibility=None,  # fork inherits all conversations
+            include_conversations=True,
+            include_action_trail=False,
+        )
 
+        with transaction.atomic():
             imported_id = import_corpus_v2_from_bytes(
                 zip_source=zip_bytes,
                 user_id=int(user_id),
@@ -218,13 +223,10 @@ def fork_corpus(
                 doc = dp.document
                 doc_updates: list[str] = []
 
-                # Set provenance.  The V2 import path's
-                # ``corpus.add_document`` leaves ``source_document``
-                # pointing at the *transient* standalone Document built
-                # by ``create_document_from_export_data`` — which is
-                # useful for export/import provenance but wrong for
-                # fork, where the source-of-truth ancestor is the
-                # source corpus's own copy.  Overwrite with that.
+                # Re-point provenance at the source corpus's copy
+                # rather than the transient standalone Document the
+                # V2 import path created (correct for export/import,
+                # wrong for fork lineage).
                 candidate = None
                 if doc.pdf_file_hash:
                     candidate = source_by_hash.get(doc.pdf_file_hash)
@@ -234,12 +236,12 @@ def fork_corpus(
                     doc.source_document = candidate
                     doc_updates.append("source_document")
 
-                # File-blob sharing — fork semantics expect the new
-                # corpus-isolated copy to reference the *same* storage
-                # paths as the source rather than fresh copies.  The
-                # export/import roundtrip writes new blobs by design;
-                # we collapse that asymmetry here.  Orphaned blobs (the
-                # ones the import just wrote) are left to storage GC.
+                # File-blob sharing — fork semantics share storage paths
+                # with the source rather than allocating fresh copies.
+                # The export/import roundtrip writes new blobs by design,
+                # so the ones it just wrote here become orphaned.
+                # TODO(#1638): reap or reuse those orphaned blobs instead
+                # of relying on storage GC.
                 if candidate is not None:
                     if (
                         candidate.pdf_file

@@ -766,8 +766,10 @@ class OpenContractsExportDataJsonV2Type(TypedDict):
     # Ingestion sources (lineage tracking)
     ingestion_sources: NotRequired[list[IngestionSourceExport]]
 
-    # Manual metadata schema (Fieldset + manual Columns + non-extract Datacells)
-    metadata_schema: NotRequired[Optional[MetadataSchemaExport]]
+    # Manual metadata schema (Fieldset + manual Columns + non-extract Datacells).
+    # Key is omitted entirely when the corpus has no attached Fieldset
+    # (see ``package_metadata_schema``); never serialized as ``None``.
+    metadata_schema: NotRequired[MetadataSchemaExport]
 
     # ===== OPTIONAL V2 FIELDS (based on export flags) =====
 
