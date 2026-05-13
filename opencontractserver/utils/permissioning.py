@@ -390,8 +390,19 @@ def _default_user_can(
               enforced today by the deleted ``FolderService.check_corpus_*``
               helpers.
             * For ``CRUD``: requires all four base perms (CREATE, READ,
-              UPDATE, DELETE).
-            * For ``ALL``: requires all seven perms.
+              UPDATE, DELETE). ``is_public`` is folded in locally as a
+              synthetic ``read_<model>`` so a user with explicit write
+              grants on a public corpus passes CRUD — preserves the same
+              semantics as a series of individual ``user_can`` calls.
+            * For ``ALL``: requires all seven perms (same ``is_public``
+              fold-in as CRUD).
+            * Creator short-circuit applies BEFORE compound checks, so the
+              corpus creator passes ``CRUD`` / ``ALL`` without needing
+              explicit guardian grants (mirrors the deleted FolderService
+              behavior; pinned by
+              ``test_creator_passes_compound_perms_without_explicit_grants``).
+        - ``EDIT`` is treated as an alias for ``UPDATE`` (mirrors the old
+          ``user_has_permission_for_obj`` mapping).
 
     Per-model overrides (e.g. ``AnnotationManager.user_can``) MUST add their
     own structural / privacy / inheritance rules before delegating here.
@@ -399,6 +410,9 @@ def _default_user_can(
     if user_val is None:
         return False
 
+    # AnonymousUser is the common unauthenticated case (set by Django auth
+    # middleware) — handle it explicitly so the int/str ID resolution below
+    # doesn't run on an AnonymousUser sentinel.
     if isinstance(user_val, AnonymousUser):
         if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
             return True
@@ -412,6 +426,10 @@ def _default_user_can(
     else:
         user = user_val
 
+    # Defensive guard for exotic user-like objects that aren't AnonymousUser
+    # but still report ``is_authenticated == False`` (e.g. a test double, an
+    # external SSO shim, or a future custom auth backend). The AnonymousUser
+    # path above is the common case; this catches the long tail.
     if not getattr(user, "is_authenticated", False):
         if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
             return True
@@ -451,24 +469,33 @@ def _default_user_can(
         return f"publish_{model_name}" in granted
     if permission == PermissionTypes.PERMISSION:
         return f"permission_{model_name}" in granted
-    if permission == PermissionTypes.CRUD:
-        required = {
-            f"create_{model_name}",
-            f"read_{model_name}",
-            f"update_{model_name}",
-            f"remove_{model_name}",
-        }
-        return required.issubset(granted)
-    if permission == PermissionTypes.ALL:
-        required = {
-            f"create_{model_name}",
-            f"read_{model_name}",
-            f"update_{model_name}",
-            f"remove_{model_name}",
-            f"comment_{model_name}",
-            f"publish_{model_name}",
-            f"permission_{model_name}",
-        }
+    if permission in (PermissionTypes.CRUD, PermissionTypes.ALL):
+        # Fold ``is_public`` in locally as a synthetic READ grant so the
+        # compound check matches the asymmetry rules above (public corpus +
+        # explicit write grants → CRUD/ALL passes). We do this at the call
+        # site rather than relying on ``get_users_permissions_for_obj``'s
+        # internal ``is_public`` injection so the dependency is visible
+        # here; if that helper is ever refactored to drop the synthetic
+        # grant, this branch keeps working correctly.
+        if getattr(instance, "is_public", False):
+            granted = granted | {f"read_{model_name}"}
+        if permission == PermissionTypes.CRUD:
+            required = {
+                f"create_{model_name}",
+                f"read_{model_name}",
+                f"update_{model_name}",
+                f"remove_{model_name}",
+            }
+        else:  # ALL
+            required = {
+                f"create_{model_name}",
+                f"read_{model_name}",
+                f"update_{model_name}",
+                f"remove_{model_name}",
+                f"comment_{model_name}",
+                f"publish_{model_name}",
+                f"permission_{model_name}",
+            }
         return required.issubset(granted)
     return False
 

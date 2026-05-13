@@ -369,6 +369,48 @@ class CorpusAuthorizationInvariantsTestCase(TransactionTestCase):
             "non-existent user id should return False, not raise",
         )
 
+    def test_creator_passes_compound_perms_without_explicit_grants(self):
+        """Corpus creator passes CRUD and ALL via the creator short-circuit.
+
+        The ``creator_id == user.id`` early-return in ``_default_user_can``
+        fires BEFORE the compound-permission branches, so the corpus creator
+        never needs explicit guardian CREATE/UPDATE/DELETE/COMMENT/PUBLISH/
+        PERMISSION grants to satisfy ``CRUD`` or ``ALL``. This mirrors the
+        deleted ``FolderService`` behavior (creators had implicit full
+        access) and is the main happy path for owner-driven flows.
+        """
+        for perm in (PermissionTypes.CRUD, PermissionTypes.ALL):
+            self.assertTrue(
+                self.private_corpus.user_can(self.creator, perm),
+                f"creator denied {perm} on their own corpus",
+            )
+            self.assertTrue(
+                self.public_corpus.user_can(self.creator, perm),
+                f"creator denied {perm} on their own public corpus",
+            )
+
+    def test_edit_is_alias_for_update(self):
+        """``PermissionTypes.EDIT`` is treated identically to ``UPDATE``.
+
+        Both ``_default_user_can`` and the legacy ``user_has_permission_for_obj``
+        route EDIT through the ``update_<model>`` guardian codename. Pinning
+        this prevents a silent divergence if either side ever forgets the
+        alias.
+        """
+        for user, corpus in (
+            (self.creator, self.private_corpus),
+            (self.shared_editor, self.private_corpus),
+            (self.shared_reader, self.private_corpus),
+            (self.stranger, self.public_corpus),
+        ):
+            self.assertEqual(
+                corpus.user_can(user, PermissionTypes.EDIT),
+                corpus.user_can(user, PermissionTypes.UPDATE),
+                f"EDIT/UPDATE disagree for "
+                f"user={getattr(user, 'username', 'anon')}, "
+                f"corpus={corpus.title}",
+            )
+
     def test_user_can_raises_typeerror_when_default_manager_lacks_method(self):
         """``obj.user_can`` raises a clear TypeError if the manager surface is missing.
 
