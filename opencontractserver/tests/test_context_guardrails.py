@@ -1649,6 +1649,34 @@ class TestHistoryResultFromMessages(SimpleTestCase):
         # Tokens for str(payload) — content was non-str non-None.
         self.assertEqual(history.estimated_tokens, estimate_token_count(str(payload)))
 
+    def test_part_text_none_content_and_none_args_returns_empty(self):
+        """When both ``content`` and ``args`` are absent, the helper
+        returns ``""`` so a fully-empty part contributes zero tokens."""
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.context_guardrails import estimate_token_count
+
+        class _FakePart:
+            def __init__(self, content, args):
+                self.content = content
+                self.args = args
+
+        class _FakeMessage:
+            def __init__(self, parts):
+                self.parts = parts
+
+        msgs = [_FakeMessage([_FakePart(content=None, args=None)])]
+
+        config = AgentConfig(model_name="gpt-4o", system_prompt="")
+        history = PydanticAICoreAgent._history_result_from_messages(
+            config, msgs  # type: ignore[arg-type]
+        )
+
+        # An empty system prompt + empty part text yields zero tokens.
+        self.assertEqual(history.estimated_tokens, estimate_token_count(""))
+
 
 # ---------------------------------------------------------------------------
 # Optimistic locking in persist_compaction
