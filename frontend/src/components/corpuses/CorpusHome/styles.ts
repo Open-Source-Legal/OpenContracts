@@ -145,6 +145,48 @@ export const CenteredBreadcrumbs = styled.nav`
   }
 `;
 
+/** Mobile-only return control for corpus landing pages.
+ *  The desktop breadcrumb remains the richer orientation affordance; this
+ *  compact row gives narrow screens an explicit way out without changing the
+ *  centered hero/title layout. */
+export const MobileReturnButton = styled.button`
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 32px;
+  padding: 0.25rem 0;
+  background: transparent;
+  border: none;
+  color: ${CORPUS_COLORS.slate[500]};
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color ${CORPUS_TRANSITIONS.fast};
+
+  svg {
+    width: 14px;
+    height: 14px;
+    transition: transform ${CORPUS_TRANSITIONS.fast};
+  }
+
+  &:hover {
+    color: ${CORPUS_COLORS.teal[700]};
+
+    svg {
+      transform: translateX(-2px);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${CORPUS_COLORS.teal[500]};
+    outline-offset: 4px;
+  }
+
+  ${mediaQuery.mobile} {
+    display: inline-flex;
+  }
+`;
+
 /** Corpus badge - teal background, uppercase */
 export const CorpusBadge = styled.span`
   display: inline-flex;
@@ -998,11 +1040,18 @@ export const MobileTab = styled.button<{ $active: boolean }>`
 
 /** Mobile tab content — borderless, flows naturally */
 export const MobileTabContent = styled.div`
+  display: flex;
+  flex-direction: column;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   background: ${CORPUS_COLORS.white};
   min-height: 0;
+
+  > :last-child {
+    flex: 1 0 auto;
+    min-height: 0;
+  }
 
   &::-webkit-scrollbar {
     width: 6px;
@@ -1070,12 +1119,20 @@ export const MobileSearchInput = styled.input`
  *  Defaults to centered layout; the landing view uses position:absolute on the
  *  menu button so breadcrumbs stay visually centered. Pass $justify to override
  *  (e.g. "space-between" in the details view). */
-export const HeaderRow = styled.div<{ $justify?: string }>`
+export const HeaderRow = styled.div<{
+  $justify?: string;
+  $mobileJustify?: string;
+}>`
   display: flex;
   align-items: center;
   justify-content: ${(props) => props.$justify || "center"};
   width: 100%;
   position: relative;
+
+  ${mediaQuery.mobile} {
+    justify-content: ${(props) =>
+      props.$mobileJustify || props.$justify || "center"};
+  }
 `;
 
 // ============================================================================

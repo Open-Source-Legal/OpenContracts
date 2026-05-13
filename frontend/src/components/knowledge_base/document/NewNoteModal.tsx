@@ -23,6 +23,7 @@ interface NewNoteModalProps {
   documentId: string;
   corpusId?: string;
   onCreated?: () => void;
+  overlayClassName?: string;
 }
 
 export const NewNoteModal: React.FC<NewNoteModalProps> = ({
@@ -31,6 +32,7 @@ export const NewNoteModal: React.FC<NewNoteModalProps> = ({
   documentId,
   corpusId,
   onCreated,
+  overlayClassName,
 }) => {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -78,7 +80,12 @@ export const NewNoteModal: React.FC<NewNoteModalProps> = ({
   };
 
   return (
-    <Modal open={isOpen} onClose={handleClose} size="md">
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      size="md"
+      overlayClassName={overlayClassName}
+    >
       <ModalHeader title="Create New Note" onClose={handleClose} />
       <ModalBody>
         <div style={{ marginBottom: "1rem" }}>

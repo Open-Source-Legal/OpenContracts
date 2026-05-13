@@ -27,7 +27,7 @@ import { PillToggle, PillToggleLabel } from "./CorpusHome/styles";
 /** Floating chat bar — centered at bottom */
 const FloatingChatBar = styled.div`
   position: fixed;
-  bottom: 1.5rem;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
@@ -39,14 +39,31 @@ const FloatingChatBar = styled.div`
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
   max-width: 400px;
   width: calc(100% - 3rem);
+
+  @media (max-width: 768px) {
+    left: 1rem;
+    right: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    width: auto;
+    max-width: none;
+  }
 `;
 
 /** Floating mode toggle — anchored bottom-right */
-const FloatingModeToggle = styled.div`
+const FloatingModeToggle = styled.div<{ $stackAboveChat?: boolean }>`
   position: fixed;
-  bottom: 1.75rem;
+  bottom: calc(1.75rem + env(safe-area-inset-bottom, 0px));
   right: 1.5rem;
   z-index: 20;
+
+  @media (max-width: 768px) {
+    right: 1rem;
+    bottom: ${(props) =>
+      props.$stackAboveChat
+        ? "calc(5.75rem + env(safe-area-inset-bottom, 0px))"
+        : "calc(1rem + env(safe-area-inset-bottom, 0px))"};
+  }
 `;
 
 export interface CorpusHomeProps {
@@ -70,6 +87,7 @@ export interface CorpusHomeProps {
   onChatSubmit?: (query: string) => void;
   onViewChatHistory?: () => void;
   onNavigateToCorpuses?: () => void;
+  navigateBackLabel?: string;
   // Mobile navigation
   onOpenMobileMenu?: () => void;
   // Mode toggle
@@ -101,6 +119,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
   onChatSubmit,
   onViewChatHistory,
   onNavigateToCorpuses,
+  navigateBackLabel = "Corpuses",
   onOpenMobileMenu,
   onModeToggle,
   isPowerUserMode,
@@ -213,13 +232,17 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
   if (hasArticle) {
     return (
       <div
-        style={{
-          position: "relative",
-          height: "100%",
-          minWidth: 0,
-          width: "100%",
-          overflowY: "auto",
-        }}
+        style={
+          {
+            ["--oc-article-bottom-clearance" as string]:
+              "calc(8.5rem + env(safe-area-inset-bottom, 0px))",
+            position: "relative",
+            height: "100%",
+            minWidth: 0,
+            width: "100%",
+            overflowY: "auto",
+          } as React.CSSProperties
+        }
       >
         <CorpusArticleView
           corpus={corpus}
@@ -245,7 +268,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
           />
         </FloatingChatBar>
         {onModeToggle && (
-          <FloatingModeToggle>
+          <FloatingModeToggle $stackAboveChat>
             <PillToggle
               onClick={onModeToggle}
               title={
@@ -278,6 +301,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         onViewDetails={handleViewDetails}
         onEditDescription={onEditDescription}
         onNavigateToCorpuses={onNavigateToCorpuses}
+        navigateBackLabel={navigateBackLabel}
         chatQuery={chatQuery}
         onChatQueryChange={onChatQueryChange}
         onChatSubmit={onChatSubmit}

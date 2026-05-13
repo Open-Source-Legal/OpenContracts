@@ -510,6 +510,7 @@ interface Props {
   mockType?:
     | "default"
     | "empty"
+    | "singleStandalone"
     | "noParentRelationships"
     | "deepHierarchy"
     | "hybrid";
@@ -614,6 +615,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
 
       // All other types get empty annotation index mocks
       const getDocumentIds = (): string[] => {
+        if (mockType === "singleStandalone") return ["doc-single"];
         if (mockType === "noParentRelationships") return ["doc-a", "doc-b"];
         if (mockType === "deepHierarchy")
           return [
@@ -631,6 +633,52 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
       });
     };
     const annotationIndexMocks = buildAnnotationIndexMocks();
+
+    if (mockType === "singleStandalone") {
+      const emptyRelationshipsMock = {
+        request: {
+          query: GET_DOCUMENT_RELATIONSHIPS,
+          variables: relationshipsVariables,
+        },
+        result: {
+          data: {
+            documentRelationships: {
+              edges: [],
+              totalCount: 0,
+              pageInfo: {
+                hasNextPage: false,
+                hasPreviousPage: false,
+                startCursor: null,
+                endCursor: null,
+              },
+              __typename: "DocumentRelationshipTypeConnection",
+            },
+          },
+        },
+      };
+      const singleDocumentMock = createDocumentsMock([
+        {
+          node: {
+            id: "doc-single",
+            title: "Single Standalone Document",
+            description: "Only document in this corpus",
+            slug: "single-standalone-document",
+            icon: null,
+            fileType: "application/pdf",
+            creator: { slug: "test-user" },
+            __typename: "DocumentType",
+          },
+          __typename: "DocumentTypeEdge",
+        },
+      ]);
+      return [
+        emptyRelationshipsMock,
+        { ...emptyRelationshipsMock },
+        singleDocumentMock,
+        { ...singleDocumentMock },
+        ...annotationIndexMocks,
+      ];
+    }
 
     if (mockType === "noParentRelationships") {
       // Documents exist but no parent relationships - shows docs as standalone root items
