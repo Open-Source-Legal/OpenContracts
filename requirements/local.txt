@@ -7,7 +7,7 @@ watchfiles==1.1.1  # https://github.com/samuelcolvin/watchfiles
 # ------------------------------------------------------------------------------
 
 mypy==2.1.0  # https://github.com/python/mypy
-django-stubs==6.0.3  # https://github.com/typeddjango/django-stubs
+django-stubs==6.0.4  # https://github.com/typeddjango/django-stubs
 pytest==9.0.3  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
