@@ -31,31 +31,21 @@ if settings.USE_AUTH0:
 
     @celery_app.task()
     def get_new_auth0_token() -> Optional[str]:
-
-        # print("get_new_auth0_token")
         url = f"https://{auth0_settings.AUTH0_DOMAIN}/oauth/token"
-        # print(url)
 
         headers: dict[str, str] = {"content-type": "application/json"}
-        # print(headers)
 
-        request_data: dict[str, str] = {
+        request_data: dict[str, Any] = {
             "grant_type": auth0_settings.AUTH0_M2M_MANAGEMENT_GRANT_TYPE,
             "client_id": auth0_settings.AUTH0_M2M_MANAGEMENT_API_ID,
             "client_secret": auth0_settings.AUTH0_M2M_MANAGEMENT_API_SECRET,
             "audience": f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/",
         }
-        # print(f"Machine-2-Machine Request data: {request_data}")
 
         response = requests.post(url, headers=headers, json=request_data)
 
-        # print("Auth0 Response:")
-        # print(response.status_code)
-        # print(response.text)
-
         if response.status_code == 200:
             payload: dict[str, Any] = json.loads(response.text)
-            # print(payload)
             access_token: str = payload["access_token"]
             expires_in: int = payload["expires_in"]
 
