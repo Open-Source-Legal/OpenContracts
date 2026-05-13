@@ -7,7 +7,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("corpuses", "0048_corpus_agent_memory"),
+        # The ``corpus`` FK on ``DocumentPath`` was added in
+        # ``documents.0023`` (which already declares its own dependency on
+        # ``corpuses.0025``), so this migration only needs the latest
+        # ``documents`` migration in the chain. ``makemigrations``
+        # auto-included a corpuses dependency that isn't strictly required
+        # for an ``AddIndex`` operation; dropped to keep the migration
+        # graph minimal.
         ("documents", "0037_add_default_reranker_to_pipeline_settings"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

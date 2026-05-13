@@ -225,6 +225,148 @@ class AnnotationVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
         )
         self.assertIn(ann.id, visible_ids)
 
+    def test_null_document_id_annotation_not_excluded_by_orphan_filter(self):
+        """Regression guard for the ``Q(document_id__isnull=False)`` clause in
+        ``_exclude_soft_deleted_doc_orphans``: an annotation with
+        ``document=None`` (e.g. structural annotations linked only via
+        ``structural_set``) must NOT be filtered out by the orphan predicate
+        regardless of any corpus state, because the ``(doc, corpus)``
+        identity is undefined.
+        """
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="null-doc-hash",
+            creator=self.user,
+        )
+        # Wire the structural set to our public doc so the anonymous /
+        # downstream visibility filters that look at ``structural_set
+        # __documents`` see at least one visible doc.
+        self.doc.structural_annotation_set = structural_set
+        self.doc.save(update_fields=["structural_annotation_set"])
+
+        struct_ann = Annotation.objects.create(
+            document=None,
+            corpus=self.corpus,
+            structural_set=structural_set,
+            annotation_label=self.label,
+            creator=self.user,
+            raw_text="structural-no-doc",
+            page=1,
+            json={},
+            structural=True,
+            is_public=True,
+        )
+
+        # Even after soft-deleting the only doc that references the set, the
+        # structural annotation itself has ``document_id IS NULL`` so the
+        # orphan predicate must leave it alone (downstream filters decide
+        # visibility on other grounds).
+        delete_document(self.corpus, "/vis_doc.pdf", self.user)
+
+        from opencontractserver.shared.QuerySets import (
+            _exclude_soft_deleted_doc_orphans,
+        )
+
+        kept_ids = set(
+            _exclude_soft_deleted_doc_orphans(
+                Annotation.objects.filter(id=struct_ann.id)
+            ).values_list("id", flat=True)
+        )
+        self.assertIn(struct_ann.id, kept_ids)
+
+    def test_null_corpus_id_annotation_not_excluded_by_orphan_filter(self):
+        """Regression guard for the ``Q(corpus_id__isnull=False)`` clause:
+        an annotation with ``corpus=None`` (e.g. corpus-agnostic annotations
+        on standalone docs) must not be filtered out by the orphan predicate
+        either — the ``(doc, corpus)`` pair is still undefined.
+        """
+        no_corpus_doc = Document.objects.create(
+            title="NoCorpus",
+            creator=self.user,
+            is_public=True,
+        )
+        ann = Annotation.objects.create(
+            document=no_corpus_doc,
+            corpus=None,
+            annotation_label=self.label,
+            creator=self.user,
+            raw_text="no-corpus",
+            page=1,
+            json={},
+            is_public=True,
+        )
+
+        from opencontractserver.shared.QuerySets import (
+            _exclude_soft_deleted_doc_orphans,
+        )
+
+        kept_ids = set(
+            _exclude_soft_deleted_doc_orphans(
+                Annotation.objects.filter(id=ann.id)
+            ).values_list("id", flat=True)
+        )
+        self.assertIn(ann.id, kept_ids)
+
+    def test_annotation_visible_in_active_corpus_when_trashed_in_other(self):
+        """Multi-corpus regression: a document soft-deleted in Corpus A but
+        still active in Corpus B must keep its Corpus-B-scoped annotations
+        visible. The orphan predicate is corpus-scoped via
+        ``OuterRef('corpus_id')`` — this test pins that scoping so a future
+        change can't accidentally hide rows across corpus boundaries.
+        """
+        # Add a second public corpus and put a corpus-isolated copy of the
+        # same source content into it via Corpus.add_document (the real
+        # corpus-isolation path). Use ``processing_started`` to skip the
+        # ingestion pipeline so we control the test state.
+        from django.utils import timezone
+
+        corpus_b = Corpus.objects.create(
+            title="Soft-Delete Visibility Corpus B",
+            creator=self.user,
+            is_public=True,
+        )
+        copy_b, _, path_b = corpus_b.add_document(
+            document=self.doc,
+            user=self.user,
+        )
+        copy_b.refresh_from_db()
+        copy_b.is_public = True
+        copy_b.processing_started = timezone.now()
+        copy_b.save(update_fields=["is_public", "processing_started"])
+
+        # Annotation only in Corpus B, on the Corpus-B-scoped copy.
+        ann_b = Annotation.objects.create(
+            document=copy_b,
+            corpus=corpus_b,
+            annotation_label=self.label,
+            creator=self.user,
+            raw_text="corpus-b-only",
+            page=1,
+            json={},
+            is_public=True,
+        )
+
+        # Soft-delete only in Corpus A. Corpus B's path remains active.
+        delete_document(self.corpus, "/vis_doc.pdf", self.user)
+
+        # Sanity: corpus B's path is still active.
+        self.assertTrue(
+            DocumentPath.objects.filter(
+                document=copy_b,
+                corpus=corpus_b,
+                is_current=True,
+                is_deleted=False,
+            ).exists()
+        )
+
+        visible_ids = set(
+            Annotation.objects.visible_to_user(self.user).values_list("id", flat=True)
+        )
+        # Corpus A annotations on the trashed copy must be hidden …
+        self.assertNotIn(self.source_ann.id, visible_ids)
+        # … but the Corpus B annotation on the still-active copy stays
+        # visible.
+        self.assertIn(ann_b.id, visible_ids)
+
 
 class RelationshipVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
     """Mirror of the annotation tests, for Relationship."""
