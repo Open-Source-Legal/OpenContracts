@@ -18,10 +18,9 @@ import {
 } from "lucide-react";
 
 import {
-  GET_DOCUMENT_RELATIONSHIPS,
-  GetDocumentRelationshipsOutput,
-  GetDocumentRelationshipsInput,
-  DocumentRelationshipNode,
+  GET_CORPUS_DOCUMENT_TOC_EDGES,
+  GetCorpusDocumentTocEdgesInput,
+  GetCorpusDocumentTocEdgesOutput,
   GET_CORPUS_DOCUMENTS_FOR_TOC,
   GetCorpusDocumentsForTocInput,
   GetCorpusDocumentsForTocOutput,
@@ -60,7 +59,6 @@ interface DocumentNode {
   description?: string;
   fileType?: string;
   slug?: string;
-  icon?: string;
   children: DocumentNode[];
 }
 
@@ -469,17 +467,22 @@ export const DocumentTableOfContents: React.FC<
   // URL-driven expand all state
   const expandAllFromUrl = useReactiveVar(tocExpandAll);
 
-  // Query for document relationships in this corpus
+  // Query for "parent"-labeled document relationship edges in this corpus.
+  // Uses the lean TOC-specific query that returns only source/target IDs and
+  // pushes the relationship_type/label filters to the server, so we don't
+  // fetch hundreds of unrelated rows or duplicate document metadata.
   const {
     data: relationshipsData,
     loading: relationshipsLoading,
     error: relationshipsError,
-  } = useQuery<GetDocumentRelationshipsOutput, GetDocumentRelationshipsInput>(
-    GET_DOCUMENT_RELATIONSHIPS,
+  } = useQuery<GetCorpusDocumentTocEdgesOutput, GetCorpusDocumentTocEdgesInput>(
+    GET_CORPUS_DOCUMENT_TOC_EDGES,
     {
       variables: {
         corpusId,
         first: DOCUMENT_RELATIONSHIP_TOC_LIMIT,
+        relationshipType: "RELATIONSHIP",
+        annotationLabelText: "parent",
       },
       skip: !corpusId,
       fetchPolicy: "cache-and-network",
@@ -532,15 +535,8 @@ export const DocumentTableOfContents: React.FC<
         };
       }
 
-      // Filter to only "parent" labeled relationships
-      const parentRelationships = relationships
-        .map((e) => e.node)
-        .filter(
-          (rel): rel is DocumentRelationshipNode =>
-            rel != null &&
-            rel.relationshipType === "RELATIONSHIP" &&
-            rel.annotationLabel?.text?.toLowerCase() === "parent"
-        );
+      // Server-side filters already restrict edges to "parent"-labeled
+      // RELATIONSHIP rows, so no client-side filter is needed here.
 
       // Build a map of document info from ALL corpus documents
       const documentMap = new Map<
@@ -551,7 +547,6 @@ export const DocumentTableOfContents: React.FC<
           description?: string;
           fileType?: string;
           slug?: string;
-          icon?: string;
         }
       >();
 
@@ -564,7 +559,6 @@ export const DocumentTableOfContents: React.FC<
           description: doc.description || undefined,
           fileType: doc.fileType || undefined,
           slug: doc.slug,
-          icon: doc.icon || undefined,
         });
       });
 
@@ -574,33 +568,10 @@ export const DocumentTableOfContents: React.FC<
       const parentMap = new Map<string, string>(); // child -> parent
       const childrenMap = new Map<string, string[]>(); // parent -> children
 
-      parentRelationships.forEach((rel) => {
-        const sourceId = rel.sourceDocument.id;
-        const targetId = rel.targetDocument.id;
-
-        // Update document info with richer data from relationships if available
-        if (rel.sourceDocument.title) {
-          documentMap.set(sourceId, {
-            ...documentMap.get(sourceId),
-            id: sourceId,
-            title: rel.sourceDocument.title || "Untitled",
-            description: rel.sourceDocument.description || undefined,
-            fileType: rel.sourceDocument.fileType || undefined,
-            slug: rel.sourceDocument.slug,
-            icon: rel.sourceDocument.icon,
-          });
-        }
-        if (rel.targetDocument.title) {
-          documentMap.set(targetId, {
-            ...documentMap.get(targetId),
-            id: targetId,
-            title: rel.targetDocument.title || "Untitled",
-            description: rel.targetDocument.description || undefined,
-            fileType: rel.targetDocument.fileType || undefined,
-            slug: rel.targetDocument.slug,
-            icon: rel.targetDocument.icon,
-          });
-        }
+      relationships.forEach((edge) => {
+        const sourceId = edge.node?.sourceDocument?.id;
+        const targetId = edge.node?.targetDocument?.id;
+        if (!sourceId || !targetId) return;
 
         // Source's parent is target (source "has parent" target)
         parentMap.set(sourceId, targetId);
@@ -658,7 +629,6 @@ export const DocumentTableOfContents: React.FC<
           description: docInfo.description,
           fileType: docInfo.fileType,
           slug: docInfo.slug,
-          icon: docInfo.icon,
           children,
         };
       };
