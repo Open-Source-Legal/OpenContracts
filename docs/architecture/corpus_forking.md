@@ -228,6 +228,36 @@ These are the spots most likely to surprise a reader of the code:
 - **`preferred_embedder` override only exists on the GraphQL path.**
   `build_fork_corpus_task` always inherits the source corpus's embedder.
 
+### Known design tradeoffs
+
+These are deliberate consequences of "fork = V2 export+import" rather than
+oddities; they're called out so reviewers don't mistake them for bugs.
+
+- **All source-corpus conversations are inherited regardless of creator.**
+  `fork_corpus` calls `build_corpus_v2_zip` with `user_for_visibility=None`,
+  meaning every conversation row attached to the source (corpus-level and
+  document-level) flows through the export and is reattached to the forked
+  corpus. The forking user therefore inherits other users' chat history. This
+  is the historical fork contract ("fork = full copy of the source state")
+  and the parity test depends on it. If a future requirement demands
+  conversation privacy, the right knob is to plumb the forking user through
+  `user_for_visibility=`, not to special-case the conversation packager.
+- **Storage blobs written by the export/import roundtrip become orphaned.**
+  The post-import blob-sharing step rewires `pdf_file`, `pawls_parse_file`,
+  `txt_extract_file`, `icon`, and `md_summary_file` on each forked document
+  to point at the source corpus's storage paths (so fork doesn't bloat
+  storage with duplicate copies). The fresh blobs that the V2 import just
+  wrote are left in place for storage GC. There is no GC job yet — this is a
+  silent storage leak proportional to the number of forks per source corpus.
+  See https://github.com/Open-Source-Legal/OpenContracts/issues/1638 (TODO).
+- **Single `transaction.atomic()` wraps both export and import.** The export
+  step does DB reads + ZIP construction (no writes), the import step does
+  DB writes + blob writes. For large corpora the combined critical section
+  can hold a write lock for minutes. Splitting export out of the transaction
+  would reduce lock contention; the tradeoff is partial-state visibility if
+  the import then fails. This is acceptable today because forks of large
+  corpora are rare and explicit.
+
 ## Future enhancements
 
 ### Phase 5 — `Note` cloning

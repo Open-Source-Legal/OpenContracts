@@ -414,10 +414,28 @@ def import_metadata_schema(
             # save.  Reuse-by-name would be ambiguous (could collide with
             # an unrelated fieldset on the same corpus), so we always
             # create a fresh one.
+            #
+            # After detaching, try to delete the orphaned Fieldset (and its
+            # cascade-deleted Columns / non-extract Datacells) so repeated
+            # imports of the same corpus don't accumulate dead rows.  If
+            # the Fieldset is referenced by an Extract (PROTECT FK), the
+            # delete raises ProtectedError and we leave it orphaned but
+            # still functional — the data isn't actually unreachable.
+            from django.db.models import ProtectedError
+
             existing = getattr(corpus, "metadata_schema", None)
             if existing is not None:
                 existing.corpus = None
                 existing.save(update_fields=["corpus"])
+                try:
+                    existing.delete()
+                except ProtectedError:
+                    logger.info(
+                        "import_metadata_schema: orphaned Fieldset %s left in "
+                        "place because at least one Extract still references "
+                        "it (PROTECT FK).",
+                        existing.pk,
+                    )
 
             fieldset = Fieldset.objects.create(
                 name=metadata_schema.get("fieldset_name", "Metadata"),

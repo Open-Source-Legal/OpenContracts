@@ -28,6 +28,7 @@ from opencontractserver.corpuses.models import (
     CorpusDescriptionRevision,
 )
 from opencontractserver.documents.models import DocumentPath, IngestionSource
+from opencontractserver.extracts.models import Datacell
 from opencontractserver.types.dicts import (
     AgentConfigExport,
     CompactAnnotationJsonType,
@@ -35,6 +36,9 @@ from opencontractserver.types.dicts import (
     DescriptionRevisionExport,
     DocumentPathExport,
     IngestionSourceExport,
+    ManualColumnExport,
+    ManualDatacellExport,
+    MetadataSchemaExport,
     OpenContractsAnnotationPythonType,
     OpenContractsRelationshipPythonType,
     PawlsPagePythonType,
@@ -588,16 +592,6 @@ def package_metadata_schema(corpus: Corpus):
     otherwise zip filename) so the importer can re-link via the same
     lookup map.
     """
-    import os
-
-    from opencontractserver.documents.models import DocumentPath
-    from opencontractserver.extracts.models import Datacell
-    from opencontractserver.types.dicts import (
-        ManualColumnExport,
-        ManualDatacellExport,
-        MetadataSchemaExport,
-    )
-
     fieldset = getattr(corpus, "metadata_schema", None)
     if not fieldset:
         return None

@@ -208,10 +208,10 @@ def build_corpus_v2_zip(
     # ===== PART 8: Markdown description + revisions =====
     md_description, md_revisions = package_md_description_revisions(corpus)
 
-    # ===== PART 8b: Manual metadata schema =====
+    # ===== PART 9: Manual metadata schema =====
     metadata_schema_export = package_metadata_schema(corpus)
 
-    # ===== PART 9: Conversations (optional) =====
+    # ===== PART 10: Conversations (optional) =====
     conversations_export: list[ConversationExport] = []
     messages_export: list[ChatMessageExport] = []
     votes_export: list[MessageVoteExport] = []
@@ -224,7 +224,11 @@ def build_corpus_v2_zip(
             user=user_for_visibility,
         )
 
-    # ===== PART 10: Action trail (optional) =====
+    # ===== PART 11: Action trail (optional) =====
+    # NOTE: action-trail import is not yet implemented on the import side
+    # (see opencontractserver/tasks/import_tasks_v2.py and docs/architecture/
+    # corpus_export_import_v2.md). The exported payload is included for
+    # diagnostic/audit purposes but is dropped on re-import.
     action_trail_export = None
     if include_action_trail:
         logger.info("Including action trail in export")
@@ -234,7 +238,7 @@ def build_corpus_v2_zip(
             execution_limit=action_trail_limit,
         )
 
-    # ===== PART 11: Assemble =====
+    # ===== PART 12: Assemble =====
     export_data: OpenContractsExportDataJsonV2Type = {
         "version": "2.0",
         "annotated_docs": annotated_docs,

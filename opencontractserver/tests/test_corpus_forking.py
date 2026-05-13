@@ -527,3 +527,85 @@ class CorpusForkTestCase(TransactionTestCase):
             "Forked corpus should be unlocked after fork completes",
         )
         self.assertEqual(forked_corpus.creator_id, self.user.id)
+
+
+class CorpusForkErrorHandlingTest(TransactionTestCase):
+    """Cleanup-on-failure paths for the fork task.
+
+    The fork code path now flows through V2 export+import, but it still owns
+    a handful of cleanup branches: ``source_pk is None``, missing shell or
+    user, and any exception thrown by export/import while the shell is
+    backend-locked.  These are easy to regress when refactoring the task,
+    so verify the shell is left unlocked and flagged ``error=True`` in each
+    case.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="alice", password="12345678")
+
+    def _apply_fork(self, shell_id: int):
+        """Apply ``fork_corpus`` with the historical positional-arg signature.
+
+        The arg list is retained for backward compatibility with queued tasks
+        but ignored by the export-driven body.  All ``*_ids`` lists are empty
+        because the task no longer consumes them.
+        """
+        from opencontractserver.tasks.fork_tasks import fork_corpus
+
+        return fork_corpus.apply(
+            args=(
+                shell_id,  # new_corpus_id
+                [],  # doc_ids
+                "",  # label_set_id
+                [],  # annotation_ids
+                [],  # folder_ids
+                [],  # relationship_ids
+                self.user.id,  # user_id
+            )
+        ).get()
+
+    def test_fork_with_no_parent_id_marks_shell_error_and_unlocks(self):
+        """Shell with ``parent_id=None`` cannot identify a source corpus —
+        fork_corpus should mark the shell ``error=True`` and clear the
+        ``backend_lock`` rather than leave it hung."""
+        shell = Corpus.objects.create(
+            title="orphan_shell",
+            creator=self.user,
+            backend_lock=True,
+            parent=None,
+        )
+
+        result = self._apply_fork(shell.id)
+
+        self.assertIsNone(result)
+        shell.refresh_from_db()
+        self.assertTrue(shell.error)
+        self.assertFalse(shell.backend_lock)
+
+    def test_fork_with_export_exception_marks_shell_error_and_unlocks(self):
+        """When ``build_corpus_v2_zip`` raises, the shell should be flagged
+        ``error=True`` and unlocked so the user can retry rather than
+        observing a permanently-locked corpus."""
+        from unittest.mock import patch
+
+        source = Corpus.objects.create(
+            title="source", creator=self.user, backend_lock=False
+        )
+        shell = Corpus.objects.create(
+            title="shell",
+            creator=self.user,
+            backend_lock=True,
+            parent=source,
+        )
+
+        with patch(
+            "opencontractserver.tasks.fork_tasks.build_corpus_v2_zip",
+            side_effect=RuntimeError("simulated export failure"),
+        ):
+            result = self._apply_fork(shell.id)
+
+        self.assertIsNone(result)
+        shell.refresh_from_db()
+        self.assertTrue(shell.error)
+        self.assertFalse(shell.backend_lock)

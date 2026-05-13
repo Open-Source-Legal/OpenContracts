@@ -186,8 +186,30 @@ def fork_corpus(
                 for p in source_paths
                 if p.document.pdf_file_hash
             }
+            # Title-based fallback used only when ``pdf_file_hash`` is empty
+            # on either side.  Detect ambiguous titles up-front so the fallback
+            # can be suppressed for those keys (silently picking "last wins"
+            # would assign the wrong source blobs to forked docs).
+            source_title_counts: dict[str, int] = {}
+            for p in source_paths:
+                if p.document.title:
+                    source_title_counts[p.document.title] = (
+                        source_title_counts.get(p.document.title, 0) + 1
+                    )
+            ambiguous_titles = {t for t, n in source_title_counts.items() if n > 1}
+            if ambiguous_titles:
+                logger.warning(
+                    "fork_corpus: source corpus %s has %d document(s) with "
+                    "duplicate title(s) %s; title-based blob fallback will be "
+                    "skipped for these to avoid silent mis-assignment.",
+                    source_pk,
+                    len(ambiguous_titles),
+                    sorted(ambiguous_titles),
+                )
             source_by_title: dict[str, Document] = {
-                p.document.title: p.document for p in source_paths if p.document.title
+                p.document.title: p.document
+                for p in source_paths
+                if p.document.title and p.document.title not in ambiguous_titles
             }
 
             for dp in DocumentPath.objects.filter(

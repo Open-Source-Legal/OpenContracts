@@ -2357,19 +2357,6 @@ class TestConversationImportDocHashRelinking(TransactionTestCase):
         self.assertIsNone(conv.chat_with_corpus)
 
 
-# Minimal valid PDF used by the multi-roundtrip fixture.  Defined at module
-# scope so both setUp and helper methods can read it without re-typing the
-# byte literal.
-_MINIMAL_PDF_BYTES = (
-    b"%PDF-1.4\n"
-    b"1 0 obj <</Type/Catalog/Pages 2 0 R>>endobj\n"
-    b"2 0 obj <</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n"
-    b"3 0 obj <</Type/Page/Parent 2 0 R/Resources<<>>/MediaBox[0 0 612 792]>>endobj\n"
-    b"xref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000056 00000 n\n"
-    b"0000000115 00000 n\ntrailer <</Size 4/Root 1 0 R>>\nstartxref\n204\n%%EOF\n"
-)
-
-
 class TestV2ThreeRoundTripDataIntegrity(TransactionTestCase):
     """
     Three-time export/import roundtrip with no data loss for in-scope features.
