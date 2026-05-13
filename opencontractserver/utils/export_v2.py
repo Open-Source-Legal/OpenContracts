@@ -400,6 +400,7 @@ def package_md_description_revisions(
             "version"
         )
 
+        # TODO(#1608): author_email leaks collaborator PII; migrate to slug when bumping export version.
         for revision in revisions:
             revisions_export.append(
                 {
@@ -484,6 +485,9 @@ def package_conversations(
         # Build conversation ID mapping
         conv_id_map = {}
 
+        # TODO(#1608): conv["creator_email"], msg["creator_email"], and vote["creator_email"]
+        # (built in the loops below) all leak PII; migrate each to slug on the next export
+        # version bump.
         for conv in conversations:
             conv_export_id = str(conv.id)
             conv_id_map[conv.id] = conv_export_id
