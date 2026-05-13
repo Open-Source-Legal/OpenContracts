@@ -8,8 +8,10 @@ import {
 } from "../appShellLayout";
 
 describe("APP_SHELL_OUTER_STYLE", () => {
-  it("uses 100vh as a floor, not a ceiling, so longer pages can scroll", () => {
-    expect(APP_SHELL_OUTER_STYLE.minHeight).toBe("100vh");
+  it("uses the visible viewport as a floor, not a ceiling, so longer pages can scroll", () => {
+    expect(APP_SHELL_OUTER_STYLE.minHeight).toBe(
+      "var(--oc-visible-viewport-height, 100vh)"
+    );
     expect(APP_SHELL_OUTER_STYLE.height).toBeUndefined();
     expect(APP_SHELL_OUTER_STYLE.maxHeight).toBeUndefined();
   });

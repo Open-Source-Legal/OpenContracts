@@ -87,6 +87,45 @@ test.describe("HeaderBar", () => {
     await component.unmount();
   });
 
+  test("keeps mobile header compact with actions on-screen", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+
+    const component = await mount(
+      <HeaderBarTestWrapper
+        hasCorpus={false}
+        readOnly={false}
+        metadata={{
+          title: "sample",
+          fileType: "application/pdf",
+          creator: { id: "user-1", slug: "gustyCoral" },
+          created: "2026-05-10T12:00:00Z",
+        }}
+      />
+    );
+
+    const headerBox = await page.getByTestId("document-header").boundingBox();
+    const addBox = await page.getByTestId("add-to-corpus-button").boundingBox();
+    const backBox = await page.getByTestId("back-button").boundingBox();
+
+    expect(headerBox).not.toBeNull();
+    expect(addBox).not.toBeNull();
+    expect(backBox).not.toBeNull();
+
+    expect(headerBox!.height).toBeLessThanOrEqual(112);
+    expect(headerBox!.x + headerBox!.width).toBeLessThanOrEqual(402);
+    expect(addBox!.x + addBox!.width).toBeLessThanOrEqual(
+      headerBox!.x + headerBox!.width
+    );
+    expect(backBox!.x + backBox!.width).toBeLessThanOrEqual(
+      headerBox!.x + headerBox!.width
+    );
+
+    await component.unmount();
+  });
+
   test("hides Add-to-Corpus button when corpus is bound", async ({
     mount,
     page,
@@ -107,6 +146,59 @@ test.describe("HeaderBar", () => {
     await expect(page.getByTestId("add-to-corpus-button")).toHaveCount(0);
     // Back button is always present.
     await expect(page.getByTestId("back-button")).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("clicking the back button invokes onClose (covers logging branch)", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <HeaderBarTestWrapper
+        hasCorpus={true}
+        corpusId="corpus-1"
+        metadata={{
+          title: "Closeable Document",
+          fileType: "application/pdf",
+          creator: { id: "user-1", slug: "alice" },
+          created: "2025-09-10T12:00:00Z",
+        }}
+      />
+    );
+
+    const wrapper = page.getByTestId("header-bar-test-wrapper");
+    await expect(wrapper).toHaveAttribute("data-close-count", "0");
+
+    await page.getByTestId("back-button").click();
+
+    await expect(wrapper).toHaveAttribute("data-close-count", "1");
+
+    await component.unmount();
+  });
+
+  test("clicking Add-to-Corpus invokes onAddToCorpus when corpus is absent", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <HeaderBarTestWrapper
+        hasCorpus={false}
+        metadata={{
+          title: "Orphan Document",
+          fileType: "application/pdf",
+          creator: { id: "user-1", slug: "alice" },
+          created: "2025-09-10T12:00:00Z",
+        }}
+      />
+    );
+
+    const wrapper = page.getByTestId("header-bar-test-wrapper");
+    await expect(wrapper).toHaveAttribute("data-add-count", "0");
+
+    await page.getByTestId("add-to-corpus-button").click();
+
+    await expect(wrapper).toHaveAttribute("data-add-count", "1");
 
     await component.unmount();
   });

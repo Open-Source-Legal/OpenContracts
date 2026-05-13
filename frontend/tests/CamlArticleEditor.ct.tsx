@@ -94,6 +94,55 @@ test.describe("CamlArticleEditor - Close Behavior", () => {
 
     await component.unmount();
   });
+
+  test("mobile modal should cover app nav and stay inside viewport", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => {
+      const nav = document.createElement("div");
+      nav.id = "mobile-nav-z-index-regression";
+      Object.assign(nav.style, {
+        position: "fixed",
+        top: "0",
+        left: "0",
+        right: "0",
+        height: "60px",
+        zIndex: "1100",
+      });
+      document.body.appendChild(nav);
+    });
+
+    const component = await mount(
+      <CamlArticleEditorTestWrapper hasExistingArticle={false} />
+    );
+
+    await expect(page.getByText("Create Article").first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    const overlay = page.locator(".caml-article-editor-overlay");
+    const modal = page.locator(".caml-article-editor-modal");
+    await expect(overlay).toBeVisible();
+    await expect(modal).toBeVisible();
+    await page.waitForTimeout(100);
+
+    const overlayZIndex = await overlay.evaluate((el) =>
+      Number(window.getComputedStyle(el).zIndex)
+    );
+    expect(overlayZIndex).toBeGreaterThan(1100);
+
+    const viewport = page.viewportSize()!;
+    const modalBox = await modal.boundingBox();
+    expect(modalBox).not.toBeNull();
+    expect(modalBox!.x).toBeGreaterThanOrEqual(-2);
+    expect(modalBox!.y).toBeGreaterThanOrEqual(-2);
+    expect(modalBox!.width).toBeLessThanOrEqual(viewport.width + 2);
+    expect(modalBox!.height).toBeLessThanOrEqual(viewport.height + 2);
+
+    await component.unmount();
+  });
 });
 
 test.describe("CamlArticleEditor - Extract Picker Keyboard Navigation", () => {
