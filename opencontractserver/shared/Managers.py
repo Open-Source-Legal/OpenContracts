@@ -126,6 +126,36 @@ class BaseVisibilityManager(Manager):
     more specific permission requirements.
     """
 
+    def user_can(
+        self,
+        user: Any,
+        instance: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check. Mirrors ``visible_to_user``.
+
+        For READ, this returns the same boolean as
+        ``self.visible_to_user(user).filter(pk=instance.pk).exists()``. For
+        non-READ permissions there is no queryset analogue; this method is
+        the single source of truth.
+
+        Honors superuser bypass, creator ownership, ``is_public`` (READ
+        only), guardian user/group object permissions. Per-model subclasses
+        SHOULD override and add model-specific rules (e.g. structural
+        read-only, annotation privacy) before delegating back here for the
+        default branch.
+        """
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        return _default_user_can(
+            user,
+            instance,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )
+
     def visible_to_user(
         self,
         user: Any = None,

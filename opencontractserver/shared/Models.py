@@ -45,3 +45,20 @@ class BaseOCModel(models.Model):
     # Timing variables
     created = django.db.models.DateTimeField(auto_now_add=True, blank=False, null=False)
     modified = django.db.models.DateTimeField(auto_now=True, blank=False, null=False)
+
+    def user_can(
+        self, user, permission, *, include_group_permissions: bool = True
+    ) -> bool:
+        """Ergonomic single-object authorization check.
+
+        Equivalent to ``type(self)._default_manager.user_can(user, self,
+        permission)``. The Manager (or QuerySet) is the source of truth for
+        per-model overrides; this method is just a thin delegate so callers
+        can write ``obj.user_can(user, perm)`` instead.
+        """
+        return type(self)._default_manager.user_can(
+            user,
+            self,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )

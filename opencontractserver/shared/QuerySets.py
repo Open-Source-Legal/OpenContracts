@@ -29,6 +29,30 @@ class PermissionedTreeQuerySet(TreeQuerySet):
     def by_creator(self, creator: Any) -> "PermissionedTreeQuerySet":
         return self.filter(creator=creator)
 
+    def user_can(
+        self,
+        user: Any,
+        instance: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for tree-based models (Corpus,
+        CorpusFolder). Mirrors ``visible_to_user`` semantics.
+
+        See ``BaseVisibilityManager.user_can`` for the contract. The body is
+        delegated to ``_default_user_can`` so all "standard rules" managers
+        and querysets converge on the same authorization logic.
+        """
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        return _default_user_can(
+            user,
+            instance,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )
+
     def visible_to_user(self, user: Any) -> "PermissionedTreeQuerySet":
         """
         Gets queryset with_tree_fields that is visible to user. At moment, we're JUST filtering

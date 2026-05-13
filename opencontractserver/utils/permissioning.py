@@ -354,6 +354,118 @@ def get_users_permissions_for_obj(
     return model_permissions_for_user
 
 
+def _default_user_can(
+    user_val: int | str | UserModel | AnonymousUser | None,
+    instance: django.db.models.Model,
+    permission: PermissionTypes,
+    *,
+    include_group_permissions: bool = True,
+) -> bool:
+    """Centralized default-branch authorization body.
+
+    Single source of truth for "does this user have ``permission`` on
+    ``instance``?" for any model that uses the standard rules. Both
+    ``BaseVisibilityManager.user_can`` and ``PermissionedTreeQuerySet.user_can``
+    delegate here, which keeps the filter (``visible_to_user``) and check
+    (``user_can``) decisions provably aligned.
+
+    Rules:
+        - ``None`` / ``AnonymousUser`` / unauthenticated → False, except READ
+          on ``instance.is_public=True`` which returns True.
+        - Superuser → True for every permission.
+        - Authenticated, non-superuser:
+            * For READ: True iff ``is_public`` or ``creator_id == user.id`` or
+              the user has the corresponding guardian codename (user perms,
+              optionally group perms).
+            * For non-READ: True iff ``creator_id == user.id`` or the user
+              has the corresponding guardian codename. ``is_public`` does NOT
+              grant write permissions — preserves the read/write asymmetry
+              enforced today by the deleted ``FolderService.check_corpus_*``
+              helpers.
+            * For ``CRUD``: requires all four base perms (CREATE, READ,
+              UPDATE, DELETE).
+            * For ``ALL``: requires all seven perms.
+
+    Per-model overrides (e.g. ``AnnotationManager.user_can``) MUST add their
+    own structural / privacy / inheritance rules before delegating here.
+    """
+    if user_val is None:
+        return False
+
+    if isinstance(user_val, AnonymousUser):
+        if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
+            return True
+        return False
+
+    if isinstance(user_val, (str, int)):
+        try:
+            user = User.objects.get(id=user_val)
+        except User.DoesNotExist:
+            return False
+    else:
+        user = user_val
+
+    if not getattr(user, "is_authenticated", False):
+        if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
+            return True
+        return False
+
+    if user.is_superuser:
+        return True
+
+    if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
+        return True
+
+    if (
+        hasattr(instance, "creator_id")
+        and instance.creator_id is not None
+        and instance.creator_id == user.id
+    ):
+        return True
+
+    model_name = instance._meta.model_name
+    granted = get_users_permissions_for_obj(
+        user=user,
+        instance=instance,
+        include_group_permissions=include_group_permissions,
+    )
+
+    if permission == PermissionTypes.READ:
+        return f"read_{model_name}" in granted
+    if permission == PermissionTypes.CREATE:
+        return f"create_{model_name}" in granted
+    if permission in (PermissionTypes.UPDATE, PermissionTypes.EDIT):
+        return f"update_{model_name}" in granted
+    if permission == PermissionTypes.DELETE:
+        return f"remove_{model_name}" in granted
+    if permission == PermissionTypes.COMMENT:
+        return f"comment_{model_name}" in granted
+    if permission == PermissionTypes.PUBLISH:
+        return f"publish_{model_name}" in granted
+    if permission == PermissionTypes.PERMISSION:
+        return f"permission_{model_name}" in granted
+    if permission == PermissionTypes.CRUD:
+        required = {
+            f"create_{model_name}",
+            f"read_{model_name}",
+            f"update_{model_name}",
+            f"remove_{model_name}",
+        }
+        return required.issubset(granted)
+    if permission == PermissionTypes.ALL:
+        required = {
+            f"create_{model_name}",
+            f"read_{model_name}",
+            f"update_{model_name}",
+            f"remove_{model_name}",
+            f"comment_{model_name}",
+            f"publish_{model_name}",
+            f"permission_{model_name}",
+        }
+        return required.issubset(granted)
+    return False
+
+
 def user_has_permission_for_obj(
     user_val: int | str | UserModel,
     instance: django.db.models.Model,
