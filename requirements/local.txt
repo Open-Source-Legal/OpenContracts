@@ -24,7 +24,7 @@ django-silk==5.5.0
 # ------------------------------------------------------------------------------
 flake8==7.3.0 # https://github.com/PyCQA/flake8
 flake8-isort==7.0.0  # https://github.com/gforcada/flake8-isort
-coverage==7.13.5  # https://github.com/nedbat/coveragepy
+coverage==7.14.0  # https://github.com/nedbat/coveragepy
 black==26.3.1  # https://github.com/psf/black
 pre-commit==4.6.0  # https://github.com/pre-commit/pre-commit
 
