@@ -489,6 +489,10 @@ describe("AnnotationHooks", () => {
               rawText: existing.rawText,
               page: existing.page,
               annotationLabel: mockLabel.id,
+              // useUpdateAnnotation always sends linkUrl (null clears the
+              // column server-side; non-null sets it). The mock must match
+              // these variables exactly or Apollo never resolves.
+              linkUrl: null,
             },
           },
           result: {

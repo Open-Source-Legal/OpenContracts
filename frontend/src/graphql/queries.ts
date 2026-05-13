@@ -1075,6 +1075,7 @@ export const GET_ANNOTATIONS = gql`
           annotationType
           structural
           rawText
+          linkUrl
           isPublic
           myPermissions
           contentModalities
@@ -1192,6 +1193,7 @@ export const GET_ANNOTATIONS_FOR_CARDS = gql`
           annotationType
           structural
           rawText
+          linkUrl
           isPublic
           contentModalities
           __typename
@@ -1326,6 +1328,7 @@ export const SEMANTIC_SEARCH_ANNOTATIONS = gql`
         annotationType
         structural
         rawText
+        linkUrl
         isPublic
         myPermissions
         contentModalities
@@ -2500,6 +2503,7 @@ export const GET_ANNOTATIONS_FOR_ANALYSIS = gql`
 
         page
         rawText
+        linkUrl
 
         json
         userFeedback {
@@ -3333,6 +3337,7 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         annotationType
         rawText
         json
+        linkUrl
         myPermissions
         structural
         contentModalities
@@ -3445,6 +3450,7 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
         annotationType
         rawText
         json
+        linkUrl
         myPermissions
         structural
         contentModalities
@@ -3537,6 +3543,7 @@ export const GET_DOCUMENT_STRUCTURAL_ANNOTATIONS = gql`
         annotationType
         rawText
         json
+        linkUrl
         myPermissions
         structural
         contentModalities

@@ -1,0 +1,69 @@
+/**
+ * Helpers for OC_URL annotations — annotations whose label text is
+ * ``OC_URL`` and whose ``linkUrl`` is opened on click.
+ *
+ * Centralised here so that the PDF and text/markdown renderers share the
+ * same is-url check and open behaviour. Updating click semantics in one
+ * place keeps the two viewers in lock-step.
+ */
+
+import { OC_URL_LABEL } from "../../../assets/configurations/constants";
+import {
+  ServerSpanAnnotation,
+  ServerTokenAnnotation,
+} from "../types/annotations";
+
+/**
+ * Whether an annotation should behave as a clickable hyperlink. True when
+ * the annotation carries the OC_URL label *and* has a non-empty
+ * ``linkUrl``. We require both so an OC_URL annotation with a missing
+ * URL (e.g. while the author is still editing) falls back to normal
+ * selection behaviour.
+ */
+export function isUrlAnnotation(
+  annotation: ServerTokenAnnotation | ServerSpanAnnotation
+): boolean {
+  return (
+    annotation.annotationLabel?.text === OC_URL_LABEL &&
+    typeof annotation.linkUrl === "string" &&
+    annotation.linkUrl.trim().length > 0
+  );
+}
+
+/**
+ * Allow-list mirrored from the backend (``Annotation.validate_link_url``)
+ * so the renderer refuses to open dangerous schemes even if the database
+ * was bypassed (e.g. via a stale cached annotation).
+ */
+function isSafeUrl(url: string): boolean {
+  const normalized = url.trim();
+  return (
+    normalized.toLowerCase().startsWith("http://") ||
+    normalized.toLowerCase().startsWith("https://") ||
+    normalized.startsWith("/")
+  );
+}
+
+/**
+ * Open the annotation's ``linkUrl`` in a new tab. External http(s)
+ * targets use ``window.open`` with ``noopener,noreferrer`` so the opened
+ * page cannot reach back into the OpenContracts session. Site-relative
+ * paths navigate within the current tab so the SPA router can resolve
+ * them.
+ *
+ * Returns ``true`` when navigation was attempted, ``false`` when the URL
+ * was missing or unsafe.
+ */
+export function openAnnotationUrl(
+  annotation: ServerTokenAnnotation | ServerSpanAnnotation
+): boolean {
+  const url = annotation.linkUrl;
+  if (!url || !isSafeUrl(url)) return false;
+  const normalized = url.trim();
+  if (normalized.startsWith("/")) {
+    window.location.assign(normalized);
+  } else {
+    window.open(normalized, "_blank", "noopener,noreferrer");
+  }
+  return true;
+}

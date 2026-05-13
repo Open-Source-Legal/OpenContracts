@@ -28,6 +28,7 @@ from config.graphql.annotation_mutations import (
     AddAnnotation,
     AddDocTypeAnnotation,
     AddRelationship,
+    AddUrlAnnotation,
     ApproveAnnotation,
     CreateNote,
     DeleteNote,
@@ -236,6 +237,7 @@ class Mutation(graphene.ObjectType):
 
     # ANNOTATION MUTATIONS ######################################################
     add_annotation = AddAnnotation.Field()
+    add_url_annotation = AddUrlAnnotation.Field()
     remove_annotation = RemoveAnnotation.Field()
     update_annotation = UpdateAnnotation.Field()
     add_doc_type_annotation = AddDocTypeAnnotation.Field()

@@ -262,6 +262,10 @@ export const DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH = 6;
 // Keep in sync with opencontractserver/constants/annotations.py
 export const STRUCTURAL_LABEL_PREFIX = "OC_";
 export const OC_SECTION_LABEL = "OC_SECTION";
+// Annotations carrying the OC_URL label render as clickable hyperlinks; their
+// ``linkUrl`` field is opened on click. Keep in sync with
+// opencontractserver/constants/annotations.py.
+export const OC_URL_LABEL = "OC_URL";
 
 // Document search/picker limits
 export const DOCUMENT_PICKER_SEARCH_LIMIT = 20;

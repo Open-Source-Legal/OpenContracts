@@ -13,6 +13,10 @@ MANUAL_ANNOTATION_SENTINEL = "~~MANUAL~~"
 # They drive built-in features such as the document index.
 OC_SECTION_LABEL = "OC_SECTION"
 OC_EXTRACT_SOURCE_LABEL = "OC_EXTRACT_SOURCE"
+# OC_URL annotations carry a target URL in ``Annotation.link_url`` that the
+# frontend opens when the annotation is clicked, turning highlighted text into
+# a navigable hyperlink.
+OC_URL_LABEL = "OC_URL"
 
 # Maximum number of entries allowed in a single create_document_index call.
 DOCUMENT_ANNOTATION_INDEX_LIMIT = 500

@@ -4,6 +4,7 @@ import { useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
 import {
   REQUEST_ADD_ANNOTATION,
+  REQUEST_ADD_URL_ANNOTATION,
   REQUEST_DELETE_ANNOTATION,
   REQUEST_UPDATE_ANNOTATION,
   REQUEST_ADD_DOC_TYPE_ANNOTATION,
@@ -14,6 +15,8 @@ import {
   REJECT_ANNOTATION,
   NewAnnotationInputType,
   NewAnnotationOutputType,
+  NewUrlAnnotationInputType,
+  NewUrlAnnotationOutputType,
   RemoveAnnotationInputType,
   RemoveAnnotationOutputType,
   UpdateAnnotationInputType,
@@ -281,7 +284,9 @@ export function useCreateAnnotation() {
             false,
             false,
             false,
-            createdAnnotationData.id
+            createdAnnotationData.id,
+            undefined,
+            createdAnnotationData.linkUrl ?? null
           );
         } else {
           newAnnotation = new ServerTokenAnnotation(
@@ -294,7 +299,9 @@ export function useCreateAnnotation() {
             false,
             false,
             false,
-            createdAnnotationData.id
+            createdAnnotationData.id,
+            undefined,
+            createdAnnotationData.linkUrl ?? null
           );
         }
 
@@ -320,6 +327,111 @@ export function useCreateAnnotation() {
     createAnnotation,
     addMultipleAnnotations,
   ]);
+}
+
+/**
+ * Hook to create an OC_URL annotation: a clickable hyperlink anchored to
+ * the supplied selection. Internally calls the ``addUrlAnnotation`` mutation,
+ * which auto-ensures the OC_URL label exists in the corpus.
+ */
+export function useCreateUrlAnnotation() {
+  const { addMultipleAnnotations } = usePdfAnnotations();
+  const selectedDocument = useAtomValue(selectedDocumentAtom);
+  const { selectedCorpus } = useCorpusState();
+
+  const [createUrlAnnotation] = useMutation<
+    NewUrlAnnotationOutputType,
+    NewUrlAnnotationInputType
+  >(REQUEST_ADD_URL_ANNOTATION);
+
+  const handleCreateUrlAnnotation = useCallback(
+    async (
+      annotation: ServerTokenAnnotation | ServerSpanAnnotation,
+      linkUrl: string
+    ) => {
+      if (!selectedCorpus || !selectedDocument) {
+        toast.warning("No corpus or document selected");
+        return;
+      }
+      const trimmedUrl = linkUrl.trim();
+      if (!trimmedUrl) {
+        toast.warning("URL is required for link annotation");
+        return;
+      }
+
+      try {
+        const result = await createUrlAnnotation({
+          variables: {
+            json: annotation.json,
+            page: annotation.page,
+            rawText: annotation.rawText,
+            corpusId: selectedCorpus.id,
+            documentId: selectedDocument.id,
+            annotationType:
+              annotation instanceof ServerSpanAnnotation
+                ? LabelType.SpanLabel
+                : LabelType.TokenLabel,
+            linkUrl: trimmedUrl,
+          },
+        });
+
+        const payload = result?.data?.addUrlAnnotation;
+        if (!payload?.ok || !payload.annotation) {
+          toast.error(
+            `Unable to create link annotation: ${
+              payload?.message ?? "unknown error"
+            }`
+          );
+          return;
+        }
+
+        const created = payload.annotation;
+        const newAnnotation: ServerTokenAnnotation | ServerSpanAnnotation =
+          isSpanBasedFileType(selectedDocument.fileType)
+            ? new ServerSpanAnnotation(
+                created.page,
+                created.annotationLabel,
+                created.rawText,
+                false,
+                created.json as SpanAnnotationJson,
+                getPermissions(created.myPermissions || []),
+                false,
+                false,
+                false,
+                created.id,
+                undefined,
+                created.linkUrl
+              )
+            : new ServerTokenAnnotation(
+                created.page,
+                created.annotationLabel,
+                created.rawText,
+                false,
+                created.json ?? {},
+                getPermissions(created.myPermissions || []),
+                false,
+                false,
+                false,
+                created.id,
+                undefined,
+                created.linkUrl
+              );
+
+        addMultipleAnnotations([newAnnotation]);
+        toast.success("Link annotation created");
+      } catch (error: unknown) {
+        toast.error(`Unable to create link annotation: ${error}`);
+      }
+    },
+    [
+      selectedDocument,
+      selectedCorpus,
+      createUrlAnnotation,
+      addMultipleAnnotations,
+    ]
+  );
+
+  return handleCreateUrlAnnotation;
 }
 
 /**
@@ -349,6 +461,9 @@ export function useUpdateAnnotation() {
             rawText: annotation.rawText,
             page: annotation.page,
             annotationLabel: annotation.annotationLabel.id,
+            // ``null`` is sent as-is and clears the column server-side;
+            // ``undefined`` is dropped by Apollo before serialising the request.
+            linkUrl: annotation.linkUrl ?? null,
           },
         });
 
@@ -366,7 +481,9 @@ export function useUpdateAnnotation() {
               false,
               false,
               false,
-              annotation.id
+              annotation.id,
+              undefined,
+              annotation.linkUrl ?? null
             );
           } else {
             updatedAnnotation = new ServerTokenAnnotation(
@@ -379,7 +496,9 @@ export function useUpdateAnnotation() {
               false,
               false,
               false,
-              annotation.id
+              annotation.id,
+              undefined,
+              annotation.linkUrl ?? null
             );
           }
 

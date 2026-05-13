@@ -91,6 +91,41 @@ EMBEDDING_DIMENSIONS = [
 ]
 
 
+# Allowed URL schemes for ``Annotation.link_url`` and OC_URL authoring
+# flows.  Anything not in this allow-list (notably ``javascript:`` and
+# ``data:``) is rejected to keep the click-to-open flow XSS-safe.
+LINK_URL_ALLOWED_SCHEMES: tuple[str, ...] = ("http://", "https://")
+
+
+def validate_link_url(url: str) -> None:
+    """Raise ``ValidationError`` if *url* is not a safe link target.
+
+    Accepts:
+      * ``http://`` / ``https://`` absolute URLs
+      * site-relative paths beginning with ``/``
+
+    Rejects every other scheme — particularly ``javascript:`` and ``data:``,
+    both of which would execute attacker-controlled code if reflected into
+    ``window.open`` on click.
+    """
+
+    if not url:
+        return
+    normalized = url.strip()
+    is_safe = normalized.lower().startswith(
+        LINK_URL_ALLOWED_SCHEMES
+    ) or normalized.startswith("/")
+    if not is_safe:
+        raise ValidationError(
+            {
+                "link_url": (
+                    "link_url must be an http(s):// URL or a site-relative "
+                    "path starting with '/'."
+                )
+            }
+        )
+
+
 class AnnotationLabel(BaseOCModel):
 
     label_type = django.db.models.CharField(
@@ -966,6 +1001,20 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     # Mark structural / layout annotations explicitly.
     structural = django.db.models.BooleanField(default=False)
 
+    # Target URL for clickable-link annotations (used with the OC_URL label).
+    # Frontend opens this URL when the annotation is clicked.  Restricted to
+    # http(s) and protocol-relative schemes in ``clean()`` to block
+    # ``javascript:`` and other dangerous schemes from reaching the renderer.
+    link_url = django.db.models.URLField(
+        max_length=2048,
+        null=True,
+        blank=True,
+        help_text=(
+            "Target URL opened when the annotation is clicked. "
+            "Only meaningful for annotations labelled OC_URL."
+        ),
+    )
+
     # True only for annotations created by the extraction-grounding pipeline
     # (``opencontractserver/utils/extraction_grounding.py``). Backs the
     # partial UniqueConstraints below — the constraints scope to this flag
@@ -1121,6 +1170,12 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 }
             )
 
+        # Validate link_url scheme (always runs, even when JSON validation
+        # is disabled — link_url is reflected in clickable UI, so unsafe
+        # schemes like ``javascript:`` must be rejected before persistence).
+        if self.link_url:
+            validate_link_url(self.link_url)
+
         # Validate mutual exclusivity of document vs structural_set
         has_document = self.document_id is not None
         has_structural_set = getattr(self, "structural_set_id", None) is not None
@@ -1158,6 +1213,11 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         if getattr(settings, "VALIDATE_ANNOTATION_JSON", settings.DEBUG):
             # Ensure that `clean()` is executed even if external callers forget.
             self.clean()
+
+        # link_url validation always runs, regardless of the JSON-validation
+        # flag, because the URL is reflected directly into a click handler.
+        if self.link_url:
+            validate_link_url(self.link_url)
 
         # Auto-compact annotation JSON to v2 format on save (lazy migration).
         if (

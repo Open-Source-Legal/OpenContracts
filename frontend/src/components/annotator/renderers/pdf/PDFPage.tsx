@@ -51,6 +51,11 @@ const CanvasWrapper = styled.div`
 interface PDFPageProps extends PageProps {
   containerWidth?: number | null;
   createAnnotationHandler: (annotation: ServerTokenAnnotation) => Promise<void>;
+  /** Optional OC_URL link-annotation creator forwarded to SelectionLayer. */
+  createUrlAnnotationHandler?: (
+    annotation: ServerTokenAnnotation,
+    url: string
+  ) => Promise<void>;
   onZoomRenderRequest?: (
     pageNumber: number,
     renderer: any,
@@ -73,6 +78,7 @@ export const PDFPage = ({
   onError,
   containerWidth,
   createAnnotationHandler,
+  createUrlAnnotationHandler,
   onZoomRenderRequest,
 }: PDFPageProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -568,6 +574,7 @@ export const PDFPage = ({
           read_only={read_only}
           activeSpanLabel={activeSpanLabel ?? null}
           createAnnotation={createAnnotationHandler}
+          createUrlAnnotation={createUrlAnnotationHandler}
           pageNumber={pageInfo.page.pageNumber - 1}
         />
         {pageAnnotationComponents}
