@@ -1,4 +1,3 @@
-python-slugify==8.0.4  # https://github.com/un33k/python-slugify
 Pillow>=12.2.0  # https://github.com/python-pillow/Pillow
 argon2-cffi==25.1.0  # https://github.com/hynek/argon2_cffi
 hiredis==3.3.1  # https://github.com/redis/hiredis-py
@@ -19,11 +18,9 @@ brotli>=1.2.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI A
 # ------------------------------------------------------------------------------
 django==5.2.14  # https://www.djangoproject.com/
 django-environ==0.13.0  # https://github.com/joke2k/django-environ
-django-model-utils==5.0.0  # https://github.com/jazzband/django-model-utils
 django-redis==6.0.0  # https://github.com/jazzband/django-redis
 django-filter==25.1  # https://github.com/carltongibson/django-filter
 django-storages[boto3,google]==1.14.6  # https://github.com/jschneier/django-storages
-django-extensions==4.1  # https://github.com/django-extensions/django-extensions
 whitenoise==6.12.0
 django-tree-queries[admin]==0.24.0  # https://pypi.org/project/django-tree-queries/0.21.0/
 django-cte==3.0.0  # https://github.com/dimagi/django-cte
@@ -42,12 +39,9 @@ drf-extra-fields==3.7.0  # https://github.com/Hipo/drf-extra-fields
 # Doc Analysis (NLP dependencies, placeholder) - WARNING, these are all in same environment... not ideal.
 # ------------------------------------------------------------------------------
 pypdf>=6.11.0,<7  # https://github.com/py-pdf/pypdf
-pandas
 plasmapdf==0.1.3  # https://github.com/Jsv4/plasmapdf
 pdf2image>=1.17.0
-tiktoken==0.12.0  # https://github.com/openai/tiktoken
 openai>=2.36.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
-pytesseract
 # Bumping pydantic-ai is a deliberate decision: this codebase relies on the
 # precedence rule that ``instructions=`` (not ``system_prompt=``) is the only
 # way to deliver a system instruction when ``message_history`` is non-empty
@@ -85,10 +79,6 @@ django-graphql-jwt==0.4.0
 # Telemetry
 # ------------------------------------------------------------------------------
 posthog==7.14.1  # https://github.com/posthog/posthog-python
-
-# JSON Schema
-# ------------------------------------------------------------------------------
-jsonschema==4.26.0
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------

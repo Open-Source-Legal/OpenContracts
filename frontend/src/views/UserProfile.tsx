@@ -14,12 +14,13 @@
 
 import React from "react";
 import styled from "styled-components";
-import { User, Settings, TrendingUp } from "lucide-react";
+import { User, Settings, TrendingUp, Link as LinkIcon } from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { UserBadges } from "../components/badges/UserBadges";
 import { UserProfileReputation } from "../components/threads/UserProfileReputation";
 import { UserStats } from "../components/profile/UserStats";
 import { RecentActivity } from "../components/profile/RecentActivity";
+import { SafeMarkdown } from "../components/knowledge_base/markdown/SafeMarkdown";
 import { showUserSettingsModal } from "../graphql/cache";
 import { color } from "../theme/colors";
 import { getCreatorInitials } from "../utils/userDisplay";
@@ -295,6 +296,11 @@ const SectionTitle = styled.h2`
   }
 `;
 
+const ProfileHeadline = styled.p`
+  margin: 0.5rem 0 0 0;
+  color: ${color.N7};
+`;
+
 export interface UserProfileProps {
   // ``username``, ``name``, ``firstName``, ``lastName`` and ``email`` are
   // redacted to ``null`` for non-self viewers per the user privacy
@@ -309,6 +315,9 @@ export interface UserProfileProps {
     lastName: string | null;
     email: string | null;
     isProfilePublic: boolean;
+    profileHeadline: string | null;
+    profileAboutMarkdown: string | null;
+    profileLinksMarkdown: string | null;
     reputationGlobal: number;
     totalMessages: number;
     totalThreadsCreated: number;
@@ -360,6 +369,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           <ProfileInfo>
             <ProfileName>{displayName}</ProfileName>
             <ProfileUsername>@{handle}</ProfileUsername>
+            {user.profileHeadline && (
+              <ProfileHeadline>{user.profileHeadline}</ProfileHeadline>
+            )}
             {isOwnProfile && user.email && (
               <ProfileEmail>{user.email}</ProfileEmail>
             )}
@@ -379,6 +391,24 @@ export const UserProfile: React.FC<UserProfileProps> = ({
 
         <ContentGrid>
           <MainColumn>
+            {user.profileAboutMarkdown && (
+              <Section>
+                <SectionTitle>
+                  <User />
+                  About
+                </SectionTitle>
+                <SafeMarkdown>{user.profileAboutMarkdown}</SafeMarkdown>
+              </Section>
+            )}
+            {user.profileLinksMarkdown && (
+              <Section>
+                <SectionTitle>
+                  <LinkIcon />
+                  Links
+                </SectionTitle>
+                <SafeMarkdown>{user.profileLinksMarkdown}</SafeMarkdown>
+              </Section>
+            )}
             {/* Badges Section */}
             <Section>
               <UserBadges userId={user.id} showTitle={true} title="Badges" />

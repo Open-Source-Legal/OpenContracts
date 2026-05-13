@@ -53,7 +53,7 @@ repos:
         # MUST match requirements/base.txt + requirements/local.txt. The
         # admin autodiscover that django-stubs triggers transitively
         # imports most of the project, which is why the list is long.
-        # A handful of transitive deps (pandas, python-docx, openpyxl,
+        # A handful of transitive deps (python-docx, openpyxl,
         # python-pptx, spacy) are left unpinned or range-pinned — they
         # are import-only (mypy never follows into their types with
         # ignore_missing_imports=True), so a compatible bump cannot
@@ -68,7 +68,6 @@ repos:
           # --- Django runtime (must match requirements/base.txt) --------
           - django==5.2.13
           - django-environ==0.13.0
-          - django-model-utils==5.0.0
           - django-redis==6.0.0
           - django-filter==25.1
           - django-storages[boto3,google]==1.14.6
@@ -101,8 +100,6 @@ repos:
           - python-docx
           - openpyxl
           - python-pptx
-          - pandas
-          - tiktoken==0.12.0
           - openai>=2.11.0,<3
           # Mirrors the narrow-extras pin in requirements/base.txt; using the
           # bare ``pydantic-ai`` meta-package would fan out to all ~20
@@ -113,9 +110,7 @@ repos:
           - spacy
           - tokenizers>=0.21,<0.23
           - posthog==7.12.0
-          - jsonschema==4.26.0
           - mcp>=1.0.0
-          - python-slugify==8.0.4
           - argon2-cffi==25.1.0
           - cryptography==46.0.7
           - pyjwt==2.12.1

@@ -16,7 +16,7 @@ import base64
 import logging
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import numpy as np
 import requests
@@ -317,9 +317,10 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
                 logger.error("No service URL configured for batch text embedding")
                 return None
 
+            text_payload: dict[str, Any] = {"texts": texts}
             response = requests.post(
                 f"{service_url}/embeddings/batch",
-                json=cast(Any, {"texts": texts}),
+                json=text_payload,
                 headers=headers,
                 timeout=60,
             )
@@ -406,9 +407,10 @@ class BaseMultimodalMicroserviceEmbedder(BaseEmbedder):
                 logger.error("No service URL configured for batch image embedding")
                 return None
 
+            image_payload: dict[str, Any] = {"images": images_base64}
             response = requests.post(
                 f"{service_url}/embeddings/image/batch",
-                json=cast(Any, {"images": images_base64}),
+                json=image_payload,
                 headers=headers,
                 timeout=120,
             )
