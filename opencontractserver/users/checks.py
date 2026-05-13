@@ -7,9 +7,7 @@ from django.core.checks import Warning, register
 
 
 @register()
-def check_auth0_superuser_allowlist(
-    app_configs: Any, **kwargs: Any
-) -> list[Warning]:
+def check_auth0_superuser_allowlist(app_configs: Any, **kwargs: Any) -> list[Warning]:
     """Warn when Auth0 is enabled but the superuser allowlist is empty.
 
     With an empty allowlist the JWT claim sync silently refuses every

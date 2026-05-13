@@ -485,9 +485,7 @@ class AddRelationship(graphene.Mutation):
         except Exception:
             # Bad / unparseable global IDs are indistinguishable from
             # not-found to keep the IDOR surface flat.
-            return AddRelationship(
-                ok=False, relationship=None, message=not_found_msg
-            )
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # Filter annotations through visible_to_user so unauthorized or
         # non-existent IDs collapse into the same "missing" branch. Comparing
@@ -498,13 +496,10 @@ class AddRelationship(graphene.Mutation):
         target_annotations = Annotation.objects.visible_to_user(user).filter(
             id__in=target_pks
         )
-        if (
-            source_annotations.count() != len(set(source_pks))
-            or target_annotations.count() != len(set(target_pks))
-        ):
-            return AddRelationship(
-                ok=False, relationship=None, message=not_found_msg
-            )
+        if source_annotations.count() != len(
+            set(source_pks)
+        ) or target_annotations.count() != len(set(target_pks)):
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # Filter corpus through visible_to_user so a non-existent or
         # inaccessible corpus pk yields the same not-found branch as a
@@ -512,9 +507,7 @@ class AddRelationship(graphene.Mutation):
         try:
             corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
         except Corpus.DoesNotExist:
-            return AddRelationship(
-                ok=False, relationship=None, message=not_found_msg
-            )
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         if not user_has_permission_for_obj(
             user,
@@ -522,9 +515,15 @@ class AddRelationship(graphene.Mutation):
             PermissionTypes.CREATE,
             include_group_permissions=True,
         ):
-            return AddRelationship(
-                ok=False, relationship=None, message=not_found_msg
-            )
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
+
+        # Document visibility check: without this, a caller with CREATE on
+        # `corpus` could create a Relationship pointing at any document_id
+        # they happen to guess — including documents in a corpus they cannot
+        # see. Collapse the failure into the same not-found message to keep
+        # the IDOR surface flat with the source/target/corpus checks above.
+        if not Document.objects.visible_to_user(user).filter(pk=document_pk).exists():
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         try:
             relationship = Relationship.objects.create(
@@ -533,9 +532,7 @@ class AddRelationship(graphene.Mutation):
                 corpus_id=corpus_pk,
                 document_id=document_pk,
             )
-            set_permissions_for_obj_to_user(
-                user, relationship, [PermissionTypes.CRUD]
-            )
+            set_permissions_for_obj_to_user(user, relationship, [PermissionTypes.CRUD])
             relationship.target_annotations.set(target_annotations)
             relationship.source_annotations.set(source_annotations)
         except Exception as e:

@@ -348,6 +348,138 @@ class TestMutationIDORPrevention(TestCase):
 
 
 # ===========================================================================
+# 3b. AddRelationship document-visibility IDOR test
+# ===========================================================================
+
+
+class TestAddRelationshipDocumentIDOR(TestCase):
+    """
+    Pin the document-visibility check on ``AddRelationship``.
+
+    A caller with CREATE on a corpus they own must not be able to bind a
+    new relationship to a `document_id` belonging to a corpus they cannot
+    see. Without the explicit check, the IDOR surface would expose
+    document existence by allowing relationship rows to land on arbitrary
+    document_ids.
+    """
+
+    def setUp(self):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+        )
+
+        self.attacker = User.objects.create_user(
+            username="rel_attacker", password="test"
+        )
+        self.victim = User.objects.create_user(username="rel_victim", password="test")
+
+        # Attacker's own corpus (CREATE allowed) and a single document/
+        # annotation pair to act as legitimate relationship endpoints.
+        self.attacker_corpus = Corpus.objects.create(
+            title="Attacker Corpus",
+            creator=self.attacker,
+            is_public=False,
+        )
+        set_permissions_for_obj_to_user(
+            self.attacker, self.attacker_corpus, [PermissionTypes.CRUD]
+        )
+
+        self.attacker_doc = Document.objects.create(
+            title="Attacker Doc",
+            creator=self.attacker,
+            is_public=False,
+        )
+        set_permissions_for_obj_to_user(
+            self.attacker, self.attacker_doc, [PermissionTypes.CRUD]
+        )
+
+        # Victim's private document — attacker has zero visibility on it.
+        self.victim_doc = Document.objects.create(
+            title="Victim Private Doc",
+            creator=self.victim,
+            is_public=False,
+        )
+
+        self.label = AnnotationLabel.objects.create(
+            text="rel_label", creator=self.attacker
+        )
+
+        self.source_annot = Annotation.objects.create(
+            document=self.attacker_doc,
+            corpus=self.attacker_corpus,
+            annotation_label=self.label,
+            creator=self.attacker,
+            raw_text="src",
+        )
+        self.target_annot = Annotation.objects.create(
+            document=self.attacker_doc,
+            corpus=self.attacker_corpus,
+            annotation_label=self.label,
+            creator=self.attacker,
+            raw_text="tgt",
+        )
+
+        self.mutation = """
+            mutation AddRel(
+                $sourceIds: [String]!,
+                $targetIds: [String]!,
+                $relationshipLabelId: String!,
+                $corpusId: String!,
+                $documentId: String!
+            ) {
+                addRelationship(
+                    sourceIds: $sourceIds,
+                    targetIds: $targetIds,
+                    relationshipLabelId: $relationshipLabelId,
+                    corpusId: $corpusId,
+                    documentId: $documentId
+                ) {
+                    ok
+                    message
+                }
+            }
+        """
+        self.gql_client = Client(schema)
+
+    def _base_variables(self, document_global_id: str) -> dict:
+        return {
+            "sourceIds": [to_global_id("AnnotationType", self.source_annot.id)],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", self.label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": document_global_id,
+        }
+
+    def test_blocks_relationship_with_inaccessible_document(self):
+        """Outsider with CREATE on a corpus cannot land a relationship on a
+        document they cannot see."""
+        from opencontractserver.annotations.models import Relationship
+
+        variables = self._base_variables(
+            to_global_id("DocumentType", self.victim_doc.id)
+        )
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
+        self.assertFalse(
+            Relationship.objects.filter(document_id=self.victim_doc.id).exists()
+        )
+
+    def test_allows_relationship_on_visible_document(self):
+        """Sanity: when document_id is visible to the caller, the mutation
+        succeeds. Pins that the new visibility check does not also break
+        the happy path."""
+        variables = self._base_variables(
+            to_global_id("DocumentType", self.attacker_doc.id)
+        )
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertTrue(data["ok"], f"expected ok, got message={data.get('message')!r}")
+
+
+# ===========================================================================
 # 4. Conversation mutation IDOR tests
 # ===========================================================================
 
