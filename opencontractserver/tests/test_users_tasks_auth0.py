@@ -6,14 +6,16 @@ the ``request_data`` payload construction is hit by coverage and the happy
 path / error path is locked in.
 """
 
-import datetime
 import importlib
 import json
 from types import ModuleType
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
+import pytest
+from django.conf import settings
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from opencontractserver.users.models import Auth0APIToken
 
@@ -26,22 +28,18 @@ def _reload_users_tasks():
     is not enough by itself — the module must be reloaded with the new value
     in place for the celery task callables to actually exist.
 
-    Parallel-runner caveat: ``importlib.reload`` mutates the shared module
-    registry. In pytest-xdist with ``--dist loadscope`` (the project default)
-    all tests in this class land on the same worker, so the reload is
-    observed in isolation. If a future test runner config drops loadscope
-    or another suite imports ``users.tasks`` before this class runs, the
-    reload would be visible cross-worker — at which point this class needs
-    to be moved behind ``pytest.mark.xdist_group(name="users_tasks_reload")``
-    rather than ``serial`` (the serial marker tears down DB connections via
-    ``conftest.py``, which is for asyncio tests and would break this sync
-    TestCase).
+    The ``xdist_group`` marker on the test class (see below) pins every
+    test that triggers a reload onto the same xdist worker, so a sibling
+    suite importing ``users.tasks`` on a different worker can never observe
+    the reloaded module mid-flight. The marker is the contract; this
+    function just executes the reload.
     """
     import opencontractserver.users.tasks as users_tasks
 
     return importlib.reload(users_tasks)
 
 
+@pytest.mark.xdist_group(name="users_tasks_reload")
 @override_settings(USE_AUTH0=True)
 class GetNewAuth0TokenTaskTests(TestCase):
     """Targeted coverage for ``get_new_auth0_token`` request-payload assembly."""
@@ -81,18 +79,16 @@ class GetNewAuth0TokenTaskTests(TestCase):
             set(payload.keys()),
             {"grant_type", "client_id", "client_secret", "audience"},
         )
-        self.assertTrue(payload["audience"].startswith("https://"))
-        self.assertTrue(payload["audience"].endswith("/api/v2/"))
+        self.assertEqual(
+            payload["audience"], f"https://{settings.AUTH0_DOMAIN}/api/v2/"
+        )
 
         stored = Auth0APIToken.objects.get(token="fake-token-abc")
-        # Production code stores a naive datetime here; normalise the
-        # database-roundtripped value before comparing.
+        # ``timezone.now()`` matches the field's tz-awareness regardless of
+        # ``USE_TZ`` setting (aware when True, naive when False), so it
+        # compares cleanly with whatever the field returned.
         self.assertIsNotNone(stored.expiration_Date)
-        now_naive = datetime.datetime.now()
-        stored_naive = stored.expiration_Date
-        if stored_naive.tzinfo is not None:
-            stored_naive = stored_naive.replace(tzinfo=None)
-        self.assertGreater(stored_naive, now_naive)
+        self.assertGreater(stored.expiration_Date, timezone.now())
 
     @patch("opencontractserver.users.tasks.requests.post")
     def test_non_200_response_returns_none_without_persisting(self, mock_post):
