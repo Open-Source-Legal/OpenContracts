@@ -1284,7 +1284,8 @@ class TestGetDocumentTextLengthClosure(SimpleTestCase):
 
     async def test_returns_cached_length_for_populated_document(self):
         """Populated document — the prime hits, the membership predicate
-        flips to True, and the closure returns the cached length."""
+        flips to True, and the closure returns the cached length without
+        a second full load."""
         from unittest.mock import AsyncMock
 
         from opencontractserver.llms.agents import pydantic_ai_agents as mod
@@ -1293,7 +1294,10 @@ class TestGetDocumentTextLengthClosure(SimpleTestCase):
         )
         from opencontractserver.llms.tools.core_tools import text_extracts
 
+        load_calls: list[tuple] = []
+
         async def fake_load(doc_id, start=None, end=None, refresh=False):
+            load_calls.append((doc_id, start, end, refresh))
             from datetime import datetime as _dt
 
             text_extracts._DOC_TXT_CACHE[doc_id] = (_dt.now(), "abcdef" * 10)
@@ -1306,6 +1310,10 @@ class TestGetDocumentTextLengthClosure(SimpleTestCase):
             result = await tool()
 
         self.assertEqual(result, 60)
+        # Exactly one load (the prime) — pinning this prevents a future
+        # regression where the membership check is loosened back into the
+        # fallback path.
+        self.assertEqual(len(load_calls), 1)
 
     async def test_falls_back_to_full_load_on_cache_miss(self):
         """If the prime did NOT populate the cache (defensive fallback
@@ -1488,6 +1496,21 @@ class TestRefreshContextBudgetFallback(SimpleTestCase):
         )
 
 
+class _FakePart:
+    """Lightweight pydantic-ai-part stand-in for ``_part_text`` tests."""
+
+    def __init__(self, content, args):
+        self.content = content
+        self.args = args
+
+
+class _FakeMessage:
+    """Lightweight pydantic-ai-message stand-in for ``_part_text`` tests."""
+
+    def __init__(self, parts):
+        self.parts = parts
+
+
 class TestHistoryResultFromMessages(SimpleTestCase):
     """`_history_result_from_messages` builds a ``_HistoryResult`` from an
     explicit Pydantic-AI message list. Pins the codepath that
@@ -1566,15 +1589,6 @@ class TestHistoryResultFromMessages(SimpleTestCase):
         )
         from opencontractserver.llms.context_guardrails import estimate_token_count
 
-        class _FakePart:
-            def __init__(self, content, args):
-                self.content = content
-                self.args = args
-
-        class _FakeMessage:
-            def __init__(self, parts):
-                self.parts = parts
-
         # An empty ToolReturnPart-style part with large argument payload
         # should contribute zero text — the args fallback must not fire.
         big_args = "x" * 4000
@@ -1599,15 +1613,6 @@ class TestHistoryResultFromMessages(SimpleTestCase):
         )
         from opencontractserver.llms.context_guardrails import estimate_token_count
 
-        class _FakePart:
-            def __init__(self, content, args):
-                self.content = content
-                self.args = args
-
-        class _FakeMessage:
-            def __init__(self, parts):
-                self.parts = parts
-
         big_args = "y" * 4000
         msgs = [_FakeMessage([_FakePart(content=None, args=big_args)])]
 
@@ -1629,15 +1634,6 @@ class TestHistoryResultFromMessages(SimpleTestCase):
         )
         from opencontractserver.llms.context_guardrails import estimate_token_count
 
-        class _FakePart:
-            def __init__(self, content, args):
-                self.content = content
-                self.args = args
-
-        class _FakeMessage:
-            def __init__(self, parts):
-                self.parts = parts
-
         payload = {"hello": "world"}
         msgs = [_FakeMessage([_FakePart(content=payload, args=None)])]
 
@@ -1657,15 +1653,6 @@ class TestHistoryResultFromMessages(SimpleTestCase):
             PydanticAICoreAgent,
         )
         from opencontractserver.llms.context_guardrails import estimate_token_count
-
-        class _FakePart:
-            def __init__(self, content, args):
-                self.content = content
-                self.args = args
-
-        class _FakeMessage:
-            def __init__(self, parts):
-                self.parts = parts
 
         msgs = [_FakeMessage([_FakePart(content=None, args=None)])]
 
