@@ -152,6 +152,33 @@ def build_label_lookups(
     else:
         all_label_ids = list(label_ids.union(relationship_label_ids))
 
+    # Include every label that lives in the corpus's own LabelSet, even
+    # if no annotation/relationship currently references it.  Required for
+    # roundtrip-safety (fork ≡ export+import): an empty annotation under
+    # a defined label is still a label the importer needs to recreate so
+    # the forked corpus's labelset matches the source's.  Only kicks in
+    # for the default and "labelset+analyses" modes; "analyses_only" keeps
+    # its narrower contract.
+    if annotation_filter_mode in (
+        AnnotationFilterMode.CORPUS_LABELSET_ONLY,
+        AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES,
+    ):
+        try:
+            labelset_label_ids = list(
+                Corpus.objects.filter(pk=corpus_id)
+                .values_list("label_set__annotation_labels", flat=True)
+                .distinct()
+            )
+            labelset_label_ids = [lid for lid in labelset_label_ids if lid is not None]
+            all_label_ids = list(set(all_label_ids).union(labelset_label_ids))
+        except Exception as e:
+            logger.warning(
+                "Could not augment label lookup with labelset labels for "
+                "corpus %s: %s",
+                corpus_id,
+                e,
+            )
+
     logger.info(f"Found {len(all_label_ids)} labels in corpus label set")
 
     # Pull the corresponding AnnotationLabel objects
@@ -234,11 +261,16 @@ def build_document_export(
         doc_labels = label_lookups["doc_labels"]
 
         doc = Document.objects.get(pk=doc_id)
-        doc_name: str = (
-            os.path.basename(doc.pdf_file.name)
-            if doc.pdf_file and doc.pdf_file.name
-            else "document"
-        )
+        # Synthesize a stable, doc-unique filename when the document has
+        # no file on disk.  Real production docs always have files, but
+        # in-memory test fixtures sometimes don't — we still want them
+        # to round-trip through V2 export/import (fork relies on this).
+        # The filename must be unique per doc so it doesn't collide
+        # inside the ZIP / annotated_docs dict.
+        if doc.pdf_file and doc.pdf_file.name:
+            doc_name = os.path.basename(doc.pdf_file.name)
+        else:
+            doc_name = f"document_{doc_id}.placeholder"
 
         corpus = Corpus.objects.get(pk=corpus_id)
 
@@ -337,10 +369,20 @@ def build_document_export(
         page_sizes: dict[int, Any] = {}
 
         if pawls_tokens:
-            page_sizes = {
-                pawls_page["page"]["index"]: pawls_page["page"]
-                for pawls_page in pawls_tokens
-            }
+            # Tolerate slightly-malformed pawls payloads (older fixtures
+            # sometimes use ``{"page": <int>, ...}`` instead of
+            # ``{"page": {"index": N, ...}, ...}``).  page_sizes is only
+            # used for the PDF-burn step, which has its own fallback,
+            # so failure here is non-fatal.
+            try:
+                page_sizes = {
+                    pawls_page["page"]["index"]: pawls_page["page"]
+                    for pawls_page in pawls_tokens
+                    if isinstance(pawls_page.get("page"), dict)
+                }
+            except Exception as e:
+                logger.warning("Could not build page_sizes for doc %s: %s", doc_id, e)
+                page_sizes = {}
 
         labelled_text = []
         labels_for_doc = []
@@ -404,7 +446,14 @@ def build_document_export(
 
         # PDF-specific processing: burn annotations into PDF
         base64_encoded_message = ""
-        if is_pdf and doc.pdf_file:
+        # No file on disk -> synthesize a placeholder byte so the
+        # importer can still materialize the document row.  Real
+        # production docs always have files; this fallback exists so
+        # in-memory test fixtures with stub Documents still round-trip
+        # through fork (which now wraps export+import).
+        if not (doc.pdf_file and doc.pdf_file.name):
+            base64_encoded_message = base64.b64encode(b"\x00").decode("utf-8")
+        if is_pdf and doc.pdf_file and doc.pdf_file.name:
             logger.info(f"Processing as PDF document: {doc_id}")
 
             from pypdf import PdfReader, PdfWriter
@@ -472,7 +521,23 @@ def build_document_export(
             except Exception as e:
                 logger.error(f"Could not process PDF due to error: {e}")
                 logger.error(f"Stack trace: {traceback.format_exc()}")
-                # Continue with empty PDF bytes for non-PDF or failed PDF processing
+                # Fall back to the raw PDF bytes so the import side still
+                # has a file to materialize.  Annotation geometry is still
+                # carried in ``doc_annotation_json``; only the visual
+                # burned-in highlights are missing.  Without this fallback
+                # a PDF that can't be parsed for highlighting (no PAWLS,
+                # unusual layout, etc.) silently drops out of the ZIP and
+                # the importer fails with "no item named ... in archive".
+                try:
+                    with doc.pdf_file.open("rb") as raw:
+                        raw_bytes = raw.read()
+                    base64_encoded_message = base64.b64encode(raw_bytes).decode("utf-8")
+                except Exception as fallback_err:
+                    logger.error(
+                        "Raw-PDF fallback also failed for doc %s: %s",
+                        doc_id,
+                        fallback_err,
+                    )
         else:
             logger.info(
                 f"Skipping PDF processing for non-PDF document: {doc_id} (file_type: {doc.file_type})"
