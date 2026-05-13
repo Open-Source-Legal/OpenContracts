@@ -979,6 +979,16 @@ LLAMAPARSE_NUM_WORKERS = env.int("LLAMAPARSE_NUM_WORKERS", default=4)
 LLAMAPARSE_LANGUAGE = env.str("LLAMAPARSE_LANGUAGE", default="en")
 LLAMAPARSE_VERBOSE = env.bool("LLAMAPARSE_VERBOSE", default=False)
 
+# ------------------------------------------------------------------------------
+# privacy-filter microservice (PII detection)
+# ------------------------------------------------------------------------------
+# Reach the dockerised service over the internal compose network. When empty
+# (e.g., production deployments that opt out), the agent tool returns a
+# deterministic error string instead of raising.
+PRIVACY_FILTER_URL = env("PRIVACY_FILTER_URL", default="")
+PRIVACY_FILTER_API_KEY = env("PRIVACY_FILTER_API_KEY", default="")
+PRIVACY_FILTER_TIMEOUT_SECONDS = env.int("PRIVACY_FILTER_TIMEOUT_SECONDS", default=30)
+
 # LLM SETTING
 OPENAI_API_KEY = env.str("OPENAI_API_KEY", default="")
 OPENAI_MODEL = env.str("OPENAI_MODEL", default="gpt-4o")
