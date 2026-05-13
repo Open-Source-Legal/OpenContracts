@@ -194,4 +194,90 @@ test.describe("UserProfile View - Rendered Profile", () => {
 
     await component.unmount();
   });
+
+  test("renders markdown headline, about, and links via SafeMarkdown", async ({
+    mount,
+    page,
+  }) => {
+    // Verifies the markdown profile fields added in this PR end up in
+    // the DOM. The link href is the SafeMarkdown urlTransform contract:
+    // an https:// link is preserved; a javascript: link must be
+    // stripped (rendered with empty href, not as an executable target).
+    const userWithMarkdown = {
+      ...mockPublicUser,
+      profileHeadline: "Senior contracts engineer",
+      profileAboutMarkdown: "I'm **interested** in dispute resolution.",
+      profileLinksMarkdown:
+        "- [home](https://example.com)\n" +
+        "- [evil](javascript:alert(1))\n" +
+        // Protocol-relative URL — browsers resolve "//phishing.example" to
+        // the page protocol, so this must be stripped just like javascript:.
+        "- [protorel](//phishing.example)\n" +
+        // data:text/html bypass — must also be stripped by the allowlist.
+        "- [datauri](data:text/html,<script>alert(1)</script>)",
+    };
+
+    const badgesMock = {
+      request: {
+        query: GET_USER_BADGES,
+        variables: { userId: userWithMarkdown.id, limit: 100 },
+      },
+      result: {
+        data: {
+          userBadges: {
+            edges: [],
+            pageInfo: {
+              hasNextPage: false,
+              hasPreviousPage: false,
+              startCursor: null,
+              endCursor: null,
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <MockedProvider mocks={[badgesMock]} addTypename={false}>
+        <MemoryRouter initialEntries={["/users/publicuser-123"]}>
+          <UserProfile user={userWithMarkdown} isOwnProfile={false} />
+        </MemoryRouter>
+      </MockedProvider>
+    );
+
+    await expect(page.locator("text=Senior contracts engineer")).toBeVisible();
+    await expect(page.locator("text=interested")).toBeVisible();
+    await expect(page.locator("text=dispute resolution")).toBeVisible();
+
+    const homeLink = page.locator('a:text-is("home")');
+    await expect(homeLink).toBeVisible();
+    await expect(homeLink).toHaveAttribute("href", "https://example.com");
+
+    // SafeMarkdown.urlTransform must strip the javascript: URL — the
+    // anchor still renders (the markdown still parses) but the href
+    // must NOT be the executable javascript: target.
+    const evilLink = page.locator('a:text-is("evil")');
+    await expect(evilLink).toBeVisible();
+    const evilHref = (await evilLink.getAttribute("href")) || "";
+    expect(evilHref.toLowerCase()).not.toContain("javascript:");
+
+    // Protocol-relative URLs like //phishing.example resolve to the
+    // page's protocol, so a profile author could disguise an external
+    // link as an in-app relative path. SafeMarkdown.urlTransform must
+    // reject anything starting with "//".
+    const protorelLink = page.locator('a:text-is("protorel")');
+    await expect(protorelLink).toBeVisible();
+    const protorelHref = (await protorelLink.getAttribute("href")) || "";
+    expect(protorelHref).not.toContain("//phishing.example");
+
+    // data: URLs must also be stripped — react-markdown's default
+    // urlTransform handles this today, but pinning the assertion keeps
+    // the contract explicit if the dependency or our allowlist drift.
+    const dataLink = page.locator('a:text-is("datauri")');
+    await expect(dataLink).toBeVisible();
+    const dataHref = (await dataLink.getAttribute("href")) || "";
+    expect(dataHref.toLowerCase()).not.toContain("data:");
+
+    await component.unmount();
+  });
 });

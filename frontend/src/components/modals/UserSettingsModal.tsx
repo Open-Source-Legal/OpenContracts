@@ -12,7 +12,10 @@ import styled from "styled-components";
 import { UserCircle, X, Check } from "lucide-react";
 
 import { backendUserObj, showUserSettingsModal } from "../../graphql/cache";
-import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  accentAlpha,
+} from "../../assets/configurations/osLegalStyles";
 import {
   UPDATE_ME,
   UpdateMeInputs,
@@ -56,6 +59,29 @@ const FormField = styled.div`
   }
 `;
 
+const MarkdownTextarea = styled.textarea`
+  width: 100%;
+  padding: 0.5rem;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 6px;
+  /* WCAG 2.4.7 Focus Visible — combine border-color with a 2px box-shadow
+   * focus ring so the indicator survives high-contrast / forced-colors mode
+   * where a single border-color shift can be invisible. */
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    border-color: ${OS_LEGAL_COLORS.accent};
+    box-shadow: 0 0 0 2px ${accentAlpha(0.35)};
+  }
+`;
+
 interface EditableProfileState {
   name?: string;
   firstName?: string;
@@ -63,6 +89,9 @@ interface EditableProfileState {
   phone?: string;
   slug?: string;
   isProfilePublic?: boolean; // Issue #611
+  profileHeadline?: string;
+  profileAboutMarkdown?: string;
+  profileLinksMarkdown?: string;
 }
 
 const UserSettingsModal: React.FC = () => {
@@ -73,13 +102,17 @@ const UserSettingsModal: React.FC = () => {
 
   useEffect(() => {
     if (user) {
+      const u = user as Partial<EditableProfileState>;
       setForm({
-        name: (user as any).name,
-        firstName: (user as any).firstName,
-        lastName: (user as any).lastName,
-        phone: (user as any).phone,
-        slug: (user as any).slug,
-        isProfilePublic: (user as any).isProfilePublic ?? true, // Issue #611
+        name: u.name,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        phone: u.phone,
+        slug: u.slug,
+        isProfilePublic: u.isProfilePublic ?? true, // Issue #611
+        profileHeadline: u.profileHeadline ?? "",
+        profileAboutMarkdown: u.profileAboutMarkdown ?? "",
+        profileLinksMarkdown: u.profileLinksMarkdown ?? "",
       });
       setDirty(false);
     }
@@ -171,6 +204,37 @@ const UserSettingsModal: React.FC = () => {
             onChange={(e) => onChange("phone", e.target.value)}
           />
           <div style={{ height: "1rem" }} />
+          <Input
+            label="Profile Headline"
+            fullWidth
+            placeholder="What do you do? (e.g. Contracts counsel + legal ops)"
+            value={form.profileHeadline || ""}
+            maxLength={200}
+            onChange={(e) => onChange("profileHeadline", e.target.value)}
+          />
+          <div style={{ height: "1rem" }} />
+          <FormField>
+            <label htmlFor="profile-about-markdown">About (Markdown)</label>
+            <MarkdownTextarea
+              id="profile-about-markdown"
+              rows={6}
+              value={form.profileAboutMarkdown || ""}
+              maxLength={5000}
+              onChange={(e) => onChange("profileAboutMarkdown", e.target.value)}
+              placeholder="Write a short bio in Markdown"
+            />
+          </FormField>
+          <FormField>
+            <label htmlFor="profile-links-markdown">Links (Markdown)</label>
+            <MarkdownTextarea
+              id="profile-links-markdown"
+              rows={4}
+              value={form.profileLinksMarkdown || ""}
+              maxLength={5000}
+              onChange={(e) => onChange("profileLinksMarkdown", e.target.value)}
+              placeholder="- [Website](https://example.com)"
+            />
+          </FormField>
           <FormField>
             <label>Profile Visibility</label>
             <label
