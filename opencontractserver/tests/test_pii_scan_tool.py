@@ -97,6 +97,39 @@ class ScanAndAnnotateTextTests(TransactionTestCase):
         assert label.icon == expected_icon
         assert label.label_type == SPAN_LABEL
 
+    async def test_corpus_action_id_propagates_to_created_annotations(self) -> None:
+        """When a CorpusAction triggers the scan, its id must be carried
+        through onto every persisted Annotation so action-trail rollups can
+        attribute the PII labels back to the triggering action."""
+        from asgiref.sync import sync_to_async
+
+        from opencontractserver.corpuses.models import CorpusAction
+
+        action = await sync_to_async(CorpusAction.objects.create)(
+            name="trigger_pii_scan",
+            corpus=self.corpus,
+            trigger="add_document",
+            task_instructions="Scan for PII on every new doc.",
+            creator=self.user,
+        )
+
+        fake = [_det("private_email", 10, 30)]
+
+        with patch(
+            "opencontractserver.llms.tools.core_tools.pii.adetect_pii",
+            new=AsyncMock(return_value=fake),
+        ):
+            result = await ascan_and_annotate_pii(
+                document_id=self.txt_doc.id,
+                corpus_id=self.corpus.id,
+                creator_id=self.user.id,
+                corpus_action_id=action.id,
+            )
+
+        assert result["detection_count"] == 1
+        ann = await Annotation.objects.aget(pk=result["annotation_ids"][0])
+        assert ann.corpus_action_id == action.id
+
 
 @override_settings(
     PRIVACY_FILTER_URL="http://privacy_filter:8000",

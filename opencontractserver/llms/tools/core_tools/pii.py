@@ -130,11 +130,15 @@ def _persist_annotations_sync(
 
     # Pre-create every label the upcoming detections need *outside* the
     # ``transaction.atomic()`` block below. ``ensure_label_and_labelset``
-    # uses a check-then-create pattern that races under concurrent scans
-    # and a losing race inside the outer atomic block would poison the
-    # entire savepoint, rolling back all annotations created so far.
-    # Doing the get-or-create up front means the inner block only inserts
-    # ``Annotation`` rows, which carry no cross-row uniqueness constraint.
+    # uses a check-then-create pattern (``filter().first()`` followed by
+    # ``AnnotationLabel.objects.create``) with no DB-level uniqueness
+    # constraint on ``(text, label_type)`` — two concurrent scans on the
+    # same fresh corpus *can* both create the same label. We don't try to
+    # prevent that here; we keep the (rare) duplicate isolated to the
+    # label table so the much bigger Annotation insert batch isn't
+    # rolled back. The inner atomic block only inserts ``Annotation``
+    # rows, which carry no cross-row uniqueness, so it can never fail
+    # for a reason caused by a peer scan racing with us.
     needed_groups = {
         det["entity_group"]
         for det in detections

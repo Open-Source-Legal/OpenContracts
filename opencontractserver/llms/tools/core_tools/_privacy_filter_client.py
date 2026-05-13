@@ -26,6 +26,10 @@ from opencontractserver.constants.document_processing import (
 
 logger = logging.getLogger(__name__)
 
+# Track whether the empty-API-key warning has already been emitted in this
+# process so logs don't grow proportional to PII-scan call volume.
+_warned_about_missing_api_key = False
+
 
 class Detection(TypedDict):
     entity_group: str
@@ -49,6 +53,21 @@ async def adetect_pii(text: str) -> list[Detection]:
         raise RuntimeError(
             "Privacy-filter service is not configured (PRIVACY_FILTER_URL is empty)."
         )
+
+    if not api_key:
+        # Compose's `${VAR:-}` substitution leaves the service running with
+        # an empty key when the operator forgot to export it — there's no
+        # external port mapping today, but any caller on the docker bridge
+        # could POST unauthenticated. Surface this once per process so it
+        # shows up in logs instead of silently shipping with no auth.
+        global _warned_about_missing_api_key
+        if not _warned_about_missing_api_key:
+            logger.warning(
+                "PRIVACY_FILTER_URL is set but PRIVACY_FILTER_API_KEY is empty; "
+                "requests will be sent unauthenticated. Set PRIVACY_FILTER_API_KEY "
+                "to gate access to the privacy-filter service."
+            )
+            _warned_about_missing_api_key = True
 
     detect_url = f"{base_url}/v1/detect"
     headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
