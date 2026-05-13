@@ -39,7 +39,8 @@ export interface LoginOutputs {
       email: string;
       name: string;
       username: string;
-      isUsageCapped: boolean;
+      // Nullable per schema; login is always self-view so value is defined here.
+      isUsageCapped: Maybe<boolean>;
       isSuperuser: boolean;
     };
   };
