@@ -20,6 +20,12 @@ opt-in flag, and the ``userBySlug`` queryset already filters to
 through the cross-user lookup path is, by definition, public — re-emitting
 ``true`` reveals nothing the lookup path has not already.
 
+``profile_headline`` / ``profile_about_markdown`` / ``profile_links_markdown``
+are user-authored content intended to be displayed on the public profile and
+are not gated for the same reason: ``userBySlug`` already filters non-self
+viewers to public profiles, so the only way to read these cross-user is via
+a path the user opted into.
+
 This is enforced uniformly via :func:`_is_self_view` so any future PII
 fields that need similar treatment can reuse the same gate. ``Meta.exclude``
 hides fields that should never be reachable through GraphQL (passwords,

@@ -2,8 +2,6 @@
 
 psycopg2-binary==2.9.12  # https://github.com/psycopg/psycopg2
 watchfiles==1.1.1  # https://github.com/samuelcolvin/watchfiles
-Werkzeug[watchdog]==3.1.8 # https://github.com/pallets/werkzeug
-ipdb==0.13.13  # https://github.com/gotcha/ipdb
 
 # Testing
 # ------------------------------------------------------------------------------
@@ -12,7 +10,6 @@ mypy==2.1.0  # https://github.com/python/mypy
 django-stubs==6.0.3  # https://github.com/typeddjango/django-stubs
 pytest==9.0.3  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
-pytest-sugar==1.1.1  # https://github.com/Frozenball/pytest-sugar
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
 djangorestframework-stubs==3.16.9  # https://github.com/typeddjango/djangorestframework-stubs
 responses==0.26.0  # https://github.com/getsentry/responses
@@ -29,8 +26,6 @@ flake8==7.3.0 # https://github.com/PyCQA/flake8
 flake8-isort==7.0.0  # https://github.com/gforcada/flake8-isort
 coverage==7.13.5  # https://github.com/nedbat/coveragepy
 black==26.3.1  # https://github.com/psf/black
-pylint-django==2.6.1  # https://github.com/PyCQA/pylint-django
-pylint-celery==0.3  # https://github.com/PyCQA/pylint-celery
 pre-commit==4.6.0  # https://github.com/pre-commit/pre-commit
 
 # Django
@@ -48,6 +43,12 @@ pytest-django==4.12.0  # https://github.com/pytest-dev/pytest-django
 python-docx
 openpyxl
 python-pptx
+
+# Test-only — OCR pipeline used by tests/test_pdf_redaction.py to verify the
+# docling-parser microservice's OCR behavior. Production OCR runs in the
+# docling-parser container, so this is not needed in base.txt.
+# ------------------------------------------------------------------------------
+pytesseract
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------

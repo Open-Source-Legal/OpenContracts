@@ -188,6 +188,27 @@ class _HistoryResult:
     tokens_before_compaction: int = 0  # 0 if no compaction
 
 
+def _make_get_document_text_length_tool(
+    doc_id: int,
+) -> Callable[[], Awaitable[int]]:
+    """Build the ``get_document_text_length`` async closure for ``doc_id``."""
+
+    async def get_document_text_length_tool() -> int:
+        """Get the total character length of the document's plain-text extract."""
+        # The (0, 1) slice triggers a full-file read inside
+        # ``aload_document_txt_extract`` as a side effect, priming the
+        # cache. Use ``is_txt_extract_cached`` (membership) rather than
+        # ``length > 0`` so a genuinely empty document doesn't fall
+        # through to a second full-file load.
+        await aload_document_txt_extract(doc_id, 0, 1)
+        if is_txt_extract_cached(doc_id):
+            return get_cached_txt_extract_length(doc_id)
+        full_text = await aload_document_txt_extract(doc_id)
+        return len(full_text)
+
+    return get_document_text_length_tool
+
+
 def _make_load_document_text_tool(
     agent_deps: "PydanticAIDependencies", doc_id: int
 ) -> Callable[..., Awaitable[dict[str, Any]]]:
@@ -467,13 +488,16 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         if messages:
 
             def _part_text(part: Any) -> str:
-                # ToolCallPart stores arguments in ``args``, not ``content``.
-                # Falling back to ``args`` prevents material under-counting
-                # when history contains tool calls with large argument payloads.
-                content = (
-                    getattr(part, "content", None) or getattr(part, "args", None) or ""
-                )
-                return content if isinstance(content, str) else str(content)
+                # ToolCallPart stores arguments in ``args``; fall back to
+                # it only when ``content`` is missing (``is None``, not
+                # falsy) so an empty ``ToolReturnPart`` doesn't get
+                # replaced by — and double-count — the tool's arguments.
+                content = getattr(part, "content", None)
+                if content is None:
+                    content = getattr(part, "args", None)
+                if isinstance(content, str):
+                    return content
+                return "" if content is None else str(content)
 
             msg_tokens = sum(
                 estimate_token_count(
@@ -2487,21 +2511,9 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         # -----------------------------
         # Custom tools (unique logic, not pure passthroughs)
         # -----------------------------
-        async def get_document_text_length_tool() -> int:
-            """Get the total character length of the document's plain-text extract."""
-            # ``aload_document_txt_extract`` always reads the *full* file
-            # into the module's text-extract cache before returning a
-            # slice, so a ``(0, 1)`` call costs one disk read but
-            # populates the whole document — the cached length is then
-            # the real total. The fallback below covers the cache-miss
-            # edge case (e.g. a future cache backend that drops entries).
-            await aload_document_txt_extract(context.document.id, 0, 1)
-            cached_len = get_cached_txt_extract_length(context.document.id)
-            if cached_len > 0:
-                return cached_len
-            # Fallback: load the full text if not cached
-            full_text = await aload_document_txt_extract(context.document.id)
-            return len(full_text)
+        get_document_text_length_tool = _make_get_document_text_length_tool(
+            context.document.id
+        )
 
         get_text_length_tool = PydanticAIToolFactory.from_function(
             get_document_text_length_tool,

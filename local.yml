@@ -24,6 +24,9 @@ services:
       docxodus-parser:
         condition: service_started
         required: false
+      privacy_filter:
+        condition: service_started
+        required: false
     volumes:
       - .:/app:z
     env_file:
@@ -117,6 +120,29 @@ services:
       HF_DATASETS_OFFLINE: 1
       API_KEY: abc123  # local-only placeholder; override before deploying
 
+  # API_KEYS value below is a LOCAL DEVELOPMENT ONLY placeholder; override via
+  # environment / .env before exposing the service outside the local docker
+  # bridge. The image bakes the model weights and runs CPU-only.
+  # No ``ports`` mapping: reachable only over the docker bridge from django /
+  # celeryworker (which is the only intended access pattern). To smoke-test
+  # from the host, exec into the django container and curl
+  # ``http://privacy_filter:8000/v1/detect``.
+  privacy_filter:
+    image: ghcr.io/open-source-legal/privacy-filter:latest
+    container_name: privacy_filter
+    environment:
+      API_KEYS: dev-only-not-secret
+      MAX_INPUT_CHARS: "50000"
+      CORS_ORIGINS: ""
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)\""
+      interval: 10s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   celeryworker:
     image: opencontractserver_local_django
     container_name: celeryworker
@@ -130,6 +156,9 @@ services:
       docling-parser:
         condition: service_started
       docxodus-parser:
+        condition: service_started
+        required: false
+      privacy_filter:
         condition: service_started
         required: false
     volumes:

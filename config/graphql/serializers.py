@@ -142,6 +142,9 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             "phone",
             "slug",
             "is_profile_public",  # Issue #611
+            "profile_headline",
+            "profile_about_markdown",
+            "profile_links_markdown",
         ]
         read_only_fields: list[str] = []
 

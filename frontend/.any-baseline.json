@@ -1,7 +1,7 @@
 {
-  "total": 446,
+  "total": 440,
   "byArea": {
-    "components_other": 121,
+    "components_other": 115,
     "annotator": 90,
     "utils": 79,
     "knowledge_base": 29,

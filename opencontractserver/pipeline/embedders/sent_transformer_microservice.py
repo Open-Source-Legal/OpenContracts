@@ -1,7 +1,7 @@
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import numpy as np
 import requests
@@ -316,9 +316,10 @@ class MicroserviceEmbedder(BaseEmbedder):
                 logger.error("No service URL configured for batch text embedding")
                 return None
 
+            payload: dict[str, Any] = {"texts": texts}
             response = _get_session().post(
                 f"{service_url}/embeddings/batch",
-                json=cast(Any, {"texts": texts}),
+                json=payload,
                 headers=headers,
                 timeout=EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS,
             )
