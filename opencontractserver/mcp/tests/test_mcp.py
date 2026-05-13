@@ -2905,6 +2905,11 @@ class MCPScopedServerTest(TransactionTestCase):
         self.assertIn("get_corpus_info", tool_names)
         self.assertIn("list_documents", tool_names)
         self.assertIn("search_corpus", tool_names)
+        # ``create_thread_message`` is dispatched by the scoped endpoint
+        # (see ``get_scoped_tool_handlers``) so it must also be discoverable
+        # via ``tools/list`` — otherwise authenticated clients have to know
+        # the tool name out-of-band.
+        self.assertIn("create_thread_message", tool_names)
 
         # list_documents should not require corpus_slug
         list_docs_tool = next(t for t in tools if t.name == "list_documents")
@@ -2914,6 +2919,18 @@ class MCPScopedServerTest(TransactionTestCase):
         # search_corpus should only require query
         search_tool = next(t for t in tools if t.name == "search_corpus")
         self.assertEqual(search_tool.inputSchema.get("required", []), ["query"])
+
+        # The scoped create_thread_message variant must drop ``corpus_slug``
+        # from required (auto-injected from the URL) and expose the content
+        # length bounds in its JSON Schema for client-side validation.
+        create_tool = next(t for t in tools if t.name == "create_thread_message")
+        create_required = create_tool.inputSchema.get("required", [])
+        self.assertNotIn("corpus_slug", create_required)
+        self.assertIn("thread_id", create_required)
+        self.assertIn("content", create_required)
+        content_schema = create_tool.inputSchema["properties"]["content"]
+        self.assertEqual(content_schema.get("minLength"), 1)
+        self.assertGreater(content_schema.get("maxLength", 0), 0)
 
     def test_get_scoped_resource_definitions(self):
         """Test scoped resource definitions include corpus slug."""
@@ -5440,6 +5457,36 @@ class MCPCallToolHandlerAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
         )
         payload = json.loads(result[0].text)
         self.assertIn("error", payload)
+
+    def test_handler_strips_client_supplied_user_argument(self):
+        """A client-supplied ``user`` argument must not collide with the
+        ContextVar-resolved one. Without filtering, the dispatcher raised
+        ``TypeError: got multiple values for keyword argument 'user'`` and
+        the failure escaped the structured ``except (PermissionDenied,
+        ValidationError)`` branch as a raw transport error."""
+        import json
+
+        from opencontractserver.mcp.server import _mcp_user, call_tool_handler
+
+        owner = self.owner
+
+        async def run_test():
+            token = _mcp_user.set(owner)
+            try:
+                # ``user`` here is a hostile/malformed argument from the
+                # MCP client. The dispatcher must drop it before forwarding
+                # to the tool handler.
+                return await call_tool_handler(
+                    "list_public_corpuses", {"user": "attacker", "limit": 5}
+                )
+            finally:
+                _mcp_user.reset(token)
+
+        result = self._run(run_test())
+        payload = json.loads(result[0].text)
+        # The tool ran cleanly (no TypeError escape) and resolved the
+        # authenticated user from the ContextVar, not the client argument.
+        self.assertIn("corpuses", payload)
 
 
 class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):

@@ -49,6 +49,7 @@ from starlette.routing import Mount, Route
 from config.jwt_utils import get_user_from_jwt_token
 from config.ratelimit.decorators import MCPRateLimitError, check_mcp_rate_limit
 from config.ratelimit.keys import get_client_ip_from_scope
+from opencontractserver.constants.mcp import MAX_THREAD_MESSAGE_LENGTH
 
 from .resources import (
     get_annotation_resource,
@@ -335,9 +336,12 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
     try:
         # Run synchronous Django ORM handlers in thread pool.
         # All TOOL_HANDLERS accept an optional `user`; passing None preserves
-        # anonymous semantics.
+        # anonymous semantics. Drop any client-supplied ``user`` argument so
+        # it can't collide with the kwarg below (TypeError would otherwise
+        # escape the structured error branch as a raw transport error).
         user = _mcp_user.get()
-        result = await sync_to_async(handler)(user=user, **arguments)
+        safe_arguments = {k: v for k, v in arguments.items() if k != "user"}
+        result = await sync_to_async(handler)(user=user, **safe_arguments)
         await arecord_mcp_tool_call(
             name,
             success=True,
@@ -557,7 +561,11 @@ def create_mcp_server() -> Server:
                     "properties": {
                         "corpus_slug": {"type": "string"},
                         "thread_id": {"type": "integer"},
-                        "content": {"type": "string"},
+                        "content": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": MAX_THREAD_MESSAGE_LENGTH,
+                        },
                         "parent_message_id": {"type": "integer"},
                     },
                     "required": ["corpus_slug", "thread_id", "content"],
@@ -691,6 +699,26 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                     },
                 },
                 "required": ["thread_id"],
+            },
+        ),
+        Tool(
+            name="create_thread_message",
+            description=(
+                "Create a new message in a thread within the "
+                f"'{corpus_slug}' corpus (requires authenticated MCP session)"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "thread_id": {"type": "integer"},
+                    "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_THREAD_MESSAGE_LENGTH,
+                    },
+                    "parent_message_id": {"type": "integer"},
+                },
+                "required": ["thread_id", "content"],
             },
         ),
     ]
@@ -917,8 +945,11 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
         try:
             # Run synchronous Django ORM handlers in thread pool. All scoped
             # handlers accept an optional `user`; passing None preserves
-            # anonymous semantics for unauthenticated callers.
-            result = await sync_to_async(handler)(user=user, **arguments)
+            # anonymous semantics for unauthenticated callers. Drop any
+            # client-supplied ``user`` argument so it can't collide with the
+            # kwarg below.
+            safe_arguments = {k: v for k, v in arguments.items() if k != "user"}
+            result = await sync_to_async(handler)(user=user, **safe_arguments)
             await arecord_mcp_tool_call(
                 name,
                 success=True,
