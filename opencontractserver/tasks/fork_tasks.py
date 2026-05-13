@@ -26,6 +26,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 
 from config import celery_app
+from opencontractserver.constants.corpus_forking import FORK_TITLE_PREFIX
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
@@ -171,11 +172,11 @@ def fork_corpus(
             # Re-apply fork semantics on top.
             new_corpus = Corpus.objects.get(pk=imported_id)
 
-            # Fork-prefix semantics:  Always prepend "[FORK] " unconditionally
+            # Fork-prefix semantics:  Always prepend the prefix unconditionally
             # so that multi-generation forks stack the prefix
             # ("[FORK] [FORK] X") — that's the historical fork contract used
             # by the lineage UI to communicate "this came from another fork".
-            new_corpus.title = f"[FORK] {new_corpus.title}"
+            new_corpus.title = f"{FORK_TITLE_PREFIX}{new_corpus.title}"
             new_corpus.parent_id = source_pk
             updates: list[str] = ["title", "parent"]
 
@@ -194,14 +195,14 @@ def fork_corpus(
             # LabelSet title prefix — matches historical fork behavior.
             label_set = new_corpus.label_set
             if label_set is not None:
-                label_set.title = f"[FORK] {label_set.title}"
+                label_set.title = f"{FORK_TITLE_PREFIX}{label_set.title}"
                 label_set.save(update_fields=["title"])
 
             # Metadata Fieldset name prefix — matches historical fork
             # behavior (and mirrors LabelSet/title handling).
             metadata_fieldset = getattr(new_corpus, "metadata_schema", None)
             if metadata_fieldset is not None:
-                metadata_fieldset.name = f"[FORK] {metadata_fieldset.name}"
+                metadata_fieldset.name = f"{FORK_TITLE_PREFIX}{metadata_fieldset.name}"
                 metadata_fieldset.save(update_fields=["name"])
 
             # Document-level fork tweaks:
@@ -304,7 +305,7 @@ def fork_corpus(
                             doc_updates.append(field_name)
                             orphaned_blob_count += 1
 
-                doc.title = f"[FORK] {doc.title}"
+                doc.title = f"{FORK_TITLE_PREFIX}{doc.title}"
                 doc_updates.append("title")
 
                 if doc_updates:

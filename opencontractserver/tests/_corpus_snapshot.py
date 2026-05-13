@@ -31,6 +31,7 @@ from opencontractserver.annotations.models import (
     Relationship,
     StructuralAnnotationSet,
 )
+from opencontractserver.constants.corpus_forking import FORK_TITLE_PREFIX
 from opencontractserver.conversations.models import Conversation  # noqa: E402
 from opencontractserver.conversations.models import ChatMessage, MessageVote
 from opencontractserver.corpuses.models import (
@@ -40,7 +41,7 @@ from opencontractserver.corpuses.models import (
 )
 from opencontractserver.documents.models import DocumentPath
 
-_FORK_PREFIX_RE = re.compile(r"^(\[FORK\] )+")
+_FORK_PREFIX_RE = re.compile(rf"^({re.escape(FORK_TITLE_PREFIX)})+")
 
 
 def _strip_fork(title: str | None) -> str:

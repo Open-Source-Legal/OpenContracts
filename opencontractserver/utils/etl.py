@@ -483,6 +483,19 @@ def build_document_export(
                         data_height = page_sizes[i + 1]["height"]
                         data_width = page_sizes[i + 1]["width"]
 
+                        # Guard against zero-dimension pages (corrupt PAWLs,
+                        # placeholder pages). Skipping the page is safer than
+                        # raising and killing the entire highlight export.
+                        if not data_width or not data_height:
+                            logger.warning(
+                                "Skipping highlight page %d: page_sizes has "
+                                "zero dimension (width=%r, height=%r).",
+                                i + 1,
+                                data_width,
+                                data_height,
+                            )
+                            continue
+
                         y_scale = float(page_height) / float(data_height)
                         x_scale = float(page_width) / float(data_width)
 
