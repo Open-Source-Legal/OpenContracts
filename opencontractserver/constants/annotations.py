@@ -14,6 +14,24 @@ MANUAL_ANNOTATION_SENTINEL = "~~MANUAL~~"
 OC_SECTION_LABEL = "OC_SECTION"
 OC_EXTRACT_SOURCE_LABEL = "OC_EXTRACT_SOURCE"
 
+# Built-in relationship label name for subtree group rows materialized
+# during structural-annotation ingestion. One row per non-leaf node:
+# source_annotations = [ancestor], target_annotations = [transitive descendants].
+OC_SUBTREE_GROUP_LABEL_NAME = "OC_SUBTREE_GROUP"
+
+# Conventional label name for parent-child Relationship edges that future
+# parsers/analyzers may emit. The subtree-group walker treats rows with this
+# label as additional adjacency edges alongside the Annotation.parent FK.
+OC_PARENT_CHILD_LABEL_NAME = "OC_PARENT_CHILD"
+
+# Hard cap on descendants per subtree group. Defends against malformed
+# parsers emitting a single ancestor with thousands of descendants.
+SUBTREE_GROUP_MAX_DESCENDANTS = 500
+
+# Defensive depth limit for the subtree walker; protects against pathological
+# or cyclic input. Branches deeper than this are pruned with a warning.
+SUBTREE_GROUP_MAX_DEPTH = 10
+
 # Maximum number of entries allowed in a single create_document_index call.
 DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
 

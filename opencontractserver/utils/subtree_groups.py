@@ -1,0 +1,270 @@
+"""
+Subtree group materialisation for structural annotations.
+
+After a parser has imported structural annotations and any explicit
+relationships, this utility walks the hierarchy tree formed by:
+
+  (a) ``Annotation.parent`` self-FK edges, and
+  (b) parent-style structural ``Relationship`` rows (label
+      ``OC_PARENT_CHILD_LABEL_NAME``),
+
+and materialises one ``Relationship`` row per non-leaf node whose
+``source_annotations`` is the ancestor and ``target_annotations`` is the
+ancestor's full transitive descendant set. This lets retrieval surface
+the larger "block" of an annotation hit with a single join instead of a
+recursive CTE per result.
+
+Notes
+-----
+* Operates only on structural annotations attached to the document. The
+  rows created here are themselves structural and are picked up by
+  ``BaseParser._create_structural_annotation_set`` and migrated onto the
+  document's ``StructuralAnnotationSet`` automatically.
+* Idempotent: prior ``OC_SUBTREE_GROUP`` rows on the document are
+  deleted before fresh rows are created, so re-parses converge.
+* Guardrails: subtrees larger than ``SUBTREE_GROUP_MAX_DESCENDANTS`` are
+  skipped; the walker prunes branches deeper than
+  ``SUBTREE_GROUP_MAX_DEPTH`` and detects cycles defensively.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections import defaultdict
+from typing import TYPE_CHECKING
+
+from opencontractserver.annotations.models import (
+    RELATIONSHIP_LABEL,
+    Annotation,
+    AnnotationLabel,
+    Relationship,
+)
+from opencontractserver.constants.annotations import (
+    OC_PARENT_CHILD_LABEL_NAME,
+    OC_SUBTREE_GROUP_LABEL_NAME,
+    SUBTREE_GROUP_MAX_DEPTH,
+    SUBTREE_GROUP_MAX_DESCENDANTS,
+)
+
+if TYPE_CHECKING:
+    from opencontractserver.documents.models import Document
+
+logger = logging.getLogger(__name__)
+
+
+def build_subtree_groups_for_document(
+    document: Document,
+    user_id: int,
+    *,
+    max_descendants: int = SUBTREE_GROUP_MAX_DESCENDANTS,
+    max_depth: int = SUBTREE_GROUP_MAX_DEPTH,
+) -> int:
+    """Materialise OC_SUBTREE_GROUP relationships for a document.
+
+    Args:
+        document: Document whose structural annotations should be grouped.
+        user_id: ID of the user credited as the creator of the resulting rows.
+        max_descendants: Skip groups whose descendant set exceeds this size.
+        max_depth: Prune branches deeper than this; defends against cycles
+            or pathological trees.
+
+    Returns:
+        Number of OC_SUBTREE_GROUP relationships created on this run.
+    """
+    # ------------------------------------------------------------------ #
+    # 1. Pull every structural annotation on the document with parent FKs.
+    # ------------------------------------------------------------------ #
+    parent_pairs = list(
+        Annotation.objects.filter(
+            document=document, structural=True, structural_set__isnull=True
+        ).values_list("id", "parent_id")
+    )
+    if not parent_pairs:
+        return 0
+
+    structural_pks: set[int] = {pk for pk, _ in parent_pairs}
+    parent_map: dict[int, int | None] = dict(parent_pairs)
+
+    # ------------------------------------------------------------------ #
+    # 2. Build the unified parent -> children adjacency.
+    # ------------------------------------------------------------------ #
+    children: dict[int, list[int]] = defaultdict(list)
+    seen_edges: set[tuple[int, int]] = set()
+
+    for child_id, parent_id in parent_map.items():
+        if parent_id is None or parent_id not in structural_pks:
+            continue
+        edge = (parent_id, child_id)
+        if edge in seen_edges:
+            continue
+        seen_edges.add(edge)
+        children[parent_id].append(child_id)
+
+    # Future-proofing: also consume any parent-style structural
+    # Relationship rows already on the document. Currently no parser
+    # emits these, but analyzers may, and the cost is negligible.
+    rels_qs = Relationship.objects.filter(
+        document=document,
+        structural=True,
+        structural_set__isnull=True,
+        relationship_label__text=OC_PARENT_CHILD_LABEL_NAME,
+    ).prefetch_related("source_annotations", "target_annotations")
+    for rel in rels_qs:
+        source_ids = [a.id for a in rel.source_annotations.all()]
+        target_ids = [a.id for a in rel.target_annotations.all()]
+        for src in source_ids:
+            if src not in structural_pks:
+                continue
+            for tgt in target_ids:
+                if tgt not in structural_pks or tgt == src:
+                    continue
+                edge = (src, tgt)
+                if edge in seen_edges:
+                    continue
+                seen_edges.add(edge)
+                children[src].append(tgt)
+
+    # ------------------------------------------------------------------ #
+    # 3. Idempotency: drop any prior OC_SUBTREE_GROUP rows on the doc.
+    # ------------------------------------------------------------------ #
+    Relationship.objects.filter(
+        document=document,
+        structural=True,
+        structural_set__isnull=True,
+        relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+    ).delete()
+
+    non_leaves = [pk for pk in structural_pks if children.get(pk)]
+    if not non_leaves:
+        return 0
+
+    # ------------------------------------------------------------------ #
+    # 4. Post-order DFS with cycle detection and depth cap.
+    # ------------------------------------------------------------------ #
+    roots = [
+        pk
+        for pk in structural_pks
+        if parent_map.get(pk) is None or parent_map[pk] not in structural_pks
+    ]
+    post_order: list[int] = []
+    visited: set[int] = set()
+    on_stack: set[int] = set()
+    pruned_for_depth = False
+
+    for root in roots:
+        # Each frame is (node, child_iter_index, depth_at_node).
+        stack: list[list[int]] = [[root, 0, 0]]
+        while stack:
+            frame = stack[-1]
+            node, idx, depth = frame
+            if idx == 0:
+                if node in on_stack:
+                    logger.warning(
+                        "Cycle detected at annotation %s on document %s; "
+                        "skipping branch",
+                        node,
+                        document.pk,
+                    )
+                    stack.pop()
+                    continue
+                if node in visited:
+                    stack.pop()
+                    continue
+                on_stack.add(node)
+            kids = children.get(node, [])
+            if idx < len(kids):
+                child = kids[idx]
+                frame[1] = idx + 1
+                if depth + 1 > max_depth:
+                    pruned_for_depth = True
+                    continue
+                stack.append([child, 0, depth + 1])
+            else:
+                on_stack.discard(node)
+                visited.add(node)
+                post_order.append(node)
+                stack.pop()
+
+    if pruned_for_depth:
+        logger.warning(
+            "Subtree walker hit max_depth=%s on document %s; "
+            "deeper branches were pruned",
+            max_depth,
+            document.pk,
+        )
+
+    # ------------------------------------------------------------------ #
+    # 5. Bottom-up transitive closure (memoised by post-order).
+    #
+    # Only fold in children the walker actually visited — pruned-for-depth
+    # and cycle-skipped nodes never enter ``descendants``, so they (and
+    # their subtrees) are excluded from materialised groups. The
+    # ``discard(node)`` guard ensures a node is never recorded as its own
+    # descendant under any pathological adjacency.
+    # ------------------------------------------------------------------ #
+    descendants: dict[int, set[int]] = {}
+    for node in post_order:
+        acc: set[int] = set()
+        for child in children.get(node, []):
+            if child not in descendants:
+                continue
+            acc.add(child)
+            acc.update(descendants[child])
+        acc.discard(node)
+        descendants[node] = acc
+
+    # ------------------------------------------------------------------ #
+    # 6. Resolve / create the built-in OC_SUBTREE_GROUP label.
+    # ------------------------------------------------------------------ #
+    label, _ = AnnotationLabel.objects.get_or_create(
+        text=OC_SUBTREE_GROUP_LABEL_NAME,
+        label_type=RELATIONSHIP_LABEL,
+        creator_id=user_id,
+        analyzer=None,
+        defaults={
+            "description": "Materialised subtree of structural annotations",
+            "color": "gray",
+            "icon": "sitemap",
+            "read_only": True,
+        },
+    )
+
+    # ------------------------------------------------------------------ #
+    # 7. Create one Relationship per non-leaf within the size cap.
+    #
+    # ``Relationship.save()`` calls ``clean()`` on every save, so we use
+    # ``.create()`` (not ``bulk_create``) to preserve validation. The
+    # row count is bounded by the structural-annotation tree depth and
+    # is small relative to the annotation count.
+    # ------------------------------------------------------------------ #
+    created = 0
+    for node in non_leaves:
+        descs = descendants.get(node)
+        if not descs:
+            continue
+        if len(descs) > max_descendants:
+            logger.warning(
+                "Skipping OC_SUBTREE_GROUP for annotation %s on document %s: "
+                "%s descendants exceeds cap %s",
+                node,
+                document.pk,
+                len(descs),
+                max_descendants,
+            )
+            continue
+        rel = Relationship.objects.create(
+            relationship_label=label,
+            document=document,
+            creator_id=user_id,
+            structural=True,
+        )
+        rel.source_annotations.add(node)
+        rel.target_annotations.add(*descs)
+        created += 1
+
+    logger.info(
+        "Materialised %s OC_SUBTREE_GROUP relationships for document %s",
+        created,
+        document.pk,
+    )
+    return created
