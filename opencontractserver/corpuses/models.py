@@ -1835,17 +1835,17 @@ class CorpusFolder(InstanceUserCanMixin, TreeNode):
     Hierarchical folder structure within a corpus for organizing documents.
     Uses TreeNode for efficient tree operations via CTEs.
 
-    Inherits ``InstanceUserCanMixin`` so ``folder.user_can(user, perm)``
-    delegates to the folder's default manager (same contract as
-    ``Corpus``).
+    Inherits ``InstanceUserCanMixin`` solely to keep the surface signature
+    consistent with peer models — the real authorization always delegates
+    to the parent corpus (see overridden ``user_can`` below).
 
-    ⚠️ Scope: ``folder.user_can(user, perm)`` checks **folder-level**
-    permissions on this ``CorpusFolder`` row, NOT the parent corpus.
-    If you need to authorize an operation against the corpus that owns
-    this folder (the typical case for write operations in
-    ``DocumentFolderService``), use ``folder.corpus.user_can(user, perm)``
-    instead. Both surfaces exist intentionally; pick the one that
-    matches the resource being authorized.
+    Per-folder guardian rows are not allocated for ``CorpusFolder``;
+    permissions are inherited from the parent ``Corpus``. The override on
+    ``user_can`` enforces that delegation structurally so callers that
+    type ``folder.user_can(user, perm)`` with plausible intent cannot
+    silently get a wrong answer from the default folder-row check (which
+    would return ``False`` for a shared reader because the folder has no
+    guardian rows).
     """
 
     # Basic fields
@@ -1941,6 +1941,30 @@ class CorpusFolder(InstanceUserCanMixin, TreeNode):
         for tag in self.tags:
             if not isinstance(tag, str):
                 raise ValidationError({"tags": "Each tag must be a string"})
+
+    def user_can(
+        self,
+        user: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Authorize against the parent corpus rather than the folder row.
+
+        ``CorpusFolder`` does not maintain its own guardian object-permission
+        rows — sharing is inherited from the parent ``Corpus``. Calling the
+        default ``InstanceUserCanMixin.user_can`` against a folder would
+        check guardian grants on the folder row, which never exist, so a
+        shared reader would receive a silent ``False``. Delegate to
+        ``self.corpus.user_can(user, perm)`` to keep the answer consistent
+        with the rest of the permissioning surface (``DocumentFolderService``
+        and every legacy call site already go through the corpus).
+        """
+        return self.corpus.user_can(
+            user,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )
 
     def get_path(self) -> str:
         """Get full path from root to this folder."""

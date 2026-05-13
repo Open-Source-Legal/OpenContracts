@@ -438,3 +438,128 @@ class CorpusAuthorizationInvariantsTestCase(TransactionTestCase):
         message = str(cm.exception)
         self.assertIn("user_can", message)
         self.assertIn("_BareManager", message)
+
+
+class CorpusFolderDelegatesUserCanToCorpusTestCase(TransactionTestCase):
+    """Pin that ``CorpusFolder.user_can(user, perm)`` delegates to the
+    parent ``Corpus`` instead of running against the folder row's
+    (non-existent) guardian rows.
+
+    Folders don't allocate per-row object-permission rows; sharing is
+    inherited from the corpus. Calling the default
+    ``InstanceUserCanMixin.user_can`` against the folder would silently
+    return ``False`` for shared readers because the folder has no
+    guardian grants. The override on ``CorpusFolder`` redirects the
+    check to ``self.corpus.user_can`` so the API surface answers
+    consistently with the rest of the permissioning system.
+    """
+
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            username="folder_creator", email="cf_creator@inv.test", password="x"
+        )
+        self.shared_reader = User.objects.create_user(
+            username="folder_reader", email="cf_reader@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="folder_stranger", email="cf_stranger@inv.test", password="x"
+        )
+        self.superuser = User.objects.create_superuser(
+            username="folder_admin", email="cf_admin@inv.test", password="x"
+        )
+
+        # Private corpus shared with ``shared_reader`` but not ``stranger``.
+        self.private_corpus = Corpus.objects.create(
+            title="Folder Owner Corpus", creator=self.creator, is_public=False
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.private_corpus, [PermissionTypes.READ]
+        )
+
+        from opencontractserver.corpuses.models import CorpusFolder
+
+        # Folder under the private corpus. Note: no per-folder grants are
+        # ever set — that's the whole point of the delegation contract.
+        self.folder = CorpusFolder.objects.create(
+            name="Top Level", corpus=self.private_corpus, creator=self.creator
+        )
+
+    def test_creator_can_read_folder(self):
+        """Folder creator is the corpus creator, so READ delegates to
+        ``Corpus.user_can`` and returns True via the creator short-circuit."""
+        self.assertTrue(self.folder.user_can(self.creator, PermissionTypes.READ))
+
+    def test_shared_reader_can_read_folder_via_corpus_grant(self):
+        """Shared reader has READ on the corpus and zero grants on the
+        folder; delegation to the corpus must answer True.
+
+        Without the override, this test would fail (False) because the
+        folder row has no guardian permissions.
+        """
+        self.assertTrue(self.folder.user_can(self.shared_reader, PermissionTypes.READ))
+
+    def test_stranger_cannot_read_folder(self):
+        """Stranger has no grant on the corpus, so the delegated check
+        returns False."""
+        self.assertFalse(self.folder.user_can(self.stranger, PermissionTypes.READ))
+
+    def test_anonymous_cannot_read_private_folder(self):
+        """Anonymous users without an is_public corpus get False (delegated)."""
+        self.assertFalse(self.folder.user_can(AnonymousUser(), PermissionTypes.READ))
+
+    def test_superuser_bypass_via_corpus_delegate(self):
+        """Superusers pass through the corpus delegate's superuser bypass."""
+        self.assertTrue(self.folder.user_can(self.superuser, PermissionTypes.READ))
+
+    def test_public_corpus_makes_folder_public_for_read(self):
+        """Flipping the corpus to ``is_public=True`` flips the delegated
+        folder check too — confirming the answer tracks the corpus, not
+        the folder's own ``is_public`` field."""
+        public_corpus = Corpus.objects.create(
+            title="Public Folder Corpus", creator=self.creator, is_public=True
+        )
+        from opencontractserver.corpuses.models import CorpusFolder
+
+        public_folder = CorpusFolder.objects.create(
+            name="Public Folder", corpus=public_corpus, creator=self.creator
+        )
+        self.assertTrue(
+            public_folder.user_can(self.stranger, PermissionTypes.READ),
+            "stranger should read folder when its corpus is public",
+        )
+        self.assertTrue(
+            public_folder.user_can(AnonymousUser(), PermissionTypes.READ),
+            "anonymous should read folder when its corpus is public",
+        )
+
+    def test_folder_user_can_matches_corpus_user_can_under_matrix(self):
+        """For every (user, perm) pair, ``folder.user_can`` returns the
+        same value as ``folder.corpus.user_can``. The override has no
+        independent decision logic."""
+        users = [
+            self.creator,
+            self.shared_reader,
+            self.stranger,
+            self.superuser,
+            AnonymousUser(),
+        ]
+        perms = [
+            PermissionTypes.READ,
+            PermissionTypes.UPDATE,
+            PermissionTypes.DELETE,
+            PermissionTypes.CREATE,
+            PermissionTypes.PERMISSION,
+            PermissionTypes.PUBLISH,
+            PermissionTypes.CRUD,
+            PermissionTypes.ALL,
+        ]
+        for user in users:
+            for perm in perms:
+                folder_answer = self.folder.user_can(user, perm)
+                corpus_answer = self.private_corpus.user_can(user, perm)
+                self.assertEqual(
+                    folder_answer,
+                    corpus_answer,
+                    f"delegation mismatch user={getattr(user, 'username', 'anon')} "
+                    f"perm={perm}: folder={folder_answer}, corpus={corpus_answer}",
+                )
