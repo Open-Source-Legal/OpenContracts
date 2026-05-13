@@ -25,6 +25,17 @@ def _reload_users_tasks():
     blocks at module scope, so toggling ``USE_AUTH0`` via ``override_settings``
     is not enough by itself — the module must be reloaded with the new value
     in place for the celery task callables to actually exist.
+
+    Parallel-runner caveat: ``importlib.reload`` mutates the shared module
+    registry. In pytest-xdist with ``--dist loadscope`` (the project default)
+    all tests in this class land on the same worker, so the reload is
+    observed in isolation. If a future test runner config drops loadscope
+    or another suite imports ``users.tasks`` before this class runs, the
+    reload would be visible cross-worker — at which point this class needs
+    to be moved behind ``pytest.mark.xdist_group(name="users_tasks_reload")``
+    rather than ``serial`` (the serial marker tears down DB connections via
+    ``conftest.py``, which is for asyncio tests and would break this sync
+    TestCase).
     """
     import opencontractserver.users.tasks as users_tasks
 
