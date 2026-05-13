@@ -82,7 +82,7 @@ posthog==7.14.1  # https://github.com/posthog/posthog-python
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------
-mcp>=1.27.0  # https://github.com/anthropics/python-sdk
+mcp>=1.27.1  # https://github.com/anthropics/python-sdk
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
