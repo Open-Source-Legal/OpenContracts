@@ -307,6 +307,27 @@ class PermanentDeleteRelationshipCleanupTests(SoftDeleteVisibilityBase):
 
         self.assertFalse(Relationship.objects.filter(id=rel_id).exists())
 
+    def test_permanent_delete_removes_corpus_scoped_annotations(self):
+        """Focused regression test: ``permanently_delete_document`` deletes
+        the corpus-scoped non-structural annotations on the document, not
+        just the relationships pointing at them. The full-lifecycle tests
+        above cover this implicitly via ``Relationship`` cascade behaviour,
+        but a dedicated assertion catches regressions in step 5 of
+        ``permanently_delete_document`` independently of the relationship
+        cleanup path.
+        """
+        source_id = self.source_ann.id
+        target_id = self.target_ann.id
+
+        delete_document(self.corpus, "/vis_doc.pdf", self.user)
+        success, msg = permanently_delete_document(self.corpus, self.doc, self.user)
+        self.assertTrue(success, msg)
+
+        # Both corpus-scoped annotations on the deleted doc must be gone
+        # from the DB — not just hidden from visibility queries.
+        self.assertFalse(Annotation.objects.filter(id=source_id).exists())
+        self.assertFalse(Annotation.objects.filter(id=target_id).exists())
+
 
 class StructuralSetGCAcrossCorpusCopiesTests(TestCase):
     """The structural annotation set is shared across corpus-isolated copies
