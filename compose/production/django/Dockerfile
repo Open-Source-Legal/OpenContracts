@@ -101,7 +101,6 @@ RUN groupadd --system django \
 #                        not need a Dockerfile change. Drop if image size
 #                        ever needs the ~5 MB.
 #   poppler-utils      : pdf2image (pdftoppm/pdftocairo)
-#   tesseract-ocr*     : pytesseract OCR runtime
 #   libgl1, libsm6,    : opencv-python-headless transitive runtime deps
 #   libxext6,            (libGL, libSM, libXext, gthread-2.0, libgomp).
 #   libglib2.0-0,        On slim-bookworm none of these are present in the
@@ -110,8 +109,6 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
       libpq5 \
       gettext \
       poppler-utils \
-      tesseract-ocr \
-      tesseract-ocr-eng \
       libgl1 \
       libglib2.0-0 \
       libgomp1 \
