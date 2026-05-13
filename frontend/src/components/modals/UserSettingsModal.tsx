@@ -12,7 +12,10 @@ import styled from "styled-components";
 import { UserCircle, X, Check } from "lucide-react";
 
 import { backendUserObj, showUserSettingsModal } from "../../graphql/cache";
-import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  accentAlpha,
+} from "../../assets/configurations/osLegalStyles";
 import {
   UPDATE_ME,
   UpdateMeInputs,
@@ -66,10 +69,16 @@ const MarkdownTextarea = styled.textarea`
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 6px;
+  /* WCAG 2.4.7 Focus Visible — combine border-color with a 2px box-shadow
+   * focus ring so the indicator survives high-contrast / forced-colors mode
+   * where a single border-color shift can be invisible. */
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 
-  &:focus {
+  &:focus,
+  &:focus-visible {
     outline: none;
     border-color: ${OS_LEGAL_COLORS.accent};
+    box-shadow: 0 0 0 2px ${accentAlpha(0.35)};
   }
 `;
 
@@ -226,7 +235,6 @@ const UserSettingsModal: React.FC = () => {
               placeholder="- [Website](https://example.com)"
             />
           </FormField>
-          <div style={{ height: "1rem" }} />
           <FormField>
             <label>Profile Visibility</label>
             <label

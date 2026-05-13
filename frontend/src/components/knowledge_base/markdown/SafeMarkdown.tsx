@@ -21,7 +21,15 @@ function urlTransform(url: string): string {
   // in-app phishing links (e.g. ``/admin``) just like they can in any free-
   // text field. This is *not* a license to broaden the allowlist later —
   // anything carrying a ``:`` must still match SAFE_PROTOCOLS.
-  if (!url || url.startsWith("#") || url.startsWith("/")) return url;
+  //
+  // Protocol-relative URLs (``//example.com``) MUST be rejected here —
+  // browsers resolve them to the page's protocol, so on an HTTPS page
+  // ``[click](//phishing.example)`` would render as a live external link
+  // disguised as a relative path. Strip the leading slash and hand off to
+  // SAFE_PROTOCOLS, which requires an explicit ``http(s):`` / ``mailto:`` /
+  // ``tel:`` to pass.
+  if (!url || url.startsWith("#")) return url;
+  if (url.startsWith("/") && !url.startsWith("//")) return url;
   return SAFE_PROTOCOLS.test(url) ? url : "";
 }
 

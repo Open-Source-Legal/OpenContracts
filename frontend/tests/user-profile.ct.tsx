@@ -208,7 +208,13 @@ test.describe("UserProfile View - Rendered Profile", () => {
       profileHeadline: "Senior contracts engineer",
       profileAboutMarkdown: "I'm **interested** in dispute resolution.",
       profileLinksMarkdown:
-        "- [home](https://example.com)\n- [evil](javascript:alert(1))",
+        "- [home](https://example.com)\n" +
+        "- [evil](javascript:alert(1))\n" +
+        // Protocol-relative URL — browsers resolve "//phishing.example" to
+        // the page protocol, so this must be stripped just like javascript:.
+        "- [protorel](//phishing.example)\n" +
+        // data:text/html bypass — must also be stripped by the allowlist.
+        "- [datauri](data:text/html,<script>alert(1)</script>)",
     };
 
     const badgesMock = {
@@ -254,6 +260,23 @@ test.describe("UserProfile View - Rendered Profile", () => {
     await expect(evilLink).toBeVisible();
     const evilHref = (await evilLink.getAttribute("href")) || "";
     expect(evilHref.toLowerCase()).not.toContain("javascript:");
+
+    // Protocol-relative URLs like //phishing.example resolve to the
+    // page's protocol, so a profile author could disguise an external
+    // link as an in-app relative path. SafeMarkdown.urlTransform must
+    // reject anything starting with "//".
+    const protorelLink = page.locator('a:text-is("protorel")');
+    await expect(protorelLink).toBeVisible();
+    const protorelHref = (await protorelLink.getAttribute("href")) || "";
+    expect(protorelHref).not.toContain("//phishing.example");
+
+    // data: URLs must also be stripped — react-markdown's default
+    // urlTransform handles this today, but pinning the assertion keeps
+    // the contract explicit if the dependency or our allowlist drift.
+    const dataLink = page.locator('a:text-is("datauri")');
+    await expect(dataLink).toBeVisible();
+    const dataHref = (await dataLink.getAttribute("href")) || "";
+    expect(dataHref.toLowerCase()).not.toContain("data:");
 
     await component.unmount();
   });
