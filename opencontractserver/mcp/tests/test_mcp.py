@@ -31,6 +31,34 @@ class _MCPAsyncRunMixin:
     def _run(coro):
         return asyncio.run(coro)
 
+    @staticmethod
+    def _close_async_db_connections() -> None:
+        """Close DB connections held by the ``sync_to_async`` thread-pool worker.
+
+        ``call_tool_handler`` dispatches sync ORM work via
+        ``asgiref.sync.sync_to_async`` which runs the handler on a shared
+        thread-pool worker. ``django.db.connections`` is thread-local, so
+        the main thread's ``connections.close_all()`` does NOT touch the
+        worker's connection. If postgres ever terminates that worker's
+        backend mid-query (transient OOM / timeout / network blip), the
+        worker keeps the broken ``DatabaseWrapper`` instance and
+        ``ensure_connection()`` won't reopen it — every subsequent test in
+        the same class fails with ``InterfaceError: connection already
+        closed``. Closing the worker's connection in tearDown scopes the
+        blast radius to the originally-failing test.
+        """
+        from asgiref.sync import sync_to_async
+        from django import db
+
+        try:
+            asyncio.run(sync_to_async(db.connections.close_all)())
+        except Exception:
+            # If the worker thread itself is gone or the event loop refuses
+            # to spin up cleanly, fall through — the main-thread close
+            # below is still useful and we don't want tearDown to mask a
+            # test failure.
+            pass
+
 
 class URIParserTest(TestCase):
     """Tests for MCP URI parsing."""
@@ -5435,6 +5463,7 @@ class MCPCallToolHandlerAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
     def tearDown(self):
         from django import db
 
+        self._close_async_db_connections()
         db.connections.close_all()
 
     def test_handler_passes_user_to_tool(self):
@@ -5680,6 +5709,7 @@ class MCPCallToolHandlerValidationErrorTest(_MCPAsyncRunMixin, TransactionTestCa
     def tearDown(self):
         from django import db
 
+        self._close_async_db_connections()
         db.connections.close_all()
 
     def test_non_scoped_validation_error_returns_error_payload(self):

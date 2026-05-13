@@ -94,12 +94,14 @@ def _extract_bearer_token(scope: MutableMapping[str, Any]) -> str | None:
     for name, value in scope.get("headers", []):
         if name.lower() == b"authorization":
             auth_header = value.decode("utf-8", errors="ignore")
-            # Match exactly ``"bearer "`` (case-insensitive) — not
-            # ``startswith("bearer ")`` which silently accepted ``Bearer\t``,
-            # ``Bearer\n`` etc. and then sliced at index 7, potentially
-            # leaving whitespace inside the token. The JWT validator would
-            # have rejected that downstream, but failing here is cleaner
-            # and keeps the contract obvious.
+            # The Authorization header must start with exactly ``Bearer ``
+            # (case-insensitive scheme, single ASCII space). Comparing the
+            # first 7 chars to the lowercased literal makes that contract
+            # explicit; we then slice at index 7 and ``.strip()`` to remove
+            # any incidental trailing whitespace inside the token value
+            # itself. The JWT validator would have rejected a malformed
+            # token downstream anyway, but rejecting non-standard prefixes
+            # here keeps the auth boundary tight and the error obvious.
             if auth_header[:7].lower() == "bearer ":
                 return auth_header[7:].strip() or None
     return None
@@ -929,38 +931,41 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
         # ContextVar so scoped endpoints honor per-user visibility.
         user = _mcp_user.get()
 
-        # Re-validate corpus is still accessible on every tool call
-        # This prevents race condition where corpus becomes private after manager cached
-        is_valid = await sync_to_async(_validate_corpus_sync)(user)
-        if not is_valid:
-            await arecord_mcp_tool_call(
-                name,
-                success=False,
-                error_type="CorpusNotAccessible",
-                corpus_slug=corpus_slug,
-                document_slug=_document_slug,
-            )
-            # Raise Django's PermissionDenied (not Python's PermissionError)
-            # so this path falls into the structured ``except (PermissionDenied,
-            # ValidationError)`` handler below — same JSON ``{"error": ...}``
-            # surface as a tool-level permission failure. Python's
-            # PermissionError would otherwise route through the generic
-            # ``except Exception`` branch and bubble up as a raw transport
-            # error.
-            raise PermissionDenied(f"Corpus '{corpus_slug}' is not accessible")
-
-        handler = scoped_handlers.get(name)
-        if not handler:
-            await arecord_mcp_tool_call(
-                name,
-                success=False,
-                error_type="UnknownTool",
-                corpus_slug=corpus_slug,
-                document_slug=_document_slug,
-            )
-            raise ValueError(f"Unknown tool: {name}")
-
         try:
+            # Re-validate corpus is still accessible on every tool call so
+            # corpora that go private after the scoped manager was cached
+            # still surface a structured permission-denied result rather
+            # than a transport error. Kept inside the try block (alongside
+            # the handler call) so the ``except (PermissionDenied,
+            # ValidationError)`` branch below catches both the validation
+            # raise and any tool-level permission errors with the same
+            # structured-error path.
+            is_valid = await sync_to_async(_validate_corpus_sync)(user)
+            if not is_valid:
+                await arecord_mcp_tool_call(
+                    name,
+                    success=False,
+                    error_type="CorpusNotAccessible",
+                    corpus_slug=corpus_slug,
+                    document_slug=_document_slug,
+                )
+                # Django's PermissionDenied (not Python's PermissionError)
+                # so the structured-error branch below catches it. Python's
+                # PermissionError would route through ``except Exception``
+                # and bubble up as a raw transport error.
+                raise PermissionDenied(f"Corpus '{corpus_slug}' is not accessible")
+
+            handler = scoped_handlers.get(name)
+            if not handler:
+                await arecord_mcp_tool_call(
+                    name,
+                    success=False,
+                    error_type="UnknownTool",
+                    corpus_slug=corpus_slug,
+                    document_slug=_document_slug,
+                )
+                raise ValueError(f"Unknown tool: {name}")
+
             # Run synchronous Django ORM handlers in thread pool. All scoped
             # handlers accept an optional `user`; passing None preserves
             # anonymous semantics for unauthenticated callers. Drop any
