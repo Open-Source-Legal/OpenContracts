@@ -482,6 +482,31 @@ def user_has_permission_for_obj(
     """
     Check if user has a specific permission on an object via django-guardian.
 
+    .. deprecated:: superseded by ``Manager.user_can(user, instance, permission)``
+        for standard-rule models. **New code MUST prefer**
+        ``Model.objects.user_can(user, instance, perm)`` (or the equivalent
+        ``instance.user_can(user, perm)``) for any model whose default
+        manager extends ``BaseVisibilityManager`` — i.e. Corpus, Document,
+        Analysis, Extract, etc. The ``user_can`` API is the single source
+        of truth that mirrors ``visible_to_user`` semantics and correctly
+        honors creator status (which this function deliberately ignores).
+
+        This helper is kept for two reasons:
+          1. It contains structural / privacy / inheritance handling for
+             ``Annotation`` and ``Relationship`` that ``_default_user_can``
+             does NOT replicate. Those models will get per-manager
+             ``user_can`` overrides in a later migration phase; until then,
+             the annotation/relationship branches below remain the
+             canonical check for those types.
+          2. ~170 existing call sites (mutations, optimizers, services,
+             tasks, imports) still use it. They will be migrated
+             incrementally. No runtime ``DeprecationWarning`` is raised
+             because firing it on every call would drown signal in noise
+             during that migration window — the docstring is the contract.
+
+        For new call sites: if ``instance`` is a Corpus/Document/Analysis/
+        Extract (or any model with ``Manager.user_can``), USE ``user_can``.
+
     ⚠️  IMPORTANT LIMITATION - READ THIS BEFORE USING ⚠️
 
     This function checks ONLY for explicit object-level permissions:
@@ -501,10 +526,10 @@ def user_has_permission_for_obj(
     The visible_to_user() pattern handles the full permission model including
     creator access, corpus membership, and other context-dependent rules.
 
-    USE THIS FUNCTION FOR:
-    - Top-level objects with explicit permissions (Corpus, Analysis, Extract)
-    - Write permission checks where explicit guardian permissions are required
-    - Annotation/Relationship permission checks (has special handling built-in)
+    USE THIS FUNCTION ONLY FOR:
+    - Annotation/Relationship permission checks (has special handling built-in
+      that ``_default_user_can`` does not yet replicate).
+    - Legacy call sites pending migration to ``Manager.user_can``.
 
     Special handling for Annotations:
     - Annotations with created_by_analysis or created_by_extract fields require permission
