@@ -786,11 +786,10 @@ def permanently_delete_document(
 
         # Step 5: Delete user annotations (non-structural) on this document.
         # Structural annotations live on the shared StructuralAnnotationSet
-        # and are GC'd via the post_delete signal below, not here.
-        annotation_count = Annotation.objects.filter(
-            document=document,
-            structural_set__isnull=True,
-        ).delete()[0]
+        # and are GC'd via the post_delete signal below, not here. Reuse the
+        # lazy queryset defined above (it isn't materialised, just compiled
+        # into the relationship subquery) so the filter stays DRY.
+        annotation_count = user_annotations_qs.delete()[0]
         logger.debug("Deleted %s user Annotation records", annotation_count)
 
         # Step 6: Delete all DocumentPath records for this document in corpus
