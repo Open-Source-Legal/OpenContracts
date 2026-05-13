@@ -104,6 +104,13 @@ ADMIN_URL = env("DJANGO_ADMIN_URL")
 # Anymail
 # ------------------------------------------------------------------------------
 # https://anymail.readthedocs.io/en/stable/installation/#installing-anymail
+#
+# To enable Mailgun (or any other Anymail-supported ESP) you must first add the
+# package to ``requirements/production.txt`` — it was removed from the default
+# production image in the dependency-audit pass since the block below ships
+# fully commented out. Example line:
+#     django-anymail[mailgun]==15.0  # https://github.com/anymail/django-anymail
+# Then uncomment the configuration below and provide the corresponding env vars.
 
 # UNCOMMENT TO USE ANYMAIL
 # INSTALLED_APPS += ["anymail"]  # noqa F405
