@@ -407,7 +407,16 @@ def package_md_description_revisions(
             "version"
         )
 
-        # TODO(#1608): author_email leaks collaborator PII; migrate to slug when bumping export version.
+        # TODO(PII): `author_email` leaks collaborator PII into export ZIPs.
+        # Issue #1608 (the PR follow-up where this was first surfaced) is
+        # closed; this is the inline plan in lieu of a fresh tracking issue:
+        #   1. Add `author_slug` (from the user-slug work in #1612) alongside
+        #      the email for one minor version, with a deprecation log when
+        #      the import side still consumes the email key.
+        #   2. Make the import side prefer slug over email; keep email as a
+        #      fallback so older archives still re-link authorship.
+        #   3. Drop `author_email` entirely on the next export-format version
+        #      bump (and refuse to read it on import).
         for revision in revisions:
             revisions_export.append(
                 {
@@ -492,9 +501,14 @@ def package_conversations(
         # Build conversation ID mapping
         conv_id_map = {}
 
-        # TODO(#1608): conv["creator_email"], msg["creator_email"], and vote["creator_email"]
-        # (built in the loops below) all leak PII; migrate each to slug on the next export
-        # version bump.
+        # TODO(PII): `creator_email` on every conv/msg/vote built below leaks
+        # collaborator PII into export ZIPs.  Same staged migration plan as
+        # `author_email` above:
+        #   1. Add `creator_slug` (from the user-slug work in #1612) alongside
+        #      the email for one minor version; deprecation-log on the read side.
+        #   2. Make import prefer slug; keep email as a fallback for older
+        #      archives.
+        #   3. Drop `creator_email` on the next export-format version bump.
         for conv in conversations:
             conv_export_id = str(conv.id)
             conv_id_map[conv.id] = conv_export_id
