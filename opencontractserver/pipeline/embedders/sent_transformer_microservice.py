@@ -1,7 +1,7 @@
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import requests
@@ -318,7 +318,7 @@ class MicroserviceEmbedder(BaseEmbedder):
 
             response = _get_session().post(
                 f"{service_url}/embeddings/batch",
-                json={"texts": texts},
+                json=cast(Any, {"texts": texts}),
                 headers=headers,
                 timeout=EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS,
             )
