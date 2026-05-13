@@ -470,13 +470,15 @@ def _default_user_can(
     if permission == PermissionTypes.PERMISSION:
         return f"permission_{model_name}" in granted
     if permission in (PermissionTypes.CRUD, PermissionTypes.ALL):
-        # Fold ``is_public`` in locally as a synthetic READ grant so the
-        # compound check matches the asymmetry rules above (public corpus +
-        # explicit write grants → CRUD/ALL passes). We do this at the call
-        # site rather than relying on ``get_users_permissions_for_obj``'s
-        # internal ``is_public`` injection so the dependency is visible
-        # here; if that helper is ever refactored to drop the synthetic
-        # grant, this branch keeps working correctly.
+        # Belt-and-suspenders: ``get_users_permissions_for_obj`` *already*
+        # injects ``read_<model>`` into ``granted`` when ``is_public=True``
+        # (see lines ~268 and ~336), so today this fold-in is a no-op.
+        # We keep it explicit at the call site because the dependency is
+        # otherwise invisible: if that helper is ever refactored to drop
+        # the synthetic READ grant, the CRUD/ALL branch here MUST keep
+        # working so public-corpus + explicit-write-grants still passes
+        # the compound check. Removing this line would silently break
+        # ``test_crud_satisfied_by_public_read_plus_explicit_writes``.
         if getattr(instance, "is_public", False):
             granted = granted | {f"read_{model_name}"}
         if permission == PermissionTypes.CRUD:

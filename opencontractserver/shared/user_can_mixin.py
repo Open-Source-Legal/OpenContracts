@@ -34,6 +34,14 @@ class UserCanMixin:
     it lazily inside the method to avoid pulling that module — which calls
     ``get_user_model()`` at import time via the GraphQL middleware — into
     the early ``shared.Models`` ⇄ ``users.models`` startup chain.
+
+    Important when mixed onto a QuerySet (e.g. ``PermissionedTreeQuerySet``):
+    ``user_can`` is a **single-object authorization check on the supplied
+    ``instance`` argument**. It does NOT consult the QuerySet's current
+    WHERE clause. ``Corpus.objects.filter(is_public=True).user_can(user,
+    some_private_corpus, READ)`` evaluates against ``some_private_corpus``
+    on its own merits — the ``filter(is_public=True)`` is ignored. Use
+    ``visible_to_user`` if you want a queryset filter.
     """
 
     def user_can(

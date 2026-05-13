@@ -1838,6 +1838,14 @@ class CorpusFolder(InstanceUserCanMixin, TreeNode):
     Inherits ``InstanceUserCanMixin`` so ``folder.user_can(user, perm)``
     delegates to the folder's default manager (same contract as
     ``Corpus``).
+
+    ⚠️ Scope: ``folder.user_can(user, perm)`` checks **folder-level**
+    permissions on this ``CorpusFolder`` row, NOT the parent corpus.
+    If you need to authorize an operation against the corpus that owns
+    this folder (the typical case for write operations in
+    ``DocumentFolderService``), use ``folder.corpus.user_can(user, perm)``
+    instead. Both surfaces exist intentionally; pick the one that
+    matches the resource being authorized.
     """
 
     # Basic fields
