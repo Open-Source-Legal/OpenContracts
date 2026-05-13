@@ -242,14 +242,19 @@ oddities; they're called out so reviewers don't mistake them for bugs.
   and the parity test depends on it. If a future requirement demands
   conversation privacy, the right knob is to plumb the forking user through
   `user_for_visibility=`, not to special-case the conversation packager.
-- **Storage blobs written by the export/import roundtrip become orphaned.**
+- **Storage blobs written by the export/import roundtrip are GC'd on commit.**
   The post-import blob-sharing step rewires `pdf_file`, `pawls_parse_file`,
   `txt_extract_file`, `icon`, and `md_summary_file` on each forked document
   to point at the source corpus's storage paths (so fork doesn't bloat
   storage with duplicate copies). The fresh blobs that the V2 import just
-  wrote are left in place for storage GC. There is no GC job yet — this is a
-  silent storage leak proportional to the number of forks per source corpus.
-  See https://github.com/Open-Source-Legal/OpenContracts/issues/1638 (TODO).
+  wrote are collected during the doc loop and deleted via
+  `transaction.on_commit(default_storage.delete)`, so the GC only fires once
+  the fork transaction is durable — a rollback leaves the V2-import blobs
+  intact (they are still the live references on whatever survives). The
+  callback is best-effort: per-path `try / except` logs WARNING and
+  continues on individual storage failures so one bad path doesn't leak the
+  rest. Tracked previously as #1638; see
+  `CorpusForkOrphanedBlobGCTest` for behavioural coverage.
 - **Single `transaction.atomic()` wraps both export and import.** The export
   step does DB reads + ZIP construction (no writes), the import step does
   DB writes + blob writes. For large corpora the combined critical section

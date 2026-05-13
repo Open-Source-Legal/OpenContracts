@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib.auth import get_user_model
+from django.core.files.storage import default_storage
 from django.db import transaction
 
 from config import celery_app
@@ -247,12 +248,14 @@ def fork_corpus(
                 if p.document.title and p.document.title not in ambiguous_titles
             }
 
-            # Tracks how many file-blob references the fork repointed at
-            # the source corpus's storage — i.e., how many freshly-written
-            # blobs from the V2 import are now orphaned and waiting on
-            # storage GC.  Logged at the end so #1638 has observable
-            # signal in production logs.
-            orphaned_blob_count = 0
+            # Collect the V2-import blob paths that get orphaned when we
+            # re-point a forked doc at the source corpus's storage.  We
+            # delete them via ``transaction.on_commit`` so the cleanup only
+            # runs once the fork transaction is durable — if the atomic
+            # block rolls back, the source-blob repointing never happened
+            # and the V2-import blob is still the live reference, so it
+            # must not be deleted.
+            orphaned_blob_paths: list[str] = []
 
             for dp in DocumentPath.objects.filter(
                 corpus=new_corpus, is_current=True, is_deleted=False
@@ -276,16 +279,14 @@ def fork_corpus(
                 # File-blob sharing — fork semantics share storage paths
                 # with the source rather than allocating fresh copies.
                 # The export/import roundtrip writes new blobs by design,
-                # so the ones it just wrote here become orphaned.
-                # TODO(#1638): reap or reuse those orphaned blobs instead
-                # of relying on storage GC.
+                # so the ones it just wrote here are stale and we GC
+                # them after commit (see ``transaction.on_commit`` below).
                 if candidate is not None:
                     # Repoint each file-blob field at the source's storage
                     # path when the V2 import wrote a different blob.
                     # Only the *replacement* case orphans a blob (the
                     # ``not dst_blob`` branch just attaches a fresh one),
-                    # so only bump ``orphaned_blob_count`` for replacements
-                    # — see TODO(#1638).
+                    # so we only collect orphan paths for replacements.
                     for field_name in (
                         "pdf_file",
                         "pawls_parse_file",
@@ -301,9 +302,11 @@ def fork_corpus(
                             setattr(doc, field_name, src_blob)
                             doc_updates.append(field_name)
                         elif dst_blob.name != src_blob.name:
+                            # Remember the V2-import blob path so we can
+                            # GC it after the transaction commits.
+                            orphaned_blob_paths.append(dst_blob.name)
                             setattr(doc, field_name, src_blob)
                             doc_updates.append(field_name)
-                            orphaned_blob_count += 1
 
                 doc.title = f"{FORK_TITLE_PREFIX}{doc.title}"
                 doc_updates.append("title")
@@ -311,13 +314,50 @@ def fork_corpus(
                 if doc_updates:
                     doc.save(update_fields=doc_updates)
 
-            if orphaned_blob_count:
+            if orphaned_blob_paths:
+                # Snapshot the count for logging before the on_commit
+                # callback runs; the list itself is captured by reference
+                # in the closure below.
+                orphan_count = len(orphaned_blob_paths)
+                paths_to_delete = list(orphaned_blob_paths)
+
+                def _gc_orphaned_blobs(
+                    paths: list[str] = paths_to_delete,
+                    shell_id: str = str(new_corpus_id),
+                ) -> None:
+                    """Best-effort GC of V2-import blobs orphaned by fork.
+
+                    Runs after the fork transaction commits, so a rollback
+                    leaves the V2-import blobs intact (they are still the
+                    live reference on the forked docs).
+                    """
+                    deleted = 0
+                    for path in paths:
+                        try:
+                            default_storage.delete(path)
+                            deleted += 1
+                        except Exception:
+                            logger.warning(
+                                "fork_corpus(shell=%s): failed to delete "
+                                "orphaned V2-import blob %r",
+                                shell_id,
+                                path,
+                                exc_info=True,
+                            )
+                    logger.info(
+                        "fork_corpus(shell=%s): GC'd %d/%d orphaned "
+                        "V2-import blob(s) after fork commit.",
+                        shell_id,
+                        deleted,
+                        len(paths),
+                    )
+
+                transaction.on_commit(_gc_orphaned_blobs)
                 logger.info(
-                    "fork_corpus(shell=%s): orphaned %d V2-import blob(s) "
-                    "after re-pointing forked documents at source storage "
-                    "(see #1638).",
+                    "fork_corpus(shell=%s): scheduled GC for %d orphaned "
+                    "V2-import blob(s) (runs on commit).",
                     new_corpus_id,
-                    orphaned_blob_count,
+                    orphan_count,
                 )
 
         logger.info("fork_corpus succeeded for shell %s", new_corpus_id)
