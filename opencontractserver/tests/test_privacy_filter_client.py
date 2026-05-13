@@ -254,3 +254,58 @@ class PrivacyFilterClientMultiChunkTests(TestCase):
     async def test_empty_input_returns_empty_list(self) -> None:
         detections = await adetect_pii("")
         assert detections == []
+
+    async def test_empty_api_key_logs_warning_once(self) -> None:
+        """When ``PRIVACY_FILTER_URL`` is set but ``PRIVACY_FILTER_API_KEY``
+        is empty, the client must:
+
+        1. Continue to issue the request (deployment is opt-in, see
+           ``_privacy_filter_client.py`` for the rationale).
+        2. Emit a single ``logger.warning`` so the misconfiguration shows
+           up in logs instead of silently shipping with no auth.
+        3. Suppress the warning on subsequent calls so log volume doesn't
+           grow with PII-scan call volume.
+
+        We reset the module-level guard before *and* after so this test
+        is order-independent — without the explicit reset another test
+        could flip the flag first and we'd never observe the warning.
+        """
+        from opencontractserver.llms.tools.core_tools import (
+            _privacy_filter_client as pf,
+        )
+
+        original = pf._warned_about_missing_api_key
+        pf._warned_about_missing_api_key = False
+        try:
+            mock_client = MagicMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.post = AsyncMock(
+                return_value=_mock_response({"detections": []})
+            )
+
+            with override_settings(
+                PRIVACY_FILTER_URL="http://privacy_filter:8000",
+                PRIVACY_FILTER_API_KEY="",
+            ):
+                with patch(
+                    "opencontractserver.llms.tools.core_tools._privacy_filter_client.httpx.AsyncClient",
+                    return_value=mock_client,
+                ):
+                    with self.assertLogs(pf.logger, level="WARNING") as first_logs:
+                        detections1 = await adetect_pii("hello world")
+                    # Second call must NOT re-emit the warning.
+                    with self.assertNoLogs(pf.logger, level="WARNING"):
+                        detections2 = await adetect_pii("hello again")
+
+            assert detections1 == []
+            assert detections2 == []
+            assert any(
+                "PRIVACY_FILTER_API_KEY is empty" in msg for msg in first_logs.output
+            )
+            # Confirm the request actually went out unauthenticated.
+            assert mock_client.post.await_count == 2
+            sent_headers = mock_client.post.await_args_list[0].kwargs["headers"]
+            assert sent_headers.get("X-API-Key") == ""
+        finally:
+            pf._warned_about_missing_api_key = original

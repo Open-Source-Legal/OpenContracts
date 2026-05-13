@@ -58,6 +58,15 @@ def _load_doc_text_sync(document_id: int, corpus_id: int) -> _DocTextResult:
     Markdown documents are accepted alongside plain-text — both ride the
     ``TEXT_MIMETYPES`` set so the supported list stays in lockstep with the
     rest of the ingestion pipeline.
+
+    Note: this helper does NOT perform an authorization check. Write
+    permission on the corpus is enforced by the agent tool framework via
+    the ``requires_write_permission=True`` flag on the registered
+    ``ToolDefinition`` (see ``ScanAndAnnotateRegistryTests``). The helper
+    is module-private (``_``-prefix) precisely because callers outside
+    the tool framework would bypass that gate. Do not promote this
+    function to public API without adding an explicit
+    ``user_has_permission_for_obj`` check first.
     """
     try:
         doc = Document.objects.get(pk=document_id)
@@ -130,15 +139,20 @@ def _persist_annotations_sync(
 
     # Pre-create every label the upcoming detections need *outside* the
     # ``transaction.atomic()`` block below. ``ensure_label_and_labelset``
-    # uses a check-then-create pattern (``filter().first()`` followed by
-    # ``AnnotationLabel.objects.create``) with no DB-level uniqueness
-    # constraint on ``(text, label_type)`` — two concurrent scans on the
-    # same fresh corpus *can* both create the same label. We don't try to
-    # prevent that here; we keep the (rare) duplicate isolated to the
-    # label table so the much bigger Annotation insert batch isn't
-    # rolled back. The inner atomic block only inserts ``Annotation``
-    # rows, which carry no cross-row uniqueness, so it can never fail
-    # for a reason caused by a peer scan racing with us.
+    # *does* wrap its own check-then-create in a ``transaction.atomic()``
+    # (see ``corpuses/models.py`` ~line 1318), but with PostgreSQL's
+    # default READ COMMITTED isolation that atomic block doesn't prevent
+    # the race: two concurrent transactions can both pass
+    # ``filter().first()`` *before* either commits the insert, since
+    # there is no DB-level uniqueness constraint on
+    # ``AnnotationLabel(text, label_type)``. So two concurrent scans on
+    # the same fresh corpus *can* still create duplicate labels. We
+    # accept that rare duplicate; pre-creating outside the inner atomic
+    # block isolates the duplicate to the label table so the much
+    # bigger Annotation insert batch isn't rolled back. The inner
+    # atomic block only inserts ``Annotation`` rows, which carry no
+    # cross-row uniqueness, so it can never fail for a reason caused
+    # by a peer scan racing with us.
     needed_groups = {
         det["entity_group"]
         for det in detections

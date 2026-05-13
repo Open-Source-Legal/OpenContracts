@@ -141,6 +141,14 @@ def _iter_chunk_starts(total_len: int) -> list[int]:
     Each chunk is up to ``CHUNK_SIZE`` chars; consecutive chunks overlap by
     ``CHUNK_OVERLAP`` so that detections spanning a boundary are still seen
     in at least one chunk's window.
+
+    Note: when ``total_len`` falls just past a chunk boundary (e.g.
+    ``CHUNK_SIZE + 1``), the final emitted ``pos`` can produce a chunk that
+    overlaps the *previous* chunk by significantly more than
+    ``CHUNK_OVERLAP``. That's intentional — it keeps the loop branch-free
+    and the over-coverage is harmless because de-duplication on
+    ``(start, end, group)`` collapses any duplicate detections in the
+    overlapped region back down to a single result.
     """
     if total_len <= CHUNK_SIZE:
         return [0]
@@ -152,6 +160,8 @@ def _iter_chunk_starts(total_len: int) -> list[int]:
         starts.append(pos)
         pos += step
     # The final chunk reaches (or extends past) total_len; Python slicing
-    # clamps gracefully so we don't need to truncate.
+    # clamps gracefully so we don't need to truncate. See note above re:
+    # the over-overlap case when total_len lands just past a chunk
+    # boundary.
     starts.append(pos)
     return starts
