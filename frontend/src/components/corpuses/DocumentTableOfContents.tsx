@@ -69,6 +69,10 @@ interface DocumentNode {
 // ============================================================================
 
 const Container = styled.div<{ $embedded?: boolean }>`
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: ${(props) => (props.$embedded ? "100%" : "auto")};
   padding: ${(props) => (props.$embedded ? "0" : "16px")};
   background: transparent;
   border: ${(props) =>
@@ -130,8 +134,15 @@ const Title = styled.h3`
 `;
 
 const TreeContainer = styled.div`
+  flex: 1;
+  min-height: 0;
   /* Empty state text */
   .empty-state {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
     padding: 48px 24px;
     color: ${OS_LEGAL_COLORS.textMuted};
@@ -832,20 +843,8 @@ export const DocumentTableOfContents: React.FC<
     }
   };
 
-  // True when there is exactly one top-level document with no children in the
-  // relationship tree. In this mode we skip the document header row and show
-  // the annotation index directly. Uses rootNodes (unfiltered) so that a
-  // search filter cannot accidentally flip the layout.
-  const isSingleTopLevelLeaf = useMemo(() => {
-    return rootNodes.length === 1 && rootNodes[0].children.length === 0;
-  }, [rootNodes]);
-
   // Render a tree node recursively
-  const renderNode = (
-    node: DocumentNode,
-    depth: number,
-    skipDocHeader = false
-  ) => {
+  const renderNode = (node: DocumentNode, depth: number) => {
     const isExpanded = expandedNodes.has(node.id);
     const hasChildren = node.children.length > 0;
     const hasDescription = Boolean(node.description);
@@ -858,59 +857,55 @@ export const DocumentTableOfContents: React.FC<
 
     return (
       <TreeNode key={node.id} $depth={depth}>
-        {!skipDocHeader && (
-          <NodeItem
-            $hasChildren={isExpandable}
-            $hasDescription={hasDescription}
-            onClick={() => handleDocumentClick(node)}
-            onKeyDown={(e) => handleKeyDown(e, node, isExpandable, isExpanded)}
-            role="treeitem"
-            tabIndex={0}
-            aria-expanded={isExpandable ? isExpanded : undefined}
-            aria-label={`${node.title}${
-              isExpandable ? `, ${isExpanded ? "expanded" : "collapsed"}` : ""
-            }`}
+        <NodeItem
+          $hasChildren={isExpandable}
+          $hasDescription={hasDescription}
+          onClick={() => handleDocumentClick(node)}
+          onKeyDown={(e) => handleKeyDown(e, node, isExpandable, isExpanded)}
+          role="treeitem"
+          tabIndex={0}
+          aria-expanded={isExpandable ? isExpanded : undefined}
+          aria-label={`${node.title}${
+            isExpandable ? `, ${isExpanded ? "expanded" : "collapsed"}` : ""
+          }`}
+        >
+          <ChevronContainer
+            className="chevron"
+            $visible={isExpandable}
+            onClick={(e) => isExpandable && toggleNode(node.id, e)}
+            aria-hidden="true"
           >
-            <ChevronContainer
-              className="chevron"
-              $visible={isExpandable}
-              onClick={(e) => isExpandable && toggleNode(node.id, e)}
-              aria-hidden="true"
-            >
-              {isExpandable &&
-                (isExpanded ? (
-                  <ChevronDown size={14} />
-                ) : (
-                  <ChevronRight size={14} />
-                ))}
-            </ChevronContainer>
+            {isExpandable &&
+              (isExpanded ? (
+                <ChevronDown size={14} />
+              ) : (
+                <ChevronRight size={14} />
+              ))}
+          </ChevronContainer>
 
-            <IconContainer $fileType={node.fileType}>
-              <FileIcon size={20} />
-            </IconContainer>
+          <IconContainer $fileType={node.fileType}>
+            <FileIcon size={20} />
+          </IconContainer>
 
-            <NodeContent>
-              <NodeTitle title={node.title}>{node.title}</NodeTitle>
-              {node.description && (
-                <NodeDescription title={node.description}>
-                  {node.description}
-                </NodeDescription>
-              )}
-              <NodeMeta>
-                <FileTypeBadge>{formatFileType(node.fileType)}</FileTypeBadge>
-              </NodeMeta>
-            </NodeContent>
-          </NodeItem>
-        )}
+          <NodeContent>
+            <NodeTitle title={node.title}>{node.title}</NodeTitle>
+            {node.description && (
+              <NodeDescription title={node.description}>
+                {node.description}
+              </NodeDescription>
+            )}
+            <NodeMeta>
+              <FileTypeBadge>{formatFileType(node.fileType)}</FileTypeBadge>
+            </NodeMeta>
+          </NodeContent>
+        </NodeItem>
         {isExpanded && hasChildren && (
           <div role="group">
             {node.children.map((child) => renderNode(child, depth + 1))}
           </div>
         )}
-        {/* Only mount (and query) the annotation index when the node is
-            visible — either because the doc header is skipped (single-doc
-            mode) or because the user has expanded this node. */}
-        {(skipDocHeader || isExpanded) && (
+        {/* Only mount (and query) the annotation index when the user expands the node. */}
+        {isExpanded && (
           <DocumentAnnotationIndex
             documentId={node.id}
             documentSlug={node.slug}
@@ -998,9 +993,7 @@ export const DocumentTableOfContents: React.FC<
         </WarningBanner>
       )}
       <TreeContainer role="tree" aria-label="Document hierarchy">
-        {isSingleTopLevelLeaf
-          ? filteredNodes.map((node) => renderNode(node, 0, true))
-          : filteredNodes.map((node) => renderNode(node, 0))}
+        {filteredNodes.map((node) => renderNode(node, 0))}
       </TreeContainer>
     </TocWrapper>
   );

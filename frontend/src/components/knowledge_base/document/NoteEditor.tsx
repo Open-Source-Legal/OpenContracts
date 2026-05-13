@@ -526,6 +526,7 @@ interface NoteEditorProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdate?: () => void;
+  overlayClassName?: string;
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
@@ -533,6 +534,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   isOpen,
   onClose,
   onUpdate,
+  overlayClassName,
 }) => {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -700,7 +702,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   return (
     <StyledModalWrapper>
-      <Modal open={isOpen} onClose={handleClose} size="lg">
+      <Modal
+        open={isOpen}
+        onClose={handleClose}
+        size="lg"
+        overlayClassName={overlayClassName}
+      >
         <ModalHeader>
           <h2
             style={{

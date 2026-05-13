@@ -573,6 +573,112 @@ test.describe("FloatingDocumentControls", () => {
     await expect(page.getByTestId("create-analysis-button")).toHaveCount(0);
   });
 
+  test("mobile speed dial stays inside the viewport", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    const fab = page.getByTestId("speed-dial-main-fab");
+    await expect(fab).toBeVisible();
+
+    const fabBox = await fab.boundingBox();
+    expect(fabBox).not.toBeNull();
+    expect(fabBox!.x).toBeGreaterThanOrEqual(0);
+    expect(fabBox!.y).toBeGreaterThanOrEqual(0);
+    expect(fabBox!.x + fabBox!.width).toBeLessThanOrEqual(402);
+    expect(fabBox!.y + fabBox!.height).toBeLessThanOrEqual(874);
+    expect(874 - (fabBox!.y + fabBox!.height)).toBeGreaterThanOrEqual(72);
+
+    await fab.click();
+
+    const orbitButtonIds = [
+      "settings-button",
+      "analyses-button",
+      "extracts-button",
+      "create-analysis-button",
+    ];
+
+    await expect
+      .poll(async () => {
+        const mainFabBox = await fab.boundingBox();
+        if (!mainFabBox) {
+          return false;
+        }
+
+        for (const testId of orbitButtonIds) {
+          const button = page.getByTestId(testId);
+          if ((await button.count()) !== 1) {
+            return false;
+          }
+
+          const buttonBox = await button.boundingBox();
+          if (!buttonBox) {
+            return false;
+          }
+
+          const insideViewport =
+            buttonBox.x >= 0 &&
+            buttonBox.y >= 0 &&
+            buttonBox.x + buttonBox.width <= 402 &&
+            buttonBox.y + buttonBox.height <= 874;
+          const notBelowMainFab =
+            buttonBox.y + buttonBox.height <=
+            mainFabBox.y + mainFabBox.height + 1;
+
+          if (!insideViewport || !notBelowMainFab) {
+            return false;
+          }
+        }
+
+        return true;
+      })
+      .toBe(true);
+  });
+
+  test("mobile speed dial honors DKB visual viewport height", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty(
+        "--oc-dkb-visible-viewport-height",
+        "720px"
+      );
+      document.documentElement.style.setProperty(
+        "--oc-dkb-visible-viewport-offset-top",
+        "0px"
+      );
+    });
+
+    await mount(
+      <FloatingDocumentControlsTestWrapper
+        visible={true}
+        isMobile={true}
+        hideDocumentTools={false}
+        corpusPermissions={["CAN_READ", "CAN_UPDATE"]}
+      />
+    );
+
+    const fab = page.getByTestId("speed-dial-main-fab");
+    await expect(fab).toBeVisible();
+
+    const fabBox = await fab.boundingBox();
+    expect(fabBox).not.toBeNull();
+    expect(fabBox!.y + fabBox!.height).toBeLessThanOrEqual(720);
+    expect(720 - (fabBox!.y + fabBox!.height)).toBeGreaterThanOrEqual(72);
+  });
+
   test("mobile speed dial: hideDocumentTools=false renders all document tool buttons", async ({
     mount,
     page,

@@ -9,6 +9,7 @@
  */
 import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
+import type { CamlDocument } from "@os-legal/caml";
 import { CamlDirectiveRendererTestWrapper } from "./CamlDirectiveRendererTestWrapper";
 import { DOCUMENT_WITH_DUPLICATES } from "./CamlDirectiveRendererFixtures";
 
@@ -52,6 +53,61 @@ test.describe("CamlDirectiveRenderer - Basic Rendering", () => {
     const chips = page.locator("[data-testid^='mock-citation-']");
     const chipCount = await chips.count();
     expect(chipCount).toBeGreaterThanOrEqual(2);
+
+    await component.unmount();
+  });
+});
+
+test.describe("CamlDirectiveRenderer - Mobile Layout", () => {
+  test("should keep full-width CAML chapters inside mobile viewport gutters", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const mobileDocument: CamlDocument = {
+      frontmatter: {},
+      chapters: [
+        {
+          id: "questions",
+          kicker: "Section 03",
+          title: "Questions Presented",
+          theme: "dark",
+          gradient: true,
+          blocks: [
+            {
+              type: "prose",
+              content:
+                'The petition presented two questions; the Court granted review only on the first.\n\n>>> "Whether the court of appeals erred in holding that the Education Act does not permit the assessment of borrower defenses to repayment before default."',
+            },
+          ],
+        },
+      ],
+    };
+
+    const component = await mount(
+      <CamlDirectiveRendererTestWrapper document={mobileDocument} />
+    );
+
+    const section = page.locator("article > section").first();
+    await expect(section).toBeVisible({ timeout: 10000 });
+
+    const viewport = page.viewportSize()!;
+    const sectionBox = await section.boundingBox();
+    expect(sectionBox).not.toBeNull();
+    expect(sectionBox!.x).toBeGreaterThanOrEqual(0);
+    expect(sectionBox!.width).toBeLessThanOrEqual(viewport.width);
+
+    const headingBox = await page
+      .getByRole("heading", { name: "Questions Presented" })
+      .boundingBox();
+    expect(headingBox).not.toBeNull();
+    expect(headingBox!.x).toBeGreaterThanOrEqual(16);
+
+    const scrollWidth = await page.evaluate(() =>
+      Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)
+    );
+    expect(scrollWidth).toBeLessThanOrEqual(viewport.width);
 
     await component.unmount();
   });
