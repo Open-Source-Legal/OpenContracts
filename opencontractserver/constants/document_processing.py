@@ -184,6 +184,20 @@ DEFAULT_SLIDING_WINDOW_OVERLAP = 200
 MAX_WORD_BOUNDARY_SCAN_CHARS = 512
 
 # ---------------------------------------------------------------------------
+# Privacy-filter PII detection client
+# ---------------------------------------------------------------------------
+
+# Chunk size for the privacy-filter detect endpoint. Set 10_000 chars under
+# the service's default MAX_INPUT_CHARS (50_000) so an upstream cap bump
+# doesn't immediately invalidate this constant.
+PRIVACY_FILTER_CHUNK_SIZE = 40_000
+
+# Overlap between consecutive chunks sent to the privacy filter. 500 chars
+# is enough to capture full names, phone numbers, and addresses spanning a
+# chunk boundary without exploding the request count.
+PRIVACY_FILTER_CHUNK_OVERLAP = 500
+
+# ---------------------------------------------------------------------------
 # CAML article citation review tools
 # ---------------------------------------------------------------------------
 

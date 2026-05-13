@@ -314,12 +314,24 @@ class PydanticAIDependencies(BaseModel):
     # same turn consumed — without this counter every implicit call sees the
     # same fresh ``recommended_chunk_chars()`` snapshot and could keep
     # returning an equally-large chunk.
+    #
+    # SCOPE: this is a *partial* in-turn drift correction. Only implicit
+    # ``load_document_text`` calls feed the tally — other heavy tool
+    # outputs (vector-search results, annotation lists, image data) also
+    # consume the model's remaining headroom but are NOT tracked here.
+    # Anyone adding another budget-aware tool that should back off
+    # proportionally across calls in the same turn must either reuse this
+    # field (rename it first if the scope broadens) or introduce a sibling
+    # tally and fold both into ``recommended_chunk_chars``. The narrow
+    # scope is deliberate — implicit ``load_document_text`` is the dominant
+    # source of in-turn drift on whole-document tasks.
     turn_implicit_doc_text_chars: int = Field(
         default=0,
         description=(
             "Per-turn running tally of characters returned by implicit "
             "(no-end) load_document_text calls; reset by the agent at "
-            "the start of each turn."
+            "the start of each turn. Partial coverage — does not track "
+            "other heavy tool outputs (vector search, annotations)."
         ),
     )
 
