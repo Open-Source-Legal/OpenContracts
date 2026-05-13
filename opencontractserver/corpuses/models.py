@@ -39,6 +39,7 @@ from opencontractserver.corpuses.managers import CorpusActionExecutionManager
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.QuerySets import PermissionedTreeQuerySet
 from opencontractserver.shared.slug_utils import generate_unique_slug, sanitize_slug
+from opencontractserver.shared.user_can_mixin import InstanceUserCanMixin
 from opencontractserver.shared.utils import calc_oc_file_path
 from opencontractserver.utils.embeddings import generate_embeddings_from_text
 from opencontractserver.utils.text import truncate
@@ -124,9 +125,14 @@ class TemporaryFileHandle(django.db.models.Model):
 
 
 # Create your models here.
-class Corpus(TreeNode):
+class Corpus(InstanceUserCanMixin, TreeNode):
     """
     Corpus, which stores a collection of documents that are grouped for machine learning / study / export purposes.
+
+    Inherits ``InstanceUserCanMixin`` so ``corpus.user_can(user, perm)``
+    delegates to ``Corpus.objects.user_can(...)`` (which extends
+    ``PermissionedTreeQuerySet``'s ``UserCanMixin``), matching the
+    ``BaseOCModel`` surface for non-TreeNode models.
     """
 
     # Model variables
@@ -1824,10 +1830,14 @@ class CorpusEngagementMetrics(django.db.models.Model):
 # --------------------------------------------------------------------------- #
 
 
-class CorpusFolder(TreeNode):
+class CorpusFolder(InstanceUserCanMixin, TreeNode):
     """
     Hierarchical folder structure within a corpus for organizing documents.
     Uses TreeNode for efficient tree operations via CTEs.
+
+    Inherits ``InstanceUserCanMixin`` so ``folder.user_can(user, perm)``
+    delegates to the folder's default manager (same contract as
+    ``Corpus``).
     """
 
     # Basic fields

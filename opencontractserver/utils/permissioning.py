@@ -369,6 +369,13 @@ def _default_user_can(
     delegate here, which keeps the filter (``visible_to_user``) and check
     (``user_can``) decisions provably aligned.
 
+    Naming note: the leading underscore marks this as implementation-private
+    to the permission subsystem (callers go through ``Manager.user_can`` /
+    ``obj.user_can``), NOT as file-private. ``Managers.py``, ``QuerySets.py``,
+    and ``UserCanMixin`` deliberately import it. Per-model overrides that
+    need the default rules MUST delegate here rather than re-implementing
+    them, so filter/check stay aligned.
+
     Rules:
         - ``None`` / ``AnonymousUser`` / unauthenticated → False, except READ
           on ``instance.is_public=True`` which returns True.

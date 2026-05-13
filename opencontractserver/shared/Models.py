@@ -3,12 +3,19 @@ from django.conf import settings
 from django.db import models
 
 from opencontractserver.shared.Managers import BaseVisibilityManager
+from opencontractserver.shared.user_can_mixin import InstanceUserCanMixin
 
 
-class BaseOCModel(models.Model):
+class BaseOCModel(InstanceUserCanMixin, models.Model):
     """
     Base model for all OpenContracts models that has some properties it's nice to have on
     all models.
+
+    ``user_can(user, permission)`` is provided by ``InstanceUserCanMixin``
+    and routes through ``type(self)._default_manager.user_can``. The same
+    mixin is also applied directly to ``Corpus`` / ``CorpusFolder`` (which
+    extend ``TreeNode`` instead of ``BaseOCModel``) so every visibility-
+    managed model exposes the same ergonomic surface.
     """
 
     # All BaseOCModel subclasses get BaseVisibilityManager by default, providing
@@ -45,20 +52,3 @@ class BaseOCModel(models.Model):
     # Timing variables
     created = django.db.models.DateTimeField(auto_now_add=True, blank=False, null=False)
     modified = django.db.models.DateTimeField(auto_now=True, blank=False, null=False)
-
-    def user_can(
-        self, user, permission, *, include_group_permissions: bool = True
-    ) -> bool:
-        """Ergonomic single-object authorization check.
-
-        Equivalent to ``type(self)._default_manager.user_can(user, self,
-        permission)``. The Manager (or QuerySet) is the source of truth for
-        per-model overrides; this method is just a thin delegate so callers
-        can write ``obj.user_can(user, perm)`` instead.
-        """
-        return type(self)._default_manager.user_can(
-            user,
-            self,
-            permission,
-            include_group_permissions=include_group_permissions,
-        )

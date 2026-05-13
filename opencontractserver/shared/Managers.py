@@ -19,6 +19,7 @@ from opencontractserver.shared.QuerySets import (
     PermissionQuerySet,
     UserFeedbackQuerySet,
 )
+from opencontractserver.shared.user_can_mixin import UserCanMixin
 
 # Re-exported so callers receiving "a permissioned manager" can annotate
 # against ``PermissionedQueryManagerProtocol`` instead of any concrete
@@ -113,7 +114,7 @@ def _apply_document_prefetches(
     return queryset
 
 
-class BaseVisibilityManager(Manager):
+class BaseVisibilityManager(UserCanMixin, Manager):
     """
     Base manager that implements the standard visibility logic for non-annotations and non-relationships .
 
@@ -124,37 +125,14 @@ class BaseVisibilityManager(Manager):
 
     This is the SECURE fallback logic that should be used by all models that don't have
     more specific permission requirements.
+
+    ``user_can(user, instance, permission)`` is provided by ``UserCanMixin``
+    and mirrors ``visible_to_user`` semantics: for READ, it returns the same
+    boolean as ``self.visible_to_user(user).filter(pk=instance.pk).exists()``.
+    Per-model subclasses SHOULD override and add model-specific rules (e.g.
+    structural read-only, annotation privacy) before delegating back to
+    ``_default_user_can`` for the default branch.
     """
-
-    def user_can(
-        self,
-        user: Any,
-        instance: Any,
-        permission: Any,
-        *,
-        include_group_permissions: bool = True,
-    ) -> bool:
-        """Single-object authorization check. Mirrors ``visible_to_user``.
-
-        For READ, this returns the same boolean as
-        ``self.visible_to_user(user).filter(pk=instance.pk).exists()``. For
-        non-READ permissions there is no queryset analogue; this method is
-        the single source of truth.
-
-        Honors superuser bypass, creator ownership, ``is_public`` (READ
-        only), guardian user/group object permissions. Per-model subclasses
-        SHOULD override and add model-specific rules (e.g. structural
-        read-only, annotation privacy) before delegating back here for the
-        default branch.
-        """
-        from opencontractserver.utils.permissioning import _default_user_can
-
-        return _default_user_can(
-            user,
-            instance,
-            permission,
-            include_group_permissions=include_group_permissions,
-        )
 
     def visible_to_user(
         self,

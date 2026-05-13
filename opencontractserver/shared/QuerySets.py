@@ -7,9 +7,18 @@ from django.utils import timezone
 from tree_queries.query import TreeQuerySet
 
 from opencontractserver.shared.mixins import VectorSearchViaEmbeddingMixin
+from opencontractserver.shared.user_can_mixin import UserCanMixin
 
 
-class PermissionedTreeQuerySet(TreeQuerySet):
+class PermissionedTreeQuerySet(UserCanMixin, TreeQuerySet):
+    """Tree-aware queryset that exposes the standard ``user_can`` surface.
+
+    ``user_can`` is inherited from ``UserCanMixin`` (delegates to
+    ``_default_user_can``). See ``BaseVisibilityManager.user_can`` for the
+    contract — both surfaces converge on the same logic so that filter
+    (``visible_to_user``) and check (``user_can``) decisions stay aligned.
+    """
+
     def approved(self) -> "PermissionedTreeQuerySet":
         return self.filter(approved=True)
 
@@ -28,30 +37,6 @@ class PermissionedTreeQuerySet(TreeQuerySet):
 
     def by_creator(self, creator: Any) -> "PermissionedTreeQuerySet":
         return self.filter(creator=creator)
-
-    def user_can(
-        self,
-        user: Any,
-        instance: Any,
-        permission: Any,
-        *,
-        include_group_permissions: bool = True,
-    ) -> bool:
-        """Single-object authorization check for tree-based models (Corpus,
-        CorpusFolder). Mirrors ``visible_to_user`` semantics.
-
-        See ``BaseVisibilityManager.user_can`` for the contract. The body is
-        delegated to ``_default_user_can`` so all "standard rules" managers
-        and querysets converge on the same authorization logic.
-        """
-        from opencontractserver.utils.permissioning import _default_user_can
-
-        return _default_user_can(
-            user,
-            instance,
-            permission,
-            include_group_permissions=include_group_permissions,
-        )
 
     def visible_to_user(self, user: Any) -> "PermissionedTreeQuerySet":
         """
