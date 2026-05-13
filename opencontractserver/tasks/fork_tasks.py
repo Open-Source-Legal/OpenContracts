@@ -79,6 +79,27 @@ def fork_corpus(
         metadata_datacell_ids,
         label_set_id,
     )
+    # One-shot deprecation signal for callers that still pass the old
+    # selective-fork args.  Logged once per task invocation so it shows
+    # up in production logs without being noisy when callers have
+    # already migrated to the no-args form.
+    if any(
+        (
+            doc_ids,
+            annotation_ids,
+            folder_ids,
+            relationship_ids,
+            metadata_column_ids,
+            metadata_datacell_ids,
+            label_set_id,
+        )
+    ):
+        logger.warning(
+            "fork_corpus: doc_ids/annotation_ids/folder_ids/relationship_ids/"
+            "metadata_column_ids/metadata_datacell_ids/label_set_id are "
+            "deprecated and ignored — the fork now exports the entire source "
+            "corpus and re-imports it. Remove these args from callers."
+        )
 
     logger.info(
         "fork_corpus(new_corpus_id=%s, user_id=%s) via export+import",
@@ -119,6 +140,14 @@ def fork_corpus(
         # doesn't need to share scope with the import's writes — keeping
         # it outside narrows the lock window to just the import phase,
         # which can run for minutes on large corpora.
+        #
+        # Tradeoff: the source corpus can be mutated between the export
+        # snapshot and the import commit (concurrent annotation edit,
+        # folder rename, etc.).  Fork accepts this tradeoff because the
+        # alternative — holding a write lock for the full export+import
+        # window — is unacceptable on large corpora.  The forked corpus
+        # reflects the source state at the moment ``build_corpus_v2_zip``
+        # ran; later mutations are caller-visible and out of scope here.
         zip_bytes = build_corpus_v2_zip(
             corpus_pk=int(source_pk),
             user_for_visibility=None,  # fork inherits all conversations
@@ -217,6 +246,13 @@ def fork_corpus(
                 if p.document.title and p.document.title not in ambiguous_titles
             }
 
+            # Tracks how many file-blob references the fork repointed at
+            # the source corpus's storage — i.e., how many freshly-written
+            # blobs from the V2 import are now orphaned and waiting on
+            # storage GC.  Logged at the end so #1638 has observable
+            # signal in production logs.
+            orphaned_blob_count = 0
+
             for dp in DocumentPath.objects.filter(
                 corpus=new_corpus, is_current=True, is_deleted=False
             ).select_related("document"):
@@ -243,62 +279,45 @@ def fork_corpus(
                 # TODO(#1638): reap or reuse those orphaned blobs instead
                 # of relying on storage GC.
                 if candidate is not None:
-                    if (
-                        candidate.pdf_file
-                        and candidate.pdf_file.name
-                        and (
-                            not doc.pdf_file
-                            or doc.pdf_file.name != candidate.pdf_file.name
-                        )
+                    # Repoint each file-blob field at the source's storage
+                    # path when the V2 import wrote a different blob.
+                    # Only the *replacement* case orphans a blob (the
+                    # ``not dst_blob`` branch just attaches a fresh one),
+                    # so only bump ``orphaned_blob_count`` for replacements
+                    # — see TODO(#1638).
+                    for field_name in (
+                        "pdf_file",
+                        "pawls_parse_file",
+                        "txt_extract_file",
+                        "icon",
+                        "md_summary_file",
                     ):
-                        doc.pdf_file = candidate.pdf_file
-                        doc_updates.append("pdf_file")
-                    if (
-                        candidate.pawls_parse_file
-                        and candidate.pawls_parse_file.name
-                        and (
-                            not doc.pawls_parse_file
-                            or doc.pawls_parse_file.name
-                            != candidate.pawls_parse_file.name
-                        )
-                    ):
-                        doc.pawls_parse_file = candidate.pawls_parse_file
-                        doc_updates.append("pawls_parse_file")
-                    if (
-                        candidate.txt_extract_file
-                        and candidate.txt_extract_file.name
-                        and (
-                            not doc.txt_extract_file
-                            or doc.txt_extract_file.name
-                            != candidate.txt_extract_file.name
-                        )
-                    ):
-                        doc.txt_extract_file = candidate.txt_extract_file
-                        doc_updates.append("txt_extract_file")
-                    if (
-                        candidate.icon
-                        and candidate.icon.name
-                        and (not doc.icon or doc.icon.name != candidate.icon.name)
-                    ):
-                        doc.icon = candidate.icon
-                        doc_updates.append("icon")
-                    if (
-                        candidate.md_summary_file
-                        and candidate.md_summary_file.name
-                        and (
-                            not doc.md_summary_file
-                            or doc.md_summary_file.name
-                            != candidate.md_summary_file.name
-                        )
-                    ):
-                        doc.md_summary_file = candidate.md_summary_file
-                        doc_updates.append("md_summary_file")
+                        src_blob = getattr(candidate, field_name)
+                        dst_blob = getattr(doc, field_name)
+                        if not (src_blob and src_blob.name):
+                            continue
+                        if not dst_blob:
+                            setattr(doc, field_name, src_blob)
+                            doc_updates.append(field_name)
+                        elif dst_blob.name != src_blob.name:
+                            setattr(doc, field_name, src_blob)
+                            doc_updates.append(field_name)
+                            orphaned_blob_count += 1
 
                 doc.title = f"[FORK] {doc.title}"
                 doc_updates.append("title")
 
                 if doc_updates:
                     doc.save(update_fields=doc_updates)
+
+            if orphaned_blob_count:
+                logger.info(
+                    "fork_corpus(shell=%s): orphaned %d V2-import blob(s) "
+                    "after re-pointing forked documents at source storage "
+                    "(see #1638).",
+                    new_corpus_id,
+                    orphaned_blob_count,
+                )
 
         logger.info("fork_corpus succeeded for shell %s", new_corpus_id)
         return new_corpus.id

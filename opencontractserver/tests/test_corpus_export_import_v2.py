@@ -677,6 +677,73 @@ class TestV2ImportUtilities(TransactionTestCase):
         relationships = Relationship.objects.filter(corpus=self.corpus)
         self.assertEqual(relationships.count(), 0)
 
+    def test_import_relationships_skip_when_endpoint_missing(self):
+        """
+        Regression guard: a relationship whose source/target annotation
+        was not imported (e.g. because its document was excluded) must
+        be silently dropped rather than raising or creating a dangling
+        relationship.
+
+        Replaces the equivalent assertion the old fork suite carried
+        (``test_relationship_skipped_when_no_mapped_annotations``); fork
+        now delegates this to the V2 importer.
+        """
+        doc = Document.objects.create(title="Test Doc", creator=self.user, page_count=1)
+        annot1 = Annotation.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            annotation_label=self.text_label,
+            raw_text="Source only",
+            creator=self.user,
+        )
+
+        rel_label = AnnotationLabel.objects.create(
+            text="Missing Endpoint Rel",
+            description="Test rel with missing target",
+            label_type=RELATIONSHIP_LABEL,
+            creator=self.user,
+        )
+
+        # The id "missing_target_id" deliberately is not in the
+        # ``annot_id_map`` — simulating an annotation that was filtered
+        # out of the export (or whose import failed earlier).
+        relationships_data = [
+            {
+                "id": "rel_1",
+                "relationshipLabel": "Missing Endpoint Rel",
+                "source_annotation_ids": [str(annot1.id)],
+                "target_annotation_ids": ["missing_target_id"],
+                "structural": False,
+            },
+            {
+                "id": "rel_2",
+                "relationshipLabel": "Missing Endpoint Rel",
+                "source_annotation_ids": ["missing_source_id"],
+                "target_annotation_ids": [str(annot1.id)],
+                "structural": False,
+            },
+        ]
+
+        annot_id_map = {str(annot1.id): annot1.id}
+        label_lookup = {("Missing Endpoint Rel", RELATIONSHIP_LABEL): rel_label}
+
+        # Should not raise.
+        _import_v2_relationships(
+            relationships_data,
+            self.corpus,
+            annot_id_map,
+            label_lookup,
+            self.user,
+        )
+
+        # Both relationships had a missing endpoint, so neither should
+        # have been persisted.
+        self.assertEqual(
+            Relationship.objects.filter(corpus=self.corpus).count(),
+            0,
+            "Relationships with missing source/target annotation must be dropped",
+        )
+
     def test_import_structural_annotations_with_parents(self):
         """Test importing structural annotations with parent-child relationships."""
         struct_data = {
