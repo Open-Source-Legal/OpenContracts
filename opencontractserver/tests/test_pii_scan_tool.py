@@ -635,3 +635,76 @@ class PersistAnnotationsLabelRaceTests(TransactionTestCase):
         ann_1 = Annotation.objects.get(pk=ann_1_id)
         ann_2 = Annotation.objects.get(pk=ann_2_id)
         self.assertNotEqual(ann_1.annotation_label_id, ann_2.annotation_label_id)
+
+
+@override_settings(
+    PRIVACY_FILTER_URL="http://privacy.test",
+    PRIVACY_FILTER_API_KEY="dev-only-not-secret",
+)
+class PersistAnnotationsUnknownGroupTests(TransactionTestCase):
+    """Defensive coverage: ``_persist_annotations_sync`` is called via a
+    sync_to_async wrapper inside ``ascan_and_annotate_pii``, which already
+    rejects unknown entity groups at the public-API boundary
+    (``test_entity_groups_rejects_unknown_group``). The lower-level helper
+    must also fail safely if a future caller bypasses that boundary check
+    and hands it a detection with a group that is not in
+    ``ENTITY_GROUP_LABELS``."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("pii_unknown_user", password="pw")
+        self.corpus = Corpus.objects.create(
+            title="PII Unknown Group Corpus", creator=self.user
+        )
+        self.txt_doc = Document.objects.create(
+            creator=self.user,
+            title="PII Unknown Group Doc",
+            file_type="text/plain",
+            processing_started=timezone.now(),
+        )
+        self.txt_doc.txt_extract_file.save(
+            SAMPLE_TXT_FILE_ONE_PATH.name,
+            ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
+        )
+        self.txt_doc, _, _ = self.corpus.add_document(
+            document=self.txt_doc,
+            user=self.user,
+        )
+        with self.txt_doc.txt_extract_file.open("r") as f:
+            self.doc_text = f.read()
+
+    def test_unknown_entity_group_is_skipped_silently(self) -> None:
+        """An unknown ``entity_group`` is filtered out of ``needed_groups``
+        (so no spurious ``AnnotationLabel`` is ever created) AND skipped in
+        the per-detection loop (so no annotation is persisted). The known
+        group in the same batch still lands."""
+        from opencontractserver.annotations.models import AnnotationLabel
+
+        before_label_count = AnnotationLabel.objects.count()
+
+        persisted = _persist_annotations_sync(
+            doc=self.txt_doc,
+            corpus=self.corpus,
+            pdf_layer=None,
+            creator_id=self.user.id,
+            corpus_action_id=None,
+            file_type="text/plain",
+            detections=[
+                _det("private_email", 10, 30),
+                _det("not_a_real_group_X", 40, 60),
+            ],
+            doc_text=self.doc_text,
+        )
+
+        # Exactly one annotation persisted (the known group).
+        self.assertEqual(len(persisted), 1)
+
+        # No label was created for the unknown group — the only new label
+        # is for ``private_email``.
+        expected_known_label = ENTITY_GROUP_LABELS["private_email"][0]
+        new_labels = AnnotationLabel.objects.exclude(
+            id__in=AnnotationLabel.objects.order_by("id").values_list("id", flat=True)[
+                :before_label_count
+            ]
+        )
+        new_label_texts = list(new_labels.values_list("text", flat=True))
+        self.assertEqual(new_label_texts, [expected_known_label])

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+from collections.abc import Callable
 from typing import Any, NamedTuple
 from uuid import uuid4
 
@@ -263,14 +264,22 @@ def _persist_annotations_sync(
         # been committed yet. Registered inside the atomic block so the
         # callbacks are dropped if bulk_create rolls back. Keeps the same
         # task-id-based dedup the post_save signal handler used.
-        for ann in annotations:
-            transaction.on_commit(
-                lambda pk=ann.pk, cid=corpus_pk: calculate_embedding_for_annotation_text.si(
+        def _queue_embed(pk: int, cid: int) -> Callable[[], None]:
+            """Return a no-arg on_commit callback bound to (pk, cid).
+
+            The factory + named return type fixes a `Cannot infer type of
+            lambda` mypy error we hit when registering this inline.
+            """
+
+            def _fire() -> None:
+                calculate_embedding_for_annotation_text.si(
                     annotation_id=pk, corpus_id=cid
-                ).apply_async(
-                    task_id=f"embed-annot-{pk}"
-                )
-            )
+                ).apply_async(task_id=f"embed-annot-{pk}")
+
+            return _fire
+
+        for ann in annotations:
+            transaction.on_commit(_queue_embed(ann.pk, corpus_pk))
 
     return [(ann.pk, det) for ann, det in pending]
 
