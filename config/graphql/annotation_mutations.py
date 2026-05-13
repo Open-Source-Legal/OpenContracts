@@ -463,6 +463,15 @@ class AddRelationship(graphene.Mutation):
         corpus_id,
         document_id,
     ) -> "AddRelationship":
+        user = info.context.user
+        # Unified message blocks IDOR enumeration of corpora, documents, and
+        # annotations the caller cannot see. Both "does not exist" and "no
+        # permission" branches must collapse to this string.
+        not_found_msg = (
+            "Relationship target(s) not found or you do not have permission "
+            "to create a relationship here."
+        )
+
         try:
             source_pks = list(
                 map(lambda graphene_id: from_global_id(graphene_id)[1], source_ids)
@@ -473,64 +482,77 @@ class AddRelationship(graphene.Mutation):
             relationship_label_pk = from_global_id(relationship_label_id)[1]
             corpus_pk = from_global_id(corpus_id)[1]
             document_pk = from_global_id(document_id)[1]
+        except Exception:
+            # Bad / unparseable global IDs are indistinguishable from
+            # not-found to keep the IDOR surface flat.
+            return AddRelationship(
+                ok=False, relationship=None, message=not_found_msg
+            )
 
-            source_annotations = Annotation.objects.filter(id__in=source_pks)
-            target_annotations = Annotation.objects.filter(id__in=target_pks)
+        # Filter annotations through visible_to_user so unauthorized or
+        # non-existent IDs collapse into the same "missing" branch. Comparing
+        # counts catches both cases without echoing IDs back to the caller.
+        source_annotations = Annotation.objects.visible_to_user(user).filter(
+            id__in=source_pks
+        )
+        target_annotations = Annotation.objects.visible_to_user(user).filter(
+            id__in=target_pks
+        )
+        if (
+            source_annotations.count() != len(set(source_pks))
+            or target_annotations.count() != len(set(target_pks))
+        ):
+            return AddRelationship(
+                ok=False, relationship=None, message=not_found_msg
+            )
 
-            # Check that user can see all source and target annotations
-            all_annotations = list(source_annotations) + list(target_annotations)
-            for annotation in all_annotations:
-                if not user_has_permission_for_obj(
-                    info.context.user,
-                    annotation,
-                    PermissionTypes.READ,
-                    include_group_permissions=True,
-                ):
-                    return AddRelationship(
-                        ok=False,
-                        relationship=None,
-                        message=f"You don't have permission to see annotation {annotation.id}",
-                    )
+        # Filter corpus through visible_to_user so a non-existent or
+        # inaccessible corpus pk yields the same not-found branch as a
+        # corpus the caller cannot CREATE in.
+        try:
+            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+        except Corpus.DoesNotExist:
+            return AddRelationship(
+                ok=False, relationship=None, message=not_found_msg
+            )
 
-            # Check that user has permission to create in the corpus
-            corpus = Corpus.objects.get(pk=corpus_pk)
-            if not user_has_permission_for_obj(
-                info.context.user,
-                corpus,
-                PermissionTypes.CREATE,
-                include_group_permissions=True,
-            ):
-                return AddRelationship(
-                    ok=False,
-                    relationship=None,
-                    message="You don't have permission to create relationships in this corpus",
-                )
+        if not user_has_permission_for_obj(
+            user,
+            corpus,
+            PermissionTypes.CREATE,
+            include_group_permissions=True,
+        ):
+            return AddRelationship(
+                ok=False, relationship=None, message=not_found_msg
+            )
 
+        try:
             relationship = Relationship.objects.create(
-                creator=info.context.user,
+                creator=user,
                 relationship_label_id=relationship_label_pk,
                 corpus_id=corpus_pk,
                 document_id=document_pk,
             )
             set_permissions_for_obj_to_user(
-                info.context.user, relationship, [PermissionTypes.CRUD]
+                user, relationship, [PermissionTypes.CRUD]
             )
             relationship.target_annotations.set(target_annotations)
             relationship.source_annotations.set(source_annotations)
-
-            return AddRelationship(
-                ok=True,
-                relationship=relationship,
-                message="Relationship created successfully",
-            )
-
         except Exception as e:
-            logger.error(f"Error creating relationship: {e}")
+            # Don't surface ORM or constraint messages to the caller — they
+            # leak schema/existence information. Log server-side instead.
+            logger.exception("Error creating relationship: %s", e)
             return AddRelationship(
                 ok=False,
                 relationship=None,
-                message=f"Error creating relationship: {str(e)}",
+                message="Error creating relationship.",
             )
+
+        return AddRelationship(
+            ok=True,
+            relationship=relationship,
+            message="Relationship created successfully",
+        )
 
 
 class RemoveRelationships(graphene.Mutation):

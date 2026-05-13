@@ -147,16 +147,17 @@ class TestAnalysisCallbackSecurity(TestCase):
         self.assertEqual(r1.status_code, r2.status_code)
         self.assertEqual(r2.status_code, r3.status_code)
 
-    def test_correct_token_uuid_type_accepted(self):
-        """Token comparison works with UUID objects (hmac.compare_digest handles str cast)."""
-        # The callback_token is a UUID field. Ensure str(UUID) comparison works.
-        token = self.analysis.callback_token
-        # Pass as string (as a real HTTP header would)
+    def test_correct_token_accepted(self):
+        """Issued plaintext token verifies against the stored SHA-256 hash."""
+        # Mint a fresh plaintext token; the DB stores only its hash.
+        plaintext = self.analysis.rotate_callback_token()
+        self.analysis.save(update_fields=["callback_token_hash"])
+
         response = self.api_client.post(
             f"/analysis/{self.analysis.id}/complete",
             data={},
             format="json",
-            HTTP_CALLBACK_TOKEN=str(token),
+            HTTP_CALLBACK_TOKEN=plaintext,
         )
         # Should not be 403 (it may be 400 because of invalid JSON body, but not 403)
         self.assertNotEqual(response.status_code, 403)

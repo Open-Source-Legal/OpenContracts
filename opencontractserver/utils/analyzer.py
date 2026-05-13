@@ -250,6 +250,14 @@ def run_analysis(
 
         document_exchange_data.append(doc_data)
 
+    # Mint a fresh callback token for THIS submission. The plaintext is
+    # only available right here — the DB stores only its SHA-256 hash, so
+    # a DB read alone cannot let an attacker forge the callback. Any
+    # in-flight callback bound to a previously-issued plaintext is
+    # invalidated by this rotation.
+    callback_plaintext = analysis.rotate_callback_token()
+    analysis.save(update_fields=["callback_token_hash"])
+
     # We need to build the url of THIS actual instance of OpenContracts
     # This should be set in the settings (though we could grab it from the site,
     # setting in env lets us do things like have localhost callbacks)
@@ -258,12 +266,15 @@ def run_analysis(
         "analyzer_id": analyzer.id,
         "callback_url": settings.CALLBACK_ROOT_URL_FOR_ANALYZER
         + f"/analysis/{analysis.id}/complete",
-        "callback_token": analysis.callback_token.__str__(),
+        "callback_token": callback_plaintext,
         "documents": document_exchange_data,
     }
 
+    # Avoid logging the plaintext callback token; produce a redacted copy.
+    redacted_submission = {**gremlin_submission, "callback_token": "[REDACTED]"}
     logger.info(
-        f"submit_corpus_documents_to_analyzer() - submit data to gremlin: {gremlin_submission}"
+        f"submit_corpus_documents_to_analyzer() - submit data to gremlin: "
+        f"{redacted_submission}"
     )
 
     try:
