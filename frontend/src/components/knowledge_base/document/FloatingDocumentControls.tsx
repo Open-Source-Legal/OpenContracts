@@ -1,4 +1,5 @@
 import React, { useState, useEffect, memo } from "react";
+import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -26,12 +27,21 @@ import { PermissionTypes } from "../../types";
 import { AnnotationControls } from "../../annotator/controls/AnnotationControls";
 import { ToggleSwitch } from "../../widgets/ToggleSwitch";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { visualViewportAwareBottom } from "../../../utils/layout";
+import {
+  DESKTOP_FLOATING_CONTROLS_BOTTOM,
+  MOBILE_FLOATING_CONTROLS_BOTTOM,
+  MOBILE_SETTINGS_PANEL_BOTTOM,
+  Z_INDEX,
+} from "../../../assets/configurations/constants";
+
+const MOBILE_FLOATING_CONTROLS_Z_INDEX = Z_INDEX.MOBILE_FLOATING_CONTROLS;
+const MOBILE_FLOATING_BACKDROP_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX - 1;
+const MOBILE_FLOATING_PANEL_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX + 1;
 
 const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
   position: fixed;
-  bottom: calc(
-    2rem + 48px + max(10px, 2rem)
-  ); /* UnifiedLabelSelector height (48px) + gap (2rem min 10px) */
+  bottom: ${DESKTOP_FLOATING_CONTROLS_BOTTOM};
   right: ${(props) =>
     props.$panelOffset ? `${props.$panelOffset + 32}px` : "2rem"};
   z-index: 2001;
@@ -43,9 +53,7 @@ const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
 
   @media (max-width: 768px) {
     right: 1rem;
-    bottom: calc(
-      1rem + 40px + max(10px, 2rem)
-    ); /* Smaller button size on mobile */
+    bottom: ${visualViewportAwareBottom(MOBILE_FLOATING_CONTROLS_BOTTOM)};
   }
 `;
 
@@ -265,18 +273,16 @@ const WidthMenuItem = styled(motion.button)<{ $isActive: boolean }>`
 /* Mobile Speed Dial Components */
 const SpeedDialContainer = styled.div`
   position: fixed;
-  bottom: calc(
-    1rem + 40px + max(10px, 2rem)
-  ); /* Above label selector on mobile */
+  bottom: ${visualViewportAwareBottom(MOBILE_FLOATING_CONTROLS_BOTTOM)};
   right: 1rem;
-  z-index: 2001;
+  z-index: ${MOBILE_FLOATING_CONTROLS_Z_INDEX};
 `;
 
 const SpeedDialBackdrop = styled(motion.div)`
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.2);
-  z-index: 2000;
+  z-index: ${MOBILE_FLOATING_BACKDROP_Z_INDEX};
   backdrop-filter: blur(2px);
 `;
 
@@ -435,20 +441,24 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
         return null;
       }
 
-      // Helper function to calculate orbital positions for mobile speed dial
-      // Arranges buttons in an arc above the main FAB
+      // Helper function to calculate orbital positions for mobile speed dial.
+      // CSS transform y-values grow downward, so use the upper-left quadrant
+      // and invert the sine value to keep expanded buttons out of bottom UI.
       const getOrbitPosition = (index: number, total: number) => {
-        const radius = 100; // Distance from center in pixels
+        const radius = total > 4 ? 130 : 100; // Distance from center in pixels
         const arcAngle = 90; // Total arc span in degrees
-        const startAngle = 180 - arcAngle / 2; // Start from upper-left
+        const startAngle = 90; // Start straight above the FAB
 
         // Calculate angle for this button in the arc
-        const angle = startAngle + (arcAngle / (total - 1)) * index;
+        const angle =
+          total <= 1
+            ? startAngle
+            : startAngle + (arcAngle / (total - 1)) * index;
         const radian = (angle * Math.PI) / 180;
 
         return {
           x: Math.cos(radian) * radius,
-          y: Math.sin(radian) * radius,
+          y: -Math.sin(radian) * radius,
         };
       };
 
@@ -543,7 +553,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
           });
         }
 
-        return (
+        const mobileControls = (
           <>
             {/* Backdrop - closes speed dial when tapped */}
             <AnimatePresence>
@@ -568,9 +578,11 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                   transition={{ duration: 0.2 }}
                   style={{
                     position: "fixed",
-                    bottom: "calc(1rem + 56px + 1rem)",
+                    bottom: visualViewportAwareBottom(
+                      MOBILE_SETTINGS_PANEL_BOTTOM
+                    ),
                     right: "1rem",
-                    zIndex: 2003,
+                    zIndex: MOBILE_FLOATING_PANEL_Z_INDEX,
                   }}
                 >
                   <PanelHeader>
@@ -616,7 +628,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
             </AnimatePresence>
 
             {/* Speed Dial Container */}
-            <SpeedDialContainer>
+            <SpeedDialContainer data-testid="speed-dial-container">
               {/* Orbital Buttons */}
               <AnimatePresence>
                 {speedDialExpanded &&
@@ -675,6 +687,8 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
             </SpeedDialContainer>
           </>
         );
+
+        return createPortal(mobileControls, document.body);
       }
 
       // Desktop Layout (original implementation)

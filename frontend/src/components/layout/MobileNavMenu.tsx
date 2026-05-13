@@ -86,7 +86,7 @@ const Header = styled.header`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: ${HEADER_HEIGHT}px;
+  height: var(--oc-mobile-navbar-height, ${HEADER_HEIGHT}px);
   padding: 0 16px;
   background: ${OS_LEGAL_COLORS.darkSurface};
   color: ${OS_LEGAL_COLORS.surface};
@@ -165,7 +165,10 @@ const Sheet = styled(motion.div)`
   z-index: 1095;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - ${SHEET_TOP_OFFSET + SHEET_SIDE_GUTTER}px);
+  max-height: calc(
+    var(--oc-visible-viewport-height, 100vh) -
+      ${SHEET_TOP_OFFSET + SHEET_SIDE_GUTTER}px
+  );
   background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 16px;

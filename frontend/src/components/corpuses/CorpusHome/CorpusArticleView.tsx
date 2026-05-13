@@ -36,9 +36,10 @@ import { CAML_COMPONENTS } from "../../../utils/camlComponentRegistry";
 
 const ArticleViewContainer = styled.div`
   width: 100%;
-  min-height: 100vh;
+  min-height: 100%;
   background: ${OS_LEGAL_COLORS.surface};
   overflow-x: hidden;
+  box-sizing: border-box;
 `;
 
 const ArticleToolbar = styled.div`
@@ -346,6 +347,7 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
         stats={stats}
         resolveImageSrc={resolveImageSrc}
         componentRegistry={CAML_COMPONENTS}
+        bottomInset="var(--oc-article-bottom-clearance, 0px)"
       />
     </ArticleViewContainer>
   );

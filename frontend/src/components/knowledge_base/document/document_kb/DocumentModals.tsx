@@ -17,6 +17,7 @@ import { NewNoteModal } from "../NewNoteModal";
 import { AddToCorpusModal } from "../../../modals/AddToCorpusModal";
 import { getDocumentUrl } from "../../../../utils/navigationUtils";
 import { getCreatorDisplay } from "../../../../utils/userDisplay";
+import { DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS } from "../LayoutComponents";
 
 export interface DocumentModalsProps {
   /** Whether the graph modal is shown */
@@ -85,7 +86,12 @@ export const DocumentModals: React.FC<DocumentModalsProps> = ({
 
   return (
     <>
-      <Modal open={showGraph} onClose={() => setShowGraph(false)} size="lg">
+      <Modal
+        open={showGraph}
+        onClose={() => setShowGraph(false)}
+        size="lg"
+        overlayClassName={DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS}
+      >
         <ModalHeader title="Graph View" onClose={() => setShowGraph(false)} />
         <ModalBody>{/* Graph or relationship visualization */}</ModalBody>
         <ModalFooter>
@@ -104,6 +110,7 @@ export const DocumentModals: React.FC<DocumentModalsProps> = ({
           open={!!selectedNote}
           onClose={() => setSelectedNote(null)}
           size="lg"
+          overlayClassName={DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS}
         >
           <ModalHeader
             title={selectedNote.title || "Untitled Note"}
@@ -147,6 +154,7 @@ export const DocumentModals: React.FC<DocumentModalsProps> = ({
           noteId={editingNoteId}
           isOpen={true}
           onClose={() => setEditingNoteId(null)}
+          overlayClassName={DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS}
           onUpdate={() => {
             // Refetch the document data to get updated notes
             refetch();
@@ -160,6 +168,7 @@ export const DocumentModals: React.FC<DocumentModalsProps> = ({
           onClose={() => setShowNewNoteModal(false)}
           documentId={documentId}
           corpusId={corpusId}
+          overlayClassName={DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS}
           onCreated={() => {
             // Refetch the document data to get the new note
             refetch();
@@ -171,6 +180,7 @@ export const DocumentModals: React.FC<DocumentModalsProps> = ({
         documentId={documentId}
         open={showAddToCorpusModal}
         onClose={() => setShowAddToCorpusModal(false)}
+        overlayClassName={DOCUMENT_KB_CHILD_MODAL_OVERLAY_CLASS}
         onSuccess={(newCorpusId, newCorpus) => {
           // Navigate with corpus context using proper SPA navigation
           if (combinedDocumentData && newCorpus) {

@@ -3,12 +3,13 @@ import styled from "styled-components";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { mediaQuery } from "../corpuses/styles/corpusDesignTokens";
+import { hasRenderableNode } from "../../utils/react";
 
 interface CardLayoutProps {
-  children?: React.ReactChild | React.ReactChild[];
-  Modals?: React.ReactChild | React.ReactChild[];
-  BreadCrumbs?: React.ReactChild | null | undefined;
-  SearchBar?: React.ReactChild;
+  children?: React.ReactNode;
+  Modals?: React.ReactNode;
+  BreadCrumbs?: React.ReactNode;
+  SearchBar?: React.ReactNode;
   style?: React.CSSProperties;
 }
 
@@ -75,6 +76,8 @@ export const CardLayout: React.FC<CardLayoutProps> = ({
 }) => {
   const { width } = useWindowDimensions();
   const use_mobile = width <= 600;
+  const hasSearchBar = hasRenderableNode(SearchBar);
+  const hasBreadCrumbs = hasRenderableNode(BreadCrumbs);
 
   return (
     <CardContainer
@@ -83,8 +86,8 @@ export const CardLayout: React.FC<CardLayoutProps> = ({
       style={{ ...style }}
     >
       {Modals}
-      {SearchBar && <SearchBarWrapper>{SearchBar}</SearchBarWrapper>}
-      {BreadCrumbs && (!use_mobile || width > 768) && (
+      {hasSearchBar && <SearchBarWrapper>{SearchBar}</SearchBarWrapper>}
+      {hasBreadCrumbs && (!use_mobile || width > 768) && (
         <StyledSegment
           style={{
             borderBottom: `1px solid ${OS_LEGAL_COLORS.border}`,

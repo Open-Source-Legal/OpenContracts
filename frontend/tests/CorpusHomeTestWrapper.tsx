@@ -56,6 +56,10 @@ interface Props {
   onModeToggle?: () => void;
   /** Whether the corpus is in power-user mode */
   isPowerUserMode?: boolean;
+  /** Callback when the outer collection return control is clicked */
+  onNavigateToCorpuses?: () => void;
+  /** Label for the outer collection return control */
+  navigateBackLabel?: string;
 }
 
 /**
@@ -118,6 +122,8 @@ export const CorpusHomeTestWrapper: React.FC<Props> = ({
   initialTocExpanded,
   onModeToggle,
   isPowerUserMode,
+  onNavigateToCorpuses,
+  navigateBackLabel,
 }) => {
   // CRITICAL: Initialize reactive vars synchronously BEFORE render
   // This ensures the component sees the correct values on first paint
@@ -166,6 +172,8 @@ export const CorpusHomeTestWrapper: React.FC<Props> = ({
               onChatQueryChange={() => {}}
               onChatSubmit={() => {}}
               onViewChatHistory={() => {}}
+              onNavigateToCorpuses={onNavigateToCorpuses}
+              navigateBackLabel={navigateBackLabel}
               onModeToggle={onModeToggle}
               isPowerUserMode={isPowerUserMode}
             />
