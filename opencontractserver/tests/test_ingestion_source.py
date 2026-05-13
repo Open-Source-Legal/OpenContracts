@@ -1818,9 +1818,7 @@ class TestExportDocumentRefFallbacks(TestCase):
         )
         exported = package_document_paths(self.corpus)
         self.assertEqual(len(exported), 1)
-        self.assertEqual(
-            exported[0]["document_ref"], f"document_{doc.id}.placeholder"
-        )
+        self.assertEqual(exported[0]["document_ref"], f"document_{doc.id}.placeholder")
 
     def test_export_parent_version_number(self):
         """Exported paths should include parent_version_number when parent exists."""
