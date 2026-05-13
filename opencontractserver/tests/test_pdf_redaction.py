@@ -1,10 +1,13 @@
 """Tests for PDF redaction functionality."""
 
+import importlib.util
 import io
 import json
 import logging
 import os
 import random
+import shutil
+import unittest
 import zipfile
 from unittest import TestCase
 
@@ -22,6 +25,20 @@ from opencontractserver.types.dicts import (
 )
 
 logger = logging.getLogger(__name__)
+
+# OCR-backed tests require both the ``pytesseract`` Python binding (now a
+# test-only dependency in ``requirements/local.txt`` since the dependency
+# audit) and the ``tesseract`` system binary (installed in
+# ``compose/local/django/Dockerfile`` and used by ``test.yml``). Outside the
+# Docker test environment one or both may be absent, in which case the OCR
+# tests skip cleanly instead of raising ``ImportError``.
+_HAS_PYTESSERACT = importlib.util.find_spec("pytesseract") is not None
+_HAS_TESSERACT_BINARY = shutil.which("tesseract") is not None
+_OCR_AVAILABLE = _HAS_PYTESSERACT and _HAS_TESSERACT_BINARY
+_OCR_SKIP_REASON = (
+    "pytesseract package and tesseract system binary required for OCR-backed "
+    "PDF redaction tests"
+)
 
 
 def _generate_test_annotations_from_strings(
@@ -359,6 +376,7 @@ class TestPDFRedaction(TestCase):
             logger.error(f"Error in non-PDF files test: {str(e)}")
             raise
 
+    @unittest.skipUnless(_OCR_AVAILABLE, _OCR_SKIP_REASON)
     def test_pdf_redactor_with_ocr_verification(self) -> None:
         """
         Revamped test for searching tokens in page 0 for "AUCTA" and "Pharmaceuticals"
@@ -532,6 +550,7 @@ class TestPDFRedaction(TestCase):
             msg="Redacted token 'Aucta' still present in PDF text layer.",
         )
 
+    @unittest.skipUnless(_OCR_AVAILABLE, _OCR_SKIP_REASON)
     def test_pdf_redactor_with_specific_tokens(self) -> None:
         """
         Test the PDFRedactor post-processor by redacting specific tokens

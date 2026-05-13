@@ -10,10 +10,18 @@ Tests the User.visible_to_user() manager method and profile privacy settings.
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
+from graphene.test import Client
 
 from opencontractserver.conversations.models import ChatMessage, Conversation
 
 User = get_user_model()
+
+
+class _TestContext:
+    """Minimal request-context shim with a ``user`` attribute for graphene tests."""
+
+    def __init__(self, user):
+        self.user = user
 
 
 class UserProfileVisibilityTestCase(TestCase):
@@ -274,3 +282,231 @@ class UserProfilePrivacyUpdateTestCase(TestCase):
 
         visible = User.objects.visible_to_user(self.user)
         self.assertIn(self.user, visible)
+
+
+class UpdateMeMarkdownProfileFieldsTestCase(TestCase):
+    """GraphQL UpdateMe acceptance of markdown profile fields."""
+
+    def setUp(self):
+        from config.graphql.schema import schema
+
+        self.user = User.objects.create_user(
+            username="mdprofileuser",
+            email="mdprofile@example.com",
+            is_profile_public=True,
+        )
+        self.client = Client(schema, context_value=_TestContext(self.user))
+
+    def test_update_me_persists_markdown_profile_fields(self):
+        mutation = """
+            mutation UpdateMe(
+                $profileHeadline: String,
+                $profileAboutMarkdown: String,
+                $profileLinksMarkdown: String,
+            ) {
+                updateMe(
+                    profileHeadline: $profileHeadline,
+                    profileAboutMarkdown: $profileAboutMarkdown,
+                    profileLinksMarkdown: $profileLinksMarkdown,
+                ) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {
+            "profileHeadline": "Contracts counsel",
+            "profileAboutMarkdown": "**About me.**",
+            "profileLinksMarkdown": "- [Site](https://example.com)",
+        }
+        result = self.client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updateMe"]["ok"])
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_headline, "Contracts counsel")
+        self.assertEqual(self.user.profile_about_markdown, "**About me.**")
+        self.assertEqual(
+            self.user.profile_links_markdown,
+            "- [Site](https://example.com)",
+        )
+
+    def test_user_type_exposes_markdown_profile_fields(self):
+        self.user.profile_headline = "Contracts counsel"
+        self.user.profile_about_markdown = "About text"
+        self.user.profile_links_markdown = "Links text"
+        self.user.save()
+
+        query = """
+            query Me {
+                me {
+                    profileHeadline
+                    profileAboutMarkdown
+                    profileLinksMarkdown
+                }
+            }
+        """
+        result = self.client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["me"]
+        self.assertEqual(data["profileHeadline"], "Contracts counsel")
+        self.assertEqual(data["profileAboutMarkdown"], "About text")
+        self.assertEqual(data["profileLinksMarkdown"], "Links text")
+
+    def test_update_me_rejects_oversized_markdown_fields(self):
+        """`graphene.String` has no length constraint, but `UpdateMe.mutate`
+        routes through `UserUpdateSerializer` (DRF `ModelSerializer`), which
+        auto-applies each model field's `max_length` validator. An oversized
+        payload must therefore be rejected with a serializer error rather
+        than silently persisted in the row.
+        """
+        from opencontractserver.users.models import User as UserModel
+
+        # Each field exceeds its max_length by one character — headline is
+        # the 200-char ``CharField``; about/links are the 5000-char fields.
+        oversize_headline = "h" * 201
+        oversize_about = "a" * 5001
+        oversize_links = "b" * 5001
+
+        mutation = """
+            mutation UpdateMe(
+                $profileHeadline: String,
+                $profileAboutMarkdown: String,
+                $profileLinksMarkdown: String,
+            ) {
+                updateMe(
+                    profileHeadline: $profileHeadline,
+                    profileAboutMarkdown: $profileAboutMarkdown,
+                    profileLinksMarkdown: $profileLinksMarkdown,
+                ) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.client.execute(
+            mutation,
+            variables={
+                "profileHeadline": oversize_headline,
+                "profileAboutMarkdown": oversize_about,
+                "profileLinksMarkdown": oversize_links,
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updateMe"]["ok"])
+        # Confirm the row wasn't mutated.
+        persisted = UserModel.objects.get(pk=self.user.pk)
+        self.assertEqual(persisted.profile_headline, "")
+        self.assertEqual(persisted.profile_about_markdown, "")
+        self.assertEqual(persisted.profile_links_markdown, "")
+
+    def test_update_me_persists_is_profile_public_toggle(self):
+        """isProfilePublic was newly added to UpdateMeInputs — verify round-trip."""
+        mutation = """
+            mutation UpdateMe($isProfilePublic: Boolean) {
+                updateMe(isProfilePublic: $isProfilePublic) {
+                    ok
+                    message
+                }
+            }
+        """
+        # Sanity: starts public
+        self.assertTrue(self.user.is_profile_public)
+
+        result = self.client.execute(mutation, variables={"isProfilePublic": False})
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updateMe"]["ok"])
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_profile_public)
+
+        # Flip back to true and confirm
+        result = self.client.execute(mutation, variables={"isProfilePublic": True})
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updateMe"]["ok"])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_profile_public)
+
+
+class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
+    """Cross-user `userBySlug` access of markdown profile fields.
+
+    The fields are not behind the `_is_self_view` gate because `userBySlug`
+    itself filters non-self viewers to public profiles. These tests verify
+    that contract end-to-end.
+    """
+
+    def setUp(self):
+        from config.graphql.schema import schema
+
+        self.public_owner = User.objects.create_user(
+            username="public_owner",
+            email="public_owner@example.com",
+            is_profile_public=True,
+            profile_headline="Headline",
+            profile_about_markdown="**bio**",
+            profile_links_markdown="- [home](https://example.com)",
+        )
+        self.private_owner = User.objects.create_user(
+            username="private_owner",
+            email="private_owner@example.com",
+            is_profile_public=False,
+            profile_headline="Hidden Headline",
+            profile_about_markdown="hidden bio",
+            profile_links_markdown="- [hidden](https://example.com)",
+        )
+        self.viewer = User.objects.create_user(
+            username="viewer",
+            email="viewer@example.com",
+            is_profile_public=True,
+        )
+        self.schema = schema
+
+    def _client_as(self, user):
+        return Client(self.schema, context_value=_TestContext(user))
+
+    def _query_by_slug(self, viewer, slug):
+        client = self._client_as(viewer)
+        query = """
+            query UserBySlug($slug: String!) {
+                userBySlug(slug: $slug) {
+                    id
+                    slug
+                    profileHeadline
+                    profileAboutMarkdown
+                    profileLinksMarkdown
+                }
+            }
+        """
+        return client.execute(query, variables={"slug": slug})
+
+    def test_non_self_viewer_can_read_markdown_fields_on_public_profile(self):
+        result = self._query_by_slug(self.viewer, self.public_owner.slug)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["userBySlug"]
+        self.assertIsNotNone(data)
+        self.assertEqual(data["profileHeadline"], "Headline")
+        self.assertEqual(data["profileAboutMarkdown"], "**bio**")
+        self.assertEqual(data["profileLinksMarkdown"], "- [home](https://example.com)")
+
+    def test_non_self_viewer_cannot_reach_private_profile_at_all(self):
+        result = self._query_by_slug(self.viewer, self.private_owner.slug)
+        self.assertIsNone(result.get("errors"))
+        # The whole user is hidden — not just the fields.
+        self.assertIsNone(result["data"]["userBySlug"])
+
+    def test_owner_can_read_their_own_private_profile_markdown_fields(self):
+        """Closes the coverage gap flagged in review: the owner of a
+        private profile must still be able to fetch their own markdown
+        fields via ``userBySlug``. ``User.objects.visible_to_user``
+        always includes ``user == requesting_user`` in the queryset, so
+        a regression that broke this contract would be silent.
+        """
+        result = self._query_by_slug(self.private_owner, self.private_owner.slug)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["userBySlug"]
+        self.assertIsNotNone(data, "Owner must see their own private profile")
+        self.assertEqual(data["profileHeadline"], "Hidden Headline")
+        self.assertEqual(data["profileAboutMarkdown"], "hidden bio")
+        self.assertEqual(
+            data["profileLinksMarkdown"], "- [hidden](https://example.com)"
+        )

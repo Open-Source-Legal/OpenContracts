@@ -820,6 +820,10 @@ export interface UpdateMeInputs {
   lastName?: string;
   phone?: string;
   slug?: string;
+  isProfilePublic?: boolean;
+  profileHeadline?: string;
+  profileAboutMarkdown?: string;
+  profileLinksMarkdown?: string;
 }
 
 export interface UpdateMeOutputs {
@@ -834,6 +838,10 @@ export interface UpdateMeOutputs {
       firstName?: string;
       lastName?: string;
       phone?: string;
+      isProfilePublic?: boolean;
+      profileHeadline?: string;
+      profileAboutMarkdown?: string;
+      profileLinksMarkdown?: string;
     };
   };
 }
@@ -845,6 +853,10 @@ export const UPDATE_ME = gql`
     $lastName: String
     $phone: String
     $slug: String
+    $isProfilePublic: Boolean
+    $profileHeadline: String
+    $profileAboutMarkdown: String
+    $profileLinksMarkdown: String
   ) {
     updateMe(
       name: $name
@@ -852,6 +864,10 @@ export const UPDATE_ME = gql`
       lastName: $lastName
       phone: $phone
       slug: $slug
+      isProfilePublic: $isProfilePublic
+      profileHeadline: $profileHeadline
+      profileAboutMarkdown: $profileAboutMarkdown
+      profileLinksMarkdown: $profileLinksMarkdown
     ) {
       ok
       message
@@ -863,6 +879,10 @@ export const UPDATE_ME = gql`
         firstName
         lastName
         phone
+        isProfilePublic
+        profileHeadline
+        profileAboutMarkdown
+        profileLinksMarkdown
       }
     }
   }
