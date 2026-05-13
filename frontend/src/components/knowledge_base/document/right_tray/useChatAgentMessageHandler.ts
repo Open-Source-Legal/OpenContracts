@@ -72,18 +72,6 @@ export function useChatAgentMessageHandler({
         const { type: msgType, content, data } = messageData;
         const currentApproval = pendingApprovalRef.current;
 
-        console.log("[ChatTray WebSocket] Received message:", {
-          type: msgType,
-          hasContent: !!content,
-          hasSources: !!data?.sources,
-          sourceCount: data?.sources?.length,
-          hasTimeline: !!data?.timeline,
-          timelineCount: data?.timeline?.length,
-          message_id: data?.message_id,
-          approval_decision: data?.approval_decision,
-          has_pending_tool_call: !!data?.pending_tool_call,
-        });
-
         if (data?.approval_decision && data?.message_id) {
           updateMessageApprovalStatus(
             data.message_id,
@@ -219,12 +207,6 @@ export function useChatAgentMessageHandler({
               data?.timeline && Array.isArray(data.timeline)
                 ? data.timeline
                 : undefined;
-            console.log(
-              "[ChatTray WebSocket] SYNC_CONTENT sources:",
-              sourcesToPass,
-              "timeline:",
-              timelineToPass
-            );
             handleCompleteMessage(
               content,
               sourcesToPass,

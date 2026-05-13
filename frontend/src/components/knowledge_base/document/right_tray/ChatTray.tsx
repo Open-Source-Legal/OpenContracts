@@ -53,7 +53,6 @@ import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles
 import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
 import { TimelineEntry } from "../../../widgets/chat/ChatMessage";
 import { useUISettings } from "../../../annotator/hooks/useUISettings";
-import useWindowDimensions from "../../../hooks/WindowDimensionHook";
 import { useLocation, useNavigate } from "react-router-dom";
 import { updateAnnotationSelectionParams } from "../../../../utils/navigationUtils";
 import { toGlobalId } from "../../../../utils/idValidation";
@@ -210,10 +209,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   // Flag so we only run initial scroll restore once
   const initialRestoreDone = useRef(false);
 
-  const { width } = useWindowDimensions();
-  const isMobile = width < 768;
-  void isMobile;
-
   // State for auto-resizing textarea
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const MAX_MESSAGE_LENGTH = 4000;
@@ -230,7 +225,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     setChat,
     setServerMessages,
     setChatSourceState,
-    setContextStatus,
     setCompactionNotice,
     setPendingApproval,
     messagesContainerRef,

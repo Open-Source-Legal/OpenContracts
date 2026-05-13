@@ -24,7 +24,6 @@ import {
 } from "../../../annotator/context/ChatSourceAtom";
 import type {
   CompactionNotice,
-  ContextStatus,
   MessageData,
   WebSocketSources,
 } from "../../../chat/types";
@@ -34,7 +33,6 @@ export interface UseChatStreamHandlersParams {
   setChat: React.Dispatch<React.SetStateAction<ChatMessageProps[]>>;
   setServerMessages: React.Dispatch<React.SetStateAction<ChatMessageProps[]>>;
   setChatSourceState: React.Dispatch<React.SetStateAction<ChatSourceState>>;
-  setContextStatus: React.Dispatch<React.SetStateAction<ContextStatus | null>>;
   setCompactionNotice: React.Dispatch<
     React.SetStateAction<CompactionNotice | null>
   >;
@@ -102,17 +100,10 @@ export function useChatStreamHandlers({
   setChat,
   setServerMessages,
   setChatSourceState,
-  setContextStatus: _setContextStatus,
   setCompactionNotice,
   setPendingApproval,
   messagesContainerRef,
 }: UseChatStreamHandlersParams): UseChatStreamHandlersReturn {
-  // setContextStatus is part of the params surface for future reuse; the
-  // current stream-handlers don't touch it directly (the dispatcher writes
-  // contextStatus on ASYNC_FINISH). Underscore prefix silences unused warnings
-  // without dropping the param.
-  void _setContextStatus;
-
   const updateMessageApprovalStatus = useCallback(
     (messageId: string, status: "approved" | "rejected") => {
       setPendingApproval((current) => {
@@ -160,7 +151,6 @@ export function useChatStreamHandlers({
       // persist timeline into ChatSourceAtom either — keeping the same shape).
       void _timelineData;
       const messageId = overrideId ?? `msg_${Date.now()}`;
-      console.log("XOXO - handleCompleteMessage messageId", messageId);
       const messageTimestamp = overrideCreatedAt
         ? new Date(overrideCreatedAt).toISOString()
         : new Date().toISOString();
@@ -221,7 +211,6 @@ export function useChatStreamHandlers({
 
         if (lastMessage && lastMessage.isAssistant) {
           messageId = lastMessage.messageId || "";
-          console.log("append to existing messageId", messageId);
           const updatedLast = {
             ...lastMessage,
             content: lastMessage.content + token,
@@ -231,8 +220,7 @@ export function useChatStreamHandlers({
         } else {
           messageId =
             overrideMessageId ||
-            `msg_${Date.now()}_${Math.random().toString(36).substr(2)}`;
-          console.log("append to new messageId", messageId);
+            `msg_${Date.now()}_${Math.random().toString(36).substring(2)}`;
           return [
             ...prev,
             {
@@ -340,12 +328,6 @@ export function useChatStreamHandlers({
       overrideId?: string,
       timelineData?: TimelineEntry[]
     ): void => {
-      console.log("finalizeStreamingResponse", {
-        content,
-        sourcesData,
-        overrideId,
-      });
-
       let lastMsgId: string | undefined;
       setChat((prev) => {
         if (!prev.length) return prev;
@@ -360,11 +342,6 @@ export function useChatStreamHandlers({
 
         const updatedMessages = [...prev];
         const assistantMsg = updatedMessages[updateIdx];
-        console.log("XOXO - Found assistant message to update:", {
-          messageId: assistantMsg.messageId,
-          oldContent: assistantMsg.content.substring(0, 50) + "...",
-        });
-
         lastMsgId = assistantMsg.messageId;
 
         updatedMessages[updateIdx] = {
@@ -372,9 +349,6 @@ export function useChatStreamHandlers({
           content,
           isComplete: true,
         };
-        console.log("Updated message with final content:", {
-          messageId: lastMsgId,
-        });
 
         // Synchronous call inside the setChat updater — mirrors the original
         // ChatTray semantics. handleCompleteMessage writes to a different

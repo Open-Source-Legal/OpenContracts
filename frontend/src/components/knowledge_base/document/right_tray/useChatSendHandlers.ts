@@ -71,6 +71,52 @@ export function useChatSendHandlers({
   setPendingApproval,
   updateMessageApprovalStatus,
 }: UseChatSendHandlersParams): UseChatSendHandlersReturn {
+  // Shared implementation for the two outbound text-send paths. Both
+  // sendMessageOverSocket (input-driven) and sendTextImmediately (programmatic)
+  // share: acquire lock → trim guard → wsSend → optimistic chat append →
+  // release lock in finally. Keeping them in one place ensures fixes apply to
+  // both. `onSuccess` is the only divergence: sendMessageOverSocket clears the
+  // input via setNewMessage, sendTextImmediately is a no-op.
+  const sendTextOverSocket = useCallback(
+    (trimmed: string, onSuccess?: () => void): void => {
+      if (!trimmed || !wsReady) return;
+      if (sendingLockRef.current) return;
+
+      sendingLockRef.current = true;
+
+      try {
+        const ok = wsSend(JSON.stringify({ query: trimmed }));
+        if (!ok) {
+          setWsError("Failed to send message. Please try again.");
+          return;
+        }
+        setChat((prev) => [
+          ...prev,
+          {
+            messageId: `user_${Date.now()}_${Math.random()
+              .toString(36)
+              .substring(2)}`,
+            user: userEmail || "You",
+            content: trimmed,
+            timestamp: new Date().toLocaleString(),
+            isAssistant: false,
+            isComplete: false,
+          },
+        ]);
+        onSuccess?.();
+        setWsError(null);
+      } catch (err) {
+        console.error("Failed to send message:", err);
+        setWsError("Failed to send message. Please try again.");
+      } finally {
+        setTimeout(() => {
+          sendingLockRef.current = false;
+        }, 300);
+      }
+    },
+    [wsReady, userEmail, wsSend, sendingLockRef, setChat, setWsError]
+  );
+
   const sendMessageOverSocket = useCallback((): void => {
     const trimmed = newMessage.trim();
     if (!trimmed) return;
@@ -78,53 +124,12 @@ export function useChatSendHandlers({
       console.warn("WebSocket not ready yet");
       return;
     }
-
     if (sendingLockRef.current) {
       console.warn("Message is already being sent, ignoring duplicate send.");
       return;
     }
-
-    sendingLockRef.current = true;
-
-    try {
-      const ok = wsSend(JSON.stringify({ query: trimmed }));
-      if (!ok) {
-        setWsError("Failed to send message. Please try again.");
-        return;
-      }
-      setChat((prev) => [
-        ...prev,
-        {
-          messageId: `user_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2)}`,
-          user: userEmail || "You",
-          content: trimmed,
-          timestamp: new Date().toLocaleString(),
-          isAssistant: false,
-          isComplete: false,
-        },
-      ]);
-      setNewMessage("");
-      setWsError(null);
-    } catch (err) {
-      console.error("Failed to send message:", err);
-      setWsError("Failed to send message. Please try again.");
-    } finally {
-      setTimeout(() => {
-        sendingLockRef.current = false;
-      }, 300);
-    }
-  }, [
-    newMessage,
-    userEmail,
-    wsReady,
-    wsSend,
-    sendingLockRef,
-    setChat,
-    setNewMessage,
-    setWsError,
-  ]);
+    sendTextOverSocket(trimmed, () => setNewMessage(""));
+  }, [newMessage, wsReady, sendingLockRef, sendTextOverSocket, setNewMessage]);
 
   const sendApprovalDecision = useCallback(
     (approved: boolean): void => {
@@ -174,42 +179,9 @@ export function useChatSendHandlers({
 
   const sendTextImmediately = useCallback(
     (text: string): void => {
-      const trimmed = text.trim();
-      if (!trimmed || !wsReady) return;
-
-      if (sendingLockRef.current) return;
-      sendingLockRef.current = true;
-
-      try {
-        const ok = wsSend(JSON.stringify({ query: trimmed }));
-        if (!ok) {
-          setWsError("Failed to send message. Please try again.");
-          return;
-        }
-        setChat((prev) => [
-          ...prev,
-          {
-            messageId: `user_${Date.now()}_${Math.random()
-              .toString(36)
-              .substr(2)}`,
-            user: userEmail || "You",
-            content: trimmed,
-            timestamp: new Date().toLocaleString(),
-            isAssistant: false,
-            isComplete: false,
-          },
-        ]);
-        setWsError(null);
-      } catch (err) {
-        console.error("Failed to send initial message:", err);
-        setWsError("Failed to send message. Please try again.");
-      } finally {
-        setTimeout(() => {
-          sendingLockRef.current = false;
-        }, 300);
-      }
+      sendTextOverSocket(text.trim());
     },
-    [wsReady, userEmail, wsSend, sendingLockRef, setChat, setWsError]
+    [sendTextOverSocket]
   );
 
   return {
