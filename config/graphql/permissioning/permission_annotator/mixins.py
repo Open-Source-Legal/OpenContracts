@@ -39,6 +39,8 @@ class AnnotatePermissionsForReadMixin:
 
     my_permissions = GenericScalar()
     is_published = graphene.Boolean()
+    # GenericScalar lets the inner shape evolve (e.g., dropping email/username) without a breaking schema rename.
+    # Callers must only expect a `slug` key in each entry — not `email` or `username`.
     object_shared_with = GenericScalar()
 
     def resolve_object_shared_with(self, info) -> list[dict[str, Any]]:
