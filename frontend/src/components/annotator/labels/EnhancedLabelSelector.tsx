@@ -5,8 +5,13 @@ import React, {
   useRef,
   useCallback,
 } from "react";
+import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import {
+  MOBILE_ANNOTATION_TOOLS_BOTTOM,
+  Z_INDEX,
+} from "../../../assets/configurations/constants";
 import {
   Tag,
   FileText,
@@ -20,6 +25,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation } from "@apollo/client";
 import { isPdfFileType, isSpanBasedFileType } from "../../../utils/files";
+import { visualViewportAwareBottom } from "../../../utils/layout";
 import { toast } from "react-toastify";
 import {
   AnnotationLabelType,
@@ -55,6 +61,9 @@ interface EnhancedLabelSelectorProps {
   hideControls?: boolean;
   readOnly?: boolean;
 }
+
+const MOBILE_ANNOTATION_TOOLS_Z_INDEX = Z_INDEX.MOBILE_ANNOTATION_TOOLS;
+const ANNOTATION_LABEL_MODAL_Z_INDEX = Z_INDEX.MOBILE_ANNOTATION_LABEL_MODAL;
 
 export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
   activeSpanLabel,
@@ -344,7 +353,7 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
     };
   };
 
-  return (
+  const annotationControls = (
     <>
       <StyledEnhancedSelector
         {...calculatePosition()}
@@ -737,6 +746,12 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
       )}
     </>
   );
+
+  if (isMobile) {
+    return createPortal(annotationControls, document.body);
+  }
+
+  return annotationControls;
 };
 
 interface StyledEnhancedSelectorProps {
@@ -756,8 +771,9 @@ const StyledEnhancedSelector = styled.div<StyledEnhancedSelectorProps>`
   filter: ${(props) => (props.$isReadOnly ? "grayscale(0.3)" : "none")};
 
   @media (max-width: 768px) {
-    bottom: 1rem;
+    bottom: ${visualViewportAwareBottom(MOBILE_ANNOTATION_TOOLS_BOTTOM)};
     right: 1rem;
+    z-index: ${MOBILE_ANNOTATION_TOOLS_Z_INDEX};
   }
 
   .selector-button {
@@ -1017,7 +1033,7 @@ const ModalOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  z-index: ${ANNOTATION_LABEL_MODAL_Z_INDEX};
   padding: 2rem;
 `;
 

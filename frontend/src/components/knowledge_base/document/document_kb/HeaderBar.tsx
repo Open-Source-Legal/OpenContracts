@@ -1,7 +1,13 @@
 import React from "react";
 import { ArrowLeft, Calendar, FileType, Plus, User } from "lucide-react";
 import { DocumentVersionSelector } from "../../../documents/DocumentVersionSelector";
-import { HeaderContainer, MetadataRow } from "../styled/HeaderAndLayout";
+import {
+  HeaderContainer,
+  HeaderPrimaryRow,
+  HeaderTitle,
+  HeaderTitleBlock,
+  MetadataRow,
+} from "../styled/HeaderAndLayout";
 import { HeaderButtonGroup, HeaderButton } from "./styles";
 import { routingLogger } from "../../../../utils/routingLogger";
 import { CreatorRef, getCreatorDisplay } from "../../../../utils/userDisplay";
@@ -45,75 +51,75 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const title = metadata.title || "Untitled Document";
 
   return (
-    <HeaderContainer>
-      <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-        <h2
-          style={{
-            margin: 0,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            maxWidth: "100%",
-            fontSize: "1.5rem",
-            fontWeight: 700,
-          }}
-        >
-          <span title={title}>{title}</span>
-        </h2>
-        <MetadataRow>
-          <span>
-            <FileType size={16} /> {metadata.fileType}
-          </span>
-          <span>
-            <User size={16} /> {getCreatorDisplay(metadata.creator)}
-          </span>
-          <span>
-            <Calendar size={16} /> Created:{" "}
-            {metadata.created
-              ? new Date(metadata.created).toLocaleDateString()
-              : "—"}
-          </span>
-          {hasCorpus && corpusId && (
-            <DocumentVersionSelector
-              documentId={documentId}
-              corpusId={corpusId}
-            />
-          )}
-        </MetadataRow>
-      </div>
+    <HeaderContainer data-testid="document-header">
+      <HeaderPrimaryRow>
+        <HeaderTitleBlock>
+          <HeaderTitle>
+            <span title={title}>{title}</span>
+          </HeaderTitle>
+        </HeaderTitleBlock>
 
-      <HeaderButtonGroup>
-        {!hasCorpus && !readOnly && (
+        <HeaderButtonGroup>
+          {!hasCorpus && !readOnly && (
+            <HeaderButton
+              $variant="primary"
+              onClick={onAddToCorpus}
+              title="Add this document to a corpus to unlock collaborative features"
+              aria-label="Add this document to a corpus"
+              data-testid="add-to-corpus-button"
+            >
+              <Plus />
+              <span className="header-button-label header-button-label--desktop">
+                Add to Corpus
+              </span>
+            </HeaderButton>
+          )}
           <HeaderButton
-            $variant="primary"
-            onClick={onAddToCorpus}
-            title="Add this document to a corpus to unlock collaborative features"
-            data-testid="add-to-corpus-button"
+            onClick={(e) => {
+              routingLogger.debug(
+                `🖱️  [DocumentKnowledgeBase] ════════ BACK BUTTON CLICKED ════════`
+              );
+              routingLogger.debug(
+                "[DocumentKnowledgeBase] Button click event:",
+                {
+                  timestamp: new Date().toISOString(),
+                  button: e.button,
+                  currentTarget: e.currentTarget,
+                  target: e.target,
+                  currentUrl: window.location.pathname + window.location.search,
+                }
+              );
+              onClose();
+            }}
+            title="Go back"
+            data-testid="back-button"
           >
-            <Plus />
-            Add to Corpus
+            <ArrowLeft />
           </HeaderButton>
+        </HeaderButtonGroup>
+      </HeaderPrimaryRow>
+
+      <MetadataRow>
+        <span>
+          <FileType size={16} /> {metadata.fileType}
+        </span>
+        <span>
+          <User size={16} /> {getCreatorDisplay(metadata.creator)}
+        </span>
+        <span>
+          <Calendar size={16} />{" "}
+          <span className="metadata-created-prefix">Created: </span>
+          {metadata.created
+            ? new Date(metadata.created).toLocaleDateString()
+            : "—"}
+        </span>
+        {hasCorpus && corpusId && (
+          <DocumentVersionSelector
+            documentId={documentId}
+            corpusId={corpusId}
+          />
         )}
-        <HeaderButton
-          onClick={(e) => {
-            routingLogger.debug(
-              `🖱️  [DocumentKnowledgeBase] ════════ BACK BUTTON CLICKED ════════`
-            );
-            routingLogger.debug("[DocumentKnowledgeBase] Button click event:", {
-              timestamp: new Date().toISOString(),
-              button: e.button,
-              currentTarget: e.currentTarget,
-              target: e.target,
-              currentUrl: window.location.pathname + window.location.search,
-            });
-            onClose();
-          }}
-          title="Go back"
-          data-testid="back-button"
-        >
-          <ArrowLeft />
-        </HeaderButton>
-      </HeaderButtonGroup>
+      </MetadataRow>
     </HeaderContainer>
   );
 };

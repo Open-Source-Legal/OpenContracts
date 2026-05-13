@@ -2,6 +2,7 @@ import React, { useEffect, useMemo } from "react";
 import styled from "styled-components";
 import { useQuery } from "@apollo/client";
 import {
+  ArrowLeft,
   ChevronRight,
   Users,
   Calendar,
@@ -50,6 +51,7 @@ import {
   ViewDetailsButton,
   HeaderRow,
   MobileMenuButton,
+  MobileReturnButton,
 } from "./styles";
 
 const CreateArticleCTA = styled.button`
@@ -112,6 +114,8 @@ export interface CorpusLandingViewProps {
   onEditDescription: () => void;
   /** Callback to navigate back to corpus list */
   onNavigateToCorpuses?: () => void;
+  /** Label for the outer collection route (for example, Corpuses or Documents) */
+  navigateBackLabel?: string;
   /** Chat integration props */
   chatQuery?: string;
   onChatQueryChange?: (value: string) => void;
@@ -157,6 +161,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
   onViewDetails,
   onEditDescription,
   onNavigateToCorpuses,
+  navigateBackLabel = "Corpuses",
   chatQuery = "",
   onChatQueryChange,
   onChatSubmit,
@@ -229,7 +234,17 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
     <LandingContainer data-testid={testId}>
       <LandingContent>
         <LandingHero>
-          <HeaderRow>
+          <HeaderRow $mobileJustify="flex-start">
+            {onNavigateToCorpuses && (
+              <MobileReturnButton
+                onClick={onNavigateToCorpuses}
+                aria-label={`Back to ${navigateBackLabel}`}
+                data-testid={`${testId}-mobile-return-btn`}
+              >
+                <ArrowLeft aria-hidden="true" />
+                {navigateBackLabel}
+              </MobileReturnButton>
+            )}
             <CenteredBreadcrumbs
               aria-label="Breadcrumb navigation"
               data-testid={`${testId}-breadcrumbs`}
@@ -241,7 +256,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
                   onNavigateToCorpuses?.();
                 }}
               >
-                Corpuses
+                {navigateBackLabel}
               </a>
               <ChevronRight aria-hidden="true" />
               <span className="current">

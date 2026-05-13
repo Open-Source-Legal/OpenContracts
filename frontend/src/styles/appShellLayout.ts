@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 export const APP_SHELL_OUTER_STYLE: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  minHeight: "100vh",
+  minHeight: "var(--oc-visible-viewport-height, 100vh)",
 };
 
 export const APP_SHELL_FLEX_SHELL_STYLE: CSSProperties = {

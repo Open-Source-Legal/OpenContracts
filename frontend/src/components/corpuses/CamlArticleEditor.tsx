@@ -15,7 +15,7 @@ import React, {
 import { useQuery, useMutation } from "@apollo/client";
 import { toast } from "react-toastify";
 import { BookOpen, Check, Eye, Edit, Save, Table2 } from "lucide-react";
-import styled from "styled-components";
+import styled, { createGlobalStyle } from "styled-components";
 
 import { Modal } from "@os-legal/ui";
 import { ConfirmModal } from "../widgets/modals/ConfirmModal";
@@ -38,34 +38,37 @@ import { CamlArticle, CamlThemeProvider } from "@os-legal/caml-react";
 import { useCamlComponentRenderer } from "../../hooks/useCamlComponentRenderer";
 import { buildComponentProseFence } from "../../utils/camlComponents";
 import { CAML_COMPONENTS } from "../../utils/camlComponentRegistry";
+import { CamlArticleFrame } from "./caml/CamlArticleFrame";
 
 // ---------------------------------------------------------------------------
 // Styled components
 // ---------------------------------------------------------------------------
 
-const StyledModalWrapper = styled.div`
-  .modal-overlay {
-    z-index: 1000;
+const CamlArticleEditorModalStyles = createGlobalStyle`
+  .caml-article-editor-overlay {
+    z-index: var(--oc-app-modal-z-index, 3000);
   }
 
-  [class*="modal-content"],
-  [class*="ModalContent"],
-  [role="dialog"] > div {
-    width: 95vw !important;
-    max-width: 1400px !important;
-    height: 90vh !important;
-    max-height: 90vh !important;
+  .caml-article-editor-modal {
+    width: min(95vw, 1400px) !important;
+    max-width: min(95vw, 1400px) !important;
+    height: min(90vh, calc(var(--oc-visible-viewport-height, 100vh) - 2rem)) !important;
+    max-height: calc(var(--oc-visible-viewport-height, 100vh) - 2rem) !important;
     border-radius: 16px !important;
     overflow: hidden !important;
+    min-height: 0;
   }
 
   @media (max-width: 768px) {
-    [class*="modal-content"],
-    [class*="ModalContent"],
-    [role="dialog"] > div {
+    .caml-article-editor-overlay {
+      padding: 0 !important;
+    }
+
+    .caml-article-editor-modal {
       width: 100vw !important;
-      height: 100vh !important;
-      max-height: 100vh !important;
+      max-width: 100vw !important;
+      height: var(--oc-visible-viewport-height, 100vh) !important;
+      max-height: var(--oc-visible-viewport-height, 100vh) !important;
       border-radius: 0 !important;
     }
   }
@@ -78,6 +81,7 @@ const ModalHeader = styled.div`
   padding: 1rem 1.5rem;
   border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
   background: ${OS_LEGAL_COLORS.background};
+  flex-shrink: 0;
 
   h2 {
     font-size: 1rem;
@@ -88,17 +92,19 @@ const ModalHeader = styled.div`
     gap: 0.5rem;
     margin: 0;
     flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
   }
 `;
 
 const ContentWrapper = styled.div`
   display: flex;
-  height: calc(90vh - 60px - 64px);
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 
   @media (max-width: 768px) {
     flex-direction: column;
-    height: calc(100vh - 60px - 64px);
   }
 `;
 
@@ -107,7 +113,13 @@ const EditorPane = styled.div`
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid ${OS_LEGAL_COLORS.border};
+
+  @media (max-width: 768px) {
+    border-right: none;
+    border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
+  }
 `;
 
 const PaneHeader = styled.div`
@@ -126,6 +138,7 @@ const PaneHeader = styled.div`
 
 const EditorTextarea = styled.textarea`
   flex: 1;
+  min-height: 0;
   width: 100%;
   padding: 1rem;
   border: none;
@@ -144,6 +157,7 @@ const EditorTextarea = styled.textarea`
 
 const PreviewPane = styled.div`
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   background: ${OS_LEGAL_COLORS.surface};
   min-width: 0;
@@ -157,6 +171,12 @@ const ActionBar = styled.div`
   padding: 0.75rem 1.5rem;
   border-top: 1px solid ${OS_LEGAL_COLORS.border};
   background: ${OS_LEGAL_COLORS.background};
+  flex-shrink: 0;
+
+  @media (max-width: 768px) {
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    flex-wrap: wrap;
+  }
 `;
 
 const ActionButton = styled.button<{ $primary?: boolean }>`
@@ -232,6 +252,7 @@ const ExtractPickerDropdown = styled.div`
   left: 0;
   z-index: 20;
   min-width: 280px;
+  max-width: calc(100vw - 2rem);
   max-height: 240px;
   overflow-y: auto;
   background: ${OS_LEGAL_COLORS.surface};
@@ -688,8 +709,15 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
   };
 
   return (
-    <StyledModalWrapper>
-      <Modal size="full" open={isOpen} onClose={handleClose}>
+    <>
+      <CamlArticleEditorModalStyles />
+      <Modal
+        size="full"
+        open={isOpen}
+        onClose={handleClose}
+        className="caml-article-editor-modal"
+        overlayClassName="caml-article-editor-overlay"
+      >
         <ModalHeader>
           <h2>
             <BookOpen size={18} />
@@ -796,13 +824,15 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
               Preview
             </PaneHeader>
             {parsedDocument && (
-              <CamlThemeProvider>
-                <CamlArticle
-                  document={parsedDocument}
-                  renderMarkdown={renderMarkdownPreview}
-                  customBlocks={previewCustomBlocks}
-                />
-              </CamlThemeProvider>
+              <CamlArticleFrame>
+                <CamlThemeProvider>
+                  <CamlArticle
+                    document={parsedDocument}
+                    renderMarkdown={renderMarkdownPreview}
+                    customBlocks={previewCustomBlocks}
+                  />
+                </CamlThemeProvider>
+              </CamlArticleFrame>
             )}
           </PreviewPane>
         </ContentWrapper>
@@ -833,6 +863,6 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
         confirmLabel="Discard"
         cancelLabel="Keep editing"
       />
-    </StyledModalWrapper>
+    </>
   );
 };

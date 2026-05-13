@@ -127,6 +127,7 @@ interface AddToCorpusModalProps {
   // Optional props for customization
   title?: string;
   multiStep?: boolean; // Enable multi-step workflow like the widgets version
+  overlayClassName?: string;
 }
 
 export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
@@ -138,6 +139,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
   onSuccess,
   title = "Add to Corpus",
   multiStep = true,
+  overlayClassName,
 }) => {
   const [addingToCorpusId, setAddingToCorpusId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -455,6 +457,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
       open={open}
       onClose={onClose}
       size="sm"
+      overlayClassName={overlayClassName}
       data-testid="add-to-corpus-modal"
     >
       <ModalHeader
