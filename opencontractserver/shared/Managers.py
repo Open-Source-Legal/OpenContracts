@@ -574,16 +574,24 @@ class RelationshipManager(BaseVisibilityManager):
             _exclude_soft_deleted_doc_orphans,
         )
 
+        # Normalise None → AnonymousUser up front and short-circuit on
+        # superuser before super() runs, matching AnnotationQuerySet's
+        # pattern so the two soft-delete-aware visibility paths read the
+        # same.
+        if user is None:
+            user = AnonymousUser()
+        if user.is_superuser:
+            return super().visible_to_user(
+                user=user,
+                lightweight=lightweight,
+                with_doc_label_annotations=with_doc_label_annotations,
+            )
+
         qs = super().visible_to_user(
             user=user,
             lightweight=lightweight,
             with_doc_label_annotations=with_doc_label_annotations,
         )
-
-        # Superusers see everything, including trashed-doc relationships.
-        if user is not None and hasattr(user, "is_superuser") and user.is_superuser:
-            return qs
-
         return _exclude_soft_deleted_doc_orphans(qs)
 
 
