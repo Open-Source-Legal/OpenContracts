@@ -376,7 +376,43 @@ test.describe("FeaturedCollections icon prop wiring", () => {
     await expect(page.locator("text=Legal Contracts Collection")).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.locator('img[src^="https://"]')).toHaveCount(0);
+    // Scope the assertion to the mounted component subtree so unrelated
+    // images elsewhere on the page (avatars, logos) can't cause false
+    // failures as the wrapper grows.
+    await expect(component.locator('img[src^="http"]')).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("uses the 'Corpus icon' alt fallback when corpus.title is missing", async ({
+    mount,
+    page,
+  }) => {
+    const iconUrl =
+      "https://example.com/media/corpus-icons/untitled-collection.png";
+    const corpusesWithIconNoTitle = [
+      {
+        ...mockCorpuses[0],
+        node: {
+          ...mockCorpuses[0].node,
+          icon: iconUrl,
+          // Empty title triggers the `|| "Corpus icon"` fallback in
+          // FeaturedCollections without breaking the inferred string type.
+          title: "",
+        },
+      },
+    ];
+
+    const component = await mount(
+      <LandingTestWrapper>
+        <FeaturedCollections corpuses={corpusesWithIconNoTitle} />
+      </LandingTestWrapper>
+    );
+
+    // Exercises the falsy branch of `corpus.title || "Corpus icon"`.
+    const iconImg = page.locator(`img[src="${iconUrl}"]`);
+    await expect(iconImg).toBeVisible({ timeout: 10000 });
+    await expect(iconImg).toHaveAttribute("alt", "Corpus icon");
 
     await component.unmount();
   });
