@@ -594,7 +594,7 @@ def package_conversations(
     return conversations_export, messages_export, votes_export
 
 
-def package_metadata_schema(corpus: Corpus):
+def package_metadata_schema(corpus: Corpus) -> MetadataSchemaExport | None:
     """
     Package a corpus's manual-metadata schema for export.
 

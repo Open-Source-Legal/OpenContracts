@@ -503,6 +503,10 @@ def import_metadata_schema(
         )
     except Exception as e:
         logger.error("Error importing metadata schema: %s", e, exc_info=True)
+        # The transaction rolled back, so any pks accumulated in
+        # column_map before the failure now point at non-existent rows.
+        # Clear it so downstream callers don't silently re-link to ghosts.
+        column_map.clear()
 
     return column_map
 
