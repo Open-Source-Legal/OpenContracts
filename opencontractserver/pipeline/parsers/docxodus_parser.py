@@ -152,7 +152,7 @@ class DocxodusServiceParser(BaseParser):
 
             response = requests.post(
                 self.service_url,
-                json=payload,
+                json=cast(Any, payload),
                 headers=headers,
                 timeout=self.request_timeout,
             )
