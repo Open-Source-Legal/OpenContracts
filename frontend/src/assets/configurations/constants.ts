@@ -167,6 +167,13 @@ export const POPOVER_Z_INDEX = 100002;
 
 // Z-index layer constants for consistent stacking
 // Note: @os-legal/ui Modal uses z-index 400, so in-page overlays must stay below that.
+//
+// The MOBILE_* slots are reserved for floating controls / labels rendered
+// into ``document.body`` via ``createPortal`` on mobile — they intentionally
+// sit *above* MODAL (so the annotation tools and document FAB can float
+// over the DocumentKnowledgeBase fullscreen modal at z-index 3000) but
+// *below* the MOBILE_ANNOTATION_LABEL_MODAL slot (so the label picker
+// covers the annotation tools when both are visible).
 export const Z_INDEX = {
   /** In-page loading overlays (position: absolute within a relative parent) */
   OVERLAY: 10,
@@ -179,6 +186,18 @@ export const Z_INDEX = {
   MODAL: 1000,
   /** NavBar dropdowns / popovers anchored above the mobile sheet (z-index 1095) */
   NAVBAR_OVERLAY: 1200,
+  /** DocumentKnowledgeBase fullscreen modal (set as a CSS variable too — keep in sync). */
+  APP_MODAL: 3000,
+  /** Children of the DocumentKnowledgeBase fullscreen modal (nested dialogs, popovers). */
+  APP_MODAL_CHILD: 3100,
+  /** Mobile annotation tools rendered via portal into document.body. */
+  MOBILE_ANNOTATION_TOOLS: 3048,
+  /** Mobile floating document-controls FAB (orbit menu) rendered via portal. */
+  MOBILE_FLOATING_CONTROLS: 3050,
+  /** Mobile annotation-label modal — sits above APP_MODAL_CHILD so the label
+   *  picker remains tappable even when a nested dialog is open inside the DKB
+   *  fullscreen modal. */
+  MOBILE_ANNOTATION_LABEL_MODAL: 3150,
   /** Full-viewport transparent overlay behind context menus (click-outside capture) */
   CONTEXT_MENU_OVERLAY: 9998,
   /** Floating context menu container */
@@ -186,6 +205,29 @@ export const Z_INDEX = {
 } as const;
 /** Gap in pixels between the badge and the popover */
 export const POPOVER_GAP = 8;
+/**
+ * Bottom offset for the mobile annotation tools floating bar (portalled to
+ * document.body). Used inside ``visualViewportAwareBottom`` so the bar lifts
+ * above the mobile keyboard / safe-area inset.
+ */
+export const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
+/**
+ * Bottom offset for the FloatingDocumentControls speed dial on desktop.
+ * Sits above the page footer / navbar.
+ */
+export const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
+/**
+ * Bottom offset for the FloatingDocumentControls speed dial on mobile.
+ * Used inside ``visualViewportAwareBottom`` so the dial clears the safe-area
+ * inset and mobile chrome.
+ */
+export const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
+/**
+ * Bottom offset for the settings popover anchored above the floating speed
+ * dial on mobile. Computed to clear ``MOBILE_FLOATING_CONTROLS_BOTTOM`` plus
+ * the dial's own height.
+ */
+export const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
 /**
  * Maximum height of the tool popover in pixels.
  * Must match ToolPopoverBody max-height (400px) + header height (~100px).

@@ -377,6 +377,161 @@ test("fullscreen modal covers the entire viewport", async ({ mount, page }) => {
   expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1);
 });
 
+test("mobile fullscreen modal appears above the app nav", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => {
+    const nav = document.createElement("div");
+    nav.id = "mobile-nav-z-index-regression";
+    Object.assign(nav.style, {
+      position: "fixed",
+      top: "0",
+      left: "0",
+      right: "0",
+      height: "60px",
+      zIndex: "1100",
+    });
+    document.body.appendChild(nav);
+  });
+
+  await mount(
+    <DocumentKnowledgeBaseTestWrapper
+      mocks={graphqlMocksWithChat}
+      documentId={PDF_DOC_ID}
+      corpusId={CORPUS_ID}
+    />
+  );
+
+  await expect(
+    page.getByRole("heading", { name: mockPdfDocument.title ?? "" })
+  ).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  const overlay = page.locator(".fullscreen-modal-overlay");
+  const modal = page.locator(".fullscreen-modal");
+  await expect(overlay).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(modal).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  const overlayZIndex = await overlay.evaluate((el) =>
+    Number(window.getComputedStyle(el).zIndex)
+  );
+  expect(overlayZIndex).toBeGreaterThan(1100);
+
+  const viewport = page.viewportSize()!;
+  const box = await modal.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeGreaterThanOrEqual(viewport.width - 1);
+  expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1);
+});
+
+test("mobile fullscreen modal locks page scroll when speed dial opens", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await page.evaluate(() => {
+    document.body.style.minHeight = "1800px";
+    window.scrollTo(0, 96);
+  });
+
+  await mount(
+    <DocumentKnowledgeBaseTestWrapper
+      mocks={graphqlMocksWithChat}
+      documentId={PDF_DOC_ID}
+      corpusId={CORPUS_ID}
+    />
+  );
+
+  await expect(
+    page.getByRole("heading", { name: mockPdfDocument.title ?? "" })
+  ).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  const modal = page.locator(".fullscreen-modal");
+  const header = page.getByTestId("document-header");
+  const contentArea = page.locator("#content-area");
+  const documentLayer = page.locator("#document-layer");
+  const pdfContainer = page.locator("#pdf-container");
+  const annotationTools = page.getByTestId("annotation-tools");
+  const speedDialContainer = page.getByTestId("speed-dial-container");
+  const fab = page.getByTestId("speed-dial-main-fab");
+  await expect(modal).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(header).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(contentArea).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(documentLayer).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(pdfContainer).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(annotationTools).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(speedDialContainer).toBeVisible({ timeout: LONG_TIMEOUT });
+  await expect(fab).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  const viewport = page.viewportSize()!;
+  const headerBox = await header.boundingBox();
+  expect(headerBox).not.toBeNull();
+  expect(headerBox!.y).toBeGreaterThanOrEqual(0);
+  expect(headerBox!.y + headerBox!.height).toBeLessThan(viewport.height / 4);
+
+  for (const locator of [contentArea, documentLayer, pdfContainer]) {
+    const box = await locator.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
+  }
+
+  const beforeFabBox = await fab.boundingBox();
+  const annotationToolsBox = await annotationTools.boundingBox();
+  expect(beforeFabBox).not.toBeNull();
+  expect(annotationToolsBox).not.toBeNull();
+  expect(
+    annotationToolsBox!.y + annotationToolsBox!.height
+  ).toBeLessThanOrEqual(viewport.height);
+  expect(beforeFabBox!.y + beforeFabBox!.height).toBeLessThanOrEqual(
+    viewport.height
+  );
+  expect(
+    await annotationTools.evaluate((el) =>
+      Boolean(el.closest("#main-content-area"))
+    )
+  ).toBe(false);
+  expect(
+    await speedDialContainer.evaluate((el) =>
+      Boolean(el.closest("#main-content-area"))
+    )
+  ).toBe(false);
+
+  const scrollLockState = await page.evaluate(() => ({
+    htmlLocked: document.documentElement.classList.contains(
+      "document-kb-scroll-lock"
+    ),
+    bodyLocked: document.body.classList.contains("document-kb-scroll-lock"),
+    htmlOverflow: window.getComputedStyle(document.documentElement).overflow,
+    bodyOverflow: window.getComputedStyle(document.body).overflow,
+  }));
+  expect(scrollLockState).toMatchObject({
+    htmlLocked: true,
+    bodyLocked: true,
+    htmlOverflow: "hidden",
+    bodyOverflow: "hidden",
+  });
+
+  await page.evaluate(() => window.scrollTo(0, 500));
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+  await fab.click();
+  await expect(page.getByTestId("settings-button")).toHaveCount(1);
+
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  const afterFabBox = await fab.boundingBox();
+  expect(afterFabBox).not.toBeNull();
+  expect(afterFabBox!.y + afterFabBox!.height).toBeLessThanOrEqual(
+    viewport.height
+  );
+
+  const modalBox = await modal.boundingBox();
+  expect(modalBox).not.toBeNull();
+  expect(modalBox!.y).toBe(0);
+  expect(modalBox!.y + modalBox!.height).toBeLessThanOrEqual(viewport.height);
+});
+
 test("renders PDF document and can open summary via floating preview", async ({
   mount,
   page,

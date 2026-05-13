@@ -14,9 +14,11 @@ describe("AppShell", () => {
       </AppShell>
     );
 
-    // Outer wrapper: floor at 100vh, no clip, no centering (issue #1558).
+    // Outer wrapper: visible viewport floor, no clip, no centering (issue #1558).
     const outer = container.firstElementChild as HTMLElement;
-    expect(outer.style.minHeight).toBe("100vh");
+    expect(outer.style.minHeight).toBe(
+      "var(--oc-visible-viewport-height, 100vh)"
+    );
     expect(outer.style.height).toBe("");
     expect(outer.style.maxHeight).toBe("");
     expect(outer.style.overflow).toBe("");

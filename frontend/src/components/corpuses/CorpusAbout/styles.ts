@@ -14,16 +14,16 @@ export const AboutCard = styled(motion.div)<{ $minimal?: boolean }>`
     props.$minimal ? "transparent" : CORPUS_COLORS.white};
   border-radius: ${(props) => (props.$minimal ? "0" : CORPUS_RADII.lg)};
   box-shadow: ${(props) => (props.$minimal ? "none" : CORPUS_SHADOWS.card)};
-  overflow: hidden;
+  overflow: ${(props) => (props.$minimal ? "visible" : "hidden")};
   border: ${(props) =>
     props.$minimal ? "none" : `1px solid ${CORPUS_COLORS.slate[200]}`};
   display: flex;
   flex-direction: column;
   position: relative;
   flex: 1;
-  min-height: 0;
-  height: 100%;
-  max-height: 100%;
+  min-height: ${(props) => (props.$minimal ? "100%" : "0")};
+  height: ${(props) => (props.$minimal ? "auto" : "100%")};
+  max-height: ${(props) => (props.$minimal ? "none" : "100%")};
 `;
 
 export const AboutHeader = styled.div`

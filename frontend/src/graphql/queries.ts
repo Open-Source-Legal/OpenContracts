@@ -314,6 +314,7 @@ export const RESOLVE_CORPUS_BY_SLUGS_FULL = gql`
       mdDescription
       icon
       isPublic
+      isPersonal
       myPermissions
       allowComments
       preferredEmbedder
@@ -550,6 +551,7 @@ export const GET_CORPUS_WITH_HISTORY = gql`
       created
       modified
       isPublic
+      isPersonal
       myPermissions
       documentCount
       license
@@ -611,6 +613,7 @@ export interface GetCorpusWithHistoryQuery {
     created: string;
     modified: string;
     isPublic: boolean;
+    isPersonal?: boolean;
     myPermissions: string[];
     creator: {
       id: string;

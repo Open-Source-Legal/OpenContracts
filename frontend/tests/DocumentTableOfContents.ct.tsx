@@ -3,6 +3,22 @@ import { DocumentTableOfContentsTestWrapper } from "./DocumentTableOfContentsTes
 import { docScreenshot } from "./utils/docScreenshot";
 
 test.describe("DocumentTableOfContents", () => {
+  test("shows the document row for a single standalone document", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <DocumentTableOfContentsTestWrapper mockType="singleStandalone" />
+    );
+
+    await expect(page.getByText("Single Standalone Document")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(
+      page.getByText("No indexed sections for this document")
+    ).toHaveCount(0);
+  });
+
   test("shows standalone documents when no parent relationships exist", async ({
     mount,
     page,
