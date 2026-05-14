@@ -212,12 +212,14 @@ class TestOpenContractsAnalyzers(TransactionTestCase):
 
         # SAMPLE_GREMLIN_OUTPUT_FOR_PUBLIC_DOCS
         # When a Gremlin job completes, it's going to send the results to the callback
-        # WITH the one-time authorization code Open Contracts provided (an uuid v4)
-        # that will be header with key OC_TOKEN. Mock response to our callback url
+        # WITH the one-time authorization code Open Contracts provided.
+        # The DB only stores the SHA-256 hash, so we mint and use the
+        # plaintext here to mirror what ``submit_corpus_documents_to_analyzer``
+        # would have sent to the gremlin in production.
+        # rotate_callback_token() auto-saves because analysis_obj has a pk.
+        plaintext_token = analysis_obj.rotate_callback_token()
         authenticated_client = APIClient()
-        authenticated_client.credentials(
-            HTTP_CALLBACK_TOKEN=analysis_obj.callback_token
-        )
+        authenticated_client.credentials(HTTP_CALLBACK_TOKEN=plaintext_token)
 
         response = authenticated_client.post(
             f"{settings.CALLBACK_ROOT_URL_FOR_ANALYZER}/analysis/{analysis_obj.id}/complete",

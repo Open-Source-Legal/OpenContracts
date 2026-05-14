@@ -8,7 +8,7 @@ Management API, and copy the result onto the local :class:`User` row.
 import datetime
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import requests
 from celery import chain
@@ -42,7 +42,10 @@ if settings.USE_AUTH0:
             "audience": f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/",
         }
 
-        response = requests.post(url, headers=headers, json=request_data)
+        # ``requests`` annotates headers as ``MutableMapping[str, str | bytes]``;
+        # cast widens our narrower ``dict[str, str]`` for the call without
+        # changing the runtime payload.
+        response = requests.post(url, headers=cast(Any, headers), json=request_data)
 
         if response.status_code == 200:
             payload: dict[str, Any] = json.loads(response.text)
@@ -162,5 +165,6 @@ if settings.USE_AUTH0:
             "Authorization": f"Bearer {token}",
         }
         url = f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/users/{auth0_Id}"
-        response = requests.get(url, headers=headers)
+        # See ``get_new_auth0_token`` for the cast rationale.
+        response = requests.get(url, headers=cast(Any, headers))
         return json.loads(response.text)

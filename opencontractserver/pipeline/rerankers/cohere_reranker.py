@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import requests
 
@@ -129,7 +129,13 @@ class CohereReranker(BaseReranker):
 
         try:
             response = requests.post(
-                endpoint, json=payload, headers=headers, timeout=timeout
+                endpoint,
+                json=payload,
+                # ``requests`` annotates headers as
+                # ``MutableMapping[str, str | bytes]``; cast widens our
+                # narrower ``dict[str, str]`` for the call.
+                headers=cast(Any, headers),
+                timeout=timeout,
             )
         except requests.exceptions.RequestException as exc:
             logger.warning("CohereReranker request failed: %s", exc)

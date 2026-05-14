@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 _jwks_cache: dict = {"data": None, "expires_at": 0}
 _jwks_cache_lock = threading.Lock()
 _JWKS_CACHE_TTL = 600  # seconds
+# Bounded grace window for serving stale JWKS when Auth0 is unreachable.
+# Without this bound, a key compromise + rotation in Auth0 followed by an
+# Auth0 outage would let the old (compromised) key keep verifying tokens
+# indefinitely. After ``_JWKS_CACHE_TTL + _JWKS_STALE_GRACE`` seconds the
+# cache fails closed and tokens stop verifying until Auth0 is reachable.
+_JWKS_STALE_GRACE = 3600  # seconds
 
 
 def _get_cached_jwks(domain: str) -> dict:
@@ -47,25 +53,52 @@ def _get_cached_jwks(domain: str) -> dict:
             jwks = response.json()
         except requests.RequestException as e:
             logger.error("_get_cached_jwks() - Failed to fetch JWKS from Auth0: %s", e)
-            # Return stale cache if available as fallback
-            if _jwks_cache["data"] is not None:
+            if _can_serve_stale(current_time):
                 logger.warning(
-                    "_get_cached_jwks() - Using stale JWKS cache due to fetch failure"
+                    "_get_cached_jwks() - Serving stale JWKS (fetch failure)"
                 )
                 return _jwks_cache["data"]
+            logger.error(
+                "_get_cached_jwks() - Stale-grace window exceeded; failing closed"
+            )
             raise
         except ValueError as e:
             logger.error("_get_cached_jwks() - Invalid JSON response from Auth0: %s", e)
-            if _jwks_cache["data"] is not None:
+            if _can_serve_stale(current_time):
                 logger.warning(
-                    "_get_cached_jwks() - Using stale JWKS cache due to JSON parse failure"
+                    "_get_cached_jwks() - Serving stale JWKS (JSON parse failure)"
                 )
                 return _jwks_cache["data"]
+            logger.error(
+                "_get_cached_jwks() - Stale-grace window exceeded; failing closed"
+            )
             raise
 
         _jwks_cache["data"] = jwks
         _jwks_cache["expires_at"] = current_time + _JWKS_CACHE_TTL
         return jwks
+
+
+def _can_serve_stale(current_time: float) -> bool:
+    """Return True when the cache holds data still inside the stale-grace window.
+
+    .. warning::
+       This helper reads ``_jwks_cache`` without acquiring ``_jwks_cache_lock``.
+       Callers **must** already hold ``_jwks_cache_lock`` for the read to be
+       safe. All call sites today live inside ``_get_cached_jwks`` under
+       ``with _jwks_cache_lock:``. Do not invoke this from a different
+       context without re-acquiring the lock.
+
+       Note: ``threading.Lock.locked()`` returns True if **any** thread holds
+       the lock, not necessarily the calling thread, so no runtime assert can
+       guarantee correctness here without switching to ``threading.RLock``
+       and tracking the owner. The single call site below makes this safe
+       today; future refactors that move callers out of ``_get_cached_jwks``
+       must re-acquire the lock or switch to an RLock.
+    """
+    if _jwks_cache["data"] is None:
+        return False
+    return current_time < _jwks_cache["expires_at"] + _JWKS_STALE_GRACE
 
 
 def jwt_auth0_decode(token):
@@ -371,6 +404,13 @@ def sync_admin_claims_from_payload(user, payload):
 
     Handles both boolean and string claim values (e.g., true, "true", "True").
 
+    Defense-in-depth: ``is_superuser`` elevation additionally requires the
+    user's Auth0 sub (Django ``username``) to appear in
+    ``settings.AUTH0_SUPERUSER_SUB_ALLOWLIST``. A user not in the allowlist
+    is forced to ``is_superuser=False`` regardless of the JWT claim. This
+    blocks tenant misconfigurations where ``is_superuser`` is sourced from
+    user-writable ``user_metadata``.
+
     Args:
         user: The Django user object to update.
         payload: The decoded JWT payload containing claims.
@@ -405,6 +445,31 @@ def sync_admin_claims_from_payload(user, payload):
     is_superuser_claim, is_superuser_valid = _normalize_admin_claim(
         raw_is_superuser, "is_superuser"
     )
+
+    # Defense-in-depth allowlist for is_superuser. If the user is not in the
+    # allowlist, force the effective claim to False regardless of what the
+    # token says. We log loudly when we override a True claim so operators
+    # see attempted elevations that were blocked.
+    #
+    # NB: ``is_staff`` is intentionally NOT allowlist-gated here. Operators
+    # who source ``is_staff`` from user-writable ``user_metadata`` already
+    # accept that any Auth0 user can grant themselves Django admin (read)
+    # access; the allowlist is targeted at the much larger blast radius of
+    # ``is_superuser`` (full admin write). If you need to gate ``is_staff``
+    # too, layer a parallel ``AUTH0_STAFF_SUB_ALLOWLIST`` check below.
+    superuser_allowlist = getattr(settings, "AUTH0_SUPERUSER_SUB_ALLOWLIST", [])
+    if (
+        is_superuser_valid
+        and is_superuser_claim
+        and user.username not in superuser_allowlist
+    ):
+        logger.warning(
+            "Blocked is_superuser=True claim for user %s (sub not in "
+            "AUTH0_SUPERUSER_SUB_ALLOWLIST). Add the sub to the allowlist "
+            "to permit elevation.",
+            user.username,
+        )
+        is_superuser_claim = False
 
     needs_save = False
 
@@ -457,6 +522,12 @@ def _sync_admin_claims_cached(user, payload):
 
     from opencontractserver.constants import ADMIN_CLAIMS_CACHE_TTL
 
+    # Operators can tune the TTL via AUTH0_ADMIN_CLAIMS_CACHE_TTL env var; the
+    # module-level constant remains the default and is mirrored in
+    # ``config/settings/base.py``.
+    cache_ttl = getattr(
+        settings, "AUTH0_ADMIN_CLAIMS_CACHE_TTL", ADMIN_CLAIMS_CACHE_TTL
+    )
     cache_key = f"admin_claims_sync:{user.id}"
 
     # Check if we've synced recently (with cache failure fallback)
@@ -471,7 +542,7 @@ def _sync_admin_claims_cached(user, payload):
     try:
         sync_admin_claims_from_payload(user, payload)
         try:
-            cache.set(cache_key, True, timeout=ADMIN_CLAIMS_CACHE_TTL)
+            cache.set(cache_key, True, timeout=cache_ttl)
         except Exception as e:
             # Cache set failed, but sync succeeded - that's fine
             logger.warning("Failed to cache admin claims sync status: %s", e)

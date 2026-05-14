@@ -147,19 +147,117 @@ class TestAnalysisCallbackSecurity(TestCase):
         self.assertEqual(r1.status_code, r2.status_code)
         self.assertEqual(r2.status_code, r3.status_code)
 
-    def test_correct_token_uuid_type_accepted(self):
-        """Token comparison works with UUID objects (hmac.compare_digest handles str cast)."""
-        # The callback_token is a UUID field. Ensure str(UUID) comparison works.
-        token = self.analysis.callback_token
-        # Pass as string (as a real HTTP header would)
+    def test_correct_token_accepted(self):
+        """Issued plaintext token verifies against the stored SHA-256 hash."""
+        # Mint a fresh plaintext token; the DB stores only its hash.
+        # rotate_callback_token() auto-saves because self.analysis has a pk.
+        plaintext = self.analysis.rotate_callback_token()
+
         response = self.api_client.post(
             f"/analysis/{self.analysis.id}/complete",
             data={},
             format="json",
-            HTTP_CALLBACK_TOKEN=str(token),
+            HTTP_CALLBACK_TOKEN=plaintext,
         )
         # Should not be 403 (it may be 400 because of invalid JSON body, but not 403)
         self.assertNotEqual(response.status_code, 403)
+
+
+class TestAnalysisCallbackTokenHelpers(TestCase):
+    """Unit tests for ``Analysis.rotate_callback_token`` / ``verify_callback_token``.
+
+    These exercise the model helpers directly (without going through the
+    HTTP callback view) to lock in their behaviour on the edges the
+    callback view depends on: empty-hash fresh rows, constant-time
+    verification, plaintext-not-stored, and rotation invalidating prior
+    plaintexts.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="cb_helper_user", password="test")
+        gremlin = GremlinEngine.objects.create(
+            url="http://localhost:8000", creator=self.user
+        )
+        analyzer = Analyzer.objects.create(
+            id="cb-helper-analyzer",
+            description="Helper test analyzer",
+            creator=self.user,
+            host_gremlin=gremlin,
+        )
+        corpus = Corpus.objects.create(title="Helper Corpus", creator=self.user)
+        self.analysis = Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=corpus,
+            creator=self.user,
+        )
+
+    def test_fresh_analysis_has_empty_hash(self):
+        """Newly-created Analysis has an empty callback_token_hash."""
+        self.assertEqual(self.analysis.callback_token_hash, "")
+
+    def test_verify_empty_hash_always_false(self):
+        """Empty stored hash rejects every candidate, including the empty string."""
+        self.assertFalse(self.analysis.verify_callback_token(None))
+        self.assertFalse(self.analysis.verify_callback_token(""))
+        self.assertFalse(self.analysis.verify_callback_token("anything"))
+
+    def test_rotate_returns_plaintext_and_stores_hash(self):
+        """rotate_callback_token returns plaintext; DB stores only the SHA-256 hash."""
+        import hashlib
+
+        plaintext = self.analysis.rotate_callback_token()
+        self.assertIsInstance(plaintext, str)
+        self.assertGreaterEqual(
+            len(plaintext), 32
+        )  # secrets.token_urlsafe(32) yields ~43 chars
+        # Hash matches; plaintext is not in the model's hash field.
+        expected_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+        self.assertEqual(self.analysis.callback_token_hash, expected_hash)
+        self.assertNotIn(plaintext, self.analysis.callback_token_hash)
+
+    def test_verify_accepts_correct_plaintext_only(self):
+        """verify_callback_token accepts only the issued plaintext."""
+        plaintext = self.analysis.rotate_callback_token()
+        self.assertTrue(self.analysis.verify_callback_token(plaintext))
+        self.assertFalse(self.analysis.verify_callback_token(plaintext + "x"))
+        self.assertFalse(self.analysis.verify_callback_token("not-the-token"))
+
+    def test_verify_handles_none_and_empty_candidate(self):
+        """None/empty candidate is rejected even when a hash is set."""
+        self.analysis.rotate_callback_token()
+        self.assertFalse(self.analysis.verify_callback_token(None))
+        self.assertFalse(self.analysis.verify_callback_token(""))
+
+    def test_rotation_invalidates_prior_plaintext(self):
+        """Re-rotating the token invalidates the previously-issued plaintext."""
+        first = self.analysis.rotate_callback_token()
+        self.assertTrue(self.analysis.verify_callback_token(first))
+        second = self.analysis.rotate_callback_token()
+        # New plaintext verifies; old one is rejected.
+        self.assertNotEqual(first, second)
+        self.assertTrue(self.analysis.verify_callback_token(second))
+        self.assertFalse(self.analysis.verify_callback_token(first))
+
+    def test_rotate_autopersists_for_saved_instance(self):
+        """Calling rotate on an instance with a pk persists the hash so a
+        subsequent ``refresh_from_db`` sees the new value without an
+        explicit ``save`` call by the caller."""
+        plaintext = self.analysis.rotate_callback_token()
+        # Read back from DB — auto-save means the new hash is durable.
+        self.analysis.refresh_from_db()
+        self.assertTrue(self.analysis.verify_callback_token(plaintext))
+
+    def test_rotate_does_not_save_unsaved_instance(self):
+        """For an unsaved instance (no pk yet), rotate sets the hash in
+        memory but does NOT auto-save — the caller still owns the first
+        save. This avoids a surprise ``IntegrityError`` from auto-saving
+        an Analysis missing required FKs."""
+        unsaved = Analysis(analyzer=self.analysis.analyzer, creator=self.user)
+        self.assertIsNone(unsaved.pk)
+        plaintext = unsaved.rotate_callback_token()
+        # In-memory hash is set; pk is still None (nothing was saved).
+        self.assertIsNone(unsaved.pk)
+        self.assertTrue(unsaved.verify_callback_token(plaintext))
 
 
 # ===========================================================================
@@ -344,6 +442,206 @@ class TestMutationIDORPrevention(TestCase):
         result = _gql(self.gql_client, mutation, self.owner, variables)
         data = result["data"]["createNote"]
         self.assertTrue(data["ok"])
+
+
+# ===========================================================================
+# 3b. AddRelationship document-visibility IDOR test
+# ===========================================================================
+
+
+class TestAddRelationshipDocumentIDOR(TestCase):
+    """
+    Pin the document-visibility check on ``AddRelationship``.
+
+    A caller with CREATE on a corpus they own must not be able to bind a
+    new relationship to a `document_id` belonging to a corpus they cannot
+    see. Without the explicit check, the IDOR surface would expose
+    document existence by allowing relationship rows to land on arbitrary
+    document_ids.
+    """
+
+    def setUp(self):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+        )
+
+        self.attacker = User.objects.create_user(
+            username="rel_attacker", password="test"
+        )
+        self.victim = User.objects.create_user(username="rel_victim", password="test")
+
+        # Attacker's own corpus (CREATE allowed) and a single document/
+        # annotation pair to act as legitimate relationship endpoints.
+        self.attacker_corpus = Corpus.objects.create(
+            title="Attacker Corpus",
+            creator=self.attacker,
+            is_public=False,
+        )
+        set_permissions_for_obj_to_user(
+            self.attacker, self.attacker_corpus, [PermissionTypes.CRUD]
+        )
+
+        self.attacker_doc = Document.objects.create(
+            title="Attacker Doc",
+            creator=self.attacker,
+            is_public=False,
+        )
+        set_permissions_for_obj_to_user(
+            self.attacker, self.attacker_doc, [PermissionTypes.CRUD]
+        )
+
+        # Victim's private document — attacker has zero visibility on it.
+        self.victim_doc = Document.objects.create(
+            title="Victim Private Doc",
+            creator=self.victim,
+            is_public=False,
+        )
+
+        self.label = AnnotationLabel.objects.create(
+            text="rel_label", creator=self.attacker
+        )
+
+        self.source_annot = Annotation.objects.create(
+            document=self.attacker_doc,
+            corpus=self.attacker_corpus,
+            annotation_label=self.label,
+            creator=self.attacker,
+            raw_text="src",
+        )
+        self.target_annot = Annotation.objects.create(
+            document=self.attacker_doc,
+            corpus=self.attacker_corpus,
+            annotation_label=self.label,
+            creator=self.attacker,
+            raw_text="tgt",
+        )
+
+        self.mutation = """
+            mutation AddRel(
+                $sourceIds: [String]!,
+                $targetIds: [String]!,
+                $relationshipLabelId: String!,
+                $corpusId: String!,
+                $documentId: String!
+            ) {
+                addRelationship(
+                    sourceIds: $sourceIds,
+                    targetIds: $targetIds,
+                    relationshipLabelId: $relationshipLabelId,
+                    corpusId: $corpusId,
+                    documentId: $documentId
+                ) {
+                    ok
+                    message
+                }
+            }
+        """
+        self.gql_client = Client(schema)
+
+    def _base_variables(self, document_global_id: str) -> dict:
+        return {
+            "sourceIds": [to_global_id("AnnotationType", self.source_annot.id)],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", self.label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": document_global_id,
+        }
+
+    def test_blocks_relationship_with_inaccessible_document(self):
+        """Outsider with CREATE on a corpus cannot land a relationship on a
+        document they cannot see."""
+        from opencontractserver.annotations.models import Relationship
+
+        variables = self._base_variables(
+            to_global_id("DocumentType", self.victim_doc.id)
+        )
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
+        self.assertFalse(
+            Relationship.objects.filter(document_id=self.victim_doc.id).exists()
+        )
+
+    def test_allows_relationship_on_visible_document(self):
+        """Sanity: when document_id is visible to the caller, the mutation
+        succeeds. Pins that the new visibility check does not also break
+        the happy path."""
+        variables = self._base_variables(
+            to_global_id("DocumentType", self.attacker_doc.id)
+        )
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertTrue(data["ok"], f"expected ok, got message={data.get('message')!r}")
+
+    def test_garbage_global_ids_yield_not_found_message(self):
+        """Unparseable global IDs collapse into the same IDOR-safe message
+        rather than echoing a parse error to the caller.
+
+        A b64-decodable but non-numeric pk now fails inside the outer
+        try/except via the ``int()`` cast, returning the unified
+        not-found response shape.
+        """
+        # b64("BogusType:not-an-int") = "Qm9ndXNUeXBlOm5vdC1hbi1pbnQ="
+        bad_gid = "Qm9ndXNUeXBlOm5vdC1hbi1pbnQ="
+        variables = {
+            "sourceIds": [bad_gid],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", self.label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": to_global_id("DocumentType", self.attacker_doc.id),
+        }
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
+
+    def test_unknown_source_annotation_id_yields_not_found(self):
+        """A valid-format but unknown source annotation id collapses into
+        the unified not-found message — count comparison catches it."""
+        variables = {
+            "sourceIds": [to_global_id("AnnotationType", 999_999)],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", self.label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": to_global_id("DocumentType", self.attacker_doc.id),
+        }
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
+
+    def test_inaccessible_relationship_label_yields_not_found(self):
+        """A relationship_label owned by another user must collapse into the
+        same not-found message — closes the residual oracle where an
+        attacker could probe private AnnotationLabel IDs."""
+        from opencontractserver.annotations.models import (
+            AnnotationLabel,
+            Relationship,
+        )
+
+        # A label owned by the victim, with no permission shared to attacker.
+        victim_label = AnnotationLabel.objects.create(
+            text="victim_label",
+            creator=self.victim,
+            is_public=False,
+        )
+        variables = {
+            "sourceIds": [to_global_id("AnnotationType", self.source_annot.id)],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", victim_label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": to_global_id("DocumentType", self.attacker_doc.id),
+        }
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
+        # And no Relationship row got created.
+        self.assertFalse(
+            Relationship.objects.filter(relationship_label_id=victim_label.id).exists()
+        )
 
 
 # ===========================================================================
