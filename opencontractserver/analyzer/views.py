@@ -1,4 +1,3 @@
-import hmac
 import json
 import logging
 
@@ -95,11 +94,10 @@ class AnalysisCallbackView(APIView):
             return auth_error_response
         else:
 
-            # Use timing-safe comparison to prevent token leakage via
-            # response time analysis.
-            if not hmac.compare_digest(
-                str(analysis.callback_token), str(callback_token)
-            ):
+            # Hash-and-compare via the model helper. Constant-time check
+            # is performed inside ``verify_callback_token``; the database
+            # only stores the SHA-256 of the plaintext token.
+            if not analysis.verify_callback_token(callback_token):
                 # Do NOT mark the analysis as FAILED here -- an attacker
                 # could enumerate analysis IDs and DoS legitimate runs by
                 # sending requests with invalid tokens.
