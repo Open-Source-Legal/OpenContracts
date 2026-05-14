@@ -16,15 +16,25 @@ recursive CTE per result.
 
 Notes
 -----
-* Operates only on structural annotations attached to the document. The
-  rows created here are themselves structural and are picked up by
+* Operates on structural annotations attached to the document. The rows
+  created here are themselves structural and are picked up by
   ``BaseParser._create_structural_annotation_set`` and migrated onto the
-  document's ``StructuralAnnotationSet`` automatically.
-* Idempotent: prior ``OC_SUBTREE_GROUP`` rows on the document are
-  deleted before fresh rows are created, so re-parses converge.
+  document's ``StructuralAnnotationSet`` automatically on first parse.
+* Idempotent: prior ``OC_SUBTREE_GROUP`` rows for the document are
+  deleted before fresh rows are created — regardless of whether they
+  live under ``document`` (first parse) or under the document's
+  ``StructuralAnnotationSet`` (re-parse), so re-parses converge.
+* Re-parses: when a document already has a ``StructuralAnnotationSet``,
+  ``BaseParser._create_structural_annotation_set`` returns early without
+  re-running the migration. To avoid orphaned ``document``-scoped rows
+  in that scenario, freshly created subtree-group ``Relationship`` rows
+  are migrated to the existing structural set here, in step 7.
 * Guardrails: subtrees larger than ``SUBTREE_GROUP_MAX_DESCENDANTS`` are
   skipped; the walker prunes branches deeper than
   ``SUBTREE_GROUP_MAX_DEPTH`` and detects cycles defensively.
+* The built-in ``OC_SUBTREE_GROUP`` label is system-wide (resolved by
+  ``(text, label_type, analyzer)`` ignoring creator) to avoid silently
+  proliferating per-user duplicates across multi-user installations.
 """
 
 from __future__ import annotations
@@ -72,13 +82,20 @@ def build_subtree_groups_for_document(
         Number of OC_SUBTREE_GROUP relationships created on this run.
     """
     # ------------------------------------------------------------------ #
-    # 1. Pull every structural annotation on the document with parent FKs.
+    # 1. Pull every structural annotation on the document, regardless of
+    #    whether it is still scoped to ``document`` (first parse) or has
+    #    already been migrated to a ``StructuralAnnotationSet`` (re-parse).
     # ------------------------------------------------------------------ #
-    parent_pairs = list(
-        Annotation.objects.filter(
-            document=document, structural=True, structural_set__isnull=True
-        ).values_list("id", "parent_id")
+    structural_set_id = document.structural_annotation_set_id
+    annotation_qs = Annotation.objects.filter(
+        document=document, structural=True, structural_set__isnull=True
     )
+    if structural_set_id is not None:
+        annotation_qs = annotation_qs | Annotation.objects.filter(
+            structural=True, structural_set_id=structural_set_id
+        )
+
+    parent_pairs = list(annotation_qs.values_list("id", "parent_id"))
     if not parent_pairs:
         return 0
 
@@ -101,14 +118,21 @@ def build_subtree_groups_for_document(
         children[parent_id].append(child_id)
 
     # Future-proofing: also consume any parent-style structural
-    # Relationship rows already on the document. Currently no parser
-    # emits these, but analyzers may, and the cost is negligible.
+    # Relationship rows already on the document or its structural set.
+    # Currently no parser emits these, but analyzers may, and the cost
+    # is negligible.
     rels_qs = Relationship.objects.filter(
         document=document,
         structural=True,
         structural_set__isnull=True,
         relationship_label__text=OC_PARENT_CHILD_LABEL_NAME,
     ).prefetch_related("source_annotations", "target_annotations")
+    if structural_set_id is not None:
+        rels_qs = rels_qs | Relationship.objects.filter(
+            structural=True,
+            structural_set_id=structural_set_id,
+            relationship_label__text=OC_PARENT_CHILD_LABEL_NAME,
+        ).prefetch_related("source_annotations", "target_annotations")
     for rel in rels_qs:
         source_ids = [a.id for a in rel.source_annotations.all()]
         target_ids = [a.id for a in rel.target_annotations.all()]
@@ -125,14 +149,24 @@ def build_subtree_groups_for_document(
                 children[src].append(tgt)
 
     # ------------------------------------------------------------------ #
-    # 3. Idempotency: drop any prior OC_SUBTREE_GROUP rows on the doc.
+    # 3. Idempotency: drop any prior OC_SUBTREE_GROUP rows for this
+    #    document. Cover BOTH scoping cases: rows still on ``document``
+    #    (first parse) and rows already migrated onto the document's
+    #    ``StructuralAnnotationSet`` (re-parse).
     # ------------------------------------------------------------------ #
-    Relationship.objects.filter(
+    delete_qs = Relationship.objects.filter(
         document=document,
         structural=True,
         structural_set__isnull=True,
         relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
-    ).delete()
+    )
+    if structural_set_id is not None:
+        delete_qs = delete_qs | Relationship.objects.filter(
+            structural=True,
+            structural_set_id=structural_set_id,
+            relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+        )
+    delete_qs.delete()
 
     non_leaves = [pk for pk in structural_pks if children.get(pk)]
     if not non_leaves:
@@ -215,27 +249,52 @@ def build_subtree_groups_for_document(
 
     # ------------------------------------------------------------------ #
     # 6. Resolve / create the built-in OC_SUBTREE_GROUP label.
+    #
+    # ``AnnotationLabel.UniqueConstraint`` keys on ``(analyzer, text,
+    # creator, label_type)``. Using ``get_or_create`` with
+    # ``creator_id=user_id`` in the lookup would silently fork a
+    # per-user copy of this system-wide built-in label in multi-user
+    # installations. Filter first (ignoring creator) and only create as
+    # a fallback so the label converges to a single row over time. A
+    # race between two concurrent first-time parses is bounded by the
+    # unique constraint — the loser raises ``IntegrityError`` rather
+    # than silently producing duplicates.
     # ------------------------------------------------------------------ #
-    label, _ = AnnotationLabel.objects.get_or_create(
-        text=OC_SUBTREE_GROUP_LABEL_NAME,
-        label_type=RELATIONSHIP_LABEL,
-        creator_id=user_id,
-        analyzer=None,
-        defaults={
-            "description": "Materialised subtree of structural annotations",
-            "color": "gray",
-            "icon": "sitemap",
-            "read_only": True,
-        },
+    label = (
+        AnnotationLabel.objects.filter(
+            text=OC_SUBTREE_GROUP_LABEL_NAME,
+            label_type=RELATIONSHIP_LABEL,
+            analyzer=None,
+        )
+        .order_by("id")
+        .first()
     )
+    if label is None:
+        label = AnnotationLabel.objects.create(
+            text=OC_SUBTREE_GROUP_LABEL_NAME,
+            label_type=RELATIONSHIP_LABEL,
+            creator_id=user_id,
+            analyzer=None,
+            description="Materialised subtree of structural annotations",
+            color="gray",
+            icon="sitemap",
+            read_only=True,
+        )
 
     # ------------------------------------------------------------------ #
     # 7. Create one Relationship per non-leaf within the size cap.
     #
     # ``Relationship.save()`` calls ``clean()`` on every save, so we use
     # ``.create()`` (not ``bulk_create``) to preserve validation. The
-    # row count is bounded by the structural-annotation tree depth and
-    # is small relative to the annotation count.
+    # row count is bounded by the number of non-leaf structural
+    # annotations and is small relative to the total annotation count.
+    #
+    # Scope: on a first parse the structural set has not been created
+    # yet, so new rows are scoped to ``document``; the parser then
+    # migrates them to the set in ``_create_structural_annotation_set``.
+    # On a re-parse the structural set already exists, so we attach
+    # straight to it — otherwise the early-return in that method would
+    # leave us with orphaned ``document``-scoped rows.
     # ------------------------------------------------------------------ #
     created = 0
     for node in non_leaves:
@@ -252,12 +311,20 @@ def build_subtree_groups_for_document(
                 max_descendants,
             )
             continue
-        rel = Relationship.objects.create(
-            relationship_label=label,
-            document=document,
-            creator_id=user_id,
-            structural=True,
-        )
+        if structural_set_id is not None:
+            rel = Relationship.objects.create(
+                relationship_label=label,
+                structural_set_id=structural_set_id,
+                creator_id=user_id,
+                structural=True,
+            )
+        else:
+            rel = Relationship.objects.create(
+                relationship_label=label,
+                document=document,
+                creator_id=user_id,
+                structural=True,
+            )
         rel.source_annotations.add(node)
         rel.target_annotations.add(*descs)
         created += 1

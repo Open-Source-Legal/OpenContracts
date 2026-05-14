@@ -175,14 +175,37 @@ class SubtreeGroupMaterializationTestCase(TestCase):
         )
 
     def test_subtree_groups_handle_cycle(self) -> None:
-        # Inject a cycle by updating A's parent to point at one of A's children.
-        # Using .update() to bypass any validation hooks.
-        Annotation.objects.filter(pk=self.A.pk).update(parent_id=self.x.id)
-        # Now: A.parent = x and x.parent = A — a 2-cycle.
-        # build_subtree_groups should terminate without raising.
-        created = build_subtree_groups_for_document(self.document, self.user.id)
-        # Should still create at least one group (N's), and not loop.
+        # Build a parent-child Relationship edge from x -> A that closes
+        # the loop N -> A -> x -> A back into A. The DFS descends through
+        # N -> A -> x and, when expanding x's children, finds A still on
+        # the stack — the ``on_stack`` branch must fire (logging a
+        # warning) instead of recursing forever.
+        pc_label = AnnotationLabel.objects.create(
+            text=OC_PARENT_CHILD_LABEL_NAME,
+            label_type=RELATIONSHIP_LABEL,
+            creator=self.user,
+        )
+        rel = Relationship.objects.create(
+            relationship_label=pc_label,
+            document=self.document,
+            structural=True,
+            creator=self.user,
+        )
+        rel.source_annotations.add(self.x)
+        rel.target_annotations.add(self.A)
+
+        with patch("opencontractserver.utils.subtree_groups.logger") as mock_logger:
+            created = build_subtree_groups_for_document(self.document, self.user.id)
+
+        # Should still materialise at least one group and not loop.
         self.assertGreaterEqual(created, 1)
+        # ``on_stack`` detection must fire at least once for the cycle.
+        cycle_warnings = [
+            c
+            for c in mock_logger.warning.call_args_list
+            if "Cycle detected" in c.args[0]
+        ]
+        self.assertGreaterEqual(len(cycle_warnings), 1)
 
     def test_subtree_groups_respect_depth_cap(self) -> None:
         # Chain: deep0 -> deep1 -> deep2 -> deep3 -> deep4 (5 levels)
@@ -256,6 +279,64 @@ class SubtreeGroupMaterializationTestCase(TestCase):
         assert n_group is not None
         self.assertIn(
             z.id, set(n_group.target_annotations.values_list("id", flat=True))
+        )
+
+    def test_label_does_not_proliferate_per_user(self) -> None:
+        """The OC_SUBTREE_GROUP label is system-wide; running the builder for
+        a different user must not fork a second label."""
+        build_subtree_groups_for_document(self.document, self.user.id)
+        other = User.objects.create_user(username="ernie", password="pw")
+        # Wipe groups so the second invocation re-creates them under a
+        # different user_id.
+        Relationship.objects.filter(
+            document=self.document,
+            relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+        ).delete()
+        build_subtree_groups_for_document(self.document, other.id)
+        labels = AnnotationLabel.objects.filter(
+            text=OC_SUBTREE_GROUP_LABEL_NAME,
+            label_type=RELATIONSHIP_LABEL,
+            analyzer=None,
+        )
+        self.assertEqual(labels.count(), 1)
+
+    def test_re_parse_after_structural_set_exists(self) -> None:
+        """Re-running the builder after a structural set has been migrated
+        attaches new rows to the set and cleans up the prior generation."""
+
+        class _ShimParser(BaseParser):
+            title = "shim-parser"
+
+            def _parse_document_impl(self, *args, **kwargs):
+                return None
+
+        parser = _ShimParser()
+
+        # First parse: groups under document, then migrate to structural set.
+        build_subtree_groups_for_document(self.document, self.user.id)
+        parser._create_structural_annotation_set(self.document, self.user)
+        self.document.refresh_from_db()
+        struct_set_id = self.document.structural_annotation_set_id
+        assert struct_set_id is not None
+
+        # Second invocation simulates a re-parse: structural set already
+        # exists, no document-scoped structural annotations remain.
+        created = build_subtree_groups_for_document(self.document, self.user.id)
+
+        # New rows are scoped directly to the structural set …
+        self.assertEqual(created, 2)
+        on_set = Relationship.objects.filter(
+            structural_set_id=struct_set_id,
+            relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+        )
+        self.assertEqual(on_set.count(), 2)
+        # … and no orphaned document-scoped rows are left behind.
+        self.assertEqual(
+            Relationship.objects.filter(
+                document=self.document,
+                relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+            ).count(),
+            0,
         )
 
     def test_size_cap_warning_logged(self) -> None:
