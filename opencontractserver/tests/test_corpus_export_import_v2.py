@@ -151,6 +151,21 @@ class TestV2ExportUtilities(TransactionTestCase):
             structural=True,
             creator=self.user,
         )
+        # Second annotation carries a ``link_url`` so the export-side
+        # ``if annot.link_url: annot_data["link_url"] = ...`` branch in
+        # ``package_structural_annotation_set`` is exercised. Without
+        # this, the OC_URL passthrough silently drops on round-trip and
+        # forked corpora lose their clickable targets.
+        Annotation.objects.create(
+            structural_set=struct_set,
+            annotation_label=self.text_label,
+            raw_text="Linked annotation",
+            page=0,
+            json={"0": {"bounds": {}, "tokensJsons": [], "rawText": "Linked"}},
+            structural=True,
+            creator=self.user,
+            link_url="https://example.com/structural",
+        )
 
         # Export
         result = package_structural_annotation_set(struct_set)
@@ -160,8 +175,17 @@ class TestV2ExportUtilities(TransactionTestCase):
         self.assertEqual(result["content_hash"], "test_hash_123")
         self.assertEqual(result["parser_name"], "docling")
         self.assertEqual(result["page_count"], 1)
-        self.assertEqual(len(result["structural_annotations"]), 1)
+        self.assertEqual(len(result["structural_annotations"]), 2)
         self.assertEqual(result["txt_content"], txt_content)
+        # The link_url must round-trip on the OC_URL-bearing structural
+        # annotation while the plain one is omitted entirely.
+        link_urls = [a.get("link_url") for a in result["structural_annotations"]]
+        self.assertIn("https://example.com/structural", link_urls)
+        # Plain annotation must NOT have the key — absence vs explicit
+        # None is the wire-format contract for importers.
+        for annot in result["structural_annotations"]:
+            if annot["rawText"] == "Test annotation":
+                self.assertNotIn("link_url", annot)
 
     def test_package_corpus_folders(self):
         """Test exporting corpus folder hierarchy."""

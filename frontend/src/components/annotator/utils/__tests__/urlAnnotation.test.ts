@@ -21,7 +21,7 @@ import {
   ServerSpanAnnotation,
   ServerTokenAnnotation,
 } from "../../types/annotations";
-import { isUrlAnnotation, openAnnotationUrl } from "../urlAnnotation";
+import { isSafeUrl, isUrlAnnotation, openAnnotationUrl } from "../urlAnnotation";
 import type { AnnotationLabelType } from "../../../../types/graphql-api";
 
 // SemanticICONS unions are unwieldy in tests; cast via ``unknown`` once
@@ -235,5 +235,45 @@ describe("openAnnotationUrl", () => {
       "_blank",
       "noopener,noreferrer"
     );
+  });
+});
+
+describe("isSafeUrl", () => {
+  // Direct coverage of the exported helper used by authoring UIs
+  // (``CreateUrlAnnotationModal`` shares it via import) so the
+  // empty-string branch is exercised independently of
+  // ``openAnnotationUrl`` (which short-circuits earlier on ``!url``).
+  it("returns false for an empty string", () => {
+    expect(isSafeUrl("")).toBe(false);
+  });
+
+  it("returns false for a whitespace-only string", () => {
+    // ``isSafeUrl`` trims internally and then checks the *normalised*
+    // length, so leading/trailing whitespace must collapse to false.
+    expect(isSafeUrl("   ")).toBe(false);
+    expect(isSafeUrl("\t\n  ")).toBe(false);
+  });
+
+  it("returns true for absolute http(s) URLs", () => {
+    expect(isSafeUrl("http://example.com")).toBe(true);
+    expect(isSafeUrl("https://example.com/path")).toBe(true);
+    // Case-insensitive scheme.
+    expect(isSafeUrl("HTTPS://EXAMPLE.COM")).toBe(true);
+  });
+
+  it("returns true for site-relative paths", () => {
+    expect(isSafeUrl("/corpus/foo")).toBe(true);
+  });
+
+  it("rejects protocol-relative URLs (open-redirect guard)", () => {
+    expect(isSafeUrl("//evil.com")).toBe(false);
+    expect(isSafeUrl("//evil.com/path?x=1")).toBe(false);
+  });
+
+  it("rejects dangerous schemes", () => {
+    expect(isSafeUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeUrl("data:text/html,<script>")).toBe(false);
+    expect(isSafeUrl("file:///etc/passwd")).toBe(false);
+    expect(isSafeUrl("ftp://example.com")).toBe(false);
   });
 });

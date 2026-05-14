@@ -147,6 +147,13 @@ interface WrapperOptions {
   mocks?: MockedResponse[];
   withCorpus?: boolean;
   withDocument?: boolean;
+  /**
+   * Optional override for the mock document's ``fileType``. Defaults to
+   * ``application/txt`` (span-based). Use ``application/pdf`` to drive
+   * the Token-annotation branch in hooks that switch on file type
+   * (e.g. ``useCreateUrlAnnotation`` for PDFs).
+   */
+  fileType?: string;
   initialAnnotations?: (ServerSpanAnnotation | ServerTokenAnnotation)[];
   initialRelations?: RelationGroup[];
   initialDocTypes?: DocTypeAnnotation[];
@@ -157,14 +164,21 @@ const buildWrapper = (options: WrapperOptions = {}) => {
     mocks = [],
     withCorpus = true,
     withDocument = true,
+    fileType,
     initialAnnotations = [],
     initialRelations = [],
     initialDocTypes = [],
   } = options;
 
+  const documentForAtom = withDocument
+    ? fileType
+      ? { ...mockDocument, fileType }
+      : mockDocument
+    : null;
+
   const Hydrate = ({ children }: { children: ReactNode }) => {
     useHydrateAtoms([
-      [selectedDocumentAtom, withDocument ? mockDocument : null],
+      [selectedDocumentAtom, documentForAtom],
       [
         corpusStateAtom,
         {
@@ -673,6 +687,118 @@ describe("AnnotationHooks", () => {
 
       expect(result.current.state.pdfAnnotations.annotations).toHaveLength(0);
     });
+
+    it("short-circuits without a selected document", async () => {
+      // The hook checks both ``selectedCorpus`` *and* ``selectedDocument``.
+      // The corpus-only short-circuit is covered above; this exercises the
+      // document branch (else-leg of the ``!selectedCorpus || !selectedDocument``
+      // guard) so the no-document log/warning path is locked in.
+      const ann = makeSpan("local");
+      const { result } = renderHook(
+        () => ({
+          create: useCreateUrlAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        { wrapper: buildWrapper({ withDocument: false }) }
+      );
+
+      await act(async () => {
+        await result.current.create(ann, "https://example.com");
+      });
+
+      expect(result.current.state.pdfAnnotations.annotations).toHaveLength(0);
+    });
+
+    it("creates a ServerTokenAnnotation for PDF documents on success", async () => {
+      // Companion to the Span-branch test above. PDFs use Token annotations,
+      // so the hook's ``isSpanBasedFileType(...) ? Span : Token`` ternary must
+      // produce a ``ServerTokenAnnotation`` with the server-returned linkUrl
+      // when the selected document is a PDF. Without this test, the Token
+      // branch (and ``created.linkUrl`` passthrough on the Token wrapper)
+      // is never exercised — exactly the 3 misses + 4 partials codecov
+      // flagged in ``AnnotationHooks.tsx`` for this PR.
+      const pdfTokenAnn = new ServerTokenAnnotation(
+        0,
+        mockLabel,
+        "hello",
+        false,
+        { 0: { bounds: {}, tokensJsons: [], rawText: "hello" } } as any,
+        [
+          PermissionTypes.CAN_READ,
+          PermissionTypes.CAN_UPDATE,
+          PermissionTypes.CAN_REMOVE,
+        ],
+        false,
+        false,
+        false,
+        "local-pdf-tmp"
+      );
+      const serverId = "server-pdf-url";
+      const linkUrl = "https://example.com/pdf";
+
+      const mocks: MockedResponse[] = [
+        {
+          request: {
+            query: REQUEST_ADD_URL_ANNOTATION,
+            variables: {
+              json: pdfTokenAnn.json,
+              documentId: mockDocument.id,
+              corpusId: mockCorpus.id,
+              rawText: pdfTokenAnn.rawText,
+              page: pdfTokenAnn.page,
+              annotationType: LabelType.TokenLabel,
+              linkUrl,
+            },
+          },
+          result: {
+            data: {
+              addUrlAnnotation: {
+                ok: true,
+                message: "OK",
+                annotation: {
+                  id: serverId,
+                  page: 0,
+                  rawText: "hello",
+                  json: {
+                    "0": { bounds: {}, tokensJsons: [], rawText: "hello" },
+                  },
+                  linkUrl,
+                  annotationType: LabelType.TokenLabel,
+                  annotationLabel: ocUrlLabel,
+                  myPermissions: ["CAN_READ", "CAN_UPDATE", "CAN_REMOVE"],
+                  isPublic: false,
+                },
+              },
+            },
+          },
+        },
+      ];
+
+      const { result } = renderHook(
+        () => ({
+          create: useCreateUrlAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        {
+          wrapper: buildWrapper({
+            mocks,
+            fileType: "application/pdf",
+          }),
+        }
+      );
+
+      await act(async () => {
+        await result.current.create(pdfTokenAnn, linkUrl);
+      });
+
+      const stored = result.current.state.pdfAnnotations.annotations;
+      expect(stored).toHaveLength(1);
+      expect(stored[0].id).toBe(serverId);
+      expect(stored[0].linkUrl).toBe(linkUrl);
+      // Critical assertion: the hook must have produced a Token annotation,
+      // not a Span one, when the document is a PDF.
+      expect(stored[0]).toBeInstanceOf(ServerTokenAnnotation);
+    });
   });
 
   describe("useUpdateAnnotation", () => {
@@ -719,6 +845,73 @@ describe("AnnotationHooks", () => {
         "ann-1"
       );
       expect(result.current.state.pdfAnnotations.unsavedChanges).toBe(true);
+    });
+
+    it("preserves linkUrl on the Token branch for PDF documents", async () => {
+      // The PDF (Token) branch in useUpdateAnnotation has the same
+      // ``annotation.linkUrl ?? null`` constructor parameter as the Span
+      // branch, but a separate code path. Without a PDF-typed wrapper,
+      // the Token-branch line (501 in AnnotationHooks.tsx) stays unhit
+      // and codecov flags it as a missed patch.
+      const existing = new ServerTokenAnnotation(
+        0,
+        mockLabel,
+        "hello",
+        false,
+        { 0: { bounds: {}, tokensJsons: [], rawText: "hello" } } as any,
+        [
+          PermissionTypes.CAN_READ,
+          PermissionTypes.CAN_UPDATE,
+          PermissionTypes.CAN_REMOVE,
+        ],
+        false,
+        false,
+        false,
+        "ann-pdf-1",
+        undefined,
+        "https://example.com/keep-on-update"
+      );
+      const mocks: MockedResponse[] = [
+        {
+          request: {
+            query: REQUEST_UPDATE_ANNOTATION,
+            variables: {
+              id: existing.id,
+              json: existing.json,
+              rawText: existing.rawText,
+              page: existing.page,
+              annotationLabel: mockLabel.id,
+              linkUrl: existing.linkUrl,
+            },
+          },
+          result: {
+            data: { updateAnnotation: { ok: true, message: "ok" } },
+          },
+        },
+      ];
+
+      const { result } = renderHook(
+        () => ({
+          update: useUpdateAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        {
+          wrapper: buildWrapper({
+            mocks,
+            initialAnnotations: [existing],
+            fileType: "application/pdf",
+          }),
+        }
+      );
+
+      await act(async () => {
+        await result.current.update(existing);
+      });
+
+      const stored = result.current.state.pdfAnnotations.annotations;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toBeInstanceOf(ServerTokenAnnotation);
+      expect(stored[0].linkUrl).toBe("https://example.com/keep-on-update");
     });
 
     it("updates one annotation in place without dropping siblings", async () => {

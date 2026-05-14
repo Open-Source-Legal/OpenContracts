@@ -265,6 +265,66 @@ class ValidateLinkUrlTests(TestCase):
         ann.refresh_from_db()
         self.assertIsNone(ann.link_url)
 
+    def test_save_validates_link_url_when_json_validation_disabled(self):
+        # ``save()`` has an ``elif`` branch that runs when
+        # ``VALIDATE_ANNOTATION_JSON`` is False: ``clean()`` was skipped
+        # so the override must validate ``link_url`` itself, otherwise an
+        # unsafe scheme would slip past the last line of defence whenever
+        # JSON validation is disabled in production.
+        from django.test import override_settings
+
+        user = User.objects.create_user(username="u4", password="x")
+        doc = Document.objects.create(
+            title="doc", creator=user, is_public=False, backend_lock=False
+        )
+        label = AnnotationLabel.objects.create(
+            text="L", label_type=TOKEN_LABEL, creator=user
+        )
+        ann = Annotation(
+            page=0,
+            raw_text="hello",
+            document=doc,
+            annotation_label=label,
+            creator=user,
+            annotation_type=TOKEN_LABEL,
+            link_url="javascript:alert(1)",
+            json={"0": {"bounds": {}, "rawText": "hello", "tokensJsons": []}},
+        )
+        # DEBUG=False + VALIDATE_ANNOTATION_JSON not set -> skips clean(),
+        # forcing the save-side validation branch to fire.
+        with override_settings(DEBUG=False, VALIDATE_ANNOTATION_JSON=False):
+            with self.assertRaises(ValidationError):
+                ann.save()
+
+    def test_save_normalises_link_url_whitespace_when_json_validation_disabled(self):
+        # Companion to the test above: the save-side ``elif`` branch must
+        # also strip whitespace and collapse whitespace-only to ``None``
+        # so the column stays canonical regardless of which path
+        # persisted it.
+        from django.test import override_settings
+
+        user = User.objects.create_user(username="u5", password="x")
+        doc = Document.objects.create(
+            title="doc", creator=user, is_public=False, backend_lock=False
+        )
+        label = AnnotationLabel.objects.create(
+            text="L", label_type=TOKEN_LABEL, creator=user
+        )
+        ann = Annotation(
+            page=0,
+            raw_text="hello",
+            document=doc,
+            annotation_label=label,
+            creator=user,
+            annotation_type=TOKEN_LABEL,
+            link_url="   ",
+            json={"0": {"bounds": {}, "rawText": "hello", "tokensJsons": []}},
+        )
+        with override_settings(DEBUG=False, VALIDATE_ANNOTATION_JSON=False):
+            ann.save()
+        ann.refresh_from_db()
+        self.assertIsNone(ann.link_url)
+
 
 class AddUrlAnnotationMutationTests(TestCase):
     """Coverage of the ``addUrlAnnotation`` GraphQL mutation."""
@@ -527,3 +587,106 @@ class UpdateAnnotationLinkUrlTests(TestCase):
         # fails the assertion — silent absence is not success.
         payload = (result.get("data") or {}).get("updateAnnotation") or {}
         self.assertFalse(payload.get("ok", True))
+
+
+class LinkUrlExporterTests(TestCase):
+    """Coverage of ``link_url`` passthrough in the ETL exporters.
+
+    Two independent code paths emit ``link_url`` into the export schema:
+      * ``utils.etl.build_document_export`` (per-document V1 export, fork)
+      * ``utils.export_v2.package_structural_annotation_set`` (structural
+        sets in V2 export, indirectly via test_corpus_export_import_v2)
+
+    Both branches are guarded by ``if annot.link_url:``. Without a test
+    that uses an annotation with ``link_url`` set, the *inside* of the
+    ``if`` block stays unhit and codecov flags those lines as missed
+    patches.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="exporter", password="x")
+        self.label = AnnotationLabel.objects.create(
+            text="Anchor", label_type=TOKEN_LABEL, creator=self.user
+        )
+        self.corpus = Corpus.objects.create(
+            title="Exporter Corpus", creator=self.user, is_public=False
+        )
+        self.document = Document.objects.create(
+            title="Exporter Doc",
+            creator=self.user,
+            is_public=False,
+            backend_lock=False,
+            page_count=1,
+            file_type="text/plain",
+        )
+
+    def test_build_document_export_emits_link_url(self):
+        """``etl.build_document_export`` must propagate link_url.
+
+        The branch ``if annot.link_url: annot_export["link_url"] = ...`` is
+        the contract for V1 export / corpus fork. Without it, OC_URL
+        annotations silently lose their click targets on round-trip.
+        """
+        from opencontractserver.types.enums import AnnotationFilterMode
+        from opencontractserver.utils.etl import (
+            build_document_export,
+            build_label_lookups,
+        )
+
+        Annotation.objects.create(
+            page=0,
+            raw_text="click here",
+            document=self.document,
+            corpus=self.corpus,
+            annotation_label=self.label,
+            creator=self.user,
+            annotation_type=TOKEN_LABEL,
+            link_url="https://example.com/exported",
+            json={"0": {"bounds": {}, "rawText": "click here", "tokensJsons": []}},
+        )
+
+        # Pre-build label lookups (mirrors what export_tasks does before
+        # invoking build_document_export per doc).
+        lookups = build_label_lookups(
+            corpus_id=self.corpus.id,
+            analysis_ids=None,
+            annotation_filter_mode=AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES,
+        )
+        # Ensure our text label is wired into lookups so the annotation
+        # passes the filter in build_document_export. build_label_lookups
+        # pulls labels via the corpus labelset + referenced labels, so add
+        # the label explicitly to the labelset for completeness.
+        from opencontractserver.annotations.models import LabelSet
+
+        labelset = LabelSet.objects.create(title="LS", creator=self.user)
+        labelset.annotation_labels.add(self.label)
+        self.corpus.label_set = labelset
+        self.corpus.save()
+        lookups = build_label_lookups(
+            corpus_id=self.corpus.id,
+            analysis_ids=None,
+            annotation_filter_mode=AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES,
+        )
+
+        (
+            doc_name,
+            base64_file,
+            doc_export_data,
+            text_lbls,
+            doc_lbls,
+        ) = build_document_export(
+            label_lookups=lookups,
+            doc_id=self.document.id,
+            corpus_id=self.corpus.id,
+            analysis_ids=None,
+            annotation_filter_mode=AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES,
+        )
+
+        # Find the annotation we wrote — it must carry the link_url in
+        # the export payload.
+        link_urls = [
+            a.get("link_url")
+            for a in doc_export_data.get("labelled_text", [])
+            if a.get("link_url")
+        ]
+        self.assertIn("https://example.com/exported", link_urls)
