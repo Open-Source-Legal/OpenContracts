@@ -531,6 +531,10 @@ test("timeline entry with agent_slug renders @agent chip in place of tool name",
     "aria-label",
     /agent research-bot/
   );
+
+  // Documentation screenshot — captures the timeline entry chip on the
+  // document chat surface.
+  await docScreenshot(page, "chat--agent-mention--timeline-entry");
 });
 
 /* -------------------------------------------------------------------------- */
@@ -582,6 +586,11 @@ test("typing @ in ChatTray opens agent picker and selecting inserts the markdown
     timeout: TIMEOUTS.MEDIUM,
   });
   await expect(page.getByText("Research Bot")).toBeVisible();
+
+  // Documentation screenshot — captures the @agent picker in its open
+  // state (a screenshot of the docs-quickstart "delegate to an agent"
+  // section).
+  await docScreenshot(page, "chat--agent-mention--popover-open");
 
   // Pick the agent
   await page.getByText("Research Bot").click();
@@ -964,6 +973,11 @@ test("approval modal shows requesting_agent attribution when present", async ({
   await expect(
     page.getByText("Tool: delete_thing", { exact: true })
   ).not.toBeVisible();
+
+  // Documentation screenshot — approval modal with sub-agent
+  // attribution. Mirrors the CorpusChat counterpart; the docs site
+  // alternates between the two surfaces.
+  await docScreenshot(page, "chat--agent-mention--approval-with-attribution");
 });
 
 test("handles tool rejection flow", async ({ mount, page }) => {
@@ -1858,6 +1872,106 @@ test.beforeEach(async ({ page }) => {
                     {
                       type: "thought",
                       text: "Searching for relevant information...",
+                    },
+                  ],
+                },
+              });
+              return;
+            }
+
+            // 2c. Pinned delegation — conductor delegates AND emits a
+            //     separate ASSISTANT message for the sub-agent so its
+            //     bubble is pinned in the conversation. The conductor's
+            //     timeline still carries the tool_call/result pair AND
+            //     the sub-agent's stream runs on its own `message_id`
+            //     (with parent_message_id pointing at the conductor's
+            //     id). This exercises the dual-bubble flow end to end.
+            if (query === "delegate pinned please") {
+              const subId = `${id}-sub`;
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "summarize", pin: true },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              // Pinned sub-agent's own stream.
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "Sub-agent says: ",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Sub-agent says: section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              // Conductor's tool_result + final answer.
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got pinned result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Sub-agent says: section 3 covers the warranty.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Per @research-bot, section 3 covers the warranty.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "summarize", pin: true },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Sub-agent says: section 3 covers the warranty.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
                     },
                   ],
                 },

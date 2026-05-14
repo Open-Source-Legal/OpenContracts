@@ -432,6 +432,111 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
+            // Pinned delegation — conductor delegates AND emits a separate
+            // ASSISTANT message for the sub-agent so its bubble is pinned
+            // in the conversation. The conductor's timeline still carries
+            // the tool_call/result pair AND the sub-agent's stream runs on
+            // its own `message_id` (with parent_message_id pointing at the
+            // conductor's id). This exercises the dual-bubble flow end to
+            // end.
+            if (query.includes("delegate pinned please")) {
+              const subId = `${id}-sub`;
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "summarize", pin: true },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              // Pinned sub-agent's own stream (separate message_id).
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "Sub-agent says: ",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Sub-agent says: section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              // Conductor's tool_result + final answer.
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got pinned result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Sub-agent says: section 3 covers the warranty.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Per @research-bot, section 3 covers the warranty.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "summarize", pin: true },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Sub-agent says: section 3 covers the warranty.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                  ],
+                },
+              });
+              return;
+            }
+
             // Tool call thought (exercises ASYNC_THOUGHT → tool_call timeline)
             if (query.includes("tool call please")) {
               emit({
@@ -1077,10 +1182,9 @@ test.describe("CorpusChat", () => {
     // Rich-mention agent delegation (Task 13) parity test with the
     // ChatTray equivalent — same payload shape, same chip assertions.
     // The CorpusChat ``appendThoughtToMessage`` plumbs the same
-    // ``agentId``/``agentSlug`` fields through to ``TimelineEntry`` (via
-    // the shared ``buildTimelineEntryFromAsyncThought`` helper) so the
-    // timeline renderer can swap the raw tool name for an ``@<slug>``
-    // chip.
+    // ``agentId``/``agentSlug`` fields through to ``TimelineEntry`` so
+    // the timeline renderer can swap the raw tool name for an
+    // ``@<slug>`` chip.
     const component = await mount(
       <CorpusChatTestWrapper
         mocks={[emptyConversationsMock, emptyConversationsMock]}
@@ -1113,6 +1217,117 @@ test.describe("CorpusChat", () => {
     for (const chip of await page.getByTestId("timeline-agent-chip").all()) {
       await expect(chip).toContainText("research-bot");
     }
+
+    await component.unmount();
+  });
+
+  test("pinned delegation surfaces sub-agent bubble with attribution chip on conversation load", async ({
+    mount,
+    page,
+  }) => {
+    // End-to-end pinned delegation flow: the backend persists a
+    // separate ASSISTANT row for the sub-agent (with
+    // ``agentConfiguration`` set and ``data.pinned = true``). When the
+    // conversation is re-hydrated via GET_CHAT_MESSAGES the ChatMessage
+    // widget renders the sub-agent bubble with a ``sub-agent-chip``
+    // attribution in its header, while the conductor's bubble stays
+    // unattributed.
+    //
+    // (Live streaming the dual-bubble flow is end-to-end coordinated
+    // between consumer + persistence + frontend; the conversation
+    // reload path is the deterministic, render-verifiable surface that
+    // we lock in here. The WS stub "delegate pinned please" branch
+    // documents the payload shape the consumer emits during live
+    // streaming and is exercised by the timeline-chip assertion above.)
+    const pinnedConversationMock: MockedResponse = {
+      request: {
+        query: GET_CHAT_MESSAGES,
+        variables: {
+          conversationId: TEST_CONVERSATION_ID,
+          limit: 10,
+        },
+      },
+      result: {
+        data: {
+          chatMessages: [
+            {
+              __typename: "ChatMessageType",
+              id: "srv-pinned-conductor",
+              msgType: "ASSISTANT",
+              agentType: null,
+              agentConfiguration: null,
+              content: "Per @research-bot, section 3 covers the warranty.",
+              state: "complete",
+              data: {},
+              creator: null,
+              mentionedResources: [],
+            },
+            {
+              __typename: "ChatMessageType",
+              id: "srv-pinned-subagent",
+              msgType: "ASSISTANT",
+              agentType: null,
+              agentConfiguration: {
+                __typename: "AgentConfigurationType",
+                id: "ag-1",
+                slug: "research-bot",
+                name: "Research Bot",
+                description: "Reads stuff",
+                scope: "GLOBAL",
+                badgeConfig: null,
+                avatarUrl: null,
+                corpus: null,
+              },
+              content: "Sub-agent says: section 3 covers the warranty.",
+              state: "complete",
+              data: { pinned: true, delegated_from: "srv-pinned-conductor" },
+              creator: null,
+              mentionedResources: [],
+            },
+          ],
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          pinnedConversationMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.getByText("First Conversation").click();
+
+    // Conductor's bubble lands.
+    await expect(
+      page.getByText("Per @research-bot, section 3 covers the warranty.", {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 10000 });
+    // Sub-agent's pinned bubble lands.
+    await expect(
+      page.getByText("Sub-agent says: section 3 covers the warranty.", {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 10000 });
+
+    // Exactly one sub-agent attribution chip — only the pinned
+    // sub-agent row carries `agentConfiguration`; the conductor row
+    // does not.
+    const chip = page.getByTestId("sub-agent-chip");
+    await expect(chip).toHaveCount(1, { timeout: 10000 });
+    await expect(chip).toContainText("research-bot");
+
+    // Documentation screenshot — the pinned sub-agent bubble is the
+    // headline UX for rich-mention agent delegation.
+    await docScreenshot(page, "chat--agent-mention--pinned-bubble");
 
     await component.unmount();
   });
