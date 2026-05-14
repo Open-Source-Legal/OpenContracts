@@ -24,13 +24,15 @@ import {
 import { isUrlAnnotation, openAnnotationUrl } from "../urlAnnotation";
 import type { AnnotationLabelType } from "../../../../types/graphql-api";
 
+// SemanticICONS unions are unwieldy in tests; cast via ``unknown`` once
+// at the constant boundary so the rest of the file stays well-typed.
 const ocUrlLabel: AnnotationLabelType = {
   id: "label-url",
   text: OC_URL_LABEL,
   color: "#2563EB",
   description: "url",
   labelType: LabelType.SpanLabel,
-  icon: "link" as any,
+  icon: "link" as unknown as AnnotationLabelType["icon"],
 };
 
 const otherLabel: AnnotationLabelType = {
@@ -39,7 +41,7 @@ const otherLabel: AnnotationLabelType = {
   color: "#333333",
   description: "",
   labelType: LabelType.SpanLabel,
-  icon: "tag" as any,
+  icon: "tag" as unknown as AnnotationLabelType["icon"],
 };
 
 function makeSpan(
@@ -71,7 +73,9 @@ function makeToken(
     label,
     "hello",
     false,
-    { 0: { bounds: {}, rawText: "hello", tokensJsons: [] } } as any,
+    {
+      0: { bounds: {}, rawText: "hello", tokensJsons: [] },
+    } as unknown as Record<string, unknown>,
     [PermissionTypes.CAN_READ],
     false,
     false,
