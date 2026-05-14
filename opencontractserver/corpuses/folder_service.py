@@ -102,145 +102,14 @@ class DocumentFolderService:
         documents = DocumentFolderService.get_folder_documents(user, corpus_id, folder_id)
 
         # Permission checks
-        can_read = DocumentFolderService.check_corpus_read_permission(user, corpus)
-        can_write = DocumentFolderService.check_corpus_write_permission(user, corpus)
+        can_read = corpus.user_can(user, PermissionTypes.READ)
+        can_write = corpus.user_can(user, PermissionTypes.UPDATE)
     """
 
     # =========================================================================
-    # PERMISSION CHECKING - DRY methods used by all operations
+    # PERMISSION CHECKING - delegates to ``corpus.user_can(user, perm)``
+    # (centralized in BaseOCModel / PermissionedTreeQuerySet.user_can).
     # =========================================================================
-
-    @classmethod
-    def check_corpus_read_permission(
-        cls,
-        user: UserOrAnonymous,
-        corpus: Corpus,
-    ) -> bool:
-        """
-        Check if user can READ the corpus (and view its folders).
-
-        Returns True if ANY of:
-        - User is superuser
-        - User is corpus creator
-        - Corpus is public (is_public=True)
-        - User has explicit READ permission via django-guardian
-
-        Args:
-            user: The user to check permissions for
-            corpus: The corpus to check access to
-
-        Returns:
-            True if user has read access, False otherwise
-        """
-        # Superuser has all permissions
-        if user.is_superuser:
-            return True
-
-        # Anonymous users can only access public corpuses
-        if user.is_anonymous:
-            return corpus.is_public
-
-        # Creator has full access
-        if corpus.creator_id == user.id:
-            return True
-
-        # Public corpuses are readable by all authenticated users
-        if corpus.is_public:
-            return True
-
-        # Check explicit guardian permission
-        return user_has_permission_for_obj(
-            user_val=user,
-            instance=corpus,
-            permission=PermissionTypes.READ,
-            include_group_permissions=True,
-        )
-
-    @classmethod
-    def check_corpus_write_permission(
-        cls,
-        user: User,
-        corpus: Corpus,
-    ) -> bool:
-        """
-        Check if user can WRITE to corpus (create/update/move/delete folders).
-
-        Returns True if ANY of:
-        - User is superuser
-        - User is corpus creator
-        - User has explicit UPDATE permission via django-guardian
-
-        CRITICAL: corpus.is_public=True does NOT grant write access.
-        This is a security-critical distinction from read access.
-
-        Args:
-            user: The user to check permissions for
-            corpus: The corpus to check write access to
-
-        Returns:
-            True if user has write access, False otherwise
-        """
-        # Superuser has all permissions
-        if user.is_superuser:
-            return True
-
-        # Anonymous users NEVER have write access
-        if user.is_anonymous:
-            return False
-
-        # Creator has full access
-        if corpus.creator_id == user.id:
-            return True
-
-        # CRITICAL: is_public does NOT grant write access
-        # Only check explicit UPDATE permission
-        return user_has_permission_for_obj(
-            user_val=user,
-            instance=corpus,
-            permission=PermissionTypes.UPDATE,
-            include_group_permissions=True,
-        )
-
-    @classmethod
-    def check_corpus_delete_permission(
-        cls,
-        user: User,
-        corpus: Corpus,
-    ) -> bool:
-        """
-        Check if user can DELETE from corpus (delete folders, soft-delete documents).
-
-        Returns True if ANY of:
-        - User is superuser
-        - User is corpus creator
-        - User has explicit DELETE permission via django-guardian
-
-        Args:
-            user: The user to check permissions for
-            corpus: The corpus to check delete access to
-
-        Returns:
-            True if user has delete access, False otherwise
-        """
-        # Superuser has all permissions
-        if user.is_superuser:
-            return True
-
-        # Anonymous users NEVER have delete access
-        if user.is_anonymous:
-            return False
-
-        # Creator has full access
-        if corpus.creator_id == user.id:
-            return True
-
-        # Check explicit DELETE permission
-        return user_has_permission_for_obj(
-            user_val=user,
-            instance=corpus,
-            permission=PermissionTypes.DELETE,
-            include_group_permissions=True,
-        )
 
     @classmethod
     def check_document_in_corpus(
@@ -303,7 +172,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return CorpusFolder.objects.none()
 
-        if not cls.check_corpus_read_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.READ):
             return CorpusFolder.objects.none()
 
         # Build optimized query
@@ -348,7 +217,7 @@ class DocumentFolderService:
             return None
 
         # Check corpus permission (folders inherit from corpus)
-        if not cls.check_corpus_read_permission(user, folder.corpus):
+        if not folder.corpus.user_can(user, PermissionTypes.READ):
             return None
 
         return folder
@@ -442,7 +311,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return Document.objects.none()
 
-        if not cls.check_corpus_read_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.READ):
             return Document.objects.none()
 
         # Build filters for DocumentPath
@@ -493,7 +362,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return set()
 
-        if not cls.check_corpus_read_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.READ):
             return set()
 
         # Build filters for DocumentPath
@@ -539,7 +408,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return DocumentPath.objects.none()
 
-        if not cls.check_corpus_read_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.READ):
             return DocumentPath.objects.none()
 
         return (
@@ -573,7 +442,7 @@ class DocumentFolderService:
         Returns:
             Document count, 0 if no access
         """
-        if not cls.check_corpus_read_permission(user, folder.corpus):
+        if not folder.corpus.user_can(user, PermissionTypes.READ):
             return 0
 
         if include_descendants:
@@ -632,7 +501,7 @@ class DocumentFolderService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 None,
                 "Permission denied: You do not have write access to this corpus",
@@ -702,7 +571,7 @@ class DocumentFolderService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not cls.check_corpus_write_permission(user, folder.corpus):
+        if not folder.corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -764,7 +633,7 @@ class DocumentFolderService:
             - New parent must be in same corpus
         """
         # Permission check
-        if not cls.check_corpus_write_permission(user, folder.corpus):
+        if not folder.corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -838,7 +707,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not cls.check_corpus_delete_permission(user, folder.corpus):
+        if not folder.corpus.user_can(user, PermissionTypes.DELETE):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -993,7 +862,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -1130,7 +999,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import Document, DocumentPath
 
         # Permission check
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return 0, "Permission denied: You do not have write access to this corpus"
 
         # Validate folder belongs to corpus
@@ -1840,7 +1709,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not cls.check_corpus_delete_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.DELETE):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -1908,7 +1777,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not cls.check_corpus_write_permission(user, document_path.corpus):
+        if not document_path.corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 False,
                 "You do not have permission to restore documents in this corpus",
@@ -1976,7 +1845,7 @@ class DocumentFolderService:
         from opencontractserver.documents.versioning import permanently_delete_document
 
         # Permission check - same as soft delete
-        if not cls.check_corpus_delete_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.DELETE):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -2016,7 +1885,7 @@ class DocumentFolderService:
         )
 
         # Permission check
-        if not cls.check_corpus_delete_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.DELETE):
             return (
                 0,
                 "Permission denied: You do not have delete access to this corpus",
@@ -2057,7 +1926,7 @@ class DocumentFolderService:
         """
         from opencontractserver.documents.models import DocumentPath
 
-        if not cls.check_corpus_read_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.READ):
             return None
 
         try:
@@ -2087,7 +1956,7 @@ class DocumentFolderService:
         Returns:
             Path string like "/Legal/Contracts/2024", None if no access
         """
-        if not cls.check_corpus_read_permission(user, folder.corpus):
+        if not folder.corpus.user_can(user, PermissionTypes.READ):
             return None
 
         return "/" + folder.get_path()
@@ -2165,7 +2034,7 @@ class DocumentFolderService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 {},
                 0,
@@ -2474,7 +2343,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission first
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 None,
                 "",
@@ -2553,7 +2422,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission AND document READ permission
         """
         # Check corpus write permission
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 None,
                 "",
@@ -2620,7 +2489,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import Document
 
         # Check corpus write permission
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 0,
                 [],
@@ -2677,7 +2546,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -2722,7 +2591,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission
-        if not cls.check_corpus_write_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.UPDATE):
             return 0, "Permission denied: You do not have write access to this corpus"
 
         # Get documents that are actually in this corpus
@@ -2805,7 +2674,7 @@ class DocumentFolderService:
         """
         from opencontractserver.documents.models import Document
 
-        if not cls.check_corpus_read_permission(user, corpus):
+        if not corpus.user_can(user, PermissionTypes.READ):
             return Document.objects.none()
 
         if include_deleted:

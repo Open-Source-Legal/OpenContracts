@@ -1798,7 +1798,10 @@ class TestExportDocumentRefFallbacks(TestCase):
         self.assertEqual(exported[0]["document_ref"], "fallback_doc.pdf")
 
     def test_document_ref_falls_back_to_id(self):
-        """document_ref should fall back to str(id) when no hash and no file."""
+        """document_ref should fall back to the synthesized placeholder filename
+        when no hash and no file are present. This mirrors
+        ``build_document_export``'s synthesized filename so the import-side
+        doc-ref map (keyed by hash OR zip filename) finds the entry."""
         from opencontractserver.utils.export_v2 import package_document_paths
 
         doc = Document.objects.create(
@@ -1815,7 +1818,7 @@ class TestExportDocumentRefFallbacks(TestCase):
         )
         exported = package_document_paths(self.corpus)
         self.assertEqual(len(exported), 1)
-        self.assertEqual(exported[0]["document_ref"], str(doc.id))
+        self.assertEqual(exported[0]["document_ref"], f"document_{doc.id}.placeholder")
 
     def test_export_parent_version_number(self):
         """Exported paths should include parent_version_number when parent exists."""

@@ -3,12 +3,19 @@ from django.conf import settings
 from django.db import models
 
 from opencontractserver.shared.Managers import BaseVisibilityManager
+from opencontractserver.shared.user_can_mixin import InstanceUserCanMixin
 
 
-class BaseOCModel(models.Model):
+class BaseOCModel(InstanceUserCanMixin, models.Model):
     """
     Base model for all OpenContracts models that has some properties it's nice to have on
     all models.
+
+    ``user_can(user, permission)`` is provided by ``InstanceUserCanMixin``
+    and routes through ``type(self)._default_manager.user_can``. The same
+    mixin is also applied directly to ``Corpus`` / ``CorpusFolder`` (which
+    extend ``TreeNode`` instead of ``BaseOCModel``) so every visibility-
+    managed model exposes the same ergonomic surface.
     """
 
     # All BaseOCModel subclasses get BaseVisibilityManager by default, providing
