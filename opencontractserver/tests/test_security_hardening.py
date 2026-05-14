@@ -579,10 +579,9 @@ class TestAddRelationshipDocumentIDOR(TestCase):
         """Unparseable global IDs collapse into the same IDOR-safe message
         rather than echoing a parse error to the caller.
 
-        ``from_global_id("not-a-global-id")`` raises ``binascii.Error`` which
-        is caught by the mutation's broad ``except Exception`` block. We use
-        a real but unknown-prefix global ID so the GraphQL parser accepts
-        the input shape but the inner decode still raises.
+        A b64-decodable but non-numeric pk now fails inside the outer
+        try/except via the ``int()`` cast, returning the unified
+        not-found response shape.
         """
         # b64("BogusType:not-an-int") = "Qm9ndXNUeXBlOm5vdC1hbi1pbnQ="
         bad_gid = "Qm9ndXNUeXBlOm5vdC1hbi1pbnQ="
@@ -594,15 +593,9 @@ class TestAddRelationshipDocumentIDOR(TestCase):
             "documentId": to_global_id("DocumentType", self.attacker_doc.id),
         }
         result = _gql(self.gql_client, self.mutation, self.attacker, variables)
-        # Allow either: mutation returned ok=False with our message, OR the
-        # source ID was decoded to a non-existent annotation pk and the count
-        # comparison rejected it. Either way the caller sees the IDOR-safe
-        # not-found message.
-        data = result.get("data") or {}
-        relation_data = data.get("addRelationship")
-        if relation_data is not None:
-            self.assertFalse(relation_data["ok"])
-            self.assertIn("not found", relation_data["message"].lower())
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
 
     def test_unknown_source_annotation_id_yields_not_found(self):
         """A valid-format but unknown source annotation id collapses into

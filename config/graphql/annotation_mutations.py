@@ -474,18 +474,25 @@ class AddRelationship(graphene.Mutation):
         )
 
         try:
-            source_pks = list(
-                map(lambda graphene_id: from_global_id(graphene_id)[1], source_ids)
-            )
-            target_pks = list(
-                map(lambda graphene_id: from_global_id(graphene_id)[1], target_ids)
-            )
-            relationship_label_pk = from_global_id(relationship_label_id)[1]
-            corpus_pk = from_global_id(corpus_id)[1]
-            document_pk = from_global_id(document_id)[1]
+            # Cast each parsed pk to int so non-numeric payloads (a global ID
+            # of "BogusType:not-an-int" decodes successfully but yields a
+            # string pk) fail closed inside this try/except instead of later
+            # at the queryset boundary. This keeps the IDOR surface flat:
+            # every bad-input path collapses to ``not_found_msg``.
+            source_pks = [
+                int(from_global_id(graphene_id)[1]) for graphene_id in source_ids
+            ]
+            target_pks = [
+                int(from_global_id(graphene_id)[1]) for graphene_id in target_ids
+            ]
+            relationship_label_pk = int(from_global_id(relationship_label_id)[1])
+            corpus_pk = int(from_global_id(corpus_id)[1])
+            document_pk = int(from_global_id(document_id)[1])
         except Exception:
-            # Bad / unparseable global IDs are indistinguishable from
-            # not-found to keep the IDOR surface flat.
+            # Bad / unparseable / non-integer global IDs are indistinguishable
+            # from not-found to keep the IDOR surface flat. ``Exception``
+            # catches ``binascii.Error`` from ``from_global_id`` on
+            # undecodable input AND ``ValueError`` from the ``int()`` cast.
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # Filter annotations through visible_to_user so unauthorized or

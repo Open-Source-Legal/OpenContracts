@@ -73,6 +73,14 @@ def restore_plaintext_tokens(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    """Atomic by design.
+
+    Add/backfill/drop must be one transaction so a partial run cannot leave
+    the column lacking a hash for live rows. The bulk_update path keeps the
+    transaction short by minimising round-trips. For very large
+    ``Analysis`` tables (10k+ rows), expect this migration to take a few
+    seconds of write lock; schedule accordingly.
+    """
 
     dependencies = [
         ("analyzer", "0020_update_checkconstraint_check_to_condition"),
