@@ -73,8 +73,11 @@ export function openAnnotationUrl(
   navigate?: (to: string) => void
 ): boolean {
   const url = annotation.linkUrl;
-  if (!url || !isSafeUrl(url)) return false;
+  if (!url) return false;
+  // Trim once and reuse for the safety check and the actual navigation;
+  // ``isSafeUrl`` would otherwise trim again internally.
   const normalized = url.trim();
+  if (!isSafeUrl(normalized)) return false;
   if (normalized.startsWith("/")) {
     if (navigate) {
       navigate(normalized);

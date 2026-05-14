@@ -477,12 +477,14 @@ class UpdateAnnotationLinkUrlTests(TestCase):
         # ValidationError; the original value must remain.
         before = self.annotation.link_url
         result = self._execute(link_url="javascript:alert(1)")
-        # GraphQL surface: DRFMutation returns ok=False on validation error.
-        # The exact key path is mutation-specific; what matters is the row
-        # was NOT updated.
+
+        # The row must NOT have been updated regardless of how the rejection
+        # surfaced (DRFMutation ok=False vs GraphQL-level error).
         self.annotation.refresh_from_db()
         self.assertEqual(self.annotation.link_url, before)
-        # The mutation should NOT have set ok=True
-        if "data" in result and result["data"]:
-            payload = result["data"].get("updateAnnotation") or {}
-            self.assertFalse(payload.get("ok", False))
+
+        # And the mutation must NOT report ok=True. Default to True in the
+        # ``.get`` so a missing/absent ``updateAnnotation`` payload still
+        # fails the assertion — silent absence is not success.
+        payload = (result.get("data") or {}).get("updateAnnotation") or {}
+        self.assertFalse(payload.get("ok", True))
