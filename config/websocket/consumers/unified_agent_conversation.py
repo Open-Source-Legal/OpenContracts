@@ -214,13 +214,23 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             await self.close(code=WS_CLOSE_UNAUTHENTICATED)
 
     async def disconnect(self, close_code: int) -> None:
-        """Clean up on socket close."""
+        """Clean up on socket close.
+
+        Cancels any in-flight sub-agent approval futures BEFORE clearing the
+        agent reference so awaiting delegation tool bodies unwind cleanly
+        instead of leaking asyncio tasks and leaving ``AWAITING_APPROVAL``
+        rows pinned forever.  ``on_approval``'s ``CancelledError`` handler
+        already pops each entry, so cancellation propagates without leaks.
+        """
         await self.cleanup_auth_handshake()
         self._is_connected = False
         logger.debug(
             f"[UnifiedAgent {self.consumer_id} | Session {self.session_id}] "
             f"disconnect() called. Code={close_code}"
         )
+        for future in list(self._pending_approvals.values()):
+            if not future.done():
+                future.cancel()
         self.agent = None
 
     # -------------------------------------------------------------------------
@@ -890,12 +900,24 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             async def on_finish(final_text: str) -> int | None:
                 """Persist the sub-agent's reply (pinned only) and emit ASYNC_FINISH.
 
-                When ``pin=False`` we skip persistence entirely — the
-                conductor's own tool_call/tool_result pair already captures
-                the delegation in the parent's timeline.
+                Single control path keyed off ``pin``:
+                  - ``pin=False``: skip persistence AND skip the
+                    ASYNC_FINISH frame entirely — the conductor's own
+                    tool_call/tool_result pair already captures the
+                    delegation in the parent's timeline.
+                  - ``pin=True``: emit ASYNC_FINISH so the pinned bubble
+                    closes cleanly.  Persistence is attempted only when
+                    ``conversation_id`` AND ``user_id`` are set (i.e. an
+                    authenticated, conversation-backed turn).  Anonymous
+                    ephemeral sessions can't persist a ChatMessage row but
+                    the FINISH frame is still useful for the in-memory
+                    chat state on the client.
                 """
+                if not pin:
+                    return None
+
                 pinned_message_id: int | None = None
-                if pin and consumer.conversation_id:
+                if consumer.conversation_id and consumer.user_id is not None:
                     from opencontractserver.conversations.models import (
                         ChatMessage as _ChatMessage,
                     )
@@ -911,8 +933,6 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                     parent_id = parent_message_id_box.get("value")
 
                     def _persist() -> int | None:
-                        if user_id is None:
-                            return None
                         message = _ChatMessage.objects.create(
                             conversation_id=conversation_id,
                             msg_type=_MessageTypeChoices.LLM,
@@ -941,27 +961,21 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                         )
                         pinned_message_id = None
 
-                # Emit ASYNC_FINISH for the pinned bubble (with the persisted
-                # row's id when available).  Unpinned delegations skip the
-                # frame — the conductor's own ASYNC_FINISH already closes
-                # the timeline entry.
-                if pin:
-                    await consumer._send_safe(
-                        msg_type="ASYNC_FINISH",
-                        content=final_text or "",
-                        data={
-                            "agent_id": agent.pk,
-                            "parent_message_id": parent_message_id_box.get("value"),
-                            "pinned_message_id": pinned_message_id,
-                            "sources": [],
-                            "timeline": [],
-                        },
-                    )
+                await consumer._send_safe(
+                    msg_type="ASYNC_FINISH",
+                    content=final_text or "",
+                    data={
+                        "agent_id": agent.pk,
+                        "parent_message_id": parent_message_id_box.get("value"),
+                        "pinned_message_id": pinned_message_id,
+                        "sources": [],
+                        "timeline": [],
+                    },
+                )
 
                 return pinned_message_id
 
             return StreamRelay(
-                parent_message_id=str(parent_message_id_box.get("value") or ""),
                 agent=agent,
                 pin=pin,
                 on_token=on_token,
@@ -1203,13 +1217,24 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         }
 
         The pending-approval map is keyed by ``(llm_message_id,
-        requesting_agent_id_or_None)``. Conductor approvals use ``None`` for
+        requesting_agent_id_or_None)``.  Conductor approvals use ``None`` for
         the agent component; sub-agent approvals use the AgentConfiguration
         pk.  We first look for ANY future keyed under the supplied message
         id — a sub-agent future wins because its presence implies the
         conductor is currently blocked inside a delegate_to_<slug> tool call
         waiting on this decision — and fall through to
         ``self.agent.resume_with_approval`` for the conductor path.
+
+        Safety: conductor + sub-agent approvals cannot collide under the
+        same ``llm_message_id``.  Sub-agent approvals are awaited inside
+        the delegation tool body (see
+        ``opencontractserver.llms.tools.delegation_tools.build_delegation_tool``);
+        because that body runs synchronously inside the conductor's tool
+        call, the conductor cannot proceed to its OWN approval-gated tool
+        call until all sub-agents have either resolved or errored.  Hence
+        the sub-agent future is always drained from
+        ``self._pending_approvals`` before the conductor can register one
+        of its own, making the routing unambiguous by construction.
         """
         approved: bool = bool(payload.get("approval_decision"))
         llm_msg_id = payload.get("llm_message_id")

@@ -226,7 +226,6 @@ class StreamRelayTests(TestCase):
             system_instructions="x",
         )
         relay = StreamRelay(
-            parent_message_id="msg-1",
             agent=agent,
             pin=False,
             on_token=noop,
@@ -234,7 +233,6 @@ class StreamRelayTests(TestCase):
             on_approval=noop_approval,
             on_finish=noop_finish,
         )
-        self.assertEqual(relay.parent_message_id, "msg-1")
         self.assertFalse(relay.pin)
         self.assertIs(relay.agent, agent)
 
@@ -432,7 +430,6 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
             return 4242  # pretend persisted message id
 
         relay = StreamRelay(
-            parent_message_id="parent-msg-1",
             agent=self.agent,
             pin=True,
             on_token=on_token,
@@ -563,3 +560,98 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
 
         self.assertIn("kaboom", result["result"])
         self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_returns_cycle_limit_error_when_exhausted(self):
+        """A sub-agent that perpetually emits ApprovalNeededEvent must
+        eventually be aborted with an explicit cycle-limit error string
+        rather than silently returning partial accumulated content.
+        """
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            MAX_DELEGATION_APPROVAL_CYCLES,
+            StreamRelay,
+            build_delegation_tool,
+        )
+
+        # Relay that auto-approves every approval — so the sub-agent's
+        # never-ending approval requests just keep cycling.
+        approvals_seen: list[int] = []
+
+        async def on_approval(_):
+            approvals_seen.append(1)
+            return {"approved": True, "llm_message_id": None}
+
+        async def noop_token(_):
+            return None
+
+        async def noop_thought(_t, _md):
+            return None
+
+        async def noop_finish(_):
+            return None
+
+        relay = StreamRelay(
+            agent=self.agent,
+            pin=False,
+            on_token=noop_token,
+            on_thought=noop_thought,
+            on_approval=on_approval,
+            on_finish=noop_finish,
+        )
+
+        # An async generator factory that always yields an approval_needed
+        # event and never settles — both ``stream(...)`` and
+        # ``resume_with_approval(...)`` return a fresh one of these so the
+        # tool body cycles forever (until the bound trips).
+        def _approval_event():
+            return _make_stub_event(
+                type="approval_needed",
+                content="",
+                accumulated_content="",
+                pending_tool_call={"name": "x", "arguments": {}},
+                llm_message_id=42,
+            )
+
+        class _LoopingAgent:
+            def __init__(self):
+                self.resume_calls = 0
+
+            def stream(self, prompt):
+                async def _gen():
+                    yield _approval_event()
+
+                return _gen()
+
+            def resume_with_approval(self, msg_id, approved, stream=True):
+                self.resume_calls += 1
+
+                async def _gen():
+                    yield _approval_event()
+
+                return _gen()
+
+        looping = _LoopingAgent()
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=lambda a, p: relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+            conversation=None,
+        )
+
+        with patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_factory:
+            mock_factory.return_value = looping
+            result = await tool.function(prompt="please", pin=False)
+
+        # The tool must have surfaced the explicit cycle-limit error string.
+        self.assertIn(
+            f"cycle limit ({MAX_DELEGATION_APPROVAL_CYCLES})", result["result"]
+        )
+        self.assertIn("aborting delegation", result["result"])
+        self.assertIsNone(result["pinned_message_id"])
+        # We must have stopped at exactly the bound — no more, no fewer.
+        self.assertEqual(looping.resume_calls, MAX_DELEGATION_APPROVAL_CYCLES)

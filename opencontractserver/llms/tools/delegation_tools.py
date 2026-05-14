@@ -25,6 +25,14 @@ from opencontractserver.llms.tools.tool_factory import CoreTool, ToolMetadata
 logger = logging.getLogger(__name__)
 
 
+# Maximum number of approval cycles per delegation tool call.
+# An "approval cycle" = sub-agent emits ApprovalNeededEvent -> user
+# decides -> sub-agent resumes.  Each cycle counts once.  Bounded to
+# prevent pathological loops (e.g. a malformed agent that keeps
+# triggering approvals on the same tool indefinitely).
+MAX_DELEGATION_APPROVAL_CYCLES = 8
+
+
 def filter_by_scope(
     qs: QuerySet[AgentConfiguration],
     *,
@@ -87,34 +95,37 @@ class StreamRelay:
     """Bridge from a sub-agent's event stream back through the WebSocket.
 
     Constructed by the consumer (which owns the socket) inside a per-turn
-    ``relay_factory`` and passed into the delegation tool body. The tool body
+    ``relay_factory`` and passed into the delegation tool body.  The tool body
     forwards sub-agent events through these callables; the consumer's factory
     is responsible for adding metadata enrichment (agent_id,
     parent_message_id, requesting_agent) before sending each frame.
 
+    The conductor's ``parent_message_id`` is NOT carried on this dataclass:
+    it is captured lazily by the consumer's relay closures via a shared
+    one-slot box that is filled in once the conductor emits its first
+    streamed event.  Persisting it on the dataclass would require either
+    constructing the relay after that first event (defeating the per-turn
+    factory pattern) or carrying stale ``None``/empty values, so the field
+    was removed and the closures read the box directly.
+
     Attributes:
-        parent_message_id: Identifier of the conductor LLM message this
-            sub-agent run is delegating *from*. The consumer uses this to
-            attribute timeline entries and pinned bubbles back to the parent
-            turn.
         agent: The ``AgentConfiguration`` of the sub-agent being invoked.
         pin: Whether the sub-agent's output should be rendered as a fully
             pinned message bubble (``True``) or only surfaced via the
             conductor's timeline as a tool_call / tool_result pair
             (``False``).
-        on_token: Awaitable invoked with each ContentEvent delta. Only
+        on_token: Awaitable invoked with each ContentEvent delta.  Only
             called when ``pin`` is true.
         on_thought: Awaitable invoked with each ThoughtEvent — receives
             ``(thought_text, metadata_dict)``.
         on_approval: Awaitable invoked when the sub-agent emits an
             ApprovalNeededEvent; the consumer may return a value (e.g. the
             approval message id) but the tool body does not require one.
-        on_finish: Awaitable invoked with the final concatenated text. The
+        on_finish: Awaitable invoked with the final concatenated text.  The
             consumer returns the persisted message id (or ``None``) so the
             tool body can echo it back to the conductor.
     """
 
-    parent_message_id: str
     agent: AgentConfiguration
     pin: bool
     on_token: Callable[[str], Awaitable[None]]
@@ -363,14 +374,16 @@ def build_delegation_tool(
             needs_resume, decision = await _drain_stream(sub_agent.stream(prompt))
             # Drive any approval-resume cycles inline so the conductor's
             # tool call only returns once the sub-agent has fully settled.
-            max_resume_loops = 8  # bound to prevent pathological loops
-            while needs_resume and max_resume_loops > 0:
+            # Bounded by MAX_DELEGATION_APPROVAL_CYCLES (module-level
+            # constant) to prevent pathological loops.
+            cycle_count = 0
+            while needs_resume and cycle_count < MAX_DELEGATION_APPROVAL_CYCLES:
                 if decision and decision.get("_error"):
                     return {
                         "result": decision["_error"],
                         "pinned_message_id": None,
                     }
-                max_resume_loops -= 1
+                cycle_count += 1
                 msg_id = (decision or {}).get("_sub_agent_msg_id")
                 approved = bool((decision or {}).get("approved", False))
                 if msg_id is None:
@@ -398,6 +411,25 @@ def build_delegation_tool(
             if decision and decision.get("_error"):
                 return {
                     "result": decision["_error"],
+                    "pinned_message_id": None,
+                }
+            # If we exited the loop because the cycle limit was hit (rather
+            # than the sub-agent naturally settling), surface that explicitly
+            # to the conductor instead of returning the partial accumulated
+            # text as if the run had succeeded.
+            if needs_resume and cycle_count >= MAX_DELEGATION_APPROVAL_CYCLES:
+                logger.warning(
+                    "[delegate_to_%s] Exceeded approval cycle limit (%d); "
+                    "aborting delegation.",
+                    snake_slug,
+                    MAX_DELEGATION_APPROVAL_CYCLES,
+                )
+                return {
+                    "result": (
+                        f"Sub-agent @{agent_slug} exceeded the approval "
+                        f"cycle limit ({MAX_DELEGATION_APPROVAL_CYCLES}); "
+                        "aborting delegation."
+                    ),
                     "pinned_message_id": None,
                 }
         except (PermissionError, ToolConfirmationRequired):

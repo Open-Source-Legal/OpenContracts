@@ -635,3 +635,247 @@ class UnifiedAgentConsumerDelegationTestCase(WebsocketFixtureBaseTestCase):
         )
 
         self.assertEqual(resume_calls, [(5555, True)])
+
+    # ---- H. disconnect during sub-agent approval cancels pending futures ----
+    async def test_disconnect_cancels_pending_approval_futures(self) -> None:
+        """A socket close while a sub-agent is awaiting approval must
+        cancel its pending future so the delegation tool body unwinds
+        instead of leaking the asyncio task forever.
+        """
+        from config.websocket.consumers.unified_agent_conversation import (
+            UnifiedAgentConsumer,
+        )
+
+        agent = await database_sync_to_async(AgentConfiguration.objects.create)(
+            name="Hanger",
+            slug="hanger",
+            description="never returns",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.user,
+            system_instructions="hang",
+        )
+
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "t"
+        consumer._is_connected = True
+        consumer.conversation_id = None
+        consumer.user_id = None
+        consumer.corpus = None
+        consumer.document = None
+        consumer.scope = {"user": self.user}
+
+        # Stub out send_safe + cleanup_auth_handshake so disconnect() runs
+        # in isolation.
+        async def fake_send_safe(msg_type, content="", data=None):
+            return True
+
+        async def fake_cleanup():
+            return None
+
+        consumer._send_safe = fake_send_safe  # type: ignore[method-assign]
+        consumer.cleanup_auth_handshake = fake_cleanup  # type: ignore[method-assign]
+
+        box: dict = {"value": 9999}
+        relay = consumer._build_stream_relay_factory(parent_message_id_box=box)(
+            agent, False
+        )
+
+        # Kick off the approval await — it should register a future and block.
+        approval_task = asyncio.create_task(
+            relay.on_approval({"name": "t", "arguments": {}})
+        )
+
+        # Wait until the future is registered.
+        for _ in range(50):
+            if (9999, agent.id) in consumer._pending_approvals:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            approval_task.cancel()
+            raise RuntimeError("relay never registered the approval future")
+
+        self.assertIn((9999, agent.id), consumer._pending_approvals)
+        pending_future = consumer._pending_approvals[(9999, agent.id)]
+        self.assertFalse(pending_future.done())
+
+        # Now disconnect — it must cancel the pending future.
+        await consumer.disconnect(close_code=1000)
+
+        # Yield so the cancellation propagates through on_approval's finally
+        # block (which pops the entry).
+        with self.assertRaises(asyncio.CancelledError):
+            await approval_task
+
+        self.assertTrue(pending_future.cancelled())
+        # The on_approval finally block removes the entry from the map.
+        self.assertNotIn((9999, agent.id), consumer._pending_approvals)
+
+    # ---- I. conductor approval routes correctly AFTER a sub-agent approval resolves ----
+    async def test_conductor_approval_after_subagent_approval_resolves(self) -> None:
+        """After a sub-agent approval drains, the conductor's OWN approval
+        under a different ``llm_message_id`` must route through
+        ``self.agent.resume_with_approval`` (i.e. the routing in
+        ``_handle_approval_decision`` cleanly disambiguates because the
+        sub-agent future is already popped).
+        """
+        from config.websocket.consumers.unified_agent_conversation import (
+            UnifiedAgentConsumer,
+        )
+
+        agent = await database_sync_to_async(AgentConfiguration.objects.create)(
+            name="Sub",
+            slug="sub",
+            description="sub-agent",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.user,
+            system_instructions="sub",
+        )
+
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "t"
+        consumer._is_connected = True
+        consumer.conversation_id = None
+        consumer.user_id = None
+        consumer.corpus = None
+        consumer.document = None
+        consumer.scope = {"user": self.user}
+
+        sent: list[dict] = []
+
+        async def fake_send_safe(msg_type, content="", data=None):
+            sent.append({"msg_type": msg_type, "content": content, "data": data or {}})
+            return True
+
+        consumer._send_safe = fake_send_safe  # type: ignore[method-assign]
+
+        # ---- Step 1: drive a sub-agent approval to completion. ----
+        box: dict = {"value": 100}
+        relay_factory = consumer._build_stream_relay_factory(
+            parent_message_id_box=box,
+        )
+        relay = relay_factory(agent, False)
+
+        async def _resolve_sub():
+            for _ in range(50):
+                if (100, agent.id) in consumer._pending_approvals:
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                raise RuntimeError("sub-agent future never registered")
+            await consumer._handle_approval_decision(
+                {"approval_decision": True, "llm_message_id": 100}
+            )
+
+        sub_decision, _ = await asyncio.gather(
+            relay.on_approval({"name": "subtool", "arguments": {}}),
+            _resolve_sub(),
+        )
+        self.assertTrue(sub_decision.get("approved"))
+        # The sub-agent future must have been drained.
+        self.assertNotIn((100, agent.id), consumer._pending_approvals)
+
+        # ---- Step 2: simulate the conductor's OWN approval (different msg id). ----
+        resume_calls: list[tuple[int, bool]] = []
+
+        def _resume(msg_id, approved, stream=True):
+            resume_calls.append((msg_id, approved))
+
+            async def _empty():
+                if False:  # pragma: no cover
+                    yield None
+
+            return _empty()
+
+        stub_agent = MagicMock()
+        stub_agent.resume_with_approval = _resume
+        consumer.agent = stub_agent
+
+        await consumer._handle_approval_decision(
+            {"approval_decision": False, "llm_message_id": 200}
+        )
+
+        # The conductor path ran — no sub-agent future under id=200, so
+        # we fell through to ``self.agent.resume_with_approval``.
+        self.assertEqual(resume_calls, [(200, False)])
+
+    # ---- J. multiple pinned delegations create distinct ChatMessage rows ----
+    async def test_multiple_pinned_delegations_create_distinct_rows(self) -> None:
+        """Two pinned delegations in one turn must persist two distinct
+        ChatMessage rows with distinct ``agent_configuration`` FKs.
+        """
+        from config.websocket.consumers.unified_agent_conversation import (
+            UnifiedAgentConsumer,
+        )
+
+        agent_a = await database_sync_to_async(AgentConfiguration.objects.create)(
+            name="Pin-A",
+            slug="pin-a",
+            description="A",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.user,
+            system_instructions="a",
+        )
+        agent_b = await database_sync_to_async(AgentConfiguration.objects.create)(
+            name="Pin-B",
+            slug="pin-b",
+            description="B",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.user,
+            system_instructions="b",
+        )
+
+        conversation = await database_sync_to_async(Conversation.objects.create)(
+            title="t-multi",
+            creator=self.user,
+            chat_with_corpus=self.corpus,
+        )
+        parent_msg = await database_sync_to_async(ChatMessage.objects.create)(
+            conversation=conversation,
+            msg_type=MessageTypeChoices.LLM,
+            content="conductor turn",
+            creator=self.user,
+            state=MessageStateChoices.COMPLETED,
+        )
+
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "t"
+        consumer._is_connected = True
+        consumer.conversation_id = conversation.id
+        consumer.user_id = self.user.id
+        consumer.corpus = self.corpus
+        consumer.document = None
+        consumer.scope = {"user": self.user}
+
+        async def fake_send_safe(msg_type, content="", data=None):
+            return True
+
+        consumer._send_safe = fake_send_safe  # type: ignore[method-assign]
+
+        box: dict = {"value": parent_msg.id}
+        factory = consumer._build_stream_relay_factory(parent_message_id_box=box)
+        relay_a = factory(agent_a, True)
+        relay_b = factory(agent_b, True)
+
+        id_a = await relay_a.on_finish("hello from A")
+        id_b = await relay_b.on_finish("hello from B")
+
+        self.assertIsNotNone(id_a)
+        self.assertIsNotNone(id_b)
+        self.assertNotEqual(id_a, id_b)
+
+        row_a = await ChatMessage.objects.aget(id=id_a)
+        row_b = await ChatMessage.objects.aget(id=id_b)
+        self.assertEqual(row_a.agent_configuration_id, agent_a.id)
+        self.assertEqual(row_b.agent_configuration_id, agent_b.id)
+        self.assertEqual(row_a.parent_message_id, parent_msg.id)
+        self.assertEqual(row_b.parent_message_id, parent_msg.id)
+        self.assertEqual(row_a.content, "hello from A")
+        self.assertEqual(row_b.content, "hello from B")
