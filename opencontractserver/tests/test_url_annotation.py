@@ -180,6 +180,19 @@ class ValidateLinkUrlTests(TestCase):
         with self.assertRaises(ValidationError):
             validate_link_url("   javascript:alert(1)")
 
+    def test_protocol_relative_url_is_rejected(self):
+        # ``//evil.com`` starts with ``/`` but browsers resolve it as
+        # ``https://evil.com``. The site-relative branch of the allow-list
+        # must not let it through — otherwise we ship an open redirect.
+        with self.assertRaises(ValidationError):
+            validate_link_url("//evil.com")
+        with self.assertRaises(ValidationError):
+            validate_link_url("//evil.com/path?x=1")
+        # Whitespace-prefixed protocol-relative also rejected (post-strip
+        # the leading ``//`` is preserved, so the rejection still fires).
+        with self.assertRaises(ValidationError):
+            validate_link_url("  //evil.com")
+
     def test_annotation_clean_rejects_unsafe_link_url(self):
         # The model's ``clean()`` must invoke ``validate_link_url`` so
         # callers that go through full_clean() are protected.
@@ -225,6 +238,32 @@ class ValidateLinkUrlTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             ann.save()
+
+    def test_whitespace_only_link_url_collapses_to_none(self):
+        # ``"   "`` is truthy as a string. Without explicit normalisation
+        # ``save()`` would persist the whitespace verbatim, leaving the
+        # column with garbage. Both ``clean()`` and ``save()`` collapse
+        # whitespace-only to None so the column stays NULL.
+        user = User.objects.create_user(username="u3", password="x")
+        doc = Document.objects.create(
+            title="doc", creator=user, is_public=False, backend_lock=False
+        )
+        label = AnnotationLabel.objects.create(
+            text="L", label_type=TOKEN_LABEL, creator=user
+        )
+        ann = Annotation(
+            page=0,
+            raw_text="hello",
+            document=doc,
+            annotation_label=label,
+            creator=user,
+            annotation_type=TOKEN_LABEL,
+            link_url="   ",
+            json={"0": {"bounds": {}, "rawText": "hello", "tokensJsons": []}},
+        )
+        ann.save()
+        ann.refresh_from_db()
+        self.assertIsNone(ann.link_url)
 
 
 class AddUrlAnnotationMutationTests(TestCase):

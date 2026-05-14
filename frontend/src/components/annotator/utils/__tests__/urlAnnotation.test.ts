@@ -208,6 +208,16 @@ describe("openAnnotationUrl", () => {
     expect(openSpy).not.toHaveBeenCalled();
   });
 
+  it("refuses to open protocol-relative URLs (open-redirect guard)", () => {
+    // ``//evil.com`` starts with ``/`` but the browser would resolve it
+    // as ``https://evil.com`` — the site-relative branch must reject it
+    // so this open-redirect vector closes here at the renderer layer.
+    const ok = openAnnotationUrl(makeSpan(ocUrlLabel, "//evil.com"));
+    expect(ok).toBe(false);
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(assignSpy).not.toHaveBeenCalled();
+  });
+
   it("refuses to open empty/missing URLs", () => {
     expect(openAnnotationUrl(makeSpan(ocUrlLabel, ""))).toBe(false);
     expect(openAnnotationUrl(makeSpan(ocUrlLabel, undefined))).toBe(false);

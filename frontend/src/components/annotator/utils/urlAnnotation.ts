@@ -42,6 +42,10 @@ export function isUrlAnnotation(
 export function isSafeUrl(url: string): boolean {
   const normalized = url.trim();
   if (normalized.length === 0) return false;
+  // Reject protocol-relative URLs (``//evil.com``). They start with ``/``
+  // but browsers resolve them as ``https://evil.com``, which would turn
+  // the site-relative branch into an open redirect.
+  if (normalized.startsWith("//")) return false;
   const lower = normalized.toLowerCase();
   return (
     lower.startsWith("http://") ||

@@ -112,9 +112,15 @@ def validate_link_url(url: str) -> None:
     if not url:
         return
     normalized = url.strip()
-    is_safe = normalized.lower().startswith(
-        LINK_URL_ALLOWED_SCHEMES
-    ) or normalized.startswith("/")
+    # ``//evil.com`` is a *protocol-relative* URL: browsers navigate to
+    # ``https://evil.com``. It starts with ``/`` but is NOT a site-relative
+    # path. Reject it before the allow-list check so the open-redirect
+    # vector closes here rather than in the renderer.
+    is_protocol_relative = normalized.startswith("//")
+    is_site_relative = normalized.startswith("/") and not is_protocol_relative
+    is_safe = (
+        normalized.lower().startswith(LINK_URL_ALLOWED_SCHEMES) or is_site_relative
+    )
     if not is_safe:
         raise ValidationError(
             {
@@ -1102,10 +1108,12 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         # cannot be bypassed by toggling that flag in production.
         # Strip surrounding whitespace so a value submitted with leading
         # spaces (e.g. via a direct API call that didn't pre-trim) is
-        # stored canonically and the renderer doesn't produce a broken link.
-        if self.link_url:
-            self.link_url = self.link_url.strip()
-            validate_link_url(self.link_url)
+        # stored canonically. Whitespace-only input collapses to None so
+        # the column stays NULL rather than holding an empty string.
+        if self.link_url is not None:
+            self.link_url = self.link_url.strip() or None
+            if self.link_url:
+                validate_link_url(self.link_url)
 
         from django.conf import settings  # local to avoid global import cost
 
@@ -1225,14 +1233,16 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
             # (before its early-return), so a separate call here would
             # be redundant.
             self.clean()
-        elif self.link_url:
+        elif self.link_url is not None:
             # ``clean()`` was skipped above, but link_url must still be
             # validated — it is reflected in a click handler so unsafe
             # schemes like ``javascript:`` must never reach persistence.
             # Mirror the whitespace-stripping ``clean()`` performs so the
             # column stays canonical regardless of which path persisted.
-            self.link_url = self.link_url.strip()
-            validate_link_url(self.link_url)
+            # Whitespace-only collapses to None.
+            self.link_url = self.link_url.strip() or None
+            if self.link_url:
+                validate_link_url(self.link_url)
 
         # Auto-compact annotation JSON to v2 format on save (lazy migration).
         if (
