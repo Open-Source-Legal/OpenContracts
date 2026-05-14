@@ -36,6 +36,8 @@ import {
 } from "../../../../utils/textBlockEncoding";
 import { clampMenuPosition } from "../../../../utils/layout";
 import {
+  OC_URL_LABEL,
+  PENDING_OC_URL_LABEL_ID,
   SELECTION_MENU_COOLDOWN_MS,
   Z_INDEX,
 } from "../../../../assets/configurations/constants";
@@ -317,8 +319,8 @@ const SelectionLayer = ({
       // and the label-type marker, so a synthetic OC_URL label placeholder
       // is sufficient — the backend resolves/creates the real label.
       const placeholder: AnnotationLabelType = {
-        id: "__pending_oc_url__",
-        text: "OC_URL",
+        id: PENDING_OC_URL_LABEL_ID,
+        text: OC_URL_LABEL,
         color: "#2563EB",
         labelType: LabelType.TokenLabel,
       } as AnnotationLabelType;

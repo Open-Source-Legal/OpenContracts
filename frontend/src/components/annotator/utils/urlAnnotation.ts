@@ -34,9 +34,14 @@ export function isUrlAnnotation(
  * Allow-list mirrored from the backend (``Annotation.validate_link_url``)
  * so the renderer refuses to open dangerous schemes even if the database
  * was bypassed (e.g. via a stale cached annotation).
+ *
+ * Exported so authoring UIs (e.g. ``CreateUrlAnnotationModal``) can validate
+ * client-side input with the *same* rules — the allow-list lives in exactly
+ * one place on the frontend and one place on the backend.
  */
-function isSafeUrl(url: string): boolean {
+export function isSafeUrl(url: string): boolean {
   const normalized = url.trim();
+  if (normalized.length === 0) return false;
   return (
     normalized.toLowerCase().startsWith("http://") ||
     normalized.toLowerCase().startsWith("https://") ||

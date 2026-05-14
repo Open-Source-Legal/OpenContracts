@@ -1031,7 +1031,10 @@ export interface NewUrlAnnotationOutputType {
       page: number;
       rawText: string;
       json: MultipageAnnotationJson;
-      linkUrl: string;
+      // Server schema returns nullable String for ``link_url``. Even though
+      // ``addUrlAnnotation`` always requires a URL, narrowing this to
+      // ``string`` could mask a downstream issue if the API ever omits it.
+      linkUrl: string | null;
       annotationType: LabelType;
       annotationLabel: AnnotationLabelType;
       myPermissions: string[];

@@ -266,6 +266,12 @@ export const OC_SECTION_LABEL = "OC_SECTION";
 // ``linkUrl`` field is opened on click. Keep in sync with
 // opencontractserver/constants/annotations.py.
 export const OC_URL_LABEL = "OC_URL";
+// Sentinel id used when constructing a placeholder OC_URL ``AnnotationLabel``
+// before the server has assigned a real id (e.g. when the user is creating
+// a new link annotation from a selection). Surfaced as a named constant so
+// downstream code that needs to recognise "this label is still pending"
+// has a single source of truth instead of comparing against a raw string.
+export const PENDING_OC_URL_LABEL_ID = "__pending_oc_url__";
 
 // Document search/picker limits
 export const DOCUMENT_PICKER_SEARCH_LIMIT = 20;

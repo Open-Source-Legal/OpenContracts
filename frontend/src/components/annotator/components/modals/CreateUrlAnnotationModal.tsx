@@ -8,6 +8,8 @@ import {
   Button,
 } from "@os-legal/ui";
 
+import { isSafeUrl } from "../../utils/urlAnnotation";
+
 interface CreateUrlAnnotationModalProps {
   visible: boolean;
   /** Text the user selected; shown read-only for context. */
@@ -19,14 +21,12 @@ interface CreateUrlAnnotationModalProps {
   initialUrl?: string;
 }
 
-const URL_PATTERN = /^(https?:\/\/.+|\/.+)$/i;
-
 /**
  * Small modal that prompts the user for a target URL when turning a
- * selection into an OC_URL link annotation. Validation mirrors the backend
- * allow-list: http(s) absolute URLs or site-relative paths starting with
- * "/". Anything else is rejected client-side; the server will also reject
- * it as a defence-in-depth measure.
+ * selection into an OC_URL link annotation. Validation reuses ``isSafeUrl``
+ * from ``urlAnnotation.ts`` — the same allow-list (http(s) absolute or
+ * site-relative ``/...``) used by the renderer click-handler and the
+ * backend ``validate_link_url`` helper, so the three checks cannot drift.
  */
 export const CreateUrlAnnotationModal = ({
   visible,
@@ -53,7 +53,7 @@ export const CreateUrlAnnotationModal = ({
       setError("URL is required.");
       return;
     }
-    if (!URL_PATTERN.test(trimmed)) {
+    if (!isSafeUrl(trimmed)) {
       setError(
         "URL must start with http://, https://, or '/' (site-relative path)."
       );
