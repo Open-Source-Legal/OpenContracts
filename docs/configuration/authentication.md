@@ -432,6 +432,7 @@ asynchronously within a few seconds of first login.
 | `AUTH0_ADMIN_CLAIM_NAMESPACE` | No | `https://contracts.opensource.legal/` | Namespace prefix for admin claims in tokens |
 | `AUTH0_SUPERUSER_SUB_ALLOWLIST` | No | `[]` | Comma-separated Auth0 subs eligible for `is_superuser` elevation. Empty list blocks all JWT-driven superuser elevation (defense-in-depth). |
 | `AUTH0_CREATE_NEW_USERS` | No | `True` | When True, any valid Auth0 token from the configured tenant auto-provisions a Django user. Set False to require out-of-band provisioning. |
+| `AUTH0_ADMIN_CLAIMS_CACHE_TTL` | No | `30` | Seconds between automatic resyncs of `is_staff`/`is_superuser` from each verified token. Lower values give a tighter revocation SLA at the cost of slightly more frequent claim-sync writes on the per-request auth path. Admin login always bypasses this cache. |
 | `DJANGO_SUPERUSER_USERNAME` | No | `admin` | Initial admin username |
 | `DJANGO_SUPERUSER_PASSWORD` | No | `Openc0ntracts_def@ult` | Initial admin password |
 | `DJANGO_SUPERUSER_EMAIL` | No | `support@opensource.legal` | Initial admin email |
