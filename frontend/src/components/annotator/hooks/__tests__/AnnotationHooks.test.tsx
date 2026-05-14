@@ -589,6 +589,45 @@ describe("AnnotationHooks", () => {
       expect(stored[0].annotationLabel.text).toBe(OC_URL_LABEL);
     });
 
+    it("falls back to toast.error when the mutation throws", async () => {
+      // Defence in depth: a network error or thrown Apollo error must NOT
+      // leave the user staring at an "unsaved changes" indicator with
+      // nothing in state. The hook swallows the error after toasting.
+      const localAnn = makeSpan("local-throws", 0, 5, "hello");
+      const mocks: MockedResponse[] = [
+        {
+          request: {
+            query: REQUEST_ADD_URL_ANNOTATION,
+            variables: {
+              json: localAnn.json,
+              documentId: mockDocument.id,
+              corpusId: mockCorpus.id,
+              rawText: localAnn.rawText,
+              page: localAnn.page,
+              annotationType: LabelType.SpanLabel,
+              linkUrl: "https://example.com",
+            },
+          },
+          error: new Error("network exploded"),
+        },
+      ];
+
+      const { result } = renderHook(
+        () => ({
+          create: useCreateUrlAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        { wrapper: buildWrapper({ mocks }) }
+      );
+
+      await act(async () => {
+        await result.current.create(localAnn, "https://example.com");
+      });
+
+      // No annotation added on the throw path.
+      expect(result.current.state.pdfAnnotations.annotations).toHaveLength(0);
+    });
+
     it("does not add to state when the server returns ok=false", async () => {
       // Defence-in-depth: an unsafe URL slipping past client-side validation
       // would be rejected by the server; the hook must NOT push anything
