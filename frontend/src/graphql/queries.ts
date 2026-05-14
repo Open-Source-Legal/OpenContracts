@@ -5538,6 +5538,12 @@ export interface GetCorpusDocumentTocEdgesInput {
 
 export interface CorpusDocumentTocEdge {
   id: string;
+  // `sourceDocument` and `targetDocument` are typed nullable because the
+  // GraphQL schema marks every relation field as nullable by default. At the
+  // database level the underlying FKs on `DocumentRelationship` are non-null,
+  // so in practice these are always present — but consumers must still null-
+  // guard on the unwrapped value to keep TypeScript happy (and to remain
+  // safe against any future permission-scoped scrubs of the related rows).
   sourceDocument: { id: string } | null;
   targetDocument: { id: string } | null;
 }

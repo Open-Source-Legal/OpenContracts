@@ -71,7 +71,12 @@ test.describe("DocumentTableOfContents", () => {
       timeout: 10000,
     });
 
-    await expect(page.getByText("Parent Document")).toBeVisible();
+    // Use exact match — the mocked description "A parent document for testing
+    // hierarchy" also contains the substring "Parent Document" and would
+    // trigger Playwright's strict-mode violation otherwise.
+    await expect(
+      page.getByText("Parent Document", { exact: true })
+    ).toBeVisible();
   });
 
   test("displays child documents", async ({ mount, page }) => {
@@ -229,8 +234,9 @@ test.describe("DocumentTableOfContents", () => {
       timeout: 10000,
     });
 
-    // Click on a document title
-    await page.getByText("Parent Document").click();
+    // Click on a document title (exact match — the description also contains
+    // the substring "Parent Document").
+    await page.getByText("Parent Document", { exact: true }).click();
 
     // Navigation would happen via React Router - we can't easily test the actual navigation
     // but we can verify the click handler is called (no errors thrown)
@@ -331,7 +337,11 @@ test.describe("DocumentTableOfContents", () => {
     await expect(page.getByText("Table of Contents")).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.getByText("Parent Document")).toBeVisible();
+    // Exact match — the mocked description "A parent document for testing
+    // hierarchy" also contains the substring "Parent Document".
+    await expect(
+      page.getByText("Parent Document", { exact: true })
+    ).toBeVisible();
 
     // Expand parent document — use its treeitem's chevron directly
     const parentItem = page.getByRole("treeitem", {

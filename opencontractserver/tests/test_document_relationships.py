@@ -215,3 +215,63 @@ class DocumentRelationshipsQueryTestCase(TestCase):
         )  # Should have both relationship and note
         relationship_types = {r["relationshipType"] for r in relationships}
         self.assertEqual(relationship_types, {"RELATIONSHIP", "NOTES"})
+
+    def test_document_relationships_annotation_label_text_filter(self):
+        """
+        The corpus Table of Contents query relies on a server-side
+        `annotationLabelText` filter (defined as `annotation_label_text`
+        with `iexact` lookup on `DocumentRelationshipFilter`) to restrict
+        edges to only the parent-labeled hierarchy rows. Pin the behavior
+        so a future refactor cannot silently drop the filter and revert
+        the TOC to fetching every relationship row.
+        """
+        # Build a second relationship whose label is "parent" so we can
+        # prove the filter narrows on label text (case-insensitively).
+        parent_label = AnnotationLabel.objects.create(
+            text="parent",
+            label_type="DOC_RELATIONSHIP_LABEL",
+            creator=self.user,
+        )
+        parent_relationship = DocumentRelationship.objects.create(
+            source_document=self.source_doc,
+            target_document=self.target_doc,
+            relationship_type="RELATIONSHIP",
+            annotation_label=parent_label,
+            creator=self.user,
+            corpus=self.corpus,
+        )
+
+        # Sanity check: the corpus has 3 relationships total (the two from
+        # `setUp` plus the parent-labeled one we just made). The filter
+        # must return exactly 1 edge — only the parent-labeled relationship.
+        corpus_gid = to_global_id("CorpusType", self.corpus.id)
+        query = """
+            query($corpusId: ID, $labelText: String) {
+                documentRelationships(
+                    corpusId: $corpusId
+                    annotationLabelText: $labelText
+                ) {
+                    edges {
+                        node {
+                            id
+                            relationshipType
+                            annotationLabel { text }
+                        }
+                    }
+                    totalCount
+                }
+            }
+        """
+        # Mixed case input — the filter uses `iexact` so "PARENT" must match.
+        result = self.client.execute(
+            query, variables={"corpusId": corpus_gid, "labelText": "PARENT"}
+        )
+        self.assertIsNone(result.get("errors"))
+        rels = result["data"]["documentRelationships"]
+        self.assertEqual(rels["totalCount"], 1)
+        self.assertEqual(len(rels["edges"]), 1)
+        self.assertEqual(
+            rels["edges"][0]["node"]["id"],
+            to_global_id("DocumentRelationshipType", parent_relationship.id),
+        )
+        self.assertEqual(rels["edges"][0]["node"]["annotationLabel"]["text"], "parent")

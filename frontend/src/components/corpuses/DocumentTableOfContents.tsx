@@ -37,6 +37,8 @@ import { mediaQuery } from "./styles/corpusDesignTokens";
 import {
   DOCUMENT_RELATIONSHIP_TOC_LIMIT,
   CORPUS_DOCUMENTS_TOC_LIMIT,
+  DOCUMENT_RELATIONSHIP_TYPE_RELATIONSHIP,
+  DOCUMENT_RELATIONSHIP_LABEL_PARENT,
 } from "../../assets/configurations/constants";
 import { DocumentAnnotationIndex } from "./DocumentAnnotationIndex";
 
@@ -481,8 +483,8 @@ export const DocumentTableOfContents: React.FC<
       variables: {
         corpusId,
         first: DOCUMENT_RELATIONSHIP_TOC_LIMIT,
-        relationshipType: "RELATIONSHIP",
-        annotationLabelText: "parent",
+        relationshipType: DOCUMENT_RELATIONSHIP_TYPE_RELATIONSHIP,
+        annotationLabelText: DOCUMENT_RELATIONSHIP_LABEL_PARENT,
       },
       skip: !corpusId,
       fetchPolicy: "cache-and-network",
@@ -510,7 +512,13 @@ export const DocumentTableOfContents: React.FC<
   const loading = relationshipsLoading || documentsLoading;
   const error = relationshipsError || documentsError;
 
-  // Check if we've hit the limits (potential truncation)
+  // Check if we've hit the limits (potential truncation).
+  // NOTE: `relationshipTotalCount` here is the count of *parent-labeled
+  // RELATIONSHIP* rows only (the server-side filter narrows the queryset
+  // before it is counted). It is intentionally narrower than the legacy
+  // `GET_DOCUMENT_RELATIONSHIPS` total, which counted every relationship
+  // type — a corpus with 600 total relationships but only 50 parent ones
+  // would have triggered the old warning and won't trigger this one.
   const relationshipTotalCount =
     relationshipsData?.documentRelationships?.totalCount ?? 0;
   const documentsTotalCount = documentsData?.documents?.totalCount ?? 0;
