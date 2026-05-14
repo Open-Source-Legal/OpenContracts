@@ -19,6 +19,7 @@ import {
   StreamingThoughtIcon,
   StreamingThoughtText,
   StreamingThoughtTickerWrapper,
+  TimelineAgentChip,
   TimelineContainer,
   TimelineContent,
   TimelineHeader,
@@ -32,6 +33,29 @@ import {
   TimelineTitle,
 } from "./ChatMessageTimeline.styles";
 import type { TimelineEntry } from "./types";
+
+/**
+ * Rich-mention agent delegation (Task 13): derive the sub-agent slug for a
+ * timeline entry. We prefer the explicit ``agentSlug`` forwarded by the
+ * StreamRelay on ASYNC_THOUGHT frames; otherwise we fall back to parsing
+ * the conductor's ``delegate_to_<snake_slug>`` tool name (the only piece
+ * persisted on ``ChatMessage.data.timeline`` today by TimelineBuilder).
+ *
+ * NOTE: the fallback returns ``snake_slug`` rather than the original
+ * kebab-case slug — we display it verbatim because that is the exact
+ * string the LLM saw. A future enhancement could round-trip through the
+ * AgentConfiguration cache to recover the canonical slug, but for the
+ * UX goal of "tell me WHO got called" the snake form is already
+ * unambiguous and avoids a synchronous lookup in render.
+ */
+export const getAgentSlugFromTimelineEntry = (
+  entry: TimelineEntry
+): string | undefined => {
+  if (entry.agentSlug) return entry.agentSlug;
+  const tool = entry.tool ?? "";
+  const match = /^delegate_to_(.+)$/.exec(tool);
+  return match ? match[1] : undefined;
+};
 
 // Helper function to get icon for timeline entry type
 export const getTimelineIcon = (type: TimelineEntry["type"]) => {
@@ -55,14 +79,58 @@ export const getTimelineIcon = (type: TimelineEntry["type"]) => {
   }
 };
 
-// Helper function to get title for timeline entry type
-export const getTimelineTitle = (entry: TimelineEntry) => {
+/**
+ * Build the renderable title for a timeline entry.
+ *
+ * For ``tool_call`` / ``tool_result`` rows that target a delegated
+ * sub-agent we render a styled ``@<slug>`` chip in place of the raw
+ * ``delegate_to_<slug>`` tool string (Task 13). Other rows return a plain
+ * string — kept as ``ReactNode`` rather than two separate signatures so
+ * the streaming ticker (which renders ``getTimelineTitle`` inside
+ * ``StreamingThoughtText``) and the collapsible timeline rows can share
+ * the same helper.
+ */
+export const getTimelineTitle = (entry: TimelineEntry): React.ReactNode => {
+  const agentSlug = getAgentSlugFromTimelineEntry(entry);
+
   switch (entry.type) {
     case "thought":
       return "Thinking";
     case "tool_call":
+      if (agentSlug) {
+        return (
+          <>
+            Delegating to{" "}
+            <TimelineAgentChip
+              data-testid="timeline-agent-chip"
+              role="note"
+              aria-label={`Delegated to agent ${agentSlug}`}
+              title={`Delegated to agent ${agentSlug}`}
+            >
+              <span aria-hidden="true">@</span>
+              {agentSlug}
+            </TimelineAgentChip>
+          </>
+        );
+      }
       return `Calling ${entry.tool || "Tool"}`;
     case "tool_result":
+      if (agentSlug) {
+        return (
+          <>
+            Result from{" "}
+            <TimelineAgentChip
+              data-testid="timeline-agent-chip"
+              role="note"
+              aria-label={`Result from agent ${agentSlug}`}
+              title={`Result from agent ${agentSlug}`}
+            >
+              <span aria-hidden="true">@</span>
+              {agentSlug}
+            </TimelineAgentChip>
+          </>
+        );
+      }
       return `${entry.tool || "Tool"} Result`;
     case "content":
       return "Generating Response";

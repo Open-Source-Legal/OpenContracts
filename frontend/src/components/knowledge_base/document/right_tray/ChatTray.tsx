@@ -685,6 +685,13 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       tool: data?.tool_name,
       args: data?.args,
       result: data?.tool_result,
+      // Rich-mention agent delegation (Task 13): when this thought
+      // describes a sub-agent delegation, the StreamRelay attaches the
+      // resolved AgentConfiguration pk + slug. The timeline renderer
+      // uses these to swap the raw `delegate_to_<slug>` tool string
+      // for a styled `@<slug>` chip.
+      agentId: data?.agent_id,
+      agentSlug: data?.agent_slug,
     };
 
     // Update chat UI timeline

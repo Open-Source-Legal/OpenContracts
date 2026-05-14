@@ -330,3 +330,38 @@ export const StreamingThoughtText = styled(motion.span)`
   display: inline-block;
   max-width: 100%;
 `;
+
+/**
+ * Inline chip surfaced in a TimelineItemTitle whenever a tool_call /
+ * tool_result entry can be attributed to a sub-agent — either via an
+ * explicit ``agentSlug`` field forwarded from the WebSocket frame
+ * (StreamRelay, delegation_tools.py) OR derived from a
+ * ``delegate_to_<snake_slug>`` tool name on the persisted timeline.
+ *
+ * Visual tokens deliberately mirror the ``SubAgentAttributionChip`` in
+ * ``ChatMessage.styles.ts`` (Task 12) — same violet/indigo gradient,
+ * border and text colour — so users learn ONE shape ("this is an agent")
+ * regardless of whether they encounter it on a pinned bubble, inline
+ * mention, or timeline row.
+ */
+export const TimelineAgentChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.05rem 0.4rem;
+  margin-left: 0.125rem;
+  border-radius: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  background: linear-gradient(135deg, #8b5cf615 0%, #6366f115 100%);
+  border: 1px solid #8b5cf660;
+  color: #7c3aed;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  vertical-align: middle;
+
+  & > [aria-hidden="true"] {
+    opacity: 0.75;
+  }
+`;

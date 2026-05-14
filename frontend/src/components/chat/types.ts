@@ -61,6 +61,15 @@ export interface MessageData {
       tokens_after: number;
       context_window: number;
     };
+    /**
+     * Rich-mention agent delegation (Task 13): when an ASYNC_THOUGHT frame
+     * describes a tool_call / tool_result that handed off to a sub-agent,
+     * the backend ``StreamRelay`` attaches the resolved ``AgentConfiguration``
+     * id and slug so the frontend timeline can surface an ``@<slug>`` chip
+     * instead of the raw ``delegate_to_<slug>`` tool name.
+     */
+    agent_id?: number | string;
+    agent_slug?: string;
   };
 }
 

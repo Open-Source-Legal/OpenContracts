@@ -441,6 +441,69 @@ test("pinned sub-agent message renders attribution chip in bubble header", async
   await expect(conductorBubble.getByTestId("sub-agent-chip")).toHaveCount(0);
 });
 
+test("timeline entry with agent_slug renders @agent chip in place of tool name", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation (Task 13): when the conductor invokes a
+  // sub-agent via a `delegate_to_<slug>` tool call (whether pinned or
+  // unpinned), each tool_call / tool_result timeline row should display
+  // an `@<slug>` chip instead of the raw tool string.
+  //
+  // The WebSocket stub's "delegate unpinned please" branch emits two
+  // ASYNC_THOUGHT frames carrying `agent_id` + `agent_slug` (matching the
+  // payload shape the backend StreamRelay produces for unpinned
+  // delegations), then an ASYNC_FINISH that finalises the conductor's
+  // assistant bubble. After finalize the collapsible TimelinePreview
+  // renders inside the bubble and the chips become assertable.
+  const mocks = [createConversationsMock(mockConversations)];
+
+  await mountChatTray(mount, mocks);
+
+  await page.locator('[data-testid="new-chat-button"]').click();
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  const chatInput = page.locator('[data-testid="chat-input"]');
+  await expect(chatInput).toBeEnabled({ timeout: TIMEOUTS.MEDIUM });
+  await chatInput.fill("delegate unpinned please");
+  await page.keyboard.press("Enter");
+
+  // Wait for the final conductor response to land — this is the gate
+  // that flips the message to `isComplete=true` and mounts the
+  // TimelinePreview panel where our chip lives.
+  await expect(
+    page.getByText("Here is what the sub-agent found.", { exact: true })
+  ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+
+  // The post-completion TimelinePreview defaults to expanded for short
+  // timelines (<=2 entries) — both our entries land inside it. The
+  // collapsible-row state also defaults to expanded so the chip rendered
+  // inside TimelineItemTitle is in the DOM without further interaction.
+  const timelineContainer = page
+    .locator('[data-testid="timeline-container"]')
+    .first();
+  await expect(timelineContainer).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+
+  // Two chip rows expected: one tool_call ("Delegating to @research-bot")
+  // and one tool_result ("Result from @research-bot").
+  await expect(page.getByTestId("timeline-agent-chip").first()).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  await expect(page.getByTestId("timeline-agent-chip")).toHaveCount(2);
+  for (const chip of await page.getByTestId("timeline-agent-chip").all()) {
+    await expect(chip).toContainText("research-bot");
+  }
+
+  // ARIA labels carry the agent slug so assistive tech can announce
+  // the chip without parsing visible glyphs.
+  await expect(page.getByTestId("timeline-agent-chip").first()).toHaveAttribute(
+    "aria-label",
+    /agent research-bot/
+  );
+});
+
 /* -------------------------------------------------------------------------- */
 /* Agent @mention picker wiring (Task 11)                                     */
 /* -------------------------------------------------------------------------- */
@@ -1724,6 +1787,66 @@ test.beforeEach(async ({ page }) => {
                     {
                       type: "thought",
                       text: "Searching for relevant information...",
+                    },
+                  ],
+                },
+              });
+              return;
+            }
+
+            // 2b. Unpinned delegation — conductor invokes a sub-agent but
+            //     does NOT pin the resulting bubble. The frontend surfaces
+            //     the delegation purely through the conductor's timeline
+            //     entries. ASYNC_THOUGHT frames carry agent_id / agent_slug
+            //     so the timeline renderer can swap the raw tool name for
+            //     an @<slug> chip (Task 13).
+            if (query === "delegate unpinned please") {
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "Summarize section 3.", pin: false },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got sub-agent result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Summary of section 3.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Here is what the sub-agent found.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "Summarize section 3.", pin: false },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Summary of section 3.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
                     },
                   ],
                 },

@@ -902,6 +902,11 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       tool: data?.tool_name,
       args: data?.args,
       result: data?.tool_result,
+      // Rich-mention agent delegation (Task 13): mirrors ChatTray —
+      // when the backend tags the thought with a delegated sub-agent we
+      // hand the id/slug down so the timeline can render `@<slug>`.
+      agentId: data?.agent_id,
+      agentSlug: data?.agent_slug,
     };
 
     setChat((prev) => {
