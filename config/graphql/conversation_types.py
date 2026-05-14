@@ -1,5 +1,6 @@
 """GraphQL type definitions for conversation, message, and moderation types."""
 
+import logging
 from typing import Any
 
 import graphene
@@ -25,16 +26,20 @@ from opencontractserver.llms.agents.mention_extractor import (
     extract_mentions,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class MentionedResourceType(graphene.ObjectType):
     """
-    Represents a corpus, document, or annotation mentioned in a message.
+    Represents a corpus, document, annotation, or agent mentioned in a message.
 
     Mention patterns:
       @corpus:legal-contracts
       @document:contract-template
       @corpus:legal-contracts/document:contract-template
       [text](/d/.../doc?ann=id) -> Annotation mention via markdown link
+      [text](/agents/{slug}) -> Global agent mention via markdown link
+      [text](/c/.../agents/{slug}) -> Corpus-scoped agent mention via markdown link
 
     For annotations, includes full metadata for rich tooltip display.
     Permission-safe: Only returns resources visible to the requesting user.
@@ -42,7 +47,7 @@ class MentionedResourceType(graphene.ObjectType):
 
     type = graphene.String(
         required=True,
-        description='Resource type: "corpus", "document", or "annotation"',
+        description='Resource type: "corpus", "document", "annotation", or "agent"',
     )
     id = graphene.ID(required=True, description="Global ID of the resource")
     slug = graphene.String(description="URL-safe slug (null for annotations)")
@@ -84,6 +89,7 @@ def resolve_mentions_for_user(
     URL (``m.url``) is preserved since it already encodes the navigation
     target including the ``?ann=...`` query.
     """
+    from opencontractserver.agents.models import AgentConfiguration
     from opencontractserver.annotations.models import Annotation
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document, DocumentPath
@@ -201,12 +207,39 @@ def resolve_mentions_for_user(
                     )
                 )
 
-            # NOTE: agent/user mentions are parsed by the extractor but are
-            # not (yet) surfaced through ``MentionedResourceType``. They will
-            # be wired up in a follow-up task; for now they're silently
-            # ignored here so the resolver shape stays unchanged.
+            elif mention.type == "agent":
+                if not mention.slug:
+                    continue
+                qs = AgentConfiguration.objects.visible_to_user(user).filter(
+                    slug=mention.slug, is_active=True
+                )
+                if mention.corpus_slug:
+                    # The URL was a corpus-scoped agent path
+                    # (/c/.../agents/{slug}). Require the agent to actually
+                    # live inside that corpus, otherwise silently drop.
+                    qs = qs.filter(corpus__slug=mention.corpus_slug)
+                agent = qs.first()
+                if agent is None:
+                    continue
+                resolved.append(
+                    MentionedResourceType(
+                        type="agent",
+                        id=agent.id,
+                        slug=agent.slug,
+                        title=agent.name,
+                        # Preserve original URL so the frontend can match it
+                        # against the same link emitted by the popover.
+                        url=mention.url,
+                    )
+                )
+
+            # NOTE: user mentions are parsed by the extractor but are not
+            # (yet) surfaced through ``MentionedResourceType``. They will be
+            # wired up in a follow-up task; for now they're silently ignored
+            # here so the resolver shape stays unchanged.
         except Exception:
             # Silent omission: never leak existence via error.
+            logger.exception("Mention resolution failed for url=%s", mention.url)
             continue
 
     return resolved
