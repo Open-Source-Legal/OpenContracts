@@ -39,6 +39,20 @@ def _det(
 )
 class ScanAndAnnotateTextTests(TransactionTestCase):
 
+    # ``_persist_annotations_sync`` registers ``transaction.on_commit`` Celery
+    # enqueues against ``calculate_embedding_for_annotation_text``. In tests
+    # ``CELERY_TASK_ALWAYS_EAGER=True`` makes those callbacks run inline once
+    # the atomic block commits, and the eager task body reads the default
+    # embedder path from the ``PipelineSettings`` singleton row seeded by
+    # migration 0031. ``TransactionTestCase`` truncates *all* tables (incl.
+    # ``documents_pipelinesettings``) between tests by default, so a prior
+    # class running on the same pytest-xdist ``--dist loadscope`` worker can
+    # leave us with no default embedder and the eager retry chain raises out
+    # of the on_commit callback. ``serialized_rollback=True`` restores the
+    # migration-seeded row after each test's truncation, keeping the embed
+    # task happy. Same rationale applies to every persist-side class below.
+    serialized_rollback = True
+
     def setUp(self) -> None:
         self.user = User.objects.create_user("pii_text_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII Text Corpus", creator=self.user)
@@ -138,6 +152,9 @@ class ScanAndAnnotateTextTests(TransactionTestCase):
 )
 class ScanAndAnnotatePdfTests(TransactionTestCase):
 
+    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
+    serialized_rollback = True
+
     def setUp(self) -> None:
         self.user = User.objects.create_user("pii_pdf_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII PDF Corpus", creator=self.user)
@@ -215,6 +232,9 @@ class ScanAndAnnotatePdfTests(TransactionTestCase):
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
 class ScanAndAnnotateKnobsTests(TransactionTestCase):
+
+    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
+    serialized_rollback = True
 
     def setUp(self) -> None:
         self.user = User.objects.create_user("pii_knob_user", password="pw")
@@ -368,6 +388,13 @@ class ScanAndAnnotateKnobsTests(TransactionTestCase):
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
 class ScanAndAnnotateEdgeCaseTests(TransactionTestCase):
+
+    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
+    # Edge-case tests only persist on a couple of branches but include
+    # ``test_oob_detection_skipped`` whose runtime depends on the embedder
+    # singleton via ``on_commit`` if a future regression slips the OOB
+    # filter, so keep the same invariant here.
+    serialized_rollback = True
 
     def setUp(self) -> None:
         self.user = User.objects.create_user("pii_edge_user", password="pw")
@@ -525,6 +552,9 @@ class PersistAnnotationsLabelRaceTests(TransactionTestCase):
     block comment.
     """
 
+    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
+    serialized_rollback = True
+
     def setUp(self) -> None:
         self.user = User.objects.create_user("pii_race_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII Race Corpus", creator=self.user)
@@ -649,6 +679,9 @@ class PersistAnnotationsUnknownGroupTests(TransactionTestCase):
     must also fail safely if a future caller bypasses that boundary check
     and hands it a detection with a group that is not in
     ``ENTITY_GROUP_LABELS``."""
+
+    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
+    serialized_rollback = True
 
     def setUp(self) -> None:
         self.user = User.objects.create_user("pii_unknown_user", password="pw")

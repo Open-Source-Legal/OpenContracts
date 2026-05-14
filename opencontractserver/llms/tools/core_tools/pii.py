@@ -121,6 +121,27 @@ def _load_doc_text_sync(document_id: int, corpus_id: int) -> _DocTextResult:
     )
 
 
+def _queue_embed(pk: int, cid: int) -> Callable[[], None]:
+    """Return a no-arg ``transaction.on_commit`` callback bound to ``(pk, cid)``.
+
+    Closure factory used by ``_persist_annotations_sync`` to schedule a
+    ``calculate_embedding_for_annotation_text`` Celery task once the
+    surrounding atomic block commits. The factory + named inner ``_fire``
+    fixes a ``Cannot infer type of lambda`` mypy error we hit when
+    registering this inline, and also rebinds ``pk`` / ``cid`` per call so
+    the classic late-binding-in-loop bug can't fire. Lives at module scope
+    so it isn't redefined on every ``_persist_annotations_sync`` invocation
+    (per PR #1642 review feedback).
+    """
+
+    def _fire() -> None:
+        calculate_embedding_for_annotation_text.si(
+            annotation_id=pk, corpus_id=cid
+        ).apply_async(task_id=f"embed-annot-{pk}")
+
+    return _fire
+
+
 def _persist_annotations_sync(
     *,
     doc: Any,
@@ -263,22 +284,13 @@ def _persist_annotations_sync(
         # Queue embeddings on commit so workers never read rows that haven't
         # been committed yet. Registered inside the atomic block so the
         # callbacks are dropped if bulk_create rolls back. Keeps the same
-        # task-id-based dedup the post_save signal handler used.
-        def _queue_embed(pk: int, cid: int) -> Callable[[], None]:
-            """Return a no-arg on_commit callback bound to (pk, cid).
-
-            The factory + named return type fixes a `Cannot infer type of
-            lambda` mypy error we hit when registering this inline.
-            """
-
-            def _fire() -> None:
-                calculate_embedding_for_annotation_text.si(
-                    annotation_id=pk, corpus_id=cid
-                ).apply_async(task_id=f"embed-annot-{pk}")
-
-            return _fire
-
+        # task-id-based dedup the post_save signal handler used. The
+        # ``_queue_embed`` factory lives at module scope (see above) so it
+        # isn't redefined on every call into ``_persist_annotations_sync``.
         for ann in annotations:
+            assert (
+                ann.pk is not None
+            ), "bulk_create did not populate annotation.pk (PostgreSQL RETURNING)"
             transaction.on_commit(_queue_embed(ann.pk, corpus_pk))
 
     return [(ann.pk, det) for ann, det in pending]

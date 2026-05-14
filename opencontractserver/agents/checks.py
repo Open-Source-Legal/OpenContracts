@@ -3,10 +3,10 @@
 from typing import Any
 
 from django.conf import settings
-from django.core.checks import Warning, register
+from django.core.checks import Tags, Warning, register
 
 
-@register()
+@register(Tags.security)
 def check_privacy_filter_api_key(app_configs: Any, **kwargs: Any) -> list[Warning]:
     """Warn if the privacy-filter service is reachable but unauthenticated.
 
