@@ -19,6 +19,7 @@ from opencontractserver.shared.QuerySets import (
     PermissionQuerySet,
     UserFeedbackQuerySet,
 )
+from opencontractserver.shared.user_can_mixin import UserCanMixin
 
 # Re-exported so callers receiving "a permissioned manager" can annotate
 # against ``PermissionedQueryManagerProtocol`` instead of any concrete
@@ -113,7 +114,7 @@ def _apply_document_prefetches(
     return queryset
 
 
-class BaseVisibilityManager(Manager):
+class BaseVisibilityManager(UserCanMixin, Manager):
     """
     Base manager that implements the standard visibility logic for non-annotations and non-relationships .
 
@@ -124,6 +125,13 @@ class BaseVisibilityManager(Manager):
 
     This is the SECURE fallback logic that should be used by all models that don't have
     more specific permission requirements.
+
+    ``user_can(user, instance, permission)`` is provided by ``UserCanMixin``
+    and mirrors ``visible_to_user`` semantics: for READ, it returns the same
+    boolean as ``self.visible_to_user(user).filter(pk=instance.pk).exists()``.
+    Per-model subclasses SHOULD override and add model-specific rules (e.g.
+    structural read-only, annotation privacy) before delegating back to
+    ``_default_user_can`` for the default branch.
     """
 
     def visible_to_user(
@@ -546,6 +554,53 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
         return self.get_queryset().search_by_embedding(
             query_vector, embedder_path, top_k
         )
+
+
+class RelationshipManager(BaseVisibilityManager):
+    """Visibility manager for the ``Relationship`` model.
+
+    Relationships don't have their own permission model — they inherit
+    visibility from their linked document and corpus. ``BaseVisibilityManager``
+    already handles the creator/public/explicit-permission base case; we
+    layer on the same DocumentPath-aware filter used for annotations so
+    that relationships pointing at a doc currently in the trash for a
+    corpus stop appearing in user-facing queries. The data is preserved
+    so that "Restore from trash" still works.
+    """
+
+    def visible_to_user(
+        self,
+        user: Any = None,
+        lightweight: bool = False,
+        # ``with_doc_label_annotations`` is part of ``BaseVisibilityManager``'s
+        # signature and is meaningless for Relationship (it only affects
+        # annotation-label prefetches). Accepted purely for compatibility with
+        # the parent manager so callers can use a uniform call shape.
+        with_doc_label_annotations: bool = False,
+    ) -> QuerySet:
+        from opencontractserver.shared.QuerySets import (
+            _exclude_soft_deleted_doc_orphans,
+        )
+
+        # Normalise None → AnonymousUser up front and short-circuit on
+        # superuser before super() runs, matching AnnotationQuerySet's
+        # pattern so the two soft-delete-aware visibility paths read the
+        # same.
+        if user is None:
+            user = AnonymousUser()
+        if user.is_superuser:
+            return super().visible_to_user(
+                user=user,
+                lightweight=lightweight,
+                with_doc_label_annotations=with_doc_label_annotations,
+            )
+
+        qs = super().visible_to_user(
+            user=user,
+            lightweight=lightweight,
+            with_doc_label_annotations=with_doc_label_annotations,
+        )
+        return _exclude_soft_deleted_doc_orphans(qs)
 
 
 class EmbeddingManager(BaseVisibilityManager):

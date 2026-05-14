@@ -1,27 +1,38 @@
+"""
+Corpus forking as a thin wrapper over the V2 export/import pipeline.
+
+The fork task used to maintain its own ID-remap logic for every cloned
+object type (LabelSet, AnnotationLabel, Fieldset, Column, CorpusFolder,
+Document, DocumentPath, Annotation, Datacell, Relationship).  That code
+silently drifted from the export/import pipeline (missing
+``CorpusDescriptionRevision`` history, conversations, ingestion source
+lineage; differing behavior on off-labelset annotation labels; etc.).
+
+The current implementation flips the relationship: forking is now defined
+as *export the source corpus to an in-memory ZIP, then import it into a
+fresh shell corpus*.  Fork-specific tweaks (``[FORK]`` title prefix on
+the corpus / labelset / documents, ``parent_id`` lineage, optional
+``preferred_embedder`` override) are applied after the import returns.
+
+This guarantees fork ≡ export+import by construction, so any future
+addition to the V2 schema flows through to fork automatically.
+"""
+
+from __future__ import annotations
+
 import logging
-from pathlib import Path
-from typing import Any, Optional
 
 from django.contrib.auth import get_user_model
-from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
 
 from config import celery_app
-from opencontractserver.annotations.models import (
-    Annotation,
-    AnnotationLabel,
-    LabelSet,
-    Relationship,
-    StructuralAnnotationSet,
-)
-from opencontractserver.corpuses.models import Corpus, CorpusFolder
+from opencontractserver.constants.corpus_forking import FORK_TITLE_PREFIX
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
-from opencontractserver.extracts.models import Column, Datacell, Fieldset
-from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
+from opencontractserver.tasks.import_tasks_v2 import import_corpus_v2_from_bytes
 
-# Excellent django logging guidance here: https://docs.python.org/3/howto/logging-cookbook.html
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -37,508 +48,330 @@ def fork_corpus(
     folder_ids: list[str],
     relationship_ids: list[str],
     user_id: str,
-    metadata_column_ids: Optional[list[str]] = None,
-    metadata_datacell_ids: Optional[list[str]] = None,
-) -> Optional[str]:
+    metadata_column_ids: list[str] | None = None,
+    metadata_datacell_ids: list[str] | None = None,
+) -> int | str | None:
+    """
+    Fork a corpus by round-tripping it through the V2 export/import pipeline.
 
-    # Handle None defaults for backward compatibility with queued tasks
-    if metadata_column_ids is None:
-        metadata_column_ids = []
-    if metadata_datacell_ids is None:
-        metadata_datacell_ids = []
+    Args:
+        new_corpus_id: ID of the pre-created shell corpus to populate.  The
+            caller (``StartCorpusFork`` mutation or
+            ``build_fork_corpus_task``) creates this row with
+            ``backend_lock=True`` and ``parent_id`` pointing at the source.
+        doc_ids, label_set_id, annotation_ids, folder_ids, relationship_ids,
+        metadata_column_ids, metadata_datacell_ids: Retained for backward
+            compatibility with queued tasks.  These were used by the old
+            inline-cloning implementation; the new export-driven flow
+            collects everything it needs from the source corpus directly,
+            so the args are effectively informational.
+
+    Returns:
+        New corpus ID on success, ``None`` on failure (with ``error=True``
+        and ``backend_lock=False`` left on the shell).
+    """
+    # Retained-arg unused acknowledgements (silences linters; document
+    # in body that these are present for queued-task backward compat).
+    _ = (
+        doc_ids,
+        annotation_ids,
+        folder_ids,
+        relationship_ids,
+        metadata_column_ids,
+        metadata_datacell_ids,
+        label_set_id,
+    )
+    # One-shot deprecation signal for callers that still pass the old
+    # selective-fork args.  Logged once per task invocation so it shows
+    # up in production logs without being noisy when callers have
+    # already migrated to the no-args form.
+    if any(
+        (
+            doc_ids,
+            annotation_ids,
+            folder_ids,
+            relationship_ids,
+            metadata_column_ids,
+            metadata_datacell_ids,
+            label_set_id,
+        )
+    ):
+        logger.warning(
+            "fork_corpus: doc_ids/annotation_ids/folder_ids/relationship_ids/"
+            "metadata_column_ids/metadata_datacell_ids/label_set_id are "
+            "deprecated and ignored — the fork now exports the entire source "
+            "corpus and re-imports it. Remove these args from callers."
+        )
 
     logger.info(
-        f"Start fork_corpus -----\n\tnew_corpus_id: {new_corpus_id}\n\tdoc_ids: "
-        f"{doc_ids}\n\tannotation_ids: {annotation_ids}\n\tmetadata_column_ids: "
-        f"{len(metadata_column_ids)}\n\tmetadata_datacell_ids: {len(metadata_datacell_ids)}"
-        f"\n\tuser_id: {user_id}"
+        "fork_corpus(new_corpus_id=%s, user_id=%s) via export+import",
+        new_corpus_id,
+        user_id,
     )
 
-    # We need reference to corpus model so we can unlock it upon completion
-    corpus = Corpus.objects.get(pk=new_corpus_id)
+    try:
+        shell = Corpus.objects.get(pk=new_corpus_id)
+        # Validate the user exists up-front so we fail loudly before
+        # running an expensive export.  The import path looks the user up
+        # again by ID; we don't need to hold a reference here.
+        User.objects.get(pk=user_id)
+    except (Corpus.DoesNotExist, User.DoesNotExist) as e:
+        logger.error("fork_corpus could not load shell or user: %s", e)
+        return None
 
-    # Get the User object for operations that need it (e.g., add_document)
-    user = User.objects.get(pk=user_id)
+    source_pk = shell.parent_id
+    if source_pk is None:
+        logger.error(
+            "fork_corpus shell %s has no parent_id; cannot infer source corpus",
+            new_corpus_id,
+        )
+        shell.backend_lock = False
+        shell.error = True
+        shell.save(update_fields=["backend_lock", "error"])
+        return None
 
-    with transaction.atomic():
+    # Capture the override the caller stamped on the shell (the
+    # StartCorpusFork mutation supports a preferred_embedder override).
+    # The import will overwrite preferred_embedder with the source's
+    # value, so re-apply this afterwards if it diverges.
+    requested_embedder: str | None = shell.preferred_embedder or None
 
-        try:
+    try:
+        # Build the export ZIP outside the write transaction.  It only
+        # reads from the DB (and constructs an in-memory ZIP), so it
+        # doesn't need to share scope with the import's writes — keeping
+        # it outside narrows the lock window to just the import phase,
+        # which can run for minutes on large corpora.
+        #
+        # Tradeoff: the source corpus can be mutated between the export
+        # snapshot and the import commit (concurrent annotation edit,
+        # folder rename, etc.).  Fork accepts this tradeoff because the
+        # alternative — holding a write lock for the full export+import
+        # window — is unacceptable on large corpora.  The forked corpus
+        # reflects the source state at the moment ``build_corpus_v2_zip``
+        # ran; later mutations are caller-visible and out of scope here.
+        zip_bytes = build_corpus_v2_zip(
+            corpus_pk=int(source_pk),
+            user_for_visibility=None,  # fork inherits all conversations
+            include_conversations=True,
+            include_action_trail=False,
+        )
 
-            label_map = {}
-            doc_map = {}
-            label_ids = []
-
-            # Only clone label set if one exists
-            if label_set_id:
-                try:
-                    # Create the label set copy first.
-                    old_label_set = LabelSet.objects.get(pk=label_set_id)
-                    label_ids = list(
-                        old_label_set.annotation_labels.all().values_list(
-                            "id", flat=True
-                        )
-                    )
-
-                    label_set = LabelSet(
-                        creator_id=user_id,
-                        title=f"[FORK] {old_label_set.title}",
-                        description=old_label_set.description,
-                    )
-                    label_set.save()
-                    logger.info(f"Cloned labelset: {label_set}")
-
-                    # If there's an icon... copy it to a new file
-                    if old_label_set.icon and old_label_set.icon.name:
-                        icon_name = old_label_set.icon.name
-                        icon_obj = default_storage.open(icon_name)
-                        icon_file = ContentFile(icon_obj.read())
-                        logger.info(f"Label set icon name: {Path(icon_name).name}")
-                        label_set.icon.save(Path(icon_name).name, icon_file)
-                        label_set.save()
-
-                except Exception as e:
-                    logger.error(
-                        f"ERROR forking label_set for corpus {new_corpus_id}: {e}"
-                    )
-                    raise e
-
-                # Get old label objs (can't just get these earlier as manytomany
-                # values are cleared by django when we call clear(), it seems)
-                # Copy labels and add new labels to label_set
-                logger.info("Cloning labels")
-                try:
-                    for old_label in AnnotationLabel.objects.filter(pk__in=label_ids):
-
-                        try:
-                            new_label = AnnotationLabel(
-                                creator_id=user_id,
-                                label_type=old_label.label_type,
-                                color=old_label.color,
-                                description=old_label.description,
-                                icon=old_label.icon,
-                                text=old_label.text,
-                            )
-                            new_label.save()
-
-                            # store map of old id to new id
-                            label_map[old_label.id] = new_label.id
-
-                            # Add to new labelset
-                            label_set.annotation_labels.add(new_label)
-
-                        except Exception as e:
-                            logger.error(
-                                f"ERROR - could not fork label for labelset "
-                                f"{label_set_id}: {e}"
-                            )
-
-                    # Save label_set
-                    label_set.save()
-
-                    # Update corpus LabelSet to point to cloned copy of original:
-                    corpus.label_set = label_set
-
-                except Exception as e:
-                    logger.error(
-                        f"ERROR - could not populate labels for labelset "
-                        f"{label_set_id}: {e}"
-                    )
-                    raise e
-            else:
-                logger.info("No label set to clone - corpus has no label set")
-
-            # ============================================================
-            # Clone metadata schema (Fieldset + Columns)
-            # ============================================================
-            column_map = {}  # old_column_id -> new_column_id
-
-            if metadata_column_ids:
-                logger.info(
-                    f"Cloning metadata schema with {len(metadata_column_ids)} columns"
+        with transaction.atomic():
+            imported_id = import_corpus_v2_from_bytes(
+                zip_source=zip_bytes,
+                user_id=int(user_id),
+                seed_corpus_id=int(new_corpus_id),
+            )
+            if imported_id is None:
+                raise RuntimeError(
+                    f"V2 import returned None while forking corpus {source_pk}"
                 )
 
-                try:
-                    # Get the source fieldset from the first column
-                    first_column = Column.objects.get(pk=metadata_column_ids[0])
-                    old_fieldset = first_column.fieldset
+            # ``unpack_corpus_from_export`` overwrote the shell's title +
+            # preferred_embedder + label_set with the source's values.
+            # Re-apply fork semantics on top.
+            new_corpus = Corpus.objects.get(pk=imported_id)
 
-                    # Create new fieldset for the forked corpus
-                    new_fieldset = Fieldset(
-                        name=f"[FORK] {old_fieldset.name}",
-                        description=old_fieldset.description,
-                        corpus_id=new_corpus_id,  # Link to new corpus
-                        creator_id=user_id,
+            # Fork-prefix semantics:  Always prepend the prefix unconditionally
+            # so that multi-generation forks stack the prefix
+            # ("[FORK] [FORK] X") — that's the historical fork contract used
+            # by the lineage UI to communicate "this came from another fork".
+            new_corpus.title = f"{FORK_TITLE_PREFIX}{new_corpus.title}"
+            new_corpus.parent_id = source_pk
+            updates: list[str] = ["title", "parent"]
+
+            if (
+                requested_embedder
+                and requested_embedder != new_corpus.preferred_embedder
+            ):
+                new_corpus.preferred_embedder = requested_embedder
+                updates.append("preferred_embedder")
+
+            new_corpus.backend_lock = False
+            updates.append("backend_lock")
+
+            new_corpus.save(update_fields=updates)
+
+            # LabelSet title prefix — matches historical fork behavior.
+            label_set = new_corpus.label_set
+            if label_set is not None:
+                label_set.title = f"{FORK_TITLE_PREFIX}{label_set.title}"
+                label_set.save(update_fields=["title"])
+
+            # Metadata Fieldset name prefix — matches historical fork
+            # behavior (and mirrors LabelSet/title handling).
+            metadata_fieldset = getattr(new_corpus, "metadata_schema", None)
+            if metadata_fieldset is not None:
+                metadata_fieldset.name = f"{FORK_TITLE_PREFIX}{metadata_fieldset.name}"
+                metadata_fieldset.save(update_fields=["name"])
+
+            # Document-level fork tweaks:
+            #  - re-link source_document for provenance tracking
+            #  - prefix titles with "[FORK] "
+            # Build a (hash -> source Document) lookup across the SOURCE
+            # corpus so the new corpus-isolated copy points back at the
+            # original document it was forked from.  This mirrors the
+            # provenance that ``corpus.add_document`` used to set on the
+            # in-process fork path.
+            source_paths = DocumentPath.objects.filter(
+                corpus_id=source_pk, is_current=True, is_deleted=False
+            ).select_related("document")
+            source_by_hash: dict[str, Document] = {
+                p.document.pdf_file_hash: p.document
+                for p in source_paths
+                if p.document.pdf_file_hash
+            }
+            # Title-based fallback used only when ``pdf_file_hash`` is empty
+            # on either side.  Detect ambiguous titles up-front so the fallback
+            # can be suppressed for those keys (silently picking "last wins"
+            # would assign the wrong source blobs to forked docs).
+            source_title_counts: dict[str, int] = {}
+            for p in source_paths:
+                if p.document.title:
+                    source_title_counts[p.document.title] = (
+                        source_title_counts.get(p.document.title, 0) + 1
                     )
-                    new_fieldset.save()
+            ambiguous_titles = {t for t, n in source_title_counts.items() if n > 1}
+            if ambiguous_titles:
+                logger.warning(
+                    "fork_corpus: source corpus %s has %d document(s) with "
+                    "duplicate title(s) %s; title-based blob fallback will be "
+                    "skipped for these to avoid silent mis-assignment.",
+                    source_pk,
+                    len(ambiguous_titles),
+                    sorted(ambiguous_titles),
+                )
+            source_by_title: dict[str, Document] = {
+                p.document.title: p.document
+                for p in source_paths
+                if p.document.title and p.document.title not in ambiguous_titles
+            }
 
-                    set_permissions_for_obj_to_user(
-                        user_id, new_fieldset, [PermissionTypes.CRUD]
-                    )
-                    logger.info(f"Created metadata fieldset: {new_fieldset.pk}")
+            # Collect the V2-import blob paths that get orphaned when we
+            # re-point a forked doc at the source corpus's storage.  We
+            # delete them via ``transaction.on_commit`` so the cleanup only
+            # runs once the fork transaction is durable — if the atomic
+            # block rolls back, the source-blob repointing never happened
+            # and the V2-import blob is still the live reference, so it
+            # must not be deleted.
+            orphaned_blob_paths: list[str] = []
 
-                    # Clone columns (preserve display order)
-                    for old_column in Column.objects.filter(
-                        pk__in=metadata_column_ids
-                    ).order_by("display_order"):
-                        new_column = Column(
-                            name=old_column.name,
-                            fieldset_id=new_fieldset.pk,
-                            output_type=old_column.output_type,
-                            data_type=old_column.data_type,
-                            validation_config=(
-                                old_column.validation_config.copy()
-                                if old_column.validation_config
-                                else None
-                            ),
-                            is_manual_entry=True,
-                            default_value=old_column.default_value,
-                            help_text=old_column.help_text,
-                            display_order=old_column.display_order,
-                            creator_id=user_id,
-                            # Extraction fields not needed for metadata columns
-                            query=None,
-                            match_text=None,
-                        )
-                        new_column.save()
-                        column_map[old_column.pk] = new_column.pk
+            for dp in DocumentPath.objects.filter(
+                corpus=new_corpus, is_current=True, is_deleted=False
+            ).select_related("document"):
+                doc = dp.document
+                doc_updates: list[str] = []
 
-                        set_permissions_for_obj_to_user(
-                            user_id, new_column, [PermissionTypes.CRUD]
-                        )
-                        logger.info(
-                            f"Cloned column {old_column.name} -> {new_column.pk}"
-                        )
+                # Re-point provenance at the source corpus's copy
+                # rather than the transient standalone Document the
+                # V2 import path created (correct for export/import,
+                # wrong for fork lineage).
+                candidate = None
+                if doc.pdf_file_hash:
+                    candidate = source_by_hash.get(doc.pdf_file_hash)
+                if candidate is None and doc.title:
+                    candidate = source_by_title.get(doc.title)
+                if candidate is not None and doc.source_document_id != candidate.id:
+                    doc.source_document = candidate
+                    doc_updates.append("source_document")
 
-                except Exception as e:
-                    logger.error(f"ERROR cloning metadata schema: {e}")
-                    raise e
-            else:
-                logger.info("No metadata schema to clone")
-
-            # ============================================================
-            # Clone folder structure (must be before documents)
-            # ============================================================
-            folder_map: dict[int, int] = {}  # old_folder_id -> new_folder_id
-
-            logger.info(f"Cloning {len(folder_ids)} folders")
-            # Note: with_tree_fields() provides default tree_ordering which ensures parents before children
-            for old_folder in CorpusFolder.objects.filter(
-                pk__in=folder_ids
-            ).with_tree_fields():
-                try:
-                    new_folder = CorpusFolder(
-                        name=old_folder.name,
-                        corpus_id=new_corpus_id,
-                        description=old_folder.description,
-                        color=old_folder.color,
-                        icon=old_folder.icon,
-                        tags=old_folder.tags.copy() if old_folder.tags else [],
-                        is_public=old_folder.is_public,
-                        creator_id=user_id,
-                        # Map parent to new folder ID (None if root)
-                        parent_id=folder_map.get(old_folder.parent_id),
-                    )
-                    new_folder.save()
-                    folder_map[old_folder.pk] = new_folder.pk
-
-                    set_permissions_for_obj_to_user(
-                        user_id, new_folder, [PermissionTypes.CRUD]
-                    )
-                    logger.info(f"Cloned folder {old_folder.name} -> {new_folder.pk}")
-
-                except Exception as e:
-                    logger.error(f"ERROR cloning folder {old_folder.pk}: {e}")
-                    raise e
-
-            # ============================================================
-            # Clone documents
-            # ============================================================
-            # Track duplicated structural_annotation_sets to preserve sharing
-            # (docs with same content hash should share the same set after forking)
-            structural_set_map: dict[int, StructuralAnnotationSet] = (
-                {}
-            )  # old_structural_set_id -> new_structural_set
-
-            for document in Document.objects.filter(pk__in=doc_ids):
-
-                try:
-                    logger.info(f"Clone document: {document}")
-                    old_id = document.pk
-
-                    # Get original DocumentPath to preserve folder and path
-                    original_corpus_id = corpus.parent_id
-                    original_path = DocumentPath.objects.filter(
-                        corpus_id=original_corpus_id,
-                        document_id=old_id,
-                        is_current=True,
-                        is_deleted=False,
-                    ).first()
-
-                    # Map folder to new folder ID
-                    target_folder = None
-                    original_path_str = None
-                    if original_path:
-                        original_path_str = original_path.path
-                        if original_path.folder_id:
-                            new_folder_id = folder_map.get(original_path.folder_id)
-                            if new_folder_id:
-                                target_folder = CorpusFolder.objects.get(
-                                    pk=new_folder_id
-                                )
-
-                    # Check if we should reuse an already-duplicated structural_annotation_set
-                    add_doc_kwargs: dict[str, Any] = {
-                        "title": f"[FORK] {document.title}"
-                    }
-                    old_struct_set_id = document.structural_annotation_set_id
-                    if old_struct_set_id and old_struct_set_id in structural_set_map:
-                        # Reuse the already-duplicated set
-                        add_doc_kwargs["structural_annotation_set"] = (
-                            structural_set_map[old_struct_set_id]
-                        )
-                        logger.info(
-                            f"Reusing duplicated structural_set for doc {old_id}"
-                        )
-
-                    # Use add_document to create corpus-isolated copy directly from original.
-                    # add_document handles: new version_tree_id, file blob sharing,
-                    # source_document provenance, and DocumentPath creation.
-                    corpus_doc, status, doc_path = corpus.add_document(
-                        document=document,
-                        user=user,
-                        folder=target_folder,
-                        path=original_path_str,
-                        **add_doc_kwargs,
-                    )
-
-                    # Track the duplicated structural_annotation_set for future docs
-                    if (
-                        old_struct_set_id
-                        and old_struct_set_id not in structural_set_map
+                # File-blob sharing — fork semantics share storage paths
+                # with the source rather than allocating fresh copies.
+                # The export/import roundtrip writes new blobs by design,
+                # so the ones it just wrote here are stale and we GC
+                # them after commit (see ``transaction.on_commit`` below).
+                if candidate is not None:
+                    # Repoint each file-blob field at the source's storage
+                    # path when the V2 import wrote a different blob.
+                    # Only the *replacement* case orphans a blob (the
+                    # ``not dst_blob`` branch just attaches a fresh one),
+                    # so we only collect orphan paths for replacements.
+                    for field_name in (
+                        "pdf_file",
+                        "pawls_parse_file",
+                        "txt_extract_file",
+                        "icon",
+                        "md_summary_file",
                     ):
-                        structural_set_map[old_struct_set_id] = (
-                            corpus_doc.structural_annotation_set
-                        )
-
-                    # Store map of old id to new corpus document id
-                    doc_map[old_id] = corpus_doc.pk
-
-                    # Set permissions on the corpus-isolated document
-                    set_permissions_for_obj_to_user(
-                        user_id, corpus_doc, [PermissionTypes.CRUD]
-                    )
-
-                    logger.info(f"Forked document {old_id} -> {corpus_doc.pk}")
-
-                except Exception as e:
-                    logger.error(f"ERROR - could not fork document {document}: {e}")
-                    raise e
-
-            # Save updated corpus with docs and new LabelSet.
-            corpus.save()
-
-            # ============================================================
-            # Clone annotations
-            # ============================================================
-            logger.info("Start Annotations...")
-            logger.info(f"Label map: {label_map}")
-
-            annotation_map = {}  # old_annotation_id -> new_annotation_id
-
-            # Fetch annotations and map to new docs, labels and corpus
-            for annotation in Annotation.objects.filter(pk__in=annotation_ids):
-
-                try:
-                    old_annotation_id = annotation.pk  # Save before clearing
-                    logger.info(f"Clone annotation: {annotation}")
-
-                    # Skip annotations without a document reference
-                    if not annotation.document_id:
-                        logger.warning(
-                            f"Skipping annotation {old_annotation_id}: no document_id"
-                        )
-                        continue
-
-                    # Skip annotations whose document wasn't forked
-                    if annotation.document_id not in doc_map:
-                        logger.warning(
-                            f"Skipping annotation {old_annotation_id}: "
-                            f"document {annotation.document_id} not in forked documents"
-                        )
-                        continue
-
-                    # Copy the annotation, update label and doc object references using our
-                    # object maps of old objs to new objs
-                    annotation.pk = None
-                    annotation.creator_id = user_id
-                    annotation.corpus_id = new_corpus_id
-                    annotation.document_id = doc_map[annotation.document_id]
-
-                    # Map annotation label if it exists and has a mapping
-                    if annotation.annotation_label_id and label_map:
-                        annotation.annotation_label_id = label_map.get(
-                            annotation.annotation_label_id
-                        )
-                    else:
-                        annotation.annotation_label_id = None
-
-                    annotation.save()
-
-                    # Track mapping for relationship cloning
-                    annotation_map[old_annotation_id] = annotation.pk
-
-                    set_permissions_for_obj_to_user(
-                        user_id, annotation, [PermissionTypes.CRUD]
-                    )
-
-                except Exception as e:
-                    logger.error(f"ERROR - could not fork annotation {annotation}: {e}")
-                    raise e
-
-            logger.info("Annotations completed...")
-
-            # ============================================================
-            # Clone metadata datacells
-            # ============================================================
-            if metadata_datacell_ids and column_map:
-                logger.info(f"Cloning {len(metadata_datacell_ids)} metadata datacells")
-
-                for old_datacell in Datacell.objects.filter(
-                    pk__in=metadata_datacell_ids
-                ):
-                    try:
-                        # Map to new document and column
-                        new_doc_id = doc_map.get(old_datacell.document_id)
-                        new_column_id = column_map.get(old_datacell.column_id)
-
-                        if not new_doc_id or not new_column_id:
-                            logger.warning(
-                                f"Skipping datacell {old_datacell.pk}: "
-                                f"missing doc ({new_doc_id}) or column ({new_column_id}) mapping"
-                            )
+                        src_blob = getattr(candidate, field_name)
+                        dst_blob = getattr(doc, field_name)
+                        if not (src_blob and src_blob.name):
                             continue
+                        if not dst_blob:
+                            setattr(doc, field_name, src_blob)
+                            doc_updates.append(field_name)
+                        elif dst_blob.name != src_blob.name:
+                            # Remember the V2-import blob path so we can
+                            # GC it after the transaction commits.
+                            orphaned_blob_paths.append(dst_blob.name)
+                            setattr(doc, field_name, src_blob)
+                            doc_updates.append(field_name)
 
-                        new_datacell = Datacell(
-                            column_id=new_column_id,
-                            document_id=new_doc_id,
-                            data=(
-                                old_datacell.data.copy() if old_datacell.data else None
-                            ),
-                            data_definition=old_datacell.data_definition,
-                            extract=None,  # Manual metadata has no extract
-                            creator_id=user_id,
-                            # Don't copy approval status - forked data starts fresh
-                            approved_by=None,
-                            rejected_by=None,
-                            corrected_data=None,
-                        )
-                        new_datacell.save()
+                doc.title = f"{FORK_TITLE_PREFIX}{doc.title}"
+                doc_updates.append("title")
 
-                        set_permissions_for_obj_to_user(
-                            user_id, new_datacell, [PermissionTypes.CRUD]
-                        )
-                        logger.info(
-                            f"Cloned datacell {old_datacell.pk} -> {new_datacell.pk}"
-                        )
+                if doc_updates:
+                    doc.save(update_fields=doc_updates)
 
-                    except Exception as e:
-                        logger.error(f"ERROR cloning datacell {old_datacell.pk}: {e}")
-                        raise e
+            if orphaned_blob_paths:
+                # Snapshot the count for logging before the on_commit
+                # callback runs; the list itself is captured by reference
+                # in the closure below.
+                orphan_count = len(orphaned_blob_paths)
+                paths_to_delete = list(orphaned_blob_paths)
 
-                logger.info("Metadata datacells completed...")
-            else:
-                logger.info("No metadata datacells to clone")
+                def _gc_orphaned_blobs(
+                    paths: list[str] = paths_to_delete,
+                    shell_id: str = str(new_corpus_id),
+                ) -> None:
+                    """Best-effort GC of V2-import blobs orphaned by fork.
 
-            # ============================================================
-            # Clone relationships
-            # ============================================================
-            logger.info(f"Cloning {len(relationship_ids)} relationships")
-
-            # Use prefetch_related to avoid N+1 queries when accessing M2M fields
-            for old_relationship in Relationship.objects.filter(
-                pk__in=relationship_ids
-            ).prefetch_related("source_annotations", "target_annotations"):
-                try:
-                    # Get source and target annotation IDs
-                    old_source_ids = list(
-                        old_relationship.source_annotations.values_list("id", flat=True)
-                    )
-                    old_target_ids = list(
-                        old_relationship.target_annotations.values_list("id", flat=True)
-                    )
-
-                    # Map to new annotation IDs (skip if mapping is missing)
-                    new_source_ids = [
-                        annotation_map[old_id]
-                        for old_id in old_source_ids
-                        if old_id in annotation_map
-                    ]
-                    new_target_ids = [
-                        annotation_map[old_id]
-                        for old_id in old_target_ids
-                        if old_id in annotation_map
-                    ]
-
-                    # Only create relationship if we have BOTH source and target mappings
-                    # A relationship with only source OR only target is invalid
-                    if not new_source_ids or not new_target_ids:
-                        logger.warning(
-                            f"Skipping relationship {old_relationship.pk}: "
-                            f"missing {'source' if not new_source_ids else 'target'} annotations"
-                        )
-                        continue
-
-                    # Map document and label
-                    new_doc_id = None
-                    if old_relationship.document_id:
-                        new_doc_id = doc_map.get(old_relationship.document_id)
-
-                    new_label_id = None
-                    if old_relationship.relationship_label_id:
-                        new_label_id = label_map.get(
-                            old_relationship.relationship_label_id
-                        )
-
-                    # Create new relationship
-                    new_relationship = Relationship(
-                        creator_id=user_id,
-                        corpus_id=new_corpus_id,
-                        document_id=new_doc_id,
-                        relationship_label_id=new_label_id,
-                    )
-                    new_relationship.save()
-
-                    # Set M2M relationships
-                    if new_source_ids:
-                        new_relationship.source_annotations.set(new_source_ids)
-                    if new_target_ids:
-                        new_relationship.target_annotations.set(new_target_ids)
-
-                    set_permissions_for_obj_to_user(
-                        user_id, new_relationship, [PermissionTypes.CRUD]
-                    )
-
+                    Runs after the fork transaction commits, so a rollback
+                    leaves the V2-import blobs intact (they are still the
+                    live reference on the forked docs).
+                    """
+                    deleted = 0
+                    for path in paths:
+                        try:
+                            default_storage.delete(path)
+                            deleted += 1
+                        except Exception:
+                            logger.warning(
+                                "fork_corpus(shell=%s): failed to delete "
+                                "orphaned V2-import blob %r",
+                                shell_id,
+                                path,
+                                exc_info=True,
+                            )
                     logger.info(
-                        f"Cloned relationship {old_relationship.pk} -> {new_relationship.pk}"
+                        "fork_corpus(shell=%s): GC'd %d/%d orphaned "
+                        "V2-import blob(s) after fork commit.",
+                        shell_id,
+                        deleted,
+                        len(paths),
                     )
 
-                except Exception as e:
-                    logger.error(
-                        f"ERROR cloning relationship {old_relationship.pk}: {e}"
-                    )
-                    raise e
+                transaction.on_commit(_gc_orphaned_blobs)
+                logger.info(
+                    "fork_corpus(shell=%s): scheduled GC for %d orphaned "
+                    "V2-import blob(s) (runs on commit).",
+                    new_corpus_id,
+                    orphan_count,
+                )
 
-            logger.info("Relationships completed...")
+        logger.info("fork_corpus succeeded for shell %s", new_corpus_id)
+        return new_corpus.id
 
-            # Unlock the corpus
-            corpus.backend_lock = False
-            corpus.save()
-
-            return corpus.id
-
-        except Exception as e:
-            logger.error(f"ERROR - Unable to fork corpus: {e}")
-            corpus.backend_lock = False
-            corpus.error = True
-            corpus.save()
-            return None
+    except Exception as e:
+        logger.error(
+            "fork_corpus failed for shell %s: %s", new_corpus_id, e, exc_info=True
+        )
+        try:
+            shell.refresh_from_db()
+            shell.backend_lock = False
+            shell.error = True
+            shell.save(update_fields=["backend_lock", "error"])
+        except Exception:
+            pass
+        return None
