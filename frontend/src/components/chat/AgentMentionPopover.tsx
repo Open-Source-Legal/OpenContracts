@@ -1,4 +1,7 @@
 import React, { useEffect } from "react";
+import styled from "styled-components";
+import { color } from "../../theme/colors";
+import { spacing } from "../../theme/spacing";
 
 /**
  * Slim popover for selecting an agent to @mention in chat input.
@@ -21,7 +24,52 @@ import React, { useEffect } from "react";
  * locally, or threading new "agent-only" props through it — both of which
  * are heavier than this slim component. We will revisit consolidation in
  * a later phase once both pickers share more behavior.
+ *
+ * Styling mirrors UnifiedMentionPicker's theme-token usage (no hex literals)
+ * so visual treatment stays consistent across mention surfaces.
  */
+
+const Container = styled.div`
+  background: ${color.N1};
+  border: 1px solid ${color.N4};
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  max-height: 240px;
+  overflow-y: auto;
+  min-width: 240px;
+`;
+
+const NoResults = styled.div`
+  padding: ${spacing.xs} ${spacing.sm};
+  color: ${color.N7};
+  font-size: 13px;
+`;
+
+const OptionButton = styled.button`
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: ${spacing.xs} ${spacing.sm};
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: ${color.N10};
+  transition: background 0.15s;
+
+  &:hover {
+    background: ${color.N2};
+  }
+`;
+
+const OptionName = styled.strong`
+  font-weight: 600;
+  color: ${color.N10};
+`;
+
+const OptionMeta = styled.span`
+  color: ${color.N7};
+`;
 
 export interface AgentItem {
   id: string;
@@ -63,48 +111,21 @@ export const AgentMentionPopover: React.FC<Props> = ({
   );
 
   return (
-    <div
-      role="listbox"
-      data-testid="agent-mention-popover"
-      style={{
-        background: "white",
-        border: "1px solid rgba(0,0,0,0.1)",
-        borderRadius: 6,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-        maxHeight: 240,
-        overflowY: "auto",
-        minWidth: 240,
-      }}
-    >
-      {matches.length === 0 && (
-        <div style={{ padding: "0.5rem 0.75rem", color: "#888" }}>
-          No matching agents.
-        </div>
-      )}
+    <Container role="listbox" data-testid="agent-mention-popover">
+      {matches.length === 0 && <NoResults>No matching agents.</NoResults>}
       {matches.map((a) => (
-        <button
+        <OptionButton
           key={a.id}
           role="option"
           aria-selected={false}
           onClick={() => onSelect(a)}
-          style={{
-            display: "block",
-            width: "100%",
-            textAlign: "left",
-            padding: "0.5rem 0.75rem",
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            fontSize: 13,
-          }}
         >
-          <strong>{a.name}</strong>{" "}
-          <span style={{ color: "#888" }}>@{a.slug}</span>
+          <OptionName>{a.name}</OptionName> <OptionMeta>@{a.slug}</OptionMeta>
           {a.scope === "CORPUS" && a.corpus && (
-            <span style={{ color: "#888" }}> · {a.corpus.title}</span>
+            <OptionMeta> · {a.corpus.title}</OptionMeta>
           )}
-        </button>
+        </OptionButton>
       ))}
-    </div>
+    </Container>
   );
 };
