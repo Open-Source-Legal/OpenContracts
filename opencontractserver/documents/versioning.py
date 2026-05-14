@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import Q
 
 from opencontractserver.constants.document_processing import TEXT_MIMETYPES
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
@@ -681,12 +682,25 @@ def permanently_delete_document(
     """
     Permanently delete a soft-deleted document from a corpus.
 
-    This is IRREVERSIBLE and performs the following cleanup:
-    1. Deletes ALL DocumentPath records for this document in the corpus (entire history)
-    2. Deletes corpus-scoped user annotations (non-structural) on this document
-    3. Deletes relationships involving those annotations
-    4. Deletes DocumentSummaryRevision records for this document+corpus
-    5. If no other corpus references the document (Rule Q1), deletes Document itself
+    This is IRREVERSIBLE and performs the following cleanup (the step
+    numbers match the inline comments in the implementation below):
+
+    1. Verify the document is currently soft-deleted in this corpus.
+    2. Collect every DocumentPath id for the (document, corpus) pair so
+       the cascade scope is bounded to this corpus' history.
+    3. Delete DocumentSummaryRevision records for the (document, corpus)
+       pair.
+    4. Delete corpus-scoped user relationships (non-structural) on this
+       document.
+    5. Delete corpus-scoped user annotations (non-structural) on this
+       document.
+    6. Delete every DocumentPath record collected in step 2.
+    7. If no other corpus references the document (Rule Q1), delete the
+       Document itself. Cascade then cleans up notes, datacells, agent
+       results, etc. and the ``_gc_orphan_structural_set`` post_delete
+       signal drops the ``StructuralAnnotationSet`` (with its structural
+       annotations and structural relationships) iff no other Document
+       references it.
 
     Args:
         corpus: The corpus to permanently delete from
@@ -736,35 +750,58 @@ def permanently_delete_document(
         ).delete()[0]
         logger.debug("Deleted %s DocumentSummaryRevision records", summary_count)
 
-        # Step 4: Delete user annotations (non-structural) for this document
-        # Structural annotations live in StructuralAnnotationSet and are shared
-        user_annotations = Annotation.objects.filter(
+        # Step 4: Delete corpus-scoped (non-structural) user relationships on
+        # this document. Two patterns are covered in one query:
+        #   a) Relationships explicitly tagged ``document=doc`` (the corpus-
+        #      scoped owner).
+        #   b) Relationships referencing any non-structural annotation on this
+        #      doc as source or target — catches legacy rows that may have
+        #      ``document_id`` unset.
+        # Structural relationships (``structural_set IS NOT NULL``) are
+        # preserved here; they're garbage-collected by the
+        # ``_gc_orphan_structural_set`` signal when the Document is deleted
+        # below and no other Document references the set.
+        # The annotation membership is expressed as a subquery so we don't
+        # materialise potentially-large pk lists into Python memory before
+        # the DELETE; PostgreSQL handles the IN-via-subquery plan well.
+        user_annotations_qs = Annotation.objects.filter(
             document=document,
-            structural_set__isnull=True,  # Only user annotations, not structural
+            structural_set__isnull=True,
         )
-
-        # Step 5: Delete relationships involving these annotations first (FK constraint)
-        # Use Q objects to delete in one operation to avoid counting duplicates
-        # (same relationship could have both source and target in annotation_ids)
-        from django.db.models import Q
-
-        annotation_ids = list(user_annotations.values_list("id", flat=True))
-        relationship_count = Relationship.objects.filter(
-            Q(source_annotations__id__in=annotation_ids)
-            | Q(target_annotations__id__in=annotation_ids)
-        ).delete()[0]
+        # ``distinct()`` is required because the M2M joins on
+        # ``source_annotations`` / ``target_annotations`` can yield the
+        # same Relationship row twice. ``.delete()`` itself collapses to
+        # ``pk IN (...)`` and won't double-delete, but the returned count
+        # would otherwise overstate the number of rows removed.
+        relationship_count = (
+            Relationship.objects.filter(
+                Q(document=document, structural_set__isnull=True)
+                | Q(source_annotations__in=user_annotations_qs)
+                | Q(target_annotations__in=user_annotations_qs)
+            )
+            .distinct()
+            .delete()[0]
+        )
         logger.debug("Deleted %s Relationship records", relationship_count)
 
-        # Step 6: Delete the user annotations
-        annotation_count = user_annotations.delete()[0]
+        # Step 5: Delete user annotations (non-structural) on this document.
+        # Structural annotations live on the shared StructuralAnnotationSet
+        # and are GC'd via the post_delete signal below, not here. Reuse the
+        # lazy queryset defined above (it isn't materialised, just compiled
+        # into the relationship subquery) so the filter stays DRY.
+        annotation_count = user_annotations_qs.delete()[0]
         logger.debug("Deleted %s user Annotation records", annotation_count)
 
-        # Step 7: Delete all DocumentPath records for this document in corpus
+        # Step 6: Delete all DocumentPath records for this document in corpus
         DocumentPath.objects.filter(id__in=path_ids).delete()
         logger.debug("Deleted %s DocumentPath records", len(path_ids))
 
-        # Step 8: Check if document should be deleted (Rule Q1 extended)
-        # Document can be deleted if no other corpus has any reference to it
+        # Step 7: Check if document should be deleted (Rule Q1 extended).
+        # Document can be deleted if no other corpus has any reference to it.
+        # The Document.delete() call cascades to remaining corpus-scoped
+        # objects (notes, datacells, agent results, embeddings) and fires
+        # the structural-set GC signal which drops the shared
+        # StructuralAnnotationSet iff no other Document references it.
         if not has_references_in_other_corpuses(document, corpus):
             doc_id = document.id
             doc_title = document.title
