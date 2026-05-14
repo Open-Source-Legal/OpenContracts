@@ -4793,6 +4793,7 @@ export interface SearchAgentsForMentionOutput {
         mentionFormat: string | null;
         corpus: {
           id: string;
+          slug: string;
           title: string;
         } | null;
       };
@@ -4817,6 +4818,7 @@ export const SEARCH_AGENTS_FOR_MENTION = gql`
           mentionFormat
           corpus {
             id
+            slug
             title
           }
         }

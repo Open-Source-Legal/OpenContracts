@@ -79,6 +79,7 @@ export interface UnifiedMentionResource {
     mentionFormat: string | null;
     corpus: {
       id: string;
+      slug: string;
       title: string;
     } | null;
   };

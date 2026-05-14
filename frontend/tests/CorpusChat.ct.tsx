@@ -5,6 +5,11 @@ import { CorpusChatTestWrapper } from "./CorpusChatTestWrapper";
 import {
   GET_CORPUS_CONVERSATIONS,
   GET_CHAT_MESSAGES,
+  SEARCH_USERS_FOR_MENTION,
+  SEARCH_CORPUSES_FOR_MENTION,
+  SEARCH_DOCUMENTS_FOR_MENTION,
+  SEARCH_ANNOTATIONS_FOR_MENTION,
+  SEARCH_AGENTS_FOR_MENTION,
 } from "../src/graphql/queries";
 import { docScreenshot } from "./utils/docScreenshot";
 import { attachWsDebug } from "./utils/wsDebug";
@@ -1004,6 +1009,190 @@ test.describe("CorpusChat", () => {
       "title",
       /AI Agent: @research-bot/
     );
+
+    await component.unmount();
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /* Agent @mention picker wiring (Task 11)                                   */
+  /* ------------------------------------------------------------------------ */
+
+  // Build the five MockedResponses that useUnifiedMentionSearch fires in
+  // parallel. Only the agent search returns data; other categories are empty.
+  const buildMentionSearchMocks = (
+    fragment: string,
+    corpusId: string | undefined,
+    agentNodes: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      description: string;
+      scope: "GLOBAL" | "CORPUS";
+      mentionFormat: string | null;
+      corpus: { id: string; slug: string; title: string } | null;
+    }>
+  ): MockedResponse[] => [
+    {
+      request: {
+        query: SEARCH_USERS_FOR_MENTION,
+        variables: { textSearch: fragment },
+      },
+      result: { data: { searchUsersForMention: { edges: [] } } },
+    },
+    {
+      request: {
+        query: SEARCH_CORPUSES_FOR_MENTION,
+        variables: { textSearch: fragment },
+      },
+      result: { data: { searchCorpusesForMention: { edges: [] } } },
+    },
+    {
+      request: {
+        query: SEARCH_DOCUMENTS_FOR_MENTION,
+        variables: { textSearch: fragment, corpusId },
+      },
+      result: { data: { searchDocumentsForMention: { edges: [] } } },
+    },
+    {
+      request: {
+        query: SEARCH_ANNOTATIONS_FOR_MENTION,
+        variables: { textSearch: fragment, corpusId },
+      },
+      result: { data: { searchAnnotationsForMention: { edges: [] } } },
+    },
+    {
+      request: {
+        query: SEARCH_AGENTS_FOR_MENTION,
+        variables: { textSearch: fragment, corpusId },
+      },
+      result: {
+        data: {
+          searchAgentsForMention: {
+            __typename: "AgentConfigurationTypeConnection",
+            edges: agentNodes.map((node) => ({
+              __typename: "AgentConfigurationTypeEdge",
+              node: { __typename: "AgentConfigurationType", ...node },
+            })),
+          },
+        },
+      },
+    },
+  ];
+
+  test("typing @ in CorpusChat opens agent picker and selecting inserts the markdown link", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          emptyConversationsMock,
+          emptyConversationsMock,
+          ...buildMentionSearchMocks("res", TEST_CORPUS_ID, [
+            {
+              id: "agent-1",
+              name: "Research Bot",
+              slug: "research-bot",
+              description: "Does research",
+              scope: "GLOBAL",
+              mentionFormat: null,
+              corpus: null,
+            },
+          ]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeVisible({ timeout: 20000 });
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    // Type "hello @res" — pressSequentially with a small delay between
+    // keystrokes lets useUnifiedMentionSearch's 300ms debounce settle once,
+    // so only the final fragment ("res") triggers a network round-trip.
+    await input.focus();
+    await input.pressSequentially("hello @res", { delay: 30 });
+
+    await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("Research Bot")).toBeVisible();
+
+    await page.getByText("Research Bot").click();
+
+    await expect(input).toHaveValue(
+      /hello \[@research-bot\]\(\/agents\/research-bot\)\s$/
+    );
+    await expect(page.getByTestId("agent-mention-popover")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("agent picker shows global + current-corpus agents but not other corpus' agents", async ({
+    mount,
+    page,
+  }) => {
+    // Backend's search_agents_for_mention enforces scope: when corpusId is
+    // passed, only GLOBAL + that corpus' agents are returned. We simulate
+    // that by returning only the two in-scope agents from the mock — the
+    // out-of-scope corpus-B agent is *not* part of the mocked response.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          emptyConversationsMock,
+          emptyConversationsMock,
+          ...buildMentionSearchMocks("bot", TEST_CORPUS_ID, [
+            {
+              id: "agent-global",
+              name: "Global Bot",
+              slug: "global-bot",
+              description: "Global",
+              scope: "GLOBAL",
+              mentionFormat: null,
+              corpus: null,
+            },
+            {
+              id: "agent-a",
+              name: "Corpus A Bot",
+              slug: "corpus-a-bot",
+              description: "Bot in corpus A",
+              scope: "CORPUS",
+              mentionFormat: null,
+              corpus: {
+                id: TEST_CORPUS_ID,
+                slug: "corpus-a",
+                title: "Corpus A",
+              },
+            },
+            // NOTE: corpus-B agent intentionally NOT included — the backend
+            // resolver would filter it out, and we are asserting that the
+            // frontend faithfully renders only what the backend returned.
+          ]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeVisible({ timeout: 20000 });
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.focus();
+    await input.pressSequentially("@bot", { delay: 30 });
+
+    await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Both in-scope agents are shown
+    await expect(page.getByText("Global Bot")).toBeVisible();
+    await expect(page.getByText("Corpus A Bot")).toBeVisible();
+
+    // Corpus B agent is not in the popover
+    await expect(page.getByText("Corpus B Bot")).toHaveCount(0);
 
     await component.unmount();
   });

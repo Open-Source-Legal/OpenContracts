@@ -2,7 +2,15 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { MockedResponse } from "@apollo/client/testing";
 import { ChatTrayTestWrapper } from "./ChatTrayTestWrapper";
-import { GET_CONVERSATIONS, GET_CHAT_MESSAGES } from "../src/graphql/queries";
+import {
+  GET_CONVERSATIONS,
+  GET_CHAT_MESSAGES,
+  SEARCH_USERS_FOR_MENTION,
+  SEARCH_CORPUSES_FOR_MENTION,
+  SEARCH_DOCUMENTS_FOR_MENTION,
+  SEARCH_ANNOTATIONS_FOR_MENTION,
+  SEARCH_AGENTS_FOR_MENTION,
+} from "../src/graphql/queries";
 import { ConversationType, ChatMessageType } from "../src/types/graphql-api";
 import { WebSocketSources } from "../src/components/knowledge_base/document/right_tray/ChatTray";
 import { attachWsDebug } from "./utils/wsDebug";
@@ -342,6 +350,141 @@ test("renders inline @agent mention as a styled chip on a server-loaded message"
   // proving the link went through the mention renderer rather than the
   // plain ReactMarkdown <a> fallback.
   await expect(mentionChip).toHaveAttribute("title", /AI Agent: @research-bot/);
+});
+
+/* -------------------------------------------------------------------------- */
+/* Agent @mention picker wiring (Task 11)                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Build the five MockedResponses that `useUnifiedMentionSearch` fires in
+ * parallel for a single fragment. Only the agent results carry data; all
+ * other categories resolve to empty edges so the picker is agent-only.
+ *
+ * The hook debounces on `MENTION_SEARCH_DEBOUNCE_MS` (300ms) and only
+ * dispatches when fragment.length >= MENTION_SEARCH_MIN_CHARS (2), so the
+ * test types `@res` which produces fragment="res".
+ */
+const buildMentionSearchMocks = (
+  fragment: string,
+  corpusId: string | undefined,
+  agentNodes: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    scope: "GLOBAL" | "CORPUS";
+    mentionFormat: string | null;
+    corpus: { id: string; slug: string; title: string } | null;
+  }>
+): MockedResponse[] => [
+  {
+    request: {
+      query: SEARCH_USERS_FOR_MENTION,
+      variables: { textSearch: fragment },
+    },
+    result: {
+      data: { searchUsersForMention: { edges: [] } },
+    },
+  },
+  {
+    request: {
+      query: SEARCH_CORPUSES_FOR_MENTION,
+      variables: { textSearch: fragment },
+    },
+    result: {
+      data: { searchCorpusesForMention: { edges: [] } },
+    },
+  },
+  {
+    request: {
+      query: SEARCH_DOCUMENTS_FOR_MENTION,
+      variables: { textSearch: fragment, corpusId },
+    },
+    result: {
+      data: { searchDocumentsForMention: { edges: [] } },
+    },
+  },
+  {
+    request: {
+      query: SEARCH_ANNOTATIONS_FOR_MENTION,
+      variables: { textSearch: fragment, corpusId },
+    },
+    result: {
+      data: { searchAnnotationsForMention: { edges: [] } },
+    },
+  },
+  {
+    request: {
+      query: SEARCH_AGENTS_FOR_MENTION,
+      variables: { textSearch: fragment, corpusId },
+    },
+    result: {
+      data: {
+        searchAgentsForMention: {
+          edges: agentNodes.map((node) => ({
+            __typename: "AgentConfigurationTypeEdge",
+            node: { __typename: "AgentConfigurationType", ...node },
+          })),
+          __typename: "AgentConfigurationTypeConnection",
+        },
+      },
+    },
+  },
+];
+
+test("typing @ in ChatTray opens agent picker and selecting inserts the markdown link", async ({
+  mount,
+  page,
+}) => {
+  const mocks: MockedResponse[] = [
+    createConversationsMock(mockConversations),
+    // useUnifiedMentionSearch fires with the typed fragment ("res") and the
+    // corpusId the chat is bound to. The MockedProvider must match these
+    // variables exactly, including the (test-level) corpusId.
+    ...buildMentionSearchMocks("res", TEST_CORPUS_ID, [
+      {
+        id: "agent-1",
+        name: "Research Bot",
+        slug: "research-bot",
+        description: "Does research",
+        scope: "GLOBAL",
+        mentionFormat: null,
+        corpus: null,
+      },
+    ]),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  // Start new chat to reveal the textarea
+  await page.locator('[data-testid="new-chat-button"]').click();
+  const chatInput = page.locator('[data-testid="chat-input"]');
+  await expect(chatInput).toBeEnabled({ timeout: TIMEOUTS.MEDIUM });
+
+  // Type "hello @res" — `@res` triggers the fragment="res" search after
+  // the 300ms debounce. We pressSequentially so React's onChange handler
+  // fires for the `@` (opening the popover with fragment "") and then for
+  // each character of "res".
+  await chatInput.focus();
+  await chatInput.pressSequentially("hello @res", { delay: 30 });
+
+  // Wait for the picker — useUnifiedMentionSearch's debounce + roundtrip.
+  await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  await expect(page.getByText("Research Bot")).toBeVisible();
+
+  // Pick the agent
+  await page.getByText("Research Bot").click();
+
+  // The textarea should now contain the markdown link
+  await expect(chatInput).toHaveValue(
+    /hello \[@research-bot\]\(\/agents\/research-bot\)\s$/
+  );
+
+  // Popover should close after selection
+  await expect(page.getByTestId("agent-mention-popover")).not.toBeVisible();
 });
 
 test("starts new chat and sends message via WebSocket", async ({

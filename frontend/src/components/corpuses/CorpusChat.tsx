@@ -21,6 +21,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useLazyQuery, useQuery, useReactiveVar } from "@apollo/client";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, ArrowLeft, Send, Home } from "lucide-react";
@@ -87,6 +88,10 @@ import {
 } from "./corpus_chat/styles";
 import { ApprovalModal, PendingApproval } from "./corpus_chat/ApprovalModal";
 import { CorpusConversationListView } from "./corpus_chat/ConversationListView";
+import { useAgentMentionTrigger } from "../../hooks/useAgentMentionTrigger";
+import { AgentMentionPopover, AgentItem } from "../chat/AgentMentionPopover";
+import { useUnifiedMentionSearch } from "../threads/hooks/useUnifiedMentionSearch";
+import { buildAgentMentionLink } from "../../utils/agentMentionLink";
 
 /**
  * CorpusChat props definition.
@@ -280,6 +285,36 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       }
     }
   }, [newMessage]);
+
+  // Rich-mention agent delegation (docs/architecture/rich_mentions.md):
+  // detect `@<fragment>` in the textarea, query agents scoped to this
+  // corpus (backend resolver returns global + corpus agents only), then
+  // splice a markdown-link mention on select.
+  const mention = useAgentMentionTrigger();
+  const { categorizedResults: mentionCategorizedResults } =
+    useUnifiedMentionSearch(mention.fragment, corpusId);
+
+  const agentItems: AgentItem[] = useMemo(
+    () =>
+      mentionCategorizedResults.agents
+        .map((r) => {
+          if (!r.agent) return null;
+          return {
+            id: r.agent.id,
+            slug: r.agent.slug,
+            name: r.agent.name,
+            scope: r.agent.scope,
+            corpus: r.agent.corpus
+              ? {
+                  slug: r.agent.corpus.slug,
+                  title: r.agent.corpus.title,
+                }
+              : null,
+          } as AgentItem;
+        })
+        .filter((a): a is AgentItem => a !== null),
+    [mentionCategorizedResults.agents]
+  );
 
   /**
    * On server data load, map messages to local ChatMessageProps and store any 'sources' in chatSourcesAtom.
@@ -1428,13 +1463,67 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       )
                     )}
                   </AnimatePresence>
+                  {mention.isOpen &&
+                    agentItems.length > 0 &&
+                    createPortal(
+                      // Portal to <body> so the picker isn't clipped by any
+                      // overflow ancestor and stacks above the messages
+                      // layer. Position is anchored to the textarea rect.
+                      <div
+                        data-testid="agent-mention-anchor"
+                        style={(() => {
+                          const rect =
+                            inputRef.current?.getBoundingClientRect();
+                          return {
+                            position: "fixed",
+                            left: rect ? rect.left : 16,
+                            bottom: rect
+                              ? Math.max(8, window.innerHeight - rect.top + 6)
+                              : 80,
+                            zIndex: 1000,
+                            pointerEvents: "auto",
+                          };
+                        })()}
+                      >
+                        <AgentMentionPopover
+                          fragment={mention.fragment}
+                          agents={agentItems}
+                          onSelect={(a) => {
+                            const { value, caretPos } = mention.onSelect({
+                              slug: a.slug,
+                              name: a.name,
+                              url: buildAgentMentionLink({
+                                slug: a.slug,
+                                scope: a.scope,
+                                corpus: a.corpus,
+                              }).url,
+                            });
+                            setNewMessage(value);
+                            setTimeout(() => {
+                              if (inputRef.current) {
+                                inputRef.current.focus();
+                                inputRef.current.setSelectionRange(
+                                  caretPos,
+                                  caretPos
+                                );
+                              }
+                            }, 0);
+                          }}
+                          onDismiss={mention.onDismiss}
+                        />
+                      </div>,
+                      document.body
+                    )}
                   <InputRow>
                     <EnhancedChatInput
                       ref={inputRef}
                       rows={1}
                       value={newMessage}
                       onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                        setNewMessage(e.target.value);
+                        const value = e.target.value;
+                        setNewMessage(value);
+                        const caret = e.target.selectionStart ?? value.length;
+                        mention.onValueChange(value, caret);
                         // Defer measurement until after React commits the new
                         // value so scrollHeight reflects the typed content.
                         setTimeout(adjustInputHeight, 0);
