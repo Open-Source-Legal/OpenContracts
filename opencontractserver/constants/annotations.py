@@ -17,6 +17,13 @@ OC_EXTRACT_SOURCE_LABEL = "OC_EXTRACT_SOURCE"
 # frontend opens when the annotation is clicked, turning highlighted text into
 # a navigable hyperlink.
 OC_URL_LABEL = "OC_URL"
+# Default presentation for the auto-created OC_URL label. Keeping these as
+# constants (rather than inline magic values in the mutation) means a future
+# theme change updates both backend-seeded labels and frontend renderers
+# from the same source of truth.
+OC_URL_LABEL_COLOR = "#2563EB"
+OC_URL_LABEL_ICON = "link"
+OC_URL_LABEL_DESCRIPTION = "Click-through hyperlink annotation"
 
 # Maximum number of entries allowed in a single create_document_index call.
 DOCUMENT_ANNOTATION_INDEX_LIMIT = 500

@@ -27,7 +27,12 @@ from opencontractserver.annotations.models import (
     Relationship,
     validate_link_url,
 )
-from opencontractserver.constants.annotations import OC_URL_LABEL
+from opencontractserver.constants.annotations import (
+    OC_URL_LABEL,
+    OC_URL_LABEL_COLOR,
+    OC_URL_LABEL_DESCRIPTION,
+    OC_URL_LABEL_ICON,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.feedback.models import UserFeedback
@@ -420,15 +425,18 @@ class AddUrlAnnotation(graphene.Mutation):
         document, corpus = parents
 
         with transaction.atomic():
-            # ``ensure_label_and_labelset`` is idempotent; creates the
-            # OC_URL label on first use, returns the existing one thereafter.
+            # ``ensure_label_and_labelset`` is idempotent per (text, label_type).
+            # PDF (TOKEN_LABEL) and text (SPAN_LABEL) documents each get their
+            # own OC_URL row — the lookup filters on both fields, so flipping
+            # types between calls cannot return a label of the wrong shape to
+            # the renderer.
             label = corpus.ensure_label_and_labelset(
                 label_text=OC_URL_LABEL,
                 creator_id=user.pk,
                 label_type=annotation_type.value,
-                color="#2563EB",
-                icon="link",
-                description="Click-through hyperlink annotation",
+                color=OC_URL_LABEL_COLOR,
+                icon=OC_URL_LABEL_ICON,
+                description=OC_URL_LABEL_DESCRIPTION,
             )
 
             annotation = Annotation(

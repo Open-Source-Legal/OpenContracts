@@ -1092,6 +1092,14 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
 
         super().clean()
 
+        # Validate link_url scheme ALWAYS — link_url is reflected in a
+        # click handler, so unsafe schemes (e.g. ``javascript:``) must be
+        # rejected before persistence even when ``VALIDATE_ANNOTATION_JSON``
+        # is disabled. Run before the early-return below so the check
+        # cannot be bypassed by toggling that flag in production.
+        if self.link_url:
+            validate_link_url(self.link_url)
+
         from django.conf import settings  # local to avoid global import cost
 
         should_validate: bool = bool(
@@ -1170,12 +1178,6 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 }
             )
 
-        # Validate link_url scheme (always runs, even when JSON validation
-        # is disabled — link_url is reflected in clickable UI, so unsafe
-        # schemes like ``javascript:`` must be rejected before persistence).
-        if self.link_url:
-            validate_link_url(self.link_url)
-
         # Validate mutual exclusivity of document vs structural_set
         has_document = self.document_id is not None
         has_structural_set = getattr(self, "structural_set_id", None) is not None
@@ -1211,12 +1213,15 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         from django.conf import settings
 
         if getattr(settings, "VALIDATE_ANNOTATION_JSON", settings.DEBUG):
-            # Ensure that `clean()` is executed even if external callers forget.
+            # Ensure that `clean()` is executed even if external callers
+            # forget. ``clean()`` already validates ``link_url`` ALWAYS
+            # (before its early-return), so a separate call here would
+            # be redundant.
             self.clean()
-
-        # link_url validation always runs, regardless of the JSON-validation
-        # flag, because the URL is reflected directly into a click handler.
-        if self.link_url:
+        elif self.link_url:
+            # ``clean()`` was skipped above, but link_url must still be
+            # validated — it is reflected in a click handler so unsafe
+            # schemes like ``javascript:`` must never reach persistence.
             validate_link_url(self.link_url)
 
         # Auto-compact annotation JSON to v2 format on save (lazy migration).
