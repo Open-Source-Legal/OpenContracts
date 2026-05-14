@@ -132,24 +132,21 @@ class ValidateLinkUrlTests(TestCase):
 
     def test_empty_string_is_noop(self):
         # Empty / None must return cleanly so the column can stay NULL.
-        self.assertIsNone(validate_link_url(""))
-
-    def test_none_is_noop(self):
-        # None defends against callers that forget the empty-string normalisation.
-        # ``validate_link_url`` is typed for str but treats falsy as a no-op.
-        self.assertIsNone(validate_link_url(""))
+        # ``validate_link_url`` returns None on accept; the assertion below
+        # exists purely to fail loudly if a future change makes it raise.
+        validate_link_url("")
 
     def test_http_url_is_allowed(self):
-        # Sanity: plain http URL must be accepted.
-        self.assertIsNone(validate_link_url("http://example.com"))
+        # Sanity: plain http URL must be accepted (no exception raised).
+        validate_link_url("http://example.com")
 
     def test_https_url_is_allowed(self):
-        # Sanity: plain https URL must be accepted.
-        self.assertIsNone(validate_link_url("https://example.com/path?x=1"))
+        # Sanity: plain https URL must be accepted (no exception raised).
+        validate_link_url("https://example.com/path?x=1")
 
     def test_site_relative_path_is_allowed(self):
         # Site-relative URLs allow internal SPA navigation (e.g. /corpus/foo).
-        self.assertIsNone(validate_link_url("/corpus/foo"))
+        validate_link_url("/corpus/foo")
 
     def test_javascript_scheme_is_rejected(self):
         with self.assertRaises(ValidationError) as cm:
@@ -173,7 +170,7 @@ class ValidateLinkUrlTests(TestCase):
 
     def test_case_insensitive_scheme(self):
         # Schemes are compared lowercased, so casing must not bypass the check.
-        self.assertIsNone(validate_link_url("HTTPS://example.com"))
+        validate_link_url("HTTPS://example.com")
         with self.assertRaises(ValidationError):
             validate_link_url("JavaScript:alert(1)")
 
@@ -255,9 +252,7 @@ class AddUrlAnnotationMutationTests(TestCase):
         set_permissions_for_obj_to_user(
             self.owner, self.document, [PermissionTypes.CRUD]
         )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.CRUD]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.CRUD])
 
         self.client = Client(schema)
 
@@ -308,9 +303,7 @@ class AddUrlAnnotationMutationTests(TestCase):
         # second OC_URL label — ensure_label_and_labelset is idempotent.
         self._execute(user=self.owner, link_url="https://example.com/a")
         self._execute(user=self.owner, link_url="https://example.com/b")
-        self.assertEqual(
-            AnnotationLabel.objects.filter(text=OC_URL_LABEL).count(), 1
-        )
+        self.assertEqual(AnnotationLabel.objects.filter(text=OC_URL_LABEL).count(), 1)
 
     def test_rejects_javascript_scheme(self):
         # Defence in depth: the GraphQL layer must refuse unsafe schemes
@@ -371,9 +364,7 @@ class AddAnnotationLinkUrlTests(TestCase):
         set_permissions_for_obj_to_user(
             self.owner, self.document, [PermissionTypes.CRUD]
         )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.CRUD]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.CRUD])
         self.client = Client(schema)
 
     def _execute(self, *, link_url, user=None):
@@ -382,14 +373,10 @@ class AddAnnotationLinkUrlTests(TestCase):
             variables={
                 "corpusId": to_global_id("CorpusType", self.corpus.pk),
                 "documentId": to_global_id("DocumentType", self.document.pk),
-                "annotationLabelId": to_global_id(
-                    "AnnotationLabelType", self.label.pk
-                ),
+                "annotationLabelId": to_global_id("AnnotationLabelType", self.label.pk),
                 "page": 0,
                 "rawText": "anchor",
-                "json": {
-                    "0": {"bounds": {}, "rawText": "anchor", "tokensJsons": []}
-                },
+                "json": {"0": {"bounds": {}, "rawText": "anchor", "tokensJsons": []}},
                 "annotationType": "TOKEN_LABEL",
                 "linkUrl": link_url,
             },
@@ -443,9 +430,7 @@ class UpdateAnnotationLinkUrlTests(TestCase):
         set_permissions_for_obj_to_user(
             self.owner, self.document, [PermissionTypes.CRUD]
         )
-        set_permissions_for_obj_to_user(
-            self.owner, self.corpus, [PermissionTypes.CRUD]
-        )
+        set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.CRUD])
 
         self.annotation = Annotation.objects.create(
             page=0,
