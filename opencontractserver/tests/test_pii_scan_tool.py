@@ -33,27 +33,48 @@ def _det(
     return Detection(entity_group=group, score=score, start=start, end=end, text=text)
 
 
+class _PiiPersistEmbeddingNoopMixin:
+    """Stub out the on-commit Celery enqueue that
+    ``_persist_annotations_sync`` registers per persisted annotation.
+
+    Why:
+    ``_persist_annotations_sync`` schedules
+    ``calculate_embedding_for_annotation_text`` via
+    ``transaction.on_commit`` inside an atomic block. With
+    ``CELERY_TASK_ALWAYS_EAGER=True`` (see ``config/settings/test.py``)
+    the task runs inline once the block commits. The eager task body
+    reads the default embedder path from the ``PipelineSettings``
+    singleton row seeded by migration 0031. But
+    ``TransactionTestCase`` truncates *all* tables (incl.
+    ``documents_pipelinesettings``) between tests by default
+    (``serialized_rollback=False``), so any prior class on the same
+    pytest-xdist ``--dist loadscope`` worker can leave us with no
+    default embedder and the eager retry chain raises out of the
+    on_commit callback. Tests in this module don't exercise embedding
+    behaviour at all, so the cleanest fix is to patch the module-level
+    ``_queue_embed`` factory to return a no-op callback for the
+    duration of every test. Surgical and free of cross-test ordering
+    surprises.
+    """
+
+    def setUp(self) -> None:  # noqa: D401
+        super().setUp()  # type: ignore[misc]
+        self._embed_patcher = patch(
+            "opencontractserver.llms.tools.core_tools.pii._queue_embed",
+            return_value=(lambda: None),
+        )
+        self._embed_patcher.start()
+        self.addCleanup(self._embed_patcher.stop)  # type: ignore[attr-defined]
+
+
 @override_settings(
     PRIVACY_FILTER_URL="http://privacy_filter:8000",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class ScanAndAnnotateTextTests(TransactionTestCase):
-
-    # ``_persist_annotations_sync`` registers ``transaction.on_commit`` Celery
-    # enqueues against ``calculate_embedding_for_annotation_text``. In tests
-    # ``CELERY_TASK_ALWAYS_EAGER=True`` makes those callbacks run inline once
-    # the atomic block commits, and the eager task body reads the default
-    # embedder path from the ``PipelineSettings`` singleton row seeded by
-    # migration 0031. ``TransactionTestCase`` truncates *all* tables (incl.
-    # ``documents_pipelinesettings``) between tests by default, so a prior
-    # class running on the same pytest-xdist ``--dist loadscope`` worker can
-    # leave us with no default embedder and the eager retry chain raises out
-    # of the on_commit callback. ``serialized_rollback=True`` restores the
-    # migration-seeded row after each test's truncation, keeping the embed
-    # task happy. Same rationale applies to every persist-side class below.
-    serialized_rollback = True
+class ScanAndAnnotateTextTests(_PiiPersistEmbeddingNoopMixin, TransactionTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         self.user = User.objects.create_user("pii_text_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII Text Corpus", creator=self.user)
 
@@ -150,12 +171,10 @@ class ScanAndAnnotateTextTests(TransactionTestCase):
     PRIVACY_FILTER_URL="http://privacy_filter:8000",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class ScanAndAnnotatePdfTests(TransactionTestCase):
-
-    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
-    serialized_rollback = True
+class ScanAndAnnotatePdfTests(_PiiPersistEmbeddingNoopMixin, TransactionTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         self.user = User.objects.create_user("pii_pdf_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII PDF Corpus", creator=self.user)
 
@@ -231,12 +250,10 @@ class ScanAndAnnotatePdfTests(TransactionTestCase):
     PRIVACY_FILTER_URL="http://privacy_filter:8000",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class ScanAndAnnotateKnobsTests(TransactionTestCase):
-
-    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
-    serialized_rollback = True
+class ScanAndAnnotateKnobsTests(_PiiPersistEmbeddingNoopMixin, TransactionTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         self.user = User.objects.create_user("pii_knob_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII Knob Corpus", creator=self.user)
         self.txt_doc = Document.objects.create(
@@ -387,16 +404,10 @@ class ScanAndAnnotateKnobsTests(TransactionTestCase):
     PRIVACY_FILTER_URL="http://privacy_filter:8000",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class ScanAndAnnotateEdgeCaseTests(TransactionTestCase):
-
-    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
-    # Edge-case tests only persist on a couple of branches but include
-    # ``test_oob_detection_skipped`` whose runtime depends on the embedder
-    # singleton via ``on_commit`` if a future regression slips the OOB
-    # filter, so keep the same invariant here.
-    serialized_rollback = True
+class ScanAndAnnotateEdgeCaseTests(_PiiPersistEmbeddingNoopMixin, TransactionTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         self.user = User.objects.create_user("pii_edge_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII Edge Corpus", creator=self.user)
         self.txt_doc = Document.objects.create(
@@ -552,10 +563,19 @@ class PersistAnnotationsLabelRaceTests(TransactionTestCase):
     block comment.
     """
 
-    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
-    serialized_rollback = True
-
     def setUp(self) -> None:
+        # See ``_PiiPersistEmbeddingNoopMixin`` rationale — this test class
+        # also drives ``_persist_annotations_sync``, so it has to stub the
+        # embedding on_commit callback for the same reason. Inlined rather
+        # than mixin'd to keep the patch lifecycle obvious to readers of
+        # the race-condition regression.
+        super().setUp()
+        self._embed_patcher = patch(
+            "opencontractserver.llms.tools.core_tools.pii._queue_embed",
+            return_value=(lambda: None),
+        )
+        self._embed_patcher.start()
+        self.addCleanup(self._embed_patcher.stop)
         self.user = User.objects.create_user("pii_race_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII Race Corpus", creator=self.user)
 
@@ -680,10 +700,16 @@ class PersistAnnotationsUnknownGroupTests(TransactionTestCase):
     and hands it a detection with a group that is not in
     ``ENTITY_GROUP_LABELS``."""
 
-    # See ``ScanAndAnnotateTextTests.serialized_rollback`` for rationale.
-    serialized_rollback = True
-
     def setUp(self) -> None:
+        # See ``_PiiPersistEmbeddingNoopMixin`` for the
+        # eager-celery-on_commit rationale.
+        super().setUp()
+        self._embed_patcher = patch(
+            "opencontractserver.llms.tools.core_tools.pii._queue_embed",
+            return_value=(lambda: None),
+        )
+        self._embed_patcher.start()
+        self.addCleanup(self._embed_patcher.stop)
         self.user = User.objects.create_user("pii_unknown_user", password="pw")
         self.corpus = Corpus.objects.create(
             title="PII Unknown Group Corpus", creator=self.user
