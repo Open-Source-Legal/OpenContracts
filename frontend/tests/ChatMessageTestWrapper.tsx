@@ -2,6 +2,7 @@ import React from "react";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { Provider as JotaiProvider } from "jotai";
+import { MemoryRouter } from "react-router-dom";
 import { authToken, userObj } from "../src/graphql/cache";
 import { relayStylePagination } from "@apollo/client/utilities";
 
@@ -37,10 +38,12 @@ export const ChatMessageTestWrapper: React.FC<ChatMessageTestWrapperProps> = ({
   });
 
   return (
-    <JotaiProvider>
-      <MockedProvider mocks={mocks} cache={createCache()} addTypename={true}>
-        {children}
-      </MockedProvider>
-    </JotaiProvider>
+    <MemoryRouter initialEntries={["/"]}>
+      <JotaiProvider>
+        <MockedProvider mocks={mocks} cache={createCache()} addTypename={true}>
+          {children}
+        </MockedProvider>
+      </JotaiProvider>
+    </MemoryRouter>
   );
 };

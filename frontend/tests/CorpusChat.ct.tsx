@@ -125,6 +125,7 @@ const chatMessagesMock: MockedResponse = {
             username: "alice",
             email: "alice@example.com",
           },
+          mentionedResources: [],
         },
         {
           __typename: "ChatMessageType",
@@ -147,6 +148,46 @@ const chatMessagesMock: MockedResponse = {
             ],
           },
           creator: null,
+          mentionedResources: [],
+        },
+      ],
+    },
+  },
+};
+
+/**
+ * Rich-mention agent delegation: server-loaded message containing an inline
+ * `[@slug](/agents/slug)` markdown mention. The ChatMessage widget now
+ * routes message bodies through MarkdownMessageRenderer, which converts
+ * such links into styled chip <a> elements.
+ */
+const chatMessagesWithAgentMentionMock: MockedResponse = {
+  request: {
+    query: GET_CHAT_MESSAGES,
+    variables: {
+      conversationId: TEST_CONVERSATION_ID,
+      limit: 10,
+    },
+  },
+  result: {
+    data: {
+      chatMessages: [
+        {
+          __typename: "ChatMessageType",
+          id: "srv-mention-1",
+          msgType: "HUMAN",
+          agentType: null,
+          agentConfiguration: null,
+          content: "Ping [@research-bot](/agents/research-bot) please",
+          state: "complete",
+          data: {},
+          creator: {
+            __typename: "UserType",
+            id: "u1",
+            username: "alice",
+            email: "alice@example.com",
+          },
+          mentionedResources: [],
         },
       ],
     },
@@ -922,6 +963,47 @@ test.describe("CorpusChat", () => {
 
     // Conversation indicator is mounted (the persistent container around the view)
     await expect(page.locator("#conversation-indicator")).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("renders inline @agent mention as a styled chip on a server-loaded message", async ({
+    mount,
+    page,
+  }) => {
+    // Rich-mention agent delegation: the ChatMessage widget routes message
+    // content through MarkdownMessageRenderer, which renders mention links
+    // as styled chip <a> elements pointing at the agent slug.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesWithAgentMentionMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.getByText("First Conversation").click();
+
+    // The styled mention chip is rendered as an <a> by MarkdownMessageRenderer.
+    // For agent mentions (currently non-navigable in MENTION_TYPES) the href
+    // is omitted, but the <a> wrapper + tooltip title still proves the link
+    // was routed through the mention renderer.
+    const mentionChip = page
+      .locator("a")
+      .filter({ hasText: "research-bot" })
+      .first();
+    await expect(mentionChip).toBeVisible({ timeout: 10000 });
+    await expect(mentionChip).toHaveAttribute(
+      "title",
+      /AI Agent: @research-bot/
+    );
 
     await component.unmount();
   });

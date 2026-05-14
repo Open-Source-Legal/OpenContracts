@@ -362,6 +362,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         timeline: msgData?.timeline || [],
         approvalStatus,
         isComplete: isCompleteFlag,
+        // Rich-mention agent delegation: hand backend-resolved mention
+        // metadata + agent attribution down to ChatMessage so its
+        // MarkdownMessageRenderer can render styled chips with tooltips.
+        mentionedResources: msg.mentionedResources ?? [],
+        agentConfiguration: msg.agentConfiguration ?? null,
       } as any;
 
       // If this message is awaiting approval and we haven't already set

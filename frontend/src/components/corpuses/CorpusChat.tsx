@@ -317,6 +317,10 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         hasTimeline: !!tArr?.length,
         timeline: tArr || [],
         isComplete: true,
+        // Rich-mention agent delegation: forward backend-resolved mention
+        // metadata + agent attribution to ChatMessage's MarkdownMessageRenderer.
+        mentionedResources: msg.mentionedResources ?? [],
+        agentConfiguration: msg.agentConfiguration ?? null,
       } as ChatMessageProps;
     });
     setServerMessages(mapped);

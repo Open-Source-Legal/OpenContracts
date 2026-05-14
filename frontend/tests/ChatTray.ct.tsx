@@ -288,6 +288,62 @@ test("loads messages when conversation is selected", async ({
   await expect(page.getByText("Back to Conversations")).toBeVisible();
 });
 
+test("renders inline @agent mention as a styled chip on a server-loaded message", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation: backend resolves `[@slug](/agents/slug)`
+  // markdown links into MentionedResourceType entries on the chat message.
+  // The chat ChatMessage widget should now render these through
+  // MarkdownMessageRenderer so the link becomes an <a> chip.
+  const mentionMessages: any[] = [
+    {
+      id: "msg-mention-1",
+      content: "Ping [@research-bot](/agents/research-bot) please",
+      msgType: "HUMAN",
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      data: {},
+      state: "complete",
+      agentType: null,
+      agentConfiguration: null,
+      mentionedResources: [],
+      __typename: "ChatMessageType",
+    },
+  ];
+
+  const mocks = [
+    createConversationsMock(mockConversations),
+    createChatMessagesMock(TEST_CONVERSATION_ID, mentionMessages),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await expect(page.locator("#conversation-grid")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  await page.getByText("Test Conversation 1").click();
+
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  // The styled mention chip is rendered as an <a> by MarkdownMessageRenderer.
+  // For agent mentions (currently configured as non-navigable in
+  // MENTION_TYPES) the href is omitted, but the <a> + Bot icon + text
+  // wrapper still renders, distinguishing it from raw markdown.
+  const messageContent = page.locator('[data-testid="message-content"]');
+  await expect(messageContent).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+  const mentionChip = messageContent
+    .locator("a")
+    .filter({ hasText: "research-bot" });
+  await expect(mentionChip).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+  // Sanity-check that the tooltip surface (title attr) was populated,
+  // proving the link went through the mention renderer rather than the
+  // plain ReactMarkdown <a> fallback.
+  await expect(mentionChip).toHaveAttribute("title", /AI Agent: @research-bot/);
+});
+
 test("starts new chat and sends message via WebSocket", async ({
   mount,
   page,
