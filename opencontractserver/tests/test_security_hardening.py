@@ -598,6 +598,37 @@ class TestAddRelationshipDocumentIDOR(TestCase):
         self.assertFalse(data["ok"])
         self.assertIn("not found", data["message"].lower())
 
+    def test_inaccessible_relationship_label_yields_not_found(self):
+        """A relationship_label owned by another user must collapse into the
+        same not-found message — closes the residual oracle where an
+        attacker could probe private AnnotationLabel IDs."""
+        from opencontractserver.annotations.models import (
+            AnnotationLabel,
+            Relationship,
+        )
+
+        # A label owned by the victim, with no permission shared to attacker.
+        victim_label = AnnotationLabel.objects.create(
+            text="victim_label",
+            creator=self.victim,
+            is_public=False,
+        )
+        variables = {
+            "sourceIds": [to_global_id("AnnotationType", self.source_annot.id)],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", victim_label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": to_global_id("DocumentType", self.attacker_doc.id),
+        }
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
+        # And no Relationship row got created.
+        self.assertFalse(
+            Relationship.objects.filter(relationship_label_id=victim_label.id).exists()
+        )
+
 
 # ===========================================================================
 # 4. Conversation mutation IDOR tests

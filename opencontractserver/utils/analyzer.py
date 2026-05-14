@@ -271,10 +271,11 @@ def run_analysis(
     }
 
     # Avoid logging the plaintext callback token; produce a redacted copy.
+    # Use %-style logging so the dict isn't serialized when INFO is suppressed.
     redacted_submission = {**gremlin_submission, "callback_token": "[REDACTED]"}
     logger.info(
-        f"submit_corpus_documents_to_analyzer() - submit data to gremlin: "
-        f"{redacted_submission}"
+        "submit_corpus_documents_to_analyzer() - submit data to gremlin: %s",
+        redacted_submission,
     )
 
     try:

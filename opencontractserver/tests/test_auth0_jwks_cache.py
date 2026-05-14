@@ -238,8 +238,9 @@ class TestJWKSCache:
 class TestCanServeStale:
     """Direct unit tests for the ``_can_serve_stale`` helper.
 
-    The helper must be invoked under ``_jwks_cache_lock`` per its docstring;
-    the assert inside it enforces this contract at runtime.
+    Per the helper's docstring the caller must hold ``_jwks_cache_lock``;
+    we acquire it here to mirror the production call shape inside
+    ``_get_cached_jwks``.
     """
 
     def setup_method(self):

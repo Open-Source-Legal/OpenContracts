@@ -88,12 +88,14 @@ def _can_serve_stale(current_time: float) -> bool:
        safe. All call sites today live inside ``_get_cached_jwks`` under
        ``with _jwks_cache_lock:``. Do not invoke this from a different
        context without re-acquiring the lock.
+
+       Note: ``threading.Lock.locked()`` returns True if **any** thread holds
+       the lock, not necessarily the calling thread, so no runtime assert can
+       guarantee correctness here without switching to ``threading.RLock``
+       and tracking the owner. The single call site below makes this safe
+       today; future refactors that move callers out of ``_get_cached_jwks``
+       must re-acquire the lock or switch to an RLock.
     """
-    # The assert raises if a caller accidentally drops the lock; cheap insurance
-    # against a future refactor that would otherwise introduce a torn read.
-    assert (
-        _jwks_cache_lock.locked()
-    ), "_can_serve_stale must be called while holding _jwks_cache_lock"
     if _jwks_cache["data"] is None:
         return False
     return current_time < _jwks_cache["expires_at"] + _JWKS_STALE_GRACE
@@ -448,6 +450,13 @@ def sync_admin_claims_from_payload(user, payload):
     # allowlist, force the effective claim to False regardless of what the
     # token says. We log loudly when we override a True claim so operators
     # see attempted elevations that were blocked.
+    #
+    # NB: ``is_staff`` is intentionally NOT allowlist-gated here. Operators
+    # who source ``is_staff`` from user-writable ``user_metadata`` already
+    # accept that any Auth0 user can grant themselves Django admin (read)
+    # access; the allowlist is targeted at the much larger blast radius of
+    # ``is_superuser`` (full admin write). If you need to gate ``is_staff``
+    # too, layer a parallel ``AUTH0_STAFF_SUB_ALLOWLIST`` check below.
     superuser_allowlist = getattr(settings, "AUTH0_SUPERUSER_SUB_ALLOWLIST", [])
     if (
         is_superuser_valid

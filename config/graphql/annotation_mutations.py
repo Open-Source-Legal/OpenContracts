@@ -23,6 +23,7 @@ from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dyna
 from config.graphql.serializers import AnnotationSerializer
 from opencontractserver.annotations.models import (
     Annotation,
+    AnnotationLabel,
     Note,
     Relationship,
 )
@@ -523,6 +524,17 @@ class AddRelationship(graphene.Mutation):
         # see. Collapse the failure into the same not-found message to keep
         # the IDOR surface flat with the source/target/corpus checks above.
         if not Document.objects.visible_to_user(user).filter(pk=document_pk).exists():
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
+
+        # Relationship label visibility check: closes the residual oracle
+        # where a caller could probe private ``AnnotationLabel`` IDs by
+        # supplying them and observing whether the create succeeds vs.
+        # raises an FK constraint. Same not-found message.
+        if (
+            not AnnotationLabel.objects.visible_to_user(user)
+            .filter(pk=relationship_label_pk)
+            .exists()
+        ):
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         try:
