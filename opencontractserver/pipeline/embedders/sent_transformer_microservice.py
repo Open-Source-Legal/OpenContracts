@@ -198,7 +198,7 @@ class MicroserviceEmbedder(BaseEmbedder):
             all_kwargs.get("use_cloud_run_iam_auth", s.use_cloud_run_iam_auth)
         )
 
-        headers: dict[str, str] = {"Content-Type": "application/json"}
+        headers: dict[str, str | bytes] = {"Content-Type": "application/json"}
         if api_key:
             headers["X-API-Key"] = api_key
 
