@@ -432,6 +432,10 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
               setPendingApproval({
                 messageId: data.message_id,
                 toolCall,
+                // Rich-mention agent delegation (Task 14): when the approval
+                // originates from a sub-agent invocation, surface its
+                // identity in the modal alongside the tool name.
+                requestingAgent: data.requesting_agent ?? null,
               });
               setShowApprovalModal(true);
 

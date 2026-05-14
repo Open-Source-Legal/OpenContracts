@@ -70,6 +70,19 @@ export interface MessageData {
      */
     agent_id?: number | string;
     agent_slug?: string;
+    /**
+     * Rich-mention agent delegation (Task 14): when an ASYNC_APPROVAL_NEEDED
+     * frame originates inside a sub-agent invocation (a pinned or unpinned
+     * delegation), the backend (see ``unified_agent_conversation.py`` Task 7)
+     * attaches the sub-agent's ``AgentConfiguration`` so the approval modal
+     * can attribute the request to ``@<slug>`` instead of the conductor.
+     * Absent on top-level approvals — modal falls back to ``Tool: <name>``.
+     */
+    requesting_agent?: {
+      id: string;
+      slug: string;
+      name: string;
+    } | null;
   };
 }
 

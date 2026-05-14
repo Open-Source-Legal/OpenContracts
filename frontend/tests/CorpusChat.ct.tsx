@@ -267,6 +267,36 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
+            // Sub-agent approval flow (rich-mention agent delegation,
+            // Task 14): backend ``unified_agent_conversation.py`` attaches
+            // ``requesting_agent`` when the approval was raised inside a
+            // sub-agent invocation. The modal should attribute the request
+            // to ``@<slug>`` rather than just showing the tool name.
+            if (query.includes("approve with subagent")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_APPROVAL_NEEDED",
+                content: "",
+                data: {
+                  message_id: id,
+                  pending_tool_call: {
+                    name: "delete_thing",
+                    arguments: { thing_id: "abc" },
+                  },
+                  requesting_agent: {
+                    id: "ag-1",
+                    slug: "research-bot",
+                    name: "Research Bot",
+                  },
+                },
+              });
+              return;
+            }
+
             // Error simulation. Defer the ASYNC_ERROR via setTimeout so
             // it lands AFTER `sendMessageOverSocket` finishes its synchronous
             // `setWsError(null)` call — otherwise React batches both calls
@@ -932,6 +962,45 @@ test.describe("CorpusChat", () => {
     await expect(page.getByText("Tool Approval Required")).not.toBeVisible({
       timeout: 5000,
     });
+
+    await component.unmount();
+  });
+
+  test("approval modal shows requesting_agent attribution when present", async ({
+    mount,
+    page,
+  }) => {
+    // Rich-mention agent delegation (Task 14): when ASYNC_APPROVAL_NEEDED
+    // carries ``requesting_agent``, the modal should attribute the request
+    // to the sub-agent's @<slug> chip in addition to the tool name.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("approve with subagent please");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("Tool Approval Required")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // The attribution chip wraps the slug in a styled `AgentChip`. Both the
+    // chip and the explanatory text live inside the test-id container.
+    const attribution = page.getByTestId("approval-requesting-agent");
+    await expect(attribution).toBeVisible();
+    await expect(attribution).toContainText("research-bot");
+    await expect(attribution).toContainText("delete_thing");
+
+    // Backward-compat sanity: the "Tool: <name>" fallback is replaced (not
+    // duplicated) when an agent is attributed.
+    await expect(page.getByText("Tool: delete_thing")).not.toBeVisible();
 
     await component.unmount();
   });

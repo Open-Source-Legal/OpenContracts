@@ -135,6 +135,35 @@ const mockAwaitingApprovalMessage: any = {
   __typename: "ChatMessageType",
 };
 
+/**
+ * Variant of the awaiting-approval mock that simulates an approval raised
+ * inside a sub-agent invocation (rich-mention agent delegation, Task 14).
+ * The backend ``unified_agent_conversation.py`` attaches ``requesting_agent``
+ * to the persisted message data so the modal can attribute the request to
+ * the sub-agent's @<slug> chip when the conversation is re-hydrated.
+ */
+const mockSubAgentAwaitingApprovalMessage: any = {
+  id: "msg-approval-subagent",
+  content: "Tool execution paused: delete_thing",
+  msgType: "ASSISTANT",
+  createdAt: new Date().toISOString(),
+  data: {
+    pending_tool_call: {
+      name: "delete_thing",
+      arguments: { thing_id: "abc" },
+      tool_call_id: "tool-456",
+    },
+    state: "awaiting_approval",
+    requesting_agent: {
+      id: "ag-1",
+      slug: "research-bot",
+      name: "Research Bot",
+    },
+  },
+  state: "awaiting_approval",
+  __typename: "ChatMessageType",
+};
+
 /* -------------------------------------------------------------------------- */
 /* GraphQL Mocks                                                               */
 /* -------------------------------------------------------------------------- */
@@ -893,6 +922,48 @@ test("shows character count when near limit", async ({ mount, page }) => {
   // Verify input is limited
   const actualValue = await chatInput.inputValue();
   expect(actualValue.length).toBe(4000);
+});
+
+test("approval modal shows requesting_agent attribution when present", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation (Task 14): when the persisted approval
+  // message carries ``requesting_agent``, the priming useEffect in
+  // ChatTray should plumb that through to PendingApproval and the modal
+  // should render the @<slug> attribution chip instead of the plain
+  // "Tool: <name>" header.
+  const mocks = [
+    createConversationsMock(mockConversations),
+    createChatMessagesMock(TEST_CONVERSATION_ID, [
+      ...mockChatMessages,
+      mockSubAgentAwaitingApprovalMessage,
+    ]),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await page.getByText("Test Conversation 1").click();
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  await expect(
+    page.getByText("Tool Approval Required", { exact: true })
+  ).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  const attribution = page.getByTestId("approval-requesting-agent");
+  await expect(attribution).toBeVisible();
+  await expect(attribution).toContainText("research-bot");
+  await expect(attribution).toContainText("delete_thing");
+
+  // The plain "Tool: <name>" header should NOT appear when the modal is
+  // attributing the request to a sub-agent.
+  await expect(
+    page.getByText("Tool: delete_thing", { exact: true })
+  ).not.toBeVisible();
 });
 
 test("handles tool rejection flow", async ({ mount, page }) => {

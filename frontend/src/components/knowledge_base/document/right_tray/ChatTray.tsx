@@ -348,6 +348,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               arguments: any;
               tool_call_id?: string;
             };
+            requesting_agent?: {
+              id: string;
+              slug: string;
+              name: string;
+            } | null;
           }
         | undefined;
 
@@ -398,6 +403,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         setPendingApproval({
           messageId: msg.id.toString(),
           toolCall: msgData.pending_tool_call,
+          requestingAgent: msgData.requesting_agent ?? null,
         });
         setShowApprovalModal(true);
       }
@@ -874,6 +880,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               setPendingApproval({
                 messageId: data.message_id,
                 toolCall: data.pending_tool_call,
+                requestingAgent: data.requesting_agent ?? null,
               });
               setShowApprovalModal(true);
 
