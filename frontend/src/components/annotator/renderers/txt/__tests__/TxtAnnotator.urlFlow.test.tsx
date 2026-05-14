@@ -45,19 +45,20 @@ const EMPTY: any[] = [];
 
 const defaultProps = {
   searchResults: EMPTY,
-  getSpan: vi.fn((sel: { start: number; end: number }) =>
-    new ServerSpanAnnotation(
-      0,
-      mockLabel,
-      "hello",
-      false,
-      { start: sel.start, end: sel.end },
-      [PermissionTypes.CAN_READ, PermissionTypes.CAN_UPDATE],
-      false,
-      false,
-      false,
-      "local-tmp-id"
-    )
+  getSpan: vi.fn(
+    (sel: { start: number; end: number }) =>
+      new ServerSpanAnnotation(
+        0,
+        mockLabel,
+        "hello",
+        false,
+        { start: sel.start, end: sel.end },
+        [PermissionTypes.CAN_READ, PermissionTypes.CAN_UPDATE],
+        false,
+        false,
+        false,
+        "local-tmp-id"
+      )
   ),
   visibleLabels: null,
   availableLabels: [mockLabel],
@@ -122,11 +123,7 @@ describe("TxtAnnotator URL-annotation flow", () => {
     // link-creation entry point — clicking it would be a no-op confusion.
     const { container, rerender } = render(
       <MemoryRouter>
-        <TxtAnnotator
-          {...defaultProps}
-          text="hello world"
-          annotations={[]}
-        />
+        <TxtAnnotator {...defaultProps} text="hello world" annotations={[]} />
       </MemoryRouter>
     );
 
@@ -268,7 +265,9 @@ describe("TxtAnnotator URL-annotation flow", () => {
 
     // The annotated span (covering "hello") must be present with the
     // hyperlink styling derived from ``isUrlAnnotation`` matching.
-    const annotatedSpan = container.querySelector('[data-testid^="annotated-span-"]');
+    const annotatedSpan = container.querySelector(
+      '[data-testid^="annotated-span-"]'
+    );
     expect(annotatedSpan).toBeTruthy();
     const style = (annotatedSpan as HTMLElement).getAttribute("style") || "";
     // Pointer cursor + underline are the two visible hyperlink signals.

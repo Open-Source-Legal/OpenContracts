@@ -122,7 +122,9 @@ function mountLayer(opts: {
 
   // Stub the canvas previousSibling so SelectionLayer's mousedown can
   // read a bounding rect from inside jsdom.
-  const layer = utils.container.querySelector("#selection-layer") as HTMLElement;
+  const layer = utils.container.querySelector(
+    "#selection-layer"
+  ) as HTMLElement;
   const fakeCanvas = document.createElement("canvas");
   Object.defineProperty(fakeCanvas, "getBoundingClientRect", {
     value: () => ({
@@ -202,7 +204,9 @@ describe("SelectionLayer URL-annotation flow", () => {
 
     // ``CreateUrlAnnotationModal`` renders the confirm button with text
     // "Create link" when no initialUrl is supplied — find it by role/name.
-    const confirmBtn = await screen.findByRole("button", { name: /create link/i });
+    const confirmBtn = await screen.findByRole("button", {
+      name: /create link/i,
+    });
     await act(async () => {
       fireEvent.click(confirmBtn);
     });

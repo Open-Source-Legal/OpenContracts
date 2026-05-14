@@ -21,7 +21,11 @@ import {
   ServerSpanAnnotation,
   ServerTokenAnnotation,
 } from "../../types/annotations";
-import { isSafeUrl, isUrlAnnotation, openAnnotationUrl } from "../urlAnnotation";
+import {
+  isSafeUrl,
+  isUrlAnnotation,
+  openAnnotationUrl,
+} from "../urlAnnotation";
 import type { AnnotationLabelType } from "../../../../types/graphql-api";
 
 // SemanticICONS unions are unwieldy in tests; cast via ``unknown`` once

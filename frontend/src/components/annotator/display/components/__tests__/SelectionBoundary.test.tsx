@@ -44,7 +44,8 @@ describe("SelectionBoundary click semantics", () => {
   it("does NOT call onClick on a plain click by default", () => {
     const onClick = vi.fn();
     const { container } = render(
-      <SelectionBoundary {...baseProps}
+      <SelectionBoundary
+        {...baseProps}
         id="b1"
         color="#0066cc"
         bounds={bounds}
@@ -59,7 +60,8 @@ describe("SelectionBoundary click semantics", () => {
   it("calls onClick on a shift-click (default behaviour)", () => {
     const onClick = vi.fn();
     const { container } = render(
-      <SelectionBoundary {...baseProps}
+      <SelectionBoundary
+        {...baseProps}
         id="b2"
         color="#0066cc"
         bounds={bounds}
@@ -76,7 +78,8 @@ describe("SelectionBoundary click semantics", () => {
     // ``clickThroughOnPlainClick`` so a plain click opens the URL.
     const onClick = vi.fn();
     const { container } = render(
-      <SelectionBoundary {...baseProps}
+      <SelectionBoundary
+        {...baseProps}
         id="b3"
         color="#0066cc"
         bounds={bounds}
@@ -93,7 +96,8 @@ describe("SelectionBoundary click semantics", () => {
     // Visible affordance: hyperlink-style annotations must use a pointer
     // cursor so the user knows the span is clickable.
     const { container } = render(
-      <SelectionBoundary {...baseProps}
+      <SelectionBoundary
+        {...baseProps}
         id="b4"
         color="#0066cc"
         bounds={bounds}
@@ -107,7 +111,8 @@ describe("SelectionBoundary click semantics", () => {
 
   it("does NOT set pointer cursor when clickThroughOnPlainClick is false", () => {
     const { container } = render(
-      <SelectionBoundary {...baseProps}
+      <SelectionBoundary
+        {...baseProps}
         id="b5"
         color="#0066cc"
         bounds={bounds}
@@ -123,12 +128,15 @@ describe("SelectionBoundary click semantics", () => {
     // codecov-flagged guard branch. Just rendering without onClick and
     // firing the event must not throw.
     const { container } = render(
-      <SelectionBoundary {...baseProps} id="b6" color="#0066cc" bounds={bounds} />
+      <SelectionBoundary
+        {...baseProps}
+        id="b6"
+        color="#0066cc"
+        bounds={bounds}
+      />
     );
     const span = container.querySelector("span") as HTMLElement;
-    expect(() =>
-      fireEvent.mouseDown(span, { shiftKey: true })
-    ).not.toThrow();
+    expect(() => fireEvent.mouseDown(span, { shiftKey: true })).not.toThrow();
   });
 
   it("stops mouseDown propagation on shift+mousedown", () => {
@@ -138,7 +146,8 @@ describe("SelectionBoundary click semantics", () => {
     const parentClick = vi.fn();
     const { container } = render(
       <div onMouseDown={parentClick}>
-        <SelectionBoundary {...baseProps}
+        <SelectionBoundary
+          {...baseProps}
           id="b7"
           color="#0066cc"
           bounds={bounds}
