@@ -51,23 +51,36 @@ export function isSafeUrl(url: string): boolean {
 }
 
 /**
- * Open the annotation's ``linkUrl`` in a new tab. External http(s)
- * targets use ``window.open`` with ``noopener,noreferrer`` so the opened
- * page cannot reach back into the OpenContracts session. Site-relative
- * paths navigate within the current tab so the SPA router can resolve
- * them.
+ * Open the annotation's ``linkUrl``.
+ *
+ * External http(s) targets use ``window.open`` with
+ * ``noopener,noreferrer`` so the opened page cannot reach back into the
+ * OpenContracts session.
+ *
+ * Site-relative paths route through the supplied ``navigate`` callback
+ * (typically ``useNavigate()`` from react-router-dom) so the SPA router
+ * resolves them in place — preserving the Apollo cache and component
+ * state. If no ``navigate`` is supplied (e.g. when called from a context
+ * that lacks the router) the implementation falls back to
+ * ``window.location.assign`` as a hard navigation. Call sites should
+ * prefer the ``navigate`` form.
  *
  * Returns ``true`` when navigation was attempted, ``false`` when the URL
  * was missing or unsafe.
  */
 export function openAnnotationUrl(
-  annotation: ServerTokenAnnotation | ServerSpanAnnotation
+  annotation: ServerTokenAnnotation | ServerSpanAnnotation,
+  navigate?: (to: string) => void
 ): boolean {
   const url = annotation.linkUrl;
   if (!url || !isSafeUrl(url)) return false;
   const normalized = url.trim();
   if (normalized.startsWith("/")) {
-    window.location.assign(normalized);
+    if (navigate) {
+      navigate(normalized);
+    } else {
+      window.location.assign(normalized);
+    }
   } else {
     window.open(normalized, "_blank", "noopener,noreferrer");
   }

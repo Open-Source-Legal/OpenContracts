@@ -33,7 +33,7 @@ import { PermissionTypes, TextSearchSpanResult } from "../../../types";
 import { Label, LabelContainer, PaperContainer } from "./StyledComponents";
 import RadialButtonCloud, { CloudButtonItem } from "./RadialButtonCloud";
 import { hexToRgba } from "./utils";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Copy,
   ExternalLink,
@@ -390,6 +390,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
   onAnnotationRefChange,
 }) => {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [hoveredSpanIndex, setHoveredSpanIndex] = useState<number | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -532,7 +533,8 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
         !event?.metaKey &&
         !event?.ctrlKey
       ) {
-        if (openAnnotationUrl(annotation)) return;
+        // Pass ``navigate`` so site-relative paths stay in the SPA.
+        if (openAnnotationUrl(annotation, navigate)) return;
       }
       if (selectedAnnotations.includes(annotation.id)) {
         setSelectedAnnotations([]);
@@ -1117,7 +1119,8 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
           const handleSpanClick = linkAnnotation
             ? (event: React.MouseEvent) => {
                 if (event.shiftKey || event.metaKey || event.ctrlKey) return;
-                if (openAnnotationUrl(linkAnnotation)) {
+                // Pass ``navigate`` so site-relative paths stay in the SPA.
+                if (openAnnotationUrl(linkAnnotation, navigate)) {
                   event.stopPropagation();
                 }
               }

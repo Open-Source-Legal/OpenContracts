@@ -1100,7 +1100,11 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         # rejected before persistence even when ``VALIDATE_ANNOTATION_JSON``
         # is disabled. Run before the early-return below so the check
         # cannot be bypassed by toggling that flag in production.
+        # Strip surrounding whitespace so a value submitted with leading
+        # spaces (e.g. via a direct API call that didn't pre-trim) is
+        # stored canonically and the renderer doesn't produce a broken link.
         if self.link_url:
+            self.link_url = self.link_url.strip()
             validate_link_url(self.link_url)
 
         from django.conf import settings  # local to avoid global import cost
@@ -1225,6 +1229,9 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
             # ``clean()`` was skipped above, but link_url must still be
             # validated — it is reflected in a click handler so unsafe
             # schemes like ``javascript:`` must never reach persistence.
+            # Mirror the whitespace-stripping ``clean()`` performs so the
+            # column stays canonical regardless of which path persisted.
+            self.link_url = self.link_url.strip()
             validate_link_url(self.link_url)
 
         # Auto-compact annotation JSON to v2 format on save (lazy migration).

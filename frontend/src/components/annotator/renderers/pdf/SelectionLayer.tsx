@@ -37,6 +37,7 @@ import {
 import { clampMenuPosition } from "../../../../utils/layout";
 import {
   OC_URL_LABEL,
+  OC_URL_LABEL_COLOR,
   PENDING_OC_URL_LABEL_ID,
   SELECTION_MENU_COOLDOWN_MS,
   Z_INDEX,
@@ -321,7 +322,7 @@ const SelectionLayer = ({
       const placeholder: AnnotationLabelType = {
         id: PENDING_OC_URL_LABEL_ID,
         text: OC_URL_LABEL,
-        color: "#2563EB",
+        color: OC_URL_LABEL_COLOR,
         labelType: LabelType.TokenLabel,
       } as AnnotationLabelType;
 

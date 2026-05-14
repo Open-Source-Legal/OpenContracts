@@ -272,6 +272,11 @@ export const OC_URL_LABEL = "OC_URL";
 // downstream code that needs to recognise "this label is still pending"
 // has a single source of truth instead of comparing against a raw string.
 export const PENDING_OC_URL_LABEL_ID = "__pending_oc_url__";
+// Default presentation for the OC_URL label. Mirrors the backend constants
+// (``opencontractserver/constants/annotations.py``) so the placeholder used
+// before the server has assigned a real label, the renderer's hyperlink
+// styling, and the auto-created server-side label all agree.
+export const OC_URL_LABEL_COLOR = "#2563EB";
 
 // Document search/picker limits
 export const DOCUMENT_PICKER_SEARCH_LIMIT = 20;

@@ -166,12 +166,28 @@ describe("openAnnotationUrl", () => {
     expect(openSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("navigates site-relative paths in the current tab", () => {
-    // SPA-internal links must stay in the current tab so the router can
-    // resolve them; opening in a new tab would lose Apollo cache state.
+  it("navigates site-relative paths via window.location.assign as fallback", () => {
+    // When no ``navigate`` callback is supplied, the helper falls back to
+    // a hard navigation. This keeps the API safe for non-router contexts.
     const ok = openAnnotationUrl(makeSpan(ocUrlLabel, "/corpus/foo"));
     expect(ok).toBe(true);
     expect(assignSpy).toHaveBeenCalledWith("/corpus/foo");
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses the navigate callback when supplied for site-relative paths", () => {
+    // Preferred path: pass a ``useNavigate()`` callback from react-router-dom
+    // so the SPA router resolves the URL in place, preserving Apollo cache
+    // and component state. The hard ``window.location.assign`` fallback
+    // must NOT fire.
+    const navigateSpy = vi.fn();
+    const ok = openAnnotationUrl(
+      makeSpan(ocUrlLabel, "/corpus/foo"),
+      navigateSpy
+    );
+    expect(ok).toBe(true);
+    expect(navigateSpy).toHaveBeenCalledWith("/corpus/foo");
+    expect(assignSpy).not.toHaveBeenCalled();
     expect(openSpy).not.toHaveBeenCalled();
   });
 

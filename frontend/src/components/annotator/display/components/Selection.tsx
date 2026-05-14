@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import _ from "lodash";
 import styled from "styled-components";
+import { useNavigate } from "react-router-dom";
 
 import { ExternalLink, Pencil, Trash2 } from "lucide-react";
 
@@ -122,6 +123,7 @@ export const Selection: React.FC<SelectionProps> = ({
   showInfo = true,
 }) => {
   const auth_token = useReactiveVar(authToken);
+  const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
   const [isEditLabelModalVisible, setIsEditLabelModalVisible] = useState(false);
   const [isEditUrlModalVisible, setIsEditUrlModalVisible] = useState(false);
@@ -233,7 +235,9 @@ export const Selection: React.FC<SelectionProps> = ({
       !event?.metaKey &&
       !event?.ctrlKey
     ) {
-      if (openAnnotationUrl(annotation)) return;
+      // Pass ``navigate`` so site-relative paths stay in the SPA instead
+      // of triggering a hard page reload that would blow away Apollo cache.
+      if (openAnnotationUrl(annotation, navigate)) return;
     }
 
     const current = selectedAnnotations.slice(0);
