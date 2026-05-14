@@ -24,7 +24,7 @@ from opencontractserver.annotations.models import (
     Relationship,
 )
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
-from opencontractserver.documents.models import DocumentPath
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tasks.import_tasks import (
     _validate_sidecar_schema,
     import_zip_with_folder_structure,
@@ -150,6 +150,34 @@ def _make_label_data(
         "color": color,
         "icon": "tag",
     }
+
+
+class _SidecarImportTestMixin:
+    """
+    Shared zip/handle plumbing for sidecar import test classes.
+
+    Centralizes the in-memory zip builder and ``TemporaryFileHandle`` factory
+    so test classes that exercise the sidecar import pipeline don't redefine
+    the same helpers. The ``handle_name`` class attribute lets subclasses
+    distinguish their uploaded zip filename for log/debug traceability.
+    """
+
+    handle_name: str = "test_sidecar_import.zip"
+
+    @staticmethod
+    def _create_test_zip(files: dict[str, bytes]) -> io.BytesIO:
+        """Create an in-memory zip file from a {path: bytes} mapping."""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        buffer.seek(0)
+        return buffer
+
+    def _create_temp_file_handle(self, zip_buffer: io.BytesIO) -> TemporaryFileHandle:
+        """Create a ``TemporaryFileHandle`` from a zip buffer."""
+        zip_content = ContentFile(zip_buffer.read(), name=self.handle_name)
+        return TemporaryFileHandle.objects.create(file=zip_content)
 
 
 class TestSidecarDetectionInManifest(TestCase):
@@ -310,13 +338,15 @@ class TestSidecarDetectionInManifest(TestCase):
         self.assertNotIn("labels.json", valid_paths)
 
 
-class TestSidecarImportTask(TestCase):
+class TestSidecarImportTask(_SidecarImportTestMixin, TestCase):
     """
     Integration tests for annotation sidecar import via the
     import_zip_with_folder_structure Celery task.
 
     Uses real PDF fixtures and realistic PAWLs/annotation data.
     """
+
+    handle_name = "test_sidecar_import.zip"
 
     def setUp(self):
         """Set up test user, corpus, and load real fixture data."""
@@ -339,21 +369,6 @@ class TestSidecarImportTask(TestCase):
         self.pdf_bytes_2 = SAMPLE_PDF_FILE_TWO_PATH.read_bytes()
         self.pawls_pages = _load_pawls_subset(2)
         self.text_content = SAMPLE_TXT_FILE_ONE_PATH.read_text()[:500]
-
-    def _create_test_zip(self, files: dict[str, bytes]) -> io.BytesIO:
-        """Create an in-memory zip file for testing."""
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for name, content in files.items():
-                zf.writestr(name, content)
-        buffer.seek(0)
-        return buffer
-
-    def _create_temp_file_handle(self, zip_buffer: io.BytesIO) -> TemporaryFileHandle:
-        """Create a TemporaryFileHandle from a zip buffer."""
-        zip_content = ContentFile(zip_buffer.read(), name="test_sidecar_import.zip")
-        handle = TemporaryFileHandle.objects.create(file=zip_content)
-        return handle
 
     def test_single_annotated_document_import(self):
         """Import a single PDF with annotation sidecar and labels."""
@@ -1567,17 +1582,25 @@ class TestSidecarImportTask(TestCase):
         self.assertTrue(doc.is_public)
 
 
-class TestSidecarUpversioning(TestCase):
+class TestSidecarUpversioning(_SidecarImportTestMixin, TestCase):
     """
     Intersection of sidecar import + path-collision upversioning.
 
     Verifies that when a zip containing a document AND its annotation sidecar
-    is imported at a path that already has a Document, the new Document version
-    receives the sidecar's metadata and annotations, while the prior version's
-    annotations remain attached to the prior (now non-current) Document. This
-    confirms that annotations are NOT migrated between versions: each Document
-    row owns its own annotation set, tied by FK to that specific version.
+    is imported at a path that already has a Document (default pipeline route,
+    i.e. ``skip_pipeline`` absent / falsy), the new Document version receives
+    the sidecar's annotations, while the prior version's annotations remain
+    attached to the prior (now non-current) Document. This confirms that
+    annotations are NOT migrated between versions: each Document row owns its
+    own annotation set, tied by FK to that specific version.
+
+    Note: sidecar ``title`` / ``description`` only attach to the Document row
+    when ``skip_pipeline=True`` (see ``test_skip_pipeline_creates_document_from_export_data``).
+    The default-pipeline upversion flow used here uses the bare filename as
+    the Document title, so this test does not assert on title/description.
     """
+
+    handle_name = "test_sidecar_upversion.zip"
 
     def setUp(self):
         with transaction.atomic():
@@ -1599,18 +1622,6 @@ class TestSidecarUpversioning(TestCase):
         self.pdf_bytes_v2 = SAMPLE_PDF_FILE_TWO_PATH.read_bytes()
         self.pawls_pages = _load_pawls_subset(2)
 
-    def _create_test_zip(self, files: dict[str, bytes]) -> io.BytesIO:
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for name, content in files.items():
-                zf.writestr(name, content)
-        buffer.seek(0)
-        return buffer
-
-    def _create_temp_file_handle(self, zip_buffer: io.BytesIO) -> TemporaryFileHandle:
-        zip_content = ContentFile(zip_buffer.read(), name="test_sidecar_upversion.zip")
-        return TemporaryFileHandle.objects.create(file=zip_content)
-
     def _shared_labels_json(self) -> bytes:
         """labels.json shared by both imports — covers all labels used."""
         return json.dumps(
@@ -1630,16 +1641,14 @@ class TestSidecarUpversioning(TestCase):
             )
         ).encode("utf-8")
 
-    def test_sidecar_metadata_and_annotations_attach_to_new_version(self):
+    def test_sidecar_annotations_attach_to_new_version(self):
         """
-        Importing a sidecar+document at an existing path:
+        Importing a sidecar+document at an existing path (default pipeline route):
         - creates a new Document version (same version_tree_id, parent=v1)
-        - attaches v2's sidecar metadata + annotations to the NEW Document
+        - attaches v2's sidecar annotations + doc-level labels to the NEW Document
         - leaves v1's annotations attached to the now-non-current v1 Document
         - increments DocumentPath.version_number and re-links the path chain
         """
-        from opencontractserver.documents.models import Document
-
         # --- v1 import: master.pdf + sidecar A ---
         annotations_v1 = [
             _make_annotation(
@@ -1687,8 +1696,6 @@ class TestSidecarUpversioning(TestCase):
         )
         self.assertEqual(v1_path.version_number, 1)
         v1_doc = v1_path.document
-        self.assertEqual(v1_doc.title, "V1 Title")
-        self.assertEqual(v1_doc.description, "V1 description")
         self.assertTrue(v1_doc.is_current)
 
         # v1 has its annotations
@@ -1779,13 +1786,6 @@ class TestSidecarUpversioning(TestCase):
         # Content hash diverged (different PDF bytes)
         self.assertNotEqual(v2_doc.pdf_file_hash, v1_doc.pdf_file_hash)
 
-        # --- Metadata landed on v2, not v1 ---
-        self.assertEqual(v2_doc.title, "V2 Title")
-        self.assertEqual(v2_doc.description, "V2 description")
-        # v1's row is unchanged
-        self.assertEqual(v1_doc.title, "V1 Title")
-        self.assertEqual(v1_doc.description, "V1 description")
-
         # --- Sidecar annotations landed on v2 ---
         v2_text_annots = Annotation.objects.filter(
             document=v2_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
@@ -1808,9 +1808,7 @@ class TestSidecarUpversioning(TestCase):
             document=v1_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
         )
         self.assertEqual(v1_text_annots_after.count(), 1)
-        self.assertEqual(
-            v1_text_annots_after.first().raw_text, "Original Heading"
-        )
+        self.assertEqual(v1_text_annots_after.first().raw_text, "Original Heading")
 
         v1_doc_labels_after = Annotation.objects.filter(
             document=v1_doc,
@@ -1818,9 +1816,7 @@ class TestSidecarUpversioning(TestCase):
             annotation_label__label_type="DOC_TYPE_LABEL",
         )
         self.assertEqual(v1_doc_labels_after.count(), 1)
-        self.assertEqual(
-            v1_doc_labels_after.first().annotation_label.text, "Contract"
-        )
+        self.assertEqual(v1_doc_labels_after.first().annotation_label.text, "Contract")
 
         # --- "Frontend query" only sees the current version's annotations ---
         # Resolves path → current Document → its annotations only.
@@ -2010,11 +2006,13 @@ class TestValidateLabelsData(TestCase):
         self.assertGreaterEqual(len(errors), 3)
 
 
-class TestMalformedLabelsImport(TestCase):
+class TestMalformedLabelsImport(_SidecarImportTestMixin, TestCase):
     """
     Integration tests verifying that malformed labels.json is rejected
     gracefully during import_zip_with_folder_structure.
     """
+
+    handle_name = "test_labels_validation.zip"
 
     def setUp(self):
         with transaction.atomic():
@@ -2033,18 +2031,6 @@ class TestMalformedLabelsImport(TestCase):
             )
 
         self.pdf_bytes = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()
-
-    def _create_test_zip(self, files: dict[str, bytes]) -> io.BytesIO:
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for name, content in files.items():
-                zf.writestr(name, content)
-        buffer.seek(0)
-        return buffer
-
-    def _create_temp_file_handle(self, zip_buffer: io.BytesIO) -> TemporaryFileHandle:
-        zip_content = ContentFile(zip_buffer.read(), name="test_labels_validation.zip")
-        return TemporaryFileHandle.objects.create(file=zip_content)
 
     def _run_import(self, labels_data) -> dict:
         sidecar = _build_sidecar_json(
@@ -2231,11 +2217,13 @@ class TestSidecarSchemaValidation(TestCase):
         self.assertIn("dict", errors[1])
 
 
-class TestSidecarSchemaValidationIntegration(TestCase):
+class TestSidecarSchemaValidationIntegration(_SidecarImportTestMixin, TestCase):
     """
     Integration tests verifying that invalid sidecar schemas are rejected
     gracefully by the full import_zip_with_folder_structure task.
     """
+
+    handle_name = "test_schema_val.zip"
 
     def setUp(self):
         with transaction.atomic():
@@ -2252,18 +2240,6 @@ class TestSidecarSchemaValidationIntegration(TestCase):
                 self.user, self.corpus, [PermissionTypes.ALL]
             )
         self.pdf_bytes = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()
-
-    def _create_test_zip(self, files: dict[str, bytes]) -> io.BytesIO:
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for name, content in files.items():
-                zf.writestr(name, content)
-        buffer.seek(0)
-        return buffer
-
-    def _create_temp_file_handle(self, zip_buffer: io.BytesIO) -> TemporaryFileHandle:
-        zip_content = ContentFile(zip_buffer.read(), name="test_schema_val.zip")
-        return TemporaryFileHandle.objects.create(file=zip_content)
 
     def test_bad_labelled_text_type_reports_error(self):
         """A sidecar with labelled_text as a string is rejected gracefully."""
