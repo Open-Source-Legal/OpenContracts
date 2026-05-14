@@ -40,6 +40,7 @@ from opencontractserver.shared.Managers import (
     AnnotationManager,
     EmbeddingManager,
     NoteManager,
+    RelationshipManager,
 )
 from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.shared.Models import BaseOCModel
@@ -172,6 +173,8 @@ class AnnotationLabel(BaseOCModel):
 
 
 class Relationship(BaseOCModel):
+    objects = RelationshipManager()  # type: ignore[misc]
+
     relationship_label = django.db.models.ForeignKey(
         "AnnotationLabel",
         null=True,

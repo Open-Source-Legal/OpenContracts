@@ -49,6 +49,8 @@ from opencontractserver.tasks.import_tasks_v2 import (
     _import_v2_relationships,
     import_corpus_v2,
 )
+from opencontractserver.tests._corpus_fixture import build_rich_test_corpus
+from opencontractserver.tests._corpus_snapshot import snapshot_corpus
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.users.models import UserExport
 from opencontractserver.utils.etl import build_label_lookups
@@ -674,6 +676,73 @@ class TestV2ImportUtilities(TransactionTestCase):
         # Verify NO relationship was created (structural ones are skipped)
         relationships = Relationship.objects.filter(corpus=self.corpus)
         self.assertEqual(relationships.count(), 0)
+
+    def test_import_relationships_skip_when_endpoint_missing(self):
+        """
+        Regression guard: a relationship whose source/target annotation
+        was not imported (e.g. because its document was excluded) must
+        be silently dropped rather than raising or creating a dangling
+        relationship.
+
+        Replaces the equivalent assertion the old fork suite carried
+        (``test_relationship_skipped_when_no_mapped_annotations``); fork
+        now delegates this to the V2 importer.
+        """
+        doc = Document.objects.create(title="Test Doc", creator=self.user, page_count=1)
+        annot1 = Annotation.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            annotation_label=self.text_label,
+            raw_text="Source only",
+            creator=self.user,
+        )
+
+        rel_label = AnnotationLabel.objects.create(
+            text="Missing Endpoint Rel",
+            description="Test rel with missing target",
+            label_type=RELATIONSHIP_LABEL,
+            creator=self.user,
+        )
+
+        # The id "missing_target_id" deliberately is not in the
+        # ``annot_id_map`` — simulating an annotation that was filtered
+        # out of the export (or whose import failed earlier).
+        relationships_data = [
+            {
+                "id": "rel_1",
+                "relationshipLabel": "Missing Endpoint Rel",
+                "source_annotation_ids": [str(annot1.id)],
+                "target_annotation_ids": ["missing_target_id"],
+                "structural": False,
+            },
+            {
+                "id": "rel_2",
+                "relationshipLabel": "Missing Endpoint Rel",
+                "source_annotation_ids": ["missing_source_id"],
+                "target_annotation_ids": [str(annot1.id)],
+                "structural": False,
+            },
+        ]
+
+        annot_id_map = {str(annot1.id): annot1.id}
+        label_lookup = {("Missing Endpoint Rel", RELATIONSHIP_LABEL): rel_label}
+
+        # Should not raise.
+        _import_v2_relationships(
+            relationships_data,
+            self.corpus,
+            annot_id_map,
+            label_lookup,
+            self.user,
+        )
+
+        # Both relationships had a missing endpoint, so neither should
+        # have been persisted.
+        self.assertEqual(
+            Relationship.objects.filter(corpus=self.corpus).count(),
+            0,
+            "Relationships with missing source/target annotation must be dropped",
+        )
 
     def test_import_structural_annotations_with_parents(self):
         """Test importing structural annotations with parent-child relationships."""
@@ -2290,8 +2359,13 @@ class TestDocumentPathExportFallback(TransactionTestCase):
         result = package_document_paths(self.corpus)
 
         self.assertEqual(len(result), 1)
-        # Should fall back to the pdf_file basename
-        self.assertIn("my_document.pdf", result[0]["document_ref"])
+        # Should fall back to the pdf_file basename.  Django's storage
+        # backend appends a random suffix on collision (e.g.
+        # ``my_document_WjIl9b4.pdf``), so match on the stem + extension
+        # rather than the original filename verbatim.
+        doc_ref = result[0]["document_ref"]
+        self.assertTrue(doc_ref.startswith("my_document"))
+        self.assertTrue(doc_ref.endswith(".pdf"))
 
 
 class TestConversationImportDocHashRelinking(TransactionTestCase):
@@ -2348,3 +2422,108 @@ class TestConversationImportDocHashRelinking(TransactionTestCase):
         self.assertIsNotNone(conv)
         self.assertEqual(conv.chat_with_document, self.doc)
         self.assertIsNone(conv.chat_with_corpus)
+
+
+class TestV2ThreeRoundTripDataIntegrity(TransactionTestCase):
+    """
+    Three-time export/import roundtrip with no data loss for in-scope features.
+
+    Per docs/architecture/corpus_export_import_v2.md, every V2 feature except
+    the documented exceptions (vector embeddings, ingestion-source credentials,
+    per-object permissions, historical DocumentPath versions, action-trail
+    import) must survive an unlimited number of export→import roundtrips
+    without drift.  This test exercises 3 sequential roundtrips and asserts
+    that a normalized snapshot of the corpus is identical at every stage.
+    """
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(
+            username="rtuser",
+            password="testpass",
+            email="rtuser@example.com",
+        )
+        # Delegate the rich-fixture build to the shared helper so
+        # both this test and the fork parity tests stay aligned.
+        self.corpus = build_rich_test_corpus(self.user)
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+
+    def _snapshot(self, corpus: Corpus) -> dict:
+        """Delegate to the shared :func:`snapshot_corpus` helper."""
+        return snapshot_corpus(corpus)
+
+    def _roundtrip(self, corpus: Corpus) -> Corpus:
+        """Export `corpus` to a V2 ZIP and import it into a new corpus.
+
+        Returns the newly imported Corpus.
+        """
+        export = UserExport.objects.create(backend_lock=True, creator=self.user)
+        package_corpus_export_v2(
+            export_id=export.id,
+            corpus_pk=corpus.id,
+            include_conversations=True,
+        )
+        export.refresh_from_db()
+        self.assertIsNotNone(export.file, "Export should have produced a file")
+
+        # Hand the ZIP off to the importer via a fresh TemporaryFileHandle
+        temp_file = TemporaryFileHandle.objects.create()
+        with export.file.open("rb") as f:
+            temp_file.file.save("rt.zip", ContentFile(f.read()))
+
+        imported_id = import_corpus_v2(
+            temporary_file_handle_id=temp_file.id,
+            user_id=self.user.id,
+            seed_corpus_id=None,
+        )
+        self.assertIsNotNone(imported_id, "Importer returned None — import failed")
+        return Corpus.objects.get(id=imported_id)
+
+    # ------------------------------------------------------------------ #
+    # Test
+    # ------------------------------------------------------------------ #
+
+    def test_three_roundtrips_preserve_in_scope_state(self) -> None:
+        """Export+import 3 times; in-scope state should be identical at each stage."""
+        baseline = self._snapshot(self.corpus)
+
+        round1 = self._roundtrip(self.corpus)
+        snap1 = self._snapshot(round1)
+
+        round2 = self._roundtrip(round1)
+        snap2 = self._snapshot(round2)
+
+        round3 = self._roundtrip(round2)
+        snap3 = self._snapshot(round3)
+
+        # Each top-level slice is compared individually so any drift
+        # produces a focused failure rather than one giant dict diff.
+        for key in baseline.keys():
+            self.assertEqual(
+                snap1[key],
+                baseline[key],
+                msg=f"Round 1 lost data in '{key}'",
+            )
+            self.assertEqual(
+                snap2[key],
+                baseline[key],
+                msg=f"Round 2 lost data in '{key}'",
+            )
+            self.assertEqual(
+                snap3[key],
+                baseline[key],
+                msg=f"Round 3 lost data in '{key}'",
+            )
+
+        # Structural annotation set should remain a SINGLE row across all
+        # roundtrips — dedup by content_hash is the headline V2 invariant.
+        self.assertEqual(
+            StructuralAnnotationSet.objects.filter(
+                content_hash="rt_struct_hash"
+            ).count(),
+            1,
+            msg="StructuralAnnotationSet duplicated across roundtrips — "
+            "content_hash dedup broke",
+        )

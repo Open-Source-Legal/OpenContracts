@@ -28,6 +28,7 @@ from opencontractserver.corpuses.models import (
     CorpusDescriptionRevision,
 )
 from opencontractserver.documents.models import DocumentPath, IngestionSource
+from opencontractserver.extracts.models import Datacell
 from opencontractserver.types.dicts import (
     AgentConfigExport,
     CompactAnnotationJsonType,
@@ -35,6 +36,9 @@ from opencontractserver.types.dicts import (
     DescriptionRevisionExport,
     DocumentPathExport,
     IngestionSourceExport,
+    ManualColumnExport,
+    ManualDatacellExport,
+    MetadataSchemaExport,
     OpenContractsAnnotationPythonType,
     OpenContractsRelationshipPythonType,
     PawlsPagePythonType,
@@ -245,7 +249,10 @@ def package_document_paths(corpus: Corpus) -> list[DocumentPathExport]:
             elif doc_path.document.pdf_file and doc_path.document.pdf_file.name:
                 document_ref = os.path.basename(doc_path.document.pdf_file.name)
             else:
-                document_ref = str(doc_path.document.id)
+                # Mirror ``build_document_export``'s synthesized filename
+                # so the import-side map (keyed by hash OR zip filename)
+                # finds this entry on the way back.
+                document_ref = f"document_{doc_path.document.id}.placeholder"
 
             entry: DocumentPathExport = {
                 "document_ref": document_ref,
@@ -400,7 +407,16 @@ def package_md_description_revisions(
             "version"
         )
 
-        # TODO(#1608): author_email leaks collaborator PII; migrate to slug when bumping export version.
+        # TODO(PII): `author_email` leaks collaborator PII into export ZIPs.
+        # Issue #1608 (the PR follow-up where this was first surfaced) is
+        # closed; this is the inline plan in lieu of a fresh tracking issue:
+        #   1. Add `author_slug` (from the user-slug work in #1612) alongside
+        #      the email for one minor version, with a deprecation log when
+        #      the import side still consumes the email key.
+        #   2. Make the import side prefer slug over email; keep email as a
+        #      fallback so older archives still re-link authorship.
+        #   3. Drop `author_email` entirely on the next export-format version
+        #      bump (and refuse to read it on import).
         for revision in revisions:
             revisions_export.append(
                 {
@@ -485,9 +501,14 @@ def package_conversations(
         # Build conversation ID mapping
         conv_id_map = {}
 
-        # TODO(#1608): conv["creator_email"], msg["creator_email"], and vote["creator_email"]
-        # (built in the loops below) all leak PII; migrate each to slug on the next export
-        # version bump.
+        # TODO(PII): `creator_email` on every conv/msg/vote built below leaks
+        # collaborator PII into export ZIPs.  Same staged migration plan as
+        # `author_email` above:
+        #   1. Add `creator_slug` (from the user-slug work in #1612) alongside
+        #      the email for one minor version; deprecation-log on the read side.
+        #   2. Make import prefer slug; keep email as a fallback for older
+        #      archives.
+        #   3. Drop `creator_email` on the next export-format version bump.
         for conv in conversations:
             conv_export_id = str(conv.id)
             conv_id_map[conv.id] = conv_export_id
@@ -571,6 +592,103 @@ def package_conversations(
         logger.error("Error packaging conversations for corpus %s: %s", corpus.id, e)
 
     return conversations_export, messages_export, votes_export
+
+
+def package_metadata_schema(corpus: Corpus) -> MetadataSchemaExport | None:
+    """
+    Package a corpus's manual-metadata schema for export.
+
+    Returns ``None`` when the corpus has no attached ``Fieldset``
+    (most corpora don't).  Otherwise returns a
+    :class:`opencontractserver.types.dicts.MetadataSchemaExport` dict
+    containing the fieldset metadata, the manual-entry subset of its
+    columns, and every user-entered datacell (``extract__isnull=True``)
+    for those columns on documents currently active in the corpus.
+
+    Document references in the datacells match the ``document_ref`` field
+    on :func:`package_document_paths` (document hash when available,
+    otherwise zip filename) so the importer can re-link via the same
+    lookup map.
+    """
+    fieldset = getattr(corpus, "metadata_schema", None)
+    if not fieldset:
+        return None
+
+    columns_qs = list(
+        fieldset.columns.filter(is_manual_entry=True).order_by("display_order", "id")
+    )
+    if not columns_qs:
+        # Fieldset with no manual-entry columns — still emit the
+        # fieldset so its identity round-trips, but with empty payloads.
+        return MetadataSchemaExport(
+            fieldset_name=fieldset.name,
+            fieldset_description=fieldset.description or "",
+            columns=[],
+            datacells=[],
+        )
+
+    columns_export: list[ManualColumnExport] = [
+        {
+            "id": str(c.pk),
+            "name": c.name,
+            "output_type": c.output_type,
+            "data_type": c.data_type,
+            "validation_config": (
+                c.validation_config.copy() if c.validation_config else None
+            ),
+            "default_value": c.default_value,
+            "help_text": c.help_text,
+            "display_order": c.display_order,
+        }
+        for c in columns_qs
+    ]
+
+    # Build doc_id -> document_ref the same way package_document_paths does
+    # so importers can use one lookup map for both.
+    active_doc_paths = DocumentPath.objects.filter(
+        corpus=corpus, is_current=True, is_deleted=False
+    ).select_related("document")
+
+    doc_ref_by_id: dict[int, str] = {}
+    for dp in active_doc_paths:
+        doc = dp.document
+        if doc.pdf_file_hash:
+            doc_ref_by_id[doc.id] = doc.pdf_file_hash
+        elif doc.pdf_file and doc.pdf_file.name:
+            doc_ref_by_id[doc.id] = os.path.basename(doc.pdf_file.name)
+        else:
+            # Mirror build_document_export's synthesized filename for
+            # docs without files so the import-side doc_hash_to_corpus_doc
+            # lookup (keyed by hash OR filename) finds us.
+            doc_ref_by_id[doc.id] = f"document_{doc.id}.placeholder"
+
+    column_ids = [c.pk for c in columns_qs]
+    datacells_qs = Datacell.objects.filter(
+        column_id__in=column_ids,
+        document_id__in=doc_ref_by_id.keys(),
+        extract__isnull=True,
+    ).select_related("column")
+
+    datacells_export: list[ManualDatacellExport] = []
+    for dc in datacells_qs:
+        doc_ref = doc_ref_by_id.get(dc.document_id)
+        if not doc_ref:
+            continue
+        datacells_export.append(
+            {
+                "column_id": str(dc.column_id),
+                "document_ref": doc_ref,
+                "data": dc.data.copy() if dc.data else None,
+                "data_definition": dc.data_definition or "",
+            }
+        )
+
+    return MetadataSchemaExport(
+        fieldset_name=fieldset.name,
+        fieldset_description=fieldset.description or "",
+        columns=columns_export,
+        datacells=datacells_export,
+    )
 
 
 def package_action_trail(

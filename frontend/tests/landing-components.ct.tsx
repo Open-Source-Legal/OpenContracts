@@ -358,6 +358,8 @@ test.describe("FeaturedCollections icon prop wiring", () => {
       mockCorpuses[0].node.title as string
     );
 
+    await docScreenshot(page, "landing--featured-collections--with-icons");
+
     await component.unmount();
   });
 

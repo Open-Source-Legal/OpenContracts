@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -44,6 +44,7 @@ from opencontractserver.utils.import_v2 import (
     import_conversations,
     import_corpus_folders,
     import_md_description_revisions,
+    import_metadata_schema,
     import_structural_annotation_set,
 )
 from opencontractserver.utils.importing import (
@@ -66,6 +67,64 @@ logger.setLevel(logging.DEBUG)
 User = get_user_model()
 
 
+def import_corpus_v2_from_bytes(
+    zip_source: IO[bytes],
+    user_id: int,
+    seed_corpus_id: int | None,
+) -> int | None:
+    """
+    Run the V2 corpus import against an in-memory or file-like ZIP source.
+
+    This is the in-process entry point — it does not depend on
+    ``TemporaryFileHandle``.  Both ``import_corpus_v2`` (the Celery task
+    backing the upload mutation) and the fork pipeline call this directly
+    so they share one code path for "given a ZIP, materialize a corpus".
+
+    Args:
+        zip_source: A readable, seekable binary stream (e.g. ``io.BytesIO``
+            from :func:`build_corpus_v2_zip`, or an open ``File`` handle).
+            Anything ``zipfile.ZipFile`` accepts as a binary stream is
+            valid; caller owns the lifetime.
+        user_id: User performing the import.
+        seed_corpus_id: Optional corpus ID to merge into instead of
+            creating a new one (used by fork to import into a shell).
+
+    Returns:
+        Corpus ID on success, ``None`` on failure.
+    """
+    try:
+        user_obj = User.objects.get(id=user_id)
+
+        with zipfile.ZipFile(zip_source, mode="r") as import_zip:
+            files = import_zip.namelist()
+            logger.info("import_corpus_v2_from_bytes() - Files in ZIP: %s", len(files))
+
+            if "data.json" not in files:
+                logger.error(
+                    "import_corpus_v2_from_bytes() - data.json not found in ZIP"
+                )
+                return None
+
+            with import_zip.open("data.json") as corpus_data:
+                data_json = json.loads(corpus_data.read().decode("UTF-8"))
+
+            version = data_json.get("version", "1.0")
+            logger.info("Detected export format version: %s", version)
+
+            return _import_corpus(
+                data_json, import_zip, user_obj, seed_corpus_id, version
+            )
+
+    except Exception as e:
+        # Log full traceback for Sentry / structured logs.  Callers (e.g.
+        # ``fork_corpus``) may also need contextual error detail — they
+        # can wrap the ``None`` return into a ``RuntimeError`` themselves
+        # if they want to escalate, since this in-process entry point is
+        # also called from a Celery task that prefers ``None`` returns.
+        logger.error("import_corpus_v2_from_bytes() - Exception: %s", e, exc_info=True)
+        return None
+
+
 @celery_app.task()
 def import_corpus_v2(
     temporary_file_handle_id: str | int,
@@ -78,6 +137,10 @@ def import_corpus_v2(
     Detects format version from data.json and routes to appropriate handler.
     Both formats share the same core logic via _import_corpus(); V2 adds
     structural sets, folders, relationships, agent config, etc.
+
+    Thin orchestration wrapper around :func:`import_corpus_v2_from_bytes`
+    — it loads the ZIP from a ``TemporaryFileHandle`` (the GraphQL upload
+    flow) and delegates everything else.
 
     Args:
         temporary_file_handle_id: ID of TemporaryFileHandle with ZIP
@@ -93,29 +156,9 @@ def import_corpus_v2(
         temporary_file_handle = TemporaryFileHandle.objects.get(
             id=temporary_file_handle_id
         )
-        user_obj = User.objects.get(id=user_id)
 
-        with temporary_file_handle.file.open("rb") as import_file, zipfile.ZipFile(
-            import_file, mode="r"
-        ) as import_zip:
-            files = import_zip.namelist()
-            logger.info("import_corpus_v2() - Files in ZIP: %s", len(files))
-
-            if "data.json" not in files:
-                logger.error("import_corpus_v2() - data.json not found in ZIP")
-                return None
-
-            # Load data.json
-            with import_zip.open("data.json") as corpus_data:
-                data_json = json.loads(corpus_data.read().decode("UTF-8"))
-
-            # Detect version - both share the unified import path
-            version = data_json.get("version", "1.0")
-            logger.info("Detected export format version: %s", version)
-
-            return _import_corpus(
-                data_json, import_zip, user_obj, seed_corpus_id, version
-            )
+        with temporary_file_handle.file.open("rb") as import_file:
+            return import_corpus_v2_from_bytes(import_file, user_id, seed_corpus_id)
 
     except Exception as e:
         logger.error("import_corpus_v2() - Exception: %s", e, exc_info=True)
@@ -308,7 +351,14 @@ def _import_corpus(
         # Aggregated old_id -> new_id; ``import_doc_annotations`` returns
         # ``dict[str | int, int]`` so the aggregator widens to match.
         all_annot_id_maps: dict[str | int, int] = {}
-        # Track doc_hash -> corpus_doc for DocumentPath reconstruction
+        # Track doc_ref -> corpus_doc for DocumentPath reconstruction.
+        # Despite the legacy name, this map is keyed by every form
+        # ``package_*_for_export`` uses for ``document_ref``: pdf_file_hash
+        # *and* basename(pdf_file.name) *and* the synthesized
+        # ``document_{id}.placeholder`` fallback.  Lookups against any of
+        # those forms resolve to the freshly-created Document on the
+        # import side, so callers (DocumentPath reconstruction, metadata
+        # schema, conversations) only need this one map.
         doc_hash_to_corpus_doc: dict[str, Document] = {}
         # Strict filename -> corpus_doc map (no hash keys mixed in).  Used
         # by CAML README rewriting where mixing in hash keys would risk a
@@ -398,6 +448,16 @@ def _import_corpus(
                     annot_old_id_to_new_pk=cast(
                         "dict[str | int, int] | None", all_annot_id_maps
                     ),
+                )
+
+            # Import manual metadata schema (if present)
+            metadata_schema = v2_data.get("metadata_schema")
+            if metadata_schema:
+                import_metadata_schema(
+                    cast("dict[str, Any]", metadata_schema),
+                    corpus_obj,
+                    user_obj,
+                    doc_ref_to_doc=doc_hash_to_corpus_doc,
                 )
 
             # Import conversations (if present)

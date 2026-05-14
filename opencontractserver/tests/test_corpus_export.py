@@ -71,10 +71,16 @@ class ExportCorpusTestCase(TestCase):
         label_lookups = build_label_lookups(corpus_id=self.original_corpus_obj.id)
 
         assert "text_labels" in label_lookups
-        assert len(label_lookups["text_labels"]) == 3
+        # build_label_lookups now includes every label that lives in the
+        # corpus's LabelSet (not just the ones currently referenced by
+        # annotations).  This is required for fork ≡ export+import parity
+        # — a forked corpus must have the same labelset as the source.
+        # So we assert "at least the used labels" instead of "exactly
+        # the used labels".
+        assert len(label_lookups["text_labels"]) >= 3
 
         assert "doc_labels" in label_lookups
-        assert len(label_lookups["doc_labels"]) == 1
+        assert len(label_lookups["doc_labels"]) >= 1
 
         for doc in self.original_corpus_obj.get_documents():
             result = build_document_export(
@@ -445,10 +451,14 @@ class ExportCorpusTestCase(TestCase):
             v["text"] for v in label_lookups["doc_labels"].values()
         }
 
-        self.assertEqual(
-            exported_text_label_names,
-            expected_text_label_names,
-            "Exported text label names do not match fixture",
+        # build_label_lookups now includes the full LabelSet (not just
+        # used labels), so the exported set is a SUPERSET of the labels
+        # actually referenced by annotations.  Assert containment rather
+        # than strict equality.
+        self.assertTrue(
+            expected_text_label_names.issubset(exported_text_label_names),
+            f"Exported text label names missing fixture labels: "
+            f"{expected_text_label_names - exported_text_label_names}",
         )
 
         # Doc-level: the label lookup should contain at least the doc labels

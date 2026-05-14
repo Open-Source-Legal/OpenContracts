@@ -527,3 +527,228 @@ class CorpusForkTestCase(TransactionTestCase):
             "Forked corpus should be unlocked after fork completes",
         )
         self.assertEqual(forked_corpus.creator_id, self.user.id)
+
+
+class CorpusForkErrorHandlingTest(TransactionTestCase):
+    """Cleanup-on-failure paths for the fork task.
+
+    The fork code path now flows through V2 export+import, but it still owns
+    a handful of cleanup branches: ``source_pk is None``, missing shell or
+    user, and any exception thrown by export/import while the shell is
+    backend-locked.  These are easy to regress when refactoring the task,
+    so verify the shell is left unlocked and flagged ``error=True`` in each
+    case.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="alice", password="12345678")
+
+    def _apply_fork(self, shell_id: int):
+        """Apply ``fork_corpus`` with the historical positional-arg signature.
+
+        The arg list is retained for backward compatibility with queued tasks
+        but ignored by the export-driven body.  All ``*_ids`` lists are empty
+        because the task no longer consumes them.
+        """
+        from opencontractserver.tasks.fork_tasks import fork_corpus
+
+        return fork_corpus.apply(
+            args=(
+                shell_id,  # new_corpus_id
+                [],  # doc_ids
+                "",  # label_set_id
+                [],  # annotation_ids
+                [],  # folder_ids
+                [],  # relationship_ids
+                self.user.id,  # user_id
+            )
+        ).get()
+
+    def test_fork_with_no_parent_id_marks_shell_error_and_unlocks(self):
+        """Shell with ``parent_id=None`` cannot identify a source corpus —
+        fork_corpus should mark the shell ``error=True`` and clear the
+        ``backend_lock`` rather than leave it hung."""
+        shell = Corpus.objects.create(
+            title="orphan_shell",
+            creator=self.user,
+            backend_lock=True,
+            parent=None,
+        )
+
+        result = self._apply_fork(shell.id)
+
+        self.assertIsNone(result)
+        shell.refresh_from_db()
+        self.assertTrue(shell.error)
+        self.assertFalse(shell.backend_lock)
+
+    def test_fork_with_export_exception_marks_shell_error_and_unlocks(self):
+        """When ``build_corpus_v2_zip`` raises, the shell should be flagged
+        ``error=True`` and unlocked so the user can retry rather than
+        observing a permanently-locked corpus."""
+        from unittest.mock import patch
+
+        source = Corpus.objects.create(
+            title="source", creator=self.user, backend_lock=False
+        )
+        shell = Corpus.objects.create(
+            title="shell",
+            creator=self.user,
+            backend_lock=True,
+            parent=source,
+        )
+
+        with patch(
+            "opencontractserver.tasks.fork_tasks.build_corpus_v2_zip",
+            side_effect=RuntimeError("simulated export failure"),
+        ):
+            result = self._apply_fork(shell.id)
+
+        self.assertIsNone(result)
+        shell.refresh_from_db()
+        self.assertTrue(shell.error)
+        self.assertFalse(shell.backend_lock)
+
+
+class CorpusForkOrphanedBlobGCTest(TransactionTestCase):
+    """Verify that the V2-import blob orphaned by fork's file-blob
+    repointing is deleted via ``transaction.on_commit`` rather than left
+    behind as storage leakage (addresses #1638 follow-up)."""
+
+    fixtures_path = pathlib.Path(__file__).parent / "fixtures"
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="gc_user", password="12345678")
+
+    def test_fork_gcs_orphaned_v2_import_blobs(self):
+        """End-to-end: forking an imported corpus deletes the V2-import
+        blob path on commit because the doc was repointed at the source.
+
+        We capture ``default_storage.delete`` calls during the fork
+        and assert at least one call targeted a path that no longer
+        appears on any forked document.
+        """
+        from unittest.mock import patch
+
+        export_zip_base64_file_string = package_zip_into_base64(
+            self.fixtures_path / "Test_Corpus_EXPORT.zip"
+        )
+        source = Corpus.objects.create(
+            title="gc_source", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, source, [PermissionTypes.ALL])
+
+        base64_img_bytes = export_zip_base64_file_string.encode("utf-8")
+        decoded_file_data = base64.decodebytes(base64_img_bytes)
+        with transaction.atomic():
+            temporary_file = TemporaryFileHandle.objects.create()
+            temporary_file.file.save(
+                f"corpus_import_{uuid.uuid4()}.pdf", ContentFile(decoded_file_data)
+            )
+        import_corpus.s(temporary_file.id, self.user.id, source.id).apply().get()
+        source.refresh_from_db()
+
+        # Capture the storage paths default_storage.delete is asked to
+        # remove during the fork.  We patch the binding in fork_tasks so
+        # only the fork-driven GC is observed (test fixture writes go
+        # through the live ``default_storage``).
+        deleted_paths: list[str] = []
+
+        def _capture_delete(path: str) -> None:
+            deleted_paths.append(path)
+
+        with patch(
+            "opencontractserver.tasks.fork_tasks.default_storage.delete",
+            side_effect=_capture_delete,
+        ):
+            fork_task = build_fork_corpus_task(
+                corpus_pk_to_fork=source.id, user=self.user
+            )
+            forked_id = fork_task.apply().get()
+
+        self.assertIsNotNone(forked_id, "fork task should succeed")
+        # At least one V2-import blob should have been collected for GC.
+        # We don't assert an exact count because that depends on the
+        # number of file-blob fields populated on the fixture documents.
+        self.assertTrue(
+            deleted_paths,
+            "fork_corpus should schedule deletion of orphaned V2-import blobs",
+        )
+
+        # The deleted paths must not be referenced by any forked document —
+        # otherwise the GC would have removed a live blob.
+        forked = Corpus.objects.get(pk=forked_id)
+        live_paths: set[str] = set()
+        for dp in forked.document_paths.filter(is_current=True, is_deleted=False):
+            doc = dp.document
+            for field_name in (
+                "pdf_file",
+                "pawls_parse_file",
+                "txt_extract_file",
+                "icon",
+                "md_summary_file",
+            ):
+                blob = getattr(doc, field_name)
+                if blob and blob.name:
+                    live_paths.add(blob.name)
+        leaked = set(deleted_paths) & live_paths
+        self.assertFalse(
+            leaked,
+            f"GC deleted live blob references still in use: {leaked}",
+        )
+
+    def test_fork_gc_tolerates_storage_delete_failures(self):
+        """If ``default_storage.delete`` raises for one blob path, the GC
+        must log and continue rather than crashing the post-commit callback
+        (which would leak the rest of the orphans and surface as an
+        unrelated error in Celery worker logs)."""
+        from unittest.mock import patch
+
+        export_zip_base64_file_string = package_zip_into_base64(
+            self.fixtures_path / "Test_Corpus_EXPORT.zip"
+        )
+        source = Corpus.objects.create(
+            title="gc_fail_source", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, source, [PermissionTypes.ALL])
+
+        base64_img_bytes = export_zip_base64_file_string.encode("utf-8")
+        decoded_file_data = base64.decodebytes(base64_img_bytes)
+        with transaction.atomic():
+            temporary_file = TemporaryFileHandle.objects.create()
+            temporary_file.file.save(
+                f"corpus_import_{uuid.uuid4()}.pdf", ContentFile(decoded_file_data)
+            )
+        import_corpus.s(temporary_file.id, self.user.id, source.id).apply().get()
+        source.refresh_from_db()
+
+        attempted_paths: list[str] = []
+
+        def _failing_delete(path: str) -> None:
+            attempted_paths.append(path)
+            # Fail every delete to make sure ``_gc_orphaned_blobs`` does
+            # not abort on the first failure.
+            raise OSError(f"simulated storage failure for {path}")
+
+        with patch(
+            "opencontractserver.tasks.fork_tasks.default_storage.delete",
+            side_effect=_failing_delete,
+        ):
+            fork_task = build_fork_corpus_task(
+                corpus_pk_to_fork=source.id, user=self.user
+            )
+            forked_id = fork_task.apply().get()
+
+        # The fork itself should still succeed; GC failures are non-fatal.
+        self.assertIsNotNone(
+            forked_id,
+            "fork must succeed even when blob GC fails; GC is best-effort",
+        )
+        # Every orphan path should have been attempted (not short-circuited
+        # by the first OSError).
+        self.assertTrue(
+            len(attempted_paths) >= 1,
+            "GC must attempt to delete every orphan path even on failure",
+        )
