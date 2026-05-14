@@ -1567,6 +1567,305 @@ class TestSidecarImportTask(TestCase):
         self.assertTrue(doc.is_public)
 
 
+class TestSidecarUpversioning(TestCase):
+    """
+    Intersection of sidecar import + path-collision upversioning.
+
+    Verifies that when a zip containing a document AND its annotation sidecar
+    is imported at a path that already has a Document, the new Document version
+    receives the sidecar's metadata and annotations, while the prior version's
+    annotations remain attached to the prior (now non-current) Document. This
+    confirms that annotations are NOT migrated between versions: each Document
+    row owns its own annotation set, tied by FK to that specific version.
+    """
+
+    def setUp(self):
+        with transaction.atomic():
+            self.user = User.objects.create_user(
+                username="upversion_sidecar_user", password="testpass"
+            )
+
+        with transaction.atomic():
+            self.corpus = Corpus.objects.create(
+                title="Sidecar Upversion Corpus",
+                description="Corpus for sidecar+upversion intersection tests",
+                creator=self.user,
+            )
+            set_permissions_for_obj_to_user(
+                self.user, self.corpus, [PermissionTypes.ALL]
+            )
+
+        self.pdf_bytes_v1 = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()
+        self.pdf_bytes_v2 = SAMPLE_PDF_FILE_TWO_PATH.read_bytes()
+        self.pawls_pages = _load_pawls_subset(2)
+
+    def _create_test_zip(self, files: dict[str, bytes]) -> io.BytesIO:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        buffer.seek(0)
+        return buffer
+
+    def _create_temp_file_handle(self, zip_buffer: io.BytesIO) -> TemporaryFileHandle:
+        zip_content = ContentFile(zip_buffer.read(), name="test_sidecar_upversion.zip")
+        return TemporaryFileHandle.objects.create(file=zip_content)
+
+    def _shared_labels_json(self) -> bytes:
+        """labels.json shared by both imports — covers all labels used."""
+        return json.dumps(
+            _build_labels_json(
+                text_labels={
+                    "Heading": _make_label_data("Heading"),
+                    "Section": _make_label_data("Section"),
+                },
+                doc_labels={
+                    "Contract": _make_label_data(
+                        "Contract", label_type="DOC_TYPE_LABEL"
+                    ),
+                    "Amendment": _make_label_data(
+                        "Amendment", label_type="DOC_TYPE_LABEL"
+                    ),
+                },
+            )
+        ).encode("utf-8")
+
+    def test_sidecar_metadata_and_annotations_attach_to_new_version(self):
+        """
+        Importing a sidecar+document at an existing path:
+        - creates a new Document version (same version_tree_id, parent=v1)
+        - attaches v2's sidecar metadata + annotations to the NEW Document
+        - leaves v1's annotations attached to the now-non-current v1 Document
+        - increments DocumentPath.version_number and re-links the path chain
+        """
+        from opencontractserver.documents.models import Document
+
+        # --- v1 import: master.pdf + sidecar A ---
+        annotations_v1 = [
+            _make_annotation(
+                annot_id=1,
+                raw_text="Original Heading",
+                label_name="Heading",
+                page=0,
+                token_start=0,
+                token_end=1,
+            ),
+        ]
+        sidecar_v1 = _build_sidecar_json(
+            title="V1 Title",
+            description="V1 description",
+            pawls_pages=self.pawls_pages,
+            annotations=annotations_v1,
+            doc_labels=["Contract"],
+        )
+        files_v1 = {
+            "filings/master.pdf": self.pdf_bytes_v1,
+            "filings/master.json": json.dumps(sidecar_v1).encode("utf-8"),
+            "labels.json": self._shared_labels_json(),
+        }
+        handle_v1 = self._create_temp_file_handle(self._create_test_zip(files_v1))
+
+        result_v1 = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle_v1.id,
+                "user_id": self.user.id,
+                "job_id": "test-sidecar-upversion-v1",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result_v1["success"], f"Errors: {result_v1.get('errors')}")
+        self.assertEqual(result_v1["files_processed"], 1)
+        self.assertEqual(result_v1["files_upversioned"], 0)
+        self.assertEqual(result_v1["annotation_sidecars_processed"], 1)
+
+        v1_path = DocumentPath.objects.get(
+            corpus=self.corpus,
+            path="/filings/master.pdf",
+            is_current=True,
+            is_deleted=False,
+        )
+        self.assertEqual(v1_path.version_number, 1)
+        v1_doc = v1_path.document
+        self.assertEqual(v1_doc.title, "V1 Title")
+        self.assertEqual(v1_doc.description, "V1 description")
+        self.assertTrue(v1_doc.is_current)
+
+        # v1 has its annotations
+        v1_text_annots = Annotation.objects.filter(
+            document=v1_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
+        )
+        self.assertEqual(v1_text_annots.count(), 1)
+        self.assertEqual(v1_text_annots.first().raw_text, "Original Heading")
+
+        v1_doc_labels = Annotation.objects.filter(
+            document=v1_doc,
+            corpus=self.corpus,
+            annotation_label__label_type="DOC_TYPE_LABEL",
+        )
+        self.assertEqual(v1_doc_labels.count(), 1)
+        self.assertEqual(v1_doc_labels.first().annotation_label.text, "Contract")
+
+        # --- v2 import: same path, different PDF content, different sidecar ---
+        annotations_v2 = [
+            _make_annotation(
+                annot_id=10,
+                raw_text="Revised Heading",
+                label_name="Heading",
+                page=0,
+                token_start=0,
+                token_end=2,
+            ),
+            _make_annotation(
+                annot_id=11,
+                raw_text="New Section",
+                label_name="Section",
+                page=0,
+                token_start=2,
+                token_end=4,
+            ),
+        ]
+        sidecar_v2 = _build_sidecar_json(
+            title="V2 Title",
+            description="V2 description",
+            pawls_pages=self.pawls_pages,
+            annotations=annotations_v2,
+            doc_labels=["Amendment"],
+        )
+        files_v2 = {
+            "filings/master.pdf": self.pdf_bytes_v2,
+            "filings/master.json": json.dumps(sidecar_v2).encode("utf-8"),
+            "labels.json": self._shared_labels_json(),
+        }
+        handle_v2 = self._create_temp_file_handle(self._create_test_zip(files_v2))
+
+        result_v2 = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle_v2.id,
+                "user_id": self.user.id,
+                "job_id": "test-sidecar-upversion-v2",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result_v2["success"], f"Errors: {result_v2.get('errors')}")
+        self.assertEqual(result_v2["files_processed"], 1)
+        self.assertEqual(result_v2["files_upversioned"], 1)
+        self.assertIn("/filings/master.pdf", result_v2["upversioned_paths"])
+        self.assertEqual(result_v2["annotation_sidecars_processed"], 1)
+
+        # --- Path tree assertions ---
+        v1_path.refresh_from_db()
+        self.assertFalse(v1_path.is_current)
+
+        v2_path = DocumentPath.objects.get(
+            corpus=self.corpus,
+            path="/filings/master.pdf",
+            is_current=True,
+            is_deleted=False,
+        )
+        self.assertEqual(v2_path.version_number, 2)
+        self.assertEqual(v2_path.parent, v1_path)
+
+        # --- Content tree assertions ---
+        v2_doc = v2_path.document
+        self.assertNotEqual(v2_doc.id, v1_doc.id)
+        self.assertEqual(v2_doc.version_tree_id, v1_doc.version_tree_id)
+        self.assertEqual(v2_doc.parent, v1_doc)
+        self.assertTrue(v2_doc.is_current)
+        v1_doc.refresh_from_db()
+        self.assertFalse(v1_doc.is_current)
+
+        # Content hash diverged (different PDF bytes)
+        self.assertNotEqual(v2_doc.pdf_file_hash, v1_doc.pdf_file_hash)
+
+        # --- Metadata landed on v2, not v1 ---
+        self.assertEqual(v2_doc.title, "V2 Title")
+        self.assertEqual(v2_doc.description, "V2 description")
+        # v1's row is unchanged
+        self.assertEqual(v1_doc.title, "V1 Title")
+        self.assertEqual(v1_doc.description, "V1 description")
+
+        # --- Sidecar annotations landed on v2 ---
+        v2_text_annots = Annotation.objects.filter(
+            document=v2_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
+        )
+        self.assertEqual(
+            set(v2_text_annots.values_list("raw_text", flat=True)),
+            {"Revised Heading", "New Section"},
+        )
+
+        v2_doc_labels = Annotation.objects.filter(
+            document=v2_doc,
+            corpus=self.corpus,
+            annotation_label__label_type="DOC_TYPE_LABEL",
+        )
+        self.assertEqual(v2_doc_labels.count(), 1)
+        self.assertEqual(v2_doc_labels.first().annotation_label.text, "Amendment")
+
+        # --- v1 annotations remain on v1 (NOT migrated, NOT deleted) ---
+        v1_text_annots_after = Annotation.objects.filter(
+            document=v1_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
+        )
+        self.assertEqual(v1_text_annots_after.count(), 1)
+        self.assertEqual(
+            v1_text_annots_after.first().raw_text, "Original Heading"
+        )
+
+        v1_doc_labels_after = Annotation.objects.filter(
+            document=v1_doc,
+            corpus=self.corpus,
+            annotation_label__label_type="DOC_TYPE_LABEL",
+        )
+        self.assertEqual(v1_doc_labels_after.count(), 1)
+        self.assertEqual(
+            v1_doc_labels_after.first().annotation_label.text, "Contract"
+        )
+
+        # --- "Frontend query" only sees the current version's annotations ---
+        # Resolves path → current Document → its annotations only.
+        current_doc = DocumentPath.objects.get(
+            corpus=self.corpus,
+            path="/filings/master.pdf",
+            is_current=True,
+            is_deleted=False,
+        ).document
+        self.assertEqual(current_doc.id, v2_doc.id)
+
+        visible_texts = set(
+            Annotation.objects.filter(
+                document=current_doc, corpus=self.corpus
+            ).values_list("raw_text", flat=True)
+        )
+        # Old-version annotations are not visible via the current-path query.
+        self.assertNotIn("Original Heading", visible_texts)
+        # Both v1 and v2 annotations still exist in the DB.
+        self.assertEqual(
+            Annotation.objects.filter(
+                document__version_tree_id=v1_doc.version_tree_id,
+                corpus=self.corpus,
+                annotation_type="TOKEN_LABEL",
+            ).count(),
+            3,  # 1 from v1 + 2 from v2
+        )
+
+        # --- DocumentPath rows are scoped to one Document version each ---
+        all_paths = DocumentPath.objects.filter(
+            corpus=self.corpus, path="/filings/master.pdf"
+        ).order_by("version_number")
+        self.assertEqual(all_paths.count(), 2)
+        self.assertEqual(all_paths[0].document_id, v1_doc.id)
+        self.assertEqual(all_paths[1].document_id, v2_doc.id)
+
+        # Exactly one current Document per version tree (Rule C3).
+        self.assertEqual(
+            Document.objects.filter(
+                version_tree_id=v1_doc.version_tree_id, is_current=True
+            ).count(),
+            1,
+        )
+
+
 class TestValidateLabelsData(TestCase):
     """Unit tests for validate_labels_data schema validation."""
 
