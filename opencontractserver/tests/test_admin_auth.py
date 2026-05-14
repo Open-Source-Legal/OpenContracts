@@ -416,6 +416,13 @@ class TestAuth0SuperuserAllowlist(TestCase):
 class TestAuth0SuperuserAllowlistSystemCheck(TestCase):
     """Tests for ``users.checks.check_auth0_superuser_allowlist``."""
 
+    def setUp(self):
+        # The initial-superuser migration leaves at least one is_superuser
+        # row in the test DB. Demote them so the tests below can pin the
+        # W001 (no existing superuser) vs E001 (existing superuser) branches
+        # deterministically.
+        User.objects.filter(is_superuser=True).update(is_superuser=False)
+
     @override_settings(USE_AUTH0=False)
     def test_check_silent_when_auth0_disabled(self):
         """Check returns no warnings if Auth0 is not in use."""
@@ -424,10 +431,11 @@ class TestAuth0SuperuserAllowlistSystemCheck(TestCase):
         self.assertEqual(check_auth0_superuser_allowlist(None), [])
 
     @override_settings(USE_AUTH0=True, AUTH0_SUPERUSER_SUB_ALLOWLIST=[])
-    def test_check_warns_when_allowlist_empty(self):
-        """Check emits users.W001 when allowlist is empty with Auth0 enabled."""
+    def test_check_warns_when_allowlist_empty_and_no_superuser(self):
+        """Empty allowlist with no existing superuser yields W001 (Warning)."""
         from opencontractserver.users.checks import check_auth0_superuser_allowlist
 
+        # No is_superuser rows exist after setUp.
         warnings = check_auth0_superuser_allowlist(None)
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0].id, "users.W001")
@@ -438,6 +446,22 @@ class TestAuth0SuperuserAllowlistSystemCheck(TestCase):
         from opencontractserver.users.checks import check_auth0_superuser_allowlist
 
         self.assertEqual(check_auth0_superuser_allowlist(None), [])
+
+    @override_settings(USE_AUTH0=True, AUTH0_SUPERUSER_SUB_ALLOWLIST=[])
+    def test_check_escalates_to_critical_with_existing_superuser(self):
+        """Empty allowlist + existing superuser escalates to E001 (Critical)
+        so ``manage.py check --deploy`` blocks the deploy that would lock
+        out the only admin account."""
+        from opencontractserver.users.checks import check_auth0_superuser_allowlist
+
+        User.objects.create_user(
+            username="auth0|test_super",
+            is_superuser=True,
+            is_staff=True,
+        )
+        issues = check_auth0_superuser_allowlist(None)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].id, "users.E001")
 
 
 class TestBooleanClaimParsing(TestCase):
