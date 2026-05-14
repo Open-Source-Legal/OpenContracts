@@ -341,7 +341,8 @@ class DoclingParser(BaseChunkedParser):
                 response = requests.post(
                     self.service_url,
                     json=payload,
-                    headers=headers,
+                    # See cast rationale in ``docxodus_parser.py``.
+                    headers=cast(Any, headers),
                     timeout=self.request_timeout,
                 )
                 response.raise_for_status()  # Raise exception for 4XX/5XX responses

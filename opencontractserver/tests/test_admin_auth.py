@@ -77,7 +77,9 @@ class TestAdminClaimsSync(TestCase):
         self.assertFalse(self.user.is_staff)
 
     @override_settings(
-        USE_AUTH0=True, AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/"
+        USE_AUTH0=True,
+        AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/",
+        AUTH0_SUPERUSER_SUB_ALLOWLIST=["auth0|test_user"],
     )
     def test_sync_is_superuser_true_from_claims(self):
         """is_superuser should be synced to True from token claims."""
@@ -117,7 +119,9 @@ class TestAdminClaimsSync(TestCase):
         self.assertFalse(self.user.is_superuser)
 
     @override_settings(
-        USE_AUTH0=True, AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/"
+        USE_AUTH0=True,
+        AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/",
+        AUTH0_SUPERUSER_SUB_ALLOWLIST=["auth0|test_user"],
     )
     def test_sync_both_claims(self):
         """Both is_staff and is_superuser should be synced together."""
@@ -329,6 +333,135 @@ class TestAdminClaimsSync(TestCase):
 
         self.assertFalse(result)
         mock_save.assert_called_once()
+
+
+class TestAuth0SuperuserAllowlist(TestCase):
+    """Tests for the AUTH0_SUPERUSER_SUB_ALLOWLIST defense-in-depth check."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="auth0|allowlist_target",
+            email="allowlist@example.com",
+            is_staff=False,
+            is_superuser=False,
+        )
+
+    def setUp(self):
+        self.user.refresh_from_db()
+        self.user.is_staff = False
+        self.user.is_superuser = False
+        self.user.save()
+
+    @override_settings(
+        USE_AUTH0=True,
+        AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/",
+        AUTH0_SUPERUSER_SUB_ALLOWLIST=[],
+    )
+    def test_blocks_superuser_when_allowlist_empty(self):
+        """An empty allowlist must refuse every is_superuser=True claim."""
+        from config.graphql_auth0_auth.utils import sync_admin_claims_from_payload
+
+        payload = {
+            "sub": "auth0|allowlist_target",
+            "https://test.example.com/is_superuser": True,
+        }
+        result = sync_admin_claims_from_payload(self.user, payload)
+        self.user.refresh_from_db()
+        self.assertTrue(result)
+        # Allowlist override forces is_superuser back to False.
+        self.assertFalse(self.user.is_superuser)
+
+    @override_settings(
+        USE_AUTH0=True,
+        AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/",
+        AUTH0_SUPERUSER_SUB_ALLOWLIST=["auth0|someone_else"],
+    )
+    def test_blocks_superuser_for_user_not_in_allowlist(self):
+        """A populated allowlist that excludes this sub still blocks."""
+        from config.graphql_auth0_auth.utils import sync_admin_claims_from_payload
+
+        payload = {
+            "sub": "auth0|allowlist_target",
+            "https://test.example.com/is_superuser": True,
+        }
+        result = sync_admin_claims_from_payload(self.user, payload)
+        self.user.refresh_from_db()
+        self.assertTrue(result)
+        self.assertFalse(self.user.is_superuser)
+
+    @override_settings(
+        USE_AUTH0=True,
+        AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/",
+        AUTH0_SUPERUSER_SUB_ALLOWLIST=["auth0|allowlist_target"],
+    )
+    def test_demote_path_does_not_require_allowlist(self):
+        """Demotion to is_superuser=False bypasses the allowlist gate."""
+        from config.graphql_auth0_auth.utils import sync_admin_claims_from_payload
+
+        # Start as superuser.
+        self.user.is_superuser = True
+        self.user.save()
+
+        payload = {
+            "sub": "auth0|allowlist_target",
+            "https://test.example.com/is_superuser": False,
+        }
+        result = sync_admin_claims_from_payload(self.user, payload)
+        self.user.refresh_from_db()
+        self.assertTrue(result)
+        self.assertFalse(self.user.is_superuser)
+
+
+class TestAuth0SuperuserAllowlistSystemCheck(TestCase):
+    """Tests for ``users.checks.check_auth0_superuser_allowlist``."""
+
+    def setUp(self):
+        # The initial-superuser migration leaves at least one is_superuser
+        # row in the test DB. Demote them so the tests below can pin the
+        # W001 (no existing superuser) vs E001 (existing superuser) branches
+        # deterministically.
+        User.objects.filter(is_superuser=True).update(is_superuser=False)
+
+    @override_settings(USE_AUTH0=False)
+    def test_check_silent_when_auth0_disabled(self):
+        """Check returns no warnings if Auth0 is not in use."""
+        from opencontractserver.users.checks import check_auth0_superuser_allowlist
+
+        self.assertEqual(check_auth0_superuser_allowlist(None), [])
+
+    @override_settings(USE_AUTH0=True, AUTH0_SUPERUSER_SUB_ALLOWLIST=[])
+    def test_check_warns_when_allowlist_empty_and_no_superuser(self):
+        """Empty allowlist with no existing superuser yields W001 (Warning)."""
+        from opencontractserver.users.checks import check_auth0_superuser_allowlist
+
+        # No is_superuser rows exist after setUp.
+        warnings = check_auth0_superuser_allowlist(None)
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].id, "users.W001")
+
+    @override_settings(USE_AUTH0=True, AUTH0_SUPERUSER_SUB_ALLOWLIST=["auth0|allowed"])
+    def test_check_silent_when_allowlist_populated(self):
+        """Check emits no warning when the allowlist contains at least one sub."""
+        from opencontractserver.users.checks import check_auth0_superuser_allowlist
+
+        self.assertEqual(check_auth0_superuser_allowlist(None), [])
+
+    @override_settings(USE_AUTH0=True, AUTH0_SUPERUSER_SUB_ALLOWLIST=[])
+    def test_check_escalates_to_critical_with_existing_superuser(self):
+        """Empty allowlist + existing superuser escalates to E001 (Critical)
+        so ``manage.py check --deploy`` blocks the deploy that would lock
+        out the only admin account."""
+        from opencontractserver.users.checks import check_auth0_superuser_allowlist
+
+        User.objects.create_user(
+            username="auth0|test_super",
+            is_superuser=True,
+            is_staff=True,
+        )
+        issues = check_auth0_superuser_allowlist(None)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].id, "users.E001")
 
 
 class TestBooleanClaimParsing(TestCase):
@@ -951,7 +1084,9 @@ class TestGetUserByPayloadWithClaimSync(TestCase):
         self.user.save()
 
     @override_settings(
-        USE_AUTH0=True, AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/"
+        USE_AUTH0=True,
+        AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/",
+        AUTH0_SUPERUSER_SUB_ALLOWLIST=["auth0|integration_test"],
     )
     @patch("django.core.cache.cache")
     def test_sync_claims_cached_handles_cache_failure(self, mock_cache):
@@ -975,6 +1110,61 @@ class TestGetUserByPayloadWithClaimSync(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.is_staff)
         self.assertTrue(self.user.is_superuser)
+
+    @override_settings(
+        USE_AUTH0=True,
+        AUTH0_ADMIN_CLAIM_NAMESPACE="https://test.example.com/",
+        AUTH0_SUPERUSER_SUB_ALLOWLIST=["auth0|integration_test"],
+        AUTH0_ADMIN_CLAIMS_CACHE_TTL=7,
+    )
+    def test_admin_claims_cache_ttl_env_override(self):
+        """The ``AUTH0_ADMIN_CLAIMS_CACHE_TTL`` setting overrides the default TTL.
+
+        We patch the cache so the sync path always runs, then assert that
+        ``cache.set`` is invoked with the overridden timeout instead of the
+        module-level constant.
+        """
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
+
+        from config.graphql_auth0_auth.utils import _sync_admin_claims_cached
+
+        payload = {
+            "sub": self.user.username,
+            "https://test.example.com/is_staff": True,
+            "https://test.example.com/is_superuser": True,
+        }
+
+        fake_cache = MagicMock()
+        fake_cache.get.return_value = None
+        with _patch("django.core.cache.cache", fake_cache):
+            _sync_admin_claims_cached(self.user, payload)
+
+        fake_cache.set.assert_called_once()
+        kwargs = fake_cache.set.call_args.kwargs
+        args = fake_cache.set.call_args.args
+        timeout = kwargs.get("timeout", args[2] if len(args) > 2 else None)
+        self.assertEqual(timeout, 7)
+
+    @override_settings(USE_AUTH0=False)
+    def test_admin_claims_cached_noop_when_auth0_disabled(self):
+        """``_sync_admin_claims_cached`` is a no-op when Auth0 is disabled."""
+        from config.graphql_auth0_auth.utils import _sync_admin_claims_cached
+
+        self.user.is_staff = False
+        self.user.is_superuser = False
+        self.user.save()
+
+        payload = {
+            "sub": self.user.username,
+            "https://test.example.com/is_staff": True,
+            "https://test.example.com/is_superuser": True,
+        }
+        _sync_admin_claims_cached(self.user, payload)
+
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
 
 
 @override_settings(
