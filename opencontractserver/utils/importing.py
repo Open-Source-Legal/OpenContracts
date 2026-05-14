@@ -150,6 +150,10 @@ def import_annotations(
                 annotation_type=final_annotation_type,
                 structural=annotation_data.get("structural", False),
                 content_modalities=annotation_data.get("content_modalities", []),
+                # OC_URL annotations carry a click-through ``link_url`` that
+                # must survive round-trip through bulk import. Falsy /
+                # missing values stay NULL on the column.
+                link_url=annotation_data.get("link_url") or None,
             )
         )
         parallel_old_ids.append(annotation_data.get("id"))
