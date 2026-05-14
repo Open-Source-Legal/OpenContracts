@@ -22,11 +22,18 @@ MentionType = Literal["agent", "user", "corpus", "document", "annotation"]
 # Markdown link pattern: [label](url)
 _LINK_RE = re.compile(r"\[([^\]]*)\]\((/[^)\s]+)\)")
 
-# Legacy text patterns
-_LEGACY_CORPUS_RE = re.compile(r"@corpus:([a-z0-9][-a-z0-9_]*)", re.IGNORECASE)
-_LEGACY_DOCUMENT_RE = re.compile(r"@document:([a-z0-9][-a-z0-9_]*)", re.IGNORECASE)
+# Legacy text patterns. Character classes and the `@corpus:` negative
+# lookahead match the existing resolver in
+# config/graphql/conversation_types.py (see Pattern 2 / Pattern 3) so the
+# combined `@corpus:X/document:Y` form does not double-emit a corpus mention.
+# The possessive quantifier `++` prevents the slug match from backtracking
+# into a shorter prefix to satisfy the lookahead — without it,
+# `@corpus:acme-corp/document:spec-doc` would yield a spurious `acme-cor`
+# corpus mention.
+_LEGACY_CORPUS_RE = re.compile(r"@corpus:([a-z0-9-]++)(?!/document:)", re.IGNORECASE)
+_LEGACY_DOCUMENT_RE = re.compile(r"@document:([a-z0-9-]+)", re.IGNORECASE)
 _LEGACY_CORPUS_DOC_RE = re.compile(
-    r"@corpus:([a-z0-9][-a-z0-9_]*)/document:([a-z0-9][-a-z0-9_]*)",
+    r"@corpus:([a-z0-9-]+)/document:([a-z0-9-]+)",
     re.IGNORECASE,
 )
 

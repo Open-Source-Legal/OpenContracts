@@ -111,6 +111,31 @@ class ExtractMentionsTests(SimpleTestCase):
         self.assertEqual(mentions[0].type, "corpus")
         self.assertEqual(mentions[0].slug, "acme-corp")
 
+    def test_legacy_combined_corpus_document_does_not_double_emit_corpus(self):
+        body = "Look at @corpus:acme-corp/document:spec-doc here."
+        mentions = extract_mentions(body)
+        self.assertEqual(len(mentions), 1)
+        self.assertEqual(mentions[0].type, "document")
+        self.assertEqual(mentions[0].slug, "spec-doc")
+        self.assertEqual(mentions[0].corpus_slug, "acme-corp")
+
+    def test_annotation_url_with_garbage_ann_falls_back_to_document(self):
+        body = "[oops](/d/jdoe/acme-corp/spec-doc?ann=garbage)"
+        mentions = extract_mentions(body)
+        self.assertEqual(len(mentions), 1)
+        # Falls through to doc-in-corpus branch (annotation classifier returns None)
+        self.assertEqual(mentions[0].type, "document")
+        self.assertEqual(mentions[0].slug, "spec-doc")
+        self.assertEqual(mentions[0].corpus_slug, "acme-corp")
+
+    def test_unknown_path_shape_is_ignored(self):
+        body = "[strange](/foo/bar/baz/qux/quux)"
+        self.assertEqual(extract_mentions(body), [])
+
+    def test_too_few_path_segments_ignored(self):
+        body = "[short](/d/only)"
+        self.assertEqual(extract_mentions(body), [])
+
     def test_empty_body_returns_empty_list(self):
         self.assertEqual(extract_mentions(""), [])
         self.assertEqual(extract_mentions(None), [])
