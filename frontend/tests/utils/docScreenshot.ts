@@ -61,6 +61,14 @@ export async function docScreenshot(
     fullPage?: boolean;
     /** Capture only this element's bounding box instead of the full viewport. */
     element?: Locator;
+    /**
+     * Milliseconds to wait before capturing so Framer Motion (and any other
+     * rAF-driven) transitions can reach their final state. Defaults to 400ms
+     * — longer than the longest in-flight motion in the codebase (~0.3s)
+     * plus a small safety margin. Override only when a specific component
+     * is known to need longer.
+     */
+    motionSettleMs?: number;
   }
 ): Promise<void> {
   const segments = name.split("--");
@@ -85,12 +93,29 @@ export async function docScreenshot(
 
   const filePath = join(SCREENSHOTS_DIR, `${name}.png`);
 
+  // Settle motion. Framer Motion v6 drives opacity transitions through
+  // ``requestAnimationFrame`` — not CSS animations or the Web Animations API —
+  // so Playwright's ``animations: "disabled"`` (which fast-forwards CSS /
+  // WAAPI animations) cannot intercept them. Waiting longer than the
+  // longest in-flight motion duration (~0.3s for ChatMessage / overlay
+  // fade-ins, with a small safety margin) is the only reliable way to
+  // ensure the capture happens after the opacity has reached its final
+  // value. Default keeps the suite-wide overhead small; callers that need
+  // longer can override.
+  await page.waitForTimeout(options?.motionSettleMs ?? 400);
+
+  // ``animations: "disabled"`` still helps for any CSS-driven motion that
+  // happens to be running (e.g. spinner keyframes, ripple effects).
   if (options?.element) {
-    await options.element.screenshot({ path: filePath });
+    await options.element.screenshot({
+      path: filePath,
+      animations: "disabled",
+    });
   } else {
     await page.screenshot({
       path: filePath,
       fullPage: options?.fullPage ?? false,
+      animations: "disabled",
       ...(options?.clip ? { clip: options.clip } : {}),
     });
   }
@@ -157,11 +182,15 @@ export async function releaseScreenshot(
   mkdirSync(versionDir, { recursive: true });
 
   if (options?.element) {
-    await options.element.screenshot({ path: filePath });
+    await options.element.screenshot({
+      path: filePath,
+      animations: "disabled",
+    });
   } else {
     await page.screenshot({
       path: filePath,
       fullPage: options?.fullPage ?? false,
+      animations: "disabled",
       ...(options?.clip ? { clip: options.clip } : {}),
     });
   }

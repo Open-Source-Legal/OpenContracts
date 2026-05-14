@@ -1326,8 +1326,15 @@ test.describe("CorpusChat", () => {
     await expect(chip).toContainText("research-bot");
 
     // Documentation screenshot — the pinned sub-agent bubble is the
-    // headline UX for rich-mention agent delegation.
-    await docScreenshot(page, "chat--agent-mention--pinned-bubble");
+    // headline UX for rich-mention agent delegation. Re-assert chip
+    // visibility immediately before the capture and add a short
+    // stability wait so the PNG reflects the fully-loaded bubble
+    // rather than the conversation list it loaded from.
+    await expect(chip).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(300);
+    await docScreenshot(page, "chat--agent-mention--pinned-bubble", {
+      element: page.locator("#conversation-indicator"),
+    });
 
     await component.unmount();
   });

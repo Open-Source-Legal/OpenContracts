@@ -533,8 +533,16 @@ test("timeline entry with agent_slug renders @agent chip in place of tool name",
   );
 
   // Documentation screenshot — captures the timeline entry chip on the
-  // document chat surface.
-  await docScreenshot(page, "chat--agent-mention--timeline-entry");
+  // document chat surface. The visibility assertion above gates DOM
+  // presence; the short stability wait lets any remaining transition
+  // settle so the PNG isn't captured mid-frame.
+  await expect(page.getByTestId("timeline-agent-chip").first()).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  await page.waitForTimeout(300);
+  await docScreenshot(page, "chat--agent-mention--timeline-entry", {
+    element: page.locator("#conversation-indicator"),
+  });
 });
 
 /* -------------------------------------------------------------------------- */
