@@ -5,7 +5,7 @@ GraphQL mutations for annotation, relationship, and note operations.
 import logging
 
 import graphene
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
 from graphene.types.generic import GenericScalar
 from graphql_jwt.decorators import login_required
@@ -222,6 +222,21 @@ _ANNOTATION_PARENT_NOT_FOUND_MSG = (
 )
 
 
+def _format_link_url_error(exc: ValidationError) -> str:
+    """Surface a stable, human-readable link_url validation error.
+
+    ``str(ValidationError({"link_url": "..."}))`` returns a Python
+    ``[" {'link_url': ['...']} "]`` string that leaks internal structure.
+    Pull the first message off the dict so the user sees a clean sentence.
+    """
+    detail = getattr(exc, "message_dict", None)
+    if detail:
+        messages = detail.get("link_url", []) or []
+        if messages:
+            return str(messages[0])
+    return "link_url failed validation."
+
+
 def _resolve_annotation_parents(
     user, corpus_pk: int | str, document_pk: int | str
 ) -> tuple["Document", "Corpus"] | None:
@@ -321,8 +336,10 @@ class AddAnnotation(graphene.Mutation):
         if link_url:
             try:
                 validate_link_url(link_url)
-            except Exception as exc:
-                return AddAnnotation(ok=False, annotation=None, message=str(exc))
+            except ValidationError as exc:
+                return AddAnnotation(
+                    ok=False, annotation=None, message=_format_link_url_error(exc)
+                )
 
         parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
         if parents is None:
@@ -343,6 +360,9 @@ class AddAnnotation(graphene.Mutation):
             creator=user,
             json=json,
             annotation_type=annotation_type.value,
+            # Normalise empty string to None so the column ends up NULL
+            # (the ``if link_url:`` guard above only protects the validator
+            # call, not the persisted value).
             link_url=link_url or None,
         )
         annotation.save()
@@ -412,8 +432,10 @@ class AddUrlAnnotation(graphene.Mutation):
 
         try:
             validate_link_url(link_url)
-        except Exception as exc:
-            return AddUrlAnnotation(ok=False, annotation=None, message=str(exc))
+        except ValidationError as exc:
+            return AddUrlAnnotation(
+                ok=False, annotation=None, message=_format_link_url_error(exc)
+            )
 
         parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
         if parents is None:

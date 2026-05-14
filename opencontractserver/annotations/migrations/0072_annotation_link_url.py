@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="annotation",
             name="link_url",
-            field=models.URLField(
+            field=models.CharField(
                 blank=True,
                 help_text=(
                     "Target URL opened when the annotation is clicked. "

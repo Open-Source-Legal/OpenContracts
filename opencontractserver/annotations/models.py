@@ -1002,10 +1002,13 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     structural = django.db.models.BooleanField(default=False)
 
     # Target URL for clickable-link annotations (used with the OC_URL label).
-    # Frontend opens this URL when the annotation is clicked.  Restricted to
-    # http(s) and protocol-relative schemes in ``clean()`` to block
-    # ``javascript:`` and other dangerous schemes from reaching the renderer.
-    link_url = django.db.models.URLField(
+    # Frontend opens this URL when the annotation is clicked. Uses ``CharField``
+    # — NOT ``URLField`` — because we accept site-relative paths (``/corpus/...``)
+    # in addition to absolute URLs, and ``URLField``'s built-in ``URLValidator``
+    # rejects those at ``clean_fields()`` time before ``validate_link_url()``
+    # gets a chance to run. The full allow-list (http(s)://, /…) is enforced
+    # by ``validate_link_url`` in ``clean()`` and ``save()``.
+    link_url = django.db.models.CharField(
         max_length=2048,
         null=True,
         blank=True,
