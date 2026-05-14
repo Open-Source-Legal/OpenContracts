@@ -321,7 +321,7 @@ describe("useChatStreamHandlers", () => {
     it("ignores frames without a messageId or text", () => {
       const { result, state } = setupHook();
       act(() => {
-        result.current.appendThoughtToMessage("", { message_id: "m" } as any);
+        result.current.appendThoughtToMessage("", { message_id: "m" });
         result.current.appendThoughtToMessage("text", undefined);
       });
       expect(state.chat).toHaveLength(0);
@@ -501,7 +501,7 @@ describe("useChatStreamHandlers", () => {
 
       act(() => {
         result.current.finalizeStreamingResponse("final", undefined, "target", [
-          { type: "thought", text: "step1" } as any,
+          { type: "thought", text: "step1" },
         ]);
       });
 

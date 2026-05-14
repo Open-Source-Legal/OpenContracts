@@ -28,8 +28,10 @@ interface Harness {
   approvalUpdates: Array<{ id: string; status: "approved" | "rejected" }>;
 }
 
+type MockWsSend = ReturnType<typeof vi.fn<(payload: string) => boolean>>;
+
 function buildHarness(
-  overrides?: Partial<Harness & { wsReady: boolean; wsSend: any }>
+  overrides?: Partial<Harness & { wsReady: boolean; wsSend: MockWsSend }>
 ) {
   const harness: Harness = {
     chat: [],
@@ -83,9 +85,7 @@ function buildHarness(
 
   const sendingLockRef = { current: false };
 
-  const wsSend = (overrides?.wsSend ?? vi.fn(() => true)) as ReturnType<
-    typeof vi.fn
-  >;
+  const wsSend: MockWsSend = overrides?.wsSend ?? vi.fn(() => true);
 
   const updateMessageApprovalStatus = vi.fn(
     (id: string, status: "approved" | "rejected") => {
@@ -179,7 +179,7 @@ describe("useChatSendHandlers — sendMessageOverSocket", () => {
     act(() => result.current.sendMessageOverSocket());
 
     expect(wsSend).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse((wsSend.mock.calls[0] as any)[0]);
+    const payload = JSON.parse(wsSend.mock.calls[0][0]);
     expect(payload).toEqual({ query: "Hello there" });
     expect(harness.chat).toHaveLength(1);
     expect(harness.chat[0]).toMatchObject({
@@ -277,7 +277,7 @@ describe("useChatSendHandlers — sendApprovalDecision", () => {
     act(() => result.current.sendApprovalDecision(true));
 
     expect(wsSend).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse((wsSend.mock.calls[0] as any)[0]);
+    const payload = JSON.parse(wsSend.mock.calls[0][0]);
     expect(payload).toEqual({
       approval_decision: true,
       llm_message_id: "m-approve",
@@ -346,7 +346,7 @@ describe("useChatSendHandlers — sendTextImmediately", () => {
     const { result, harness, wsSend } = setupHook();
     act(() => result.current.sendTextImmediately("  hello world  "));
     expect(wsSend).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse((wsSend.mock.calls[0] as any)[0]);
+    const payload = JSON.parse(wsSend.mock.calls[0][0]);
     expect(payload).toEqual({ query: "hello world" });
     expect(harness.chat).toHaveLength(1);
     // sendTextImmediately must NOT clear `newMessage` (it bypasses the input).

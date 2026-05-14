@@ -50,38 +50,31 @@ function buildHarness(
     ...initial,
   };
 
-  const setChat = (updater: any) => {
-    harness.chat =
-      typeof updater === "function" ? updater(harness.chat) : updater;
-  };
-  const setServerMessages = (updater: any) => {
-    harness.serverMessages =
-      typeof updater === "function" ? updater(harness.serverMessages) : updater;
-  };
-  const setPendingApproval = (updater: any) => {
-    harness.pendingApproval =
-      typeof updater === "function"
-        ? updater(harness.pendingApproval)
-        : updater;
-  };
-  const setShowApprovalModal = (updater: any) => {
-    harness.showApprovalModal =
-      typeof updater === "function"
-        ? updater(harness.showApprovalModal)
-        : updater;
-  };
-  const setWsError = (updater: any) => {
-    harness.wsError =
-      typeof updater === "function" ? updater(harness.wsError) : updater;
-  };
-  const setContextStatus = (updater: any) => {
-    harness.contextStatus =
-      typeof updater === "function" ? updater(harness.contextStatus) : updater;
-  };
-  const setCompactionNotice = (updater: any) => {
-    harness.compaction =
-      typeof updater === "function" ? updater(harness.compaction) : updater;
-  };
+  /**
+   * Build a React.Dispatch<SetStateAction<T>>-shaped setter that writes through
+   * to a single field on the harness. Centralises the function-vs-value branch
+   * so each per-field setter stays a one-liner without a free-form `any`.
+   */
+  function makeSetter<K extends keyof Harness>(
+    key: K
+  ): React.Dispatch<React.SetStateAction<Harness[K]>> {
+    return (updater) => {
+      const prev = harness[key];
+      const next =
+        typeof updater === "function"
+          ? (updater as (p: Harness[K]) => Harness[K])(prev)
+          : updater;
+      harness[key] = next;
+    };
+  }
+
+  const setChat = makeSetter("chat");
+  const setServerMessages = makeSetter("serverMessages");
+  const setPendingApproval = makeSetter("pendingApproval");
+  const setShowApprovalModal = makeSetter("showApprovalModal");
+  const setWsError = makeSetter("wsError");
+  const setContextStatus = makeSetter("contextStatus");
+  const setCompactionNotice = makeSetter("compaction");
 
   const streamHandlers: UseChatStreamHandlersReturn = {
     updateMessageApprovalStatus: vi.fn(),
@@ -93,9 +86,11 @@ function buildHarness(
   };
 
   // pendingApprovalRef must be readable as `.current` inside the dispatcher.
-  const pendingApprovalRef = {
+  // Stored as a mutable ref-shaped object so the test can override `.current`
+  // without going through React state.
+  const pendingApprovalRef: React.MutableRefObject<PendingApproval | null> = {
     current: harness.pendingApproval,
-  } as React.RefObject<PendingApproval | null>;
+  };
 
   const params: UseChatAgentMessageHandlerParams = {
     pendingApprovalRef,
@@ -111,7 +106,7 @@ function buildHarness(
 
   // Allow the test to mutate the ref independently of the harness object.
   const updateRef = (next: PendingApproval | null) => {
-    (pendingApprovalRef as any).current = next;
+    pendingApprovalRef.current = next;
     harness.pendingApproval = next;
   };
 
@@ -347,7 +342,7 @@ describe("useChatAgentMessageHandler", () => {
           tokensBefore: 1,
           tokensAfter: 2,
           contextWindow: 3,
-        } as any,
+        },
       });
       updateRef({ messageId: "m1", toolCall: { name: "t", arguments: {} } });
 

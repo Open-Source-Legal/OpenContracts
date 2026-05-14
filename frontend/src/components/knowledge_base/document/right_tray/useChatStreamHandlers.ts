@@ -149,7 +149,7 @@ export function useChatStreamHandlers({
       }
       // _timelineData reserved for future use (the prior implementation didn't
       // persist timeline into ChatSourceAtom either — keeping the same shape).
-      void _timelineData;
+      // The `_`-prefix already signals intent to the linter; no runtime no-op needed.
       const messageId = overrideId ?? `msg_${Date.now()}`;
       const messageTimestamp = overrideCreatedAt
         ? new Date(overrideCreatedAt).toISOString()
