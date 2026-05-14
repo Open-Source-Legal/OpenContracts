@@ -29,6 +29,7 @@ import {
   useStructuralAnnotations,
   useInitialAnnotations,
   useCreateAnnotation,
+  useCreateUrlAnnotation,
   useUpdateAnnotation,
   useDeleteAnnotation,
   useApproveAnnotation,
@@ -50,6 +51,7 @@ import { selectedDocumentAtom } from "../../context/DocumentAtom";
 import { corpusStateAtom } from "../../context/CorpusAtom";
 import {
   REQUEST_ADD_ANNOTATION,
+  REQUEST_ADD_URL_ANNOTATION,
   REQUEST_DELETE_ANNOTATION,
   REQUEST_UPDATE_ANNOTATION,
   REQUEST_ADD_DOC_TYPE_ANNOTATION,
@@ -59,6 +61,7 @@ import {
   APPROVE_ANNOTATION,
   REJECT_ANNOTATION,
 } from "../../../../graphql/mutations";
+import { OC_URL_LABEL } from "../../../../assets/configurations/constants";
 import { LabelType } from "../../types/enums";
 import { PermissionTypes } from "../../../types";
 import type { AnnotationLabelType } from "../../../../types/graphql-api";
@@ -473,6 +476,163 @@ describe("AnnotationHooks", () => {
       expect(result.current.state.pdfAnnotations.annotations[0].id).toBe(
         "fallback"
       );
+    });
+  });
+
+  describe("useCreateUrlAnnotation", () => {
+    const ocUrlLabel: AnnotationLabelType = {
+      id: "label-url",
+      text: OC_URL_LABEL,
+      color: "#2563EB",
+      icon: "link",
+      description: "url",
+      labelType: LabelType.SpanLabel,
+    };
+
+    it("short-circuits (no mutation) when corpus is missing", async () => {
+      // The hook must guard against missing parents — otherwise Apollo
+      // would throw "No more mocked responses".
+      const ann = makeSpan("local");
+      const { result } = renderHook(
+        () => ({
+          create: useCreateUrlAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        { wrapper: buildWrapper({ withCorpus: false }) }
+      );
+
+      await act(async () => {
+        await result.current.create(ann, "https://example.com");
+      });
+
+      expect(result.current.state.pdfAnnotations.annotations).toHaveLength(0);
+    });
+
+    it("short-circuits when linkUrl is blank/whitespace", async () => {
+      // A trimmed-empty URL is treated identically to an omitted URL: the
+      // mutation never fires, and toast.warning is shown to the user.
+      const ann = makeSpan("local");
+      const { result } = renderHook(
+        () => ({
+          create: useCreateUrlAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        { wrapper: buildWrapper() }
+      );
+
+      await act(async () => {
+        await result.current.create(ann, "   ");
+      });
+
+      expect(result.current.state.pdfAnnotations.annotations).toHaveLength(0);
+    });
+
+    it("adds the server-returned URL annotation on success", async () => {
+      const localAnn = makeSpan("local-tmp-url", 0, 5, "hello");
+      const serverId = "server-url-1";
+      const linkUrl = "https://example.com/a";
+
+      const mocks: MockedResponse[] = [
+        {
+          request: {
+            query: REQUEST_ADD_URL_ANNOTATION,
+            variables: {
+              json: localAnn.json,
+              documentId: mockDocument.id,
+              corpusId: mockCorpus.id,
+              rawText: localAnn.rawText,
+              page: localAnn.page,
+              annotationType: LabelType.SpanLabel,
+              linkUrl,
+            },
+          },
+          result: {
+            data: {
+              addUrlAnnotation: {
+                ok: true,
+                message: "URL annotation created",
+                annotation: {
+                  id: serverId,
+                  page: 0,
+                  rawText: "hello",
+                  json: { start: 0, end: 5 },
+                  linkUrl,
+                  annotationType: LabelType.SpanLabel,
+                  annotationLabel: ocUrlLabel,
+                  myPermissions: ["CAN_READ", "CAN_UPDATE", "CAN_REMOVE"],
+                  isPublic: false,
+                },
+              },
+            },
+          },
+        },
+      ];
+
+      const { result } = renderHook(
+        () => ({
+          create: useCreateUrlAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        { wrapper: buildWrapper({ mocks }) }
+      );
+
+      await act(async () => {
+        await result.current.create(localAnn, linkUrl);
+      });
+
+      // Key contract: the annotation stored in state carries the server
+      // id and the linkUrl returned by the server.
+      const stored = result.current.state.pdfAnnotations.annotations;
+      expect(stored).toHaveLength(1);
+      expect(stored[0].id).toBe(serverId);
+      expect(stored[0].linkUrl).toBe(linkUrl);
+      expect(stored[0].annotationLabel.text).toBe(OC_URL_LABEL);
+    });
+
+    it("does not add to state when the server returns ok=false", async () => {
+      // Defence-in-depth: an unsafe URL slipping past client-side validation
+      // would be rejected by the server; the hook must NOT push anything
+      // into local state in that case.
+      const localAnn = makeSpan("local-tmp-url", 0, 5, "hello");
+      const mocks: MockedResponse[] = [
+        {
+          request: {
+            query: REQUEST_ADD_URL_ANNOTATION,
+            variables: {
+              json: localAnn.json,
+              documentId: mockDocument.id,
+              corpusId: mockCorpus.id,
+              rawText: localAnn.rawText,
+              page: localAnn.page,
+              annotationType: LabelType.SpanLabel,
+              linkUrl: "https://example.com",
+            },
+          },
+          result: {
+            data: {
+              addUrlAnnotation: {
+                ok: false,
+                message: "link_url must be an http(s):// URL",
+                annotation: null,
+              },
+            },
+          },
+        },
+      ];
+
+      const { result } = renderHook(
+        () => ({
+          create: useCreateUrlAnnotation(),
+          state: usePdfAnnotations(),
+        }),
+        { wrapper: buildWrapper({ mocks }) }
+      );
+
+      await act(async () => {
+        await result.current.create(localAnn, "https://example.com");
+      });
+
+      expect(result.current.state.pdfAnnotations.annotations).toHaveLength(0);
     });
   });
 
