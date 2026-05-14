@@ -20,6 +20,10 @@ from opencontractserver.conversations.models import (
     Conversation,
     ModerationAction,
 )
+from opencontractserver.llms.agents.mention_extractor import (
+    ExtractedMention,
+    extract_mentions,
+)
 
 
 class MentionedResourceType(graphene.ObjectType):
@@ -60,6 +64,152 @@ class MentionedResourceType(graphene.ObjectType):
         lambda: MentionedResourceType,
         description="Parent document (for annotations)",
     )
+
+
+def resolve_mentions_for_user(
+    mentions: list[ExtractedMention],
+    user: Any,
+) -> list[MentionedResourceType]:
+    """Permission-gated resolver for a parsed list of mentions.
+
+    Single chokepoint for both ``MessageType`` (threads) and
+    ``ChatMessageType`` (chat). For every mention type it uses the model's
+    ``visible_to_user()`` manager. Silent omission for inaccessible
+    resources — never raises, never leaks existence.
+
+    URLs are recomputed from the resolved DB objects so legacy text-pattern
+    mentions (e.g. ``@corpus:slug``) get real ``/c/{creator}/{slug}`` URLs
+    rather than the synthetic ``/c/_/{slug}`` placeholders the extractor
+    emits for those patterns. For annotations the original markdown-link
+    URL (``m.url``) is preserved since it already encodes the navigation
+    target including the ``?ann=...`` query.
+    """
+    from opencontractserver.annotations.models import Annotation
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import Document, DocumentPath
+
+    resolved: list[MentionedResourceType] = []
+
+    for mention in mentions:
+        try:
+            if mention.type == "corpus":
+                if not mention.slug:
+                    continue
+                corpus = (
+                    Corpus.objects.visible_to_user(user)
+                    .filter(slug=mention.slug)
+                    .first()
+                )
+                if corpus is None:
+                    continue
+                resolved.append(
+                    MentionedResourceType(
+                        type="corpus",
+                        id=corpus.id,
+                        slug=corpus.slug,
+                        title=corpus.title,
+                        url=f"/c/{corpus.creator.slug}/{corpus.slug}",
+                    )
+                )
+
+            elif mention.type == "document":
+                if not mention.slug:
+                    continue
+                document = (
+                    Document.objects.visible_to_user(user)
+                    .filter(slug=mention.slug)
+                    .first()
+                )
+                if document is None:
+                    continue
+
+                corpus = None
+                if mention.corpus_slug:
+                    # Corpus-scoped mention: confirm the doc lives in that
+                    # corpus via DocumentPath and that the corpus itself is
+                    # visible to the user. If either check fails, silently
+                    # drop the mention.
+                    corpus = (
+                        Corpus.objects.visible_to_user(user)
+                        .filter(slug=mention.corpus_slug)
+                        .first()
+                    )
+                    if corpus is None:
+                        continue
+                    if not DocumentPath.objects.filter(
+                        document=document, corpus=corpus
+                    ).exists():
+                        continue
+                else:
+                    # Standalone @document:slug mention — best-effort lookup
+                    # of any corpus context the document lives in.
+                    doc_path = DocumentPath.objects.filter(document=document).first()
+                    corpus = doc_path.corpus if doc_path else None
+
+                if corpus is not None:
+                    url = f"/d/{corpus.creator.slug}/{corpus.slug}/{document.slug}"
+                    corpus_resource = MentionedResourceType(
+                        type="corpus",
+                        id=corpus.id,
+                        slug=corpus.slug,
+                        title=corpus.title,
+                        url=f"/c/{corpus.creator.slug}/{corpus.slug}",
+                    )
+                else:
+                    url = f"/d/{document.creator.slug}/{document.slug}"
+                    corpus_resource = None
+
+                resolved.append(
+                    MentionedResourceType(
+                        type="document",
+                        id=document.id,
+                        slug=document.slug,
+                        title=document.title,
+                        url=url,
+                        corpus=corpus_resource,
+                    )
+                )
+
+            elif mention.type == "annotation":
+                if mention.id is None:
+                    continue
+                annotation = (
+                    Annotation.objects.visible_to_user(user)
+                    .filter(id=mention.id)
+                    .first()
+                )
+                if annotation is None:
+                    continue
+                doc = annotation.document
+                label = annotation.annotation_label
+                resolved.append(
+                    MentionedResourceType(
+                        type="annotation",
+                        id=annotation.id,
+                        slug=None,  # Annotations don't have slugs
+                        title=label.text if label else "Annotation",
+                        url=mention.url,  # Preserve original URL for navigation
+                        raw_text=annotation.raw_text,
+                        annotation_label=label.text if label else None,
+                        document=MentionedResourceType(
+                            type="document",
+                            id=doc.id,
+                            slug=doc.slug,
+                            title=doc.title,
+                            url=f"/d/{doc.creator.slug}/{doc.slug}",
+                        ),
+                    )
+                )
+
+            # NOTE: agent/user mentions are parsed by the extractor but are
+            # not (yet) surfaced through ``MentionedResourceType``. They will
+            # be wired up in a follow-up task; for now they're silently
+            # ignored here so the resolver shape stays unchanged.
+        except Exception:
+            # Silent omission: never leak existence via error.
+            continue
+
+    return resolved
 
 
 class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
@@ -121,194 +271,20 @@ class MessageType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return None
 
     def resolve_mentioned_resources(self, info) -> Any:
+        """Resolve @-mentions and markdown-link mentions in this message.
+
+        Parsing is delegated to the shared
+        :func:`opencontractserver.llms.agents.mention_extractor.extract_mentions`
+        function; DB lookup + permission gating is delegated to
+        :func:`resolve_mentions_for_user`.
+
+        SECURITY: ``resolve_mentions_for_user`` uses ``visible_to_user()`` for
+        every model and silently drops inaccessible resources, so a mention
+        of a resource the requester cannot see is indistinguishable from a
+        mention of a resource that does not exist.
         """
-        Parse message content for @mentions and return structured resource references.
-
-        Patterns:
-          @corpus:slug -> Corpus
-          @document:slug -> Document
-          @corpus:corpus-slug/document:doc-slug -> Document in Corpus
-          [text](/d/.../doc?ann=id) -> Annotation (via markdown link)
-
-        SECURITY: Uses .visible_to_user() to enforce permissions.
-        Mentions to inaccessible resources are silently ignored.
-        """
-        import base64
-        import binascii
-        import re
-        from urllib.parse import parse_qs, urlparse
-
-        from opencontractserver.annotations.models import Annotation
-        from opencontractserver.corpuses.models import Corpus
-        from opencontractserver.documents.models import Document, DocumentPath
-
-        def _extract_annotation_id(url: str) -> Any:
-            """
-            Extract annotation ID from URL query params.
-
-            Handles both plain IDs and Base64-encoded Relay global IDs.
-
-            Examples:
-                /d/user/doc?ann=123 -> 123
-                /d/user/corpus/doc?ann=QW5ub3RhdGlvblR5cGU6Mw== -> 3
-            """
-            parsed = urlparse(url)
-            query = parse_qs(parsed.query)
-            ann_ids = query.get("ann", [])
-
-            if not ann_ids:
-                return None
-
-            ann_id = ann_ids[0]
-
-            # Handle Relay-style Base64 global IDs (e.g., "QW5ub3RhdGlvblR5cGU6Mw==")
-            try:
-                decoded = base64.b64decode(ann_id).decode("utf-8")
-                # Format: "AnnotationType:123" -> extract "123"
-                parts = decoded.split(":")
-                if len(parts) == 2:
-                    return int(parts[1])
-            except (ValueError, binascii.Error, UnicodeDecodeError):
-                pass
-
-            # Already a plain ID
-            try:
-                return int(ann_id)
-            except ValueError:
-                return None
-
-        content = self.content or ""
-        mentions = []
-        user = info.context.user
-
-        # Pattern 1: @corpus:slug/document:slug (must check first to avoid double-matching)
-        corpus_doc_pattern = r"@corpus:([a-z0-9-]+)/document:([a-z0-9-]+)"
-        for corpus_slug, doc_slug in re.findall(corpus_doc_pattern, content):
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-                # Use filter().first() instead of get() to handle case where doc not in corpus
-                document = (
-                    Document.objects.visible_to_user(user).filter(slug=doc_slug).first()
-                )
-
-                if document and corpus:
-                    # Check if document is actually in this corpus via DocumentPath
-                    if DocumentPath.objects.filter(
-                        document=document, corpus=corpus
-                    ).exists():
-                        mentions.append(
-                            MentionedResourceType(
-                                type="document",
-                                id=document.id,
-                                slug=document.slug,
-                                title=document.title,
-                                url=f"/d/{corpus.creator.slug}/{corpus.slug}/{document.slug}",
-                                corpus=MentionedResourceType(
-                                    type="corpus",
-                                    id=corpus.id,
-                                    slug=corpus.slug,
-                                    title=corpus.title,
-                                    url=f"/c/{corpus.creator.slug}/{corpus.slug}",
-                                ),
-                            )
-                        )
-            except (Corpus.DoesNotExist, Document.DoesNotExist):
-                # Permission denied or doesn't exist - silently ignore
-                continue
-
-        # Pattern 2: @corpus:slug (but not if followed by /document:)
-        corpus_pattern = r"@corpus:([a-z0-9-]+)(?!/document:)"
-        for corpus_slug in re.findall(corpus_pattern, content):
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-                mentions.append(
-                    MentionedResourceType(
-                        type="corpus",
-                        id=corpus.id,
-                        slug=corpus.slug,
-                        title=corpus.title,
-                        url=f"/c/{corpus.creator.slug}/{corpus.slug}",
-                    )
-                )
-            except Corpus.DoesNotExist:
-                # Permission denied or doesn't exist - silently ignore
-                continue
-
-        # Pattern 3: @document:slug (standalone)
-        # The regex @document: will NOT match /document: in corpus/document patterns,
-        # so we can safely process all matches without checking for duplicates
-        doc_pattern = r"@document:([a-z0-9-]+)"
-        for doc_slug in re.findall(doc_pattern, content):
-            try:
-                document = Document.objects.visible_to_user(user).get(slug=doc_slug)
-                url = f"/d/{document.creator.slug}/{document.slug}"
-
-                # Try to get corpus context via DocumentPath
-                doc_path = DocumentPath.objects.filter(document=document).first()
-                corpus = doc_path.corpus if doc_path else None
-
-                mentions.append(
-                    MentionedResourceType(
-                        type="document",
-                        id=document.id,
-                        slug=document.slug,
-                        title=document.title,
-                        url=url,
-                        corpus=(
-                            MentionedResourceType(
-                                type="corpus",
-                                id=corpus.id,
-                                slug=corpus.slug,
-                                title=corpus.title,
-                                url=f"/c/{corpus.creator.slug}/{corpus.slug}",
-                            )
-                            if corpus
-                            else None
-                        ),
-                    )
-                )
-            except Document.DoesNotExist:
-                # Permission denied or doesn't exist - silently ignore
-                continue
-
-        # Pattern 4: Annotation mentions via markdown links (Issue #689)
-        # Matches: [any text](/d/path?...ann=id...)
-        # Handles both corpus-scoped and non-corpus-scoped document URLs
-        link_pattern = r"\[([^\]]+)\]\((/d/[^)]+\?[^)]*ann=[^)]+)\)"
-
-        for _link_text, url in re.findall(link_pattern, content):
-            ann_id = _extract_annotation_id(url)
-            if not ann_id:
-                continue
-
-            try:
-                annotation = Annotation.objects.visible_to_user(user).get(id=ann_id)
-                doc = annotation.document
-                label = annotation.annotation_label
-
-                mentions.append(
-                    MentionedResourceType(
-                        type="annotation",
-                        id=annotation.id,
-                        slug=None,  # Annotations don't have slugs
-                        title=label.text if label else "Annotation",
-                        url=url,  # Preserve original URL for navigation
-                        raw_text=annotation.raw_text,
-                        annotation_label=label.text if label else None,
-                        document=MentionedResourceType(
-                            type="document",
-                            id=doc.id,
-                            slug=doc.slug,
-                            title=doc.title,
-                            url=f"/d/{doc.creator.slug}/{doc.slug}",
-                        ),
-                    )
-                )
-            except Annotation.DoesNotExist:
-                # Permission denied or doesn't exist - silently ignore
-                continue
-
-        return mentions
+        mentions = extract_mentions(self.content or "")
+        return resolve_mentions_for_user(mentions, info.context.user)
 
     class Meta:
         model = ChatMessage
