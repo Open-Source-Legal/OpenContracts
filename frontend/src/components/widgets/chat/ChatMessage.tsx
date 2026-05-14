@@ -29,6 +29,7 @@ import {
   MessageContent,
   MessageHeader,
   SourceIndicator,
+  SubAgentAttributionChip,
   TimelineIndicator,
   Timestamp,
   UserName,
@@ -96,7 +97,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   approvalStatus,
   isComplete = true,
   mentionedResources,
-  agentConfiguration: _agentConfiguration,
+  agentConfiguration,
 }) => {
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<
     number | undefined
@@ -220,6 +221,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       <ContentContainer>
         <MessageHeader>
           <UserName>{isAssistant ? "AI Assistant" : user}</UserName>
+          {/* Sub-agent attribution chip — surfaces when the conductor
+              delegated to a pinned sub-agent and the resulting ASSISTANT
+              row carries that agent's configuration. Conductor messages
+              (no agentConfiguration) intentionally omit the chip. */}
+          {isAssistant && agentConfiguration && (
+            <SubAgentAttributionChip
+              data-testid="sub-agent-chip"
+              role="note"
+              aria-label={`Authored by agent ${agentConfiguration.name}`}
+              title={`Authored by agent ${agentConfiguration.name}`}
+            >
+              <span aria-hidden="true">@</span>
+              {agentConfiguration.slug ?? agentConfiguration.name}
+            </SubAgentAttributionChip>
+          )}
           {isAssistant && hasToolUsage && (
             <ToolUsageIndicator timeline={timeline} />
           )}

@@ -345,6 +345,102 @@ test("renders inline @agent mention as a styled chip on a server-loaded message"
   await expect(mentionChip).toHaveAttribute("title", /AI Agent: @research-bot/);
 });
 
+test("pinned sub-agent message renders attribution chip in bubble header", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation (Task 12): when the conductor delegates
+  // to a pinned sub-agent the backend persists a separate ASSISTANT row
+  // with `agentConfiguration` set. The ChatMessage widget should render
+  // a sub-agent attribution chip in the bubble header for that row,
+  // while conductor messages (agentConfiguration: null) keep the plain
+  // "AI Assistant" header. Both states are exercised here so the negative
+  // case is locked in alongside the positive case.
+  const pinnedMessages: any[] = [
+    {
+      id: "msg-conductor-1",
+      content: "I'll route this question to a specialist.",
+      msgType: "ASSISTANT",
+      createdAt: new Date(Date.now() - 2000).toISOString(),
+      data: {},
+      state: "complete",
+      agentType: null,
+      agentConfiguration: null,
+      mentionedResources: [],
+      __typename: "ChatMessageType",
+    },
+    {
+      id: "msg-pinned-sub-agent-1",
+      content: "Here is what I found in the research.",
+      msgType: "ASSISTANT",
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      data: { pinned: true, delegated_from: "msg-conductor-1" },
+      state: "complete",
+      agentType: null,
+      agentConfiguration: {
+        __typename: "AgentConfigurationType",
+        id: "ag-1",
+        slug: "research-bot",
+        name: "Research Bot",
+        description: "Reads stuff",
+        scope: "GLOBAL",
+        badgeConfig: null,
+        avatarUrl: null,
+        corpus: null,
+      },
+      mentionedResources: [],
+      __typename: "ChatMessageType",
+    },
+  ];
+
+  const mocks = [
+    createConversationsMock(mockConversations),
+    createChatMessagesMock(TEST_CONVERSATION_ID, pinnedMessages),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await expect(page.locator("#conversation-grid")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  await page.getByText("Test Conversation 1").click();
+
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  // Both ASSISTANT messages should render bubbles.
+  await expect(
+    page.getByText("I'll route this question to a specialist.", {
+      exact: true,
+    })
+  ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+  await expect(
+    page.getByText("Here is what I found in the research.", { exact: true })
+  ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+
+  // Positive: the pinned sub-agent message renders exactly one chip,
+  // wired with the slug + ARIA label so accessibility tooling can
+  // surface it.
+  const chip = page.getByTestId("sub-agent-chip");
+  await expect(chip).toHaveCount(1, { timeout: TIMEOUTS.MEDIUM });
+  await expect(chip).toBeVisible();
+  await expect(chip).toContainText("research-bot");
+  await expect(chip).toHaveAttribute(
+    "aria-label",
+    "Authored by agent Research Bot"
+  );
+
+  // Negative: the conductor message (no agentConfiguration) must NOT
+  // render a chip. Asserting count=1 above already covers this, but we
+  // assert it explicitly against the conductor bubble for clarity.
+  const conductorBubble = page
+    .locator('[data-testid="message-content"]')
+    .filter({ hasText: "I'll route this question to a specialist." });
+  await expect(conductorBubble.getByTestId("sub-agent-chip")).toHaveCount(0);
+});
+
 /* -------------------------------------------------------------------------- */
 /* Agent @mention picker wiring (Task 11)                                     */
 /* -------------------------------------------------------------------------- */

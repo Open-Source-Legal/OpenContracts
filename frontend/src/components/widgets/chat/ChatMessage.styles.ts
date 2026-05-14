@@ -416,3 +416,41 @@ export const UserName = styled.div`
     font-size: 0.8rem;
   }
 `;
+
+/**
+ * Attribution chip rendered in the assistant bubble header when the
+ * underlying ChatMessage has an `agentConfiguration` set — indicating
+ * the response was authored by a pinned sub-agent (rich-mention agent
+ * delegation, Issue #623 / #689) rather than the default conductor.
+ *
+ * Visual tokens deliberately mirror the inline `@agent` mention chip in
+ * `MarkdownMessageRenderer` (violet/indigo gradient + #7c3aed text) so
+ * users get a consistent "agent identity" cue whether they see the agent
+ * referenced in body markdown or attributed in a bubble header.
+ */
+export const SubAgentAttributionChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  background: linear-gradient(135deg, #8b5cf615 0%, #6366f115 100%);
+  border: 1px solid #8b5cf660;
+  color: #7c3aed;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+
+  /* Soft glyph marker — visually distinct from the @-prefix text */
+  & > [aria-hidden="true"] {
+    opacity: 0.75;
+    font-weight: 600;
+  }
+
+  @media (max-width: ${SMALL_MOBILE_BREAKPOINT}px) {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+  }
+`;
