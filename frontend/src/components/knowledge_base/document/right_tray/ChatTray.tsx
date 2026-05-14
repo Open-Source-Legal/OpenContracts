@@ -52,6 +52,10 @@ import {
   mapWebSocketSourcesToChatMessageSources,
 } from "../../../annotator/context/ChatSourceAtom";
 import { TimelineEntry } from "../../../widgets/chat/ChatMessage";
+import {
+  buildTimelineEntryFromAsyncThought,
+  deriveTimelineEntryType,
+} from "../../../widgets/chat/timelineEntryFactory";
 import { useUISettings } from "../../../annotator/hooks/useUISettings";
 import useWindowDimensions from "../../../hooks/WindowDimensionHook";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -673,32 +677,22 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     const messageId = data?.message_id;
     if (!messageId || !thoughtText) return;
 
-    // Determine timeline entry type
-    let entryType: TimelineEntry["type"] = "thought";
-    if (data?.compaction) {
-      entryType = "compaction";
+    const entryType = deriveTimelineEntryType(data);
+    if (entryType === "compaction" && data?.compaction) {
+      // Surface the compaction notice banner in addition to the timeline
+      // row; the timeline entry itself is built below via the shared
+      // factory.
       setCompactionNotice({
         tokensBefore: data.compaction.tokens_before,
         tokensAfter: data.compaction.tokens_after,
         contextWindow: data.compaction.context_window,
       });
-    } else if (data?.tool_name && data?.args) entryType = "tool_call";
-    else if (data?.tool_name && !data?.args) entryType = "tool_result";
-
-    const newEntry: TimelineEntry = {
-      type: entryType,
-      text: thoughtText,
-      tool: data?.tool_name,
-      args: data?.args,
-      result: data?.tool_result,
-      // Rich-mention agent delegation (Task 13): when this thought
-      // describes a sub-agent delegation, the StreamRelay attaches the
-      // resolved AgentConfiguration pk + slug. The timeline renderer
-      // uses these to swap the raw `delegate_to_<slug>` tool string
-      // for a styled `@<slug>` chip.
-      agentId: data?.agent_id,
-      agentSlug: data?.agent_slug,
-    };
+    }
+    const newEntry = buildTimelineEntryFromAsyncThought(
+      thoughtText,
+      data,
+      entryType
+    );
 
     // Update chat UI timeline
     setChat((prev) => {

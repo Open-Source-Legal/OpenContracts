@@ -104,3 +104,28 @@ export interface CompactionNotice {
   tokensAfter: number;
   contextWindow: number;
 }
+
+/**
+ * Shape of a pending approval surfaced to the user when an agent tool call
+ * requires human confirmation. Shared between ``ChatTray`` (document chat) and
+ * ``CorpusChat`` (corpus chat) so the approval modal/overlay component, the
+ * attribution chip, and the chat-level state share one source of truth.
+ *
+ * ``requestingAgent`` is populated when the approval was raised inside a
+ * sub-agent invocation (rich-mention agent delegation, Task 14). It is
+ * ``undefined`` / ``null`` for top-level approvals, in which case the modal
+ * falls back to rendering the plain ``Tool: <name>`` header.
+ */
+export interface PendingApproval {
+  messageId: string;
+  toolCall: {
+    name: string;
+    arguments?: Record<string, unknown>;
+    tool_call_id?: string;
+  };
+  requestingAgent?: {
+    id: string;
+    slug: string;
+    name: string;
+  } | null;
+}

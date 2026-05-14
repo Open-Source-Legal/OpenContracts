@@ -8,68 +8,16 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react";
-import styled from "styled-components";
 import { Button } from "@os-legal/ui";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import type { ChatMessageProps } from "../../../widgets/chat/ChatMessage";
+import type { PendingApproval } from "../../../chat/types";
+import { RequestingAgentAttribution } from "../../../chat/RequestingAgentAttribution";
 
-/** Shape of the pending approval state passed from ChatTray. */
-export interface PendingApproval {
-  messageId: string;
-  toolCall: {
-    name: string;
-    arguments: any;
-    tool_call_id?: string;
-  };
-  /**
-   * Rich-mention agent delegation (Task 14): set when the approval was
-   * raised inside a sub-agent's tool call. The modal surfaces an
-   * ``@<slug>`` attribution chip so the user understands which agent is
-   * asking, not just which tool is being invoked.
-   */
-  requestingAgent?: {
-    id: string;
-    slug: string;
-    name: string;
-  } | null;
-}
-
-/**
- * Attribution chip surfaced in the approval modal when ``requestingAgent``
- * is populated. Palette intentionally mirrors the bubble-header chip in
- * ``ChatMessage.styles.ts`` and the inline ``@agent`` chip in
- * ``MarkdownMessageRenderer`` so users see a consistent "agent identity"
- * cue across attribution surfaces.
- */
-const AgentChip = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 0.625rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1.2;
-  background: linear-gradient(135deg, #8b5cf615 0%, #6366f115 100%);
-  border: 1px solid #8b5cf660;
-  color: #7c3aed;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-
-  & > [aria-hidden="true"] {
-    opacity: 0.75;
-    font-weight: 600;
-  }
-`;
-
-const RequestingAgentLine = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-`;
+// `PendingApproval` is re-exported for backwards compatibility with the
+// long-standing import path; new code should import from
+// `components/chat/types`.
+export type { PendingApproval };
 
 /* ------------------------------------------------------------------ */
 /* ApprovalOverlay                                                    */
@@ -181,33 +129,30 @@ export const ApprovalOverlay: React.FC<ApprovalOverlayProps> = ({
             }}
           >
             {pendingApproval.requestingAgent ? (
-              <RequestingAgentLine data-testid="approval-requesting-agent">
-                <AgentChip
-                  role="note"
-                  aria-label={`Requested by agent ${pendingApproval.requestingAgent.name}`}
-                  title={`Requested by agent ${pendingApproval.requestingAgent.name}`}
-                >
-                  <span aria-hidden="true">@</span>
-                  {pendingApproval.requestingAgent.slug}
-                </AgentChip>
-                <span>is asking to run</span>
-                <span>{pendingApproval.toolCall.name}</span>
-              </RequestingAgentLine>
+              <RequestingAgentAttribution
+                requestingAgent={pendingApproval.requestingAgent}
+                toolName={pendingApproval.toolCall.name}
+              />
             ) : (
               <div style={{ fontWeight: 600, marginBottom: "0.5rem" }}>
                 Tool: {pendingApproval.toolCall.name}
               </div>
             )}
-            {Object.keys(pendingApproval.toolCall.arguments).length > 0 && (
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
-                  Arguments:
+            {pendingApproval.toolCall.arguments &&
+              Object.keys(pendingApproval.toolCall.arguments).length > 0 && (
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
+                    Arguments:
+                  </div>
+                  <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                    {JSON.stringify(
+                      pendingApproval.toolCall.arguments,
+                      null,
+                      2
+                    )}
+                  </pre>
                 </div>
-                <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                  {JSON.stringify(pendingApproval.toolCall.arguments, null, 2)}
-                </pre>
-              </div>
-            )}
+              )}
           </div>
         </div>
 

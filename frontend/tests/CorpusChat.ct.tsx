@@ -367,6 +367,71 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
+            // Unpinned delegation — conductor invokes a sub-agent via a
+            // `delegate_to_<slug>` tool call. ASYNC_THOUGHT frames carry
+            // agent_id / agent_slug so the timeline renderer can swap the
+            // raw tool name for an @<slug> chip (Task 13). Mirrors the
+            // ChatTray stub branch so the parity test exercises the same
+            // payload shape.
+            if (query.includes("delegate unpinned please")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "Summarize section 3.", pin: false },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got sub-agent result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Summary of section 3.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Here is what the sub-agent found.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "Summarize section 3.", pin: false },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Summary of section 3.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                  ],
+                },
+              });
+              return;
+            }
+
             // Tool call thought (exercises ASYNC_THOUGHT → tool_call timeline)
             if (query.includes("tool call please")) {
               emit({
@@ -1001,6 +1066,53 @@ test.describe("CorpusChat", () => {
     // Backward-compat sanity: the "Tool: <name>" fallback is replaced (not
     // duplicated) when an agent is attributed.
     await expect(page.getByText("Tool: delete_thing")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("timeline entry with agent_slug renders @agent chip in place of tool name", async ({
+    mount,
+    page,
+  }) => {
+    // Rich-mention agent delegation (Task 13) parity test with the
+    // ChatTray equivalent — same payload shape, same chip assertions.
+    // The CorpusChat ``appendThoughtToMessage`` plumbs the same
+    // ``agentId``/``agentSlug`` fields through to ``TimelineEntry`` (via
+    // the shared ``buildTimelineEntryFromAsyncThought`` helper) so the
+    // timeline renderer can swap the raw tool name for an ``@<slug>``
+    // chip.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("delegate unpinned please");
+    await page.keyboard.press("Enter");
+
+    // Wait for the conductor's final answer so the message flips to
+    // ``isComplete=true`` and the TimelinePreview mounts.
+    await expect(
+      page.getByText("Here is what the sub-agent found.", { exact: true })
+    ).toBeVisible({ timeout: 10000 });
+
+    const timelineContainer = page
+      .locator('[data-testid="timeline-container"]')
+      .first();
+    await expect(timelineContainer).toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("timeline-agent-chip").first()).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByTestId("timeline-agent-chip")).toHaveCount(2);
+    for (const chip of await page.getByTestId("timeline-agent-chip").all()) {
+      await expect(chip).toContainText("research-bot");
+    }
 
     await component.unmount();
   });

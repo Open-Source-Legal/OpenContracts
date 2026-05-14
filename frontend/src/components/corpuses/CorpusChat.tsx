@@ -59,6 +59,10 @@ import {
   StreamingThoughtTicker,
   TimelineEntry,
 } from "../widgets/chat/ChatMessage";
+import {
+  buildTimelineEntryFromAsyncThought,
+  deriveTimelineEntryType,
+} from "../widgets/chat/timelineEntryFactory";
 import { getUnifiedAgentWebSocket } from "../chat/get_websockets";
 import { useWebSocketAuth } from "../../hooks/useWebSocketAuth";
 import type {
@@ -889,29 +893,21 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     const messageId = data?.message_id;
     if (!messageId || !thoughtText) return;
 
-    let entryType: TimelineEntry["type"] = "thought";
-    if (data?.compaction) {
-      entryType = "compaction";
+    const entryType = deriveTimelineEntryType(data);
+    if (entryType === "compaction" && data?.compaction) {
+      // Same dual-side-effect as ChatTray: timeline row + standalone
+      // compaction-notice banner.
       setCompactionNotice({
         tokensBefore: data.compaction.tokens_before,
         tokensAfter: data.compaction.tokens_after,
         contextWindow: data.compaction.context_window,
       });
-    } else if (data?.tool_name && data?.args) entryType = "tool_call";
-    else if (data?.tool_name && !data?.args) entryType = "tool_result";
-
-    const newEntry: TimelineEntry = {
-      type: entryType,
-      text: thoughtText,
-      tool: data?.tool_name,
-      args: data?.args,
-      result: data?.tool_result,
-      // Rich-mention agent delegation (Task 13): mirrors ChatTray —
-      // when the backend tags the thought with a delegated sub-agent we
-      // hand the id/slug down so the timeline can render `@<slug>`.
-      agentId: data?.agent_id,
-      agentSlug: data?.agent_slug,
-    };
+    }
+    const newEntry = buildTimelineEntryFromAsyncThought(
+      thoughtText,
+      data,
+      entryType
+    );
 
     setChat((prev) => {
       const idx = prev.findIndex((m) => m.messageId === messageId);
