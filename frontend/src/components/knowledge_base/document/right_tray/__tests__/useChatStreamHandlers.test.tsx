@@ -500,9 +500,7 @@ describe("useChatStreamHandlers", () => {
       });
 
       act(() => {
-        result.current.finalizeStreamingResponse("final", undefined, "target", [
-          { type: "thought", text: "step1" },
-        ]);
+        result.current.finalizeStreamingResponse("final", undefined, "target");
       });
 
       expect(state.chat[1].content).toBe("final");

@@ -153,12 +153,11 @@ export function useChatAgentMessageHandler({
             // additional state update is needed here.
             break;
           case "ASYNC_FINISH":
-            finalizeStreamingResponse(
-              content,
-              data?.sources,
-              data?.message_id,
-              data?.timeline
-            );
+            // `data?.timeline` is intentionally not forwarded — the stream
+            // handler's persistence target (ChatSourceAtom) does not store
+            // timelines; thought entries are already accumulated on the
+            // in-memory chat message via appendThoughtToMessage.
+            finalizeStreamingResponse(content, data?.sources, data?.message_id);
             setCompactionNotice(null);
             if (data?.context_status) {
               setContextStatus(data.context_status as ContextStatus);
@@ -203,17 +202,11 @@ export function useChatAgentMessageHandler({
               data?.sources && Array.isArray(data.sources)
                 ? data.sources
                 : undefined;
-            const timelineToPass =
-              data?.timeline && Array.isArray(data.timeline)
-                ? data.timeline
-                : undefined;
-            handleCompleteMessage(
-              content,
-              sourcesToPass,
-              data?.message_id,
-              undefined,
-              timelineToPass
-            );
+            // `data?.timeline` is intentionally not forwarded — the stream
+            // handler's persistence target (ChatSourceAtom) does not store
+            // timelines; the SYNC_CONTENT chat append above already carries
+            // the assistant message into the in-memory chat array.
+            handleCompleteMessage(content, sourcesToPass, data?.message_id);
             break;
           }
           default:

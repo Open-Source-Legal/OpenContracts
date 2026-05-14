@@ -342,15 +342,20 @@ describe("useChatSendHandlers — sendApprovalDecision", () => {
 });
 
 describe("useChatSendHandlers — sendTextImmediately", () => {
-  it("forwards trimmed text through the shared send pipeline", () => {
-    const { result, harness, wsSend } = setupHook();
+  it("forwards trimmed text through the shared send pipeline without touching `newMessage`", () => {
+    // Seed a non-empty newMessage so the invariant "sendTextImmediately must
+    // NOT clear newMessage" is a meaningful assertion (the default `""` would
+    // make the equality check vacuous).
+    const { result, harness, wsSend } = setupHook({
+      newMessage: "draft typed by the user",
+    });
     act(() => result.current.sendTextImmediately("  hello world  "));
     expect(wsSend).toHaveBeenCalledTimes(1);
     const payload = JSON.parse(wsSend.mock.calls[0][0]);
     expect(payload).toEqual({ query: "hello world" });
     expect(harness.chat).toHaveLength(1);
     // sendTextImmediately must NOT clear `newMessage` (it bypasses the input).
-    expect(harness.newMessage).toBe("");
+    expect(harness.newMessage).toBe("draft typed by the user");
   });
 
   it("no-ops when text is empty after trim", () => {

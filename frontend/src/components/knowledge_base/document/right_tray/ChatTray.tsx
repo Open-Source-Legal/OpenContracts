@@ -261,7 +261,10 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     }
     const messages = msgData.chatMessages;
 
-    // First, register them in our chatSourcesAtom if they have sources
+    // First, register them in our chatSourcesAtom if they have sources.
+    // `srvMsgData.timeline` is intentionally not forwarded — ChatSourceAtom
+    // does not persist timelines, and the live chat array carries them via
+    // the mapped `timeline` field on the assistant message below.
     messages.forEach((srvMsg) => {
       const srvMsgData = srvMsg.data as
         | {
@@ -275,8 +278,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
           srvMsg.content,
           srvMsgData.sources,
           srvMsg.id,
-          srvMsg.createdAt,
-          srvMsgData.timeline
+          srvMsg.createdAt
         );
       }
     });

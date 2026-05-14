@@ -16,6 +16,7 @@
 
 import React, { useCallback } from "react";
 import { ChatMessageProps } from "../../../widgets/chat/ChatMessage";
+import { CHAT_SEND_LOCK_MS } from "../../../../assets/configurations/constants";
 import type { PendingApproval } from "./ApprovalOverlay";
 
 export interface UseChatSendHandlersParams {
@@ -31,7 +32,7 @@ export interface UseChatSendHandlersParams {
   pendingApproval: PendingApproval | null;
   /**
    * Debounce lock shared with the composer. Mutated by the send handlers to
-   * prevent duplicate sends within a 300ms window.
+   * prevent duplicate sends within `CHAT_SEND_LOCK_MS` ms after a send.
    */
   sendingLockRef: React.MutableRefObject<boolean>;
   setChat: React.Dispatch<React.SetStateAction<ChatMessageProps[]>>;
@@ -111,7 +112,7 @@ export function useChatSendHandlers({
       } finally {
         setTimeout(() => {
           sendingLockRef.current = false;
-        }, 300);
+        }, CHAT_SEND_LOCK_MS);
       }
     },
     [wsReady, userEmail, wsSend, sendingLockRef, setChat, setWsError]

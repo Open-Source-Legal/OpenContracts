@@ -365,11 +365,13 @@ describe("useChatAgentMessageHandler", () => {
         },
       });
 
+      // finalizeStreamingResponse intentionally does NOT receive the
+      // timeline array — ChatSourceAtom doesn't persist timelines, so
+      // dropping the arg keeps the seam free of no-op parameters.
       expect(streamHandlers.finalizeStreamingResponse).toHaveBeenCalledWith(
         "Done.",
         [],
-        "m1",
-        []
+        "m1"
       );
       expect(harness.compaction).toBeNull();
       expect(harness.contextStatus).toEqual(ctx);
@@ -426,7 +428,7 @@ describe("useChatAgentMessageHandler", () => {
   });
 
   describe("SYNC_CONTENT", () => {
-    it("appends a complete assistant message and routes through handleCompleteMessage with sources+timeline", () => {
+    it("appends a complete assistant message and routes through handleCompleteMessage with sources", () => {
       const { result, harness, streamHandlers } = setupHook();
       const sources: WebSocketSources[] = [
         {
@@ -453,16 +455,17 @@ describe("useChatAgentMessageHandler", () => {
         isAssistant: true,
         isComplete: true,
       });
+      // handleCompleteMessage intentionally does NOT receive timeline data —
+      // ChatSourceAtom doesn't persist it; the chat array carries timelines
+      // via the SYNC_CONTENT append above.
       expect(streamHandlers.handleCompleteMessage).toHaveBeenCalledWith(
         "Instant reply",
         sources,
-        "s1",
-        undefined,
-        timeline
+        "s1"
       );
     });
 
-    it("passes undefined when sources/timeline are not arrays", () => {
+    it("passes undefined when sources are not an array", () => {
       const { result, streamHandlers } = setupHook();
       deliver(result.current, {
         type: "SYNC_CONTENT",
@@ -472,9 +475,7 @@ describe("useChatAgentMessageHandler", () => {
       expect(streamHandlers.handleCompleteMessage).toHaveBeenCalledWith(
         "hi",
         undefined,
-        "s2",
-        undefined,
-        undefined
+        "s2"
       );
     });
 

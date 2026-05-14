@@ -244,6 +244,21 @@ export const CONVERSATION_TYPE = {
 // WebSocket error type constants (matches backend WS_ERROR_* constants)
 export const WS_ERROR_CONTEXT_EXHAUSTED = "CONTEXT_EXHAUSTED";
 
+// Chat send/scroll tuning constants (used by ChatTray's stream/send handler hooks)
+/**
+ * Debounce window (ms) for the chat-send lock. After a user-initiated send,
+ * the lock stays held for this long to suppress double-fires from rapid
+ * Enter presses or duplicate handlers.
+ */
+export const CHAT_SEND_LOCK_MS = 300;
+/**
+ * Auto-scroll suppression threshold (px). When the chat container's scrollTop
+ * is more than this many pixels above the bottom we consider the user to have
+ * intentionally scrolled up and skip the streaming-token auto-scroll so we
+ * don't yank them back to the latest message.
+ */
+export const CHAT_AUTOSCROLL_THRESHOLD_PX = 100;
+
 export type ConversationType =
   (typeof CONVERSATION_TYPE)[keyof typeof CONVERSATION_TYPE];
 

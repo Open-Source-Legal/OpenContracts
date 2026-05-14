@@ -27,6 +27,7 @@ import type {
   MessageData,
   WebSocketSources,
 } from "../../../chat/types";
+import { CHAT_AUTOSCROLL_THRESHOLD_PX } from "../../../../assets/configurations/constants";
 import type { PendingApproval } from "./ApprovalOverlay";
 
 export interface UseChatStreamHandlersParams {
@@ -68,23 +69,32 @@ export interface UseChatStreamHandlersReturn {
   /**
    * Finalize a partially-streamed response by replacing the matched chat entry
    * with the final content and storing sources in ChatSourceAtom.
+   *
+   * Note: timeline data is intentionally **not** accepted here. The streaming
+   * path already accumulates timeline entries on the in-memory chat message
+   * via `appendThoughtToMessage`; the persistence target (`ChatSourceAtom`)
+   * does not store timelines, so a `timelineData` parameter at this seam
+   * would be a no-op.
    */
   finalizeStreamingResponse: (
     content: string,
     sourcesData?: WebSocketSources[],
-    overrideId?: string,
-    timelineData?: TimelineEntry[]
+    overrideId?: string
   ) => void;
   /**
    * Persist a complete message (and its sources) into ChatSourceAtom. Called
    * both by the streaming-finish path and by the msgData hydration effect.
+   *
+   * Note: timeline data is intentionally **not** accepted here — the
+   * `ChatSourceAtom` schema only persists content/sources/timestamp, so a
+   * `timelineData` parameter at this seam would be a no-op. Timelines remain
+   * on the in-memory `chat` array via `appendThoughtToMessage`.
    */
   handleCompleteMessage: (
     content: string,
     sourcesData?: WebSocketSources[],
     overrideId?: string,
-    overrideCreatedAt?: string,
-    timelineData?: TimelineEntry[]
+    overrideCreatedAt?: string
   ) => void;
   /**
    * Merge additional sources arriving via ASYNC_SOURCES into the existing
@@ -139,17 +149,13 @@ export function useChatStreamHandlers({
       content: string,
       sourcesData?: Array<WebSocketSources>,
       overrideId?: string,
-      overrideCreatedAt?: string,
-      _timelineData?: TimelineEntry[]
+      overrideCreatedAt?: string
     ): void => {
       if (!overrideId) {
         console.warn(
           "handleCompleteMessage called without an overrideId - sources may not display correctly"
         );
       }
-      // _timelineData reserved for future use (the prior implementation didn't
-      // persist timeline into ChatSourceAtom either — keeping the same shape).
-      // The `_`-prefix already signals intent to the linter; no runtime no-op needed.
       const messageId = overrideId ?? `msg_${Date.now()}`;
       const messageTimestamp = overrideCreatedAt
         ? new Date(overrideCreatedAt).toISOString()
@@ -244,7 +250,9 @@ export function useChatStreamHandlers({
       if (container) {
         const isScrolledUp =
           container.scrollTop <
-          container.scrollHeight - container.clientHeight - 100;
+          container.scrollHeight -
+            container.clientHeight -
+            CHAT_AUTOSCROLL_THRESHOLD_PX;
         if (!isScrolledUp) {
           setTimeout(
             () =>
@@ -325,8 +333,7 @@ export function useChatStreamHandlers({
     (
       content: string,
       sourcesData?: WebSocketSources[],
-      overrideId?: string,
-      timelineData?: TimelineEntry[]
+      overrideId?: string
     ): void => {
       let lastMsgId: string | undefined;
       setChat((prev) => {
@@ -354,13 +361,7 @@ export function useChatStreamHandlers({
         // ChatTray semantics. handleCompleteMessage writes to a different
         // atom (setChatSourceState) so it does not race with this setChat
         // return value. Both functions are stable useCallback refs.
-        handleCompleteMessage(
-          content,
-          sourcesData,
-          lastMsgId,
-          undefined,
-          timelineData
-        );
+        handleCompleteMessage(content, sourcesData, lastMsgId);
 
         return updatedMessages;
       });
