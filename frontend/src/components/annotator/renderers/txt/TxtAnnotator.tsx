@@ -58,7 +58,10 @@ import {
   HelpText,
 } from "../../components/SelectionActionMenu";
 import { clampMenuPosition } from "../../../../utils/layout";
-import { Z_INDEX } from "../../../../assets/configurations/constants";
+import {
+  OC_URL_LABEL,
+  Z_INDEX,
+} from "../../../../assets/configurations/constants";
 import {
   OS_LEGAL_COLORS,
   chatSourceBlueAlpha,
@@ -1168,14 +1171,22 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
               !annotation.structural &&
               annotation.myPermissions.includes(PermissionTypes.CAN_UPDATE)
             ) {
+              // Use the label text (NOT ``isUrlAnnotation``) so the
+              // URL editor opens even when ``link_url`` is null/empty.
+              // ``isUrlAnnotation`` requires both the OC_URL label AND a
+              // non-empty linkUrl — if an OC_URL annotation has no URL yet
+              // (e.g. created via the generic ``addAnnotation``), the
+              // author must still be able to attach one.
+              const isOcUrlAnnotation =
+                annotation.annotationLabel?.text === OC_URL_LABEL;
               actions.push({
                 name: "edit",
                 color: "#a3a3a3",
-                tooltip: isUrlAnnotation(annotation)
+                tooltip: isOcUrlAnnotation
                   ? "Edit Link URL"
                   : "Edit Annotation",
                 onClick: () => {
-                  if (isUrlAnnotation(annotation)) {
+                  if (isOcUrlAnnotation) {
                     setUrlEditAnnotation(annotation);
                   } else {
                     setAnnotationToEdit(annotation);

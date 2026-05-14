@@ -42,9 +42,10 @@ export function isUrlAnnotation(
 export function isSafeUrl(url: string): boolean {
   const normalized = url.trim();
   if (normalized.length === 0) return false;
+  const lower = normalized.toLowerCase();
   return (
-    normalized.toLowerCase().startsWith("http://") ||
-    normalized.toLowerCase().startsWith("https://") ||
+    lower.startsWith("http://") ||
+    lower.startsWith("https://") ||
     normalized.startsWith("/")
   );
 }
