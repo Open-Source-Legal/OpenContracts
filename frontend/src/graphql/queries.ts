@@ -3788,10 +3788,17 @@ export const GET_CHAT_MESSAGES = gql`
       agentType
       agentConfiguration {
         id
+        slug
         name
         description
+        scope
         badgeConfig
         avatarUrl
+        corpus {
+          id
+          slug
+          title
+        }
       }
       content
       state
@@ -3801,6 +3808,32 @@ export const GET_CHAT_MESSAGES = gql`
         slug
         username
         email
+      }
+
+      # Mentioned resources (Issue #623, #689) — rich-mention agent delegation
+      mentionedResources {
+        type
+        id
+        slug
+        title
+        url
+        corpus {
+          type
+          id
+          slug
+          title
+          url
+        }
+        # Annotation-specific fields (Issue #689)
+        rawText
+        annotationLabel
+        document {
+          type
+          id
+          slug
+          title
+          url
+        }
       }
     }
   }
