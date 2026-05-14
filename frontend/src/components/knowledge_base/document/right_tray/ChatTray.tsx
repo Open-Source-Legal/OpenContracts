@@ -20,7 +20,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, ArrowLeft, Send } from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   ChatMessage,
   ChatMessageProps,
@@ -67,13 +66,7 @@ import type {
 import { ApprovalOverlay, ReopenApprovalButton } from "./ApprovalOverlay";
 import type { PendingApproval } from "./ApprovalOverlay";
 import { DocumentConversationListView } from "./ConversationListView";
-import { useAgentMentionTrigger } from "../../../../hooks/useAgentMentionTrigger";
-import {
-  AgentMentionPopover,
-  AgentItem,
-} from "../../../chat/AgentMentionPopover";
-import { useUnifiedMentionSearch } from "../../../threads/hooks/useUnifiedMentionSearch";
-import { buildAgentMentionLink } from "../../../../utils/agentMentionLink";
+import { useChatMentionPicker } from "../../../../hooks/useChatMentionPicker";
 
 export type { WebSocketSources, MessageData } from "../../../chat/types";
 
@@ -297,32 +290,16 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   // document/corpus scope, and splice a markdown-link mention on select.
   // The backend's `search_agents_for_mention` resolver already enforces
   // scope (global + the provided corpus only when corpusId is passed), so
-  // we just forward corpusId here.
-  const mention = useAgentMentionTrigger();
-  const { categorizedResults: mentionCategorizedResults } =
-    useUnifiedMentionSearch(mention.fragment, corpusId);
-
-  const agentItems: AgentItem[] = useMemo(
-    () =>
-      mentionCategorizedResults.agents
-        .map((r) => {
-          if (!r.agent) return null;
-          return {
-            id: r.agent.id,
-            slug: r.agent.slug,
-            name: r.agent.name,
-            scope: r.agent.scope,
-            corpus: r.agent.corpus
-              ? {
-                  slug: r.agent.corpus.slug,
-                  title: r.agent.corpus.title,
-                }
-              : null,
-          } as AgentItem;
-        })
-        .filter((a): a is AgentItem => a !== null),
-    [mentionCategorizedResults.agents]
-  );
+  // we just forward corpusId here. Shared with CorpusChat via the
+  // useChatMentionPicker hook.
+  const {
+    handleValueChange: handleMentionValueChange,
+    popoverNode: mentionPopover,
+  } = useChatMentionPicker({
+    textareaRef,
+    corpusId,
+    onValueChange: setNewMessage,
+  });
 
   /**
    * On server data load, we map messages to local ChatMessageProps and
@@ -1764,58 +1741,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                     data-connected={wsReady}
                   />
                 )}
-                {mention.isOpen &&
-                  agentItems.length > 0 &&
-                  createPortal(
-                    // Portal to <body> so the picker isn't trapped inside
-                    // ChatInputWrapper's `overflow: hidden` or stacked
-                    // beneath the messages-container scroll layer. Position
-                    // is anchored to the textarea's bounding rect.
-                    <div
-                      data-testid="agent-mention-anchor"
-                      style={(() => {
-                        const rect =
-                          textareaRef.current?.getBoundingClientRect();
-                        return {
-                          position: "fixed",
-                          left: rect ? rect.left : 16,
-                          bottom: rect
-                            ? Math.max(8, window.innerHeight - rect.top + 6)
-                            : 80,
-                          zIndex: 1000,
-                          pointerEvents: "auto",
-                        };
-                      })()}
-                    >
-                      <AgentMentionPopover
-                        fragment={mention.fragment}
-                        agents={agentItems}
-                        onSelect={(a) => {
-                          const { value, caretPos } = mention.onSelect({
-                            slug: a.slug,
-                            name: a.name,
-                            url: buildAgentMentionLink({
-                              slug: a.slug,
-                              scope: a.scope,
-                              corpus: a.corpus,
-                            }).url,
-                          });
-                          setNewMessage(value);
-                          setTimeout(() => {
-                            if (textareaRef.current) {
-                              textareaRef.current.focus();
-                              textareaRef.current.setSelectionRange(
-                                caretPos,
-                                caretPos
-                              );
-                            }
-                          }, 0);
-                        }}
-                        onDismiss={mention.onDismiss}
-                      />
-                    </div>,
-                    document.body
-                  )}
+                {mentionPopover}
                 <ChatInputWrapper>
                   <ChatInput
                     data-testid="chat-input"
@@ -1826,7 +1752,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                       const capped = value.slice(0, MAX_MESSAGE_LENGTH);
                       setNewMessage(capped);
                       const caret = e.target.selectionStart ?? capped.length;
-                      mention.onValueChange(capped, caret);
+                      handleMentionValueChange(capped, caret);
                       // Use setTimeout to ensure DOM updates before measuring
                       setTimeout(adjustTextareaHeight, 0);
                     }}

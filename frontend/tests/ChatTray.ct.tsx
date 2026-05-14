@@ -2,19 +2,12 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { MockedResponse } from "@apollo/client/testing";
 import { ChatTrayTestWrapper } from "./ChatTrayTestWrapper";
-import {
-  GET_CONVERSATIONS,
-  GET_CHAT_MESSAGES,
-  SEARCH_USERS_FOR_MENTION,
-  SEARCH_CORPUSES_FOR_MENTION,
-  SEARCH_DOCUMENTS_FOR_MENTION,
-  SEARCH_ANNOTATIONS_FOR_MENTION,
-  SEARCH_AGENTS_FOR_MENTION,
-} from "../src/graphql/queries";
+import { GET_CONVERSATIONS, GET_CHAT_MESSAGES } from "../src/graphql/queries";
 import { ConversationType, ChatMessageType } from "../src/types/graphql-api";
 import { WebSocketSources } from "../src/components/knowledge_base/document/right_tray/ChatTray";
 import { attachWsDebug } from "./utils/wsDebug";
 import { docScreenshot } from "./utils/docScreenshot";
+import { buildMentionSearchMocks } from "./utils/mentionSearchMocks";
 
 /* -------------------------------------------------------------------------- */
 /* Mock Data                                                                   */
@@ -355,83 +348,10 @@ test("renders inline @agent mention as a styled chip on a server-loaded message"
 /* -------------------------------------------------------------------------- */
 /* Agent @mention picker wiring (Task 11)                                     */
 /* -------------------------------------------------------------------------- */
-
-/**
- * Build the five MockedResponses that `useUnifiedMentionSearch` fires in
- * parallel for a single fragment. Only the agent results carry data; all
- * other categories resolve to empty edges so the picker is agent-only.
- *
- * The hook debounces on `MENTION_SEARCH_DEBOUNCE_MS` (300ms) and only
- * dispatches when fragment.length >= MENTION_SEARCH_MIN_CHARS (2), so the
- * test types `@res` which produces fragment="res".
- */
-const buildMentionSearchMocks = (
-  fragment: string,
-  corpusId: string | undefined,
-  agentNodes: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    description: string;
-    scope: "GLOBAL" | "CORPUS";
-    mentionFormat: string | null;
-    corpus: { id: string; slug: string; title: string } | null;
-  }>
-): MockedResponse[] => [
-  {
-    request: {
-      query: SEARCH_USERS_FOR_MENTION,
-      variables: { textSearch: fragment },
-    },
-    result: {
-      data: { searchUsersForMention: { edges: [] } },
-    },
-  },
-  {
-    request: {
-      query: SEARCH_CORPUSES_FOR_MENTION,
-      variables: { textSearch: fragment },
-    },
-    result: {
-      data: { searchCorpusesForMention: { edges: [] } },
-    },
-  },
-  {
-    request: {
-      query: SEARCH_DOCUMENTS_FOR_MENTION,
-      variables: { textSearch: fragment, corpusId },
-    },
-    result: {
-      data: { searchDocumentsForMention: { edges: [] } },
-    },
-  },
-  {
-    request: {
-      query: SEARCH_ANNOTATIONS_FOR_MENTION,
-      variables: { textSearch: fragment, corpusId },
-    },
-    result: {
-      data: { searchAnnotationsForMention: { edges: [] } },
-    },
-  },
-  {
-    request: {
-      query: SEARCH_AGENTS_FOR_MENTION,
-      variables: { textSearch: fragment, corpusId },
-    },
-    result: {
-      data: {
-        searchAgentsForMention: {
-          edges: agentNodes.map((node) => ({
-            __typename: "AgentConfigurationTypeEdge",
-            node: { __typename: "AgentConfigurationType", ...node },
-          })),
-          __typename: "AgentConfigurationTypeConnection",
-        },
-      },
-    },
-  },
-];
+// `buildMentionSearchMocks` lives in ./utils/mentionSearchMocks (shared with
+// CorpusChat.ct.tsx). The hook debounces on `MENTION_SEARCH_DEBOUNCE_MS`
+// (300ms) and only dispatches when fragment.length >= MENTION_SEARCH_MIN_CHARS
+// (2), so the test types `@res` which produces fragment="res".
 
 test("typing @ in ChatTray opens agent picker and selecting inserts the markdown link", async ({
   mount,

@@ -5,14 +5,10 @@ import { CorpusChatTestWrapper } from "./CorpusChatTestWrapper";
 import {
   GET_CORPUS_CONVERSATIONS,
   GET_CHAT_MESSAGES,
-  SEARCH_USERS_FOR_MENTION,
-  SEARCH_CORPUSES_FOR_MENTION,
-  SEARCH_DOCUMENTS_FOR_MENTION,
-  SEARCH_ANNOTATIONS_FOR_MENTION,
-  SEARCH_AGENTS_FOR_MENTION,
 } from "../src/graphql/queries";
 import { docScreenshot } from "./utils/docScreenshot";
 import { attachWsDebug } from "./utils/wsDebug";
+import { buildMentionSearchMocks } from "./utils/mentionSearchMocks";
 
 const TEST_CORPUS_ID = "test-corpus-123";
 const TEST_CONVERSATION_ID = "test-conv-1";
@@ -1016,68 +1012,9 @@ test.describe("CorpusChat", () => {
   /* ------------------------------------------------------------------------ */
   /* Agent @mention picker wiring (Task 11)                                   */
   /* ------------------------------------------------------------------------ */
-
-  // Build the five MockedResponses that useUnifiedMentionSearch fires in
-  // parallel. Only the agent search returns data; other categories are empty.
-  const buildMentionSearchMocks = (
-    fragment: string,
-    corpusId: string | undefined,
-    agentNodes: Array<{
-      id: string;
-      name: string;
-      slug: string;
-      description: string;
-      scope: "GLOBAL" | "CORPUS";
-      mentionFormat: string | null;
-      corpus: { id: string; slug: string; title: string } | null;
-    }>
-  ): MockedResponse[] => [
-    {
-      request: {
-        query: SEARCH_USERS_FOR_MENTION,
-        variables: { textSearch: fragment },
-      },
-      result: { data: { searchUsersForMention: { edges: [] } } },
-    },
-    {
-      request: {
-        query: SEARCH_CORPUSES_FOR_MENTION,
-        variables: { textSearch: fragment },
-      },
-      result: { data: { searchCorpusesForMention: { edges: [] } } },
-    },
-    {
-      request: {
-        query: SEARCH_DOCUMENTS_FOR_MENTION,
-        variables: { textSearch: fragment, corpusId },
-      },
-      result: { data: { searchDocumentsForMention: { edges: [] } } },
-    },
-    {
-      request: {
-        query: SEARCH_ANNOTATIONS_FOR_MENTION,
-        variables: { textSearch: fragment, corpusId },
-      },
-      result: { data: { searchAnnotationsForMention: { edges: [] } } },
-    },
-    {
-      request: {
-        query: SEARCH_AGENTS_FOR_MENTION,
-        variables: { textSearch: fragment, corpusId },
-      },
-      result: {
-        data: {
-          searchAgentsForMention: {
-            __typename: "AgentConfigurationTypeConnection",
-            edges: agentNodes.map((node) => ({
-              __typename: "AgentConfigurationTypeEdge",
-              node: { __typename: "AgentConfigurationType", ...node },
-            })),
-          },
-        },
-      },
-    },
-  ];
+  // `buildMentionSearchMocks` lives in ../utils/mentionSearchMocks (shared
+  // with ChatTray.ct.tsx). Only the agent search returns data; other
+  // categories resolve to empty edges.
 
   test("typing @ in CorpusChat opens agent picker and selecting inserts the markdown link", async ({
     mount,
