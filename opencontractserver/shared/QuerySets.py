@@ -7,6 +7,7 @@ from django.utils import timezone
 from tree_queries.query import TreeQuerySet
 
 from opencontractserver.shared.mixins import VectorSearchViaEmbeddingMixin
+from opencontractserver.shared.user_can_mixin import UserCanMixin
 
 # Preserves the concrete QuerySet subclass (e.g. AnnotationQuerySet) across
 # ``_exclude_soft_deleted_doc_orphans`` so callers don't lose their typed
@@ -55,7 +56,15 @@ def _exclude_soft_deleted_doc_orphans(qs: _QS) -> _QS:
     )
 
 
-class PermissionedTreeQuerySet(TreeQuerySet):
+class PermissionedTreeQuerySet(UserCanMixin, TreeQuerySet):
+    """Tree-aware queryset that exposes the standard ``user_can`` surface.
+
+    ``user_can`` is inherited from ``UserCanMixin`` (delegates to
+    ``_default_user_can``). See ``BaseVisibilityManager.user_can`` for the
+    contract — both surfaces converge on the same logic so that filter
+    (``visible_to_user``) and check (``user_can``) decisions stay aligned.
+    """
+
     def approved(self) -> "PermissionedTreeQuerySet":
         return self.filter(approved=True)
 

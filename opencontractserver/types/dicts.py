@@ -386,6 +386,12 @@ class OpenContractDocExport(OpenContractsDocAnnotations):
     # V2: Reference to structural annotation set (if any)
     structural_set_hash: NotRequired[Optional[str]]
 
+    # V2: SHA-256 hash of the source file content.  Required for
+    # roundtrip-safety of DocumentPath reconstruction (path/folder/ingestion
+    # lineage lookup keys off this hash) and document-level conversation
+    # relinking (``chat_with_document_hash`` resolves through this).
+    pdf_file_hash: NotRequired[Optional[str]]
+
 
 class OpenContractsExportDataJsonPythonType(TypedDict):
     """
@@ -600,6 +606,63 @@ class MessageVoteExport(TypedDict):
 
 
 # ============================================================================
+# Metadata Schema Export Types
+# ============================================================================
+
+
+class ManualColumnExport(TypedDict):
+    """
+    Export format for a manual-entry Column inside a corpus's metadata
+    Fieldset.  Extraction-only fields (``query``, ``match_text``) are
+    intentionally omitted — only manual-entry columns are exported.
+
+    ``id`` is the source Column pk as a string, used to remap Datacells
+    on import.
+    """
+
+    id: str
+    name: str
+    output_type: str
+    data_type: Optional[str]
+    validation_config: Optional[dict]
+    default_value: Optional[object]
+    help_text: Optional[str]
+    display_order: int
+
+
+class ManualDatacellExport(TypedDict):
+    """
+    Export format for a manual-entry Datacell (a value entered against a
+    manual Column on a specific document).  Only non-extract datacells
+    are exported (``extract__isnull=True``).
+
+    ``column_id`` references a ``ManualColumnExport.id``.  ``document_ref``
+    matches the ``document_ref`` field on ``DocumentPathExport`` — the
+    document hash when available, otherwise the in-zip filename — so the
+    importer can re-link via the same lookup map.
+    """
+
+    column_id: str
+    document_ref: str
+    data: Optional[dict]
+    data_definition: str
+
+
+class MetadataSchemaExport(TypedDict):
+    """
+    Export format for a corpus's manual-metadata schema.  Mirrors the
+    OneToOneField ``Corpus.metadata_schema`` -> ``Fieldset`` relation,
+    plus the manual subset of its Columns and the user-entered
+    Datacell values.
+    """
+
+    fieldset_name: str
+    fieldset_description: str
+    columns: list[ManualColumnExport]
+    datacells: list[ManualDatacellExport]
+
+
+# ============================================================================
 # Action Trail Export Types
 # ============================================================================
 
@@ -702,6 +765,11 @@ class OpenContractsExportDataJsonV2Type(TypedDict):
 
     # Ingestion sources (lineage tracking)
     ingestion_sources: NotRequired[list[IngestionSourceExport]]
+
+    # Manual metadata schema (Fieldset + manual Columns + non-extract Datacells).
+    # Key is omitted entirely when the corpus has no attached Fieldset
+    # (see ``package_metadata_schema``); never serialized as ``None``.
+    metadata_schema: NotRequired[MetadataSchemaExport]
 
     # ===== OPTIONAL V2 FIELDS (based on export flags) =====
 

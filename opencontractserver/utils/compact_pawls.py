@@ -167,6 +167,13 @@ def compact_pawls_pages(
             continue
 
         page_info = page_data.get("page", {})
+        # Tolerate older fixtures that store ``page`` as a scalar
+        # instead of a dict.  We can't recover the width/height in
+        # that case, but a zero-sized stub is better than a crash —
+        # the export carries the same payload either way and the
+        # PDF-burn step is independently fault-tolerant.
+        if not isinstance(page_info, dict):
+            page_info = {}
         tokens = page_data.get("tokens", [])
 
         if len(tokens) > MAX_TOKENS_PER_PAGE:

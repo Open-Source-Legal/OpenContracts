@@ -1,454 +1,304 @@
-# Corpus Export/Import V2.0 - Complete Revamp
+# Corpus Export/Import V2.0
 
 ## Overview
 
-This document describes the comprehensive revamp of the corpus export/import functionality to support all features added since the original design.
+This document describes the V2 corpus export/import format, which captures the full state of an OpenContracts corpus — including features that were added after the original V1 export was designed.
 
 **Issue**: #502
-**Implementation Date**: November 2025
-**Status**: Complete - Ready for GraphQL integration and testing
+**Format version marker**: `"version": "2.0"` in `data.json`
 
 ## Background
 
-The original export/import system was designed early in OpenContracts development and only handled:
-- Basic corpus metadata
-- Documents with PAWLS tokens
-- User annotations (text and doc labels)
-- LabelSets
+V1 (the original export) only handled basic corpus metadata, documents with PAWLs tokens, user annotations (text and doc labels), and labelsets. Since then the platform grew several first-class features that V1 couldn't represent:
 
-Since then, numerous critical features were added:
-- **Structural annotations** - Corpus-isolated (each corpus gets its own copy)
-- **Vector embeddings** - For semantic search
-- **Conversations/messages** - Discussion threads
-- **Corpus folders** - Hierarchical organization
-- **Document versioning** - DocumentPath version trees
-- **Post-processors** - Export pipeline customization
-- **Agent configuration** - Corpus and document agents
-- **Markdown descriptions** - With revision history
+- **Structural annotations** — corpus-isolated copies of parser-emitted structure
+- **Conversations / messages** — chat threads against a corpus or document
+- **Corpus folders** — hierarchical organization
+- **Document versioning** — `DocumentPath` lineage
+- **Ingestion sources** — provenance for documents brought in by integrations
+- **Post-processors** — export-pipeline customization
+- **Agent configuration** — corpus and document agent instructions
+- **Markdown descriptions** — CAML-style narrative with revision history
+- **Corpus actions & action trail** — recurring/triggered actions and their execution history
+
+V2 captures all of these in a single ZIP that round-trips through import (with a couple of intentional exceptions noted below).
 
 ## Design Goals
 
-1. **Backward Compatibility**: Old V1 exports must remain importable
-2. **Completeness**: Capture ALL corpus data for perfect backup/restore
-3. **Shareability**: Enable publishing and sharing annotated datasets
-4. **Efficiency**: Avoid duplicating structural annotations
-5. **Flexibility**: Optional export of conversations (can be large)
+1. **Backward compatibility** — V1 exports remain importable.
+2. **Completeness** — capture everything needed to faithfully reproduce a corpus.
+3. **Shareability** — enable publishing annotated datasets.
+4. **Efficiency** — deduplicate the heaviest payload (structural annotation sets) across documents.
+5. **Flexibility** — opt in to heavier optional content (conversations, action trail).
 
-## Export Format V2.0
+## Format
 
 ### Version Detection
 
-The `version` field in `data.json` indicates the format:
-- `"version": "1.0"` (or missing) → V1 format
-- `"version": "2.0"` → V2 format
+The `version` field in `data.json` tells importers which schema to expect:
 
-### Data Structure
+- `"version": "1.0"` (or missing) → V1
+- `"version": "2.0"` → V2
 
-```typescript
-interface OpenContractsExportDataJsonV2Type {
-  // Version marker
-  version: "2.0";
+The same import task handles both — the detection happens internally.
 
-  // ===== V1 FIELDS (maintained for compatibility) =====
-  annotated_docs: Record<string, OpenContractDocExport>;
-  doc_labels: Record<string, AnnotationLabelType>;
-  text_labels: Record<string, AnnotationLabelType>;
-  corpus: OpenContractCorpusV2Type;
-  label_set: OpenContractsLabelSetType;
+### Top-Level `data.json` Shape
 
-  // ===== V2 FIELDS =====
+The authoritative TypedDict is `OpenContractsExportDataJsonV2Type` in `opencontractserver/types/dicts.py`. At a high level it carries three groups of fields:
 
-  // Structural annotations (corpus-isolated, duplicated per corpus)
-  structural_annotation_sets: Record<string, StructuralAnnotationSetExport>;
+**V1-compatible fields (always present):**
 
-  // Corpus folder hierarchy
-  folders: CorpusFolderExport[];
+- `version` — format marker (`"2.0"`)
+- `annotated_docs` — keyed by document filename → per-document export payload
+- `doc_labels`, `text_labels` — label definitions used by the corpus
+- `corpus` — corpus metadata (V2-enhanced via `OpenContractCorpusV2Type`)
+- `label_set` — the corpus's label set
 
-  // Document version trees (DocumentPath history)
-  document_paths: DocumentPathExport[];
+**V2 mandatory fields:**
 
-  // Cross-document relationships
-  relationships: OpenContractsRelationshipType[];
+- `structural_annotation_sets` — keyed by content hash → per-set payload
+- `folders` — corpus folder hierarchy
+- `document_paths` — document path / version tree entries
+- `relationships` — cross-document and corpus-level annotation relationships
+- `agent_config` — corpus/document agent instructions
+- `md_description` — current markdown description text
+- `md_description_revisions` — full revision history of the markdown description
+- `post_processors` — configured post-processor identifiers
+- `ingestion_sources` — named integration sources referenced by document paths
 
-  // Agent configuration
-  agent_config: AgentConfigExport;
+**V2 optional fields (gated by export flags):**
 
-  // Markdown description and revision history
-  md_description: string | null;
-  md_description_revisions: DescriptionRevisionExport[];
+- `conversations`, `messages`, `message_votes` — included when `include_conversations=True`
+- `action_trail` — included when `include_action_trail=True` (corpus actions, executions, summary stats)
 
-  // Post-processors configuration
-  post_processors: string[];
+### Per-Document Payload Additions
 
-  // ===== OPTIONAL FIELDS (controlled by export flags) =====
+`OpenContractDocExport` (also in `dicts.py`) gains two V2-only fields:
 
-  // Conversations/messages (only if include_conversations=True)
-  conversations?: ConversationExport[];
-  messages?: ChatMessageExport[];
-  message_votes?: MessageVoteExport[];
-}
-```
+- `file_type` — MIME type of the source file
+- `structural_set_hash` — points at an entry in `structural_annotation_sets`, allowing many documents to share one heavy payload
 
-### Enhanced Document Export
+### Structural Annotation Set Payload
 
-Documents now reference their structural annotation set:
+`StructuralAnnotationSetExport` is the heaviest entry. Each set carries the **full payload**, not a reference:
 
-```typescript
-interface OpenContractDocExport {
-  // ... existing V1 fields ...
+- `content_hash` — the dedup key
+- Parser identity (`parser_name`, `parser_version`) and size counters (`page_count`, `token_count`)
+- `pawls_file_content` — full PAWLS tokens with bounding boxes
+- `txt_content` — full extracted text
+- `structural_annotations` — every structural annotation in the set (with label text, raw text, page, annotation JSON, parent reference, annotation type, optional long description)
+- `structural_relationships` — relationships between those structural annotations
 
-  // V2: Reference to structural annotation set
-  structural_set_hash?: string;
-}
-```
+Documents reference a set by its content hash; the set itself is emitted once per corpus regardless of how many documents use it.
 
-## Implementation Architecture
+## Implementation
 
-### File Structure
+### File Layout
 
 ```
 opencontractserver/
 ├── types/
-│   └── dicts.py                          # NEW V2 TypedDict definitions
+│   └── dicts.py                          # V2 TypedDict definitions
 ├── utils/
-│   ├── packaging.py                      # UPDATED: V2 corpus export
-│   ├── export_v2.py                      # NEW: V2 export utilities
-│   └── import_v2.py                      # NEW: V2 import utilities
+│   ├── packaging.py                      # V1/V2 corpus + labelset (un)packing
+│   ├── export_v2.py                      # V2 export helpers
+│   ├── import_v2.py                      # V2 import helpers
+│   ├── importing.py                      # Shared document/label/annotation import
+│   └── etl.py                            # Shared label lookup + per-doc export builder
 └── tasks/
-    ├── export_tasks.py                   # EXISTING: V1 tasks
-    ├── export_tasks_v2.py                # NEW: V2 export task
-    ├── import_tasks.py                   # EXISTING: V1 tasks
-    └── import_tasks_v2.py                # NEW: V2 import with backward compat
+    ├── export_tasks.py                   # V1-era export plumbing (finalize, FUNSD, etc.)
+    ├── export_tasks_v2.py                # V2 export Celery task
+    ├── import_tasks.py                   # V1 import task — now a thin shim
+    └── import_tasks_v2.py                # Unified V1/V2 import Celery task
 ```
 
 ### Export Pipeline
 
-```python
-# Main V2 export task
-@shared_task
-def package_corpus_export_v2(
-    export_id: int,
-    corpus_pk: int,
-    include_conversations: bool = False,
-    analysis_pk_list: list[int] | None = None,
-    annotation_filter_mode: str = "CORPUS_LABELSET_ONLY",
-):
-    # 1. Export documents (V1 compatible)
-    # 2. Export structural annotation sets
-    # 3. Export corpus metadata (V2 enhanced)
-    # 4. Export folders
-    # 5. Export DocumentPath trees
-    # 6. Export relationships
-    # 7. Export agent config
-    # 8. Export markdown description & revisions
-    # 9. Export conversations (optional)
-    # 10. Assemble V2 data.json
-```
+The entry point is `package_corpus_export_v2` in `tasks/export_tasks_v2.py`. Parameters:
+
+- `export_id` — `UserExport` row to write into
+- `corpus_pk` — corpus to export
+- `include_conversations` — opt-in heavy conversation/message/vote payload
+- `include_action_trail` — opt-in action history payload
+- `action_trail_limit` — cap on action executions exported
+- `analysis_pk_list` — optional filter to scope annotations to specific analyses
+- `annotation_filter_mode` — how to filter annotations (`CORPUS_LABELSET_ONLY` by default)
+
+It walks active `DocumentPath` rows for the corpus and, for each active document:
+
+1. Builds the V1-compatible per-document export via shared helpers in `utils/etl.py`.
+2. If the document has a `StructuralAnnotationSet`, stamps `structural_set_hash` on the doc export and tracks the set for later emission.
+3. Writes the source file into the ZIP.
+
+It then emits the rest of the corpus payload using helpers in `utils/export_v2.py`:
+
+- Structural annotation sets (deduplicated by content hash)
+- Corpus metadata in V2 form, plus the label set
+- Folder hierarchy
+- Document paths and ingestion sources
+- Cross-document relationships
+- Agent configuration
+- Markdown description and revision history
+- Conversations / messages / votes (when requested)
+- Action trail (when requested)
+
+Finally it writes `data.json` to the ZIP and calls `finalize_export` to persist it onto the `UserExport`.
 
 ### Import Pipeline
 
-```python
-# Main V2 import task with backward compatibility
-@celery_app.task()
-def import_corpus_v2(
-    temporary_file_handle_id: str | int,
-    user_id: int,
-    seed_corpus_id: Optional[int],
-):
-    # Detect version from data.json
-    version = data_json.get("version", "1.0")
+The entry point is `import_corpus_v2` in `tasks/import_tasks_v2.py`. The legacy `import_corpus` task (in `tasks/import_tasks.py`) is now a thin shim that delegates here — so GraphQL mutations that pre-date V2 transparently handle V2 ZIPs.
 
-    if version == "2.0":
-        return _import_corpus_v2(...)  # New comprehensive import
-    else:
-        return _import_corpus_v1(...)  # Original import logic
-```
+`import_corpus_v2` opens the ZIP, reads `data.json`, detects the version, and hands off to a single unified `_import_corpus` function that branches on `is_v2`. The order of operations:
 
-## Key Features
+1. **Corpus + label setup** (shared with V1) — creates or reuses the seed corpus and its label set; loads/creates labels referenced by the export.
+2. **Build a `(text, label_type)` label lookup** — used by structural annotations and relationships, which reference labels by text rather than primary key.
+3. **Structural annotation sets** (V2 only) — for each set in the export, look up by `content_hash`; reuse the existing set if found, otherwise create a new one with its PAWLS file, text extract, structural annotations, and structural relationships.
+4. **Documents + annotations** (shared) — for each document, create or attach to the corpus via `corpus.add_document()` for proper corpus isolation, then import its annotations. Each call returns an `old_id → new_id` annotation map, aggregated across all documents.
+5. **Folders** (V2 only) — sorted by path depth so parents land before children.
+6. **Ingestion sources** (V2 only) — `get_or_create` by name. Note that ingestion source `config` is exported as an empty dict (credentials are not shipped); importers must reconfigure.
+7. **DocumentPath reconstruction** (V2 only) — uses the document hash (or filename fallback) to bind to the correct corpus document, then updates path, version number, folder assignment, and ingestion lineage on the `DocumentPath` rows already created by `add_document()`. **Only current, non-deleted paths are reconstructed** — historical versions are not recreated because the file content is not part of the export.
+8. **Relationships** (V2 only) — uses the aggregated annotation ID map to remap source/target references; relationships whose source or target didn't survive import are silently dropped.
+9. **Agent configuration** (V2 only) — corpus / document agent instructions are restored.
+10. **Markdown description and revisions** (V2 only) — `oc-import://` placeholder links inside the markdown are rewritten to live IDs using the aggregated annotation map and a strict filename → document map.
+11. **Conversations / messages / votes** (V2 only, when present) — restored against the new corpus with a document-hash mapping so message attachments resolve to the right document.
 
-### 1. Structural Annotation Deduplication
+### Structural Annotation Deduplication
 
-Structural annotations are exported once per content hash and deduplicated on import:
+`content_hash` is computed during document processing and stored on the `StructuralAnnotationSet` model. On export the same Python object is added to a set, so each unique structural payload appears exactly once in `structural_annotation_sets`. On import, a `filter(content_hash=...).first()` lookup reuses the existing set rather than duplicating it. This is the main reason V2 exports remain manageable even for large corpora where many documents share parsed structure.
 
-```python
-# Export: Track unique structural sets
-structural_sets_seen = set()
-for doc in documents:
-    if doc.structural_annotation_set:
-        structural_sets_seen.add(doc.structural_annotation_set)
+### Folder Hierarchy Reconstruction
 
-# Import: Reuse existing sets by content hash
-existing_set = StructuralAnnotationSet.objects.filter(
-    content_hash=content_hash
-).first()
+Each folder is exported with its full path string. On import folders are sorted by path depth so parents are created before children, and a parent-ID map links children to their newly-created parents.
 
-if existing_set:
-    return existing_set  # Reuse instead of creating duplicate
-```
+### DocumentPath Version Trees
 
-### 2. Folder Hierarchy Reconstruction
+Only **current, non-deleted** paths are reconstructed. The exporter emits enough metadata to rebuild path, version number, folder assignment, and ingestion lineage, but historical file content is intentionally not shipped — so prior versions in the lineage cannot be materialized from the export alone.
 
-Folders exported with full paths for easy reconstruction:
+### Relationship ID Remapping
 
-```python
-{
-  "id": "folder_123",
-  "name": "Legal Documents",
-  "parent_id": "folder_parent",
-  "path": "Contracts/Legal Documents",  # Full path from root
-  ...
-}
-```
+Annotations get new primary keys on import. The unified import keeps an `old_id → new_id` map per document and aggregates it across all documents. Relationships are reconstructed by remapping each source/target ID through this aggregate. Any reference that doesn't map (e.g. its annotation was filtered out at export time) is silently dropped — orphaned relationships do not block the import.
 
-Import reconstructs tree by sorting on path depth:
+### Optional Conversation Export
 
-```python
-sorted_folders = sorted(folders_data, key=lambda f: f["path"].count("/"))
-for folder_data in sorted_folders:
-    # Parents created before children
-    parent = folder_map.get(folder_data["parent_id"])
-    folder = CorpusFolder.objects.create(parent=parent, ...)
-```
+Conversations can be large and aren't always wanted in a shared export. They're emitted only when `include_conversations=True`, alongside their messages and message votes. The import side checks for the `conversations` key before doing any work, so older or smaller exports without this section import cleanly.
 
-### 3. DocumentPath Version Trees
+### Optional Action Trail Export
 
-Complete version history preserved:
-
-```python
-{
-  "document_ref": "doc_hash_abc123",
-  "path": "/documents/contract.pdf",
-  "version_number": 2,
-  "parent_version_number": 1,  # Links to previous version
-  "is_current": true,
-  "is_deleted": false,
-  ...
-}
-```
-
-### 4. Relationship ID Mapping
-
-Annotations get new IDs on import, so relationships need remapping:
-
-```python
-# Build mapping during annotation import
-annot_id_map = {}  # old_id -> new_id
-annot_id_map[old_annot_id] = new_annot_id
-
-# Remap relationship references
-source_ids = [
-    annot_id_map.get(str(old_id))
-    for old_id in rel_data["source_annotation_ids"]
-    if str(old_id) in annot_id_map
-]
-```
-
-### 5. Optional Conversation Export
-
-Conversations can be large, so they're optional:
-
-```python
-# Export
-if include_conversations:
-    conversations, messages, votes = package_conversations(corpus)
-    export_data["conversations"] = conversations
-    export_data["messages"] = messages
-    export_data["message_votes"] = votes
-
-# Import
-if "conversations" in data_json:
-    import_conversations(...)
-```
+When `include_action_trail=True`, the export carries a snapshot of corpus actions, their executions, and summary statistics. **Note: the action trail is currently export-only.** It's a write-side diagnostic / audit artifact; the import pipeline does not yet ingest it.
 
 ## What's NOT Exported
 
-**Vector Embeddings** - Intentionally excluded because:
-- They can be regenerated from content
-- They make exports very large
-- Different deployments may use different embedders
-- Regeneration on import ensures consistency with target system
+**Vector embeddings.** Intentionally excluded because:
+
+- They can be regenerated from content.
+- They make exports very large.
+- Different deployments may use different embedders / dimensions.
+- Regenerating on import keeps embeddings consistent with the target system's embedder.
+
+Note that pre-computed embeddings *are* supported for the worker-upload path (`WorkerEmbeddingsType` / `WorkerDocumentUploadMetadataType` in `dicts.py`). That's a different ingestion surface than corpus export/import.
+
+**Ingestion source credentials.** Ingestion source `config` is always exported as an empty dict because it may contain secrets. Importers must reconfigure sources after import.
+
+**Per-object permissions.** Imported objects are granted permissions to the importing user; per-user grants from the source system are not preserved.
+
+**Action trail on import.** The action trail can be emitted at export time but is not currently imported.
 
 ## Backward Compatibility
 
-### V1 Import Still Works
+### V1 Imports Still Work
 
-The import task detects V1 format and routes to original logic:
-
-```python
-if version == "2.0":
-    return _import_corpus_v2(...)
-else:
-    return _import_corpus_v1(...)  # Original implementation preserved
-```
+The legacy `import_corpus` Celery task is now a one-line shim that calls `import_corpus_v2`. Version detection happens inside the unified `_import_corpus` function, which conditionally enables V2 steps based on the detected format. V1 ZIPs flow through the same code path; the V2-only steps are skipped.
 
 ### V1 Exports Remain Valid
 
-V1 export format is a subset of V2:
-- V2 adds new fields but doesn't change V1 fields
-- V2 importers handle missing V2 fields gracefully
-- Old exports continue to work indefinitely
+V1 fields are preserved unchanged in V2:
+
+- The V1 sub-shape is a subset of `OpenContractsExportDataJsonV2Type`.
+- New V2 fields are added without renaming or repurposing V1 fields.
+- The unified importer handles missing V2 fields gracefully via `.get(..., default)`.
+
+## GraphQL Integration
+
+### Export
+
+The existing `StartCorpusExport` mutation accepts an `export_format` argument. When the value is `OPEN_CONTRACTS_V2`, the mutation dispatches `package_corpus_export_v2` with the appropriate flags (`include_conversations`, `include_action_trail`, `analysis_pk_list`, `annotation_filter_mode`). No separate V2 export mutation exists — and none is needed.
+
+### Import
+
+The existing `UploadCorpusImportZip` mutation calls the V1 `import_corpus` task, which now delegates to `import_corpus_v2`. V2 ZIPs therefore import correctly through the unchanged mutation — version detection happens transparently inside the task. There is no separate V2 import mutation.
 
 ## Usage
 
-### Export V2 Corpus
+### Export V2 Corpus (programmatic)
 
 ```python
 from opencontractserver.tasks.export_tasks_v2 import package_corpus_export_v2
+from opencontractserver.users.models import UserExport
 
-# Create export record
-export = UserExport.objects.create(user=user, backend_lock=True)
+export = UserExport.objects.create(creator=user, backend_lock=True)
 
-# Launch export task
 package_corpus_export_v2.delay(
     export_id=export.id,
     corpus_pk=corpus.id,
-    include_conversations=True,  # Optional
+    include_conversations=True,
+    include_action_trail=False,
 )
-
-# Result: ZIP file with V2 data.json
 ```
 
-### Import V2 Corpus
+### Import V2 Corpus (programmatic)
 
 ```python
+from opencontractserver.corpuses.models import TemporaryFileHandle
 from opencontractserver.tasks.import_tasks_v2 import import_corpus_v2
 
-# Upload ZIP to temporary file
 temp_file = TemporaryFileHandle.objects.create()
 temp_file.file.save("corpus_export.zip", uploaded_file)
 
-# Launch import task
-result = import_corpus_v2.delay(
+import_corpus_v2.delay(
     temporary_file_handle_id=temp_file.id,
     user_id=user.id,
-    seed_corpus_id=None,  # Or existing corpus ID to merge
+    seed_corpus_id=None,  # or an existing corpus ID to merge into
 )
-
-# Result: New corpus ID
 ```
 
-## GraphQL Integration (TODO)
+## Testing
 
-### Export Mutation
+V2 export/import has a dedicated test suite in `opencontractserver/tests/test_corpus_export_import_v2.py`. Additional typing-focused tests live alongside it (e.g. `test_export_tasks_typing_fixes.py`, `test_import_tasks_v2_typing_coverage.py`). When extending the format, prefer adding round-trip integration tests that verify both write-side correctness (TypedDict shape, dedup) and read-side correctness (ID remapping, hierarchy reconstruction).
 
-```graphql
-mutation ExportCorpusV2($corpusId: ID!, $includeConversations: Boolean) {
-  exportCorpusV2(
-    corpusId: $corpusId
-    includeConversations: $includeConversations
-  ) {
-    export {
-      id
-      file
-      finished
-    }
-  }
-}
-```
+## Performance Notes
 
-### Import Mutation
+- **Structural annotation sets** dominate export size; dedup by `content_hash` is the main lever.
+- **Conversations** can be large; keep them opt-in.
+- **ZIP writes** stream into an in-memory `BytesIO`; for very large corpora this could become a memory pressure point and is a candidate for future incremental writing.
+- **Import** uses `corpus.add_document()` for each document, which handles corpus isolation but is per-document; bulk-creates are used where shape allows (annotations, label maps).
 
-```graphql
-mutation ImportCorpusV2($file: Upload!, $seedCorpusId: ID) {
-  importCorpusV2(
-    file: $file
-    seedCorpusId: $seedCorpusId
-  ) {
-    corpus {
-      id
-      title
-    }
-  }
-}
-```
+## Known Caveats / Drift Watchpoints
 
-## Testing Requirements
+These are the spots most likely to surprise someone reading code against this document:
 
-### Unit Tests
-
-- [ ] Export utilities for each V2 component
-- [ ] Import utilities for each V2 component
-- [ ] ID mapping correctness
-- [ ] Folder hierarchy reconstruction
-- [ ] DocumentPath version tree rebuilding
-
-### Integration Tests
-
-- [ ] Full V2 export/import round-trip
-- [ ] Structural annotation deduplication
-- [ ] Conversation export/import
-- [ ] V1 backward compatibility
-
-### Edge Cases
-
-- [ ] Empty corpus export/import
-- [ ] Corpus with no folders
-- [ ] Corpus with no conversations
-- [ ] Mixed structural/non-structural annotations
-- [ ] Orphaned relationships (missing annotations)
-
-## Migration Strategy
-
-### Gradual Rollout
-
-1. **Phase 1**: Deploy V2 code (this PR)
-   - V2 export/import available via tasks
-   - V1 exports still work
-   - No breaking changes
-
-2. **Phase 2**: Update GraphQL layer
-   - Add V2 export mutation
-   - Add V2 import mutation
-   - Keep V1 mutations for compatibility
-
-3. **Phase 3**: Frontend updates
-   - Add UI for conversation export toggle
-   - Update export/import forms
-   - Add progress indicators
-
-4. **Phase 4**: Deprecation (future)
-   - Mark V1 mutations as deprecated
-   - Migrate existing exports to V2 format
-   - Eventually remove V1 code
-
-## Performance Considerations
-
-### Export Performance
-
-- **Structural sets**: Deduplicated, only exported once per content hash
-- **Conversations**: Optional to avoid bloating exports
-- **Streaming**: ZIP written incrementally (no full in-memory assembly)
-
-### Import Performance
-
-- **Structural sets**: Content hash lookup prevents duplicate creation
-- **Batch operations**: Use bulk_create where possible
-- **Transaction boundaries**: Atomic operations for data consistency
-
-## Security Considerations
-
-- **User mapping**: Users identified by email (stable across systems)
-- **Permissions**: All imported objects get proper permissions
-- **File validation**: ZIP structure validated before processing
-- **Size limits**: Consider max export size in production
+- **Unified import handler.** Both V1 and V2 flow through one `_import_corpus(version, ...)` function rather than separate handlers.
+- **`import_corpus` is a shim.** The V1 task forwards to `import_corpus_v2`. Don't add logic to `import_corpus.py` — extend `import_tasks_v2.py` and `utils/import_v2.py`.
+- **Action trail is export-only.** Exporting it works; importing it is not implemented.
+- **DocumentPath history is partial.** Only current, non-deleted paths round-trip.
+- **Ingestion source configs are empty.** Credentials are intentionally stripped on export.
 
 ## Future Enhancements
 
-1. **Selective export**: Choose specific documents/folders
-2. **Incremental export**: Export only changes since last export
-3. **Compression**: Better compression for large text content
-4. **Encryption**: Optional encryption for sensitive corpora
-5. **Cloud storage**: Direct export to S3/GCS without local disk
+1. **Selective export** — export a subset of documents or folders.
+2. **Incremental export** — emit only deltas since a previous export.
+3. **Action trail import** — round-trip the optional action history.
+4. **Streaming ZIP writes** — avoid holding the whole archive in memory.
+5. **Optional encryption** — for sensitive corpora.
+6. **Direct cloud delivery** — push the archive straight to S3/GCS without a local materialization.
 
 ## Summary
 
-The V2 export/import system provides:
+V2 export/import provides:
 
-✅ **Complete** - All corpus data captured
-✅ **Backward compatible** - V1 exports still work
-✅ **Efficient** - Structural annotations deduplicated
-✅ **Flexible** - Optional conversation export
-✅ **Robust** - Comprehensive error handling
-✅ **Tested** - Full test coverage planned
+- **Complete** — captures all first-class corpus state (with the documented exceptions).
+- **Backward compatible** — V1 ZIPs still import via the unified handler.
+- **Efficient** — heavy structural payloads dedup by content hash.
+- **Flexible** — heavy optional content (conversations, action trail) is opt-in.
+- **GraphQL-ready** — both the export mutation and the import mutation already speak V2 with no client changes.
 
-This enables reliable backup/restore and seamless dataset sharing for the OpenContracts community.
+This enables reliable backup/restore and dataset sharing across OpenContracts deployments.
