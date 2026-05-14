@@ -354,6 +354,154 @@ def get_users_permissions_for_obj(
     return model_permissions_for_user
 
 
+def _default_user_can(
+    user_val: int | str | UserModel | AnonymousUser | None,
+    instance: django.db.models.Model,
+    permission: PermissionTypes,
+    *,
+    include_group_permissions: bool = True,
+) -> bool:
+    """Centralized default-branch authorization body.
+
+    Single source of truth for "does this user have ``permission`` on
+    ``instance``?" for any model that uses the standard rules. Both
+    ``BaseVisibilityManager.user_can`` and ``PermissionedTreeQuerySet.user_can``
+    delegate here, which keeps the filter (``visible_to_user``) and check
+    (``user_can``) decisions provably aligned.
+
+    Naming note: the leading underscore marks this as implementation-private
+    to the permission subsystem (callers go through ``Manager.user_can`` /
+    ``obj.user_can``), NOT as file-private. ``Managers.py``, ``QuerySets.py``,
+    and ``UserCanMixin`` deliberately import it. Per-model overrides that
+    need the default rules MUST delegate here rather than re-implementing
+    them, so filter/check stay aligned.
+
+    Rules:
+        - ``None`` / ``AnonymousUser`` / unauthenticated → False, except READ
+          on ``instance.is_public=True`` which returns True.
+        - Superuser → True for every permission.
+        - Authenticated, non-superuser:
+            * For READ: True iff ``is_public`` or ``creator_id == user.id`` or
+              the user has the corresponding guardian codename (user perms,
+              optionally group perms).
+            * For non-READ: True iff ``creator_id == user.id`` or the user
+              has the corresponding guardian codename. ``is_public`` does NOT
+              grant write permissions — preserves the read/write asymmetry
+              enforced today by the deleted ``FolderService.check_corpus_*``
+              helpers.
+            * For ``CRUD``: requires all four base perms (CREATE, READ,
+              UPDATE, DELETE). ``is_public`` is folded in locally as a
+              synthetic ``read_<model>`` so a user with explicit write
+              grants on a public corpus passes CRUD — preserves the same
+              semantics as a series of individual ``user_can`` calls.
+            * For ``ALL``: requires all seven perms (same ``is_public``
+              fold-in as CRUD).
+            * Creator short-circuit applies BEFORE compound checks, so the
+              corpus creator passes ``CRUD`` / ``ALL`` without needing
+              explicit guardian grants (mirrors the deleted FolderService
+              behavior; pinned by
+              ``test_creator_passes_compound_perms_without_explicit_grants``).
+        - ``EDIT`` is treated as an alias for ``UPDATE`` (mirrors the old
+          ``user_has_permission_for_obj`` mapping).
+
+    Per-model overrides (e.g. ``AnnotationManager.user_can``) MUST add their
+    own structural / privacy / inheritance rules before delegating here.
+    """
+    if user_val is None:
+        return False
+
+    # AnonymousUser is the common unauthenticated case (set by Django auth
+    # middleware) — handle it explicitly so the int/str ID resolution below
+    # doesn't run on an AnonymousUser sentinel.
+    if isinstance(user_val, AnonymousUser):
+        if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
+            return True
+        return False
+
+    if isinstance(user_val, (str, int)):
+        try:
+            user = User.objects.get(id=user_val)
+        except User.DoesNotExist:
+            return False
+    else:
+        user = user_val
+
+    # Defensive guard for exotic user-like objects that aren't AnonymousUser
+    # but still report ``is_authenticated == False`` (e.g. a test double, an
+    # external SSO shim, or a future custom auth backend). The AnonymousUser
+    # path above is the common case; this catches the long tail.
+    if not getattr(user, "is_authenticated", False):
+        if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
+            return True
+        return False
+
+    if user.is_superuser:
+        return True
+
+    if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
+        return True
+
+    if (
+        hasattr(instance, "creator_id")
+        and instance.creator_id is not None
+        and instance.creator_id == user.id
+    ):
+        return True
+
+    model_name = instance._meta.model_name
+    granted = get_users_permissions_for_obj(
+        user=user,
+        instance=instance,
+        include_group_permissions=include_group_permissions,
+    )
+
+    if permission == PermissionTypes.READ:
+        return f"read_{model_name}" in granted
+    if permission == PermissionTypes.CREATE:
+        return f"create_{model_name}" in granted
+    if permission in (PermissionTypes.UPDATE, PermissionTypes.EDIT):
+        return f"update_{model_name}" in granted
+    if permission == PermissionTypes.DELETE:
+        return f"remove_{model_name}" in granted
+    if permission == PermissionTypes.COMMENT:
+        return f"comment_{model_name}" in granted
+    if permission == PermissionTypes.PUBLISH:
+        return f"publish_{model_name}" in granted
+    if permission == PermissionTypes.PERMISSION:
+        return f"permission_{model_name}" in granted
+    if permission in (PermissionTypes.CRUD, PermissionTypes.ALL):
+        # Belt-and-suspenders: ``get_users_permissions_for_obj`` *already*
+        # injects ``read_<model>`` into ``granted`` when ``is_public=True``
+        # (see lines ~268 and ~336), so today this fold-in is a no-op.
+        # We keep it explicit at the call site because the dependency is
+        # otherwise invisible: if that helper is ever refactored to drop
+        # the synthetic READ grant, the CRUD/ALL branch here MUST keep
+        # working so public-corpus + explicit-write-grants still passes
+        # the compound check. Removing this line would silently break
+        # ``test_crud_satisfied_by_public_read_plus_explicit_writes``.
+        if getattr(instance, "is_public", False):
+            granted = granted | {f"read_{model_name}"}
+        if permission == PermissionTypes.CRUD:
+            required = {
+                f"create_{model_name}",
+                f"read_{model_name}",
+                f"update_{model_name}",
+                f"remove_{model_name}",
+            }
+        else:  # ALL
+            required = {
+                f"create_{model_name}",
+                f"read_{model_name}",
+                f"update_{model_name}",
+                f"remove_{model_name}",
+                f"comment_{model_name}",
+                f"publish_{model_name}",
+                f"permission_{model_name}",
+            }
+        return required.issubset(granted)
+    return False
+
+
 def user_has_permission_for_obj(
     user_val: int | str | UserModel,
     instance: django.db.models.Model,
@@ -362,6 +510,31 @@ def user_has_permission_for_obj(
 ) -> bool:
     """
     Check if user has a specific permission on an object via django-guardian.
+
+    .. deprecated:: superseded by ``Manager.user_can(user, instance, permission)``
+        for standard-rule models. **New code MUST prefer**
+        ``Model.objects.user_can(user, instance, perm)`` (or the equivalent
+        ``instance.user_can(user, perm)``) for any model whose default
+        manager extends ``BaseVisibilityManager`` — i.e. Corpus, Document,
+        Analysis, Extract, etc. The ``user_can`` API is the single source
+        of truth that mirrors ``visible_to_user`` semantics and correctly
+        honors creator status (which this function deliberately ignores).
+
+        This helper is kept for two reasons:
+          1. It contains structural / privacy / inheritance handling for
+             ``Annotation`` and ``Relationship`` that ``_default_user_can``
+             does NOT replicate. Those models will get per-manager
+             ``user_can`` overrides in a later migration phase; until then,
+             the annotation/relationship branches below remain the
+             canonical check for those types.
+          2. ~170 existing call sites (mutations, optimizers, services,
+             tasks, imports) still use it. They will be migrated
+             incrementally. No runtime ``DeprecationWarning`` is raised
+             because firing it on every call would drown signal in noise
+             during that migration window — the docstring is the contract.
+
+        For new call sites: if ``instance`` is a Corpus/Document/Analysis/
+        Extract (or any model with ``Manager.user_can``), USE ``user_can``.
 
     ⚠️  IMPORTANT LIMITATION - READ THIS BEFORE USING ⚠️
 
@@ -382,10 +555,10 @@ def user_has_permission_for_obj(
     The visible_to_user() pattern handles the full permission model including
     creator access, corpus membership, and other context-dependent rules.
 
-    USE THIS FUNCTION FOR:
-    - Top-level objects with explicit permissions (Corpus, Analysis, Extract)
-    - Write permission checks where explicit guardian permissions are required
-    - Annotation/Relationship permission checks (has special handling built-in)
+    USE THIS FUNCTION ONLY FOR:
+    - Annotation/Relationship permission checks (has special handling built-in
+      that ``_default_user_can`` does not yet replicate).
+    - Legacy call sites pending migration to ``Manager.user_can``.
 
     Special handling for Annotations:
     - Annotations with created_by_analysis or created_by_extract fields require permission

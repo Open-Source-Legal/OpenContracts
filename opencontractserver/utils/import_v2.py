@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.db import transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -372,6 +374,141 @@ def import_md_description_revisions(
 
     except Exception as e:
         logger.error(f"Error importing markdown description: {e}")
+
+
+def import_metadata_schema(
+    metadata_schema: dict | None,
+    corpus: Corpus,
+    user_obj: UserModel,
+    doc_ref_to_doc: dict[str, Document] | None = None,
+) -> dict[str, int]:
+    """
+    Import a corpus's manual metadata schema (Fieldset + manual Columns + Datacells).
+
+    Mirrors what the fork task used to do inline.  This is the shared
+    implementation so both export/import and the fork wrapper produce the
+    same end state.
+
+    Args:
+        metadata_schema: ``MetadataSchemaExport`` dict, or ``None`` to no-op.
+        corpus: Target Corpus instance (the new Fieldset will be linked here).
+        user_obj: Importing user (creator of new Fieldset/Columns/Datacells).
+        doc_ref_to_doc: Optional mapping from ``document_ref`` (hash or in-zip
+            filename) to imported Document.  Required for datacell linkage.
+
+    Returns:
+        Mapping of old Column id (string) -> new Column pk (int).  Useful
+        if a caller wants to re-link other rows post-import.
+    """
+    from opencontractserver.extracts.models import Column, Datacell, Fieldset
+    from opencontractserver.types.enums import PermissionTypes
+    from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+
+    column_map: dict[str, int] = {}
+    if not metadata_schema:
+        return column_map
+
+    try:
+        with transaction.atomic():
+            # Detach any pre-existing schema on the target corpus.  The
+            # OneToOne back-reference would otherwise raise on the new
+            # save.  Reuse-by-name would be ambiguous (could collide with
+            # an unrelated fieldset on the same corpus), so we always
+            # create a fresh one.
+            #
+            # After detaching, try to delete the orphaned Fieldset (and its
+            # cascade-deleted Columns / non-extract Datacells) so repeated
+            # imports of the same corpus don't accumulate dead rows.  If
+            # the Fieldset is referenced by an Extract (PROTECT FK), the
+            # delete raises ProtectedError and we leave it orphaned but
+            # still functional — the data isn't actually unreachable.
+            existing = getattr(corpus, "metadata_schema", None)
+            if existing is not None:
+                existing.corpus = None
+                existing.save(update_fields=["corpus"])
+                try:
+                    existing.delete()
+                except ProtectedError:
+                    logger.info(
+                        "import_metadata_schema: orphaned Fieldset %s left in "
+                        "place because at least one Extract still references "
+                        "it (PROTECT FK).",
+                        existing.pk,
+                    )
+
+            fieldset = Fieldset.objects.create(
+                name=metadata_schema.get("fieldset_name", "Metadata"),
+                description=metadata_schema.get("fieldset_description", "") or "",
+                corpus=corpus,
+                creator=user_obj,
+            )
+            set_permissions_for_obj_to_user(user_obj, fieldset, [PermissionTypes.CRUD])
+
+            for col in metadata_schema.get("columns", []) or []:
+                new_column = Column.objects.create(
+                    name=col.get("name", ""),
+                    fieldset=fieldset,
+                    output_type=col.get("output_type", ""),
+                    data_type=col.get("data_type"),
+                    validation_config=(
+                        dict(col["validation_config"])
+                        if col.get("validation_config")
+                        else None
+                    ),
+                    is_manual_entry=True,
+                    default_value=col.get("default_value"),
+                    help_text=col.get("help_text"),
+                    display_order=col.get("display_order", 0),
+                    creator=user_obj,
+                    query=None,
+                    match_text=None,
+                )
+                set_permissions_for_obj_to_user(
+                    user_obj, new_column, [PermissionTypes.CRUD]
+                )
+                old_id = col.get("id")
+                if old_id is not None:
+                    column_map[str(old_id)] = new_column.pk
+
+            doc_ref_to_doc = doc_ref_to_doc or {}
+            for dc in metadata_schema.get("datacells", []) or []:
+                col_old_id = dc.get("column_id")
+                col_pk = column_map.get(str(col_old_id)) if col_old_id else None
+                doc_ref = dc.get("document_ref")
+                doc = doc_ref_to_doc.get(doc_ref) if doc_ref else None
+                if not col_pk or not doc:
+                    logger.debug(
+                        "Skipping datacell: column=%s doc_ref=%s",
+                        col_old_id,
+                        doc_ref,
+                    )
+                    continue
+
+                new_dc = Datacell.objects.create(
+                    column_id=col_pk,
+                    document=doc,
+                    data=dict(dc["data"]) if dc.get("data") else None,
+                    data_definition=dc.get("data_definition", "") or "",
+                    extract=None,
+                    creator=user_obj,
+                )
+                set_permissions_for_obj_to_user(
+                    user_obj, new_dc, [PermissionTypes.CRUD]
+                )
+
+        logger.info(
+            "Imported metadata schema: %d columns, %d datacells",
+            len(column_map),
+            len(metadata_schema.get("datacells", []) or []),
+        )
+    except Exception as e:
+        logger.error("Error importing metadata schema: %s", e, exc_info=True)
+        # The transaction rolled back, so any pks accumulated in
+        # column_map before the failure now point at non-existent rows.
+        # Clear it so downstream callers don't silently re-link to ghosts.
+        column_map.clear()
+
+    return column_map
 
 
 def import_conversations(

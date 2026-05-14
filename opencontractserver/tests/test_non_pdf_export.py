@@ -201,8 +201,11 @@ class NonPDFExportTestCase(TestCase):
             label_lookups=label_lookups, doc_id=doc.id, corpus_id=self.corpus.id
         )
 
-        # Should still work with empty PDF bytes
-        assert doc_name == "document"
-        assert base64_pdf == ""
+        # Should still work with empty PDF bytes.  build_document_export
+        # now synthesizes a doc-unique placeholder filename (was just
+        # ``"document"``) so the ZIP can hold one entry per doc with no
+        # file.  base64_pdf is the placeholder byte stub rather than "".
+        assert doc_name.startswith("document_") and doc_name.endswith(".placeholder")
+        assert base64_pdf  # non-empty placeholder
         assert doc_json is not None
         assert len(doc_json["labelled_text"]) == 1

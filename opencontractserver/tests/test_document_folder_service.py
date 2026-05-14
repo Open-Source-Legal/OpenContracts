@@ -98,27 +98,15 @@ class TestPermission_CorpusCreatorHasFullAccess(TransactionTestCase):
 
     def test_creator_can_read_corpus(self):
         """Creator should have READ permission on their corpus."""
-        self.assertTrue(
-            DocumentFolderService.check_corpus_read_permission(
-                self.creator, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.creator, PermissionTypes.READ))
 
     def test_creator_can_write_to_corpus(self):
         """Creator should have WRITE (UPDATE) permission on their corpus."""
-        self.assertTrue(
-            DocumentFolderService.check_corpus_write_permission(
-                self.creator, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.creator, PermissionTypes.UPDATE))
 
     def test_creator_can_delete_from_corpus(self):
         """Creator should have DELETE permission on their corpus."""
-        self.assertTrue(
-            DocumentFolderService.check_corpus_delete_permission(
-                self.creator, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.creator, PermissionTypes.DELETE))
 
 
 class TestPermission_SuperuserBypassesAllChecks(TransactionTestCase):
@@ -141,27 +129,15 @@ class TestPermission_SuperuserBypassesAllChecks(TransactionTestCase):
 
     def test_superuser_can_read_any_corpus(self):
         """Superuser should have READ permission on any corpus."""
-        self.assertTrue(
-            DocumentFolderService.check_corpus_read_permission(
-                self.superuser, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.READ))
 
     def test_superuser_can_write_to_any_corpus(self):
         """Superuser should have WRITE permission on any corpus."""
-        self.assertTrue(
-            DocumentFolderService.check_corpus_write_permission(
-                self.superuser, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.UPDATE))
 
     def test_superuser_can_delete_from_any_corpus(self):
         """Superuser should have DELETE permission on any corpus."""
-        self.assertTrue(
-            DocumentFolderService.check_corpus_delete_permission(
-                self.superuser, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.DELETE))
 
 
 class TestPermission_PublicCorpusGrantsReadOnly(TransactionTestCase):
@@ -185,32 +161,20 @@ class TestPermission_PublicCorpusGrantsReadOnly(TransactionTestCase):
 
     def test_random_user_can_read_public_corpus(self):
         """Any authenticated user should be able to READ a public corpus."""
-        self.assertTrue(
-            DocumentFolderService.check_corpus_read_permission(
-                self.random_user, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.random_user, PermissionTypes.READ))
 
     def test_random_user_cannot_write_to_public_corpus(self):
         """
         SECURITY: Users without explicit permission CANNOT write to public corpus.
         Public means readable, NOT editable.
         """
-        self.assertFalse(
-            DocumentFolderService.check_corpus_write_permission(
-                self.random_user, self.corpus
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.random_user, PermissionTypes.UPDATE))
 
     def test_random_user_cannot_delete_from_public_corpus(self):
         """
         SECURITY: Users without explicit permission CANNOT delete from public corpus.
         """
-        self.assertFalse(
-            DocumentFolderService.check_corpus_delete_permission(
-                self.random_user, self.corpus
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.random_user, PermissionTypes.DELETE))
 
 
 class TestPermission_ExplicitPermissionsViaGuardian(TransactionTestCase):
@@ -243,9 +207,7 @@ class TestPermission_ExplicitPermissionsViaGuardian(TransactionTestCase):
             self.reader, self.corpus, [PermissionTypes.READ]
         )
 
-        self.assertTrue(
-            DocumentFolderService.check_corpus_read_permission(self.reader, self.corpus)
-        )
+        self.assertTrue(self.corpus.user_can(self.reader, PermissionTypes.READ))
 
     def test_explicit_read_permission_does_not_grant_write_access(self):
         """User with only READ permission CANNOT write."""
@@ -253,11 +215,7 @@ class TestPermission_ExplicitPermissionsViaGuardian(TransactionTestCase):
             self.reader, self.corpus, [PermissionTypes.READ]
         )
 
-        self.assertFalse(
-            DocumentFolderService.check_corpus_write_permission(
-                self.reader, self.corpus
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.reader, PermissionTypes.UPDATE))
 
     def test_explicit_update_permission_grants_write_access(self):
         """User with explicit UPDATE permission can write to the corpus."""
@@ -265,11 +223,7 @@ class TestPermission_ExplicitPermissionsViaGuardian(TransactionTestCase):
             self.editor, self.corpus, [PermissionTypes.UPDATE]
         )
 
-        self.assertTrue(
-            DocumentFolderService.check_corpus_write_permission(
-                self.editor, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.editor, PermissionTypes.UPDATE))
 
     def test_explicit_delete_permission_grants_delete_access(self):
         """User with explicit DELETE permission can delete from the corpus."""
@@ -277,11 +231,7 @@ class TestPermission_ExplicitPermissionsViaGuardian(TransactionTestCase):
             self.deleter, self.corpus, [PermissionTypes.DELETE]
         )
 
-        self.assertTrue(
-            DocumentFolderService.check_corpus_delete_permission(
-                self.deleter, self.corpus
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.deleter, PermissionTypes.DELETE))
 
 
 class TestPermission_NoAccessDeniesEverything(TransactionTestCase):
@@ -304,27 +254,15 @@ class TestPermission_NoAccessDeniesEverything(TransactionTestCase):
 
     def test_stranger_cannot_read_private_corpus(self):
         """User without any permission cannot read private corpus."""
-        self.assertFalse(
-            DocumentFolderService.check_corpus_read_permission(
-                self.stranger, self.corpus
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.stranger, PermissionTypes.READ))
 
     def test_stranger_cannot_write_to_private_corpus(self):
         """User without any permission cannot write to private corpus."""
-        self.assertFalse(
-            DocumentFolderService.check_corpus_write_permission(
-                self.stranger, self.corpus
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.stranger, PermissionTypes.UPDATE))
 
     def test_stranger_cannot_delete_from_private_corpus(self):
         """User without any permission cannot delete from private corpus."""
-        self.assertFalse(
-            DocumentFolderService.check_corpus_delete_permission(
-                self.stranger, self.corpus
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.stranger, PermissionTypes.DELETE))
 
 
 class TestPermission_AnonymousUserAccess(TransactionTestCase):
@@ -349,33 +287,25 @@ class TestPermission_AnonymousUserAccess(TransactionTestCase):
     def test_anonymous_can_read_public_corpus(self):
         """Anonymous user can read public corpus."""
         self.assertTrue(
-            DocumentFolderService.check_corpus_read_permission(
-                self.anonymous, self.public_corpus
-            )
+            self.public_corpus.user_can(self.anonymous, PermissionTypes.READ)
         )
 
     def test_anonymous_cannot_read_private_corpus(self):
         """Anonymous user cannot read private corpus."""
         self.assertFalse(
-            DocumentFolderService.check_corpus_read_permission(
-                self.anonymous, self.private_corpus
-            )
+            self.private_corpus.user_can(self.anonymous, PermissionTypes.READ)
         )
 
     def test_anonymous_cannot_write_to_public_corpus(self):
         """SECURITY: Anonymous user CANNOT write even to public corpus."""
         self.assertFalse(
-            DocumentFolderService.check_corpus_write_permission(
-                self.anonymous, self.public_corpus
-            )
+            self.public_corpus.user_can(self.anonymous, PermissionTypes.UPDATE)
         )
 
     def test_anonymous_cannot_delete_from_public_corpus(self):
         """SECURITY: Anonymous user CANNOT delete even from public corpus."""
         self.assertFalse(
-            DocumentFolderService.check_corpus_delete_permission(
-                self.anonymous, self.public_corpus
-            )
+            self.public_corpus.user_can(self.anonymous, PermissionTypes.DELETE)
         )
 
 
