@@ -65,9 +65,10 @@ class ApproveDatacell(graphene.Mutation):
         except Datacell.DoesNotExist:
             ok = False
             message = "Datacell not found."
-        except Exception as e:
+        except Exception:
             # Don't leak ORM/constraint text to the caller; log server-side.
-            logger.exception("Error approving datacell: %s", e)
+            # logger.exception() captures the traceback automatically.
+            logger.exception("Error approving datacell")
             ok = False
             message = "Failed to approve datacell."
 
@@ -102,8 +103,8 @@ class RejectDatacell(graphene.Mutation):
         except Datacell.DoesNotExist:
             ok = False
             message = "Datacell not found."
-        except Exception as e:
-            logger.exception("Error rejecting datacell: %s", e)
+        except Exception:
+            logger.exception("Error rejecting datacell")
             ok = False
             message = "Failed to reject datacell."
 
@@ -138,8 +139,8 @@ class EditDatacell(graphene.Mutation):
         except Datacell.DoesNotExist:
             ok = False
             message = "Datacell not found."
-        except Exception as e:
-            logger.exception("Error editing datacell: %s", e)
+        except Exception:
+            logger.exception("Error editing datacell")
             ok = False
             message = "Failed to edit datacell."
 
@@ -264,11 +265,11 @@ class CreateMetadataColumn(graphene.Mutation):
                 ok=True, message="Metadata field created successfully", obj=column
             )
 
-        except Exception as e:
+        except Exception:
             # Don't surface ORM/constraint text — log and return a generic
             # message. Corpus.DoesNotExist is handled in the inner try above
             # to keep the IDOR-safe response path unified.
-            logger.exception("Error creating metadata field: %s", e)
+            logger.exception("Error creating metadata field")
             return CreateMetadataColumn(
                 ok=False, message="Error creating metadata field."
             )
@@ -343,8 +344,8 @@ class UpdateMetadataColumn(graphene.Mutation):
                 ok=True, message="Metadata field updated successfully", obj=column
             )
 
-        except Exception as e:
-            logger.exception("Error updating metadata field: %s", e)
+        except Exception:
+            logger.exception("Error updating metadata field")
             return UpdateMetadataColumn(
                 ok=False, message="Error updating metadata field."
             )

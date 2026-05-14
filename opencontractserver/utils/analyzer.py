@@ -254,9 +254,9 @@ def run_analysis(
     # only available right here — the DB stores only its SHA-256 hash, so
     # a DB read alone cannot let an attacker forge the callback. Any
     # in-flight callback bound to a previously-issued plaintext is
-    # invalidated by this rotation.
+    # invalidated by this rotation. ``rotate_callback_token`` auto-saves
+    # because ``analysis`` already has a pk at this point.
     callback_plaintext = analysis.rotate_callback_token()
-    analysis.save(update_fields=["callback_token_hash"])
 
     # We need to build the url of THIS actual instance of OpenContracts
     # This should be set in the settings (though we could grab it from the site,

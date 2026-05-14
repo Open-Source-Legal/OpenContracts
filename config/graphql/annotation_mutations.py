@@ -547,10 +547,12 @@ class AddRelationship(graphene.Mutation):
             set_permissions_for_obj_to_user(user, relationship, [PermissionTypes.CRUD])
             relationship.target_annotations.set(target_annotations)
             relationship.source_annotations.set(source_annotations)
-        except Exception as e:
+        except Exception:
             # Don't surface ORM or constraint messages to the caller — they
             # leak schema/existence information. Log server-side instead.
-            logger.exception("Error creating relationship: %s", e)
+            # ``logger.exception`` already appends the traceback + message,
+            # so we omit the redundant exception variable.
+            logger.exception("Error creating relationship")
             return AddRelationship(
                 ok=False,
                 relationship=None,

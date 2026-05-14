@@ -216,8 +216,8 @@ class TestOpenContractsAnalyzers(TransactionTestCase):
         # The DB only stores the SHA-256 hash, so we mint and use the
         # plaintext here to mirror what ``submit_corpus_documents_to_analyzer``
         # would have sent to the gremlin in production.
+        # rotate_callback_token() auto-saves because analysis_obj has a pk.
         plaintext_token = analysis_obj.rotate_callback_token()
-        analysis_obj.save(update_fields=["callback_token_hash"])
         authenticated_client = APIClient()
         authenticated_client.credentials(HTTP_CALLBACK_TOKEN=plaintext_token)
 

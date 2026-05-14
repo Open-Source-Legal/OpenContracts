@@ -150,8 +150,8 @@ class TestAnalysisCallbackSecurity(TestCase):
     def test_correct_token_accepted(self):
         """Issued plaintext token verifies against the stored SHA-256 hash."""
         # Mint a fresh plaintext token; the DB stores only its hash.
+        # rotate_callback_token() auto-saves because self.analysis has a pk.
         plaintext = self.analysis.rotate_callback_token()
-        self.analysis.save(update_fields=["callback_token_hash"])
 
         response = self.api_client.post(
             f"/analysis/{self.analysis.id}/complete",
@@ -237,6 +237,27 @@ class TestAnalysisCallbackTokenHelpers(TestCase):
         self.assertNotEqual(first, second)
         self.assertTrue(self.analysis.verify_callback_token(second))
         self.assertFalse(self.analysis.verify_callback_token(first))
+
+    def test_rotate_autopersists_for_saved_instance(self):
+        """Calling rotate on an instance with a pk persists the hash so a
+        subsequent ``refresh_from_db`` sees the new value without an
+        explicit ``save`` call by the caller."""
+        plaintext = self.analysis.rotate_callback_token()
+        # Read back from DB — auto-save means the new hash is durable.
+        self.analysis.refresh_from_db()
+        self.assertTrue(self.analysis.verify_callback_token(plaintext))
+
+    def test_rotate_does_not_save_unsaved_instance(self):
+        """For an unsaved instance (no pk yet), rotate sets the hash in
+        memory but does NOT auto-save — the caller still owns the first
+        save. This avoids a surprise ``IntegrityError`` from auto-saving
+        an Analysis missing required FKs."""
+        unsaved = Analysis(analyzer=self.analysis.analyzer, creator=self.user)
+        self.assertIsNone(unsaved.pk)
+        plaintext = unsaved.rotate_callback_token()
+        # In-memory hash is set; pk is still None (nothing was saved).
+        self.assertIsNone(unsaved.pk)
+        self.assertTrue(unsaved.verify_callback_token(plaintext))
 
 
 # ===========================================================================

@@ -3,10 +3,10 @@
 from typing import Any
 
 from django.conf import settings
-from django.core.checks import Warning, register
+from django.core.checks import Tags, Warning, register
 
 
-@register()
+@register(Tags.security)
 def check_auth0_superuser_allowlist(app_configs: Any, **kwargs: Any) -> list[Warning]:
     """Warn when Auth0 is enabled but the superuser allowlist is empty.
 

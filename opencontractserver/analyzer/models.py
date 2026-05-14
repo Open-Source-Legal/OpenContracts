@@ -270,15 +270,27 @@ class Analysis(BaseOCModel):
     def rotate_callback_token(self) -> str:
         """Generate a fresh plaintext callback token, store its hash, return the plaintext.
 
-        Caller is responsible for ``self.save()`` (or
-        ``save(update_fields=["callback_token_hash"])``). The plaintext is
-        the only artifact that can be sent to the analyzer worker; the
-        database never receives it. Each call rotates the token, so any
-        in-flight callback bound to a previous plaintext will fail
-        verification.
+        .. warning::
+           If the instance already has a ``pk`` (i.e. it has been saved at
+           least once) the hash is persisted automatically as part of this
+           call. If the instance is unsaved (``self.pk is None``) the
+           caller MUST follow up with ``self.save(...)`` before
+           transmitting the plaintext, otherwise the plaintext will be
+           sent to the worker but the DB will lack the verifying hash and
+           every callback for this analysis will fail.
+
+        The plaintext is the only artifact that can be sent to the
+        analyzer worker; the database never receives it. Each call
+        rotates the token, so any in-flight callback bound to a previous
+        plaintext will fail verification.
         """
         plaintext = secrets.token_urlsafe(32)
         self.callback_token_hash = self._hash_callback_token(plaintext)
+        # Auto-persist for already-saved instances so callers can't silently
+        # ship the plaintext to a worker while the DB still holds the old
+        # hash. ``save(update_fields=...)`` keeps this narrow.
+        if self.pk is not None:
+            self.save(update_fields=["callback_token_hash"])
         return plaintext
 
     def verify_callback_token(self, candidate: str | None) -> bool:
