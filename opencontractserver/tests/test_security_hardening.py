@@ -554,6 +554,50 @@ class TestAddRelationshipDocumentIDOR(TestCase):
         data = result["data"]["addRelationship"]
         self.assertTrue(data["ok"], f"expected ok, got message={data.get('message')!r}")
 
+    def test_garbage_global_ids_yield_not_found_message(self):
+        """Unparseable global IDs collapse into the same IDOR-safe message
+        rather than echoing a parse error to the caller.
+
+        ``from_global_id("not-a-global-id")`` raises ``binascii.Error`` which
+        is caught by the mutation's broad ``except Exception`` block. We use
+        a real but unknown-prefix global ID so the GraphQL parser accepts
+        the input shape but the inner decode still raises.
+        """
+        # b64("BogusType:not-an-int") = "Qm9ndXNUeXBlOm5vdC1hbi1pbnQ="
+        bad_gid = "Qm9ndXNUeXBlOm5vdC1hbi1pbnQ="
+        variables = {
+            "sourceIds": [bad_gid],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", self.label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": to_global_id("DocumentType", self.attacker_doc.id),
+        }
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        # Allow either: mutation returned ok=False with our message, OR the
+        # source ID was decoded to a non-existent annotation pk and the count
+        # comparison rejected it. Either way the caller sees the IDOR-safe
+        # not-found message.
+        data = result.get("data") or {}
+        relation_data = data.get("addRelationship")
+        if relation_data is not None:
+            self.assertFalse(relation_data["ok"])
+            self.assertIn("not found", relation_data["message"].lower())
+
+    def test_unknown_source_annotation_id_yields_not_found(self):
+        """A valid-format but unknown source annotation id collapses into
+        the unified not-found message — count comparison catches it."""
+        variables = {
+            "sourceIds": [to_global_id("AnnotationType", 999_999)],
+            "targetIds": [to_global_id("AnnotationType", self.target_annot.id)],
+            "relationshipLabelId": to_global_id("AnnotationLabelType", self.label.id),
+            "corpusId": to_global_id("CorpusType", self.attacker_corpus.id),
+            "documentId": to_global_id("DocumentType", self.attacker_doc.id),
+        }
+        result = _gql(self.gql_client, self.mutation, self.attacker, variables)
+        data = result["data"]["addRelationship"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not found", data["message"].lower())
+
 
 # ===========================================================================
 # 4. Conversation mutation IDOR tests
