@@ -281,8 +281,19 @@ def build_delegation_tool(
             )
 
         accumulated: list[str] = []
-        try:
-            async for event in sub_agent.stream(prompt):
+
+        async def _drain_stream(stream_iter) -> tuple[bool, dict[str, Any] | None]:
+            """Process events from one ``stream`` (or ``resume_with_approval``)
+            iteration, forwarding through the relay and accumulating content.
+
+            Returns:
+                A tuple ``(needs_resume, approval_payload)``.  When
+                ``needs_resume`` is True, the caller must invoke
+                ``sub_agent.resume_with_approval(...)`` with the decision in
+                ``approval_payload`` and drain its events too.  Otherwise the
+                stream ran to its final event (or errored).
+            """
+            async for event in stream_iter:
                 evt_type = getattr(event, "type", None)
                 content = getattr(event, "content", "") or ""
 
@@ -299,15 +310,27 @@ def build_delegation_tool(
                             dict(getattr(event, "metadata", {}) or {}),
                         )
                 elif evt_type == "approval_needed":
-                    if relay is not None:
-                        pending = dict(getattr(event, "pending_tool_call", {}) or {})
-                        # TODO(Task 7): The relay forwards the approval payload
-                        # to the consumer, but ``resume_with_approval(...)``
-                        # wiring lives in the consumer (it has the sub_agent
-                        # reference). Approval-resume must complete before the
-                        # conductor's tool call returns; for now the relay
-                        # callback just records the pending request.
-                        await relay.on_approval(pending)
+                    if relay is None:
+                        # No relay means there is no UI to ask — auto-reject.
+                        return True, {
+                            "approved": False,
+                            "llm_message_id": getattr(event, "llm_message_id", None),
+                            "_sub_agent_msg_id": getattr(event, "llm_message_id", None),
+                        }
+                    pending = dict(getattr(event, "pending_tool_call", {}) or {})
+                    # The consumer-side relay registers a future, emits
+                    # ASYNC_APPROVAL_NEEDED with ``requesting_agent``
+                    # attribution, and resolves the future when the user
+                    # decides.  We bring the decision back into the sub-
+                    # agent loop by re-driving ``resume_with_approval``.
+                    decision = await relay.on_approval(pending)
+                    if not isinstance(decision, dict):
+                        decision = {"approved": False, "llm_message_id": None}
+                    decision.setdefault(
+                        "_sub_agent_msg_id",
+                        getattr(event, "llm_message_id", None),
+                    )
+                    return True, decision
                 elif evt_type == "final":
                     # Final event carries the full accumulated content; if
                     # we never saw a content delta (e.g. non-streaming
@@ -326,16 +349,57 @@ def build_delegation_tool(
                         snake_slug,
                         err,
                     )
-                    return {
-                        "result": f"Sub-agent error: {err}",
-                        "pinned_message_id": None,
-                    }
+                    return False, {"_error": f"Sub-agent error: {err}"}
                 # ``sources``, ``approval_result``, ``resume`` events are
                 # not forwarded over the relay — the conductor doesn't need
                 # them, and the relay's surface is intentionally minimal.
                 # In particular SourceEvent is dropped because citations are
                 # surfaced as part of the sub-agent's content stream and the
                 # conductor only needs the synthesised final text.
+
+            return False, None
+
+        try:
+            needs_resume, decision = await _drain_stream(sub_agent.stream(prompt))
+            # Drive any approval-resume cycles inline so the conductor's
+            # tool call only returns once the sub-agent has fully settled.
+            max_resume_loops = 8  # bound to prevent pathological loops
+            while needs_resume and max_resume_loops > 0:
+                if decision and decision.get("_error"):
+                    return {
+                        "result": decision["_error"],
+                        "pinned_message_id": None,
+                    }
+                max_resume_loops -= 1
+                msg_id = (decision or {}).get("_sub_agent_msg_id")
+                approved = bool((decision or {}).get("approved", False))
+                if msg_id is None:
+                    logger.warning(
+                        "[delegate_to_%s] Approval cycle missing sub-agent "
+                        "message id; aborting.",
+                        snake_slug,
+                    )
+                    break
+                try:
+                    resume_iter = sub_agent.resume_with_approval(
+                        msg_id, approved, stream=True
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[delegate_to_%s] resume_with_approval failed: %s",
+                        snake_slug,
+                        exc,
+                    )
+                    return {
+                        "result": f"Sub-agent error: {exc}",
+                        "pinned_message_id": None,
+                    }
+                needs_resume, decision = await _drain_stream(resume_iter)
+            if decision and decision.get("_error"):
+                return {
+                    "result": decision["_error"],
+                    "pinned_message_id": None,
+                }
         except (PermissionError, ToolConfirmationRequired):
             # Security exceptions propagate per the fault-tolerance contract
             # (CLAUDE.md pitfall #13 / pydantic_ai_tools.py:560).
