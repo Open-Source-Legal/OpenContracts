@@ -19,6 +19,7 @@ from django.db.models import Q, QuerySet
 
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.documents.models import DocumentPath
+from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.tool_factory import CoreTool, ToolMetadata
 
 logger = logging.getLogger(__name__)
@@ -206,17 +207,33 @@ def build_delegation_tool(
 
         user_id = getattr(user, "id", None) if user is not None else None
 
+        # Build kwargs common to both factory calls. ``persist=False`` keeps
+        # the sub-agent ephemeral so it does NOT spawn a parallel ChatMessage
+        # stream on the parent conversation (spec: sub-agents are ephemeral
+        # and surface back to the conductor turn). ``system_prompt`` honours
+        # the selected ``AgentConfiguration``'s instructions; the underlying
+        # ``api.for_*`` plumbs this through to pydantic-ai's ``instructions=``
+        # kwarg (see CLAUDE.md pitfall #14 — ``system_prompt`` would be
+        # dropped if passed directly to ``PydanticAIAgent``, but the API
+        # layer here normalises it for us).
+        common_kwargs: dict[str, Any] = {
+            "user_id": user_id,
+            "persist": False,
+        }
+        if agent.system_instructions:
+            common_kwargs["system_prompt"] = agent.system_instructions
+
         try:
             if document is not None:
                 sub_agent = await agents_api.for_document(
                     document=document,
                     corpus=corpus,
-                    user_id=user_id,
+                    **common_kwargs,
                 )
             elif corpus is not None:
                 sub_agent = await agents_api.for_corpus(
                     corpus=corpus,
-                    user_id=user_id,
+                    **common_kwargs,
                 )
             else:
                 # No doc/corpus context — by the scope matrix every chat
@@ -236,6 +253,10 @@ def build_delegation_tool(
                     ),
                     "pinned_message_id": None,
                 }
+        except (PermissionError, ToolConfirmationRequired):
+            # Security exceptions propagate per the fault-tolerance contract
+            # (CLAUDE.md pitfall #13 / pydantic_ai_tools.py:560).
+            raise
         except Exception as exc:  # operational: surface to LLM, don't crash
             logger.warning(
                 "[delegate_to_%s] Failed to build sub-agent: %s", snake_slug, exc
@@ -280,6 +301,12 @@ def build_delegation_tool(
                 elif evt_type == "approval_needed":
                     if relay is not None:
                         pending = dict(getattr(event, "pending_tool_call", {}) or {})
+                        # TODO(Task 7): The relay forwards the approval payload
+                        # to the consumer, but ``resume_with_approval(...)``
+                        # wiring lives in the consumer (it has the sub_agent
+                        # reference). Approval-resume must complete before the
+                        # conductor's tool call returns; for now the relay
+                        # callback just records the pending request.
                         await relay.on_approval(pending)
                 elif evt_type == "final":
                     # Final event carries the full accumulated content; if
@@ -306,8 +333,12 @@ def build_delegation_tool(
                 # ``sources``, ``approval_result``, ``resume`` events are
                 # not forwarded over the relay — the conductor doesn't need
                 # them, and the relay's surface is intentionally minimal.
-        except PermissionError:
-            # Security exceptions propagate per the fault-tolerance contract.
+                # In particular SourceEvent is dropped because citations are
+                # surfaced as part of the sub-agent's content stream and the
+                # conductor only needs the synthesised final text.
+        except (PermissionError, ToolConfirmationRequired):
+            # Security exceptions propagate per the fault-tolerance contract
+            # (CLAUDE.md pitfall #13 / pydantic_ai_tools.py:560).
             raise
         except Exception as exc:  # operational
             logger.warning(
