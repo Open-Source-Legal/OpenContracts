@@ -53,6 +53,7 @@ class ApproveDatacell(graphene.Mutation):
 
         ok = True
         obj = None
+        message = "SUCCESS!"
 
         try:
             pk = from_global_id(datacell_id)[1]
@@ -60,11 +61,16 @@ class ApproveDatacell(graphene.Mutation):
             obj.approved_by = info.context.user
             obj.rejected_by = None
             obj.save()
-            message = "SUCCESS!"
 
-        except Exception as e:
+        except Datacell.DoesNotExist:
             ok = False
-            message = f"Failed to approve datacell due to error: {e}"
+            message = "Datacell not found."
+        except Exception:
+            # Don't leak ORM/constraint text to the caller; log server-side.
+            # logger.exception() captures the traceback automatically.
+            logger.exception("Error approving datacell")
+            ok = False
+            message = "Failed to approve datacell."
 
         return ApproveDatacell(ok=ok, obj=obj, message=message)
 
@@ -85,6 +91,7 @@ class RejectDatacell(graphene.Mutation):
 
         ok = True
         obj = None
+        message = "SUCCESS!"
 
         try:
             pk = from_global_id(datacell_id)[1]
@@ -92,11 +99,14 @@ class RejectDatacell(graphene.Mutation):
             obj.rejected_by = info.context.user
             obj.approved_by = None
             obj.save()
-            message = "SUCCESS!"
 
-        except Exception as e:
+        except Datacell.DoesNotExist:
             ok = False
-            message = f"Failed to approve datacell due to error: {e}"
+            message = "Datacell not found."
+        except Exception:
+            logger.exception("Error rejecting datacell")
+            ok = False
+            message = "Failed to reject datacell."
 
         return RejectDatacell(ok=ok, obj=obj, message=message)
 
@@ -118,17 +128,21 @@ class EditDatacell(graphene.Mutation):
 
         ok = True
         obj = None
+        message = "SUCCESS!"
 
         try:
             pk = from_global_id(datacell_id)[1]
             obj = Datacell.objects.get(pk=pk, creator=info.context.user)
             obj.corrected_data = edited_data
             obj.save()
-            message = "SUCCESS!"
 
-        except Exception as e:
+        except Datacell.DoesNotExist:
             ok = False
-            message = f"Failed to approve datacell due to error: {e}"
+            message = "Datacell not found."
+        except Exception:
+            logger.exception("Error editing datacell")
+            ok = False
+            message = "Failed to edit datacell."
 
         return EditDatacell(ok=ok, obj=obj, message=message)
 
@@ -171,17 +185,24 @@ class CreateMetadataColumn(graphene.Mutation):
             set_permissions_for_obj_to_user,
         )
 
+        # Unified message blocks IDOR enumeration: same response whether the
+        # corpus does not exist or the caller lacks UPDATE permission.
+        not_found_msg = "Corpus not found or you do not have permission to update it."
+
         try:
             user = info.context.user
-            corpus = Corpus.objects.get(pk=from_global_id(corpus_id)[1])
+            try:
+                corpus = Corpus.objects.visible_to_user(user).get(
+                    pk=from_global_id(corpus_id)[1]
+                )
+            except Corpus.DoesNotExist:
+                return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
             if not user_has_permission_for_obj(
                 user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
             ):
-                return CreateMetadataColumn(
-                    ok=False, message="You don't have permission to update this corpus"
-                )
+                return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Get or create metadata fieldset for corpus
             if not hasattr(corpus, "metadata_schema") or corpus.metadata_schema is None:
@@ -244,11 +265,13 @@ class CreateMetadataColumn(graphene.Mutation):
                 ok=True, message="Metadata field created successfully", obj=column
             )
 
-        except Corpus.DoesNotExist:
-            return CreateMetadataColumn(ok=False, message="Corpus not found")
-        except Exception as e:
+        except Exception:
+            # Don't surface ORM/constraint text — log and return a generic
+            # message. Corpus.DoesNotExist is handled in the inner try above
+            # to keep the IDOR-safe response path unified.
+            logger.exception("Error creating metadata field")
             return CreateMetadataColumn(
-                ok=False, message=f"Error creating metadata field: {str(e)}"
+                ok=False, message="Error creating metadata field."
             )
 
 
@@ -271,17 +294,24 @@ class UpdateMetadataColumn(graphene.Mutation):
     def mutate(root, info, column_id, **kwargs) -> "UpdateMetadataColumn":
         from opencontractserver.types.enums import PermissionTypes
 
+        # Unified message blocks IDOR enumeration: same response whether the
+        # column does not exist or the caller lacks UPDATE permission.
+        not_found_msg = "Column not found or you do not have permission to update it."
+
         try:
             user = info.context.user
-            column = Column.objects.get(pk=from_global_id(column_id)[1])
+            try:
+                column = Column.objects.visible_to_user(user).get(
+                    pk=from_global_id(column_id)[1]
+                )
+            except Column.DoesNotExist:
+                return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
             if not user_has_permission_for_obj(
                 user, column, PermissionTypes.UPDATE, include_group_permissions=True
             ):
-                return UpdateMetadataColumn(
-                    ok=False, message="You don't have permission to update this column"
-                )
+                return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Ensure it's a manual entry column
             if not column.is_manual_entry:
@@ -314,11 +344,10 @@ class UpdateMetadataColumn(graphene.Mutation):
                 ok=True, message="Metadata field updated successfully", obj=column
             )
 
-        except Column.DoesNotExist:
-            return UpdateMetadataColumn(ok=False, message="Column not found")
-        except Exception as e:
+        except Exception:
+            logger.exception("Error updating metadata field")
             return UpdateMetadataColumn(
-                ok=False, message=f"Error updating metadata field: {str(e)}"
+                ok=False, message="Error updating metadata field."
             )
 
 

@@ -107,6 +107,9 @@ class User(AbstractUser):
     family_name = django.db.models.CharField("Last Name", blank=True, max_length=255)
     auth0_Id = django.db.models.CharField("Auth0 User ID", blank=True, max_length=255)
     phone = django.db.models.CharField("Phone Number", blank=True, max_length=255)
+    # Informational only — NOT an identity field. Lacks ``unique=True``;
+    # duplicate-email rows are allowed. Identity is ``username`` (Auth0 sub).
+    # Do not use ``email`` as a join key for sharing, invites, or recovery.
     email = django.db.models.CharField("Email Address", blank=True, max_length=255)
 
     synced = django.db.models.BooleanField("Synced Remote User Data", default=False)

@@ -163,3 +163,15 @@ AUTH0_M2M_MANAGEMENT_API_ID = env("AUTH0_M2M_MANAGEMENT_API_ID", default="test-a
 AUTH0_M2M_MANAGEMENT_GRANT_TYPE = env(
     "AUTH0_M2M_MANAGEMENT_GRANT_TYPE", default="client_credentials"
 )
+
+# Silence the AUTH0_SUPERUSER_SUB_ALLOWLIST emptiness warning during tests.
+# Individual tests that exercise the allowlist behaviour override
+# ``AUTH0_SUPERUSER_SUB_ALLOWLIST`` explicitly via ``override_settings``; the
+# system check is only useful at production startup.
+#
+# Note: ``TestAuth0SuperuserAllowlistSystemCheck`` calls
+# ``check_auth0_superuser_allowlist`` directly rather than going through
+# Django's check runner, so it bypasses this silencing and verifies the
+# warning is emitted under USE_AUTH0=True with an empty allowlist. The
+# silencing here only suppresses the warning during normal test startup.
+SILENCED_SYSTEM_CHECKS = ["users.W001", "users.E001"]
