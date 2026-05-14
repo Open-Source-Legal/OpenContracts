@@ -23,7 +23,14 @@ import React, {
 } from "react";
 import { useLazyQuery, useQuery, useReactiveVar } from "@apollo/client";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Send, Home } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  AtSign,
+  Home,
+  MessageCircle,
+  Send,
+} from "lucide-react";
 import { Button } from "@os-legal/ui";
 import {
   CONVERSATION_TYPE,
@@ -92,6 +99,13 @@ import {
 import { ApprovalModal, PendingApproval } from "./corpus_chat/ApprovalModal";
 import { CorpusConversationListView } from "./corpus_chat/ConversationListView";
 import { useChatMentionPicker } from "../../hooks/useChatMentionPicker";
+import {
+  ChatEmptyState,
+  ChatEmptyStateIcon,
+  ChatEmptyStateTitle,
+  ChatEmptyStateDescription,
+  ChatEmptyStateHint,
+} from "../knowledge_base/document/ChatContainers";
 
 /**
  * CorpusChat props definition.
@@ -1164,6 +1178,25 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                 ref={messagesContainerRef}
                 $isProcessing={isProcessing}
               >
+                {combinedMessages.length === 0 &&
+                  !showWarmupTicker &&
+                  !isProcessing && (
+                    <ChatEmptyState data-testid="chat-empty-state">
+                      <ChatEmptyStateIcon>
+                        <MessageCircle />
+                      </ChatEmptyStateIcon>
+                      <ChatEmptyStateTitle>
+                        Ask me about this corpus
+                      </ChatEmptyStateTitle>
+                      <ChatEmptyStateDescription>
+                        I can search across all documents and answer questions.
+                      </ChatEmptyStateDescription>
+                      <ChatEmptyStateHint>
+                        <AtSign size={14} />
+                        Try @-mentioning a specific agent for deeper analysis.
+                      </ChatEmptyStateHint>
+                    </ChatEmptyState>
+                  )}
                 {combinedMessages.map((msg, idx) => {
                   const sourcedMessage = sourcedMessages.find(
                     (m) => m.messageId === msg.messageId
@@ -1324,7 +1357,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                 <div
                   data-testid="context-meter"
                   style={{
-                    padding: "0.25rem 1.5rem",
+                    padding: "0.375rem 1.5rem 0.625rem",
                     borderTop: "1px solid rgba(0, 0, 0, 0.06)",
                     background: "rgba(255, 255, 255, 0.95)",
                     display: "flex",
@@ -1484,6 +1517,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       }}
                     />
                     <EnhancedSendButton
+                      $hasText={!!newMessage.trim()}
                       disabled={
                         !wsReady ||
                         !newMessage.trim() ||
@@ -1493,7 +1527,14 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       onClick={sendMessageOverSocket}
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      animate={wsReady ? { y: [0, -2, 0] } : {}}
+                      animate={
+                        wsReady &&
+                        !!newMessage.trim() &&
+                        !isProcessing &&
+                        !contextExhausted
+                          ? { y: [0, -2, 0] }
+                          : {}
+                      }
                       transition={{ duration: 0.2 }}
                     >
                       <Send size={20} />

@@ -17,7 +17,13 @@ import {
   ErrorContainer,
 } from "../ChatContainers";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Send } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  AtSign,
+  MessageCircle,
+  Send,
+} from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -45,6 +51,11 @@ import {
   ConnectionStatus,
   ChatInputWrapper,
   CharacterCount,
+  ChatEmptyState,
+  ChatEmptyStateIcon,
+  ChatEmptyStateTitle,
+  ChatEmptyStateDescription,
+  ChatEmptyStateHint,
 } from "../ChatContainers";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import {
@@ -1483,6 +1494,25 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 ref={messagesContainerRef}
                 onScroll={handlePersistedScroll}
               >
+                {combinedMessages.length === 0 &&
+                  !showWarmupTicker &&
+                  !isAssistantResponding && (
+                    <ChatEmptyState data-testid="chat-empty-state">
+                      <ChatEmptyStateIcon>
+                        <MessageCircle />
+                      </ChatEmptyStateIcon>
+                      <ChatEmptyStateTitle>
+                        Ask me about this document
+                      </ChatEmptyStateTitle>
+                      <ChatEmptyStateDescription>
+                        I can read it, find sections, and answer questions.
+                      </ChatEmptyStateDescription>
+                      <ChatEmptyStateHint>
+                        <AtSign size={14} />
+                        Try @-mentioning a specific agent for deeper analysis.
+                      </ChatEmptyStateHint>
+                    </ChatEmptyState>
+                  )}
                 {combinedMessages.map((msg, idx) => {
                   // Find if this message has sources in our sourced messages state
                   const sourcedMessage = sourcedMessages.find(
@@ -1631,7 +1661,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 <div
                   data-testid="context-meter"
                   style={{
-                    padding: "0.25rem 1rem",
+                    padding: "0.375rem 1rem 0.625rem",
                     borderTop: "1px solid rgba(0, 0, 0, 0.06)",
                     background: "rgba(255, 255, 255, 0.95)",
                     display: "flex",

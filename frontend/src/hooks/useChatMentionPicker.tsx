@@ -128,7 +128,7 @@ export function useChatMentionPicker({
                 position: "fixed",
                 left: rect ? rect.left : 16,
                 bottom: rect
-                  ? Math.max(8, window.innerHeight - rect.top + 6)
+                  ? Math.max(8, window.innerHeight - rect.top + 12)
                   : 80,
                 zIndex: 1000,
                 pointerEvents: "auto",
