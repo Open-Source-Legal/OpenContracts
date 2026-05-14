@@ -722,7 +722,7 @@ describe("AnnotationHooks", () => {
         mockLabel,
         "hello",
         false,
-        { 0: { bounds: {}, tokensJsons: [], rawText: "hello" } } as any,
+        { 0: { bounds: {}, tokensJsons: [], rawText: "hello" } } as unknown as Record<string, unknown>,
         [
           PermissionTypes.CAN_READ,
           PermissionTypes.CAN_UPDATE,
@@ -858,7 +858,7 @@ describe("AnnotationHooks", () => {
         mockLabel,
         "hello",
         false,
-        { 0: { bounds: {}, tokensJsons: [], rawText: "hello" } } as any,
+        { 0: { bounds: {}, tokensJsons: [], rawText: "hello" } } as unknown as Record<string, unknown>,
         [
           PermissionTypes.CAN_READ,
           PermissionTypes.CAN_UPDATE,

@@ -27,7 +27,7 @@ const mockLabel = {
   id: "label-1",
   text: "TestLabel",
   color: "#3B82F6",
-  icon: "tag" as any,
+  icon: "tag",
   description: "Test label",
   labelType: LabelType.SpanLabel,
 };
@@ -36,12 +36,15 @@ const ocUrlLabel = {
   id: "label-url",
   text: OC_URL_LABEL,
   color: "#2563EB",
-  icon: "link" as any,
+  icon: "link",
   description: "url",
   labelType: LabelType.SpanLabel,
 };
 
-const EMPTY: any[] = [];
+// Stable empty array reused for both ``searchResults`` and ``chatSources``
+// props so we don't trip TxtAnnotator's referential-equality memoization
+// (a new ``[]`` literal each render would cause infinite re-renders).
+const EMPTY = [] as never[];
 
 const defaultProps = {
   searchResults: EMPTY,
