@@ -21,10 +21,17 @@ from django.db import migrations, models
 
 
 def backfill_token_hashes(apps, schema_editor):
+    """Hash existing plaintext callback_tokens in batches to limit memory use.
+
+    SHA-256 can't be expressed in a single portable SQL expression so we still
+    do one UPDATE per row, but ``iterator(chunk_size=...)`` keeps the row
+    cursor server-side instead of buffering the whole table in memory.
+    """
     Analysis = apps.get_model("analyzer", "Analysis")
-    for pk, raw_token in Analysis.objects.values_list("id", "callback_token"):
-        if raw_token is None:
-            continue
+    queryset = Analysis.objects.exclude(callback_token__isnull=True).values_list(
+        "id", "callback_token"
+    )
+    for pk, raw_token in queryset.iterator(chunk_size=500):
         digest = hashlib.sha256(str(raw_token).encode("utf-8")).hexdigest()
         Analysis.objects.filter(pk=pk).update(callback_token_hash=digest)
 
@@ -36,13 +43,15 @@ def restore_plaintext_tokens(apps, schema_editor):
     function exists so ``manage.py migrate analyzer 0020`` does not error.
     Each row receives a freshly-generated UUID so the column still has a
     valid value, but any in-flight analyzers will fail to authenticate.
+
+    Uses ``QuerySet.update()`` instead of model ``save()`` so historical-model
+    signals (if any) do not fire during a downgrade.
     """
     import uuid
 
     Analysis = apps.get_model("analyzer", "Analysis")
-    for analysis in Analysis.objects.all():
-        analysis.callback_token = uuid.uuid4()
-        analysis.save(update_fields=["callback_token"])
+    for pk in Analysis.objects.values_list("id", flat=True).iterator(chunk_size=500):
+        Analysis.objects.filter(pk=pk).update(callback_token=uuid.uuid4())
 
 
 class Migration(migrations.Migration):

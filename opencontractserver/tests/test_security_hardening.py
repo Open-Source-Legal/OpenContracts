@@ -163,6 +163,82 @@ class TestAnalysisCallbackSecurity(TestCase):
         self.assertNotEqual(response.status_code, 403)
 
 
+class TestAnalysisCallbackTokenHelpers(TestCase):
+    """Unit tests for ``Analysis.rotate_callback_token`` / ``verify_callback_token``.
+
+    These exercise the model helpers directly (without going through the
+    HTTP callback view) to lock in their behaviour on the edges the
+    callback view depends on: empty-hash fresh rows, constant-time
+    verification, plaintext-not-stored, and rotation invalidating prior
+    plaintexts.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="cb_helper_user", password="test")
+        gremlin = GremlinEngine.objects.create(
+            url="http://localhost:8000", creator=self.user
+        )
+        analyzer = Analyzer.objects.create(
+            id="cb-helper-analyzer",
+            description="Helper test analyzer",
+            creator=self.user,
+            host_gremlin=gremlin,
+        )
+        corpus = Corpus.objects.create(title="Helper Corpus", creator=self.user)
+        self.analysis = Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=corpus,
+            creator=self.user,
+        )
+
+    def test_fresh_analysis_has_empty_hash(self):
+        """Newly-created Analysis has an empty callback_token_hash."""
+        self.assertEqual(self.analysis.callback_token_hash, "")
+
+    def test_verify_empty_hash_always_false(self):
+        """Empty stored hash rejects every candidate, including the empty string."""
+        self.assertFalse(self.analysis.verify_callback_token(None))
+        self.assertFalse(self.analysis.verify_callback_token(""))
+        self.assertFalse(self.analysis.verify_callback_token("anything"))
+
+    def test_rotate_returns_plaintext_and_stores_hash(self):
+        """rotate_callback_token returns plaintext; DB stores only the SHA-256 hash."""
+        import hashlib
+
+        plaintext = self.analysis.rotate_callback_token()
+        self.assertIsInstance(plaintext, str)
+        self.assertGreaterEqual(
+            len(plaintext), 32
+        )  # secrets.token_urlsafe(32) yields ~43 chars
+        # Hash matches; plaintext is not in the model's hash field.
+        expected_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+        self.assertEqual(self.analysis.callback_token_hash, expected_hash)
+        self.assertNotIn(plaintext, self.analysis.callback_token_hash)
+
+    def test_verify_accepts_correct_plaintext_only(self):
+        """verify_callback_token accepts only the issued plaintext."""
+        plaintext = self.analysis.rotate_callback_token()
+        self.assertTrue(self.analysis.verify_callback_token(plaintext))
+        self.assertFalse(self.analysis.verify_callback_token(plaintext + "x"))
+        self.assertFalse(self.analysis.verify_callback_token("not-the-token"))
+
+    def test_verify_handles_none_and_empty_candidate(self):
+        """None/empty candidate is rejected even when a hash is set."""
+        self.analysis.rotate_callback_token()
+        self.assertFalse(self.analysis.verify_callback_token(None))
+        self.assertFalse(self.analysis.verify_callback_token(""))
+
+    def test_rotation_invalidates_prior_plaintext(self):
+        """Re-rotating the token invalidates the previously-issued plaintext."""
+        first = self.analysis.rotate_callback_token()
+        self.assertTrue(self.analysis.verify_callback_token(first))
+        second = self.analysis.rotate_callback_token()
+        # New plaintext verifies; old one is rejected.
+        self.assertNotEqual(first, second)
+        self.assertTrue(self.analysis.verify_callback_token(second))
+        self.assertFalse(self.analysis.verify_callback_token(first))
+
+
 # ===========================================================================
 # 2. home_redirect open redirect prevention tests
 # ===========================================================================

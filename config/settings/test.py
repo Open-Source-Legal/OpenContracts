@@ -163,3 +163,9 @@ AUTH0_M2M_MANAGEMENT_API_ID = env("AUTH0_M2M_MANAGEMENT_API_ID", default="test-a
 AUTH0_M2M_MANAGEMENT_GRANT_TYPE = env(
     "AUTH0_M2M_MANAGEMENT_GRANT_TYPE", default="client_credentials"
 )
+
+# Silence the AUTH0_SUPERUSER_SUB_ALLOWLIST emptiness warning during tests.
+# Individual tests that exercise the allowlist behaviour override
+# ``AUTH0_SUPERUSER_SUB_ALLOWLIST`` explicitly via ``override_settings``; the
+# system check is only useful at production startup.
+SILENCED_SYSTEM_CHECKS = ["users.W001"]

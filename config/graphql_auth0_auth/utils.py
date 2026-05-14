@@ -82,8 +82,18 @@ def _get_cached_jwks(domain: str) -> dict:
 def _can_serve_stale(current_time: float) -> bool:
     """Return True when the cache holds data still inside the stale-grace window.
 
-    Caller must already hold ``_jwks_cache_lock``.
+    .. warning::
+       This helper reads ``_jwks_cache`` without acquiring ``_jwks_cache_lock``.
+       Callers **must** already hold ``_jwks_cache_lock`` for the read to be
+       safe. All call sites today live inside ``_get_cached_jwks`` under
+       ``with _jwks_cache_lock:``. Do not invoke this from a different
+       context without re-acquiring the lock.
     """
+    # The assert raises if a caller accidentally drops the lock; cheap insurance
+    # against a future refactor that would otherwise introduce a torn read.
+    assert (
+        _jwks_cache_lock.locked()
+    ), "_can_serve_stale must be called while holding _jwks_cache_lock"
     if _jwks_cache["data"] is None:
         return False
     return current_time < _jwks_cache["expires_at"] + _JWKS_STALE_GRACE
@@ -503,6 +513,12 @@ def _sync_admin_claims_cached(user, payload):
 
     from opencontractserver.constants import ADMIN_CLAIMS_CACHE_TTL
 
+    # Operators can tune the TTL via AUTH0_ADMIN_CLAIMS_CACHE_TTL env var; the
+    # module-level constant remains the default and is mirrored in
+    # ``config/settings/base.py``.
+    cache_ttl = getattr(
+        settings, "AUTH0_ADMIN_CLAIMS_CACHE_TTL", ADMIN_CLAIMS_CACHE_TTL
+    )
     cache_key = f"admin_claims_sync:{user.id}"
 
     # Check if we've synced recently (with cache failure fallback)
@@ -517,7 +533,7 @@ def _sync_admin_claims_cached(user, payload):
     try:
         sync_admin_claims_from_payload(user, payload)
         try:
-            cache.set(cache_key, True, timeout=ADMIN_CLAIMS_CACHE_TTL)
+            cache.set(cache_key, True, timeout=cache_ttl)
         except Exception as e:
             # Cache set failed, but sync succeeded - that's fine
             logger.warning("Failed to cache admin claims sync status: %s", e)
