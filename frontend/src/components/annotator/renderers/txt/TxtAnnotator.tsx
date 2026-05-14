@@ -34,10 +34,17 @@ import { Label, LabelContainer, PaperContainer } from "./StyledComponents";
 import RadialButtonCloud, { CloudButtonItem } from "./RadialButtonCloud";
 import { hexToRgba } from "./utils";
 import { useLocation } from "react-router-dom";
-import { Copy, ExternalLink, Link, Tag, X, AlertCircle } from "lucide-react";
+import {
+  Copy,
+  ExternalLink,
+  Link,
+  Link2,
+  Tag,
+  X,
+  AlertCircle,
+} from "lucide-react";
 import { isUrlAnnotation, openAnnotationUrl } from "../../utils/urlAnnotation";
 import { CreateUrlAnnotationModal } from "../../components/modals/CreateUrlAnnotationModal";
-import { Link2 } from "lucide-react";
 import {
   encodeTextBlock,
   textBlockFromSpan,
