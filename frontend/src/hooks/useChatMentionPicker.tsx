@@ -39,6 +39,7 @@ import {
 import { useAgentMentionTrigger } from "./useAgentMentionTrigger";
 import { useUnifiedMentionSearch } from "../components/threads/hooks/useUnifiedMentionSearch";
 import { buildAgentMentionLink } from "../utils/agentMentionLink";
+import { Z_INDEX } from "../assets/configurations/constants";
 
 export interface UseChatMentionPickerOptions {
   /** Ref to the textarea — used for caret restoration and popover anchoring. */
@@ -150,7 +151,16 @@ export function useChatMentionPicker({
       position: "fixed",
       left: rect ? rect.left : 16,
       bottom: rect ? Math.max(8, window.innerHeight - rect.top + 12) : 80,
-      zIndex: 1000,
+      // ``Z_INDEX.APP_MODAL_CHILD`` (3100) — not the bare ``1000`` we used
+      // historically — because ChatTray renders inside the
+      // ``.fullscreen-modal-overlay`` at ``Z_INDEX.APP_MODAL`` (3000). The
+      // popover is portalled to ``document.body``, which makes it a sibling
+      // (not a descendant) of that overlay, so without bumping above 3000
+      // the modal overlay paints on top and the popover renders correctly
+      // but invisibly behind it. CorpusChat is not inside the DKB modal so
+      // either value worked there — this is why the bug only surfaced in
+      // document context.
+      zIndex: Z_INDEX.APP_MODAL_CHILD,
       pointerEvents: "auto",
     };
     // textareaRef is a ref object whose identity is stable; we re-derive

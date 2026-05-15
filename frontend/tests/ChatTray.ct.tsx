@@ -663,6 +663,19 @@ test("typing bare @ in ChatTray opens picker with full agent list (no minChars g
   // Both agents from the empty-fragment fetch surface in the list.
   await expect(page.getByText("Research Bot")).toBeVisible();
   await expect(page.getByText("Summary Bot")).toBeVisible();
+
+  // Regression pin: the picker is portalled to ``document.body``, which
+  // makes it a sibling of the DocumentKnowledgeBase's
+  // ``.fullscreen-modal-overlay`` (z-index 3000). The anchor MUST sit above
+  // that overlay or the popover renders invisibly behind it — the
+  // historical ``z-index: 1000`` did exactly that and made the picker
+  // appear "broken" in document context even though every other layer was
+  // working. Pin the computed z-index above APP_MODAL (3000) so a future
+  // refactor that drops it back down breaks the test, not the user.
+  const anchorZIndex = await page
+    .getByTestId("agent-mention-anchor")
+    .evaluate((el) => Number(getComputedStyle(el).zIndex));
+  expect(anchorZIndex).toBeGreaterThan(3000);
 });
 
 test("starts new chat and sends message via WebSocket", async ({
