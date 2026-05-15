@@ -12,6 +12,8 @@ Covers two layers:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.test import TestCase
@@ -43,6 +45,9 @@ from opencontractserver.utils.subtree_groups import (
     build_subtree_groups_for_document,
 )
 
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User as UserModel
+
 User = get_user_model()
 
 
@@ -52,6 +57,15 @@ def constant_vector(dim: int, value: float) -> list[float]:
 
 class BlockContextAttachTestCase(TestCase):
     """Annotation-hit block_context augmentation."""
+
+    user: UserModel
+    corpus: Corpus
+    document: Document
+    label_struct: AnnotationLabel
+    root: Annotation
+    section: Annotation
+    para: Annotation
+    leaf: Annotation
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -175,6 +189,15 @@ class BlockContextAttachTestCase(TestCase):
 
 class RelationshipVectorStoreTestCase(TestCase):
     """End-to-end: embed a subtree group and retrieve it via vector search."""
+
+    user: UserModel
+    corpus: Corpus
+    document: Document
+    label_struct: AnnotationLabel
+    parent: Annotation
+    child_a: Annotation
+    child_b: Annotation
+    subtree_rel: Relationship
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -313,6 +336,14 @@ def _fake_result(annotation: Annotation):
 
 class SynthesizeBlockTextTestCase(TestCase):
     """Stress the bounded-concat behaviour without DB churn."""
+
+    user: UserModel
+    label: AnnotationLabel
+    document: Document
+    src: Annotation
+    t1: Annotation
+    t2: Annotation
+    rel: Relationship
 
     @classmethod
     def setUpTestData(cls) -> None:

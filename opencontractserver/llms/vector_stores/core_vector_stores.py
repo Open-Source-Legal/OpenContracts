@@ -709,9 +709,13 @@ class CoreAnnotationVectorStore:
         # Single fetch for every annotation referenced by a winning group's
         # source or target set — keyed by ID so block_text assembly is O(N).
         referenced_ann_ids: set[int] = set()
-        for _, group in best_for_hit.values():
-            referenced_ann_ids.update(a.id for a in group.source_annotations.all())
-            referenced_ann_ids.update(a.id for a in group.target_annotations.all())
+        for _, winner_group in best_for_hit.values():
+            referenced_ann_ids.update(
+                a.id for a in winner_group.source_annotations.all()
+            )
+            referenced_ann_ids.update(
+                a.id for a in winner_group.target_annotations.all()
+            )
         ann_text_map = dict(
             Annotation.objects.filter(id__in=referenced_ann_ids).values_list(
                 "id", "raw_text"
@@ -724,14 +728,14 @@ class CoreAnnotationVectorStore:
             winner = best_for_hit.get(r.annotation.id)
             if winner is None:
                 continue
-            _, group = winner
-            source_ann = next(iter(group.source_annotations.all()), None)
+            _, hit_group = winner
+            source_ann = next(iter(hit_group.source_annotations.all()), None)
             if source_ann is None:
                 # An OC_SUBTREE_GROUP without a source annotation is
                 # malformed (the materialiser always sets one). Skip
                 # silently rather than fabricate a context.
                 continue
-            target_ann_ids = sorted(a.id for a in group.target_annotations.all())
+            target_ann_ids = sorted(a.id for a in hit_group.target_annotations.all())
             source_text = ann_text_map.get(source_ann.id, "") or ""
             # Concatenate source + targets newline-separated, bounded by
             # SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS. Order targets by ID for
@@ -760,7 +764,7 @@ class CoreAnnotationVectorStore:
             block_text = "\n".join(parts)
 
             r.block_context = BlockContext(
-                relationship_id=group.pk,
+                relationship_id=hit_group.pk,
                 source_annotation_id=source_ann.id,
                 source_text=source_text,
                 target_annotation_ids=target_ann_ids,

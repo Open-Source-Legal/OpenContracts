@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any
 
 from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
@@ -51,8 +51,8 @@ class RelationshipVectorSearchQuery:
     one shape can swap in this one with a renamed type only.
     """
 
-    query_text: Optional[str] = None
-    query_embedding: Optional[list[float]] = None
+    query_text: str | None = None
+    query_embedding: list[float] | None = None
     similarity_top_k: int = 50
     # Filter to specific relationship labels. Defaults to
     # ``OC_SUBTREE_GROUP`` because that's the only relationship type
@@ -75,12 +75,12 @@ class RelationshipVectorSearchResult:
 
     relationship: Relationship
     similarity_score: float = 1.0
-    source_annotation_id: Optional[int] = None
+    source_annotation_id: int | None = None
     target_annotation_ids: list[int] = field(default_factory=list)
     block_text: str = ""
-    label_text: Optional[str] = None
-    document_id: Optional[int] = None
-    corpus_id: Optional[int] = None
+    label_text: str | None = None
+    document_id: int | None = None
+    corpus_id: int | None = None
 
 
 class CoreRelationshipVectorStore:
@@ -102,10 +102,10 @@ class CoreRelationshipVectorStore:
 
     def __init__(
         self,
-        user_id: Union[str, int, None] = None,
-        corpus_id: Union[str, int, None] = None,
-        document_id: Union[str, int, None] = None,
-        embedder_path: Optional[str] = None,
+        user_id: str | int | None = None,
+        corpus_id: str | int | None = None,
+        document_id: str | int | None = None,
+        embedder_path: str | None = None,
         embed_dim: int = 768,
     ) -> None:
         if embedder_path is None and corpus_id is None:
@@ -257,7 +257,7 @@ class CoreRelationshipVectorStore:
     # ------------------------------------------------------------------ #
     # Embedding generation
     # ------------------------------------------------------------------ #
-    def _generate_query_embedding(self, query_text: str) -> Optional[list[float]]:
+    def _generate_query_embedding(self, query_text: str) -> list[float] | None:
         embedder_path, vector = generate_embeddings_from_text(
             query_text, embedder_path=self.embedder_path
         )
@@ -270,9 +270,7 @@ class CoreRelationshipVectorStore:
             )
         return vector
 
-    async def _agenerate_query_embedding(
-        self, query_text: str
-    ) -> Optional[list[float]]:
+    async def _agenerate_query_embedding(self, query_text: str) -> list[float] | None:
         embedder_path, vector = await agenerate_embeddings_from_text(
             query_text, embedder_path=self.embedder_path
         )
@@ -389,8 +387,8 @@ class CoreRelationshipVectorStore:
             # do a best-effort lookup via the structural set so corpus-
             # scoped clients can still associate the hit with a corpus
             # for breadcrumbs / deep-link routing.
-            corpus_id: Optional[int] = r.corpus_id
-            document_id: Optional[int] = r.document_id
+            corpus_id: int | None = r.corpus_id
+            document_id: int | None = r.document_id
             if corpus_id is None and self.corpus_id is not None:
                 corpus_id = int(self.corpus_id)
             if document_id is None and self.document_id is not None:
