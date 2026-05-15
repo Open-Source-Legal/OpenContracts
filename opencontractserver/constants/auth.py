@@ -5,11 +5,14 @@ Authentication-related constants.
 # Number of characters to show when logging token prefixes for debugging
 TOKEN_LOG_PREFIX_LENGTH = 10
 
-# Cache TTL for admin claims sync (in seconds)
-# Admin claims are synced from Auth0 tokens periodically to balance security
-# and performance. This TTL controls how often claims are re-synced.
-# 5 minutes = 300 seconds
-ADMIN_CLAIMS_CACHE_TTL = 300
+# Cache TTL for admin claims sync (in seconds).
+# Admin claims are re-synced from each verified Auth0 token at most once per
+# this window per user. The window bounds the privilege-retention gap when
+# Auth0 demotes a user: at worst, the Django ``is_staff``/``is_superuser``
+# flags remain stale until the next sync after the cache expires. 30 seconds
+# trades a small write-rate increase for a tight revocation SLA. Admin login
+# bypasses this cache and always re-syncs.
+ADMIN_CLAIMS_CACHE_TTL = 30
 
 # Default grace window for server-nudged WebSocket auth refresh.
 # When a consumer calls AuthHandshakeMixin.request_token_refresh() it sends
