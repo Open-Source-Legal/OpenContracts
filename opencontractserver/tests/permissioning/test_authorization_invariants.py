@@ -587,7 +587,9 @@ class _UserCanInvariantsMixin:
     def test_read_equivalence_across_user_matrix(self):
         """``user_can(READ) == visible_to_user.filter(pk=).exists()`` for every (user, instance)."""
         for user, instance in self._all_matrix_pairs():
-            check = self.model_cls.objects.user_can(user, instance, PermissionTypes.READ)
+            check = self.model_cls.objects.user_can(
+                user, instance, PermissionTypes.READ
+            )
             in_filter = (
                 self.model_cls.objects.visible_to_user(user)
                 .filter(pk=instance.pk)
@@ -672,16 +674,12 @@ class DocumentAuthorizationInvariantsTestCase(
 
     def test_is_public_grants_only_read(self):
         """``is_public=True`` grants READ but not UPDATE/DELETE."""
-        self.assertTrue(
-            self.public_doc.user_can(self.stranger, PermissionTypes.READ)
-        )
+        self.assertTrue(self.public_doc.user_can(self.stranger, PermissionTypes.READ))
         for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
             self.assertFalse(self.public_doc.user_can(self.stranger, perm))
 
 
-class NoteAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TransactionTestCase
-):
+class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TransactionTestCase):
     """Pin filter/check equivalence for ``Note`` (MIN of doc+corpus)."""
 
     def setUp(self):
@@ -1029,9 +1027,7 @@ class AnnotationAuthorizationInvariantsTestCase(
         READ a private-via-analysis annotation.
         """
         self.assertFalse(
-            self.private_via_analysis.user_can(
-                self.shared_reader, PermissionTypes.READ
-            )
+            self.private_via_analysis.user_can(self.shared_reader, PermissionTypes.READ)
         )
 
 
@@ -1115,7 +1111,9 @@ class ConversationAuthorizationInvariantsTestCase(
 
     def test_anonymous_cannot_see_chats(self):
         """Anonymous users can NEVER see CHAT conversations."""
-        self.assertFalse(self.private_chat.user_can(AnonymousUser(), PermissionTypes.READ))
+        self.assertFalse(
+            self.private_chat.user_can(AnonymousUser(), PermissionTypes.READ)
+        )
 
 
 class ChatMessageAuthorizationInvariantsTestCase(
@@ -1263,9 +1261,7 @@ class UserFeedbackAuthorizationInvariantsTestCase(
     def test_public_commented_annotation_grants_read(self):
         """``commented_annotation.is_public=True`` grants READ even when
         feedback is private and user has no other grants."""
-        self.assertTrue(
-            self.fb_on_public.user_can(self.stranger, PermissionTypes.READ)
-        )
+        self.assertTrue(self.fb_on_public.user_can(self.stranger, PermissionTypes.READ))
 
     def test_public_commented_annotation_does_not_grant_writes(self):
         """``commented_annotation.is_public`` is READ-only — does not bleed

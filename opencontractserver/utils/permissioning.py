@@ -19,7 +19,6 @@ from opencontractserver.shared.prefetch_attrs import (
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
-    from opencontractserver.corpuses.models import Corpus
     from opencontractserver.users.models import User as UserModel
 
 User = get_user_model()
@@ -602,5 +601,3 @@ def user_has_permission_for_obj(
         permission,
         include_group_permissions=include_group_permissions,
     )
-
-

@@ -64,9 +64,7 @@ class UserCanModifyCorpusTests(TestCase):
         self.assertTrue(self.corpus.user_can(self.editor, PermissionTypes.UPDATE))
 
     def test_user_with_group_update_can_modify(self) -> None:
-        self.assertTrue(
-            self.corpus.user_can(self.group_member, PermissionTypes.UPDATE)
-        )
+        self.assertTrue(self.corpus.user_can(self.group_member, PermissionTypes.UPDATE))
 
     def test_group_perm_ignored_when_disabled(self) -> None:
         """``include_group_permissions=False`` must skip group grants."""
@@ -82,9 +80,7 @@ class UserCanModifyCorpusTests(TestCase):
         self.assertFalse(self.corpus.user_can(self.outsider, PermissionTypes.UPDATE))
 
     def test_anonymous_user_cannot_modify(self) -> None:
-        self.assertFalse(
-            self.corpus.user_can(AnonymousUser(), PermissionTypes.UPDATE)
-        )
+        self.assertFalse(self.corpus.user_can(AnonymousUser(), PermissionTypes.UPDATE))
 
     def test_none_user_cannot_modify(self) -> None:
         self.assertFalse(self.corpus.user_can(None, PermissionTypes.UPDATE))
@@ -95,15 +91,11 @@ class UserCanModifyCorpusTests(TestCase):
         self.assertTrue(
             self.corpus.user_can(str(self.owner.id), PermissionTypes.UPDATE)
         )
-        self.assertFalse(
-            self.corpus.user_can(self.outsider.id, PermissionTypes.UPDATE)
-        )
+        self.assertFalse(self.corpus.user_can(self.outsider.id, PermissionTypes.UPDATE))
 
     def test_dangling_id_returns_false(self) -> None:
         """Non-existent user ids must return False, not raise DoesNotExist."""
         dangling_id = 99_999_999
         self.assertFalse(User.objects.filter(id=dangling_id).exists())
         self.assertFalse(self.corpus.user_can(dangling_id, PermissionTypes.UPDATE))
-        self.assertFalse(
-            self.corpus.user_can(str(dangling_id), PermissionTypes.UPDATE)
-        )
+        self.assertFalse(self.corpus.user_can(str(dangling_id), PermissionTypes.UPDATE))
