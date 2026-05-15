@@ -542,7 +542,9 @@ class ScanAndAnnotateRegistryTests(TransactionTestCase):
     PRIVACY_FILTER_URL="http://privacy_filter:8000",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class PersistAnnotationsLabelRaceTests(TransactionTestCase):
+class PersistAnnotationsLabelRaceTests(
+    _PiiPersistEmbeddingNoopMixin, TransactionTestCase
+):
     """Regression guard for the accepted-duplicate behavior of
     ``Corpus.ensure_label_and_labelset`` under PostgreSQL READ COMMITTED.
 
@@ -564,18 +566,7 @@ class PersistAnnotationsLabelRaceTests(TransactionTestCase):
     """
 
     def setUp(self) -> None:
-        # See ``_PiiPersistEmbeddingNoopMixin`` rationale — this test class
-        # also drives ``_persist_annotations_sync``, so it has to stub the
-        # embedding on_commit callback for the same reason. Inlined rather
-        # than mixin'd to keep the patch lifecycle obvious to readers of
-        # the race-condition regression.
-        super().setUp()
-        self._embed_patcher = patch(
-            "opencontractserver.llms.tools.core_tools.pii._queue_embed",
-            return_value=(lambda: None),
-        )
-        self._embed_patcher.start()
-        self.addCleanup(self._embed_patcher.stop)
+        super().setUp()  # _PiiPersistEmbeddingNoopMixin handles the patcher.
         self.user = User.objects.create_user("pii_race_user", password="pw")
         self.corpus = Corpus.objects.create(title="PII Race Corpus", creator=self.user)
 
@@ -691,7 +682,9 @@ class PersistAnnotationsLabelRaceTests(TransactionTestCase):
     PRIVACY_FILTER_URL="http://privacy.test",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class PersistAnnotationsUnknownGroupTests(TransactionTestCase):
+class PersistAnnotationsUnknownGroupTests(
+    _PiiPersistEmbeddingNoopMixin, TransactionTestCase
+):
     """Defensive coverage: ``_persist_annotations_sync`` is called via a
     sync_to_async wrapper inside ``ascan_and_annotate_pii``, which already
     rejects unknown entity groups at the public-API boundary
@@ -701,15 +694,7 @@ class PersistAnnotationsUnknownGroupTests(TransactionTestCase):
     ``ENTITY_GROUP_LABELS``."""
 
     def setUp(self) -> None:
-        # See ``_PiiPersistEmbeddingNoopMixin`` for the
-        # eager-celery-on_commit rationale.
-        super().setUp()
-        self._embed_patcher = patch(
-            "opencontractserver.llms.tools.core_tools.pii._queue_embed",
-            return_value=(lambda: None),
-        )
-        self._embed_patcher.start()
-        self.addCleanup(self._embed_patcher.stop)
+        super().setUp()  # _PiiPersistEmbeddingNoopMixin handles the patcher.
         self.user = User.objects.create_user("pii_unknown_user", password="pw")
         self.corpus = Corpus.objects.create(
             title="PII Unknown Group Corpus", creator=self.user
@@ -738,7 +723,9 @@ class PersistAnnotationsUnknownGroupTests(TransactionTestCase):
         group in the same batch still lands."""
         from opencontractserver.annotations.models import AnnotationLabel
 
-        before_label_count = AnnotationLabel.objects.count()
+        existing_label_ids = set(
+            AnnotationLabel.objects.values_list("id", flat=True)
+        )
 
         persisted = _persist_annotations_sync(
             doc=self.txt_doc,
@@ -760,10 +747,6 @@ class PersistAnnotationsUnknownGroupTests(TransactionTestCase):
         # No label was created for the unknown group — the only new label
         # is for ``private_email``.
         expected_known_label = ENTITY_GROUP_LABELS["private_email"][0]
-        new_labels = AnnotationLabel.objects.exclude(
-            id__in=AnnotationLabel.objects.order_by("id").values_list("id", flat=True)[
-                :before_label_count
-            ]
-        )
+        new_labels = AnnotationLabel.objects.exclude(id__in=existing_label_ids)
         new_label_texts = list(new_labels.values_list("text", flat=True))
         self.assertEqual(new_label_texts, [expected_known_label])

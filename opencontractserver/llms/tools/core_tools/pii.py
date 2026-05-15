@@ -130,8 +130,7 @@ def _queue_embed(pk: int, cid: int) -> Callable[[], None]:
     fixes a ``Cannot infer type of lambda`` mypy error we hit when
     registering this inline, and also rebinds ``pk`` / ``cid`` per call so
     the classic late-binding-in-loop bug can't fire. Lives at module scope
-    so it isn't redefined on every ``_persist_annotations_sync`` invocation
-    (per PR #1642 review feedback).
+    so it isn't redefined on every ``_persist_annotations_sync`` invocation.
     """
 
     def _fire() -> None:
@@ -288,9 +287,15 @@ def _persist_annotations_sync(
         # ``_queue_embed`` factory lives at module scope (see above) so it
         # isn't redefined on every call into ``_persist_annotations_sync``.
         for ann in annotations:
-            assert (
-                ann.pk is not None
-            ), "bulk_create did not populate annotation.pk (PostgreSQL RETURNING)"
+            # Explicit raise instead of ``assert`` so the invariant survives
+            # production interpreters launched with ``-O`` (which strip
+            # asserts). A missing pk would silently collapse every embedding
+            # task into a single dedup-key and lose embeddings.
+            if ann.pk is None:
+                raise RuntimeError(
+                    "bulk_create did not populate annotation.pk — "
+                    "the database backend must support RETURNING"
+                )
             transaction.on_commit(_queue_embed(ann.pk, corpus_pk))
 
     return [(ann.pk, det) for ann, det in pending]
