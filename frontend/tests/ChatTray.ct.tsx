@@ -611,6 +611,60 @@ test("typing @ in ChatTray opens agent picker and selecting inserts the markdown
   await expect(page.getByTestId("agent-mention-popover")).not.toBeVisible();
 });
 
+test("typing bare @ in ChatTray opens picker with full agent list (no minChars gate)", async ({
+  mount,
+  page,
+}) => {
+  // Regression: useUnifiedMentionSearch used to gate ALL category searches
+  // behind MENTION_SEARCH_MIN_CHARS (2), and useChatMentionPicker hid the
+  // popover until ``agentItems.length > 0``. The combination meant a bare
+  // ``@`` (or a 1-char fragment) never showed the picker — the user got no
+  // feedback that the trigger was even working. Agents are special-cased
+  // now: their search fires regardless of fragment length, so the popover
+  // shows the browsable list the instant ``@`` is typed.
+  const mocks: MockedResponse[] = [
+    createConversationsMock(mockConversations),
+    // Empty fragment ⇒ resolver returns the full visible-to-user agent set.
+    ...buildMentionSearchMocks("", TEST_CORPUS_ID, [
+      {
+        id: "agent-1",
+        name: "Research Bot",
+        slug: "research-bot",
+        description: "Does research",
+        scope: "GLOBAL",
+        mentionFormat: null,
+        corpus: null,
+      },
+      {
+        id: "agent-2",
+        name: "Summary Bot",
+        slug: "summary-bot",
+        description: "Summarises",
+        scope: "GLOBAL",
+        mentionFormat: null,
+        corpus: null,
+      },
+    ]),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await page.locator('[data-testid="new-chat-button"]').click();
+  const chatInput = page.locator('[data-testid="chat-input"]');
+  await expect(chatInput).toBeEnabled({ timeout: TIMEOUTS.MEDIUM });
+
+  await chatInput.focus();
+  // Single ``@`` keystroke — fragment="" but the picker must still appear.
+  await chatInput.pressSequentially("@", { delay: 30 });
+
+  await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  // Both agents from the empty-fragment fetch surface in the list.
+  await expect(page.getByText("Research Bot")).toBeVisible();
+  await expect(page.getByText("Summary Bot")).toBeVisible();
+});
+
 test("starts new chat and sends message via WebSocket", async ({
   mount,
   page,

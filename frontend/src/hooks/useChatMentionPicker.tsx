@@ -159,23 +159,29 @@ export function useChatMentionPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mention.isOpen, textareaRef]);
 
-  const popoverNode =
-    mention.isOpen && agentItems.length > 0
-      ? createPortal(
-          // Portal to <body> so the picker isn't clipped by ancestor
-          // `overflow: hidden` and stacks above the messages layer.
-          // Position anchored to the textarea's bounding rect.
-          <div data-testid="agent-mention-anchor" style={popoverStyle}>
-            <AgentMentionPopover
-              fragment={mention.fragment}
-              agents={agentItems}
-              onSelect={handleAgentSelect}
-              onDismiss={mention.onDismiss}
-            />
-          </div>,
-          document.body
-        )
-      : null;
+  // Render the popover whenever the trigger is open, even before the
+  // agent query has resolved or when no agent matches the fragment.
+  // ``AgentMentionPopover`` has its own "No matching agents." state, and
+  // hiding the popover until ``agentItems.length > 0`` made the picker
+  // look broken: on a bare ``@`` (empty fragment, no results yet) and on
+  // any fragment that doesn't match an agent name/slug, the popover
+  // simply never appeared with no signal to the user.
+  const popoverNode = mention.isOpen
+    ? createPortal(
+        // Portal to <body> so the picker isn't clipped by ancestor
+        // `overflow: hidden` and stacks above the messages layer.
+        // Position anchored to the textarea's bounding rect.
+        <div data-testid="agent-mention-anchor" style={popoverStyle}>
+          <AgentMentionPopover
+            fragment={mention.fragment}
+            agents={agentItems}
+            onSelect={handleAgentSelect}
+            onDismiss={mention.onDismiss}
+          />
+        </div>,
+        document.body
+      )
+    : null;
 
   return { handleValueChange, popoverNode };
 }
