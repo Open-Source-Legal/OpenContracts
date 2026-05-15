@@ -265,6 +265,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
             showQuickActions={false}
             autoFocus={false}
             testId="corpus-article-chat"
+            corpusId={corpus.id}
           />
         </FloatingChatBar>
         {onModeToggle && (
