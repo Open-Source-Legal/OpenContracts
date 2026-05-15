@@ -378,3 +378,19 @@ class SubtreeGroupMaterializationTestCase(TestCase):
                 if "exceeds cap" in c.args[0]
             ]
             self.assertGreaterEqual(len(warning_calls), 1)
+
+    def test_depth_cap_warning_logged(self) -> None:
+        # Build a chain deeper than max_depth so the walker prunes and emits
+        # the summary warning at subtree_groups.py:229-236.
+        prev = self._make_annot(raw_text="dwarn0")
+        for i in range(1, 5):
+            prev = self._make_annot(raw_text=f"dwarn{i}", parent=prev)
+
+        with patch("opencontractserver.utils.subtree_groups.logger") as mock_logger:
+            build_subtree_groups_for_document(self.document, self.user.id, max_depth=2)
+            warning_calls = [
+                c
+                for c in mock_logger.warning.call_args_list
+                if "max_depth" in c.args[0]
+            ]
+            self.assertGreaterEqual(len(warning_calls), 1)

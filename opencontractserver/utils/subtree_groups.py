@@ -44,6 +44,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
@@ -56,6 +57,7 @@ from opencontractserver.constants.annotations import (
     OC_SUBTREE_GROUP_LABEL_NAME,
     SUBTREE_GROUP_MAX_DEPTH,
     SUBTREE_GROUP_MAX_DESCENDANTS,
+    SUBTREE_GROUP_PRUNED_SAMPLE_CAP,
 )
 
 if TYPE_CHECKING:
@@ -89,13 +91,20 @@ def build_subtree_groups_for_document(
     #    already been migrated to a ``StructuralAnnotationSet`` (re-parse).
     # ------------------------------------------------------------------ #
     structural_set_id = document.structural_annotation_set_id
-    annotation_qs = Annotation.objects.filter(
+    # Cover both first-parse (rows still scoped to ``document``) and re-parse
+    # (rows already migrated to the document's ``StructuralAnnotationSet``,
+    # at which point ``annot.document`` is set to ``None`` by the parser —
+    # see ``BaseParser._create_structural_annotation_set``). Built as a single
+    # ``Q``-OR rather than ``qs1 | qs2`` so the WHERE clause is explicit and
+    # matches the idempotency-delete pattern below. ``document=`` is
+    # intentionally NOT duplicated onto the structural_set branch: migrated
+    # rows have ``document=None`` and would never match.
+    annotation_filter = Q(
         document=document, structural=True, structural_set__isnull=True
     )
     if structural_set_id is not None:
-        annotation_qs = annotation_qs | Annotation.objects.filter(
-            structural=True, structural_set_id=structural_set_id
-        )
+        annotation_filter |= Q(structural=True, structural_set_id=structural_set_id)
+    annotation_qs = Annotation.objects.filter(annotation_filter)
 
     parent_pairs = list(annotation_qs.values_list("id", "parent_id"))
     if not parent_pairs:
@@ -122,19 +131,24 @@ def build_subtree_groups_for_document(
     # Future-proofing: also consume any parent-style structural
     # Relationship rows already on the document or its structural set.
     # Currently no parser emits these, but analyzers may, and the cost
-    # is negligible.
-    rels_qs = Relationship.objects.filter(
+    # is negligible. Same ``Q``-OR rationale (and same reason ``document=``
+    # is omitted on the structural_set branch — migrated rows have
+    # ``rel.document=None``) as the annotation queryset above.
+    rels_filter = Q(
         document=document,
         structural=True,
         structural_set__isnull=True,
         relationship_label__text=OC_PARENT_CHILD_LABEL_NAME,
-    ).prefetch_related("source_annotations", "target_annotations")
+    )
     if structural_set_id is not None:
-        rels_qs = rels_qs | Relationship.objects.filter(
+        rels_filter |= Q(
             structural=True,
             structural_set_id=structural_set_id,
             relationship_label__text=OC_PARENT_CHILD_LABEL_NAME,
-        ).prefetch_related("source_annotations", "target_annotations")
+        )
+    rels_qs = Relationship.objects.filter(rels_filter).prefetch_related(
+        "source_annotations", "target_annotations"
+    )
     for rel in rels_qs:
         source_ids = [a.id for a in rel.source_annotations.all()]
         target_ids = [a.id for a in rel.target_annotations.all()]
@@ -162,18 +176,18 @@ def build_subtree_groups_for_document(
     # ------------------------------------------------------------------ #
     # 3. Post-order DFS with cycle detection and depth cap.
     # ------------------------------------------------------------------ #
-    roots = [
+    # Sort so traversal order is deterministic across runs (``structural_pks``
+    # is a ``set``); mirrors the ``non_leaves`` sort above for the same
+    # audit/snapshot-test reason. No functional impact — every root is walked.
+    roots = sorted(
         pk
         for pk in structural_pks
         if parent_map.get(pk) is None or parent_map[pk] not in structural_pks
-    ]
+    )
     post_order: list[int] = []
     visited: set[int] = set()
     on_stack: set[int] = set()
-    # Bounded sample of pruned descendant IDs included in the summary warning
-    # so production debugging can locate the offending branch without log spam.
     pruned_examples: list[int] = []
-    _PRUNED_SAMPLE_CAP = 5
 
     for root in roots:
         # Each frame is (node, child_iter_index, depth_at_node).
@@ -200,7 +214,7 @@ def build_subtree_groups_for_document(
                 child = kids[idx]
                 frame[1] = idx + 1
                 if depth + 1 > max_depth:
-                    if len(pruned_examples) < _PRUNED_SAMPLE_CAP:
+                    if len(pruned_examples) < SUBTREE_GROUP_PRUNED_SAMPLE_CAP:
                         pruned_examples.append(child)
                     continue
                 stack.append([child, 0, depth + 1])
@@ -301,11 +315,14 @@ def build_subtree_groups_for_document(
     #    ``StructuralAnnotationSet`` (re-parse).
     #
     #    Per-row ``Relationship.objects.create()`` (rather than
-    #    ``bulk_create``) is intentional: ``Relationship.save()`` calls
-    #    ``clean()`` which enforces the document-XOR-structural_set
-    #    constraint. The row count is bounded by the number of non-leaf
-    #    structural annotations and is small relative to the total
-    #    annotation count.
+    #    ``bulk_create``) is intentional: ``Relationship.save()`` is
+    #    overridden (see ``Relationship.save`` in
+    #    ``opencontractserver/annotations/models.py``) to call
+    #    ``self.clean()``, which enforces the document-XOR-structural_set
+    #    constraint. Django's default ``Model.save()`` does NOT call
+    #    ``clean()``, so ``bulk_create`` would silently bypass it. The row
+    #    count is bounded by the number of non-leaf structural annotations
+    #    and is small relative to the total annotation count.
     #
     #    Scope: on a first parse the structural set has not been created
     #    yet, so new rows are scoped to ``document``; the parser then
@@ -316,19 +333,26 @@ def build_subtree_groups_for_document(
     # ------------------------------------------------------------------ #
     created = 0
     with transaction.atomic():
-        delete_qs = Relationship.objects.filter(
+        # Idempotency delete: drop prior OC_SUBTREE_GROUP rows for this
+        # document regardless of scope. Single ``Q``-OR rather than
+        # ``qs1 | qs2`` so ``.delete()`` runs against an explicit WHERE
+        # clause (the prior union form relied on Django queryset combining
+        # for delete semantics). ``document=`` is again intentionally
+        # omitted on the structural_set branch — migrated rows have
+        # ``document=None``.
+        delete_filter = Q(
             document=document,
             structural=True,
             structural_set__isnull=True,
             relationship_label_id=label.pk,
         )
         if structural_set_id is not None:
-            delete_qs = delete_qs | Relationship.objects.filter(
+            delete_filter |= Q(
                 structural=True,
                 structural_set_id=structural_set_id,
                 relationship_label_id=label.pk,
             )
-        delete_qs.delete()
+        Relationship.objects.filter(delete_filter).delete()
 
         for node in non_leaves:
             descs = descendants.get(node)

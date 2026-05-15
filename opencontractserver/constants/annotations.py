@@ -46,6 +46,11 @@ SUBTREE_GROUP_MAX_DESCENDANTS = 500
 # further depth, so the cap is set well above realistic structures.
 SUBTREE_GROUP_MAX_DEPTH = 32
 
+# Bounded sample of pruned descendant IDs included in the max_depth summary
+# warning so production debugging can locate the offending branch without
+# log spam on a pathological tree.
+SUBTREE_GROUP_PRUNED_SAMPLE_CAP = 5
+
 # Maximum number of entries allowed in a single create_document_index call.
 DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
 
