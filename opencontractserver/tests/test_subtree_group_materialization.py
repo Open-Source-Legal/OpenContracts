@@ -41,6 +41,17 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+class _ShimParser(BaseParser):
+    """Minimal BaseParser stand-in for tests that only exercise
+    ``_create_structural_annotation_set`` — the abstract
+    ``_parse_document_impl`` is satisfied with a no-op."""
+
+    title = "shim-parser"
+
+    def _parse_document_impl(self, *args, **kwargs):
+        return None
+
+
 class SubtreeGroupMaterializationTestCase(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="grover", password="pw")
@@ -119,13 +130,6 @@ class SubtreeGroupMaterializationTestCase(TestCase):
 
     def test_subtree_groups_migrate_to_structural_set(self) -> None:
         """Running through BaseParser.save_parsed_data attaches groups to the set."""
-
-        class _ShimParser(BaseParser):
-            title = "shim-parser"
-
-            def _parse_document_impl(self, *args, **kwargs):
-                return None
-
         parser = _ShimParser()
 
         # Materialise groups first (as save_parsed_data would).
@@ -334,13 +338,6 @@ class SubtreeGroupMaterializationTestCase(TestCase):
     def test_re_parse_after_structural_set_exists(self) -> None:
         """Re-running the builder after a structural set has been migrated
         attaches new rows to the set and cleans up the prior generation."""
-
-        class _ShimParser(BaseParser):
-            title = "shim-parser"
-
-            def _parse_document_impl(self, *args, **kwargs):
-                return None
-
         parser = _ShimParser()
 
         # First parse: groups under document, then migrate to structural set.

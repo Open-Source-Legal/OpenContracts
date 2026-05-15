@@ -43,7 +43,7 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
@@ -150,35 +150,17 @@ def build_subtree_groups_for_document(
                 seen_edges.add(edge)
                 children[src].append(tgt)
 
-    # ------------------------------------------------------------------ #
-    # 3. Idempotency: drop any prior OC_SUBTREE_GROUP rows for this
-    #    document. Cover BOTH scoping cases: rows still on ``document``
-    #    (first parse) and rows already migrated onto the document's
-    #    ``StructuralAnnotationSet`` (re-parse).
-    # ------------------------------------------------------------------ #
-    delete_qs = Relationship.objects.filter(
-        document=document,
-        structural=True,
-        structural_set__isnull=True,
-        relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
-    )
-    if structural_set_id is not None:
-        delete_qs = delete_qs | Relationship.objects.filter(
-            structural=True,
-            structural_set_id=structural_set_id,
-            relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
-        )
-    delete_qs.delete()
-
     # Sort so row-creation order is deterministic across runs (``structural_pks``
     # is a ``set``); friendlier for audits and snapshot tests, no functional
-    # impact since rows are keyed by source annotation.
-    non_leaves = sorted(pk for pk in structural_pks if children.get(pk))
-    if not non_leaves:
-        return 0
+    # impact since rows are keyed by source annotation. Note: an empty
+    # ``non_leaves`` set is not an early-return — we still need to clean up
+    # any prior generation of subtree groups (handled by the idempotency
+    # delete in step 6) so re-parses that strip non-leaf structure don't
+    # leak stale rows.
+    non_leaves = sorted(pk for pk in structural_pks if pk in children)
 
     # ------------------------------------------------------------------ #
-    # 4. Post-order DFS with cycle detection and depth cap.
+    # 3. Post-order DFS with cycle detection and depth cap.
     # ------------------------------------------------------------------ #
     roots = [
         pk
@@ -188,7 +170,10 @@ def build_subtree_groups_for_document(
     post_order: list[int] = []
     visited: set[int] = set()
     on_stack: set[int] = set()
-    pruned_for_depth = False
+    # Bounded sample of pruned descendant IDs included in the summary warning
+    # so production debugging can locate the offending branch without log spam.
+    pruned_examples: list[int] = []
+    _PRUNED_SAMPLE_CAP = 5
 
     for root in roots:
         # Each frame is (node, child_iter_index, depth_at_node).
@@ -215,7 +200,8 @@ def build_subtree_groups_for_document(
                 child = kids[idx]
                 frame[1] = idx + 1
                 if depth + 1 > max_depth:
-                    pruned_for_depth = True
+                    if len(pruned_examples) < _PRUNED_SAMPLE_CAP:
+                        pruned_examples.append(child)
                     continue
                 stack.append([child, 0, depth + 1])
             else:
@@ -224,16 +210,17 @@ def build_subtree_groups_for_document(
                 post_order.append(node)
                 stack.pop()
 
-    if pruned_for_depth:
+    if pruned_examples:
         logger.warning(
-            "Subtree walker hit max_depth=%s on document %s; "
-            "deeper branches were pruned",
+            "Subtree walker hit max_depth=%s on document %s; deeper branches "
+            "were pruned (sample pruned descendants: %s)",
             max_depth,
             document.pk,
+            pruned_examples,
         )
 
     # ------------------------------------------------------------------ #
-    # 5. Bottom-up transitive closure (memoised by post-order).
+    # 4. Bottom-up transitive closure (memoised by post-order).
     #
     # Only fold in children the walker actually visited — pruned-for-depth
     # and cycle-skipped nodes never enter ``descendants``, so they (and
@@ -253,7 +240,11 @@ def build_subtree_groups_for_document(
         descendants[node] = acc
 
     # ------------------------------------------------------------------ #
-    # 6. Resolve / create the built-in OC_SUBTREE_GROUP label.
+    # 5. Resolve / create the built-in OC_SUBTREE_GROUP label.
+    #
+    # Resolved BEFORE the delete in step 6 so the idempotency query can
+    # filter by ``relationship_label_id`` (indexed FK) instead of JOIN'ing
+    # to ``AnnotationLabel`` on ``relationship_label__text``.
     #
     # ``AnnotationLabel.UniqueConstraint`` keys on ``(analyzer, text,
     # creator, label_type)``. Using ``get_or_create`` with
@@ -301,52 +292,75 @@ def build_subtree_groups_for_document(
                 raise
 
     # ------------------------------------------------------------------ #
-    # 7. Create one Relationship per non-leaf within the size cap.
+    # 6. Atomic idempotency: drop any prior OC_SUBTREE_GROUP rows for this
+    #    document and write the fresh generation in a single transaction.
+    #    Without the atomic wrapper, a failure mid-create would leave the
+    #    document with the deletion already committed and no replacement
+    #    rows. Cover BOTH scoping cases: rows still on ``document`` (first
+    #    parse) and rows already migrated onto the document's
+    #    ``StructuralAnnotationSet`` (re-parse).
     #
-    # ``Relationship.save()`` calls ``clean()`` on every save, so we use
-    # ``.create()`` (not ``bulk_create``) to preserve validation. The
-    # row count is bounded by the number of non-leaf structural
-    # annotations and is small relative to the total annotation count.
+    #    Per-row ``Relationship.objects.create()`` (rather than
+    #    ``bulk_create``) is intentional: ``Relationship.save()`` calls
+    #    ``clean()`` which enforces the document-XOR-structural_set
+    #    constraint. The row count is bounded by the number of non-leaf
+    #    structural annotations and is small relative to the total
+    #    annotation count.
     #
-    # Scope: on a first parse the structural set has not been created
-    # yet, so new rows are scoped to ``document``; the parser then
-    # migrates them to the set in ``_create_structural_annotation_set``.
-    # On a re-parse the structural set already exists, so we attach
-    # straight to it — otherwise the early-return in that method would
-    # leave us with orphaned ``document``-scoped rows.
+    #    Scope: on a first parse the structural set has not been created
+    #    yet, so new rows are scoped to ``document``; the parser then
+    #    migrates them to the set in ``_create_structural_annotation_set``.
+    #    On a re-parse the structural set already exists, so we attach
+    #    straight to it — otherwise the early-return in that method would
+    #    leave us with orphaned ``document``-scoped rows.
     # ------------------------------------------------------------------ #
     created = 0
-    for node in non_leaves:
-        descs = descendants.get(node)
-        if not descs:
-            continue
-        if len(descs) > max_descendants:
-            logger.warning(
-                "Skipping OC_SUBTREE_GROUP for annotation %s on document %s: "
-                "%s descendants exceeds cap %s",
-                node,
-                document.pk,
-                len(descs),
-                max_descendants,
-            )
-            continue
+    with transaction.atomic():
+        delete_qs = Relationship.objects.filter(
+            document=document,
+            structural=True,
+            structural_set__isnull=True,
+            relationship_label_id=label.pk,
+        )
         if structural_set_id is not None:
-            rel = Relationship.objects.create(
-                relationship_label=label,
+            delete_qs = delete_qs | Relationship.objects.filter(
+                structural=True,
                 structural_set_id=structural_set_id,
-                creator_id=user_id,
-                structural=True,
+                relationship_label_id=label.pk,
             )
-        else:
-            rel = Relationship.objects.create(
-                relationship_label=label,
-                document=document,
-                creator_id=user_id,
-                structural=True,
-            )
-        rel.source_annotations.add(node)
-        rel.target_annotations.add(*descs)
-        created += 1
+        delete_qs.delete()
+
+        for node in non_leaves:
+            descs = descendants.get(node)
+            if not descs:
+                continue
+            if len(descs) > max_descendants:
+                logger.warning(
+                    "Skipping OC_SUBTREE_GROUP for annotation %s on document "
+                    "%s: %s descendants exceeds cap %s",
+                    node,
+                    document.pk,
+                    len(descs),
+                    max_descendants,
+                )
+                continue
+            if structural_set_id is not None:
+                rel = Relationship.objects.create(
+                    relationship_label=label,
+                    structural_set_id=structural_set_id,
+                    creator_id=user_id,
+                    structural=True,
+                )
+            else:
+                rel = Relationship.objects.create(
+                    relationship_label=label,
+                    document=document,
+                    creator_id=user_id,
+                    structural=True,
+                )
+            rel.source_annotations.add(node)
+            rel.target_annotations.set(descs)
+            created += 1
 
     logger.info(
         "Materialised %s OC_SUBTREE_GROUP relationships for document %s",
