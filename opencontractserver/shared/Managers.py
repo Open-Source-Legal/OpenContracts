@@ -346,15 +346,24 @@ class UserFeedbackManager(BaseVisibilityManager):
         default branch for creator/public/guardian. Non-READ permissions
         do NOT get the commented-annotation grant — write permission is
         creator/guardian only.
+
+        Performance note: the public-annotation gate uses a targeted
+        ``Annotation.objects.filter(pk=commented_annotation_id,
+        is_public=True).exists()`` lookup instead of dereferencing
+        ``instance.commented_annotation`` — that descriptor triggers a
+        DB hit per call when not prefetched, so bulk callers iterating
+        feedback rows would otherwise generate one extra query each.
         """
+        from opencontractserver.annotations.models import Annotation
         from opencontractserver.types.enums import PermissionTypes
 
-        if (
-            permission == PermissionTypes.READ
-            and getattr(instance, "commented_annotation_id", None)
-            and getattr(instance.commented_annotation, "is_public", False)
-        ):
-            return True
+        if permission == PermissionTypes.READ:
+            commented_id = getattr(instance, "commented_annotation_id", None)
+            if (
+                commented_id
+                and Annotation.objects.filter(pk=commented_id, is_public=True).exists()
+            ):
+                return True
         return super().user_can(
             user,
             instance,
@@ -625,6 +634,17 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
            ``AnnotationQueryOptimizer._compute_effective_permissions``
            which encodes the MIN logic and BACON MODE
            (``corpus.allow_comments → COMMENT = READ``).
+
+        Performance note: the privacy-recursion branch dereferences
+        ``instance.created_by_analysis`` / ``instance.created_by_extract``
+        when their FK ids are set — those descriptors hit the database
+        once each per call when the relations aren't prefetched. Bulk
+        callers (e.g. GraphQL list resolvers iterating annotations)
+        SHOULD ``select_related("created_by_analysis",
+        "created_by_extract")`` on their root queryset to avoid one
+        extra query per row. The ``AnnotationQueryOptimizer`` already
+        batches the MIN(doc, corpus) computation; only the privacy
+        recursion path is unbatched today.
         """
         from django.contrib.auth.models import AnonymousUser
 
@@ -799,6 +819,13 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
         are visible. Composes ``Document.objects.user_can`` and
         ``Corpus.objects.user_can`` rather than reusing
         ``AnnotationQueryOptimizer`` (notes don't have BACON MODE).
+
+        Performance note: both the anonymous and authenticated branches
+        dereference ``instance.document`` / ``instance.corpus`` — these
+        descriptors hit the database when the relations aren't
+        prefetched. Bulk callers (list resolvers iterating notes)
+        SHOULD ``select_related("document", "corpus")`` on the root
+        queryset to keep the per-note check at O(1) DB ops.
         """
         from django.contrib.auth.models import AnonymousUser
 

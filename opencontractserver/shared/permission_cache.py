@@ -29,6 +29,14 @@ Design constraints:
 The cache is intentionally simple: a plain dict held on a ``ContextVar``.
 Issue #1640 tracks a more elaborate two-tier request-scoped optimizer;
 this module ships the minimum that ``_default_user_can`` needs.
+
+**Activation status (Phase A):** the scope is implemented but no
+production caller enters it yet — no GraphQL middleware, WebSocket
+handler, or Celery task wraps work in ``permission_cache_scope()``.
+The cache stays dormant until a future Phase B change wires it in.
+This is intentional: shipping the cache primitive separately lets us
+verify the API surface and key shape with invariant tests before
+activating it in the request path. Tracking issue: #1655 follow-up.
 """
 
 from __future__ import annotations
@@ -69,6 +77,13 @@ def permission_cache_scope():
     cache is restored. The default ``None`` is restored at the outermost
     exit, so accidental misuse outside a scope is safe (it just bypasses
     the cache).
+
+    **Nested scopes do NOT inherit the parent scope's cached entries.**
+    Each ``permission_cache_scope()`` allocates a fresh empty dict, so a
+    permission computed in an outer scope is re-computed if the same
+    tuple is queried inside an inner scope. This is safe (no stale
+    answers) but means nesting offers no caching benefit until/unless a
+    future variant joins existing scopes.
     """
     token = _perm_cache.set({})
     try:
