@@ -88,6 +88,7 @@ import { DocumentViewer } from "./document_kb/DocumentViewer";
 import { useResizeHandle } from "./document_kb/useResizeHandle";
 import { useDocumentMarkdown } from "./document_kb/useDocumentMarkdown";
 import { useStructuralAnnotations } from "./document_kb/useStructuralAnnotations";
+import { useJumpToRelationship } from "./document_kb/useJumpToRelationship";
 import { useDocumentLoader } from "./document_kb/useDocumentLoader";
 import { useContainerWidth } from "./document_kb/useContainerWidth";
 import { HeaderBar } from "./document_kb/HeaderBar";
@@ -522,6 +523,10 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   // them out of the main payload since large documents have thousands and
   // they're hidden by default.
   useStructuralAnnotations(documentId);
+
+  // Wire ``?rel=<pk>`` deep-link → relation selection + scroll-to.
+  // No-op when the param is absent; safe to keep mounted unconditionally.
+  useJumpToRelationship();
 
   // Container width tracking for fit-to-width zoom.
   const { containerWidth, containerRefCallback } = useContainerWidth();

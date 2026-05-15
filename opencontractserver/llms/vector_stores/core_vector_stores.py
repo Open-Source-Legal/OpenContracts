@@ -2,14 +2,22 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Count, Q
 
-from opencontractserver.annotations.models import Annotation, StructuralAnnotationSet
+from opencontractserver.annotations.models import (
+    Annotation,
+    Relationship,
+    StructuralAnnotationSet,
+)
+from opencontractserver.constants.annotations import (
+    OC_SUBTREE_GROUP_LABEL_NAME,
+    SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
+)
 from opencontractserver.constants.search import (
     FTS_CONFIG,
     HYBRID_SEARCH_OVERSAMPLE_FACTOR,
@@ -119,11 +127,48 @@ class VectorSearchQuery:
 
 
 @dataclass
+class BlockContext:
+    """Containing-subtree context for a vector hit.
+
+    Attached to a :class:`VectorSearchResult` by
+    :meth:`CoreAnnotationVectorStore._attach_block_context` when the hit's
+    annotation participates in an ``OC_SUBTREE_GROUP`` relationship (see
+    ``opencontractserver/utils/subtree_groups.py``). Surfaces the smallest
+    enclosing block so the LLM / UI can show "what larger section does this
+    leaf belong to?" without a recursive CTE per hit.
+
+    Attributes:
+        relationship_id: PK of the materialised ``OC_SUBTREE_GROUP`` relationship.
+        source_annotation_id: PK of the ancestor annotation (the block's root).
+        source_text: ``raw_text`` of the ancestor annotation.
+        target_annotation_ids: PKs of every annotation transitively under the
+            ancestor (i.e. the descendants of the smallest enclosing subtree).
+        block_text: ``source_text`` concatenated with each target's ``raw_text``
+            on newline boundaries, truncated to
+            ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS``. Provided as a single,
+            already-bounded string so consumers (LLM tools, GraphQL clients)
+            don't need to re-fetch annotations to display the block.
+    """
+
+    relationship_id: int
+    source_annotation_id: int
+    source_text: str
+    target_annotation_ids: list[int] = field(default_factory=list)
+    block_text: str = ""
+
+
+@dataclass
 class VectorSearchResult:
     """Framework-agnostic vector search result."""
 
     annotation: Annotation
     similarity_score: float = 1.0
+    # Populated post-hoc by ``_attach_block_context`` when the hit's
+    # annotation lies inside an ``OC_SUBTREE_GROUP`` materialised subtree.
+    # ``None`` when the annotation is a root-level structural row, when no
+    # subtree groups have been materialised yet (legacy documents), or when
+    # an attach pass was skipped (e.g. ``include_block_context=False``).
+    block_context: Optional[BlockContext] = None
 
 
 class CoreAnnotationVectorStore:
@@ -577,6 +622,167 @@ class CoreAnnotationVectorStore:
         _logger.debug(f"After metadata filters: {queryset.query}")
         return queryset
 
+    # ------------------------------------------------------------------ #
+    # Block-context (OC_SUBTREE_GROUP) augmentation
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _attach_block_context_sync(
+        results: list["VectorSearchResult"],
+    ) -> list["VectorSearchResult"]:
+        """Populate ``result.block_context`` for hits inside a subtree group.
+
+        The materialised ``OC_SUBTREE_GROUP`` rows (see
+        ``opencontractserver/utils/subtree_groups.py``) act as a precomputed
+        "what larger block does this leaf belong to?" index — one row per
+        non-leaf structural annotation whose ``target_annotations`` contains
+        every transitive descendant. This helper turns that index into a
+        single bounded join: pull every OC_SUBTREE_GROUP whose target set
+        intersects the hit IDs, then for each hit pick the smallest such
+        group (the most-specific enclosing block).
+
+        Implementation detail: the M2M join is annotated with
+        ``descendant_count = Count(target_annotations)`` so smallest-block
+        selection runs in Python without a second round-trip. The
+        annotations whose IDs appear in ``target_annotation_ids`` are
+        re-fetched once in a single ``IN`` query to keep ``block_text``
+        bounded by ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS``.
+
+        Mutates ``results`` in place AND returns it so call-sites can write
+        ``results = self._attach_block_context_sync(results)`` for clarity.
+        Pure pass-through if ``results`` is empty.
+        """
+        if not results:
+            return results
+
+        hit_ids = {r.annotation.id for r in results if r.annotation is not None}
+        if not hit_ids:
+            return results
+
+        # ``OC_SUBTREE_GROUP`` rows are always structural; filter both on
+        # the label text AND ``structural=True`` so a hypothetical
+        # non-structural relationship with the same label text (e.g. an
+        # analyzer copying the label) cannot pollute block context. The
+        # ``target_annotations__in=hit_ids`` filter is the small side of
+        # the join — typical hit sets are <= ``similarity_top_k`` (≤200).
+        groups = (
+            Relationship.objects.filter(
+                relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+                structural=True,
+                target_annotations__in=hit_ids,
+            )
+            .annotate(descendant_count=Count("target_annotations"))
+            .prefetch_related("source_annotations", "target_annotations")
+            .distinct()
+        )
+
+        # Two passes: build hit→best-group map, then fetch every annotation
+        # referenced by a winning group in a single query.
+        #
+        # ``best_for_hit`` keys on annotation_id; value is (descendant_count,
+        # relationship_obj). Tie-break on relationship pk for determinism so
+        # snapshot tests don't flake when two groups share a descendant count.
+        best_for_hit: dict[int, tuple[int, Relationship]] = {}
+        for group in groups:
+            descendant_count = getattr(group, "descendant_count", None)
+            if descendant_count is None:
+                # Defensive fallback: the annotation should always be set,
+                # but if Django ever drops the annotation we recompute here.
+                descendant_count = group.target_annotations.count()
+            target_ids_in_group = {a.id for a in group.target_annotations.all()}
+            for hit_id in hit_ids & target_ids_in_group:
+                existing = best_for_hit.get(hit_id)
+                if existing is None:
+                    best_for_hit[hit_id] = (descendant_count, group)
+                    continue
+                existing_count, existing_group = existing
+                # Smaller descendant count wins (most-specific enclosing
+                # block). Tie-break by lower relationship pk for stable
+                # ordering across runs.
+                if descendant_count < existing_count or (
+                    descendant_count == existing_count and group.pk < existing_group.pk
+                ):
+                    best_for_hit[hit_id] = (descendant_count, group)
+
+        if not best_for_hit:
+            return results
+
+        # Single fetch for every annotation referenced by a winning group's
+        # source or target set — keyed by ID so block_text assembly is O(N).
+        referenced_ann_ids: set[int] = set()
+        for _, group in best_for_hit.values():
+            referenced_ann_ids.update(a.id for a in group.source_annotations.all())
+            referenced_ann_ids.update(a.id for a in group.target_annotations.all())
+        ann_text_map = dict(
+            Annotation.objects.filter(id__in=referenced_ann_ids).values_list(
+                "id", "raw_text"
+            )
+        )
+
+        for r in results:
+            if r.annotation is None:
+                continue
+            winner = best_for_hit.get(r.annotation.id)
+            if winner is None:
+                continue
+            _, group = winner
+            source_ann = next(iter(group.source_annotations.all()), None)
+            if source_ann is None:
+                # An OC_SUBTREE_GROUP without a source annotation is
+                # malformed (the materialiser always sets one). Skip
+                # silently rather than fabricate a context.
+                continue
+            target_ann_ids = sorted(a.id for a in group.target_annotations.all())
+            source_text = ann_text_map.get(source_ann.id, "") or ""
+            # Concatenate source + targets newline-separated, bounded by
+            # SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS. Order targets by ID for
+            # deterministic snapshots; the materialiser doesn't preserve a
+            # semantic ordering so any stable choice is fine.
+            parts: list[str] = []
+            running = 0
+            if source_text:
+                parts.append(source_text)
+                running = len(source_text)
+            for tid in target_ann_ids:
+                t_text = ann_text_map.get(tid, "") or ""
+                if not t_text:
+                    continue
+                # +1 for the newline separator we'd add on join.
+                if running + 1 + len(t_text) > SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS:
+                    # Truncate the final piece so we land exactly on the cap
+                    # instead of dropping the tail wholesale — useful when
+                    # the last target carries the meaningful continuation.
+                    remaining = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS - running - 1
+                    if remaining > 0:
+                        parts.append(t_text[:remaining])
+                    break
+                parts.append(t_text)
+                running += 1 + len(t_text)
+            block_text = "\n".join(parts)
+
+            r.block_context = BlockContext(
+                relationship_id=group.pk,
+                source_annotation_id=source_ann.id,
+                source_text=source_text,
+                target_annotation_ids=target_ann_ids,
+                block_text=block_text,
+            )
+
+        return results
+
+    async def _aattach_block_context(
+        self, results: list["VectorSearchResult"]
+    ) -> list["VectorSearchResult"]:
+        """Async wrapper around :meth:`_attach_block_context_sync`.
+
+        The helper touches a small bounded number of rows (≤ top_k hits +
+        their containing subtree groups) and is best run on the ORM thread
+        pool rather than the event loop. Splitting the prefetch into
+        separate ``sync_to_async`` calls would buy nothing — every step
+        joins to the same M2M tables — so we hand the whole pass off as
+        one block.
+        """
+        return await sync_to_async(self._attach_block_context_sync)(results)
+
     def _generate_query_embedding(self, query_text: str) -> Optional[list[float]]:
         """Generate embeddings from query text synchronously."""
         _logger.debug(f"Generating embeddings from query string: '{query_text}'")
@@ -816,9 +1022,13 @@ class CoreAnnotationVectorStore:
             )
 
         # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
-        return self._apply_rerank(
+        reranked = self._apply_rerank(
             results, query.query_text, query.similarity_top_k, reranker
         )
+        # Attach containing-subtree block context AFTER reranking so the
+        # extra DB hop is bounded by the final top_k count rather than the
+        # oversampled first-stage pool.
+        return self._attach_block_context_sync(reranked)
 
     @staticmethod
     def _fuse_results(
@@ -967,9 +1177,10 @@ class CoreAnnotationVectorStore:
             _logger.debug(f"Hybrid: full-text arm returned {len(text_results)} results")
 
         fused = self._fuse_results(vector_results, text_results, fusion_top_k)
-        return self._apply_rerank(
+        reranked = self._apply_rerank(
             fused, query.query_text, query.similarity_top_k, reranker
         )
+        return self._attach_block_context_sync(reranked)
 
     async def async_hybrid_search(
         self, query: VectorSearchQuery
@@ -1037,9 +1248,10 @@ class CoreAnnotationVectorStore:
             _logger.debug(f"Hybrid: full-text arm returned {len(text_results)} results")
 
         fused = self._fuse_results(vector_results, text_results, fusion_top_k)
-        return await self._aapply_rerank(
+        reranked = await self._aapply_rerank(
             fused, query.query_text, query.similarity_top_k, reranker
         )
+        return await self._aattach_block_context(reranked)
 
     @classmethod
     def global_search(
@@ -1186,7 +1398,11 @@ class CoreAnnotationVectorStore:
             )
 
         # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
-        return cls._rerank_results(results, query_text, top_k, reranker)
+        reranked = cls._rerank_results(results, query_text, top_k, reranker)
+        # Block-context attach is independent of the per-instance store
+        # state, so the classmethod path can call the @staticmethod helper
+        # directly.
+        return cls._attach_block_context_sync(reranked)
 
     @classmethod
     async def async_global_search(
@@ -1315,9 +1531,10 @@ class CoreAnnotationVectorStore:
         # (the text path was intercepted above and routed to async_hybrid_search).
         # _aapply_rerank is still called so it can trim to top_k; it short-
         # circuits on empty query_text without invoking the reranker.
-        return await self._aapply_rerank(
+        reranked = await self._aapply_rerank(
             results, query.query_text, query.similarity_top_k, reranker
         )
+        return await self._aattach_block_context(reranked)
 
 
 # Re-exported so downstream callers can annotate against the protocol.

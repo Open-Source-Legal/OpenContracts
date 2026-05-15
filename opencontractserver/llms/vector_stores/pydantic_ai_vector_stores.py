@@ -71,6 +71,19 @@ class PydanticAIVectorSearchResponse(BaseModel):
                 "json": result.annotation.json,
                 "similarity_score": result.similarity_score,
             }
+            if result.block_context is not None:
+                # Keep payload bounded — ``block_text`` is already capped
+                # by ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` in the core
+                # store, so this dict is safe to surface unmodified.
+                formatted_result["block_context"] = {
+                    "relationship_id": result.block_context.relationship_id,
+                    "source_annotation_id": result.block_context.source_annotation_id,
+                    "source_text": result.block_context.source_text,
+                    "target_annotation_ids": list(
+                        result.block_context.target_annotation_ids
+                    ),
+                    "block_text": result.block_context.block_text,
+                }
             formatted_results.append(formatted_result)
 
         return cls(results=formatted_results, total_results=len(formatted_results))
@@ -119,6 +132,18 @@ class PydanticAIVectorSearchResponse(BaseModel):
         for result in results:
             annotation_data = await extract_annotation_data(result.annotation)
             annotation_data["similarity_score"] = result.similarity_score
+            if result.block_context is not None:
+                # Plain-dict block_context — keeps the model-dump path in
+                # ``create_vector_search_tool`` free of Django ORM access.
+                annotation_data["block_context"] = {
+                    "relationship_id": result.block_context.relationship_id,
+                    "source_annotation_id": result.block_context.source_annotation_id,
+                    "source_text": result.block_context.source_text,
+                    "target_annotation_ids": list(
+                        result.block_context.target_annotation_ids
+                    ),
+                    "block_text": result.block_context.block_text,
+                }
             formatted_results.append(annotation_data)
 
         return cls(results=formatted_results, total_results=len(formatted_results))

@@ -346,6 +346,23 @@ export const CorpusAnnotationCards = ({
     return map;
   }, [isSemanticSearchActive, semanticSearchResults]);
 
+  // Map annotation id → containing OC_SUBTREE_GROUP relationship id, so a
+  // click can deep-link the doc viewer to the *block* (not just the leaf).
+  // Pulled from ``blockContext`` populated by ``semanticSearch`` results;
+  // empty when not in semantic mode — the click handler falls back to the
+  // leaf-only behaviour. Issue #1645.
+  const blockRelationshipIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (isSemanticSearchActive) {
+      semanticSearchResults.forEach((result) => {
+        if (result.blockContext?.relationshipId) {
+          map.set(result.annotation.id, result.blockContext.relationshipId);
+        }
+      });
+    }
+    return map;
+  }, [isSemanticSearchActive, semanticSearchResults]);
+
   // Handle annotation click - navigate to document
   const handleAnnotationClick = useCallback(
     (annotation: ServerAnnotationType) => {
@@ -357,12 +374,21 @@ export const CorpusAnnotationCards = ({
       const queryParams: {
         annotationIds: string[];
         analysisIds?: string[];
+        relationshipId?: string;
       } = {
         annotationIds: [annotation.id],
       };
 
       if (annotation.analysis?.id) {
         queryParams.analysisIds = [annotation.analysis.id];
+      }
+
+      // If the search result carried a containing OC_SUBTREE_GROUP, deep-
+      // link to it as well so the viewer renders the block as selected
+      // instead of just the leaf annotation. Issue #1645.
+      const blockRelationshipId = blockRelationshipIdMap.get(annotation.id);
+      if (blockRelationshipId) {
+        queryParams.relationshipId = blockRelationshipId;
       }
 
       const url = getDocumentUrl(
@@ -379,7 +405,7 @@ export const CorpusAnnotationCards = ({
         );
       }
     },
-    [navigate]
+    [navigate, blockRelationshipIdMap]
   );
 
   // Handle search input change - triggers debounced semantic search

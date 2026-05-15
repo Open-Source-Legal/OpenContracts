@@ -47,6 +47,9 @@ export interface QueryParams {
   tab?: string | null;
   messageId?: string | null;
   noteId?: string | null;
+  // Raw Django PK of the surfaced relationship — drives the doc viewer's
+  // ``useJumpToRelationship`` hook (issue #1645). NOT a Relay global ID.
+  relationshipId?: string | null;
   homeView?: "about" | "toc" | null; // corpus home view selection
   tocExpanded?: boolean; // true to expand all TOC nodes
   view?: "landing" | "details" | "discussions" | "article" | null; // corpus detail view selection
@@ -272,6 +275,9 @@ export function buildQueryParams(params: QueryParams): string {
   }
   if (params.noteId) {
     searchParams.set("note", params.noteId);
+  }
+  if (params.relationshipId) {
+    searchParams.set("rel", params.relationshipId);
   }
   if (params.homeView) {
     searchParams.set("homeView", params.homeView);

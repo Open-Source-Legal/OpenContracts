@@ -7,7 +7,10 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.contrib.auth import get_user_model
 
-from opencontractserver.annotations.models import Annotation, Note
+from opencontractserver.annotations.models import Annotation, Note, Relationship
+from opencontractserver.constants.annotations import (
+    SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
+)
 from opencontractserver.constants.document_processing import EMBEDDING_API_BATCH_SIZE
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -941,3 +944,249 @@ def calculate_embedding_for_note_text(
             f"calculate_embedding_for_note_text() - failed to generate embeddings due to error: {e}"
         )
         raise
+
+
+# --------------------------------------------------------------------------- #
+# Relationship embeddings (issue #1645)
+# --------------------------------------------------------------------------- #
+
+
+def synthesize_relationship_block_text(
+    relationship: Relationship,
+    *,
+    max_chars: int = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
+) -> str:
+    """Build the embedder-facing string for a ``Relationship``.
+
+    The string is ``source.raw_text`` followed by each target's ``raw_text``
+    on its own line, truncated to ``max_chars``. Target ordering is by ID so
+    re-embedding the same relationship produces a stable input string — that
+    way ``add_embedding``'s idempotent upsert short-circuits unchanged
+    inputs instead of overwriting equivalent vectors.
+
+    Empty strings (e.g. when a structural annotation has no raw text yet
+    because the parser only attached page coordinates) are dropped before
+    joining so we don't pollute the embedding with stray newlines.
+
+    The same helper is used by the GraphQL-facing
+    ``CoreAnnotationVectorStore._attach_block_context_sync`` path; centralising
+    it here means the embedder and the surfaced "block text" never drift.
+    """
+    sources = list(
+        relationship.source_annotations.order_by("id").values_list(
+            "raw_text", flat=True
+        )
+    )
+    targets = list(
+        relationship.target_annotations.order_by("id").values_list(
+            "raw_text", flat=True
+        )
+    )
+
+    parts: list[str] = []
+    running = 0
+    for chunk in [*sources, *targets]:
+        if not chunk:
+            continue
+        if running == 0:
+            if len(chunk) >= max_chars:
+                parts.append(chunk[:max_chars])
+                running = max_chars
+                break
+            parts.append(chunk)
+            running = len(chunk)
+            continue
+        # ``+1`` accounts for the newline separator the join below will
+        # insert between successive non-empty parts.
+        if running + 1 + len(chunk) > max_chars:
+            remaining = max_chars - running - 1
+            if remaining > 0:
+                parts.append(chunk[:remaining])
+            break
+        parts.append(chunk)
+        running += 1 + len(chunk)
+
+    return "\n".join(parts)
+
+
+def _embed_relationship(
+    relationship: Relationship,
+    embedder: BaseEmbedder,
+    embedder_path: str,
+) -> bool:
+    """Embed a single Relationship using ``synthesize_relationship_block_text``.
+
+    Returns ``True`` on success, ``False`` on any failure. Mirrors the
+    contract of ``_create_text_embedding`` for annotations so the dual-
+    embedding helper can reuse the same call pattern.
+    """
+    text = synthesize_relationship_block_text(relationship)
+    if not text.strip():
+        logger.info(
+            "Relationship %s has no text to embed (no non-empty source/target "
+            "raw_text); skipping.",
+            relationship.id,
+        )
+        return False
+
+    logger.info(
+        "Embedding relationship %s with %s (text length=%s)",
+        relationship.id,
+        embedder_path,
+        len(text),
+    )
+    vector = embedder.embed_text(text)
+    if vector is None:
+        logger.error(
+            "Embedder %s returned None for relationship %s",
+            embedder_path,
+            relationship.id,
+        )
+        return False
+
+    embedding = relationship.add_embedding(embedder_path, vector)
+    if embedding is None:
+        logger.error(
+            "store_embedding returned None for relationship %s using %s",
+            relationship.id,
+            embedder_path,
+        )
+        return False
+
+    logger.info(
+        "Stored relationship embedding %s for relationship %s (dim=%s, embedder=%s)",
+        embedding.pk,
+        relationship.id,
+        len(vector),
+        embedder_path,
+    )
+    return True
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 60},
+)
+def calculate_embeddings_for_relationship_batch(
+    self,
+    relationship_ids: list[int],
+    corpus_id: Optional[Union[str, int]] = None,
+    embedder_path: Optional[str] = None,
+) -> dict:
+    """Embed a batch of relationships using the dual-embedding strategy.
+
+    Mirrors ``calculate_embeddings_for_annotation_batch`` for relationships:
+    when no ``embedder_path`` is supplied, each relationship is embedded
+    with the default embedder AND (when distinct) the corpus's preferred
+    embedder, so global-default search and corpus-scoped search both work.
+
+    Unlike the annotation task we do NOT batch the wire calls
+    via ``embed_texts_batch`` here — the volume of structural subtree
+    groups is small relative to annotations (one per non-leaf node), so
+    the simpler per-relationship dual-embedding loop is plenty. If subtree
+    cardinality ever justifies batching, mirror
+    ``_batch_embed_text_annotations`` and key on
+    ``synthesize_relationship_block_text``.
+
+    Args:
+        self: Celery task instance (passed automatically when bind=True).
+        relationship_ids: Relationships to embed.
+        corpus_id: Optional corpus ID for corpus-specific embedding.
+        embedder_path: Optional explicit embedder path that overrides the
+            dual-embedding strategy entirely.
+
+    Returns:
+        Summary dict with ``succeeded``/``failed``/``skipped`` counts.
+    """
+    result: dict[str, Any] = {
+        "total": len(relationship_ids),
+        "succeeded": 0,
+        "failed": 0,
+        "skipped": 0,
+        "errors": [],
+    }
+
+    if not relationship_ids:
+        return result
+
+    logger.info(
+        "Embedding batch of %s relationships (corpus_id=%s, embedder_path=%s)",
+        len(relationship_ids),
+        corpus_id,
+        embedder_path,
+    )
+
+    relationships = list(
+        Relationship.objects.filter(pk__in=relationship_ids).prefetch_related(
+            "source_annotations", "target_annotations"
+        )
+    )
+    rel_map = {r.pk: r for r in relationships}
+
+    if embedder_path:
+        try:
+            embedder_class = cast(
+                type[BaseEmbedder], get_component_by_name(embedder_path)
+            )
+            explicit_embedder = embedder_class()
+        except Exception as e:
+            logger.error(f"Failed to load embedder {embedder_path}: {e}")
+            result["errors"].append(f"Failed to load embedder: {e}")
+            result["failed"] = len(relationship_ids)
+            return result
+
+        for rid in relationship_ids:
+            rel = rel_map.get(rid)
+            if rel is None:
+                result["skipped"] += 1
+                continue
+            try:
+                if _embed_relationship(rel, explicit_embedder, embedder_path):
+                    result["succeeded"] += 1
+                else:
+                    result["failed"] += 1
+                    result["errors"].append(
+                        f"Relationship {rid}: embedding returned None or empty"
+                    )
+            except Exception as e:
+                logger.error(f"Failed to embed relationship {rid}: {e}")
+                result["failed"] += 1
+                result["errors"].append(f"Relationship {rid}: {e}")
+        return result
+
+    # Dual-embedding strategy: default embedder is mandatory; the corpus's
+    # preferred embedder is best-effort. Mirrors ``_apply_dual_embedding_strategy``
+    # but inlined because the source dict is keyed on Relationship rather
+    # than HasEmbeddingMixin-but-with-creator semantics — Relationship has
+    # ``creator`` already so the same store_embedding plumbing works fine.
+    for rid in relationship_ids:
+        rel = rel_map.get(rid)
+        if rel is None:
+            result["skipped"] += 1
+            continue
+        try:
+            _apply_dual_embedding_strategy(
+                obj=rel,
+                text=synthesize_relationship_block_text(rel),
+                corpus_id=int(corpus_id) if corpus_id else None,
+                obj_type="relationship",
+                obj_id=rel.id,
+                embed_func=cast(
+                    "Callable[[HasEmbeddingMixin, BaseEmbedder, str], bool]",
+                    _embed_relationship,
+                ),
+            )
+            result["succeeded"] += 1
+        except Exception as e:
+            logger.error(f"Failed to embed relationship {rid}: {e}")
+            result["failed"] += 1
+            result["errors"].append(f"Relationship {rid}: {e}")
+
+    logger.info(
+        "Relationship batch embedding complete: %s succeeded, %s failed, %s skipped",
+        result["succeeded"],
+        result["failed"],
+        result["skipped"],
+    )
+    return result
