@@ -346,8 +346,6 @@ class TestSidecarImportTask(_SidecarImportTestMixin, TestCase):
     Uses real PDF fixtures and realistic PAWLs/annotation data.
     """
 
-    handle_name = "test_sidecar_import.zip"
-
     def setUp(self):
         """Set up test user, corpus, and load real fixture data."""
         with transaction.atomic():
@@ -1622,7 +1620,8 @@ class TestSidecarUpversioning(_SidecarImportTestMixin, TestCase):
         self.pdf_bytes_v2 = SAMPLE_PDF_FILE_TWO_PATH.read_bytes()
         self.pawls_pages = _load_pawls_subset(2)
 
-    def _shared_labels_json(self) -> bytes:
+    @staticmethod
+    def _shared_labels_json() -> bytes:
         """labels.json shared by both imports — covers all labels used."""
         return json.dumps(
             _build_labels_json(
@@ -1835,6 +1834,9 @@ class TestSidecarUpversioning(_SidecarImportTestMixin, TestCase):
         )
         # Old-version annotations are not visible via the current-path query.
         self.assertNotIn("Original Heading", visible_texts)
+        # And v2's annotations ARE visible (guards against ghost / empty result).
+        self.assertIn("Revised Heading", visible_texts)
+        self.assertIn("New Section", visible_texts)
         # Both v1 and v2 annotations still exist in the DB.
         self.assertEqual(
             Annotation.objects.filter(
