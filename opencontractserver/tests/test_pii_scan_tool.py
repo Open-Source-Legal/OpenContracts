@@ -617,6 +617,12 @@ class PersistAnnotationsLabelRaceTests(
         # Simulate the post-race outcome: ensure_label_and_labelset's
         # filter(...).first() returned None even though a label already
         # exists, so a fresh AnnotationLabel is inserted.
+        #
+        # NOTE: this mock's keyword arguments must stay in sync with
+        # ``Corpus.ensure_label_and_labelset``'s real signature
+        # (opencontractserver/corpuses/models.py). If that method grows a
+        # new keyword arg, this mock will silently swallow it and the race
+        # simulation will drift — update the kwargs here when that happens.
         def race_ensure(
             self_corpus,
             *,

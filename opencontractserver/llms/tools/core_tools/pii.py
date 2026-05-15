@@ -22,7 +22,10 @@ from opencontractserver.annotations.compact_json import (
     is_span_format,
 )
 from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL, Annotation
-from opencontractserver.constants.document_processing import TEXT_MIMETYPES
+from opencontractserver.constants.document_processing import (
+    PII_ANNOTATION_BULK_BATCH_SIZE,
+    TEXT_MIMETYPES,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.tasks.embeddings_task import (
@@ -239,7 +242,10 @@ def _persist_annotations_sync(
             ):
                 try:
                     ann_json = compact_annotation_json(ann_json)
-                except Exception:
+                except (ValueError, KeyError, TypeError):
+                    # Narrow on malformed input only. Other errors
+                    # (memory, runtime bugs) propagate so we don't
+                    # silently mask real failures.
                     logger.exception(
                         "scan_and_annotate_pii: failed to compact annotation JSON; storing as-is"
                     )
@@ -278,7 +284,9 @@ def _persist_annotations_sync(
     with transaction.atomic():
         # bulk_create returns the same instances with ``pk`` populated
         # (PostgreSQL ``RETURNING``).
-        Annotation.objects.bulk_create(annotations, batch_size=200)
+        Annotation.objects.bulk_create(
+            annotations, batch_size=PII_ANNOTATION_BULK_BATCH_SIZE
+        )
 
         # Queue embeddings on commit so workers never read rows that haven't
         # been committed yet. Registered inside the atomic block so the
