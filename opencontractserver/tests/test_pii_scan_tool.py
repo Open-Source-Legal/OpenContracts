@@ -723,9 +723,7 @@ class PersistAnnotationsUnknownGroupTests(
         group in the same batch still lands."""
         from opencontractserver.annotations.models import AnnotationLabel
 
-        existing_label_ids = set(
-            AnnotationLabel.objects.values_list("id", flat=True)
-        )
+        existing_label_ids = set(AnnotationLabel.objects.values_list("id", flat=True))
 
         persisted = _persist_annotations_sync(
             doc=self.txt_doc,
