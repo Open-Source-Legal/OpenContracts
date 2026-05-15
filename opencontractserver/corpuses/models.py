@@ -1948,6 +1948,7 @@ class CorpusFolder(InstanceUserCanMixin, TreeNode):
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Authorize against the parent corpus rather than the folder row.
 
@@ -1959,11 +1960,16 @@ class CorpusFolder(InstanceUserCanMixin, TreeNode):
         ``self.corpus.user_can(user, perm)`` to keep the answer consistent
         with the rest of the permissioning surface (``DocumentFolderService``
         and every legacy call site already go through the corpus).
+
+        ``request`` is threaded through unchanged so the request-scoped
+        ``PermissionQueryOptimizer`` (issue #1640) can cache across
+        repeated folder visibility checks in a single request.
         """
         return self.corpus.user_can(
             user,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
     def get_path(self) -> str:

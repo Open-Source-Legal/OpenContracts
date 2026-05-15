@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from functools import reduce
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import django
 from django.contrib.auth import get_user_model
@@ -12,6 +12,7 @@ from django.db import transaction
 from guardian.shortcuts import assign_perm, remove_perm
 
 from config.graphql.permissioning.permission_annotator.middleware import combine
+from opencontractserver.constants.permissioning import INSTANCE_PERMS_CACHE_ATTR
 from opencontractserver.shared.prefetch_attrs import (
     user_group_perm_attr,
     user_perm_attr,
@@ -32,6 +33,7 @@ def set_permissions_for_obj_to_user(
     permissions: list[PermissionTypes],
     *,
     is_new: bool = False,
+    request: Any = None,
 ) -> None:
     """
     Given an instance of a django Model, a user id or instance, and a list of desired permissions,
@@ -50,6 +52,13 @@ def set_permissions_for_obj_to_user(
             depend on prior perms being cleared (e.g. CRUD → READ-only).
             Ingest paths (``import_annotations``, ``corpus.add_document``,
             label-creation, etc.) should pass ``is_new=True``.
+        request: When supplied (typically ``info.context`` from a GraphQL
+            mutation), invalidate the two-tier permission cache for this
+            ``(user, instance)`` pair after the grant lands so any
+            subsequent ``user_can`` checks in the same request reflect
+            the new state. ``None`` is safe — Celery tasks and fixtures
+            never reuse the instance after mutating perms, so the cache
+            won't go stale.
     """
 
     # logger.info(
@@ -186,6 +195,26 @@ def set_permissions_for_obj_to_user(
             # logger.info("requested_permission_set - assign publish permission")
             assign_perm(f"{app_name}.publish_{model_name}", user, instance)
 
+    # Two-tier permission cache invalidation. Tier 1 lives on the instance
+    # itself (per ``INSTANCE_PERMS_CACHE_ATTR``); Tier 2 lives on the
+    # request (per ``REQUEST_OPTIMIZER_ATTR``). Both must be cleared for
+    # this ``(user, instance)`` pair so subsequent ``user_can`` checks in
+    # the same request see the new grants. ``request=None`` skips Tier 2
+    # safely — Celery / fixture callers never reuse the instance after
+    # the call so Tier 1 staleness isn't a concern in practice, but we
+    # still scrub the per-instance cache to be defensive against
+    # long-lived test fixtures and management commands.
+    instance_cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
+    if instance_cache is not None:
+        for key in [k for k in instance_cache if k[0] == user.id]:
+            del instance_cache[key]
+    if request is not None:
+        from opencontractserver.utils.permission_optimizer import (
+            get_request_optimizer,
+        )
+
+        get_request_optimizer(request).invalidate(user_id=user.id, instance=instance)
+
 
 def get_users_group_ids(user_instance: UserModel) -> list[str | int]:
     """
@@ -225,11 +254,61 @@ def get_permission_id_to_name_map_for_model(
     return this_model_permission_id_map
 
 
+def _perm_cache_key(
+    user: UserModel, include_group_permissions: bool
+) -> tuple[int, bool] | None:
+    """Build the per-instance Tier 1 cache key, or ``None`` to skip caching.
+
+    Anonymous / unauthenticated users have no stable ``id`` to key on and
+    their state isn't reusable across calls — return ``None`` so callers
+    bypass the cache entirely for them.
+    """
+
+    user_id = getattr(user, "id", None)
+    if user_id is None or not getattr(user, "is_authenticated", False):
+        return None
+    return (user_id, bool(include_group_permissions))
+
+
+def _store_granted_on_instance(
+    instance: django.db.models.Model,
+    cache_key: tuple[int, bool] | None,
+    granted: set[str],
+) -> set[str]:
+    """Cache ``granted`` on ``instance`` under ``cache_key`` and return it.
+
+    Stores as ``frozenset`` (immutable) and returns the original ``set``
+    so callers can mutate the result locally — ``_default_user_can``
+    folds ``read_<model>`` into the granted set for compound CRUD/ALL
+    checks (see line ~493).
+    """
+
+    if cache_key is None:
+        return granted
+    cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
+    if cache is None:
+        cache = {}
+        setattr(instance, INSTANCE_PERMS_CACHE_ATTR, cache)
+    cache[cache_key] = frozenset(granted)
+    return granted
+
+
 def get_users_permissions_for_obj(
     user: UserModel,
     instance: django.db.models.Model,
     include_group_permissions: bool = False,
 ) -> set[str]:
+    """Return the set of guardian permission codenames the user has on
+    ``instance``.
+
+    Tier 1 of issue #1640's caching strategy: results are memoized on the
+    instance under ``INSTANCE_PERMS_CACHE_ATTR``, keyed by
+    ``(user_id, include_group_permissions_bool)``. Cache lifetime equals
+    the instance lifetime; ``set_permissions_for_obj_to_user`` clears
+    matching entries when a grant changes. ``refresh_from_db`` does NOT
+    clear the cache — callers that mutate guardian rows out-of-band and
+    reuse the same Python object must drop the attribute manually.
+    """
 
     model_name = instance._meta.model_name
     logger.debug(
@@ -238,6 +317,15 @@ def get_users_permissions_for_obj(
 
     app_label = instance._meta.app_label
     logger.debug(f"get_users_permissions_for_obj - App name: {app_label}")
+
+    # Tier 1 lookup. Returns a defensive copy so the caller can mutate
+    # without poisoning the cache (the compound-perm fold-in in
+    # ``_default_user_can`` mutates the returned set locally).
+    cache_key = _perm_cache_key(user, include_group_permissions)
+    if cache_key is not None:
+        cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
+        if cache is not None and cache_key in cache:
+            return set(cache[cache_key])
 
     # Check if the model has django-guardian permission tables
     # Some models (like AnnotationLabel) use creator-based permissions instead
@@ -269,21 +357,27 @@ def get_users_permissions_for_obj(
             model_permissions_for_user.add(f"read_{model_name}")
 
         logger.debug(f"Creator-based permissions: {model_permissions_for_user}")
-        return model_permissions_for_user
+        return _store_granted_on_instance(
+            instance, cache_key, model_permissions_for_user
+        )
 
     # Superusers have all permissions on guardian-enabled models.
     # Guardian models support richer operations (comment, publish, permission)
     # beyond the basic CRUD set used for creator-based models above.
     if user.is_superuser:
-        return {
-            f"create_{model_name}",
-            f"read_{model_name}",
-            f"update_{model_name}",
-            f"remove_{model_name}",
-            f"comment_{model_name}",
-            f"publish_{model_name}",
-            f"permission_{model_name}",
-        }
+        return _store_granted_on_instance(
+            instance,
+            cache_key,
+            {
+                f"create_{model_name}",
+                f"read_{model_name}",
+                f"update_{model_name}",
+                f"remove_{model_name}",
+                f"comment_{model_name}",
+                f"publish_{model_name}",
+                f"permission_{model_name}",
+            },
+        )
 
     # Fast path: consume per-user guardian prefetches if attached. Missing attr
     # (different user, or no prefetch) falls through to the guardian path below.
@@ -314,7 +408,9 @@ def get_users_permissions_for_obj(
                     model_permissions_for_user.add(
                         permission_id_to_name_map[perm.permission_id]
                     )
-        return model_permissions_for_user
+        return _store_granted_on_instance(
+            instance, cache_key, model_permissions_for_user
+        )
 
     this_user_perms = getattr(instance, f"{model_name}userobjectpermission_set")
 
@@ -351,7 +447,7 @@ def get_users_permissions_for_obj(
 
     logger.debug(f"Final permissions: {model_permissions_for_user}")
 
-    return model_permissions_for_user
+    return _store_granted_on_instance(instance, cache_key, model_permissions_for_user)
 
 
 def _default_user_can(
@@ -360,6 +456,7 @@ def _default_user_can(
     permission: PermissionTypes,
     *,
     include_group_permissions: bool = True,
+    request: Any = None,
 ) -> bool:
     """Centralized default-branch authorization body.
 
@@ -404,8 +501,19 @@ def _default_user_can(
         - ``EDIT`` is treated as an alias for ``UPDATE`` (mirrors the old
           ``user_has_permission_for_obj`` mapping).
 
+    The optional ``request`` keyword (typically ``info.context`` from a
+    GraphQL resolver) enables Tier 2 of issue #1640's caching strategy:
+    when supplied, the cold-path lookup goes through
+    ``PermissionQueryOptimizer`` so multiple instances of the same model
+    in one request share a single cache. Outside the HTTP lifecycle
+    (Celery tasks, management commands, signals) callers pass ``None``
+    and rely on Tier 1's per-instance memoization inside
+    ``get_users_permissions_for_obj``. See
+    ``docs/architecture/query_permission_patterns.md`` for details.
+
     Per-model overrides (e.g. ``AnnotationManager.user_can``) MUST add their
-    own structural / privacy / inheritance rules before delegating here.
+    own structural / privacy / inheritance rules before delegating here,
+    and MUST forward ``request`` through so the optimization composes.
     """
     if user_val is None:
         return False
@@ -449,11 +557,26 @@ def _default_user_can(
         return True
 
     model_name = instance._meta.model_name
-    granted = get_users_permissions_for_obj(
-        user=user,
-        instance=instance,
-        include_group_permissions=include_group_permissions,
-    )
+    if request is not None:
+        # Tier 2: route through the request-scoped optimizer so multiple
+        # instances of the same model in one request share a cache. Lazy
+        # import keeps the early ``shared.Models`` ⇄ ``users.models``
+        # startup chain free of the optimizer module.
+        from opencontractserver.utils.permission_optimizer import (
+            get_request_optimizer,
+        )
+
+        granted = get_request_optimizer(request).get_granted(
+            user,
+            instance,
+            include_group_permissions=include_group_permissions,
+        )
+    else:
+        granted = get_users_permissions_for_obj(
+            user=user,
+            instance=instance,
+            include_group_permissions=include_group_permissions,
+        )
 
     if permission == PermissionTypes.READ:
         return f"read_{model_name}" in granted

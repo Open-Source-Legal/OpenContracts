@@ -51,6 +51,7 @@ class UserCanMixin:
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         from opencontractserver.utils.permissioning import _default_user_can
 
@@ -59,6 +60,7 @@ class UserCanMixin:
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
 
@@ -82,6 +84,7 @@ class InstanceUserCanMixin:
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         # ``_default_manager`` is supplied by every concrete Django model
         # class this mixin is paired with — not by the mixin itself — so
@@ -100,4 +103,5 @@ class InstanceUserCanMixin:
             self,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )

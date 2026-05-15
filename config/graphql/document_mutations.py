@@ -653,7 +653,10 @@ class UploadCorpusImportZip(graphene.Mutation):
             logger.info("UploadCorpusImportZip.mutate() - placeholder created...")
 
             set_permissions_for_obj_to_user(
-                info.context.user, corpus_obj, [PermissionTypes.CRUD]
+                info.context.user,
+                corpus_obj,
+                [PermissionTypes.CRUD],
+                request=info.context,
             )
             logger.info("UploadCorpusImportZip.mutate() - permissions assigned...")
 
@@ -1019,7 +1022,10 @@ class StartCorpusExport(graphene.Mutation):
             logger.info(f"Export created: {export}")
 
             set_permissions_for_obj_to_user(
-                info.context.user, export, [PermissionTypes.CRUD]
+                info.context.user,
+                export,
+                [PermissionTypes.CRUD],
+                request=info.context,
             )
 
             # For chaining, we convert analyses_ids from GraphQL global IDs -> PKs (if any).
@@ -1212,6 +1218,7 @@ class RestoreDeletedDocument(graphene.Mutation):
             success, error = DocumentFolderService.restore_document(
                 user=user,
                 document_path=deleted_path,
+                request=info.context,
             )
 
             if not success:
@@ -1288,6 +1295,7 @@ class PermanentlyDeleteDocument(graphene.Mutation):
                 user=user,
                 document=document,
                 corpus=corpus,
+                request=info.context,
             )
 
             if not success:
@@ -1338,6 +1346,7 @@ class EmptyTrash(graphene.Mutation):
             deleted_count, error = DocumentFolderService.empty_trash(
                 user=user,
                 corpus=corpus,
+                request=info.context,
             )
 
             if error:
@@ -1497,7 +1506,10 @@ class RestoreDocumentToVersion(graphene.Mutation):
 
                 # Copy permissions from old version
                 set_permissions_for_obj_to_user(
-                    user, new_document, [PermissionTypes.CRUD]
+                    user,
+                    new_document,
+                    [PermissionTypes.CRUD],
+                    request=info.context,
                 )
 
                 # Mark old path as not current FIRST to avoid unique constraint violation

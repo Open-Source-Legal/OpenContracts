@@ -92,6 +92,7 @@ class CreateCorpusFolderMutation(graphene.Mutation):
                 color=color,
                 icon=icon,
                 tags=tags,
+                request=info.context,
             )
 
             if error:
@@ -177,6 +178,7 @@ class UpdateCorpusFolderMutation(graphene.Mutation):
                 color=color,
                 icon=icon,
                 tags=tags,
+                request=info.context,
             )
 
             if not success:
@@ -259,6 +261,7 @@ class MoveCorpusFolderMutation(graphene.Mutation):
                 user=user,
                 folder=folder,
                 new_parent=new_parent,
+                request=info.context,
             )
 
             if not success:
@@ -335,6 +338,7 @@ class DeleteCorpusFolderMutation(graphene.Mutation):
                 user=user,
                 folder=folder,
                 move_children_to_parent=not delete_contents,
+                request=info.context,
             )
 
             if not success:
@@ -411,6 +415,7 @@ class MoveDocumentToFolderMutation(graphene.Mutation):
                 document=document,
                 corpus=corpus,
                 folder=folder,
+                request=info.context,
             )
 
             if not success:
@@ -504,6 +509,7 @@ class MoveDocumentsToFolderMutation(graphene.Mutation):
                 document_ids=doc_pks,
                 corpus=corpus,
                 folder=folder,
+                request=info.context,
             )
 
             if error:

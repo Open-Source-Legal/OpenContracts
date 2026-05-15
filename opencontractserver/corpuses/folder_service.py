@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -145,6 +145,8 @@ class DocumentFolderService:
         user: User,
         corpus_id: int,
         parent_id: int | None = None,
+        *,
+        request: Any = None,
     ) -> QuerySet[CorpusFolder]:
         """
         Get folders visible to user in a corpus.
@@ -172,7 +174,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return CorpusFolder.objects.none()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return CorpusFolder.objects.none()
 
         # Build optimized query
@@ -193,6 +195,8 @@ class DocumentFolderService:
         cls,
         user: User,
         folder_id: int,
+        *,
+        request: Any = None,
     ) -> CorpusFolder | None:
         """
         Get single folder by ID with permission check.
@@ -217,7 +221,7 @@ class DocumentFolderService:
             return None
 
         # Check corpus permission (folders inherit from corpus)
-        if not folder.corpus.user_can(user, PermissionTypes.READ):
+        if not folder.corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
         return folder
@@ -227,6 +231,8 @@ class DocumentFolderService:
         cls,
         user: User,
         corpus_id: int,
+        *,
+        request: Any = None,
     ) -> list[dict]:
         """
         Get full folder tree for corpus as nested dictionary structure.
@@ -249,7 +255,7 @@ class DocumentFolderService:
                 }
             ]
         """
-        folders = cls.get_visible_folders(user, corpus_id)
+        folders = cls.get_visible_folders(user, corpus_id, request=request)
 
         # Build lookup dict
         folder_dict: dict[int, dict] = {}
@@ -285,6 +291,8 @@ class DocumentFolderService:
         corpus_id: int,
         folder_id: int | None = None,
         include_deleted: bool = False,
+        *,
+        request: Any = None,
     ) -> QuerySet[Document]:
         """
         Get documents in a specific folder with permission filtering.
@@ -311,7 +319,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return Document.objects.none()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return Document.objects.none()
 
         # Build filters for DocumentPath
@@ -338,6 +346,8 @@ class DocumentFolderService:
         user: User,
         corpus_id: int,
         folder_id: int | None = None,
+        *,
+        request: Any = None,
     ) -> set[int]:
         """
         Get document IDs in a folder (optimized for filtering).
@@ -362,7 +372,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return set()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return set()
 
         # Build filters for DocumentPath
@@ -383,6 +393,8 @@ class DocumentFolderService:
         cls,
         user: User,
         corpus_id: int,
+        *,
+        request: Any = None,
     ) -> QuerySet[DocumentPath]:
         """
         Get soft-deleted documents for "trash" view.
@@ -408,7 +420,7 @@ class DocumentFolderService:
         except Corpus.DoesNotExist:
             return DocumentPath.objects.none()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return DocumentPath.objects.none()
 
         return (
@@ -427,6 +439,8 @@ class DocumentFolderService:
         user: User,
         folder: CorpusFolder,
         include_descendants: bool = False,
+        *,
+        request: Any = None,
     ) -> int:
         """
         Get count of documents in folder.
@@ -442,7 +456,7 @@ class DocumentFolderService:
         Returns:
             Document count, 0 if no access
         """
-        if not folder.corpus.user_can(user, PermissionTypes.READ):
+        if not folder.corpus.user_can(user, PermissionTypes.READ, request=request):
             return 0
 
         if include_descendants:
@@ -465,6 +479,8 @@ class DocumentFolderService:
         icon: str | None = None,
         tags: list[str] | None = None,
         is_public: bool = False,
+        *,
+        request: Any = None,
     ) -> tuple[CorpusFolder | None, str]:
         """
         Create a new folder in corpus.
@@ -501,7 +517,7 @@ class DocumentFolderService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 None,
                 "Permission denied: You do not have write access to this corpus",
@@ -548,6 +564,8 @@ class DocumentFolderService:
         color: str | None = None,
         icon: str | None = None,
         tags: list[str] | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Update folder properties.
@@ -571,7 +589,7 @@ class DocumentFolderService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not folder.corpus.user_can(user, PermissionTypes.UPDATE):
+        if not folder.corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -614,6 +632,8 @@ class DocumentFolderService:
         user: User,
         folder: CorpusFolder,
         new_parent: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Move folder to new parent.
@@ -633,7 +653,7 @@ class DocumentFolderService:
             - New parent must be in same corpus
         """
         # Permission check
-        if not folder.corpus.user_can(user, PermissionTypes.UPDATE):
+        if not folder.corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -668,6 +688,8 @@ class DocumentFolderService:
         user: User,
         folder: CorpusFolder,
         move_children_to_parent: bool = True,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Delete folder, atomically relocating all contained documents to root.
@@ -707,7 +729,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not folder.corpus.user_can(user, PermissionTypes.DELETE):
+        if not folder.corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -828,6 +850,8 @@ class DocumentFolderService:
         document: Document,
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Move single document to folder, creating a new DocumentPath history node.
@@ -862,7 +886,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -945,6 +969,8 @@ class DocumentFolderService:
         document_ids: list[int],
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[int, str]:
         """
         Bulk move documents to folder, creating DocumentPath history nodes.
@@ -999,7 +1025,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import Document, DocumentPath
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return 0, "Permission denied: You do not have write access to this corpus"
 
         # Validate folder belongs to corpus
@@ -1688,6 +1714,8 @@ class DocumentFolderService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Soft-delete document (move to trash).
@@ -1709,7 +1737,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.DELETE):
+        if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -1758,6 +1786,8 @@ class DocumentFolderService:
         cls,
         user: User,
         document_path: DocumentPath,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Restore soft-deleted document.
@@ -1777,7 +1807,9 @@ class DocumentFolderService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not document_path.corpus.user_can(user, PermissionTypes.UPDATE):
+        if not document_path.corpus.user_can(
+            user, PermissionTypes.UPDATE, request=request
+        ):
             return (
                 False,
                 "You do not have permission to restore documents in this corpus",
@@ -1820,6 +1852,8 @@ class DocumentFolderService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Permanently delete a soft-deleted document from corpus.
@@ -1845,7 +1879,7 @@ class DocumentFolderService:
         from opencontractserver.documents.versioning import permanently_delete_document
 
         # Permission check - same as soft delete
-        if not corpus.user_can(user, PermissionTypes.DELETE):
+        if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -1863,6 +1897,8 @@ class DocumentFolderService:
         cls,
         user: User,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[int, str]:
         """
         Permanently delete ALL soft-deleted documents in a corpus.
@@ -1885,7 +1921,7 @@ class DocumentFolderService:
         )
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.DELETE):
+        if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 0,
                 "Permission denied: You do not have delete access to this corpus",
@@ -1912,6 +1948,8 @@ class DocumentFolderService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> CorpusFolder | None:
         """
         Get the current folder for a document in a corpus.
@@ -1926,7 +1964,7 @@ class DocumentFolderService:
         """
         from opencontractserver.documents.models import DocumentPath
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
         try:
@@ -1945,6 +1983,8 @@ class DocumentFolderService:
         cls,
         user: User,
         folder: CorpusFolder,
+        *,
+        request: Any = None,
     ) -> str | None:
         """
         Get the full path string for a folder.
@@ -1956,7 +1996,7 @@ class DocumentFolderService:
         Returns:
             Path string like "/Legal/Contracts/2024", None if no access
         """
-        if not folder.corpus.user_can(user, PermissionTypes.READ):
+        if not folder.corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
         return "/" + folder.get_path()
@@ -1967,6 +2007,8 @@ class DocumentFolderService:
         user: User,
         corpus_id: int,
         query: str,
+        *,
+        request: Any = None,
     ) -> QuerySet[CorpusFolder]:
         """
         Search folders by name within a corpus.
@@ -1979,7 +2021,7 @@ class DocumentFolderService:
         Returns:
             QuerySet of matching folders
         """
-        folders = cls.get_visible_folders(user, corpus_id)
+        folders = cls.get_visible_folders(user, corpus_id, request=request)
 
         if not query.strip():
             return folders
@@ -1993,6 +2035,8 @@ class DocumentFolderService:
         corpus: Corpus,
         folder_paths: list[str],
         target_folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[dict[str, CorpusFolder], int, int, str]:
         """
         Create all folders needed for a bulk import operation.
@@ -2034,7 +2078,7 @@ class DocumentFolderService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 {},
                 0,
@@ -2209,6 +2253,8 @@ class DocumentFolderService:
         custom_meta: dict | None = None,
         is_public: bool = False,
         slug: str | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[Document | None, str]:
         """
         Create a standalone document (not attached to any corpus).
@@ -2284,7 +2330,12 @@ class DocumentFolderService:
                     return None, f"Unsupported file type: {mime_type}"
 
                 # Set permissions for creator
-                set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
+                set_permissions_for_obj_to_user(
+                    user,
+                    document,
+                    [PermissionTypes.CRUD],
+                    request=request,
+                )
 
                 logger.info(
                     f"Created standalone document {document.id} "
@@ -2310,6 +2361,8 @@ class DocumentFolderService:
         custom_meta: dict | None = None,
         is_public: bool = False,
         slug: str | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[Document | None, str, str]:
         """
         Upload a document to a corpus.
@@ -2343,7 +2396,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission first
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 None,
                 "",
@@ -2360,6 +2413,7 @@ class DocumentFolderService:
             custom_meta=custom_meta,
             is_public=is_public,
             slug=slug,
+            request=request,
         )
 
         if not standalone_doc:
@@ -2371,6 +2425,7 @@ class DocumentFolderService:
             document=standalone_doc,
             corpus=corpus,
             folder=folder,
+            request=request,
         )
 
         if not corpus_doc:
@@ -2395,6 +2450,8 @@ class DocumentFolderService:
         document: Document,
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[Document | None, str, str]:
         """
         Add an existing document to a corpus, creating a corpus-isolated copy.
@@ -2422,7 +2479,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission AND document READ permission
         """
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 None,
                 "",
@@ -2448,7 +2505,12 @@ class DocumentFolderService:
             )
 
             # Set permissions on the corpus-isolated copy
-            set_permissions_for_obj_to_user(user, corpus_doc, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                corpus_doc,
+                [PermissionTypes.CRUD],
+                request=request,
+            )
 
             logger.info(
                 f"Added document {document.id} to corpus {corpus.id} as {corpus_doc.id} "
@@ -2468,6 +2530,8 @@ class DocumentFolderService:
         document_ids: list[int],
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[int, list[int], str]:
         """
         Add multiple existing documents to a corpus.
@@ -2489,7 +2553,7 @@ class DocumentFolderService:
         from opencontractserver.documents.models import Document
 
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 0,
                 [],
@@ -2511,6 +2575,7 @@ class DocumentFolderService:
                 document=doc,
                 corpus=corpus,
                 folder=folder,
+                request=request,
             )
             if corpus_doc:
                 added_count += 1
@@ -2527,6 +2592,8 @@ class DocumentFolderService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Remove a document from a corpus (soft delete).
@@ -2546,7 +2613,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -2575,6 +2642,8 @@ class DocumentFolderService:
         user: User,
         document_ids: list[int],
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[int, str]:
         """
         Remove multiple documents from a corpus (soft delete).
@@ -2591,7 +2660,7 @@ class DocumentFolderService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return 0, "Permission denied: You do not have write access to this corpus"
 
         # Get documents that are actually in this corpus
@@ -2605,6 +2674,7 @@ class DocumentFolderService:
                 user=user,
                 document=doc,
                 corpus=corpus,
+                request=request,
             )
             if success:
                 removed_count += 1
@@ -2657,6 +2727,8 @@ class DocumentFolderService:
         user: UserOrAnonymous,
         corpus: Corpus,
         include_deleted: bool = False,
+        *,
+        request: Any = None,
     ) -> QuerySet[Document]:
         """
         Get all documents in a corpus.
@@ -2674,7 +2746,7 @@ class DocumentFolderService:
         """
         from opencontractserver.documents.models import Document
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return Document.objects.none()
 
         if include_deleted:
@@ -2695,6 +2767,8 @@ class DocumentFolderService:
         document: Document,
         target_user: User,
         permissions: list[PermissionTypes],
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Set permissions for a document.
@@ -2722,7 +2796,12 @@ class DocumentFolderService:
                 )
 
         try:
-            set_permissions_for_obj_to_user(target_user, document, permissions)
+            set_permissions_for_obj_to_user(
+                target_user,
+                document,
+                permissions,
+                request=request,
+            )
             logger.info(
                 f"Set permissions {permissions} on document {document.id} "
                 f"for user {target_user.id} by user {user.id}"

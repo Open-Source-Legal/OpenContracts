@@ -185,6 +185,7 @@ class CreateCorpusMutation(DRFMutation):
                     PermissionTypes.PUBLISH,
                     PermissionTypes.PERMISSION,
                 ],
+                request=info.context,
             )
 
         return result
@@ -400,6 +401,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
                     document_ids=doc_pks,
                     corpus=corpus,
                     folder=None,  # No folder specified - add to root
+                    request=info.context,
                 )
             )
 
@@ -463,6 +465,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
                 user=user,
                 document_ids=doc_pks,
                 corpus=corpus,
+                request=info.context,
             )
 
             if error:
@@ -557,7 +560,10 @@ class StartCorpusFork(graphene.Mutation):
             corpus.save()
 
             set_permissions_for_obj_to_user(
-                info.context.user, corpus, [PermissionTypes.CRUD]
+                info.context.user,
+                corpus,
+                [PermissionTypes.CRUD],
+                request=info.context,
             )
 
             # Now remove references to related objects on our new object, as these point to original docs and labels
@@ -999,7 +1005,10 @@ class CreateCorpusAction(graphene.Mutation):
                     )
 
                     set_permissions_for_obj_to_user(
-                        user, agent_config, [PermissionTypes.CRUD]
+                        user,
+                        agent_config,
+                        [PermissionTypes.CRUD],
+                        request=info.context,
                     )
 
                     corpus_action = CorpusAction.objects.create(
@@ -1017,7 +1026,10 @@ class CreateCorpusAction(graphene.Mutation):
                     )
 
                     set_permissions_for_obj_to_user(
-                        user, corpus_action, [PermissionTypes.CRUD]
+                        user,
+                        corpus_action,
+                        [PermissionTypes.CRUD],
+                        request=info.context,
                     )
 
                     return CreateCorpusAction(
@@ -1041,7 +1053,12 @@ class CreateCorpusAction(graphene.Mutation):
                 creator=user,
             )
 
-            set_permissions_for_obj_to_user(user, corpus_action, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                corpus_action,
+                [PermissionTypes.CRUD],
+                request=info.context,
+            )
 
             return CreateCorpusAction(
                 ok=True, message="Successfully created corpus action", obj=corpus_action
@@ -1448,7 +1465,12 @@ class AddTemplateToCorpus(graphene.Mutation):
                     obj=None,
                 )
 
-            set_permissions_for_obj_to_user(user, action, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                action,
+                [PermissionTypes.CRUD],
+                request=info.context,
+            )
 
             return AddTemplateToCorpus(
                 ok=True,
