@@ -80,7 +80,12 @@ class AgentConfiguration(BaseOCModel):
     slug = models.SlugField(
         max_length=128,
         unique=True,
-        null=True,
+        # ``blank=True`` is intentional: callers may omit the slug, but the
+        # ``save()`` override below auto-generates one before the row hits
+        # the DB. ``null=False`` makes the DB itself the final guard against
+        # the slug-less-agent regression that crashed the @mention picker
+        # (historical models in migration context lack the ``save()``
+        # override — see ``opencontractserver.corpuses.template_seeds``).
         blank=True,
         db_index=True,
         help_text="URL-friendly identifier for mentions (e.g., 'research-assistant')",
