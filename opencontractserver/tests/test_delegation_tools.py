@@ -701,9 +701,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
         # pass to ``for_document`` — the visibility check just walks the
         # creator's perms.
         events = [
-            _make_stub_event(
-                type="final", content="ok", accumulated_content="ok"
-            ),
+            _make_stub_event(type="final", content="ok", accumulated_content="ok"),
         ]
         fake = _FakeSubAgent(events)
 
@@ -799,9 +797,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
 
         original_manager = _Document.objects
         empty_qs = _Document.objects.none()
-        with patch.object(
-            _Document, "objects", wraps=original_manager
-        ) as mock_objects:
+        with patch.object(_Document, "objects", wraps=original_manager) as mock_objects:
             mock_objects.visible_to_user.return_value = empty_qs
             result = await tool.function(prompt="hi", pin=False)
 
@@ -825,9 +821,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
 
         original_manager = _Corpus.objects
         empty_qs = _Corpus.objects.none()
-        with patch.object(
-            _Corpus, "objects", wraps=original_manager
-        ) as mock_objects:
+        with patch.object(_Corpus, "objects", wraps=original_manager) as mock_objects:
             mock_objects.visible_to_user.return_value = empty_qs
             result = await tool.function(prompt="hi", pin=False)
 
@@ -919,9 +913,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
                 thought="thinking hard",
                 metadata={"step": 1},
             ),
-            _make_stub_event(
-                type="final", content="done", accumulated_content="done"
-            ),
+            _make_stub_event(type="final", content="done", accumulated_content="done"),
         ]
         result, _, _ = await self._build_tool_and_invoke(
             events=events, pin=False, relay=relay
@@ -961,9 +953,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
             ),
         ]
         result, _, _ = await self._build_tool_and_invoke(events=events, pin=False)
-        self.assertEqual(
-            result["result"], "complete answer from non-streaming run"
-        )
+        self.assertEqual(result["result"], "complete answer from non-streaming run")
 
     async def test_body_swallows_on_finish_errors_but_returns_text(self):
         """If relay.on_finish raises an operational exception when pin=True,
@@ -994,7 +984,9 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
         )
 
         events = [
-            _make_stub_event(type="content", content="hello", accumulated_content="hello"),
+            _make_stub_event(
+                type="content", content="hello", accumulated_content="hello"
+            ),
             _make_stub_event(type="final", content="", accumulated_content="hello"),
         ]
         result, _, _ = await self._build_tool_and_invoke(

@@ -1315,6 +1315,12 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         # message id and fulfil it.  The delegation tool body is awaiting
         # the resolved decision and will call
         # ``sub_agent.resume_with_approval`` itself.
+        # The first-match break is sound under our asyncio single-threaded
+        # invariant: a sub-agent's ``relay.on_approval`` awaits the future
+        # synchronously inside the delegation tool body, which itself blocks
+        # the conductor's tool call. Two sub-agents from the same turn
+        # therefore can't both be awaiting approval simultaneously; only one
+        # entry will ever match ``(llm_msg_id, *)`` here.
         sub_agent_key: tuple[int, int | None] | None = None
         for key in list(self._pending_approvals.keys()):
             if key[0] == llm_msg_id and key[1] is not None:
