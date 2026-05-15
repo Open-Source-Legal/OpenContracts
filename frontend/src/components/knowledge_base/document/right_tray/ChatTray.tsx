@@ -346,8 +346,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       }
     });
 
-    console.log("messages", messages);
-
     // Then, map them for immediate display - NOW INCLUDING hasSources and hasTimeline FLAGS
     const mapped = messages.map((msg) => {
       // Type assertion for data field to include timeline and approval status
@@ -627,7 +625,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       // If we were already streaming the assistant's last message, just append:
       if (lastMessage && lastMessage.isAssistant) {
         messageId = lastMessage.messageId || ""; // Capture existing ID
-        console.log("append to existing messageId", messageId);
         const updatedLast = {
           ...lastMessage,
           content: lastMessage.content + token,
@@ -639,7 +636,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         messageId =
           overrideMessageId ||
           `msg_${Date.now()}_${Math.random().toString(36).substr(2)}`;
-        console.log("append to new messageId", messageId);
         return [
           ...prev,
           {
@@ -752,12 +748,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     overrideId?: string,
     timelineData?: TimelineEntry[]
   ): void => {
-    console.log("finalizeStreamingResponse", {
-      content,
-      sourcesData,
-      overrideId,
-    });
-
     let lastMsgId: string | undefined;
     setChat((prev) => {
       if (!prev.length) return prev;
@@ -772,10 +762,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
       const updatedMessages = [...prev];
       const assistantMsg = updatedMessages[updateIdx];
-      console.log("XOXO - Found assistant message to update:", {
-        messageId: assistantMsg.messageId,
-        oldContent: assistantMsg.content.substring(0, 50) + "...",
-      });
 
       lastMsgId = assistantMsg.messageId;
 
@@ -784,9 +770,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         content,
         isComplete: true,
       };
-      console.log("Updated message with final content:", {
-        messageId: lastMsgId,
-      });
 
       // Now store the final content + sources in ChatSourceAtom with the same ID
       handleCompleteMessage(
@@ -829,18 +812,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         if (!messageData) return;
         const { type: msgType, content, data } = messageData;
         const currentApproval = pendingApprovalRef.current;
-
-        console.log("[ChatTray WebSocket] Received message:", {
-          type: msgType,
-          hasContent: !!content,
-          hasSources: !!data?.sources,
-          sourceCount: data?.sources?.length,
-          hasTimeline: !!data?.timeline,
-          timelineCount: data?.timeline?.length,
-          message_id: data?.message_id,
-          approval_decision: data?.approval_decision,
-          has_pending_tool_call: !!data?.pending_tool_call,
-        });
 
         // Check if any message includes approval status update
         if (data?.approval_decision && data?.message_id) {
@@ -1004,12 +975,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               data?.timeline && Array.isArray(data.timeline)
                 ? data.timeline
                 : undefined;
-            console.log(
-              "[ChatTray WebSocket] SYNC_CONTENT sources:",
-              sourcesToPass,
-              "timeline:",
-              timelineToPass
-            );
             handleCompleteMessage(
               content,
               sourcesToPass,
@@ -1245,7 +1210,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       );
     }
     const messageId = overrideId ?? `msg_${Date.now()}`; // Only fallback if really needed
-    console.log("XOXO - handleCompleteMessage messageId", messageId);
     const messageTimestamp = overrideCreatedAt
       ? new Date(overrideCreatedAt).toISOString()
       : new Date().toISOString();

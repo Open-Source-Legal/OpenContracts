@@ -46,6 +46,19 @@ class ExtractMentionsTests(SimpleTestCase):
         self.assertEqual(mentions[0].slug, "audit-bot")
         self.assertEqual(mentions[0].corpus_slug, "acme-corp")
 
+    def test_corpus_agent_url_pattern_is_pinned_to_4_or_5_parts(self):
+        # A path with an extra trailing segment past ``agents/{slug}`` must
+        # NOT be classified as a corpus-scoped agent mention.  Without the
+        # explicit length pin the previous ``len(parts) >= 4`` heuristic
+        # would have matched and produced a wrong (corpus_slug, slug)
+        # pair from ``parts[-3:]``.
+        body = "garbled [link](/c/x/agents/foo/agents/bar) here."
+        mentions = extract_mentions(body)
+        # Either silently dropped or classified as something else — but
+        # never as a corpus-scoped agent mention with the wrong fields.
+        agent_mentions = [m for m in mentions if m.type == "agent"]
+        self.assertEqual(agent_mentions, [])
+
     def test_extracts_corpus_mention(self):
         body = "See [Acme corpus](/c/jdoe/acme-corp) for context."
         mentions = extract_mentions(body)

@@ -96,9 +96,13 @@ def _classify_url(url: str, label: str) -> ExtractedMention | None:
 
     # /c/{...}/agents/{slug} (corpus-scoped agent)
     # The corpus slug is the path segment immediately before `agents/{slug}`,
-    # which covers both `/c/{corpus-slug}/agents/{slug}` and the longer
-    # `/c/{creator-slug}/{corpus-slug}/agents/{slug}` form.
-    if len(parts) >= 4 and parts[0] == "c" and parts[-2] == "agents":
+    # which covers both `/c/{corpus-slug}/agents/{slug}` (4 parts) and the
+    # longer `/c/{creator-slug}/{corpus-slug}/agents/{slug}` (5 parts) form.
+    # Pinned to exactly those two shapes: a path like
+    # ``/c/x/agents/foo/agents/bar`` would otherwise accidentally match the
+    # ``parts[-2] == "agents"`` heuristic and emit a wrong (corpus_slug,
+    # slug) pair.
+    if len(parts) in (4, 5) and parts[0] == "c" and parts[-2] == "agents":
         corpus_slug = parts[-3]
         return ExtractedMention(
             type="agent",

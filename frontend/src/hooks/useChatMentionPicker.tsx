@@ -30,7 +30,7 @@
  *     ref is not yet mounted (e.g. first render)
  */
 
-import React, { RefObject, useMemo } from "react";
+import React, { RefObject, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   AgentMentionPopover,
@@ -88,7 +88,7 @@ export function useChatMentionPicker({
   const agentItems: AgentItem[] = useMemo(
     () =>
       mentionCategorizedResults.agents
-        .map((r) => {
+        .map((r): AgentItem | null => {
           if (!r.agent) return null;
           return {
             id: r.agent.id,
@@ -101,7 +101,7 @@ export function useChatMentionPicker({
                   title: r.agent.corpus.title,
                 }
               : null,
-          } as AgentItem;
+          };
         })
         .filter((a): a is AgentItem => a !== null),
     [mentionCategorizedResults.agents]
@@ -111,6 +111,34 @@ export function useChatMentionPicker({
   // ``useAgentMentionTrigger`` so its identity is stable across renders —
   // expose it directly rather than wrapping it in a no-op callback.
   const handleValueChange = mention.onValueChange;
+
+  // ``onSelect`` is captured by the popover's keydown ``useEffect`` deps,
+  // so identity stability matters: an inline arrow would re-mount the
+  // popover's document-level listener on every parent render.  Memoise
+  // against the underlying stable inputs (mention.onSelect + the value
+  // sink + the textarea ref).
+  const handleAgentSelect = useCallback(
+    (a: AgentItem) => {
+      const { value, caretPos } = mention.onSelect({
+        slug: a.slug,
+        name: a.name,
+        url: buildAgentMentionLink({
+          slug: a.slug,
+          scope: a.scope,
+          corpus: a.corpus,
+        }).url,
+      });
+      onValueChange(value);
+      setTimeout(() => {
+        const ta = textareaRef.current;
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(caretPos, caretPos);
+        }
+      }, 0);
+    },
+    [mention.onSelect, onValueChange, textareaRef]
+  );
 
   // Capture the textarea rect once when the popover transitions to open so
   // we don't read the DOM on every render while the picker is visible.
@@ -141,25 +169,7 @@ export function useChatMentionPicker({
             <AgentMentionPopover
               fragment={mention.fragment}
               agents={agentItems}
-              onSelect={(a) => {
-                const { value, caretPos } = mention.onSelect({
-                  slug: a.slug,
-                  name: a.name,
-                  url: buildAgentMentionLink({
-                    slug: a.slug,
-                    scope: a.scope,
-                    corpus: a.corpus,
-                  }).url,
-                });
-                onValueChange(value);
-                setTimeout(() => {
-                  const ta = textareaRef.current;
-                  if (ta) {
-                    ta.focus();
-                    ta.setSelectionRange(caretPos, caretPos);
-                  }
-                }, 0);
-              }}
+              onSelect={handleAgentSelect}
               onDismiss={mention.onDismiss}
             />
           </div>,

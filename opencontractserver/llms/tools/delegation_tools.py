@@ -71,10 +71,12 @@ def filter_by_scope(
         A queryset filtered to the agents valid for the given chat scope.
     """
     if not corpus_id and not document_id:
-        return qs.filter(scope="GLOBAL")
+        return qs.filter(scope=AgentConfiguration.SCOPE_GLOBAL)
 
     if corpus_id:
-        return qs.filter(Q(scope="GLOBAL") | Q(corpus_id=corpus_id))
+        return qs.filter(
+            Q(scope=AgentConfiguration.SCOPE_GLOBAL) | Q(corpus_id=corpus_id)
+        )
 
     # document_id only — resolve its current corpus via DocumentPath.
     # The outer guard already ensures ``document_id`` is non-None here, but
@@ -83,7 +85,7 @@ def filter_by_scope(
     # lookup would raise an unhelpful ``TypeError`` deep in the sync ORM
     # thread.
     if document_id is None:
-        return qs.filter(scope="GLOBAL")
+        return qs.filter(scope=AgentConfiguration.SCOPE_GLOBAL)
     doc_corpus_id = (
         DocumentPath.objects.filter(
             document_id=document_id,
@@ -94,8 +96,10 @@ def filter_by_scope(
         .first()
     )
     if doc_corpus_id:
-        return qs.filter(Q(scope="GLOBAL") | Q(corpus_id=doc_corpus_id))
-    return qs.filter(scope="GLOBAL")
+        return qs.filter(
+            Q(scope=AgentConfiguration.SCOPE_GLOBAL) | Q(corpus_id=doc_corpus_id)
+        )
+    return qs.filter(scope=AgentConfiguration.SCOPE_GLOBAL)
 
 
 # ---------------------------------------------------------------------------
@@ -426,12 +430,26 @@ def build_delegation_tool(
                 msg_id = (decision or {}).get("_sub_agent_msg_id")
                 approved = bool((decision or {}).get("approved", False))
                 if msg_id is None:
+                    # Approval cycle has no sub-agent message id to resume
+                    # against, so we cannot drive ``resume_with_approval``
+                    # for this turn.  Return a real failure to the
+                    # conductor rather than breaking out and letting
+                    # ``on_finish`` ship whatever ``accumulated`` text was
+                    # collected so far — partial accumulation would look
+                    # like a successful (but garbled) result to the LLM.
                     logger.warning(
                         "[delegate_to_%s] Approval cycle missing sub-agent "
-                        "message id; aborting.",
+                        "message id; aborting delegation.",
                         snake_slug,
                     )
-                    break
+                    return {
+                        "result": (
+                            f"Sub-agent @{agent_slug} could not be resumed: "
+                            "the approval cycle was missing the sub-agent "
+                            "message id."
+                        ),
+                        "pinned_message_id": None,
+                    }
                 try:
                     resume_iter = sub_agent.resume_with_approval(
                         msg_id, approved, stream=True

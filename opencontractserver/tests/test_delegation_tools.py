@@ -678,3 +678,94 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
         self.assertIsNone(result["pinned_message_id"])
         # We must have stopped at exactly the bound — no more, no fewer.
         self.assertEqual(looping.resume_calls, MAX_DELEGATION_APPROVAL_CYCLES)
+
+    async def test_body_returns_error_when_msg_id_missing_during_resume(self):
+        """Approval cycle with no sub-agent message id must NOT silently
+        fall through to ``on_finish`` and ship partial accumulated text
+        as success — it must return an explicit error string to the
+        conductor so the LLM sees a real failure instead of a garbled
+        ``result`` payload.
+        """
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            StreamRelay,
+            build_delegation_tool,
+        )
+
+        # Relay that auto-approves but, critically, returns
+        # ``llm_message_id=None`` so ``_sub_agent_msg_id`` resolves to
+        # ``None`` in the resume loop.
+        async def on_approval(_):
+            return {"approved": True, "llm_message_id": None}
+
+        async def noop_token(_):
+            return None
+
+        async def noop_thought(_t, _md):
+            return None
+
+        async def noop_finish(_):
+            return None
+
+        relay = StreamRelay(
+            agent=self.agent,
+            pin=False,
+            on_token=noop_token,
+            on_thought=noop_thought,
+            on_approval=on_approval,
+            on_finish=noop_finish,
+        )
+
+        # First-pass stream yields some accumulated content then an
+        # approval_needed event — but the event itself has no
+        # ``llm_message_id`` so the resume cycle has nothing to resume
+        # against.  The body must abort with an explicit error.
+        def _content_event(text: str):
+            return _make_stub_event(
+                type="content",
+                content=text,
+                accumulated_content=text,
+            )
+
+        def _approval_event_without_msg_id():
+            return _make_stub_event(
+                type="approval_needed",
+                content="",
+                accumulated_content="",
+                pending_tool_call={"name": "x", "arguments": {}},
+                # No llm_message_id field — getattr falls back to ``None``.
+            )
+
+        class _NoMsgIdAgent:
+            def stream(self, prompt):
+                async def _gen():
+                    yield _content_event("partial-")
+                    yield _content_event("text")
+                    yield _approval_event_without_msg_id()
+
+                return _gen()
+
+            def resume_with_approval(self, msg_id, approved, stream=True):
+                raise AssertionError(
+                    "resume_with_approval must NOT be called when "
+                    "msg_id is None — body must abort first."
+                )
+
+        with patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_factory:
+            mock_factory.return_value = _NoMsgIdAgent()
+            tool = build_delegation_tool(
+                self.agent,
+                relay_factory=lambda a, p: relay,
+                user=self.user,
+                corpus=self.corpus,
+                document=None,
+            )
+            result = await tool.function(prompt="please", pin=False)
+
+        # Must surface a real failure, not a silent partial accumulation.
+        self.assertNotEqual(result["result"], "partial-text")
+        self.assertIn("could not be resumed", result["result"])
+        self.assertIn("approval cycle", result["result"])
+        self.assertIsNone(result["pinned_message_id"])

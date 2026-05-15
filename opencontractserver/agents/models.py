@@ -64,9 +64,15 @@ class AgentConfiguration(BaseOCModel):
     Can be scoped globally or to a specific corpus.
     """
 
+    # Named constants for scope values so callers don't have to spell the
+    # raw strings (e.g. ``AgentConfiguration.SCOPE_GLOBAL`` in
+    # ``opencontractserver.llms.tools.delegation_tools.filter_by_scope``).
+    # The ``SCOPE_CHOICES`` tuple still drives the DB column choices.
+    SCOPE_GLOBAL = "GLOBAL"
+    SCOPE_CORPUS = "CORPUS"
     SCOPE_CHOICES = (
-        ("GLOBAL", "Global"),
-        ("CORPUS", "Corpus-specific"),
+        (SCOPE_GLOBAL, "Global"),
+        (SCOPE_CORPUS, "Corpus-specific"),
     )
 
     # Identity
