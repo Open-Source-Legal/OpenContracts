@@ -194,57 +194,55 @@ class PermissionQuerySet(models.QuerySet):
     def visible_to_user(
         self, user: Any, perm: Optional[str] = None
     ) -> "PermissionQuerySet":
+        """Filter to rows visible to ``user`` honoring django-guardian.
 
-        if user.is_superuser:
-            return self.all()
+        Mirrors ``BaseVisibilityManager.visible_to_user`` so that
+        ``Model.objects.user_can`` (which routes through
+        ``_default_user_can`` and consults guardian) stays aligned with
+        the queryset filter — this is the invariant pinned by
+        ``test_authorization_invariants``.
 
-        # model = self.model
-        # content_type = ContentType.objects.get_for_model(model)
-        #
-        # # Determine the permission codename
-        # permission_codename = f'{perm}_{model._meta.model_name}'
-        #
-        # # User permission subquery
-        # user_perm = UserObjectPermission.objects.filter(
-        #     content_type=content_type,
-        #     user=user,
-        #     permission__codename=permission_codename,
-        #     object_pk=OuterRef('pk')
-        # )
-        #
-        # # Group permission subquery
-        # group_perm = GroupObjectPermission.objects.filter(
-        #     content_type=content_type,
-        #     group__user=user,
-        #     permission__codename=permission_codename,
-        #     object_pk=OuterRef('pk')
-        # )
+        Logic:
+          - Superuser → all rows (ordered).
+          - Anonymous → ``is_public=True`` only.
+          - Authenticated non-superuser → ``creator | is_public |
+            guardian read codename``.
 
-        # Construct the base queryset
-        # queryset = self.annotate(
-        #     has_user_perm=Exists(user_perm),
-        #     has_group_perm=Exists(group_perm)
-        # )
+        Concrete subclasses (``DocumentQuerySet``, ``AnnotationQuerySet``,
+        ``NoteQuerySet``) override with model-specific logic; this body
+        is the fallback for direct uses of ``PermissionManager``.
+        """
+        from django.apps import apps
+        from django.contrib.auth.models import AnonymousUser
 
-        # Filter based on permissions and public status.
-        # NOTE(deferred): Instance-level sharing (django-guardian user/object
-        # permissions) is not yet wired here. Currently only creator and
-        # is_public are checked. See visible_to_user() on per-model managers
-        # for the full permission-aware pattern.
-        # permission_filter = Q(has_user_perm=True) | Q(has_group_perm=True) | Q(is_public=True)
-        permission_filter = Q(is_public=True)
-        if not user.is_anonymous:
-            permission_filter |= Q(creator=user)
+        if user is None:
+            user = AnonymousUser()
 
-        # # Add extra conditions based on permission type
-        # if perm == 'read':
-        #     # For read permission, include objects created by the user
-        #     permission_filter |= Q(creator=user)
-        # elif perm == 'publish':
-        #     # For publish permission, only include objects created by the user
-        #     permission_filter &= Q(creator=user)
+        if hasattr(user, "is_superuser") and user.is_superuser:
+            return self.all().order_by("created")
 
-        return self.filter(permission_filter).distinct()
+        if user.is_anonymous:
+            return self.filter(is_public=True).distinct()
+
+        # Authenticated non-superuser: combine creator, is_public, and
+        # the user's explicit guardian READ grants. Mirrors
+        # BaseVisibilityManager.visible_to_user lines 217-228.
+        model_name = self.model._meta.model_name
+        app_label = self.model._meta.app_label
+
+        try:
+            permission_model = apps.get_model(
+                app_label, f"{model_name}userobjectpermission"
+            )
+            permitted_ids = permission_model.objects.filter(
+                permission__codename=f"read_{model_name}", user_id=user.id
+            ).values_list("content_object_id", flat=True)
+            return self.filter(
+                Q(creator=user) | Q(is_public=True) | Q(id__in=permitted_ids)
+            ).distinct()
+        except LookupError:
+            # No guardian table for this model — degrade to creator/public.
+            return self.filter(Q(creator=user) | Q(is_public=True)).distinct()
 
 
 class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):

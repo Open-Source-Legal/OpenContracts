@@ -51,8 +51,9 @@ class AnnotationQueryOptimizer:
 
         Returns: (can_read, can_create, can_update, can_delete, can_comment)
         """
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         cache_key = (
             getattr(user, "id", None),
@@ -96,17 +97,20 @@ class AnnotationQueryOptimizer:
 
             return _store((True, False, False, False, False))
 
-        # Authenticated user — document permissions first
-        doc_read = user_has_permission_for_obj(user, document, PermissionTypes.READ)
+        # Authenticated user — document permissions first.
+        # NOTE: Routes through ``Document.objects.user_can`` / ``Corpus.objects.user_can``
+        # (instead of the deprecated ``user_has_permission_for_obj``) so creator
+        # status is honored. This is the Phase A bug-fix posture: the legacy
+        # function ignored creator, producing False-denials when the same
+        # user owned both the annotation and its parent document/corpus.
+        doc_read = Document.objects.user_can(user, document, PermissionTypes.READ)
         if not doc_read:
             return _store((False, False, False, False, False))
 
-        doc_create = user_has_permission_for_obj(user, document, PermissionTypes.CREATE)
-        doc_update = user_has_permission_for_obj(user, document, PermissionTypes.UPDATE)
-        doc_delete = user_has_permission_for_obj(user, document, PermissionTypes.DELETE)
-        doc_comment = user_has_permission_for_obj(
-            user, document, PermissionTypes.COMMENT
-        )
+        doc_create = Document.objects.user_can(user, document, PermissionTypes.CREATE)
+        doc_update = Document.objects.user_can(user, document, PermissionTypes.UPDATE)
+        doc_delete = Document.objects.user_can(user, document, PermissionTypes.DELETE)
+        doc_comment = Document.objects.user_can(user, document, PermissionTypes.COMMENT)
 
         if not corpus_id:
             return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
@@ -116,19 +120,11 @@ class AnnotationQueryOptimizer:
             # Corpus doesn't exist or isn't visible — fall back to document perms.
             return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
 
-        corpus_read = user_has_permission_for_obj(user, corpus, PermissionTypes.READ)
-        corpus_create = user_has_permission_for_obj(
-            user, corpus, PermissionTypes.CREATE
-        )
-        corpus_update = user_has_permission_for_obj(
-            user, corpus, PermissionTypes.UPDATE
-        )
-        corpus_delete = user_has_permission_for_obj(
-            user, corpus, PermissionTypes.DELETE
-        )
-        corpus_comment = user_has_permission_for_obj(
-            user, corpus, PermissionTypes.COMMENT
-        )
+        corpus_read = Corpus.objects.user_can(user, corpus, PermissionTypes.READ)
+        corpus_create = Corpus.objects.user_can(user, corpus, PermissionTypes.CREATE)
+        corpus_update = Corpus.objects.user_can(user, corpus, PermissionTypes.UPDATE)
+        corpus_delete = Corpus.objects.user_can(user, corpus, PermissionTypes.DELETE)
+        corpus_comment = Corpus.objects.user_can(user, corpus, PermissionTypes.COMMENT)
 
         final_read = doc_read and corpus_read
 
