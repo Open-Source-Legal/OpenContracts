@@ -319,6 +319,9 @@ const SelectionLayer = ({
       // ``createUrlAnnotation`` only consumes ``page``, ``json``, ``rawText``
       // and the label-type marker, so a synthetic OC_URL label placeholder
       // is sufficient — the backend resolves/creates the real label.
+      // Cast is required because ``AnnotationLabelType`` declares optional
+      // ``icon``/``description`` fields that we intentionally omit on this
+      // transient client-side placeholder (never persisted as-is).
       const placeholder: AnnotationLabelType = {
         id: PENDING_OC_URL_LABEL_ID,
         text: OC_URL_LABEL,
