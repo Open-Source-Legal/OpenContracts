@@ -33,8 +33,18 @@ import { PermissionTypes, TextSearchSpanResult } from "../../../types";
 import { Label, LabelContainer, PaperContainer } from "./StyledComponents";
 import RadialButtonCloud, { CloudButtonItem } from "./RadialButtonCloud";
 import { hexToRgba } from "./utils";
-import { useLocation } from "react-router-dom";
-import { Copy, Link, Tag, X, AlertCircle } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import {
+  Copy,
+  ExternalLink,
+  Link,
+  Link2,
+  Tag,
+  X,
+  AlertCircle,
+} from "lucide-react";
+import { isUrlAnnotation, openAnnotationUrl } from "../../utils/urlAnnotation";
+import { CreateUrlAnnotationModal } from "../../components/modals/CreateUrlAnnotationModal";
 import {
   encodeTextBlock,
   textBlockFromSpan,
@@ -48,7 +58,10 @@ import {
   HelpText,
 } from "../../components/SelectionActionMenu";
 import { clampMenuPosition } from "../../../../utils/layout";
-import { Z_INDEX } from "../../../../assets/configurations/constants";
+import {
+  OC_URL_LABEL,
+  Z_INDEX,
+} from "../../../../assets/configurations/constants";
 import {
   OS_LEGAL_COLORS,
   chatSourceBlueAlpha,
@@ -110,6 +123,16 @@ interface TxtAnnotatorProps {
   allowInput: boolean;
   /** Creates a new annotation in upstream data. */
   createAnnotation: (added_annotation_obj: ServerSpanAnnotation) => void;
+  /**
+   * Optional handler that creates an OC_URL link annotation. When provided,
+   * an "Add link…" item appears in the selection menu; otherwise the link
+   * UI is hidden.  Passed in (rather than via a hook) so the renderer
+   * stays decoupled from Apollo for unit tests.
+   */
+  createUrlAnnotation?: (
+    annotation: ServerSpanAnnotation,
+    url: string
+  ) => Promise<void>;
   /** Updates an existing annotation in upstream data. */
   updateAnnotation: (updated_annotation: ServerSpanAnnotation) => void;
   /** Approves an annotation if permitted. */
@@ -351,6 +374,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
   read_only,
   allowInput,
   createAnnotation,
+  createUrlAnnotation,
   updateAnnotation,
   approveAnnotation,
   rejectAnnotation,
@@ -366,6 +390,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
   onAnnotationRefChange,
 }) => {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [hoveredSpanIndex, setHoveredSpanIndex] = useState<number | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -495,9 +520,22 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
 
   /**
    * Handle clicking on a label - toggle selected annotation or clear it.
+   *
+   * For OC_URL link annotations, a plain click opens the target URL instead
+   * of toggling selection.  Holding Shift / Ctrl / Cmd falls back to the
+   * normal toggle behaviour so authors can still pick the link to edit it.
    */
   const handleLabelClick = useCallback(
-    (annotation: ServerSpanAnnotation) => {
+    (annotation: ServerSpanAnnotation, event?: React.MouseEvent) => {
+      if (
+        isUrlAnnotation(annotation) &&
+        !event?.shiftKey &&
+        !event?.metaKey &&
+        !event?.ctrlKey
+      ) {
+        // Pass ``navigate`` so site-relative paths stay in the SPA.
+        if (openAnnotationUrl(annotation, navigate)) return;
+      }
       if (selectedAnnotations.includes(annotation.id)) {
         setSelectedAnnotations([]);
       } else {
@@ -874,6 +912,56 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
     dismissMenu();
   }, [pendingSelection, getSpan, createAnnotation, dismissMenu]);
 
+  // URL-link creation flow: capture the active selection, hide the action
+  // menu, and pop the URL prompt modal. On confirm we hand off to the
+  // injected ``createUrlAnnotation`` prop (wired to the corpus-scoped
+  // ``useCreateUrlAnnotation`` hook by the wrapper).
+  const [urlModalOpen, setUrlModalOpen] = useState(false);
+  const [urlPendingSelection, setUrlPendingSelection] = useState<{
+    start: number;
+    end: number;
+    text: string;
+  } | null>(null);
+
+  const handleTxtStartCreateLink = useCallback(() => {
+    if (pendingSelection) {
+      setUrlPendingSelection(pendingSelection);
+      dismissMenu();
+      setUrlModalOpen(true);
+    }
+  }, [pendingSelection, dismissMenu]);
+
+  const handleTxtConfirmCreateLink = useCallback(
+    async (url: string) => {
+      if (urlPendingSelection && createUrlAnnotation) {
+        const newAnnotation = getSpan(urlPendingSelection);
+        await createUrlAnnotation(newAnnotation, url);
+      }
+      setUrlModalOpen(false);
+      setUrlPendingSelection(null);
+    },
+    [urlPendingSelection, getSpan, createUrlAnnotation]
+  );
+
+  const handleTxtCancelCreateLink = useCallback(() => {
+    setUrlModalOpen(false);
+    setUrlPendingSelection(null);
+  }, []);
+
+  // Editing the URL on an existing OC_URL annotation.
+  const [urlEditAnnotation, setUrlEditAnnotation] =
+    useState<ServerSpanAnnotation | null>(null);
+
+  const handleTxtConfirmEditLink = useCallback(
+    (url: string) => {
+      if (urlEditAnnotation) {
+        updateAnnotation(urlEditAnnotation.update({ linkUrl: url }));
+      }
+      setUrlEditAnnotation(null);
+    },
+    [urlEditAnnotation, updateAnnotation]
+  );
+
   // Handle clicks outside the action menu and keyboard shortcuts
   useEffect(() => {
     if (!showActionMenu) return;
@@ -1024,6 +1112,20 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
               ? finalAnnotations[0].annotationLabel.color || "#cccccc"
               : undefined;
 
+          // First OC_URL annotation overlapping this span — used to make
+          // the span behave (and look) like a hyperlink.
+          const linkAnnotation = finalAnnotations.find(isUrlAnnotation);
+
+          const handleSpanClick = linkAnnotation
+            ? (event: React.MouseEvent) => {
+                if (event.shiftKey || event.metaKey || event.ctrlKey) return;
+                // Pass ``navigate`` so site-relative paths stay in the SPA.
+                if (openAnnotationUrl(linkAnnotation, navigate)) {
+                  event.stopPropagation();
+                }
+              }
+            : undefined;
+
           return (
             <AnnotatedSpan
               key={index}
@@ -1035,6 +1137,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
               }
               onMouseEnter={() => handleMouseEnter(index)}
               onMouseLeave={handleMouseLeave}
+              onClick={handleSpanClick}
               approved={approved}
               rejected={rejected}
               hasBorder={hasBorder}
@@ -1045,6 +1148,9 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
                 ...backgroundStyle,
                 position: "relative",
                 paddingLeft: isChatSource ? "4px" : undefined,
+                cursor: linkAnnotation ? "pointer" : undefined,
+                textDecoration: linkAnnotation ? "underline" : undefined,
+                textUnderlineOffset: linkAnnotation ? "2px" : undefined,
               }}
             >
               {isChatSource && (
@@ -1068,13 +1174,27 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
               !annotation.structural &&
               annotation.myPermissions.includes(PermissionTypes.CAN_UPDATE)
             ) {
+              // Use the label text (NOT ``isUrlAnnotation``) so the
+              // URL editor opens even when ``link_url`` is null/empty.
+              // ``isUrlAnnotation`` requires both the OC_URL label AND a
+              // non-empty linkUrl — if an OC_URL annotation has no URL yet
+              // (e.g. created via the generic ``addAnnotation``), the
+              // author must still be able to attach one.
+              const isOcUrlAnnotation =
+                annotation.annotationLabel?.text === OC_URL_LABEL;
               actions.push({
                 name: "edit",
                 color: "#a3a3a3",
-                tooltip: "Edit Annotation",
+                tooltip: isOcUrlAnnotation
+                  ? "Edit Link URL"
+                  : "Edit Annotation",
                 onClick: () => {
-                  setAnnotationToEdit(annotation);
-                  setEditModalOpen(true);
+                  if (isOcUrlAnnotation) {
+                    setUrlEditAnnotation(annotation);
+                  } else {
+                    setAnnotationToEdit(annotation);
+                    setEditModalOpen(true);
+                  }
                 },
               });
             }
@@ -1139,9 +1259,20 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
                   $index={labelIndex}
                   onClick={(e: React.MouseEvent<HTMLSpanElement>) => {
                     e.stopPropagation();
-                    handleLabelClick(annotation);
+                    handleLabelClick(annotation, e);
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
                   }}
                 >
+                  {isUrlAnnotation(annotation) && (
+                    <ExternalLink
+                      size={12}
+                      aria-label="External link annotation"
+                    />
+                  )}
                   {annotation.annotationLabel.text}
                 </Label>
                 <RadialButtonCloud
@@ -1198,6 +1329,18 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
             {allowInput && !read_only && (
               <>
                 <MenuDivider />
+                {createUrlAnnotation && (
+                  <ActionMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTxtStartCreateLink();
+                    }}
+                    data-testid="txt-create-link-button"
+                  >
+                    <Link2 size={16} />
+                    <span>Add link…</span>
+                  </ActionMenuItem>
+                )}
                 <ActionMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1242,6 +1385,29 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
               <ShortcutHint>ESC</ShortcutHint>
             </ActionMenuItem>
           </SelectionActionMenu>,
+          document.body
+        )}
+
+      {urlModalOpen &&
+        createPortal(
+          <CreateUrlAnnotationModal
+            visible={urlModalOpen}
+            selectedText={urlPendingSelection?.text ?? ""}
+            onCancel={handleTxtCancelCreateLink}
+            onConfirm={handleTxtConfirmCreateLink}
+          />,
+          document.body
+        )}
+
+      {urlEditAnnotation &&
+        createPortal(
+          <CreateUrlAnnotationModal
+            visible={Boolean(urlEditAnnotation)}
+            selectedText={urlEditAnnotation.rawText}
+            initialUrl={urlEditAnnotation.linkUrl ?? ""}
+            onCancel={() => setUrlEditAnnotation(null)}
+            onConfirm={handleTxtConfirmEditLink}
+          />,
           document.body
         )}
 

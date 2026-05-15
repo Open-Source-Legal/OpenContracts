@@ -145,7 +145,7 @@ class DocxodusServiceParser(BaseParser):
         }
 
         try:
-            headers: dict[str, str] = {"Content-Type": "application/json"}
+            headers: dict[str, str | bytes] = {"Content-Type": "application/json"}
             headers = maybe_add_cloud_run_auth(
                 self.service_url, headers, force=self.use_cloud_run_iam_auth
             )

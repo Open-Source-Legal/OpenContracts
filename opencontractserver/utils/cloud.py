@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 def maybe_add_cloud_run_auth(
-    url: str, headers: dict[str, str], force: bool = False
-) -> dict[str, str]:
+    url: str, headers: dict[str, str | bytes], force: bool = False
+) -> dict[str, str | bytes]:
     """
     Attach an Authorization bearer with a Google Cloud Run identity token when applicable.
     Args:

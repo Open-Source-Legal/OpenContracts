@@ -107,6 +107,10 @@ def package_structural_annotation_set(
             }
             if annot.long_description is not None:
                 annot_data["long_description"] = annot.long_description
+            # Carry the OC_URL ``link_url`` through round-trip so forked /
+            # re-imported corpora keep their clickable targets.
+            if annot.link_url:
+                annot_data["link_url"] = annot.link_url
             structural_annotations.append(annot_data)
 
         # Get structural relationships

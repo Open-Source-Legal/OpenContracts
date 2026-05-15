@@ -107,6 +107,15 @@ interface PDFProps {
   read_only: boolean;
   containerWidth?: number | null;
   createAnnotationHandler: (annotation: ServerTokenAnnotation) => Promise<void>;
+  /**
+   * Optional handler that creates an OC_URL link annotation. Forwarded
+   * down to ``SelectionLayer`` so it can present an "Add link…" action in
+   * the selection menu. Omitted by callers that don't support links.
+   */
+  createUrlAnnotationHandler?: (
+    annotation: ServerTokenAnnotation,
+    url: string
+  ) => Promise<void>;
 }
 
 // Shared render coordination state
@@ -122,6 +131,7 @@ export const PDF: React.FC<PDFProps> = ({
   read_only,
   containerWidth,
   createAnnotationHandler,
+  createUrlAnnotationHandler,
 }) => {
   const { pages } = usePages();
   const setViewStateError = useSetViewStateError();
@@ -563,6 +573,7 @@ export const PDF: React.FC<PDFProps> = ({
                 onError={setViewStateError}
                 containerWidth={containerWidth}
                 createAnnotationHandler={createAnnotationHandler}
+                createUrlAnnotationHandler={createUrlAnnotationHandler}
                 onZoomRenderRequest={requestPageRender}
               />
             )}

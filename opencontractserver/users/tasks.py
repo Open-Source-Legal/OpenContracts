@@ -33,7 +33,7 @@ if settings.USE_AUTH0:
     def get_new_auth0_token() -> Optional[str]:
         url = f"https://{auth0_settings.AUTH0_DOMAIN}/oauth/token"
 
-        headers: dict[str, str] = {"content-type": "application/json"}
+        headers: dict[str, str | bytes] = {"content-type": "application/json"}
 
         request_data: dict[str, Any] = {
             "grant_type": auth0_settings.AUTH0_M2M_MANAGEMENT_GRANT_TYPE,
@@ -161,7 +161,7 @@ if settings.USE_AUTH0:
 
     @celery_app.task
     def get_user_details_async(token: str, auth0_Id: str) -> dict[str, Any]:
-        headers: dict[str, str] = {
+        headers: dict[str, str | bytes] = {
             "Authorization": f"Bearer {token}",
         }
         url = f"https://{auth0_settings.AUTH0_DOMAIN}/api/v2/users/{auth0_Id}"

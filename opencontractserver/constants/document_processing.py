@@ -197,6 +197,11 @@ PRIVACY_FILTER_CHUNK_SIZE = 40_000
 # chunk boundary without exploding the request count.
 PRIVACY_FILTER_CHUNK_OVERLAP = 500
 
+# Batch size for ``Annotation.objects.bulk_create`` when persisting PII
+# detections. Keeps the per-transaction insert size bounded so a document
+# with thousands of hits doesn't ship a single oversized INSERT to Postgres.
+PII_ANNOTATION_BULK_BATCH_SIZE = 200
+
 # ---------------------------------------------------------------------------
 # CAML article citation review tools
 # ---------------------------------------------------------------------------

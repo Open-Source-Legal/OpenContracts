@@ -91,6 +91,47 @@ EMBEDDING_DIMENSIONS = [
 ]
 
 
+# Allowed URL schemes for ``Annotation.link_url`` and OC_URL authoring
+# flows.  Anything not in this allow-list (notably ``javascript:`` and
+# ``data:``) is rejected to keep the click-to-open flow XSS-safe.
+LINK_URL_ALLOWED_SCHEMES: tuple[str, ...] = ("http://", "https://")
+
+
+def validate_link_url(url: str) -> None:
+    """Raise ``ValidationError`` if *url* is not a safe link target.
+
+    Accepts:
+      * ``http://`` / ``https://`` absolute URLs
+      * site-relative paths beginning with ``/``
+
+    Rejects every other scheme — particularly ``javascript:`` and ``data:``,
+    both of which would execute attacker-controlled code if reflected into
+    ``window.open`` on click.
+    """
+
+    if not url:
+        return
+    normalized = url.strip()
+    # ``//evil.com`` is a *protocol-relative* URL: browsers navigate to
+    # ``https://evil.com``. It starts with ``/`` but is NOT a site-relative
+    # path. Reject it before the allow-list check so the open-redirect
+    # vector closes here rather than in the renderer.
+    is_protocol_relative = normalized.startswith("//")
+    is_site_relative = normalized.startswith("/") and not is_protocol_relative
+    is_safe = (
+        normalized.lower().startswith(LINK_URL_ALLOWED_SCHEMES) or is_site_relative
+    )
+    if not is_safe:
+        raise ValidationError(
+            {
+                "link_url": (
+                    "link_url must be an http(s):// URL or a site-relative "
+                    "path starting with '/'."
+                )
+            }
+        )
+
+
 class AnnotationLabel(BaseOCModel):
 
     label_type = django.db.models.CharField(
@@ -966,6 +1007,23 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
     # Mark structural / layout annotations explicitly.
     structural = django.db.models.BooleanField(default=False)
 
+    # Target URL for clickable-link annotations (used with the OC_URL label).
+    # Frontend opens this URL when the annotation is clicked. Uses ``CharField``
+    # — NOT ``URLField`` — because we accept site-relative paths (``/corpus/...``)
+    # in addition to absolute URLs, and ``URLField``'s built-in ``URLValidator``
+    # rejects those at ``clean_fields()`` time before ``validate_link_url()``
+    # gets a chance to run. The full allow-list (http(s)://, /…) is enforced
+    # by ``validate_link_url`` in ``clean()`` and ``save()``.
+    link_url = django.db.models.CharField(
+        max_length=2048,
+        null=True,
+        blank=True,
+        help_text=(
+            "Target URL opened when the annotation is clicked. "
+            "Only meaningful for annotations labelled OC_URL."
+        ),
+    )
+
     # True only for annotations created by the extraction-grounding pipeline
     # (``opencontractserver/utils/extraction_grounding.py``). Backs the
     # partial UniqueConstraints below — the constraints scope to this flag
@@ -1042,6 +1100,20 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         """
 
         super().clean()
+
+        # Validate link_url scheme ALWAYS — link_url is reflected in a
+        # click handler, so unsafe schemes (e.g. ``javascript:``) must be
+        # rejected before persistence even when ``VALIDATE_ANNOTATION_JSON``
+        # is disabled. Run before the early-return below so the check
+        # cannot be bypassed by toggling that flag in production.
+        # Strip surrounding whitespace so a value submitted with leading
+        # spaces (e.g. via a direct API call that didn't pre-trim) is
+        # stored canonically. Whitespace-only input collapses to None so
+        # the column stays NULL rather than holding an empty string.
+        if self.link_url is not None:
+            self.link_url = self.link_url.strip() or None
+            if self.link_url:
+                validate_link_url(self.link_url)
 
         from django.conf import settings  # local to avoid global import cost
 
@@ -1156,8 +1228,21 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         from django.conf import settings
 
         if getattr(settings, "VALIDATE_ANNOTATION_JSON", settings.DEBUG):
-            # Ensure that `clean()` is executed even if external callers forget.
+            # Ensure that `clean()` is executed even if external callers
+            # forget. ``clean()`` already validates ``link_url`` ALWAYS
+            # (before its early-return), so a separate call here would
+            # be redundant.
             self.clean()
+        elif self.link_url is not None:
+            # ``clean()`` was skipped above, but link_url must still be
+            # validated — it is reflected in a click handler so unsafe
+            # schemes like ``javascript:`` must never reach persistence.
+            # Mirror the whitespace-stripping ``clean()`` performs so the
+            # column stays canonical regardless of which path persisted.
+            # Whitespace-only collapses to None.
+            self.link_url = self.link_url.strip() or None
+            if self.link_url:
+                validate_link_url(self.link_url)
 
         # Auto-compact annotation JSON to v2 format on save (lazy migration).
         if (

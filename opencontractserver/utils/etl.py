@@ -412,6 +412,8 @@ def build_document_export(
                     annot_export["content_modalities"] = annot.content_modalities
                 if annot.long_description is not None:
                     annot_export["long_description"] = annot.long_description
+                if annot.link_url:
+                    annot_export["link_url"] = annot.link_url
                 labelled_text.append(annot_export)
 
                 # Span annotations ({start, end}) don't have page-keyed structure

@@ -144,7 +144,8 @@ export function convertToServerAnnotation(
       rejected,
       allowComments ?? false,
       annotation.id,
-      annotation.contentModalities
+      annotation.contentModalities,
+      annotation.linkUrl ?? null
     );
   }
 
@@ -161,7 +162,8 @@ export function convertToServerAnnotation(
     rejected,
     allowComments ?? false,
     annotation.id,
-    annotation.contentModalities
+    annotation.contentModalities,
+    annotation.linkUrl ?? null
   );
 }
 

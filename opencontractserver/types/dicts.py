@@ -241,6 +241,10 @@ class OpenContractsAnnotationPythonType(TypedDict):
         list[str]
     ]  # ["TEXT"], ["IMAGE"], or ["TEXT", "IMAGE"]
     long_description: NotRequired[Optional[str]]
+    # Target URL for OC_URL clickable hyperlink annotations. Persisted on
+    # round-trip so a corpus full of link annotations doesn't silently lose
+    # all its targets through fork / V2-export / V2-import.
+    link_url: NotRequired[Optional[str]]
 
 
 class SpanAnnotation(TypedDict):

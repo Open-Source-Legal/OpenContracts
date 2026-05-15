@@ -942,6 +942,7 @@ export interface NewAnnotationOutputType {
       page: number;
       rawText: string;
       json: MultipageAnnotationJson;
+      linkUrl: string | null;
       annotationType: LabelType;
       annotationLabel: AnnotationLabelType;
       myPermissions: string[];
@@ -967,6 +968,7 @@ export interface NewAnnotationInputType {
   documentId: string;
   annotationLabelId: string;
   annotationType: LabelType;
+  linkUrl?: string | null;
 }
 
 export const REQUEST_ADD_ANNOTATION = gql`
@@ -978,6 +980,7 @@ export const REQUEST_ADD_ANNOTATION = gql`
     $documentId: String!
     $annotationLabelId: String!
     $annotationType: LabelType!
+    $linkUrl: String
   ) {
     addAnnotation(
       json: $json
@@ -987,6 +990,7 @@ export const REQUEST_ADD_ANNOTATION = gql`
       documentId: $documentId
       annotationLabelId: $annotationLabelId
       annotationType: $annotationType
+      linkUrl: $linkUrl
     ) {
       ok
       annotation {
@@ -994,6 +998,7 @@ export const REQUEST_ADD_ANNOTATION = gql`
         page
         rawText
         json
+        linkUrl
         isPublic
         myPermissions
         annotationType
@@ -1011,6 +1016,80 @@ export const REQUEST_ADD_ANNOTATION = gql`
               id
             }
           }
+        }
+      }
+    }
+  }
+`;
+
+export interface NewUrlAnnotationOutputType {
+  addUrlAnnotation: {
+    ok: boolean;
+    message?: string;
+    annotation: {
+      id: string;
+      page: number;
+      rawText: string;
+      json: MultipageAnnotationJson;
+      // Server schema returns nullable String for ``link_url``. Even though
+      // ``addUrlAnnotation`` always requires a URL, narrowing this to
+      // ``string`` could mask a downstream issue if the API ever omits it.
+      linkUrl: string | null;
+      annotationType: LabelType;
+      annotationLabel: AnnotationLabelType;
+      myPermissions: string[];
+      isPublic: boolean;
+    } | null;
+  };
+}
+
+export interface NewUrlAnnotationInputType {
+  page: number;
+  json: MultipageAnnotationJson;
+  rawText: string;
+  corpusId: string;
+  documentId: string;
+  annotationType: LabelType;
+  linkUrl: string;
+}
+
+export const REQUEST_ADD_URL_ANNOTATION = gql`
+  mutation (
+    $json: GenericScalar!
+    $page: Int!
+    $rawText: String!
+    $corpusId: String!
+    $documentId: String!
+    $annotationType: LabelType!
+    $linkUrl: String!
+  ) {
+    addUrlAnnotation(
+      json: $json
+      page: $page
+      rawText: $rawText
+      corpusId: $corpusId
+      documentId: $documentId
+      annotationType: $annotationType
+      linkUrl: $linkUrl
+    ) {
+      ok
+      message
+      annotation {
+        id
+        page
+        rawText
+        json
+        linkUrl
+        isPublic
+        myPermissions
+        annotationType
+        annotationLabel {
+          id
+          icon
+          description
+          color
+          text
+          labelType
         }
       }
     }
@@ -1317,6 +1396,11 @@ export interface UpdateAnnotationInputType {
   json?: Record<string, any>;
   page?: number;
   rawText?: string;
+  /**
+   * URL to open on click for OC_URL annotations. Empty string clears it.
+   * Restricted server-side to http(s):// or site-relative paths.
+   */
+  linkUrl?: string | null;
 }
 
 export const REQUEST_UPDATE_ANNOTATION = gql`
@@ -1326,6 +1410,7 @@ export const REQUEST_UPDATE_ANNOTATION = gql`
     $json: GenericScalar
     $page: Int
     $rawText: String
+    $linkUrl: String
   ) {
     updateAnnotation(
       id: $id
@@ -1333,6 +1418,7 @@ export const REQUEST_UPDATE_ANNOTATION = gql`
       json: $json
       page: $page
       rawText: $rawText
+      linkUrl: $linkUrl
     ) {
       ok
       message

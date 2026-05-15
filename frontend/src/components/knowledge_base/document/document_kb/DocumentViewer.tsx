@@ -82,6 +82,11 @@ export interface DocumentViewerProps {
   containerRefCallback: React.RefCallback<HTMLDivElement>;
   /** Annotation creation handler (PDF only) */
   createAnnotationHandler: (annotation: ServerTokenAnnotation) => Promise<void>;
+  /** OC_URL link-annotation creator (PDF only); enables the "Add link" action. */
+  createUrlAnnotationHandler?: (
+    annotation: ServerTokenAnnotation,
+    url: string
+  ) => Promise<void>;
 }
 
 /**
@@ -97,6 +102,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   containerWidth,
   containerRefCallback,
   createAnnotationHandler,
+  createUrlAnnotationHandler,
 }) => {
   if (isPdfFileType(fileType)) {
     return (
@@ -111,6 +117,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             read_only={!canEdit}
             containerWidth={containerWidth}
             createAnnotationHandler={createAnnotationHandler}
+            createUrlAnnotationHandler={createUrlAnnotationHandler}
           />
         </ViewerStatus>
       </ViewerContainer>

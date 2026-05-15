@@ -24,7 +24,10 @@ import { useDocumentPermissions } from "../../annotator/context/DocumentAtom";
 import { useAtom, useSetAtom } from "jotai";
 import { useAnnotationSelection } from "../../annotator/context/UISettingsAtom";
 import { useChatSourceState } from "../../annotator/context/ChatSourceAtom";
-import { useCreateAnnotation } from "../../annotator/hooks/AnnotationHooks";
+import {
+  useCreateAnnotation,
+  useCreateUrlAnnotation,
+} from "../../annotator/hooks/AnnotationHooks";
 import { ServerTokenAnnotation } from "../../annotator/types/annotations";
 import {
   selectedRelationsAtom,
@@ -403,6 +406,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
 
   // Call the hook ONCE here
   const originalCreateAnnotationHandler = useCreateAnnotation();
+  const originalCreateUrlAnnotationHandler = useCreateUrlAnnotation();
 
   // Conditional annotation handlers based on corpus availability
   const createAnnotationHandler = React.useCallback(
@@ -414,6 +418,17 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
       await originalCreateAnnotationHandler(annotation);
     },
     [corpusId, originalCreateAnnotationHandler]
+  );
+
+  const createUrlAnnotationHandler = React.useCallback(
+    async (annotation: ServerTokenAnnotation, url: string): Promise<void> => {
+      if (!corpusId) {
+        toast.info("Add document to corpus to create annotations");
+        return;
+      }
+      await originalCreateUrlAnnotationHandler(annotation, url);
+    },
+    [corpusId, originalCreateUrlAnnotationHandler]
   );
 
   const { selectedAnalysis, selectedExtract } = useAnalysisSelection();
@@ -668,6 +683,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
       containerWidth={containerWidth}
       containerRefCallback={containerRefCallback}
       createAnnotationHandler={createAnnotationHandler}
+      createUrlAnnotationHandler={createUrlAnnotationHandler}
     />
   );
 
