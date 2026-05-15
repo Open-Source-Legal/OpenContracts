@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { relayStylePagination } from "@apollo/client/utilities";
 import { DocumentTableOfContents } from "../src/components/corpuses/DocumentTableOfContents";
 import {
-  GET_DOCUMENT_RELATIONSHIPS,
+  GET_CORPUS_DOCUMENT_TOC_EDGES,
   GET_CORPUS_DOCUMENTS_FOR_TOC,
   GET_DOCUMENT_ANNOTATION_INDEX,
 } from "../src/graphql/queries";
@@ -16,6 +16,8 @@ import {
   CORPUS_DOCUMENTS_TOC_LIMIT,
   DOCUMENT_ANNOTATION_INDEX_LIMIT,
   OC_SECTION_LABEL,
+  DOCUMENT_RELATIONSHIP_TYPE_RELATIONSHIP,
+  DOCUMENT_RELATIONSHIP_LABEL_PARENT,
 } from "../src/assets/configurations/constants";
 
 // Test corpus ID
@@ -28,7 +30,9 @@ const mockCorpus = {
   creator: { id: "user-1", slug: "test-user" },
 };
 
-// Mock documents for the corpus (used by GET_CORPUS_DOCUMENTS_FOR_TOC)
+// Mock documents for the corpus (used by GET_CORPUS_DOCUMENTS_FOR_TOC).
+// The TOC document query was slimmed down to omit `icon` and `creator` —
+// the TOC derives icons from `fileType` and never displays creator info.
 const mockCorpusDocuments = [
   {
     node: {
@@ -36,9 +40,7 @@ const mockCorpusDocuments = [
       title: "Parent Document",
       description: "A parent document for testing hierarchy",
       slug: "parent-document",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
@@ -49,9 +51,7 @@ const mockCorpusDocuments = [
       title: "Child Document 1",
       description: "First child document",
       slug: "child-document-1",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
@@ -62,47 +62,30 @@ const mockCorpusDocuments = [
       title: "Child Document 2",
       description: "Second child document",
       slug: "child-document-2",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
   },
 ];
 
-// Mock relationships for testing
+// Mock relationships for testing.
+// The TOC relationship query was slimmed down to GET_CORPUS_DOCUMENT_TOC_EDGES,
+// which only fetches the relationship id + source/target document ids. Server-side
+// filters keep the result set restricted to "parent"-labeled RELATIONSHIP rows,
+// so the relationship rows themselves carry no relationshipType / label fields.
 const mockParentRelationships = [
   {
     node: {
       id: "rel-1",
-      relationshipType: "RELATIONSHIP",
-      data: null,
       sourceDocument: {
         id: "doc-2",
-        title: "Child Document 1",
-        icon: null,
-        slug: "child-document-1",
-        creator: { slug: "test-user" },
+        __typename: "DocumentType",
       },
       targetDocument: {
         id: "doc-1",
-        title: "Parent Document",
-        icon: null,
-        slug: "parent-document",
-        creator: { slug: "test-user" },
+        __typename: "DocumentType",
       },
-      annotationLabel: {
-        id: "label-1",
-        text: "parent",
-        color: "#3b82f6",
-        icon: null,
-      },
-      corpus: { id: TEST_CORPUS_ID },
-      creator: { id: "user-1", username: "testuser" },
-      created: "2025-01-01T00:00:00Z",
-      modified: "2025-01-01T00:00:00Z",
-      myPermissions: ["read"],
       __typename: "DocumentRelationshipType",
     },
     __typename: "DocumentRelationshipTypeEdge",
@@ -110,49 +93,29 @@ const mockParentRelationships = [
   {
     node: {
       id: "rel-2",
-      relationshipType: "RELATIONSHIP",
-      data: null,
       sourceDocument: {
         id: "doc-3",
-        title: "Child Document 2",
-        icon: null,
-        slug: "child-document-2",
-        creator: { slug: "test-user" },
+        __typename: "DocumentType",
       },
       targetDocument: {
         id: "doc-1",
-        title: "Parent Document",
-        icon: null,
-        slug: "parent-document",
-        creator: { slug: "test-user" },
+        __typename: "DocumentType",
       },
-      annotationLabel: {
-        id: "label-1",
-        text: "parent",
-        color: "#3b82f6",
-        icon: null,
-      },
-      corpus: { id: TEST_CORPUS_ID },
-      creator: { id: "user-1", username: "testuser" },
-      created: "2025-01-01T00:00:00Z",
-      modified: "2025-01-01T00:00:00Z",
-      myPermissions: ["read"],
       __typename: "DocumentRelationshipType",
     },
     __typename: "DocumentRelationshipTypeEdge",
   },
 ];
 
-// Deep hierarchy documents
+// Deep hierarchy documents (TOC document query: no icon/creator fields).
 const mockDeepHierarchyDocuments = [
   {
     node: {
       id: "doc-root",
       title: "Root Document",
+      description: null,
       slug: "root-doc",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
@@ -161,10 +124,9 @@ const mockDeepHierarchyDocuments = [
     node: {
       id: "doc-level1",
       title: "Level 1 Document",
+      description: null,
       slug: "level-1",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
@@ -173,10 +135,9 @@ const mockDeepHierarchyDocuments = [
     node: {
       id: "doc-level2",
       title: "Level 2 Document",
+      description: null,
       slug: "level-2",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
@@ -185,10 +146,9 @@ const mockDeepHierarchyDocuments = [
     node: {
       id: "doc-level3",
       title: "Level 3 Document",
+      description: null,
       slug: "level-3",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
@@ -197,49 +157,24 @@ const mockDeepHierarchyDocuments = [
     node: {
       id: "doc-level4",
       title: "Level 4 Document",
+      description: null,
       slug: "level-4",
-      icon: null,
       fileType: "application/pdf",
-      creator: { slug: "test-user" },
       __typename: "DocumentType",
     },
     __typename: "DocumentTypeEdge",
   },
 ];
 
-// Deep hierarchy relationships (5 levels: Root -> Level1 -> Level2 -> Level3 -> Level4)
+// Deep hierarchy relationships (5 levels: Root -> Level1 -> Level2 -> Level3 -> Level4).
+// Uses the lean GET_CORPUS_DOCUMENT_TOC_EDGES shape — only IDs are returned.
 const mockDeepHierarchy = [
   // Level1 -> Root
   {
     node: {
       id: "rel-deep-1",
-      relationshipType: "RELATIONSHIP",
-      data: null,
-      sourceDocument: {
-        id: "doc-level1",
-        title: "Level 1 Document",
-        icon: null,
-        slug: "level-1",
-        creator: { slug: "test-user" },
-      },
-      targetDocument: {
-        id: "doc-root",
-        title: "Root Document",
-        icon: null,
-        slug: "root-doc",
-        creator: { slug: "test-user" },
-      },
-      annotationLabel: {
-        id: "label-1",
-        text: "parent",
-        color: "#3b82f6",
-        icon: null,
-      },
-      corpus: { id: TEST_CORPUS_ID },
-      creator: { id: "user-1", username: "testuser" },
-      created: "2025-01-01T00:00:00Z",
-      modified: "2025-01-01T00:00:00Z",
-      myPermissions: ["read"],
+      sourceDocument: { id: "doc-level1", __typename: "DocumentType" },
+      targetDocument: { id: "doc-root", __typename: "DocumentType" },
       __typename: "DocumentRelationshipType",
     },
     __typename: "DocumentRelationshipTypeEdge",
@@ -248,33 +183,8 @@ const mockDeepHierarchy = [
   {
     node: {
       id: "rel-deep-2",
-      relationshipType: "RELATIONSHIP",
-      data: null,
-      sourceDocument: {
-        id: "doc-level2",
-        title: "Level 2 Document",
-        icon: null,
-        slug: "level-2",
-        creator: { slug: "test-user" },
-      },
-      targetDocument: {
-        id: "doc-level1",
-        title: "Level 1 Document",
-        icon: null,
-        slug: "level-1",
-        creator: { slug: "test-user" },
-      },
-      annotationLabel: {
-        id: "label-1",
-        text: "parent",
-        color: "#3b82f6",
-        icon: null,
-      },
-      corpus: { id: TEST_CORPUS_ID },
-      creator: { id: "user-1", username: "testuser" },
-      created: "2025-01-01T00:00:00Z",
-      modified: "2025-01-01T00:00:00Z",
-      myPermissions: ["read"],
+      sourceDocument: { id: "doc-level2", __typename: "DocumentType" },
+      targetDocument: { id: "doc-level1", __typename: "DocumentType" },
       __typename: "DocumentRelationshipType",
     },
     __typename: "DocumentRelationshipTypeEdge",
@@ -283,33 +193,8 @@ const mockDeepHierarchy = [
   {
     node: {
       id: "rel-deep-3",
-      relationshipType: "RELATIONSHIP",
-      data: null,
-      sourceDocument: {
-        id: "doc-level3",
-        title: "Level 3 Document",
-        icon: null,
-        slug: "level-3",
-        creator: { slug: "test-user" },
-      },
-      targetDocument: {
-        id: "doc-level2",
-        title: "Level 2 Document",
-        icon: null,
-        slug: "level-2",
-        creator: { slug: "test-user" },
-      },
-      annotationLabel: {
-        id: "label-1",
-        text: "parent",
-        color: "#3b82f6",
-        icon: null,
-      },
-      corpus: { id: TEST_CORPUS_ID },
-      creator: { id: "user-1", username: "testuser" },
-      created: "2025-01-01T00:00:00Z",
-      modified: "2025-01-01T00:00:00Z",
-      myPermissions: ["read"],
+      sourceDocument: { id: "doc-level3", __typename: "DocumentType" },
+      targetDocument: { id: "doc-level2", __typename: "DocumentType" },
       __typename: "DocumentRelationshipType",
     },
     __typename: "DocumentRelationshipTypeEdge",
@@ -318,33 +203,8 @@ const mockDeepHierarchy = [
   {
     node: {
       id: "rel-deep-4",
-      relationshipType: "RELATIONSHIP",
-      data: null,
-      sourceDocument: {
-        id: "doc-level4",
-        title: "Level 4 Document",
-        icon: null,
-        slug: "level-4",
-        creator: { slug: "test-user" },
-      },
-      targetDocument: {
-        id: "doc-level3",
-        title: "Level 3 Document",
-        icon: null,
-        slug: "level-3",
-        creator: { slug: "test-user" },
-      },
-      annotationLabel: {
-        id: "label-1",
-        text: "parent",
-        color: "#3b82f6",
-        icon: null,
-      },
-      corpus: { id: TEST_CORPUS_ID },
-      creator: { id: "user-1", username: "testuser" },
-      created: "2025-01-01T00:00:00Z",
-      modified: "2025-01-01T00:00:00Z",
-      myPermissions: ["read"],
+      sourceDocument: { id: "doc-level4", __typename: "DocumentType" },
+      targetDocument: { id: "doc-level3", __typename: "DocumentType" },
       __typename: "DocumentRelationshipType",
     },
     __typename: "DocumentRelationshipTypeEdge",
@@ -476,7 +336,12 @@ const emptyAnnotationIndexMock = (documentId: string): MockedResponse => ({
   },
 });
 
-// Cache configuration
+// Cache configuration.
+// NOTE: keyArgs must match GraphQL FIELD ARGUMENT names, not variable names.
+// The lean TOC edges query uses `corpusId`, `relationshipType`, and
+// `annotationLabelText` as field arguments on `documentRelationships`, so the
+// pagination key must include all three to isolate TOC results from any other
+// `documentRelationships` cache entries.
 const createTestCache = () =>
   new InMemoryCache({
     typePolicies: {
@@ -485,6 +350,8 @@ const createTestCache = () =>
           documentRelationships: relayStylePagination([
             "corpusId",
             "documentId",
+            "relationshipType",
+            "annotationLabelText",
           ]),
           documents: relayStylePagination(["inCorpusWithId"]),
           annotations: relayStylePagination([
@@ -533,9 +400,14 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
 
   // Build mocks based on mockType
   const getMocks = (): MockedResponse[] => {
+    // The lean TOC edges query supplies the relationship_type / label filters
+    // server-side; they must match the variables the component sends exactly,
+    // since MockedProvider matches mocks by deep-equal variable comparison.
     const relationshipsVariables = {
       corpusId: TEST_CORPUS_ID,
       first: DOCUMENT_RELATIONSHIP_TOC_LIMIT,
+      relationshipType: DOCUMENT_RELATIONSHIP_TYPE_RELATIONSHIP,
+      annotationLabelText: DOCUMENT_RELATIONSHIP_LABEL_PARENT,
     };
 
     const documentsVariables = {
@@ -570,7 +442,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
       // Empty corpus - no documents
       const emptyRelationshipsMock = {
         request: {
-          query: GET_DOCUMENT_RELATIONSHIPS,
+          query: GET_CORPUS_DOCUMENT_TOC_EDGES,
           variables: relationshipsVariables,
         },
         result: {
@@ -580,9 +452,6 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
               totalCount: 0,
               pageInfo: {
                 hasNextPage: false,
-                hasPreviousPage: false,
-                startCursor: null,
-                endCursor: null,
               },
               __typename: "DocumentRelationshipTypeConnection",
             },
@@ -637,7 +506,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
     if (mockType === "singleStandalone") {
       const emptyRelationshipsMock = {
         request: {
-          query: GET_DOCUMENT_RELATIONSHIPS,
+          query: GET_CORPUS_DOCUMENT_TOC_EDGES,
           variables: relationshipsVariables,
         },
         result: {
@@ -647,9 +516,6 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
               totalCount: 0,
               pageInfo: {
                 hasNextPage: false,
-                hasPreviousPage: false,
-                startCursor: null,
-                endCursor: null,
               },
               __typename: "DocumentRelationshipTypeConnection",
             },
@@ -663,9 +529,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
             title: "Single Standalone Document",
             description: "Only document in this corpus",
             slug: "single-standalone-document",
-            icon: null,
             fileType: "application/pdf",
-            creator: { slug: "test-user" },
             __typename: "DocumentType",
           },
           __typename: "DocumentTypeEdge",
@@ -684,49 +548,22 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
       // Documents exist but no parent relationships - shows docs as standalone root items
       const noParentRelsMock = {
         request: {
-          query: GET_DOCUMENT_RELATIONSHIPS,
+          query: GET_CORPUS_DOCUMENT_TOC_EDGES,
           variables: relationshipsVariables,
         },
         result: {
           data: {
+            // The lean TOC edges query already applies server-side filters for
+            // relationshipType="RELATIONSHIP" + annotationLabelText="parent",
+            // so non-parent relationships (e.g. NOTES) never come back to the
+            // client. The mock therefore returns an empty edge list, and the
+            // two documents render as standalone root items via
+            // GET_CORPUS_DOCUMENTS_FOR_TOC.
             documentRelationships: {
-              edges: [
-                {
-                  node: {
-                    id: "rel-other",
-                    relationshipType: "NOTES", // Not a parent relationship
-                    data: null,
-                    sourceDocument: {
-                      id: "doc-a",
-                      title: "Doc A",
-                      icon: null,
-                      slug: "doc-a",
-                      creator: { slug: "test-user" },
-                    },
-                    targetDocument: {
-                      id: "doc-b",
-                      title: "Doc B",
-                      icon: null,
-                      slug: "doc-b",
-                      creator: { slug: "test-user" },
-                    },
-                    annotationLabel: null,
-                    corpus: { id: TEST_CORPUS_ID },
-                    creator: { id: "user-1", username: "testuser" },
-                    created: "2025-01-01T00:00:00Z",
-                    modified: "2025-01-01T00:00:00Z",
-                    myPermissions: ["read"],
-                    __typename: "DocumentRelationshipType",
-                  },
-                  __typename: "DocumentRelationshipTypeEdge",
-                },
-              ],
-              totalCount: 1,
+              edges: [],
+              totalCount: 0,
               pageInfo: {
                 hasNextPage: false,
-                hasPreviousPage: false,
-                startCursor: null,
-                endCursor: null,
               },
               __typename: "DocumentRelationshipTypeConnection",
             },
@@ -739,10 +576,9 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
           node: {
             id: "doc-a",
             title: "Doc A",
+            description: null,
             slug: "doc-a",
-            icon: null,
             fileType: "application/pdf",
-            creator: { slug: "test-user" },
             __typename: "DocumentType",
           },
           __typename: "DocumentTypeEdge",
@@ -751,10 +587,9 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
           node: {
             id: "doc-b",
             title: "Doc B",
+            description: null,
             slug: "doc-b",
-            icon: null,
             fileType: "application/pdf",
-            creator: { slug: "test-user" },
             __typename: "DocumentType",
           },
           __typename: "DocumentTypeEdge",
@@ -784,7 +619,7 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
     // Return duplicate mocks for cache-and-network fetch policy
     const relationshipsMock = {
       request: {
-        query: GET_DOCUMENT_RELATIONSHIPS,
+        query: GET_CORPUS_DOCUMENT_TOC_EDGES,
         variables: relationshipsVariables,
       },
       result: {
@@ -794,9 +629,6 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
             totalCount: relationshipsMockData.length,
             pageInfo: {
               hasNextPage: false,
-              hasPreviousPage: false,
-              startCursor: null,
-              endCursor: null,
             },
             __typename: "DocumentRelationshipTypeConnection",
           },

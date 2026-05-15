@@ -305,8 +305,17 @@ export const cache = new InMemoryCache({
           "name_Contains",
         ]),
         columns: relayStylePagination(),
-        // Document relationships - cache by corpus/document context
-        documentRelationships: relayStylePagination(["corpusId", "documentId"]),
+        // Document relationships - cache by corpus/document context.
+        // The lean TOC edges query (corpus home) also passes
+        // ``relationshipType`` and ``annotationLabelText``; both must appear
+        // in keyArgs so its cache entries don't collide with the full
+        // ``GET_DOCUMENT_RELATIONSHIPS`` payload used by the modal.
+        documentRelationships: relayStylePagination([
+          "corpusId",
+          "documentId",
+          "relationshipType",
+          "annotationLabelText",
+        ]),
         // Slug resolution queries - cache by input parameters
         userBySlug: {
           keyArgs: ["slug"],
