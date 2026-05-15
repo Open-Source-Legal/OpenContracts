@@ -34,6 +34,18 @@ class ExtractMentionsTests(SimpleTestCase):
         self.assertEqual(mentions[0].slug, "auditor")
         self.assertEqual(mentions[0].corpus_slug, "acme-corp")
 
+    def test_extracts_corpus_scoped_agent_mention_long_form(self):
+        # Long form: ``/c/{creator-slug}/{corpus-slug}/agents/{slug}`` (5 parts).
+        # ``_classify_url`` derives ``corpus_slug`` from the segment immediately
+        # preceding ``agents/{slug}`` regardless of how deep that segment sits,
+        # so the longer creator-prefixed URL also resolves correctly.
+        body = "Ask [@audit-bot](/c/jdoe/acme-corp/agents/audit-bot) please."
+        mentions = extract_mentions(body)
+        self.assertEqual(len(mentions), 1)
+        self.assertEqual(mentions[0].type, "agent")
+        self.assertEqual(mentions[0].slug, "audit-bot")
+        self.assertEqual(mentions[0].corpus_slug, "acme-corp")
+
     def test_extracts_corpus_mention(self):
         body = "See [Acme corpus](/c/jdoe/acme-corp) for context."
         mentions = extract_mentions(body)

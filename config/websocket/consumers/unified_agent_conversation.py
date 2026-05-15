@@ -883,6 +883,23 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
                 future: asyncio.Future = asyncio.get_running_loop().create_future()
                 key = (parent_id, agent.pk)
+                # Invariant: two sub-agents of the same conductor turn cannot
+                # simultaneously hold the same ``(parent_message_id, agent.pk)``
+                # key — each sub-agent is built fresh per turn and ``key``
+                # collapses to one future at most.  Guard with an explicit
+                # check (rather than a comment-only assumption) so a future
+                # refactor that re-enters this path twice gets a loud error
+                # instead of silently leaking the previous pending future.
+                if key in consumer._pending_approvals:
+                    logger.error(
+                        "[Session %s] Duplicate approval future for "
+                        "(parent=%s, agent=%s); cancelling the previous one "
+                        "to avoid a leaked Future.",
+                        consumer.session_id,
+                        parent_id,
+                        agent.pk,
+                    )
+                    consumer._pending_approvals[key].cancel()
                 consumer._pending_approvals[key] = future
 
                 await consumer._send_safe(

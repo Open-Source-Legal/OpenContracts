@@ -29,7 +29,9 @@ _LINK_RE = re.compile(r"\[([^\]]*)\]\((/[^)\s]+)\)")
 # The possessive quantifier `++` prevents the slug match from backtracking
 # into a shorter prefix to satisfy the lookahead — without it,
 # `@corpus:acme-corp/document:spec-doc` would yield a spurious `acme-cor`
-# corpus mention.
+# corpus mention.  Possessive quantifiers were added to Python's ``re``
+# module in 3.11 (the project's pinned production runtime); rewrite with an
+# atomic group ``(?>...)`` if you ever need to support 3.10 or earlier.
 _LEGACY_CORPUS_RE = re.compile(r"@corpus:([a-z0-9-]++)(?!/document:)", re.IGNORECASE)
 _LEGACY_DOCUMENT_RE = re.compile(r"@document:([a-z0-9-]+)", re.IGNORECASE)
 _LEGACY_CORPUS_DOC_RE = re.compile(
