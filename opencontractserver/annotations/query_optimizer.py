@@ -10,7 +10,18 @@ if TYPE_CHECKING:
     from opencontractserver.analyzer.models import Analysis
     from opencontractserver.extracts.models import Extract
 
-from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet, Value
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    Exists,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Value,
+    When,
+)
 
 
 class AnnotationQueryOptimizer:
@@ -459,8 +470,24 @@ class AnnotationQueryOptimizer:
             .annotate(
                 _can_read=Value(can_read),
                 _can_create=Value(can_create),
-                _can_update=Value(can_update),
-                _can_delete=Value(can_delete),
+                # Structural annotations are read-only for non-superusers.
+                # ``can_update``/``can_delete`` here came from doc+corpus
+                # perms; mask them off per-row for structural annotations
+                # so the annotation matches ``AnnotationManager.user_can``'s
+                # structural-write-deny rule. Superusers were already
+                # handled upstream in ``_compute_effective_permissions``
+                # (superuser → all True), so this Case fires only for
+                # non-superusers and only on structural rows.
+                _can_update=Case(
+                    When(structural=True, then=Value(False)),
+                    default=Value(can_update),
+                    output_field=BooleanField(),
+                ),
+                _can_delete=Case(
+                    When(structural=True, then=Value(False)),
+                    default=Value(can_delete),
+                    output_field=BooleanField(),
+                ),
                 _can_comment=Value(can_comment),
             )
         )
