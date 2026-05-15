@@ -122,7 +122,12 @@ class MetadataColumnsGraphQLTestCase(TestCase):
 
         data = result["data"]["createMetadataColumn"]
         self.assertFalse(data["ok"])
-        self.assertIn("don't have permission", data["message"])
+        # IDOR-safe response: unified "not found or no permission" message blocks
+        # enumeration of corpus IDs by users who lack UPDATE permission.
+        self.assertIn(
+            "Corpus not found or you do not have permission",
+            data["message"],
+        )
 
     def test_update_metadata_column_mutation(self):
         """Test updating a metadata column."""

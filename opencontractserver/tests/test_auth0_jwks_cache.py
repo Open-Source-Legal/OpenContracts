@@ -16,7 +16,10 @@ import requests
 
 from config.graphql_auth0_auth.utils import (
     _JWKS_CACHE_TTL,
+    _JWKS_STALE_GRACE,
+    _can_serve_stale,
     _get_cached_jwks,
+    _jwks_cache_lock,
 )
 
 
@@ -188,6 +191,80 @@ class TestJWKSCache:
         # Should return stale cache
         result2 = _get_cached_jwks("test-domain.auth0.com")
         assert result2 == mock_jwks
+
+    @patch("config.graphql_auth0_auth.utils.requests.get")
+    @patch("config.graphql_auth0_auth.utils.time.time")
+    def test_network_error_after_stale_grace_fails_closed(self, mock_time, mock_get):
+        """Outside the stale-grace window, network errors must fail closed."""
+        mock_jwks = {"keys": [{"kid": "test-key-id", "kty": "RSA"}]}
+        mock_response = MagicMock()
+        mock_response.json.return_value = mock_jwks
+        mock_get.return_value = mock_response
+
+        # Prime the cache.
+        mock_time.return_value = 0
+        _get_cached_jwks("test-domain.auth0.com")
+
+        # Far beyond TTL + stale grace; Auth0 is also down.
+        mock_time.return_value = _JWKS_CACHE_TTL + _JWKS_STALE_GRACE + 1
+        mock_get.side_effect = requests.RequestException("Network error")
+
+        with pytest.raises(requests.RequestException):
+            _get_cached_jwks("test-domain.auth0.com")
+
+    @patch("config.graphql_auth0_auth.utils.requests.get")
+    @patch("config.graphql_auth0_auth.utils.time.time")
+    def test_json_error_after_stale_grace_fails_closed(self, mock_time, mock_get):
+        """Outside the stale-grace window, JSON errors must fail closed."""
+        mock_jwks = {"keys": [{"kid": "test-key-id", "kty": "RSA"}]}
+        good_response = MagicMock()
+        good_response.json.return_value = mock_jwks
+
+        # Prime the cache successfully.
+        mock_time.return_value = 0
+        mock_get.return_value = good_response
+        _get_cached_jwks("test-domain.auth0.com")
+
+        # Far beyond TTL + stale grace; Auth0 returns invalid JSON.
+        mock_time.return_value = _JWKS_CACHE_TTL + _JWKS_STALE_GRACE + 1
+        bad_response = MagicMock()
+        bad_response.json.side_effect = ValueError("Invalid JSON")
+        mock_get.return_value = bad_response
+
+        with pytest.raises(ValueError):
+            _get_cached_jwks("test-domain.auth0.com")
+
+
+class TestCanServeStale:
+    """Direct unit tests for the ``_can_serve_stale`` helper.
+
+    Per the helper's docstring the caller must hold ``_jwks_cache_lock``;
+    we acquire it here to mirror the production call shape inside
+    ``_get_cached_jwks``.
+    """
+
+    def setup_method(self):
+        import config.graphql_auth0_auth.utils as utils_module
+
+        utils_module._jwks_cache = {"data": None, "expires_at": 0}
+
+    def test_returns_false_when_no_cached_data(self):
+        with _jwks_cache_lock:
+            assert _can_serve_stale(0) is False
+
+    def test_returns_true_inside_grace_window(self):
+        import config.graphql_auth0_auth.utils as utils_module
+
+        utils_module._jwks_cache = {"data": {"keys": []}, "expires_at": 100}
+        with _jwks_cache_lock:
+            assert _can_serve_stale(100 + _JWKS_STALE_GRACE - 1) is True
+
+    def test_returns_false_outside_grace_window(self):
+        import config.graphql_auth0_auth.utils as utils_module
+
+        utils_module._jwks_cache = {"data": {"keys": []}, "expires_at": 100}
+        with _jwks_cache_lock:
+            assert _can_serve_stale(100 + _JWKS_STALE_GRACE + 1) is False
 
 
 class TestAuth0JWTSettingsDunderProbe:

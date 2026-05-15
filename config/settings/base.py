@@ -230,6 +230,42 @@ if USE_AUTH0:
         default="https://contracts.opensource.legal/",
     )
 
+    # Defense-in-depth: comma-separated list of Auth0 ``sub`` values eligible
+    # for ``is_superuser`` elevation via JWT claim sync. The verified token
+    # must contain the namespaced superuser claim AND the user's ``sub`` must
+    # appear in this list before Django flips ``is_superuser=True``. An empty
+    # list (the default) blocks all JWT-driven superuser elevation, which
+    # protects against misconfigured tenant Actions that source admin claims
+    # from user-writable ``user_metadata``. Existing superusers whose subs are
+    # not added here are demoted on next sync; populate this BEFORE deploy.
+    AUTH0_SUPERUSER_SUB_ALLOWLIST = env.list(
+        "AUTH0_SUPERUSER_SUB_ALLOWLIST",
+        default=[],
+    )
+
+    # Admin claims sync cache TTL (seconds). Bounds the privilege-retention gap
+    # between Auth0 demoting a user and Django reflecting the new flags. Lower
+    # values give a tighter revocation SLA at the cost of slightly more frequent
+    # claim-sync writes on the per-request auth path. The default tracks
+    # ``ADMIN_CLAIMS_CACHE_TTL`` in ``opencontractserver/constants/auth.py``.
+    from opencontractserver.constants.auth import (
+        ADMIN_CLAIMS_CACHE_TTL as _DEFAULT_ADMIN_CLAIMS_CACHE_TTL,
+    )
+
+    AUTH0_ADMIN_CLAIMS_CACHE_TTL = env.int(
+        "AUTH0_ADMIN_CLAIMS_CACHE_TTL",
+        default=_DEFAULT_ADMIN_CLAIMS_CACHE_TTL,
+    )
+
+    # Auto-provision Django users on first Auth0 login. Default True preserves
+    # historical behaviour; set ``AUTH0_CREATE_NEW_USERS=False`` to require
+    # out-of-band provisioning (any unknown sub will fail authentication).
+    # Consumed by ``config.graphql_auth0_auth.utils.get_auth0_user_from_token``
+    # via the ``AUTH0_JWT`` settings dict.
+    AUTH0_JWT = {
+        "AUTH0_CREATE_NEW_USERS": env.bool("AUTH0_CREATE_NEW_USERS", default=True),
+    }
+
     AUTHENTICATION_BACKENDS += [
         "config.graphql_auth0_auth.backends.Auth0RemoteUserJSONWebTokenBackend",
         "config.admin_auth.backends.Auth0AdminBackend",  # For Django admin login
