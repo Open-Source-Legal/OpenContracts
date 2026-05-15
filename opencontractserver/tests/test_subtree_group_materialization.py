@@ -29,6 +29,7 @@ from opencontractserver.annotations.models import (
 from opencontractserver.constants.annotations import (
     OC_PARENT_CHILD_LABEL_NAME,
     OC_SUBTREE_GROUP_LABEL_NAME,
+    SUBTREE_GROUP_MAX_DEPTH,
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.parser import BaseParser
@@ -231,6 +232,36 @@ class SubtreeGroupMaterializationTestCase(TestCase):
         self.assertIn(chain[2].id, target_ids)
         self.assertNotIn(chain[3].id, target_ids)
         self.assertNotIn(chain[4].id, target_ids)
+
+    def test_default_max_depth_pins_constant(self) -> None:
+        """Exercise the depth cap via its default — guards against a future
+        constant change silently regressing the walker. The walker prunes
+        when ``depth + 1 > max_depth``, so a chain with one node beyond the
+        cap (root at depth 0 + ``SUBTREE_GROUP_MAX_DEPTH + 1`` descendants)
+        is needed to force a single pruned tail node."""
+        # Total nodes = SUBTREE_GROUP_MAX_DEPTH + 2 (depths 0..MAX_DEPTH+1).
+        chain_len = SUBTREE_GROUP_MAX_DEPTH + 2
+        head = self._make_annot(raw_text="h0")
+        chain = [head]
+        prev = head
+        for i in range(1, chain_len):
+            curr = self._make_annot(raw_text=f"h{i}", parent=prev)
+            chain.append(curr)
+            prev = curr
+
+        # Call without overriding max_depth so the constant is exercised.
+        build_subtree_groups_for_document(self.document, self.user.id)
+        head_group = Relationship.objects.filter(
+            source_annotations=head,
+            relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+        ).first()
+        assert head_group is not None
+        target_ids = set(head_group.target_annotations.values_list("id", flat=True))
+        # Nodes at depths 1..SUBTREE_GROUP_MAX_DEPTH are visited; the tail
+        # node sits at depth MAX_DEPTH+1 and must be pruned.
+        for i in range(1, SUBTREE_GROUP_MAX_DEPTH + 1):
+            self.assertIn(chain[i].id, target_ids)
+        self.assertNotIn(chain[chain_len - 1].id, target_ids)
 
     def test_skips_when_no_structural_annotations(self) -> None:
         doc = Document.objects.create(title="Empty", creator=self.user)

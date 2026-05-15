@@ -43,6 +43,8 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from django.db import IntegrityError
+
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
     Annotation,
@@ -168,7 +170,10 @@ def build_subtree_groups_for_document(
         )
     delete_qs.delete()
 
-    non_leaves = [pk for pk in structural_pks if children.get(pk)]
+    # Sort so row-creation order is deterministic across runs (``structural_pks``
+    # is a ``set``); friendlier for audits and snapshot tests, no functional
+    # impact since rows are keyed by source annotation.
+    non_leaves = sorted(pk for pk in structural_pks if children.get(pk))
     if not non_leaves:
         return 0
 
@@ -254,11 +259,11 @@ def build_subtree_groups_for_document(
     # creator, label_type)``. Using ``get_or_create`` with
     # ``creator_id=user_id`` in the lookup would silently fork a
     # per-user copy of this system-wide built-in label in multi-user
-    # installations. Filter first (ignoring creator) and only create as
-    # a fallback so the label converges to a single row over time. A
-    # race between two concurrent first-time parses is bounded by the
-    # unique constraint — the loser raises ``IntegrityError`` rather
-    # than silently producing duplicates.
+    # installations. Filter first (ignoring creator), then on miss try
+    # to create. If two concurrent first-time parses race, the loser's
+    # ``create()`` raises ``IntegrityError`` from the unique constraint;
+    # we recover by re-reading the now-existing row instead of failing
+    # the parse.
     # ------------------------------------------------------------------ #
     label = (
         AnnotationLabel.objects.filter(
@@ -270,16 +275,30 @@ def build_subtree_groups_for_document(
         .first()
     )
     if label is None:
-        label = AnnotationLabel.objects.create(
-            text=OC_SUBTREE_GROUP_LABEL_NAME,
-            label_type=RELATIONSHIP_LABEL,
-            creator_id=user_id,
-            analyzer=None,
-            description="Materialised subtree of structural annotations",
-            color="gray",
-            icon="sitemap",
-            read_only=True,
-        )
+        try:
+            label = AnnotationLabel.objects.create(
+                text=OC_SUBTREE_GROUP_LABEL_NAME,
+                label_type=RELATIONSHIP_LABEL,
+                creator_id=user_id,
+                analyzer=None,
+                description="Materialised subtree of structural annotations",
+                color="gray",
+                icon="sitemap",
+                read_only=True,
+            )
+        except IntegrityError:
+            label = (
+                AnnotationLabel.objects.filter(
+                    text=OC_SUBTREE_GROUP_LABEL_NAME,
+                    label_type=RELATIONSHIP_LABEL,
+                    analyzer=None,
+                )
+                .order_by("id")
+                .first()
+            )
+            if label is None:
+                # Constraint fired but the row is still not visible — re-raise.
+                raise
 
     # ------------------------------------------------------------------ #
     # 7. Create one Relationship per non-leaf within the size cap.

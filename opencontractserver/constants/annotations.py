@@ -30,7 +30,10 @@ SUBTREE_GROUP_MAX_DESCENDANTS = 500
 
 # Defensive depth limit for the subtree walker; protects against pathological
 # or cyclic input. Branches deeper than this are pruned with a warning.
-SUBTREE_GROUP_MAX_DEPTH = 10
+# Legal documents routinely nest 6–8 levels (Part → Chapter → Section →
+# Subsection → Article → Clause → Sub-clause) with tables and lists adding
+# further depth, so the cap is set well above realistic structures.
+SUBTREE_GROUP_MAX_DEPTH = 32
 
 # Maximum number of entries allowed in a single create_document_index call.
 DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
