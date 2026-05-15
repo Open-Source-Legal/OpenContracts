@@ -254,6 +254,14 @@ export const DOCUMENT_RELATIONSHIP_TOC_LIMIT = 500;
 // Backend enforces max 100 records per page on documents connection
 export const CORPUS_DOCUMENTS_TOC_LIMIT = 100;
 
+// Document relationship type / label filters used by the corpus TOC tree.
+// Mirrors the backend's `RELATIONSHIP_TYPE_CHOICES` for the "RELATIONSHIP"
+// member and the conventional "parent" annotation label text. Used as
+// GraphQL variables so the server-side filter restricts the edges to the
+// hierarchy-defining rows only.
+export const DOCUMENT_RELATIONSHIP_TYPE_RELATIONSHIP = "RELATIONSHIP";
+export const DOCUMENT_RELATIONSHIP_LABEL_PARENT = "parent";
+
 // Document annotation index (within-document TOC)
 // Keep in sync with opencontractserver/constants/annotations.py
 export const DOCUMENT_ANNOTATION_INDEX_LIMIT = 500;
