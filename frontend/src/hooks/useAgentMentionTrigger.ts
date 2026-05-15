@@ -9,7 +9,6 @@ interface SelectedAgent {
 export interface AgentMentionTriggerState {
   isOpen: boolean;
   fragment: string;
-  caretPos: number;
   /** Call from textarea onChange / onSelectionChange. */
   onValueChange: (value: string, caret: number) => void;
   /** User picked an agent from the popover. Returns the patched value+caret. */
@@ -82,5 +81,5 @@ export function useAgentMentionTrigger(): AgentMentionTriggerState {
     setTriggerStart(null);
   }, []);
 
-  return { isOpen, fragment, caretPos, onValueChange, onSelect, onDismiss };
+  return { isOpen, fragment, onValueChange, onSelect, onDismiss };
 }

@@ -269,10 +269,12 @@ class UnifiedAgentConsumerDelegationTestCase(WebsocketFixtureBaseTestCase):
         communicator = WebsocketCommunicator(self.application, ws_path)
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
-        # Anonymous path has no AUTH_OK frame (or it does; we drain either way)
+        # Anonymous path has no AUTH_OK frame (or it does; we drain either way).
+        # Only suppress the timeout from a missing frame; bubble up anything else
+        # so accidental regressions in the handshake flow don't get masked.
         try:
             await _drain_auth_ok(communicator)
-        except Exception:
+        except asyncio.TimeoutError:
             pass
 
         captured_kwargs: dict = {}
@@ -881,3 +883,73 @@ class UnifiedAgentConsumerDelegationTestCase(WebsocketFixtureBaseTestCase):
         self.assertEqual(row_b.parent_message_id, parent_msg.id)
         self.assertEqual(row_a.content, "hello from A")
         self.assertEqual(row_b.content, "hello from B")
+
+    # ---- K. stale delegation tools must NOT leak into a mention-less turn ----
+    async def test_no_stale_delegation_tools_after_mentioned_turn(self) -> None:
+        """Turn 1 mentions an agent → conductor is built with delegate_to_<slug>.
+        Turn 2 omits the mention → conductor MUST be rebuilt without any
+        delegate_to_* tools attached.  Otherwise the LLM still sees the
+        delegation tool definition in its context and could silently invoke
+        it on a turn the user did not intend.
+        """
+        await database_sync_to_async(AgentConfiguration.objects.create)(
+            name="Researcher",
+            slug="researcher",
+            description="r",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.user,
+            system_instructions="r",
+        )
+
+        communicator = await self._connect()
+
+        # Capture every factory call so we can inspect turn 1 vs turn 2 tools.
+        captured_calls: list[dict] = []
+
+        async def _fake_factory(*args, **kwargs):
+            captured_calls.append(kwargs)
+            return _StubAgent(self._build_simple_stream_factory())
+
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus",
+            side_effect=_fake_factory,
+        ):
+            # Turn 1 — with mention
+            await communicator.send_to(
+                json.dumps({"query": "Try [R](/agents/researcher) please"})
+            )
+            await _consume_until_finish(communicator)
+
+            # Turn 2 — NO mention
+            await communicator.send_to(
+                json.dumps({"query": "Just a follow-up question with no mention"})
+            )
+            await _consume_until_finish(communicator)
+
+        await communicator.disconnect()
+
+        # At least two factory calls — one per turn.  The first must include a
+        # delegate_to_* tool; the second must not.
+        self.assertGreaterEqual(len(captured_calls), 2)
+
+        def _delegate_names(kwargs: dict) -> list[str]:
+            tools = kwargs.get("tools") or []
+            return [
+                getattr(getattr(t, "metadata", None), "name", None) or ""
+                for t in tools
+                if "delegate_to_"
+                in (getattr(getattr(t, "metadata", None), "name", None) or "")
+            ]
+
+        turn1_delegate_names = _delegate_names(captured_calls[0])
+        turn2_delegate_names = _delegate_names(captured_calls[-1])
+
+        self.assertIn("delegate_to_researcher", turn1_delegate_names)
+        self.assertEqual(
+            turn2_delegate_names,
+            [],
+            f"Turn-2 conductor still has stale delegation tools: "
+            f"{turn2_delegate_names}",
+        )

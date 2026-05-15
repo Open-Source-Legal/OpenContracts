@@ -73,6 +73,9 @@ def _decode_annotation_id(raw: str) -> int | None:
         if len(parts) == 2:
             return int(parts[1])
     except (ValueError, binascii.Error, UnicodeDecodeError):
+        # Not a valid base64-encoded Relay global id — fall through to the
+        # plain-integer path below.  Both forms are legitimate inputs from
+        # the frontend, so a decode failure here is expected, not an error.
         pass
     try:
         return int(raw)

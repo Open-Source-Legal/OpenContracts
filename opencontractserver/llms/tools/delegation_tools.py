@@ -152,7 +152,16 @@ class StreamRelay:
 
 
 def _slug_to_snake_case(slug: str) -> str:
-    """Convert a kebab-case agent slug to snake_case for tool names."""
+    """Convert a kebab-case agent slug to snake_case for tool names.
+
+    Two slugs differing only in their ``-`` vs ``_`` separator would map to
+    the same snake-case tool name (e.g. ``my-agent`` and ``my_agent`` both
+    become ``delegate_to_my_agent``).  This collision is guarded by the DB:
+    ``AgentConfiguration.slug`` is ``SlugField(unique=True)``, and slugify
+    normalizes to ``-`` so legacy ``_`` slugs cannot be created via the
+    normal save() path.  The unique-constraint guarantee is the single
+    source of truth here; no additional in-process check is needed.
+    """
     return slug.replace("-", "_").lower()
 
 

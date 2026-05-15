@@ -498,7 +498,7 @@ test("typing @ in landing chat input opens the agent picker", async ({
   // It uses the shared ``useChatMentionPicker`` hook with ``corpusId`` set
   // to the landing corpus, so the rich-mention agent picker should work
   // here exactly the same as it does in ChatTray and CorpusChat.
-  const mountResult = await mount(
+  await mount(
     <CorpusHomeTestWrapper
       mocks={[
         ...mocks.filter((m) => {

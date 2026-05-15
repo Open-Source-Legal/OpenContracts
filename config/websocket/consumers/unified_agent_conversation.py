@@ -106,6 +106,11 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         # falls through to the legacy ``self.agent.resume_with_approval``
         # path.
         self._pending_approvals: dict[tuple[int, int | None], asyncio.Future] = {}
+        # Tracks whether the conductor was built with ``delegate_to_<slug>``
+        # tools on the previous turn.  Used to force a clean rebuild on the
+        # next turn-without-mentions so stale delegation tools don't leak
+        # into a turn the user didn't intend them for.
+        self._had_delegation_tools_last_turn: bool = False
         logger.debug(f"[UnifiedAgent {self.consumer_id}] __init__ called.")
 
     # -------------------------------------------------------------------------
@@ -529,8 +534,15 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 # threads the existing chat state through so we don't fork a
                 # new conversation per turn.
                 await self._initialize_agent(extra_tools=delegation_tools)
-            elif self.agent is None:
+                self._had_delegation_tools_last_turn = True
+            elif self.agent is None or self._had_delegation_tools_last_turn:
+                # Rebuild clean if either (a) we have no agent yet, or
+                # (b) the previous turn attached ``delegate_to_<slug>`` tools.
+                # Without this, stale delegation tools would remain wired to
+                # the conductor across turns the user did NOT intend them for,
+                # letting the LLM silently invoke a previously-mentioned agent.
                 await self._initialize_agent()
+                self._had_delegation_tools_last_turn = False
 
             # Check for context exhaustion (anonymous ephemeral sessions only)
             if (
@@ -593,6 +605,16 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 agent factory still resolves its standard tool set; these are
                 appended on top.  Tools must be ``CoreTool`` instances or
                 callables — strings are not supported here.
+
+        Note:
+            ``PydanticAIDocumentAgent.create`` / ``PydanticAICorpusAgent.create``
+            build the registry-derived "auto" tools (vector search,
+            note retrieval, custom budget-aware tools, etc.) into the agent's
+            ``effective_tools`` and then merge any caller-supplied ``tools``
+            via ``deduplicate_tools(effective_tools, tools, context="Caller")``.
+            That is — passing ``extra_tools=[...]`` here MERGES with the
+            default tool set, it does NOT replace it.  Document and corpus
+            retrieval tools remain available on delegation turns.
         """
         logger.debug(f"[Session {self.session_id}] Initializing agent...")
 
