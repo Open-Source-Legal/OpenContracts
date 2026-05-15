@@ -23,6 +23,7 @@ from opencontractserver.utils.importing import (
     import_relationships,
     load_or_create_labels,
 )
+from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
 
 from .base_component import PipelineComponentBase
 
@@ -271,6 +272,13 @@ class BaseParser(PipelineComponentBase, ABC):
                 label_lookup=existing_relationship_labels,
                 annotation_id_map=annotation_id_map,
             )
+
+        # 4.5) Materialise subtree-group relationships from the structural
+        # annotation parent-child tree. Runs BEFORE the structural-set
+        # migration so the new rows (document=document, structural=True)
+        # are picked up and re-homed to the structural_set automatically
+        # by _create_structural_annotation_set's existing filter.
+        build_subtree_groups_for_document(document=document, user_id=user_id)
 
         # 5) Create StructuralAnnotationSet and migrate structural annotations to it
         self._create_structural_annotation_set(document, user)
