@@ -88,12 +88,156 @@ def resolve_mentions_for_user(
     emits for those patterns. For annotations the original markdown-link
     URL (``m.url``) is preserved since it already encodes the navigation
     target including the ``?ann=...`` query.
+
+    Query plan: ``mentions`` is scanned once to collect the distinct
+    (type, slug/id) keys, then a single batched ``slug__in=`` / ``id__in=``
+    query per type pulls every needed row in one round-trip. The per-mention
+    loop below performs lookup-only operations against the pre-fetched
+    dicts — no further DB hits in the common case. ``DocumentPath`` lookups
+    (corpus-scope verification + best-effort corpus context for standalone
+    document mentions) are likewise pre-fetched in two batched queries.
+    Replaces the previous N+1 implementation where every mention drove its
+    own ``visible_to_user().filter(...).first()`` call.
     """
     from opencontractserver.agents.models import AgentConfiguration
     from opencontractserver.annotations.models import Annotation
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document, DocumentPath
 
+    # ------------------------------------------------------------------
+    # 1. Collect the keys we need to fetch.
+    # ------------------------------------------------------------------
+    corpus_slugs: set[str] = set()
+    document_slugs: set[str] = set()
+    annotation_ids: set[int] = set()
+    agent_slugs: set[str] = set()
+
+    for m in mentions:
+        if m.type == "corpus" and m.slug:
+            corpus_slugs.add(m.slug)
+        elif m.type == "document":
+            if m.slug:
+                document_slugs.add(m.slug)
+            if m.corpus_slug:
+                corpus_slugs.add(m.corpus_slug)
+        elif m.type == "annotation" and m.id is not None:
+            annotation_ids.add(m.id)
+        elif m.type == "agent":
+            if m.slug:
+                agent_slugs.add(m.slug)
+            if m.corpus_slug:
+                corpus_slugs.add(m.corpus_slug)
+
+    # ------------------------------------------------------------------
+    # 2. Batch-fetch (one query per type at most).
+    # ------------------------------------------------------------------
+    corpus_by_slug: dict[str, Any] = (
+        {
+            c.slug: c
+            for c in Corpus.objects.visible_to_user(user)
+            .filter(slug__in=corpus_slugs)
+            .select_related("creator")
+        }
+        if corpus_slugs
+        else {}
+    )
+
+    document_by_slug: dict[str, Any] = (
+        {
+            d.slug: d
+            for d in Document.objects.visible_to_user(user)
+            .filter(slug__in=document_slugs)
+            .select_related("creator")
+        }
+        if document_slugs
+        else {}
+    )
+
+    annotation_by_id: dict[int, Any] = (
+        {
+            a.id: a
+            for a in Annotation.objects.visible_to_user(user)
+            .filter(id__in=annotation_ids)
+            .select_related(
+                "document",
+                "document__creator",
+                "annotation_label",
+            )
+        }
+        if annotation_ids
+        else {}
+    )
+
+    # Agents: a slug can resolve to either a GLOBAL row or a CORPUS-scoped
+    # row; the per-mention disambiguation happens below.  Group results by
+    # slug so each mention picks the right one in O(1).
+    agents_by_slug: dict[str, list[Any]] = {}
+    if agent_slugs:
+        for a in (
+            AgentConfiguration.objects.visible_to_user(user)
+            .filter(slug__in=agent_slugs, is_active=True)
+            .select_related("corpus")
+        ):
+            agents_by_slug.setdefault(a.slug, []).append(a)
+
+    # ``DocumentPath`` (corpus-scope confirmation for ``@corpus/doc`` mentions
+    # plus best-effort context for standalone ``@document`` mentions): pull
+    # both sets in one query each, keyed by (document_id, corpus_id) for the
+    # confirmation map and (document_id,) for the standalone fallback.
+    doc_corpus_pairs: set[tuple[int, int]] = set()
+    standalone_doc_ids: set[int] = set()
+    for m in mentions:
+        if m.type != "document" or not m.slug:
+            continue
+        document = document_by_slug.get(m.slug)
+        if document is None:
+            continue
+        if m.corpus_slug:
+            corpus_obj = corpus_by_slug.get(m.corpus_slug)
+            if corpus_obj is not None:
+                doc_corpus_pairs.add((document.id, corpus_obj.id))
+        else:
+            standalone_doc_ids.add(document.id)
+
+    valid_doc_corpus_pairs: set[tuple[int, int]] = set()
+    if doc_corpus_pairs:
+        doc_ids = {pair[0] for pair in doc_corpus_pairs}
+        corpus_ids = {pair[1] for pair in doc_corpus_pairs}
+        for doc_id, corpus_id in DocumentPath.objects.filter(
+            document_id__in=doc_ids, corpus_id__in=corpus_ids
+        ).values_list("document_id", "corpus_id"):
+            valid_doc_corpus_pairs.add((doc_id, corpus_id))
+
+    standalone_corpus_id_by_doc: dict[int, int] = {}
+    if standalone_doc_ids:
+        # Pick any DocumentPath per doc for the best-effort context lookup;
+        # ``first()`` semantics from the original implementation is preserved
+        # by iterating the queryset in id order and keeping the first hit.
+        for doc_id, corpus_id in (
+            DocumentPath.objects.filter(document_id__in=standalone_doc_ids)
+            .order_by("document_id", "id")
+            .values_list("document_id", "corpus_id")
+        ):
+            standalone_corpus_id_by_doc.setdefault(doc_id, corpus_id)
+
+    # Materialise any corpus ids surfaced only via DocumentPath (i.e. ones
+    # the user might not have visibility on directly).  We honour that
+    # visibility filter — ``visible_to_user`` is the gate that decides
+    # whether a corpus is surfaced as a parent.
+    standalone_corpus_ids = set(standalone_corpus_id_by_doc.values())
+    extra_corpus_ids = standalone_corpus_ids - {c.id for c in corpus_by_slug.values()}
+    corpus_by_id: dict[int, Any] = {c.id: c for c in corpus_by_slug.values()}
+    if extra_corpus_ids:
+        for c in (
+            Corpus.objects.visible_to_user(user)
+            .filter(id__in=extra_corpus_ids)
+            .select_related("creator")
+        ):
+            corpus_by_id[c.id] = c
+
+    # ------------------------------------------------------------------
+    # 3. Build the resolved list using only dict lookups.
+    # ------------------------------------------------------------------
     resolved: list[MentionedResourceType] = []
 
     for mention in mentions:
@@ -101,11 +245,7 @@ def resolve_mentions_for_user(
             if mention.type == "corpus":
                 if not mention.slug:
                     continue
-                corpus = (
-                    Corpus.objects.visible_to_user(user)
-                    .filter(slug=mention.slug)
-                    .first()
-                )
+                corpus = corpus_by_slug.get(mention.slug)
                 if corpus is None:
                     continue
                 resolved.append(
@@ -121,36 +261,32 @@ def resolve_mentions_for_user(
             elif mention.type == "document":
                 if not mention.slug:
                     continue
-                document = (
-                    Document.objects.visible_to_user(user)
-                    .filter(slug=mention.slug)
-                    .first()
-                )
+                document = document_by_slug.get(mention.slug)
                 if document is None:
                     continue
 
                 corpus = None
                 if mention.corpus_slug:
                     # Corpus-scoped mention: confirm the doc lives in that
-                    # corpus via DocumentPath and that the corpus itself is
-                    # visible to the user. If either check fails, silently
-                    # drop the mention.
-                    corpus = (
-                        Corpus.objects.visible_to_user(user)
-                        .filter(slug=mention.corpus_slug)
-                        .first()
-                    )
+                    # corpus via the prebuilt ``valid_doc_corpus_pairs``
+                    # set, and that the corpus itself is visible to the
+                    # user.  If either check fails, silently drop.
+                    corpus = corpus_by_slug.get(mention.corpus_slug)
                     if corpus is None:
                         continue
-                    if not DocumentPath.objects.filter(
-                        document=document, corpus=corpus
-                    ).exists():
+                    if (document.id, corpus.id) not in valid_doc_corpus_pairs:
                         continue
                 else:
                     # Standalone @document:slug mention — best-effort lookup
-                    # of any corpus context the document lives in.
-                    doc_path = DocumentPath.objects.filter(document=document).first()
-                    corpus = doc_path.corpus if doc_path else None
+                    # of any corpus context the document lives in (via the
+                    # prebuilt ``standalone_corpus_id_by_doc`` map, then
+                    # ``corpus_by_id`` for the visible-to-user instance).
+                    standalone_cid = standalone_corpus_id_by_doc.get(document.id)
+                    corpus = (
+                        corpus_by_id.get(standalone_cid)
+                        if standalone_cid is not None
+                        else None
+                    )
 
                 if corpus is not None:
                     url = f"/d/{corpus.creator.slug}/{corpus.slug}/{document.slug}"
@@ -179,11 +315,7 @@ def resolve_mentions_for_user(
             elif mention.type == "annotation":
                 if mention.id is None:
                     continue
-                annotation = (
-                    Annotation.objects.visible_to_user(user)
-                    .filter(id=mention.id)
-                    .first()
-                )
+                annotation = annotation_by_id.get(mention.id)
                 if annotation is None:
                     continue
                 doc = annotation.document
@@ -210,17 +342,19 @@ def resolve_mentions_for_user(
             elif mention.type == "agent":
                 if not mention.slug:
                     continue
-                qs = AgentConfiguration.objects.visible_to_user(user).filter(
-                    slug=mention.slug, is_active=True
-                )
+                candidates = agents_by_slug.get(mention.slug, [])
                 if mention.corpus_slug:
                     # The URL was a corpus-scoped agent path
                     # (/c/.../agents/{slug}). Require the agent to actually
                     # live inside that corpus, otherwise silently drop.
-                    qs = qs.filter(corpus__slug=mention.corpus_slug)
-                agent = qs.first()
-                if agent is None:
+                    candidates = [
+                        a
+                        for a in candidates
+                        if a.corpus is not None and a.corpus.slug == mention.corpus_slug
+                    ]
+                if not candidates:
                     continue
+                agent = candidates[0]
                 resolved.append(
                     MentionedResourceType(
                         type="agent",

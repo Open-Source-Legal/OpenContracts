@@ -13,9 +13,24 @@ from __future__ import annotations
 import base64
 import binascii
 import re
+import sys
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
+
+# Runtime guard: ``_LEGACY_CORPUS_RE`` below uses a possessive quantifier
+# (``++``), which Python's ``re`` module only learned to compile in 3.11.
+# On 3.10 and earlier the module-load step raises ``re.error: multiple
+# repeat`` from the ``re.compile`` call, but the error doesn't pinpoint
+# the cause — fail loudly here instead so the operator sees the real
+# constraint.  The production Docker image pins 3.11.x.
+if sys.version_info < (3, 11):  # pragma: no cover - guard for older runtimes
+    raise RuntimeError(
+        "opencontractserver.llms.agents.mention_extractor requires "
+        "Python >= 3.11 (uses the ``++`` possessive quantifier in "
+        "``_LEGACY_CORPUS_RE``).  Upgrade the interpreter or rewrite the "
+        "pattern with an atomic group ``(?>...)``."
+    )
 
 MentionType = Literal["agent", "user", "corpus", "document", "annotation"]
 

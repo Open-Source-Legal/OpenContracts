@@ -52,6 +52,15 @@ def filter_by_scope(
     ``DocumentPath`` (no direct FK/M2M on ``Document``). We resolve the
     document's *current, non-deleted* path to determine its corpus.
 
+    Sync context required: when ``document_id`` is set the function hits
+    ``DocumentPath`` via the sync ORM (``.values_list(...).first()``).
+    Call from a sync function or wrap the call in ``sync_to_async`` /
+    ``database_sync_to_async`` when invoking from an async context —
+    otherwise Django will raise ``SynchronousOnlyOperation`` deep in the
+    ORM with a confusing traceback.  The lone caller today is
+    ``_resolve_delegation_targets`` in the WebSocket consumer, which
+    already wraps the lookup in ``database_sync_to_async``.
+
     Args:
         qs: Base queryset of ``AgentConfiguration`` rows (typically already
             permission-filtered via ``visible_to_user``).
@@ -315,8 +324,10 @@ def build_delegation_tool(
 
         # Announce delegation start when pinned (timeline-only case is
         # handled by the consumer via the tool_call/tool_result it emits
-        # around the call itself).
-        if pin and relay is not None:
+        # around the call itself).  ``relay`` is non-Optional per the
+        # tightened factory contract — short-circuiting based on ``pin``
+        # alone is sufficient here.
+        if pin:
             await relay.on_thought(
                 f"Delegating to @{agent_slug}",
                 {
@@ -347,23 +358,15 @@ def build_delegation_tool(
                 if evt_type == "content":
                     if content:
                         accumulated.append(content)
-                        if pin and relay is not None:
+                        if pin:
                             await relay.on_token(content)
                 elif evt_type == "thought":
-                    if relay is not None:
-                        thought_text = getattr(event, "thought", "") or content
-                        await relay.on_thought(
-                            thought_text,
-                            dict(getattr(event, "metadata", {}) or {}),
-                        )
+                    thought_text = getattr(event, "thought", "") or content
+                    await relay.on_thought(
+                        thought_text,
+                        dict(getattr(event, "metadata", {}) or {}),
+                    )
                 elif evt_type == "approval_needed":
-                    if relay is None:
-                        # No relay means there is no UI to ask — auto-reject.
-                        return True, {
-                            "approved": False,
-                            "llm_message_id": getattr(event, "llm_message_id", None),
-                            "_sub_agent_msg_id": getattr(event, "llm_message_id", None),
-                        }
                     pending = dict(getattr(event, "pending_tool_call", {}) or {})
                     # The consumer-side relay registers a future, emits
                     # ASYNC_APPROVAL_NEEDED with ``requesting_agent``
@@ -483,7 +486,7 @@ def build_delegation_tool(
 
         final_text = "".join(accumulated)
         pinned_id: int | None = None
-        if pin and relay is not None:
+        if pin:
             try:
                 pinned_id = await relay.on_finish(final_text)
             except Exception as exc:  # operational

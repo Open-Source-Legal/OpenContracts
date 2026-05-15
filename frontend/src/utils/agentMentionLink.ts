@@ -5,9 +5,9 @@
  *   Global agents:        [@<slug>](/agents/<slug>)
  *   Corpus-scoped agents: [@<slug>](/c/<corpus-slug>/agents/<slug>)
  *
- * The backend mention extractor (Task 1) parses these markdown links to
- * resolve agent references in chat messages, so the format must stay in
- * lockstep with the regex in `opencontractserver.utils.mentions`.
+ * The backend mention extractor parses these markdown links to resolve
+ * agent references in chat messages, so the format must stay in lockstep
+ * with `opencontractserver.llms.agents.mention_extractor._classify_url`.
  */
 
 export interface AgentForLink {

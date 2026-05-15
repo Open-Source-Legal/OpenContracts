@@ -500,11 +500,13 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             # state is preserved because we pass ``conversation_id=``
             # through ``_initialize_agent`` (cached after first build).
             relay_factory: Any = None
+            parent_message_id_box: dict[str, int | None] | None = None
             if delegation_targets:
                 # Allocate the shared one-slot ``parent_message_id`` box and
-                # pass it through the factory; ``_stream_agent_response``
-                # will latch the conductor's message id into it on the
-                # first streamed event.
+                # pass it through the factory AND into ``_stream_agent_response``;
+                # the stream helper latches the conductor's message id into it
+                # on the first streamed event so sub-agent relay closures see
+                # the right ``parent_message_id`` for attribution.
                 parent_message_id_box = self._make_parent_message_id_box()
                 relay_factory = self._build_stream_relay_factory(
                     parent_message_id_box=parent_message_id_box,
@@ -551,16 +553,15 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             if is_new_conversation and self.user_id:
                 asyncio.create_task(self._async_set_conversation_title(user_query))
 
-            # Stream the response.  ``relay_factory`` (if any) needs the
-            # conductor's ``llm_message_id`` to attribute sub-agent frames;
-            # we capture it via a one-element box that ``_stream_agent_response``
-            # fills as soon as the first event with an id arrives.  We
-            # only pass the kwarg when actually set so legacy callers /
-            # test doubles overriding ``_stream_agent_response`` with the
-            # old single-argument signature continue to work.
-            if relay_factory is not None:
+            # Stream the response.  When delegation is active for this turn,
+            # forward the shared ``parent_message_id_box`` so the stream
+            # helper can latch the conductor's first ``llm_message_id`` for
+            # sub-agent attribution.  We only pass the kwarg when actually
+            # set so test doubles overriding ``_stream_agent_response`` with
+            # the old single-argument signature continue to work.
+            if parent_message_id_box is not None:
                 await self._stream_agent_response(
-                    user_query, relay_factory=relay_factory
+                    user_query, parent_message_id_box=parent_message_id_box
                 )
             else:
                 await self._stream_agent_response(user_query)
@@ -874,12 +875,25 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                     # Should not happen — conductor must have emitted at
                     # least one event before its tool can fire — but guard
                     # against a misuse where the relay is invoked too early.
+                    # Tag the decision with ``_error`` so the delegation
+                    # body's error guard surfaces this as a proper tool-call
+                    # failure (`Sub-agent error: ...`) rather than a silent
+                    # empty result that the conductor LLM could
+                    # mis-interpret as a successful no-op.
                     logger.warning(
                         "[Session %s] Sub-agent approval requested before "
-                        "conductor message id was known; auto-rejecting.",
+                        "conductor message id was known; aborting delegation.",
                         consumer.session_id,
                     )
-                    return {"approved": False, "llm_message_id": None}
+                    return {
+                        "approved": False,
+                        "llm_message_id": None,
+                        "_error": (
+                            "Sub-agent approval was requested before the "
+                            "conductor emitted its first event; cannot route "
+                            "the request to the user."
+                        ),
+                    }
 
                 future: asyncio.Future = asyncio.get_running_loop().create_future()
                 key = (parent_id, agent.pk)
@@ -1019,9 +1033,6 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 on_finish=on_finish,
             )
 
-        # Attach the shared box to the factory so ``_stream_agent_response``
-        # can latch the conductor's message id into it on the first event.
-        _factory._parent_message_id_box = parent_message_id_box  # type: ignore[attr-defined]
         return _factory
 
     # -------------------------------------------------------------------------
@@ -1032,17 +1043,22 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         self,
         user_query: str,
         *,
-        relay_factory: Any | None = None,
+        parent_message_id_box: dict[str, int | None] | None = None,
     ) -> None:
         """Stream the agent's response to the client.
 
         Args:
             user_query: The user's text query.
-            relay_factory: Optional callable produced by
-                ``_build_stream_relay_factory``.  When set, the
-                conductor's first message id (captured here) is forwarded
-                into the relay closures via the shared
-                ``parent_message_id_box``.
+            parent_message_id_box: Optional one-slot shared box (typically
+                produced by ``_make_parent_message_id_box`` and also passed
+                into ``_build_stream_relay_factory`` for the same turn).
+                When provided, the conductor's first streamed ``llm_message_id``
+                is latched into ``box["value"]`` so sub-agent relay closures
+                can attribute their frames to this ``parent_message_id``.
+                Passing this directly (rather than reading it back off the
+                relay factory) keeps the contract explicit and dodges the
+                fragile monkey-patch pattern that hid the box on a private
+                attribute of the factory callable.
         """
         # When OC_LLM_VCR_MODE is set, wrap the LLM HTTP traffic in a vcr.py
         # cassette so the e2e websocket-auth workflow can replay a recorded
@@ -1052,14 +1068,6 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         # touched on the production cold path until this code branch
         # actually runs (which itself is gated on a chat being initiated).
         from opencontractserver.utils.vcr_replay import maybe_vcr_cassette
-
-        # Pull the shared box off the factory so we can stamp the
-        # conductor's ``parent_message_id`` into it on the first event.
-        parent_message_id_box: dict[str, int | None] | None = None
-        if relay_factory is not None:
-            parent_message_id_box = getattr(
-                relay_factory, "_parent_message_id_box", None
-            )
 
         try:
             with maybe_vcr_cassette():

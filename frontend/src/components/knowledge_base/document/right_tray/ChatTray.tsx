@@ -929,6 +929,23 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
             // additional state update is needed here.
             break;
           case "ASYNC_FINISH":
+            // Sub-agent persistence failure flag: backend sets
+            // ``persistence_failed: true`` on ASYNC_FINISH when the pinned
+            // sub-agent ``ChatMessage`` couldn't be written to the DB
+            // (rich-mention agent delegation). Surface as a console
+            // warning so developers see it; the bubble still renders for
+            // this session but will be gone after reload. Follow-up:
+            // promote to a non-blocking toast (tracked in PR description).
+            if (
+              (data as { persistence_failed?: boolean } | undefined)
+                ?.persistence_failed
+            ) {
+              console.warn(
+                "[ChatTray] Sub-agent reply rendered in-memory only — " +
+                  "persistence failed; the bubble will be missing after reload.",
+                { message_id: data?.message_id }
+              );
+            }
             finalizeStreamingResponse(
               content,
               data?.sources,
