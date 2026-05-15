@@ -288,7 +288,6 @@ test.beforeEach(async ({ page }) => {
                     arguments: { thing_id: "abc" },
                   },
                   requesting_agent: {
-                    id: "ag-1",
                     slug: "research-bot",
                     name: "Research Bot",
                   },

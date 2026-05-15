@@ -155,7 +155,6 @@ const mockSubAgentAwaitingApprovalMessage: any = {
     },
     state: "awaiting_approval",
     requesting_agent: {
-      id: "ag-1",
       slug: "research-bot",
       name: "Research Bot",
     },

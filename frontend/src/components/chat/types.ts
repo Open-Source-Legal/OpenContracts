@@ -79,7 +79,6 @@ export interface MessageData {
      * Absent on top-level approvals — modal falls back to ``Tool: <name>``.
      */
     requesting_agent?: {
-      id: string;
       slug: string;
       name: string;
     } | null;
@@ -124,7 +123,6 @@ export interface PendingApproval {
     tool_call_id?: string;
   };
   requestingAgent?: {
-    id: string;
     slug: string;
     name: string;
   } | null;

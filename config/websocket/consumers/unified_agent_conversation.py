@@ -497,10 +497,9 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 relay_factory = self._build_stream_relay_factory(
                     parent_message_id_box=parent_message_id_box,
                 )
-                # Build the delegation tools.  ``conversation`` is intentionally
-                # ``None`` per the spec (sub-agents do not share history with
-                # the conductor); the body builds an ephemeral sub-agent on
-                # invocation.
+                # Build the delegation tools.  Sub-agents do not share history
+                # with the conductor per the spec; the body builds an
+                # ephemeral sub-agent on invocation.
                 delegation_tools = [
                     build_delegation_tool(
                         agent,
@@ -508,7 +507,6 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                         user=self.scope.get("user"),
                         corpus=self.corpus,
                         document=self.document,
-                        conversation=None,
                     )
                     for agent in delegation_targets
                 ]
@@ -809,8 +807,9 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         consumer = self
 
         def _factory(agent: AgentConfiguration, pin: bool) -> StreamRelay | None:
+            # ``slug`` + ``name`` only — the internal DB pk is intentionally not
+            # part of the wire chip; consumers attribute by slug.
             agent_chip = {
-                "id": agent.pk,
                 "slug": agent.slug,
                 "name": agent.name,
             }
@@ -870,8 +869,7 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                     )
                     return {"approved": False, "llm_message_id": None}
 
-                loop = asyncio.get_event_loop()
-                future: asyncio.Future = loop.create_future()
+                future: asyncio.Future = asyncio.get_running_loop().create_future()
                 key = (parent_id, agent.pk)
                 consumer._pending_approvals[key] = future
 

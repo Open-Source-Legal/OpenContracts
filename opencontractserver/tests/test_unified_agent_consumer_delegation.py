@@ -574,7 +574,9 @@ class UnifiedAgentConsumerDelegationTestCase(WebsocketFixtureBaseTestCase):
         self.assertEqual(len(needed), 1)
         chip = needed[0]["data"].get("requesting_agent")
         self.assertIsNotNone(chip)
-        self.assertEqual(chip["id"], agent.id)
+        # Internal pk is intentionally not in the wire chip; consumers
+        # attribute by slug.
+        self.assertNotIn("id", chip)
         self.assertEqual(chip["slug"], "approver")
         self.assertEqual(chip["name"], "Approver")
         self.assertEqual(needed[0]["data"]["message_id"], 1234)

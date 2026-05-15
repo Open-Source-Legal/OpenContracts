@@ -146,7 +146,6 @@ def build_delegation_tool(
     user: Any,
     corpus: Any,
     document: Any,
-    conversation: Any,
 ) -> CoreTool:
     """Materialize a ``delegate_to_<slug>`` ``CoreTool`` for one target agent.
 
@@ -172,9 +171,6 @@ def build_delegation_tool(
             sub-agent attribution).
         corpus: Active corpus for the chat, or ``None``.
         document: Active document for the chat, or ``None``.
-        conversation: Active conversation object (currently unused — sub
-            agents run with no shared history per the spec — but kept on the
-            signature so Task 7 can plumb it through if needed).
 
     Returns:
         A ``CoreTool`` whose ``function`` is an async coroutine accepting

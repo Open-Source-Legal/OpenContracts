@@ -148,7 +148,6 @@ class BuildDelegationToolTests(TestCase):
             user=self.user,
             corpus=None,
             document=None,
-            conversation=None,
         )
         self.assertIsInstance(tool, CoreTool)
         self.assertEqual(tool.name, "delegate_to_research_bot")
@@ -164,7 +163,6 @@ class BuildDelegationToolTests(TestCase):
             user=self.user,
             corpus=None,
             document=None,
-            conversation=None,
         )
         self.assertEqual(tool.description, "Reads documents and summarizes them")
 
@@ -189,7 +187,6 @@ class BuildDelegationToolTests(TestCase):
             user=self.user,
             corpus=None,
             document=None,
-            conversation=None,
         )
         # Falls back to a generic description mentioning the slug
         self.assertIn("bare-bot", tool.description.lower())
@@ -335,7 +332,6 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
             user=self.user,
             corpus=self.corpus,
             document=None,
-            conversation=None,
         )
 
         with patch.object(
@@ -471,7 +467,6 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
             user=self.user,
             corpus=self.corpus,
             document=None,
-            conversation=None,
         )
 
         # Make the streaming raise ToolConfirmationRequired mid-iteration.
@@ -508,7 +503,6 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
             user=self.user,
             corpus=self.corpus,
             document=None,
-            conversation=None,
         )
 
         class _PermDeniedAgent:
@@ -540,7 +534,6 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
             user=self.user,
             corpus=self.corpus,
             document=None,
-            conversation=None,
         )
 
         class _BoomAgent:
@@ -638,7 +631,6 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
             user=self.user,
             corpus=self.corpus,
             document=None,
-            conversation=None,
         )
 
         with patch.object(

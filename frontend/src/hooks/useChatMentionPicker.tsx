@@ -30,7 +30,7 @@
  *     ref is not yet mounted (e.g. first render)
  */
 
-import React, { RefObject, useMemo, useCallback } from "react";
+import React, { RefObject, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   AgentMentionPopover,
@@ -107,12 +107,29 @@ export function useChatMentionPicker({
     [mentionCategorizedResults.agents]
   );
 
-  const handleValueChange = useCallback(
-    (value: string, caret: number) => {
-      mention.onValueChange(value, caret);
-    },
-    [mention]
-  );
+  // ``mention.onValueChange`` is itself a ``useCallback`` inside
+  // ``useAgentMentionTrigger`` so its identity is stable across renders —
+  // expose it directly rather than wrapping it in a no-op callback.
+  const handleValueChange = mention.onValueChange;
+
+  // Capture the textarea rect once when the popover transitions to open so
+  // we don't read the DOM on every render while the picker is visible.
+  // The popover dismisses on selection / Escape, so re-capturing after open
+  // is unnecessary (re-opening recomputes the rect).
+  const popoverStyle = useMemo<React.CSSProperties>(() => {
+    const rect = textareaRef.current?.getBoundingClientRect();
+    return {
+      position: "fixed",
+      left: rect ? rect.left : 16,
+      bottom: rect ? Math.max(8, window.innerHeight - rect.top + 12) : 80,
+      zIndex: 1000,
+      pointerEvents: "auto",
+    };
+    // textareaRef is a ref object whose identity is stable; we re-derive
+    // when the popover transitions to open so the rect reflects the
+    // current textarea position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mention.isOpen, textareaRef]);
 
   const popoverNode =
     mention.isOpen && agentItems.length > 0
@@ -120,21 +137,7 @@ export function useChatMentionPicker({
           // Portal to <body> so the picker isn't clipped by ancestor
           // `overflow: hidden` and stacks above the messages layer.
           // Position anchored to the textarea's bounding rect.
-          <div
-            data-testid="agent-mention-anchor"
-            style={(() => {
-              const rect = textareaRef.current?.getBoundingClientRect();
-              return {
-                position: "fixed",
-                left: rect ? rect.left : 16,
-                bottom: rect
-                  ? Math.max(8, window.innerHeight - rect.top + 12)
-                  : 80,
-                zIndex: 1000,
-                pointerEvents: "auto",
-              };
-            })()}
-          >
+          <div data-testid="agent-mention-anchor" style={popoverStyle}>
             <AgentMentionPopover
               fragment={mention.fragment}
               agents={agentItems}
