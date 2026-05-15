@@ -57,7 +57,7 @@ openai>=2.36.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x re
 # one of those provider SDKs disappearing from PyPI — as ``mistralai`` did
 # on 2026-05-12, where ``pypi.org/pypi/mistralai/json`` started 404ing —
 # breaks the entire install chain. Narrow extras = stable resolves.
-pydantic-ai-slim[openai,anthropic,google,mcp]>=1.96.0,<2  # see issue #1451 before bumping the upper bound
+pydantic-ai-slim[openai,anthropic,google,mcp]>=1.96.1,<2  # see issue #1451 before bumping the upper bound
 spacy
 pdfplumber>=0.11.9  # https://github.com/jsvine/pdfplumber - PDF token extraction
 shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection
