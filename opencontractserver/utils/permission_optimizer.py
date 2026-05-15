@@ -48,7 +48,8 @@ class PermissionQueryOptimizer:
     """
 
     def __init__(self) -> None:
-        self._cache: dict[tuple[int, int, int, bool], frozenset[str]] = {}
+        # instance_pk slot is ``Any`` because models may use int / UUID / str PKs.
+        self._cache: dict[tuple[int, int, Any, bool], frozenset[str]] = {}
 
     @staticmethod
     def _resolve_content_type_id(instance: Model) -> int:
@@ -121,13 +122,16 @@ class PermissionQueryOptimizer:
         - No coordinates → clear the entire cache.
         - Any subset of ``user_id`` / ``content_type_id`` / ``instance_pk``
           → drop entries that match every supplied slot (others wildcard).
-        - ``instance`` is a shorthand: derives ``content_type_id`` and
-          ``instance_pk`` from the given model instance. Supplying both
-          ``instance`` and one of those slots is allowed (instance wins
-          to avoid the inconsistency).
+        - ``instance`` is a shorthand for the ``(content_type_id,
+          instance_pk)`` pair. Pass ``instance`` OR the explicit ids, not
+          both — mixing them raises ``ValueError``.
         """
 
         if instance is not None:
+            if content_type_id is not None or instance_pk is not None:
+                raise ValueError(
+                    "Pass `instance` OR explicit `content_type_id`/`instance_pk`, not both."
+                )
             content_type_id = self._resolve_content_type_id(instance)
             instance_pk = instance.pk
 

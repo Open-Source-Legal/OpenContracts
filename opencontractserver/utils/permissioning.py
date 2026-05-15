@@ -59,6 +59,16 @@ def set_permissions_for_obj_to_user(
             the new state. ``None`` is safe — Celery tasks and fixtures
             never reuse the instance after mutating perms, so the cache
             won't go stale.
+
+    Cache invalidation does NOT cover group-permission changes: calls
+    such as ``user.groups.add(group)`` or ``assign_perm(perm, group, obj)``
+    do not flow through this helper and therefore leave both tiers
+    untouched. Any cached entry computed with
+    ``include_group_permissions=True`` becomes stale until the instance
+    or request goes out of scope. Callers performing those operations
+    mid-request must invalidate manually (``delattr(instance,
+    INSTANCE_PERMS_CACHE_ATTR)`` and/or
+    ``get_request_optimizer(request).invalidate(user_id=user.id)``).
     """
 
     # logger.info(
@@ -195,15 +205,9 @@ def set_permissions_for_obj_to_user(
             # logger.info("requested_permission_set - assign publish permission")
             assign_perm(f"{app_name}.publish_{model_name}", user, instance)
 
-    # Two-tier permission cache invalidation. Tier 1 lives on the instance
-    # itself (per ``INSTANCE_PERMS_CACHE_ATTR``); Tier 2 lives on the
-    # request (per ``REQUEST_OPTIMIZER_ATTR``). Both must be cleared for
-    # this ``(user, instance)`` pair so subsequent ``user_can`` checks in
-    # the same request see the new grants. ``request=None`` skips Tier 2
-    # safely — Celery / fixture callers never reuse the instance after
-    # the call so Tier 1 staleness isn't a concern in practice, but we
-    # still scrub the per-instance cache to be defensive against
-    # long-lived test fixtures and management commands.
+    # Drop both Tier 1 (instance) and Tier 2 (request) cache entries for this
+    # ``(user, instance)`` so later ``user_can`` checks in the same request
+    # see the new grants. See ``constants/permissioning.py`` for caveats.
     instance_cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
     if instance_cache is not None:
         for key in [k for k in instance_cache if k[0] == user.id]:

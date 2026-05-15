@@ -285,6 +285,19 @@ class PermissionQueryOptimizerTestCase(TransactionTestCase):
         optimizer.invalidate_caches()
         self.assertEqual(len(optimizer._cache), 0)
 
+    def test_invalidate_rejects_mixed_coordinates(self):
+        """``invalidate(instance=..., instance_pk=...)`` raises ``ValueError``.
+
+        The two forms describe the same slot — mixing them was previously
+        a silent footgun where ``instance`` won. Now it's loud.
+        """
+
+        optimizer = PermissionQueryOptimizer()
+        with self.assertRaises(ValueError):
+            optimizer.invalidate(instance=self.corpus_a, instance_pk=self.corpus_b.pk)
+        with self.assertRaises(ValueError):
+            optimizer.invalidate(instance=self.corpus_a, content_type_id=1)
+
     def test_optimizer_skips_anonymous_user(self):
         """Anonymous users do not populate Tier 2."""
 

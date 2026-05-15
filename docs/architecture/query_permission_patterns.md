@@ -88,9 +88,18 @@ single request collapse to one DB hit:
 
 Invalidation contract: `set_permissions_for_obj_to_user(..., request=...)`
 clears both tiers for the affected `(user, instance)` pair when called
-inside the HTTP lifecycle. Out-of-band perm changes (raw `assign_perm`,
-migrations, Celery tasks reusing instances) must call
-`del instance._oc_granted_perms_cache` themselves.
+inside the HTTP lifecycle. The following changes flow around this hook
+and leave cached entries computed with `include_group_permissions=True`
+stale — callers must invalidate manually:
+
+- Out-of-band guardian perm changes (raw `assign_perm`/`remove_perm`,
+  migrations, Celery tasks reusing instances) → `delattr(instance,
+  INSTANCE_PERMS_CACHE_ATTR)` and/or
+  `get_request_optimizer(request).invalidate(user_id=..., instance=...)`.
+- Group-permission changes — `user.groups.add(group)`, `user.groups.remove(group)`,
+  or `assign_perm(perm, group, obj)` — same remedy.
+- `refresh_from_db()` reloads model fields but does not touch the
+  Tier 1 attribute; same remedy applies if the instance is reused.
 
 - Implementation: `opencontractserver/utils/permission_optimizer.py`,
   `opencontractserver/utils/permissioning.py:get_users_permissions_for_obj`,
