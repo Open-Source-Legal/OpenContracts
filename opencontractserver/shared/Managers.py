@@ -963,12 +963,11 @@ class RelationshipManager(BaseVisibilityManager):
         ):
             if permission != PermissionTypes.READ:
                 return False
-            return (
-                self.get_queryset()
-                .visible_to_user(user)
-                .filter(pk=instance.pk)
-                .exists()
-            )
+            # ``self.get_queryset()`` is statically a plain ``QuerySet`` in
+            # the Django stubs; at runtime ``RelationshipManager`` runs against
+            # ``BaseVisibilityManager`` whose ``visible_to_user`` is defined
+            # both on the manager and via the QuerySet contract.
+            return self.visible_to_user(user).filter(pk=instance.pk).exists()
 
         if user.is_superuser:
             return True

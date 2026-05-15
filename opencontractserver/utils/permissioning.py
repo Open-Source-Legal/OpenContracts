@@ -461,10 +461,16 @@ def _default_user_can(
         store_user_can,
     )
 
+    # ``_meta.model_name`` / ``_meta.app_label`` are typed as ``str | None`` in
+    # the Django stubs but are always populated on concrete model instances —
+    # cast to ``str`` to satisfy the cache function signatures.
+    app_label_str: str = str(app_label)
+    model_name_str: str = str(model_name)
+
     cached = cached_user_can(
         user.id,
-        app_label,
-        model_name,
+        app_label_str,
+        model_name_str,
         instance.pk,
         permission.value,
         include_group_permissions,
@@ -481,8 +487,8 @@ def _default_user_can(
     def _cache_and_return(result: bool) -> bool:
         store_user_can(
             user.id,
-            app_label,
-            model_name,
+            app_label_str,
+            model_name_str,
             instance.pk,
             permission.value,
             include_group_permissions,
@@ -595,7 +601,10 @@ def user_has_permission_for_obj(
         user = user_val
 
     manager = type(instance)._default_manager
-    return manager.user_can(
+    # Every Manager in this project that subclasses ``BaseVisibilityManager``
+    # exposes ``user_can``; mypy sees the generic ``Manager[Model]`` type and
+    # can't statically verify the attribute exists.
+    return manager.user_can(  # type: ignore[attr-defined]
         user,
         instance,
         permission,

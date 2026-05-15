@@ -12,9 +12,22 @@ cover Document, Annotation, Relationship, Note, Conversation, ChatMessage,
 Extract, Analysis, etc.
 """
 
+from typing import TYPE_CHECKING, Any
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TransactionTestCase
+
+# Inherit the mixin from ``TransactionTestCase`` for the type checker only so
+# ``self.assertEqual`` / ``self.assertTrue`` resolve; at runtime the mixin is a
+# plain ``object`` and gets the assert helpers from the concrete subclass's
+# MRO. This avoids the MRO conflict that direct ``TransactionTestCase``
+# inheritance would create when paired with a concrete ``TransactionTestCase``
+# subclass.
+if TYPE_CHECKING:
+    _MixinBase = TransactionTestCase
+else:
+    _MixinBase = object
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
@@ -565,7 +578,7 @@ class CorpusFolderDelegatesUserCanToCorpusTestCase(TransactionTestCase):
                 )
 
 
-class _UserCanInvariantsMixin:
+class _UserCanInvariantsMixin(_MixinBase):
     """Shared assertions for per-model ``user_can`` / ``visible_to_user``
     invariants. Each subclass populates ``self._matrix_users`` and
     ``self._matrix_instances`` in setUp, then calls the inherited
@@ -577,7 +590,15 @@ class _UserCanInvariantsMixin:
     tests come for free.
     """
 
-    model_cls = None  # subclasses override with the Model class
+    # Subclasses populate these in ``setUp``. Declared here so mypy treats
+    # the mixin's ``self.<attr>`` references as defined. ``model_cls`` is
+    # typed as ``Any`` (not ``type[Model]``) because mypy's Django stubs
+    # don't expose the ``objects`` manager on the abstract base ``Model``
+    # class — and the assertions below reach for ``model_cls.objects``.
+    model_cls: Any
+    _matrix_users: list[Any]
+    _matrix_instances: list[Any]
+    _superuser: Any
 
     def _all_matrix_pairs(self):
         for user in self._matrix_users:

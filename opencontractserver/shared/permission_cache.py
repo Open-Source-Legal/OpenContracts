@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import contextvars
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any
 
 _SENTINEL_MISS = object()
 
@@ -44,7 +44,7 @@ _SENTINEL_MISS = object()
 # "key not in cache" — semantically the same: the caller must compute.
 MISS = _SENTINEL_MISS
 
-_perm_cache: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+_perm_cache: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "opencontracts_permission_cache",
     default=None,
 )
