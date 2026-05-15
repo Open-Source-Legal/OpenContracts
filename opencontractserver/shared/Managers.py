@@ -922,6 +922,19 @@ class RelationshipManager(BaseVisibilityManager):
         # the parent manager so callers can use a uniform call shape.
         with_doc_label_annotations: bool = False,
     ) -> QuerySet:
+        """Filter relationships to those visible to ``user``.
+
+        Aligned with ``RelationshipManager.user_can`` (Phase A invariant):
+        relationships inherit visibility from their parent document AND
+        parent corpus (MIN logic). ``BaseVisibilityManager.visible_to_user``
+        would fall back to a creator/public check for this model (no
+        ``relationshipuserobjectpermission`` table exists), which is
+        narrower than ``user_can``'s MIN(doc, corpus) and produced the
+        Phase A invariant-test mismatch. We compose doc + corpus
+        visibility directly here so the two surfaces agree.
+        """
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
         from opencontractserver.shared.QuerySets import (
             _exclude_soft_deleted_doc_orphans,
         )
@@ -939,11 +952,27 @@ class RelationshipManager(BaseVisibilityManager):
                 with_doc_label_annotations=with_doc_label_annotations,
             )
 
-        qs = super().visible_to_user(
-            user=user,
-            lightweight=lightweight,
-            with_doc_label_annotations=with_doc_label_annotations,
+        # MIN(doc, corpus): user must be able to see both the parent doc
+        # and the parent corpus. Use the manager-level ``visible_to_user``
+        # so doc/corpus creator/public/guardian rules all participate.
+        visible_doc_ids = Document.objects.visible_to_user(user).values_list(
+            "pk", flat=True
         )
+        visible_corpus_ids = Corpus.objects.visible_to_user(user).values_list(
+            "pk", flat=True
+        )
+
+        doc_corpus_visible = Q(document_id__in=visible_doc_ids) & (
+            Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids)
+        )
+
+        # Anonymous users have no ``id`` field — gate the creator OR to
+        # authenticated users only. Doc/corpus visibility already encodes
+        # the public-anonymous path via ``Document.objects.visible_to_user``.
+        if user.is_anonymous:
+            qs = self.get_queryset().filter(doc_corpus_visible)
+        else:
+            qs = self.get_queryset().filter(Q(creator=user) | doc_corpus_visible)
         return _exclude_soft_deleted_doc_orphans(qs)
 
     def user_can(
