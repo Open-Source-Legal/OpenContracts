@@ -411,3 +411,397 @@ class ManagerAndInstanceRequestPassthroughTestCase(TransactionTestCase):
         self.assertTrue(result)
         optimizer = get_request_optimizer(request)
         self.assertEqual(len(optimizer._cache), 1)
+
+
+class DefaultUserCanCoverageTestCase(TransactionTestCase):
+    """Direct coverage for the centralized ``_default_user_can`` body.
+
+    Pins each permission-type branch (CREATE/UPDATE/EDIT/DELETE/COMMENT/
+    PUBLISH/PERMISSION/CRUD/ALL) and each user-resolution path
+    (None / AnonymousUser / int id / str id / unknown id / unauthenticated
+    test-double) so refactors of the dispatch table don't silently regress
+    a branch.
+    """
+
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            username="duc_creator", email="duc_c@test.test", password="x"
+        )
+        self.grantee = User.objects.create_user(
+            username="duc_grantee", email="duc_g@test.test", password="x"
+        )
+        # Non-public so the public-READ short-circuit doesn't mask the
+        # branches we want to exercise.
+        self.corpus = Corpus.objects.create(
+            title="duc", creator=self.creator, is_public=False
+        )
+
+    def _call(self, user, permission, **kwargs):
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        return _default_user_can(user, self.corpus, permission, **kwargs)
+
+    def test_none_user_returns_false(self):
+        self.assertFalse(self._call(None, PermissionTypes.READ))
+
+    def test_anonymous_user_public_read(self):
+        public = Corpus.objects.create(
+            title="public_duc", creator=self.creator, is_public=True
+        )
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        self.assertTrue(
+            _default_user_can(AnonymousUser(), public, PermissionTypes.READ)
+        )
+        # Anonymous + non-READ on public → still False
+        self.assertFalse(
+            _default_user_can(AnonymousUser(), public, PermissionTypes.UPDATE)
+        )
+        # Anonymous + READ on private → False
+        self.assertFalse(self._call(AnonymousUser(), PermissionTypes.READ))
+
+    def test_user_resolved_from_int_id(self):
+        """Passing the user's integer id resolves to the User instance."""
+        self.assertTrue(self._call(self.creator.id, PermissionTypes.READ))
+
+    def test_user_resolved_from_str_id(self):
+        """Passing the user's id as a string still resolves correctly."""
+        self.assertTrue(self._call(str(self.creator.id), PermissionTypes.READ))
+
+    def test_unknown_user_id_returns_false(self):
+        # Pick an id we know doesn't exist
+        last = User.objects.order_by("-id").first()
+        assert last is not None
+        bogus_id = last.id + 9999
+        self.assertFalse(self._call(bogus_id, PermissionTypes.READ))
+
+    def test_unauthenticated_double_treats_public_read_only(self):
+        """Custom user-like with ``is_authenticated=False`` still routes the
+        public-READ short-circuit (long-tail defensive branch).
+        """
+
+        class _FakeUnauthUser:
+            id = 999_999
+            is_authenticated = False
+            is_superuser = False
+            is_anonymous = False
+
+        public = Corpus.objects.create(
+            title="public_for_double", creator=self.creator, is_public=True
+        )
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        self.assertTrue(
+            _default_user_can(
+                _FakeUnauthUser(),  # type: ignore[arg-type]
+                public,
+                PermissionTypes.READ,
+            )
+        )
+        self.assertFalse(
+            _default_user_can(
+                _FakeUnauthUser(),  # type: ignore[arg-type]
+                public,
+                PermissionTypes.UPDATE,
+            )
+        )
+        # Non-public + double → False
+        self.assertFalse(self._call(_FakeUnauthUser(), PermissionTypes.READ))
+
+    def test_superuser_short_circuits_all_permissions(self):
+        admin = User.objects.create_superuser(
+            username="duc_admin", email="duc_a@test.test", password="x"
+        )
+        for perm in (
+            PermissionTypes.READ,
+            PermissionTypes.CREATE,
+            PermissionTypes.UPDATE,
+            PermissionTypes.EDIT,
+            PermissionTypes.DELETE,
+            PermissionTypes.COMMENT,
+            PermissionTypes.PUBLISH,
+            PermissionTypes.PERMISSION,
+            PermissionTypes.CRUD,
+            PermissionTypes.ALL,
+        ):
+            self.assertTrue(self._call(admin, perm), f"superuser denied {perm}")
+
+    def test_each_individual_permission_branch(self):
+        """Each non-compound permission codename is dispatched correctly."""
+        # Grant the full surface so every individual branch returns True.
+        set_permissions_for_obj_to_user(
+            self.grantee,
+            self.corpus,
+            [
+                PermissionTypes.CREATE,
+                PermissionTypes.READ,
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+                PermissionTypes.COMMENT,
+                PermissionTypes.PUBLISH,
+                PermissionTypes.PERMISSION,
+            ],
+        )
+        # Re-fetch to drop the per-instance cache populated by setUp,
+        # ensuring the cold path is exercised at least once.
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        for perm in (
+            PermissionTypes.CREATE,
+            PermissionTypes.READ,
+            PermissionTypes.UPDATE,
+            PermissionTypes.EDIT,  # alias for UPDATE
+            PermissionTypes.DELETE,
+            PermissionTypes.COMMENT,
+            PermissionTypes.PUBLISH,
+            PermissionTypes.PERMISSION,
+        ):
+            self.assertTrue(
+                _default_user_can(self.grantee, corpus, perm),
+                f"{perm} unexpectedly False",
+            )
+
+    def test_crud_requires_all_four_base_perms(self):
+        # Only READ granted → CRUD must be False.
+        set_permissions_for_obj_to_user(
+            self.grantee, self.corpus, [PermissionTypes.READ]
+        )
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        self.assertFalse(_default_user_can(self.grantee, corpus, PermissionTypes.CRUD))
+
+        # Grant the missing three → CRUD now passes.
+        set_permissions_for_obj_to_user(
+            self.grantee,
+            self.corpus,
+            [
+                PermissionTypes.CREATE,
+                PermissionTypes.READ,
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+            ],
+        )
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        self.assertTrue(_default_user_can(self.grantee, corpus, PermissionTypes.CRUD))
+
+    def test_all_requires_seven_perms(self):
+        # CRUD-only grant is insufficient for ALL.
+        set_permissions_for_obj_to_user(
+            self.grantee,
+            self.corpus,
+            [
+                PermissionTypes.CREATE,
+                PermissionTypes.READ,
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+            ],
+        )
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        self.assertFalse(_default_user_can(self.grantee, corpus, PermissionTypes.ALL))
+
+        # Add the remaining COMMENT/PUBLISH/PERMISSION grants.
+        set_permissions_for_obj_to_user(
+            self.grantee,
+            self.corpus,
+            [
+                PermissionTypes.CREATE,
+                PermissionTypes.READ,
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+                PermissionTypes.COMMENT,
+                PermissionTypes.PUBLISH,
+                PermissionTypes.PERMISSION,
+            ],
+        )
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        self.assertTrue(_default_user_can(self.grantee, corpus, PermissionTypes.ALL))
+
+    def test_crud_satisfied_by_public_read_plus_explicit_writes(self):
+        """The is_public READ fold-in keeps CRUD passable when a user has
+        only the C/U/D explicit grants on a public corpus (no explicit READ
+        is needed because is_public synthesises it).
+        """
+        public = Corpus.objects.create(
+            title="public_crud", creator=self.creator, is_public=True
+        )
+        set_permissions_for_obj_to_user(
+            self.grantee,
+            public,
+            [
+                PermissionTypes.CREATE,
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+            ],
+        )
+        public = Corpus.objects.get(pk=public.pk)
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        self.assertTrue(_default_user_can(self.grantee, public, PermissionTypes.CRUD))
+
+    def test_creator_passes_compound_perms_without_explicit_grants(self):
+        """Creator short-circuit applies BEFORE the compound CRUD/ALL check."""
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        self.assertTrue(
+            _default_user_can(self.creator, self.corpus, PermissionTypes.CRUD)
+        )
+        self.assertTrue(
+            _default_user_can(self.creator, self.corpus, PermissionTypes.ALL)
+        )
+
+    def test_unknown_permission_returns_false(self):
+        """An unhandled PermissionTypes value falls through to the final
+        ``return False`` — protects against a future enum value silently
+        granting access.
+        """
+
+        # Inject a sentinel that isn't in the dispatch table.
+        class _Sentinel:
+            value = "made_up_permission"
+
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        set_permissions_for_obj_to_user(
+            self.grantee, self.corpus, [PermissionTypes.READ]
+        )
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        self.assertFalse(
+            _default_user_can(
+                self.grantee,
+                corpus,
+                _Sentinel(),  # type: ignore[arg-type]
+            )
+        )
+
+
+class SetPermissionsInvalidationCoverageTestCase(TransactionTestCase):
+    """Cover the cache-invalidation branches in
+    ``set_permissions_for_obj_to_user`` that the existing test suite
+    leaves implicit.
+    """
+
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            username="spi_creator", email="spi_c@test.test", password="x"
+        )
+        self.grantee = User.objects.create_user(
+            username="spi_grantee", email="spi_g@test.test", password="x"
+        )
+        self.corpus = Corpus.objects.create(
+            title="spi", creator=self.creator, is_public=False
+        )
+
+    def test_invalidation_preserves_other_users_cache_entries(self):
+        """The instance-cache scrub on grant only deletes the affected
+        user's entries — entries for OTHER users in the same cache must
+        survive.
+        """
+        from opencontractserver.utils.permissioning import (
+            get_users_permissions_for_obj,
+        )
+
+        other = User.objects.create_user(
+            username="spi_other", email="spi_o@test.test", password="x"
+        )
+        set_permissions_for_obj_to_user(other, self.corpus, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(
+            self.grantee, self.corpus, [PermissionTypes.READ]
+        )
+
+        # Warm Tier 1 for both users via the helper.
+        get_users_permissions_for_obj(user=other, instance=self.corpus)
+        get_users_permissions_for_obj(user=self.grantee, instance=self.corpus)
+
+        cache_before = dict(getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {}))
+        # Should hold both users' entries.
+        self.assertIn((other.id, False), cache_before)
+        self.assertIn((self.grantee.id, False), cache_before)
+
+        # Re-grant for grantee only — must scrub grantee's entries but
+        # leave ``other``'s untouched.
+        set_permissions_for_obj_to_user(
+            self.grantee, self.corpus, [PermissionTypes.UPDATE]
+        )
+        cache_after = getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {})
+        self.assertIn((other.id, False), cache_after)
+        self.assertNotIn((self.grantee.id, False), cache_after)
+
+    def test_set_permissions_without_request_still_drops_instance_cache(self):
+        """Tier 1 must always be scrubbed, even when no request is supplied
+        (Celery / fixture / signal path).
+        """
+        from opencontractserver.utils.permissioning import (
+            get_users_permissions_for_obj,
+        )
+
+        set_permissions_for_obj_to_user(
+            self.grantee, self.corpus, [PermissionTypes.READ]
+        )
+        get_users_permissions_for_obj(user=self.grantee, instance=self.corpus)
+        self.assertIn(
+            (self.grantee.id, False),
+            getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {}),
+        )
+
+        # Re-grant WITHOUT request — should still drop the cache slot.
+        set_permissions_for_obj_to_user(
+            self.grantee, self.corpus, [PermissionTypes.UPDATE]
+        )
+        self.assertNotIn(
+            (self.grantee.id, False),
+            getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {}),
+        )
+
+
+class FolderServiceRequestKwargCoverageTestCase(TransactionTestCase):
+    """Smoke coverage for the ``request=`` kwarg flowing through the
+    ``DocumentFolderService`` permission gates.
+
+    The folder service methods accept ``request=request`` so the Tier 2
+    optimizer can be shared across folder-related GraphQL resolvers in
+    the same request. Verify the parameter is accepted and the denial
+    branch fires when the user has no access.
+    """
+
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            username="fs_creator", email="fs_c@test.test", password="x"
+        )
+        self.outsider = User.objects.create_user(
+            username="fs_outsider", email="fs_o@test.test", password="x"
+        )
+        self.corpus = Corpus.objects.create(
+            title="fs", creator=self.creator, is_public=False
+        )
+        self.factory = RequestFactory()
+
+    def test_get_visible_folders_denies_outsider(self):
+        from opencontractserver.corpuses.folder_service import DocumentFolderService
+
+        request = self.factory.get("/graphql/")
+        request.user = self.outsider
+        # Permission-denied path returns an empty QuerySet (NOT raise) so
+        # GraphQL resolvers can serialize cleanly. Exercise the branch.
+        result = DocumentFolderService.get_visible_folders(
+            self.outsider, self.corpus.id, request=request
+        )
+        self.assertEqual(list(result), [])
+
+    def test_get_visible_folders_allows_creator(self):
+        from opencontractserver.corpuses.folder_service import DocumentFolderService
+
+        request = self.factory.get("/graphql/")
+        request.user = self.creator
+        # Creator can list folders — returned queryset is permitted but
+        # may be empty when no folder rows exist; .list() materialises
+        # without raising.
+        result = DocumentFolderService.get_visible_folders(
+            self.creator, self.corpus.id, request=request
+        )
+        # Either a list or a queryset; both are acceptable — just exercise
+        # the success-path return.
+        self.assertIsNotNone(result)
