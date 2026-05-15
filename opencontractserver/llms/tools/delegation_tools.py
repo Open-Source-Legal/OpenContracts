@@ -68,9 +68,13 @@ def filter_by_scope(
         return qs.filter(Q(scope="GLOBAL") | Q(corpus_id=corpus_id))
 
     # document_id only — resolve its current corpus via DocumentPath.
-    # The outer guard ensures ``document_id`` is non-None here; assert for
-    # the type checker so the FK lookup receives ``int`` (not ``int | None``).
-    assert document_id is not None
+    # The outer guard already ensures ``document_id`` is non-None here, but
+    # use an explicit runtime check rather than ``assert``: assertions are
+    # stripped under ``python -O`` and a stray ``None`` reaching the FK
+    # lookup would raise an unhelpful ``TypeError`` deep in the sync ORM
+    # thread.
+    if document_id is None:
+        return qs.filter(scope="GLOBAL")
     doc_corpus_id = (
         DocumentPath.objects.filter(
             document_id=document_id,
@@ -142,7 +146,7 @@ def _slug_to_snake_case(slug: str) -> str:
 def build_delegation_tool(
     agent: AgentConfiguration,
     *,
-    relay_factory: Callable[[AgentConfiguration, bool], StreamRelay | None],
+    relay_factory: Callable[[AgentConfiguration, bool], StreamRelay],
     user: Any,
     corpus: Any,
     document: Any,
@@ -155,9 +159,11 @@ def build_delegation_tool(
       2. Builds a fresh sub-agent for ``agent`` via the same factory the
          consumer uses for the conductor (``agents.for_document`` /
          ``agents.for_corpus``). No conversation history is shared.
-      3. Streams sub-agent events through ``relay_factory(agent, pin)``
-         (returned ``StreamRelay`` may be ``None`` when ``pin`` is false and
-         the consumer chooses not to wire token-level forwarding).
+      3. Streams sub-agent events through ``relay_factory(agent, pin)``.
+         The relay is always constructed; it internally short-circuits
+         per-frame forwarding based on ``pin`` (e.g. unpinned delegations
+         skip ``on_token`` / ``on_thought`` because the conductor's own
+         ``tool_call`` / ``tool_result`` pair already surfaces them).
       4. Returns ``{"result": <final_text>, "pinned_message_id": <id_or_None>}``
          to the conductor LLM.
 
@@ -165,8 +171,9 @@ def build_delegation_tool(
         agent: The pre-resolved target ``AgentConfiguration`` (already
             verified visible to ``user`` at parse time).
         relay_factory: Per-turn callable supplied by the consumer that
-            constructs a ``StreamRelay`` (or returns ``None`` to opt out of
-            relay-based event forwarding) for each delegation invocation.
+            constructs a ``StreamRelay`` for each delegation invocation.
+            The relay is always built; whether individual forwarders are
+            no-ops is decided inside the relay based on the ``pin`` flag.
         user: The end user driving the conversation (used for re-check and
             sub-agent attribution).
         corpus: Active corpus for the chat, or ``None``.

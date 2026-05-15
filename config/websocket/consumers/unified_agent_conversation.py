@@ -818,7 +818,7 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         """
         consumer = self
 
-        def _factory(agent: AgentConfiguration, pin: bool) -> StreamRelay | None:
+        def _factory(agent: AgentConfiguration, pin: bool) -> StreamRelay:
             # ``slug`` + ``name`` only — the internal DB pk is intentionally not
             # part of the wire chip; consumers attribute by slug.
             agent_chip = {

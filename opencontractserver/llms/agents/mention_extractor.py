@@ -134,7 +134,22 @@ def extract_mentions(markdown: str | None) -> list[ExtractedMention]:
         return []
 
     seen_urls: set[str] = set()
+    # Secondary index keyed by ``(type, slug, corpus_slug)`` so the legacy
+    # text patterns can deduplicate against the markdown-link results in
+    # O(1) instead of an O(n) scan over ``out`` (the previous ``any(...)``
+    # check was O(n^2) overall for messages with many corpus/document
+    # mentions). ``corpus_slug`` is included so a corpus-scoped doc and a
+    # standalone doc with the same slug remain distinct entries.
+    seen_keys: set[tuple[str, str | None, str | None]] = set()
     out: list[ExtractedMention] = []
+
+    def _key(m: ExtractedMention) -> tuple[str, str | None, str | None]:
+        return (m.type, m.slug, m.corpus_slug)
+
+    def _append(m: ExtractedMention) -> None:
+        seen_urls.add(m.url)
+        seen_keys.add(_key(m))
+        out.append(m)
 
     # Markdown links
     for match in _LINK_RE.finditer(markdown):
@@ -144,16 +159,14 @@ def extract_mentions(markdown: str | None) -> list[ExtractedMention]:
         m = _classify_url(url, label)
         if m is None:
             continue
-        seen_urls.add(url)
-        out.append(m)
+        _append(m)
 
     # Legacy text patterns (corpus-scoped doc first to win over its sub-parts)
     for match in _LEGACY_CORPUS_DOC_RE.finditer(markdown):
         synthetic_url = f"/d/_/{match.group(1)}/{match.group(2)}"
         if synthetic_url in seen_urls:
             continue
-        seen_urls.add(synthetic_url)
-        out.append(
+        _append(
             ExtractedMention(
                 type="document",
                 slug=match.group(2),
@@ -165,12 +178,9 @@ def extract_mentions(markdown: str | None) -> list[ExtractedMention]:
 
     for match in _LEGACY_CORPUS_RE.finditer(markdown):
         synthetic_url = f"/c/_/{match.group(1)}"
-        if synthetic_url in seen_urls or any(
-            m.type == "corpus" and m.slug == match.group(1) for m in out
-        ):
+        if synthetic_url in seen_urls or ("corpus", match.group(1), None) in seen_keys:
             continue
-        seen_urls.add(synthetic_url)
-        out.append(
+        _append(
             ExtractedMention(
                 type="corpus",
                 slug=match.group(1),
@@ -181,13 +191,17 @@ def extract_mentions(markdown: str | None) -> list[ExtractedMention]:
 
     for match in _LEGACY_DOCUMENT_RE.finditer(markdown):
         synthetic_url = f"/d/_/{match.group(1)}"
-        if synthetic_url in seen_urls or any(
-            m.type == "document" and m.slug == match.group(1) and m.corpus_slug is None
-            for m in out
+        if (
+            synthetic_url in seen_urls
+            or (
+                "document",
+                match.group(1),
+                None,
+            )
+            in seen_keys
         ):
             continue
-        seen_urls.add(synthetic_url)
-        out.append(
+        _append(
             ExtractedMention(
                 type="document",
                 slug=match.group(1),

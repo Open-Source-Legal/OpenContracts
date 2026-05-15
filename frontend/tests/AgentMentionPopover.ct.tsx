@@ -121,4 +121,67 @@ test.describe("AgentMentionPopover", () => {
     );
     await expect(page.getByText("No matching agents.")).toBeVisible();
   });
+
+  test("ArrowDown moves aria-selected to the next option (wraps)", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <AgentMentionPopover
+        fragment=""
+        agents={AGENTS}
+        onSelect={() => {}}
+        onDismiss={() => {}}
+      />
+    );
+    const options = page.getByRole("option");
+    await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
+
+    await page.keyboard.press("ArrowDown");
+    await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+    await expect(options.nth(0)).toHaveAttribute("aria-selected", "false");
+
+    await page.keyboard.press("ArrowDown");
+    await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
+
+    // Wrap to first
+    await page.keyboard.press("ArrowDown");
+    await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("ArrowUp wraps from the first option to the last", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <AgentMentionPopover
+        fragment=""
+        agents={AGENTS}
+        onSelect={() => {}}
+        onDismiss={() => {}}
+      />
+    );
+    const options = page.getByRole("option");
+    await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
+
+    await page.keyboard.press("ArrowUp");
+    await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("Enter selects the currently active option", async ({ mount, page }) => {
+    let selected: AgentItem | null = null;
+    await mount(
+      <AgentMentionPopover
+        fragment=""
+        agents={AGENTS}
+        onSelect={(a) => {
+          selected = a;
+        }}
+        onDismiss={() => {}}
+      />
+    );
+    await page.keyboard.press("ArrowDown"); // move to "Auditor"
+    await page.keyboard.press("Enter");
+    await expect.poll(() => selected?.slug).toBe("auditor");
+  });
 });

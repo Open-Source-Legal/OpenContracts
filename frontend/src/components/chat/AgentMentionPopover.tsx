@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { color } from "../../theme/colors";
 import { spacing } from "../../theme/spacing";
@@ -27,6 +27,11 @@ import { spacing } from "../../theme/spacing";
  *
  * Styling mirrors UnifiedMentionPicker's theme-token usage (no hex literals)
  * so visual treatment stays consistent across mention surfaces.
+ *
+ * Accessibility: arrow-key navigation + Enter-to-select are wired via a
+ * document-level capture-phase keydown listener so the picker behaves even
+ * though keyboard focus stays in the parent textarea. ``aria-selected`` on
+ * each option mirrors the active row so AT users get audible feedback.
  */
 
 const Container = styled.div`
@@ -45,12 +50,12 @@ const NoResults = styled.div`
   font-size: 13px;
 `;
 
-const OptionButton = styled.button`
+const OptionButton = styled.button<{ $active: boolean }>`
   display: block;
   width: 100%;
   text-align: left;
   padding: ${spacing.xs} ${spacing.sm};
-  background: transparent;
+  background: ${(p) => (p.$active ? color.N2 : "transparent")};
   border: none;
   cursor: pointer;
   font-size: 13px;
@@ -92,17 +97,6 @@ export const AgentMentionPopover: React.FC<Props> = ({
   onSelect,
   onDismiss,
 }) => {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onDismiss();
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onDismiss]);
-
   const lower = fragment.toLowerCase();
   const matches = agents.filter(
     (a) =>
@@ -110,14 +104,64 @@ export const AgentMentionPopover: React.FC<Props> = ({
       a.name.toLowerCase().includes(lower)
   );
 
+  const [activeIndex, setActiveIndex] = useState(0);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  // Reset selection when the result set shrinks/grows so the highlight
+  // never points past the last row.
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [matches.length, fragment]);
+
+  // Document-level capture so the listener fires before the textarea
+  // consumes Arrow/Enter (the textarea retains focus while the picker is
+  // open). Escape continues to dismiss even when no matches are visible.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onDismiss();
+        return;
+      }
+      if (matches.length === 0) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveIndex((i) => (i + 1) % matches.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveIndex((i) => (i - 1 + matches.length) % matches.length);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        const next = matches[activeIndex];
+        if (next) onSelect(next);
+      }
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [matches, activeIndex, onSelect, onDismiss]);
+
+  // Keep the active row visible inside the scroll container.
+  useEffect(() => {
+    optionRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
   return (
     <Container role="listbox" data-testid="agent-mention-popover">
       {matches.length === 0 && <NoResults>No matching agents.</NoResults>}
-      {matches.map((a) => (
+      {matches.map((a, i) => (
         <OptionButton
           key={a.id}
+          ref={(el) => {
+            optionRefs.current[i] = el;
+          }}
           role="option"
-          aria-selected={false}
+          aria-selected={i === activeIndex}
+          $active={i === activeIndex}
+          onMouseEnter={() => setActiveIndex(i)}
           onClick={() => onSelect(a)}
         >
           <OptionName>{a.name}</OptionName> <OptionMeta>@{a.slug}</OptionMeta>

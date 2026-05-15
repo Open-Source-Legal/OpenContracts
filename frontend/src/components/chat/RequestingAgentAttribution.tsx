@@ -18,6 +18,7 @@
 import React from "react";
 import styled from "styled-components";
 import type { PendingApproval } from "./types";
+import { agentChipPaletteCss } from "./agentChipStyles";
 
 const AgentChip = styled.span`
   display: inline-flex;
@@ -28,9 +29,7 @@ const AgentChip = styled.span`
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.2;
-  background: linear-gradient(135deg, #8b5cf615 0%, #6366f115 100%);
-  border: 1px solid #8b5cf660;
-  color: #7c3aed;
+  ${agentChipPaletteCss};
   letter-spacing: -0.01em;
   white-space: nowrap;
 

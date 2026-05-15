@@ -363,11 +363,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               arguments: any;
               tool_call_id?: string;
             };
-            requesting_agent?: {
-              id: string;
-              slug: string;
-              name: string;
-            } | null;
+            // Single source of truth: ``PendingApproval.requestingAgent``
+            // (see ``components/chat/types.ts``). Keeps this persisted-message
+            // cast in lock-step with the live WebSocket frame shape so a
+            // future field addition on the canonical type flows through here.
+            requesting_agent?: PendingApproval["requestingAgent"];
           }
         | undefined;
 

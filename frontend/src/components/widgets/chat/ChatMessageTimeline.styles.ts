@@ -18,6 +18,7 @@ import {
   primaryBlueAlpha,
   whiteAlpha,
 } from "../../../assets/configurations/osLegalStyles";
+import { agentChipPaletteCss } from "../../chat/agentChipStyles";
 import type { TimelineEntry } from "./types";
 
 // Timeline styled components
@@ -338,11 +339,9 @@ export const StreamingThoughtText = styled(motion.span)`
  * (StreamRelay, delegation_tools.py) OR derived from a
  * ``delegate_to_<snake_slug>`` tool name on the persisted timeline.
  *
- * Visual tokens deliberately mirror the ``SubAgentAttributionChip`` in
- * ``ChatMessage.styles.ts`` (Task 12) — same violet/indigo gradient,
- * border and text colour — so users learn ONE shape ("this is an agent")
- * regardless of whether they encounter it on a pinned bubble, inline
- * mention, or timeline row.
+ * Palette is shared via ``agentChipPaletteCss`` so the timeline chip stays
+ * visually in lock-step with the bubble-header, approval-modal, and
+ * markdown @-mention chips ("one shape for agent identity").
  */
 export const TimelineAgentChip = styled.span`
   display: inline-flex;
@@ -354,9 +353,7 @@ export const TimelineAgentChip = styled.span`
   font-size: 0.7rem;
   font-weight: 600;
   line-height: 1.2;
-  background: linear-gradient(135deg, #8b5cf615 0%, #6366f115 100%);
-  border: 1px solid #8b5cf660;
-  color: #7c3aed;
+  ${agentChipPaletteCss};
   letter-spacing: -0.01em;
   white-space: nowrap;
   vertical-align: middle;

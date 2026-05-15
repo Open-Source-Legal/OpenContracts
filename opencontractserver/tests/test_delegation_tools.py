@@ -15,6 +15,37 @@ from opencontractserver.llms.tools.tool_factory import CoreTool
 User = get_user_model()
 
 
+def _make_noop_relay(agent: AgentConfiguration, pin: bool):
+    """Build a no-op ``StreamRelay`` for tests that don't exercise relay paths.
+
+    Mirrors the production ``relay_factory`` signature (must always return a
+    relay — never ``None``). Use in tests that only verify tool metadata or
+    that mock the sub-agent stream to raise before any forwarders run.
+    """
+    from opencontractserver.llms.tools.delegation_tools import StreamRelay
+
+    async def _on_token(_t: str) -> None:
+        return None
+
+    async def _on_thought(_t: str, _md: dict) -> None:
+        return None
+
+    async def _on_approval(_p: dict):
+        return None
+
+    async def _on_finish(_t: str):
+        return None
+
+    return StreamRelay(
+        agent=agent,
+        pin=pin,
+        on_token=_on_token,
+        on_thought=_on_thought,
+        on_approval=_on_approval,
+        on_finish=_on_finish,
+    )
+
+
 class FilterByScopeTests(TestCase):
     """Tests for ``filter_by_scope`` chat-scope filtering of agent querysets."""
 
@@ -144,7 +175,7 @@ class BuildDelegationToolTests(TestCase):
 
         tool = build_delegation_tool(
             self.agent,
-            relay_factory=lambda agent, pin: None,
+            relay_factory=_make_noop_relay,
             user=self.user,
             corpus=None,
             document=None,
@@ -159,7 +190,7 @@ class BuildDelegationToolTests(TestCase):
 
         tool = build_delegation_tool(
             self.agent,
-            relay_factory=lambda agent, pin: None,
+            relay_factory=_make_noop_relay,
             user=self.user,
             corpus=None,
             document=None,
@@ -183,7 +214,7 @@ class BuildDelegationToolTests(TestCase):
 
         tool = build_delegation_tool(
             agent_no_desc,
-            relay_factory=lambda agent, pin: None,
+            relay_factory=_make_noop_relay,
             user=self.user,
             corpus=None,
             document=None,
@@ -463,7 +494,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
 
         tool = build_delegation_tool(
             self.agent,
-            relay_factory=lambda a, p: None,
+            relay_factory=_make_noop_relay,
             user=self.user,
             corpus=self.corpus,
             document=None,
@@ -499,7 +530,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
 
         tool = build_delegation_tool(
             self.agent,
-            relay_factory=lambda a, p: None,
+            relay_factory=_make_noop_relay,
             user=self.user,
             corpus=self.corpus,
             document=None,
@@ -530,7 +561,7 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
 
         tool = build_delegation_tool(
             self.agent,
-            relay_factory=lambda a, p: None,
+            relay_factory=_make_noop_relay,
             user=self.user,
             corpus=self.corpus,
             document=None,

@@ -19,6 +19,7 @@ import {
   SMALL_MOBILE_BREAKPOINT,
   TABLET_BREAKPOINT,
 } from "../../../assets/configurations/constants";
+import { agentChipPaletteCss } from "../../chat/agentChipStyles";
 
 export const MessageContainer = styled(motion.div)<{
   $isAssistant: boolean;
@@ -423,10 +424,9 @@ export const UserName = styled.div`
  * the response was authored by a pinned sub-agent (rich-mention agent
  * delegation, Issue #623 / #689) rather than the default conductor.
  *
- * Visual tokens deliberately mirror the inline `@agent` mention chip in
- * `MarkdownMessageRenderer` (violet/indigo gradient + #7c3aed text) so
- * users get a consistent "agent identity" cue whether they see the agent
- * referenced in body markdown or attributed in a bubble header.
+ * Palette is shared via ``agentChipPaletteCss`` so the bubble-header,
+ * timeline, approval-modal, and markdown @-mention chips all reference
+ * one token set.
  */
 export const SubAgentAttributionChip = styled.span`
   display: inline-flex;
@@ -437,9 +437,7 @@ export const SubAgentAttributionChip = styled.span`
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.2;
-  background: linear-gradient(135deg, #8b5cf615 0%, #6366f115 100%);
-  border: 1px solid #8b5cf660;
-  color: #7c3aed;
+  ${agentChipPaletteCss};
   letter-spacing: -0.01em;
   white-space: nowrap;
 
