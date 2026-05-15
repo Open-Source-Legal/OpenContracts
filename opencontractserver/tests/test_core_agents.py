@@ -237,6 +237,82 @@ class TestCoreConversationManager(TestCoreAgentComponentsSetup):
         )
         self.assertIs(manager.conversation, self.conversation1)
 
+    async def test_create_for_document_hijack_conversation_id_falls_back_to_new(
+        self,
+    ):
+        """Supplying another user's conversation_id must NOT load that row.
+
+        Regression test for the IDOR exposed by the WebSocket query param
+        ``conversation_id``: a caller could previously pass any integer and
+        the consumer would resolve and use the row via a bare ``aget(id=cid)``.
+        The fixed code path resolves the row through ``visible_to_user`` and
+        silently creates a new conversation when the id is unknown to the
+        caller — same observable behaviour as DoesNotExist, so the caller
+        cannot enumerate other users' ids by probing.
+        """
+        # Hostile user owns the target conversation; victim must NOT be able to
+        # load it.
+        owner = await sync_to_async(User.objects.create_user)(
+            username="convo_owner_idor",
+            password="pw1234!",
+            email="owner_idor@test.com",
+        )
+        private_convo = await sync_to_async(Conversation.objects.create)(
+            title="Owner private",
+            creator=owner,
+        )
+        attacker = await sync_to_async(User.objects.create_user)(
+            username="convo_attacker_idor",
+            password="pw1234!",
+            email="attacker_idor@test.com",
+        )
+
+        config = AgentConfig(user_id=attacker.id)
+        manager = await CoreConversationManager.create_for_document(
+            self.corpus1,
+            self.doc1,
+            attacker.id,
+            config,
+            conversation_id=private_convo.id,
+        )
+
+        # A new conversation was created for the attacker; the owner's
+        # private conversation is NOT returned.
+        self.assertIsNotNone(manager.conversation)
+        self.assertNotEqual(manager.conversation.id, private_convo.id)
+        self.assertEqual(manager.conversation.creator_id, attacker.id)
+
+    async def test_create_for_corpus_hijack_conversation_id_falls_back_to_new(
+        self,
+    ):
+        """Same IDOR regression test as the document version, for corpus chats."""
+        owner = await sync_to_async(User.objects.create_user)(
+            username="corpus_convo_owner_idor",
+            password="pw1234!",
+            email="cowner_idor@test.com",
+        )
+        private_convo = await sync_to_async(Conversation.objects.create)(
+            title="Owner private corpus convo",
+            creator=owner,
+        )
+        attacker = await sync_to_async(User.objects.create_user)(
+            username="corpus_convo_attacker_idor",
+            password="pw1234!",
+            email="cattacker_idor@test.com",
+        )
+
+        config = AgentConfig(user_id=attacker.id)
+        manager = await CoreConversationManager.create_for_corpus(
+            self.corpus1,
+            attacker.id,
+            config,
+            conversation_id=private_convo.id,
+        )
+
+        self.assertIsNotNone(manager.conversation)
+        self.assertNotEqual(manager.conversation.id, private_convo.id)
+        self.assertEqual(manager.conversation.creator_id, attacker.id)
+
     async def test_store_user_message(self):
         config = AgentConfig(user_id=self.user.id)
         manager = CoreConversationManager(

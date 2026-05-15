@@ -324,22 +324,34 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         Resolve which agent configuration to use.
 
         Priority:
-        1. Explicit agent_id → use that agent
+        1. Explicit agent_id → use that agent (gated by ``visible_to_user``)
         2. document_id present → default-document-agent
         3. corpus_id present → default-corpus-agent
+
+        The explicit-agent path uses ``visible_to_user`` rather than a bare
+        ``aget(pk=...)`` so a caller can't load another user's private agent
+        by guessing the pk. The default agents are GLOBAL/active so the
+        guard isn't load-bearing for paths 2/3.
         """
-        # Priority 1: Explicit agent_id
+        # Priority 1: Explicit agent_id (visibility-gated)
         if self.agent_config_id:
-            try:
-                return await AgentConfiguration.objects.aget(
-                    pk=self.agent_config_id, is_active=True
+            user = self.scope.get("user")
+
+            def _visible_agent_lookup() -> AgentConfiguration | None:
+                return (
+                    AgentConfiguration.objects.visible_to_user(user)
+                    .filter(pk=self.agent_config_id, is_active=True)
+                    .first()
                 )
-            except AgentConfiguration.DoesNotExist:
+
+            agent_config = await database_sync_to_async(_visible_agent_lookup)()
+            if agent_config is None:
                 logger.error(
                     f"[Session {self.session_id}] "
-                    f"Specified agent not found: {self.agent_config_id}"
+                    f"Specified agent not found or not visible: {self.agent_config_id}"
                 )
                 return None
+            return agent_config
 
         # Priority 2: Document context → default document agent
         if self.document_id:
@@ -915,6 +927,7 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                     return None
 
                 pinned_message_id: int | None = None
+                persistence_failed: bool = False
                 if consumer.conversation_id and consumer.user_id is not None:
                     from opencontractserver.conversations.models import (
                         ChatMessage as _ChatMessage,
@@ -958,7 +971,13 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                             exc_info=True,
                         )
                         pinned_message_id = None
+                        persistence_failed = True
 
+                # Surface persistence failure as a distinct flag so the UI can
+                # warn the user that the pinned bubble exists only in-memory
+                # for this session and will not survive a reload. Without
+                # this flag the frontend sees a complete-looking response
+                # and the discrepancy is only discovered on reload.
                 await consumer._send_safe(
                     msg_type="ASYNC_FINISH",
                     content=final_text or "",
@@ -966,6 +985,7 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                         "agent_id": agent.pk,
                         "parent_message_id": parent_message_id_box.get("value"),
                         "pinned_message_id": pinned_message_id,
+                        "persistence_failed": persistence_failed,
                         "sources": [],
                         "timeline": [],
                     },

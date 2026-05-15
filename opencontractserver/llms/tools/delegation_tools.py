@@ -193,7 +193,7 @@ def build_delegation_tool(
     agent_slug = agent.slug
 
     async def _body(prompt: str, pin: bool = False) -> dict[str, Any]:
-        # Race guard: visible at parse time but possibly gone now.
+        # Race guard #1: agent visible at parse time but possibly gone now.
         still_visible = await sync_to_async(
             lambda: AgentConfiguration.objects.visible_to_user(user)
             .filter(pk=agent_pk, is_active=True)
@@ -204,6 +204,39 @@ def build_delegation_tool(
                 "result": "Delegation target is no longer available.",
                 "pinned_message_id": None,
             }
+
+        # Race guard #2: document/corpus access can be revoked mid-turn.
+        # The ORM instances were captured at tool-build time (once per turn),
+        # so a permission revocation between mention parse and tool fire
+        # would otherwise still hand the sub-agent the stale objects. Re-
+        # check visibility against the current state of the DB. Imports are
+        # local to keep the module load surface minimal.
+        if document is not None:
+            from opencontractserver.documents.models import Document as _Document
+
+            doc_accessible = await sync_to_async(
+                lambda: _Document.objects.visible_to_user(user)
+                .filter(pk=document.pk)
+                .exists()
+            )()
+            if not doc_accessible:
+                return {
+                    "result": "Document is no longer accessible.",
+                    "pinned_message_id": None,
+                }
+        if corpus is not None:
+            from opencontractserver.corpuses.models import Corpus as _Corpus
+
+            corpus_accessible = await sync_to_async(
+                lambda: _Corpus.objects.visible_to_user(user)
+                .filter(pk=corpus.pk)
+                .exists()
+            )()
+            if not corpus_accessible:
+                return {
+                    "result": "Corpus is no longer accessible.",
+                    "pinned_message_id": None,
+                }
 
         relay = relay_factory(agent, pin)
 

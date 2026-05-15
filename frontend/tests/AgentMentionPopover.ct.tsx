@@ -2,6 +2,7 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { AgentMentionPopover } from "../src/components/chat/AgentMentionPopover";
 import type { AgentItem } from "../src/components/chat/AgentMentionPopover";
+import { docScreenshot } from "./utils/docScreenshot";
 
 const AGENTS: AgentItem[] = [
   { id: "1", slug: "research-bot", name: "Research Bot", scope: "GLOBAL" },
@@ -53,6 +54,7 @@ test.describe("AgentMentionPopover", () => {
     await expect(
       page.getByRole("option", { name: /Summarizer @summarizer/ })
     ).toBeVisible();
+    await docScreenshot(page, "chat--agent-mention-popover--with-agents");
   });
 
   test("shows corpus name for corpus-scoped agents", async ({
