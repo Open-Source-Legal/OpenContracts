@@ -23,7 +23,7 @@ into the wider visibility / permission stack.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
@@ -111,10 +111,10 @@ class PermissionQueryOptimizer:
     def invalidate(
         self,
         *,
-        user_id: Optional[int] = None,
-        instance: Optional[Model] = None,
-        content_type_id: Optional[int] = None,
-        instance_pk: Optional[Any] = None,
+        user_id: int | None = None,
+        instance: Model | None = None,
+        content_type_id: int | None = None,
+        instance_pk: Any | None = None,
     ) -> None:
         """Drop cache entries matching the supplied coordinates.
 

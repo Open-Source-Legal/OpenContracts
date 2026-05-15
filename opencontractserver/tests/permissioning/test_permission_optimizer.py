@@ -113,7 +113,7 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         # AnonymousUser hits the fast-path "not authenticated" branch in
         # _default_user_can and never reaches get_users_permissions_for_obj,
         # but explicit calls to the helper must still avoid caching.
-        get_users_permissions_for_obj(user=anon, instance=corpus)
+        get_users_permissions_for_obj(user=anon, instance=corpus)  # type: ignore[arg-type]
         self.assertFalse(hasattr(corpus, INSTANCE_PERMS_CACHE_ATTR))
 
     def test_fast_paths_do_not_populate_cache(self):
