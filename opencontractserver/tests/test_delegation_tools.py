@@ -679,6 +679,552 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
         # We must have stopped at exactly the bound — no more, no fewer.
         self.assertEqual(looping.resume_calls, MAX_DELEGATION_APPROVAL_CYCLES)
 
+    async def test_body_uses_for_document_when_document_provided(self):
+        """When a document is passed, the body must call agents_api.for_document.
+
+        The factory call is the branch that wires the sub-agent up to the
+        document context — verifying we hit ``for_document`` (and not
+        ``for_corpus``) when the chat is doc-scoped exercises a different
+        branch than every other body test.
+        """
+        from asgiref.sync import sync_to_async
+
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            build_delegation_tool,
+        )
+
+        doc = await sync_to_async(Document.objects.create)(
+            title="DocForBody", creator=self.user
+        )
+        # Without a DocumentPath the body still has a document context to
+        # pass to ``for_document`` — the visibility check just walks the
+        # creator's perms.
+        events = [
+            _make_stub_event(
+                type="final", content="ok", accumulated_content="ok"
+            ),
+        ]
+        fake = _FakeSubAgent(events)
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=_make_noop_relay,
+            user=self.user,
+            corpus=None,
+            document=doc,
+        )
+
+        with patch.object(
+            agents_api, "for_document", new_callable=AsyncMock
+        ) as mock_for_document, patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_for_corpus:
+            mock_for_document.return_value = fake
+            result = await tool.function(prompt="hi", pin=False)
+
+        mock_for_document.assert_awaited_once()
+        mock_for_corpus.assert_not_called()
+        self.assertEqual(result["result"], "ok")
+        # for_document received the document and the (None) corpus
+        call_kwargs = mock_for_document.call_args.kwargs
+        self.assertIs(call_kwargs.get("document"), doc)
+        self.assertIsNone(call_kwargs.get("corpus"))
+
+    async def test_body_returns_error_when_no_doc_or_corpus_context(self):
+        """If both corpus and document are None at tool-build time, the body
+        must report back to the LLM rather than crash the turn.
+        """
+        from opencontractserver.llms.tools.delegation_tools import (
+            build_delegation_tool,
+        )
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=_make_noop_relay,
+            user=self.user,
+            corpus=None,
+            document=None,
+        )
+
+        result = await tool.function(prompt="hello", pin=False)
+        self.assertIn("no document or corpus", result["result"].lower())
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_returns_error_when_agent_no_longer_visible(self):
+        """Agent deactivated between tool build and invocation → fail soft."""
+        from opencontractserver.llms.tools.delegation_tools import (
+            build_delegation_tool,
+        )
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=_make_noop_relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+        )
+        # Make the agent invisible — flip ``is_active`` so the
+        # ``filter(pk=..., is_active=True)`` race guard fails.
+        self.agent.is_active = False
+        await self.agent.asave()
+
+        result = await tool.function(prompt="hi", pin=False)
+        self.assertIn("no longer available", result["result"].lower())
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_returns_error_when_document_no_longer_accessible(self):
+        """Document permission revoked mid-turn → fail soft with explicit msg."""
+        from asgiref.sync import sync_to_async
+
+        from opencontractserver.llms.tools.delegation_tools import (
+            build_delegation_tool,
+        )
+
+        # A document the user can see at build time, but we'll patch the
+        # visible_to_user manager method to return an empty queryset to
+        # simulate revocation rather than juggle guardian perms here.
+        doc = await sync_to_async(Document.objects.create)(
+            title="LosingAccess", creator=self.user
+        )
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=_make_noop_relay,
+            user=self.user,
+            corpus=None,
+            document=doc,
+        )
+
+        from opencontractserver.documents.models import Document as _Document
+
+        original_manager = _Document.objects
+        empty_qs = _Document.objects.none()
+        with patch.object(
+            _Document, "objects", wraps=original_manager
+        ) as mock_objects:
+            mock_objects.visible_to_user.return_value = empty_qs
+            result = await tool.function(prompt="hi", pin=False)
+
+        self.assertIn("no longer accessible", result["result"].lower())
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_returns_error_when_corpus_no_longer_accessible(self):
+        """Corpus permission revoked mid-turn → fail soft with explicit msg."""
+        from opencontractserver.corpuses.models import Corpus as _Corpus
+        from opencontractserver.llms.tools.delegation_tools import (
+            build_delegation_tool,
+        )
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=_make_noop_relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+        )
+
+        original_manager = _Corpus.objects
+        empty_qs = _Corpus.objects.none()
+        with patch.object(
+            _Corpus, "objects", wraps=original_manager
+        ) as mock_objects:
+            mock_objects.visible_to_user.return_value = empty_qs
+            result = await tool.function(prompt="hi", pin=False)
+
+        self.assertIn("no longer accessible", result["result"].lower())
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_returns_error_string_when_factory_raises_operationally(self):
+        """Sub-agent factory blowing up (operationally) should NOT crash the
+        turn; it must surface the failure as an error string to the LLM.
+        """
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            build_delegation_tool,
+        )
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=_make_noop_relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+        )
+
+        with patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_factory:
+            mock_factory.side_effect = RuntimeError("factory exploded")
+            result = await tool.function(prompt="hi", pin=False)
+
+        self.assertIn("factory exploded", result["result"])
+        self.assertIn("body-bot", result["result"])
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_propagates_permission_error_from_factory(self):
+        """PermissionError raised by the factory must propagate, not be
+        swallowed — security exceptions short-circuit the body.
+        """
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            build_delegation_tool,
+        )
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=_make_noop_relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+        )
+
+        with patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_factory:
+            mock_factory.side_effect = PermissionError("nope")
+            with self.assertRaises(PermissionError):
+                await tool.function(prompt="hi", pin=False)
+
+    async def test_body_forwards_thought_events_to_relay(self):
+        """Thought events from the sub-agent must flow through relay.on_thought."""
+        from opencontractserver.llms.tools.delegation_tools import StreamRelay
+
+        thoughts: list[tuple[str, dict]] = []
+
+        async def on_token(_):
+            return None
+
+        async def on_thought(text, md):
+            thoughts.append((text, md))
+
+        async def on_approval(_):
+            return None
+
+        async def on_finish(_):
+            return None
+
+        relay = StreamRelay(
+            agent=self.agent,
+            pin=False,
+            on_token=on_token,
+            on_thought=on_thought,
+            on_approval=on_approval,
+            on_finish=on_finish,
+        )
+
+        events = [
+            _make_stub_event(
+                type="thought",
+                content="",
+                thought="thinking hard",
+                metadata={"step": 1},
+            ),
+            _make_stub_event(
+                type="final", content="done", accumulated_content="done"
+            ),
+        ]
+        result, _, _ = await self._build_tool_and_invoke(
+            events=events, pin=False, relay=relay
+        )
+
+        self.assertEqual(result["result"], "done")
+        # At least one thought entry whose text starts with "thinking" and
+        # whose metadata carries our step marker.  (When pin=True the body
+        # also prepends its own "Delegating to ..." announcement; pin=False
+        # skips that, so thoughts here is exactly the sub-agent's stream.)
+        matched = [t for t in thoughts if t[0] == "thinking hard"]
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0][1].get("step"), 1)
+
+    async def test_body_returns_error_on_sub_agent_error_event(self):
+        """An ``error`` event aborts the stream with an explicit error string."""
+        events = [
+            _make_stub_event(
+                type="content", content="partial-", accumulated_content="partial-"
+            ),
+            _make_stub_event(type="error", content="", error="boom from sub-agent"),
+        ]
+        result, _, _ = await self._build_tool_and_invoke(events=events, pin=False)
+
+        self.assertIn("boom from sub-agent", result["result"])
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_uses_final_accumulated_content_when_no_content_deltas(self):
+        """Non-streaming path: only a ``final`` event with ``accumulated_content``
+        — the body must use that as the result text instead of returning empty.
+        """
+        events = [
+            _make_stub_event(
+                type="final",
+                content="",
+                accumulated_content="complete answer from non-streaming run",
+            ),
+        ]
+        result, _, _ = await self._build_tool_and_invoke(events=events, pin=False)
+        self.assertEqual(
+            result["result"], "complete answer from non-streaming run"
+        )
+
+    async def test_body_swallows_on_finish_errors_but_returns_text(self):
+        """If relay.on_finish raises an operational exception when pin=True,
+        the body must still return the accumulated text — just with
+        ``pinned_message_id=None`` — instead of crashing the conductor turn.
+        """
+        from opencontractserver.llms.tools.delegation_tools import StreamRelay
+
+        async def on_token(_):
+            return None
+
+        async def on_thought(_t, _md):
+            return None
+
+        async def on_approval(_):
+            return None
+
+        async def on_finish(_):
+            raise RuntimeError("persist failed")
+
+        relay = StreamRelay(
+            agent=self.agent,
+            pin=True,
+            on_token=on_token,
+            on_thought=on_thought,
+            on_approval=on_approval,
+            on_finish=on_finish,
+        )
+
+        events = [
+            _make_stub_event(type="content", content="hello", accumulated_content="hello"),
+            _make_stub_event(type="final", content="", accumulated_content="hello"),
+        ]
+        result, _, _ = await self._build_tool_and_invoke(
+            events=events, pin=True, relay=relay
+        )
+
+        self.assertEqual(result["result"], "hello")
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_handles_non_dict_approval_decision(self):
+        """A relay returning a non-dict decision (e.g. None) must be coerced
+        into a denial, NOT propagated as an unstructured object — and the
+        resulting resume cycle must complete cleanly with the recorded
+        accumulated text.
+        """
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            StreamRelay,
+            build_delegation_tool,
+        )
+
+        async def on_approval(_):
+            # Non-dict decision: body must coerce to denial.
+            return None
+
+        async def noop(_):
+            return None
+
+        async def noop_thought(_t, _md):
+            return None
+
+        async def noop_finish(_):
+            return None
+
+        relay = StreamRelay(
+            agent=self.agent,
+            pin=False,
+            on_token=noop,
+            on_thought=noop_thought,
+            on_approval=on_approval,
+            on_finish=noop_finish,
+        )
+
+        approval_event = _make_stub_event(
+            type="approval_needed",
+            content="",
+            pending_tool_call={"name": "x", "arguments": {}},
+            llm_message_id=99,
+        )
+
+        class _ApprovalThenFinalAgent:
+            def __init__(self):
+                self.resume_calls = 0
+
+            def stream(self, prompt):
+                async def _gen():
+                    yield approval_event
+
+                return _gen()
+
+            def resume_with_approval(self, msg_id, approved, stream=True):
+                self.resume_calls += 1
+
+                # On resume, emit a final result.
+                async def _gen():
+                    yield _make_stub_event(
+                        type="final",
+                        content="",
+                        accumulated_content="post-denial answer",
+                    )
+
+                return _gen()
+
+        agent_impl = _ApprovalThenFinalAgent()
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=lambda a, p: relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+        )
+
+        with patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_factory:
+            mock_factory.return_value = agent_impl
+            result = await tool.function(prompt="please", pin=False)
+
+        # Coerced to denial → resume continues with approved=False → final
+        # event drives the accumulated text.
+        self.assertEqual(agent_impl.resume_calls, 1)
+        self.assertEqual(result["result"], "post-denial answer")
+
+    async def test_body_returns_error_when_resume_yields_error_event(self):
+        """The first stream yields ``approval_needed``; resume yields ``error``.
+
+        Exercises the ``decision.get('_error')`` branch *inside* the resume
+        loop (different code path than the pre-loop check).
+        """
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            StreamRelay,
+            build_delegation_tool,
+        )
+
+        async def on_approval(_):
+            return {"approved": True, "llm_message_id": 7}
+
+        async def noop(_):
+            return None
+
+        async def noop_thought(_t, _md):
+            return None
+
+        async def noop_finish(_):
+            return None
+
+        relay = StreamRelay(
+            agent=self.agent,
+            pin=False,
+            on_token=noop,
+            on_thought=noop_thought,
+            on_approval=on_approval,
+            on_finish=noop_finish,
+        )
+
+        approval_event = _make_stub_event(
+            type="approval_needed",
+            content="",
+            pending_tool_call={"name": "x", "arguments": {}},
+            llm_message_id=7,
+        )
+
+        class _ApprovalThenErrorAgent:
+            def stream(self, prompt):
+                async def _gen():
+                    yield approval_event
+
+                return _gen()
+
+            def resume_with_approval(self, msg_id, approved, stream=True):
+                async def _gen():
+                    yield _make_stub_event(
+                        type="error", content="", error="resume blew up"
+                    )
+
+                return _gen()
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=lambda a, p: relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+        )
+
+        with patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_factory:
+            mock_factory.return_value = _ApprovalThenErrorAgent()
+            result = await tool.function(prompt="please", pin=False)
+
+        self.assertIn("resume blew up", result["result"])
+        self.assertIsNone(result["pinned_message_id"])
+
+    async def test_body_returns_error_when_resume_with_approval_raises(self):
+        """If ``resume_with_approval`` itself raises (not just yields error),
+        the body must catch and surface as an error string.
+        """
+        from opencontractserver.llms import agents as agents_api
+        from opencontractserver.llms.tools.delegation_tools import (
+            StreamRelay,
+            build_delegation_tool,
+        )
+
+        async def on_approval(_):
+            return {"approved": True, "llm_message_id": 11}
+
+        async def noop(_):
+            return None
+
+        async def noop_thought(_t, _md):
+            return None
+
+        async def noop_finish(_):
+            return None
+
+        relay = StreamRelay(
+            agent=self.agent,
+            pin=False,
+            on_token=noop,
+            on_thought=noop_thought,
+            on_approval=on_approval,
+            on_finish=noop_finish,
+        )
+
+        approval_event = _make_stub_event(
+            type="approval_needed",
+            content="",
+            pending_tool_call={"name": "x", "arguments": {}},
+            llm_message_id=11,
+        )
+
+        class _ApprovalThenRaiseOnResume:
+            def stream(self, prompt):
+                async def _gen():
+                    yield approval_event
+
+                return _gen()
+
+            def resume_with_approval(self, msg_id, approved, stream=True):
+                raise RuntimeError("resume kaput")
+
+        tool = build_delegation_tool(
+            self.agent,
+            relay_factory=lambda a, p: relay,
+            user=self.user,
+            corpus=self.corpus,
+            document=None,
+        )
+
+        with patch.object(
+            agents_api, "for_corpus", new_callable=AsyncMock
+        ) as mock_factory:
+            mock_factory.return_value = _ApprovalThenRaiseOnResume()
+            result = await tool.function(prompt="please", pin=False)
+
+        self.assertIn("resume kaput", result["result"])
+        self.assertIsNone(result["pinned_message_id"])
+
     async def test_body_returns_error_when_msg_id_missing_during_resume(self):
         """Approval cycle with no sub-agent message id must NOT silently
         fall through to ``on_finish`` and ship partial accumulated text
