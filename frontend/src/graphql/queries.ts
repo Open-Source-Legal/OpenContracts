@@ -5469,7 +5469,10 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
   }
 `;
 
-// Lightweight query for TOC - gets all documents in a corpus with minimal fields
+// Lightweight query for TOC - gets all documents in a corpus with minimal fields.
+// Intentionally omits `icon` (the TOC renders an icon derived from `fileType`
+// on the frontend) and `creator` (unused). Dropping these avoids one file-URL
+// resolver call per document plus an extra join on every page load.
 export interface GetCorpusDocumentsForTocInput {
   corpusId: string;
   first?: number;
@@ -5480,11 +5483,7 @@ export interface CorpusDocumentForToc {
   title: string;
   description: string | null;
   slug: string;
-  icon: string | null;
   fileType: string | null;
-  creator: {
-    slug: string;
-  };
 }
 
 export interface GetCorpusDocumentsForTocOutput {
@@ -5511,12 +5510,7 @@ export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
           title
           description
           slug
-          icon
           fileType
-          creator {
-            id
-            slug
-          }
         }
       }
       totalCount
@@ -5525,6 +5519,74 @@ export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
         hasPreviousPage
         startCursor
         endCursor
+      }
+    }
+  }
+`;
+
+// Ultra-lean relationships query for the corpus TOC tree.
+// Only source/target IDs and the relationship identity are needed to compute
+// parent/child edges; document metadata is supplied by GET_CORPUS_DOCUMENTS_FOR_TOC.
+// Server-side filtering on `relationshipType` and `annotationLabelText` keeps
+// the result set restricted to "parent"-labeled RELATIONSHIP rows.
+export interface GetCorpusDocumentTocEdgesInput {
+  corpusId: string;
+  first?: number;
+  relationshipType?: string;
+  annotationLabelText?: string;
+}
+
+export interface CorpusDocumentTocEdge {
+  id: string;
+  // `sourceDocument` and `targetDocument` are typed nullable because the
+  // GraphQL schema marks every relation field as nullable by default. At the
+  // database level the underlying FKs on `DocumentRelationship` are non-null,
+  // so in practice these are always present — but consumers must still null-
+  // guard on the unwrapped value to keep TypeScript happy (and to remain
+  // safe against any future permission-scoped scrubs of the related rows).
+  sourceDocument: { id: string } | null;
+  targetDocument: { id: string } | null;
+}
+
+export interface GetCorpusDocumentTocEdgesOutput {
+  documentRelationships: {
+    edges: Array<{
+      node: CorpusDocumentTocEdge;
+    }>;
+    totalCount: number;
+    pageInfo: {
+      hasNextPage: boolean;
+    };
+  };
+}
+
+export const GET_CORPUS_DOCUMENT_TOC_EDGES = gql`
+  query GetCorpusDocumentTocEdges(
+    $corpusId: ID
+    $first: Int
+    $relationshipType: String
+    $annotationLabelText: String
+  ) {
+    documentRelationships(
+      corpusId: $corpusId
+      first: $first
+      relationshipType: $relationshipType
+      annotationLabelText: $annotationLabelText
+    ) {
+      edges {
+        node {
+          id
+          sourceDocument {
+            id
+          }
+          targetDocument {
+            id
+          }
+        }
+      }
+      totalCount
+      pageInfo {
+        hasNextPage
       }
     }
   }

@@ -605,6 +605,10 @@ class DatacellFilter(django_filters.FilterSet):
 class DocumentRelationshipFilter(django_filters.FilterSet):
     """Filter set for DocumentRelationship model."""
 
+    annotation_label_text = filters.CharFilter(
+        field_name="annotation_label__text", lookup_expr="iexact"
+    )
+
     class Meta:
         model = DocumentRelationship
         fields = [
