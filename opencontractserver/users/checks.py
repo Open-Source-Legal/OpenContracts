@@ -68,14 +68,11 @@ def check_auth0_superuser_allowlist(
         max_listed = 20
         listed = existing_superusers[:max_listed]
         rendered = ", ".join(
-            f"#{pk} {username!r}"
-            + (f" <{email}>" if email else "")
+            f"#{pk} {username!r}" + (f" <{email}>" if email else "")
             for pk, username, email in listed
         )
         if len(existing_superusers) > max_listed:
-            rendered += (
-                f", … and {len(existing_superusers) - max_listed} more"
-            )
+            rendered += f", … and {len(existing_superusers) - max_listed} more"
 
         issues.append(
             Critical(

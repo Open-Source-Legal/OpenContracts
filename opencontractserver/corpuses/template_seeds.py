@@ -31,6 +31,7 @@ def _build_unique_agent_slug(AgentConfiguration, name: str) -> str:
         counter += 1
     return slug
 
+
 # Raw trigger values matching CorpusActionTrigger choices in
 # opencontractserver.corpuses.models.  Using strings instead of the enum
 # avoids importing models at migration time where the model registry is

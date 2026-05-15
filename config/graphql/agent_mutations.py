@@ -133,7 +133,7 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
             # Note: badge_config comes as a dict from graphene.JSONString
             agent = AgentConfiguration.objects.create(
                 name=name,
-                slug=slug if slug else None,  # None triggers auto-generation
+                slug=slug or "",  # empty string triggers auto-generation in save()
                 description=description,
                 system_instructions=system_instructions,
                 available_tools=available_tools or [],
