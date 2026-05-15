@@ -10,6 +10,7 @@ import { useSetAtom } from "jotai";
 import {
   useApproveAnnotation,
   useCreateAnnotation,
+  useCreateUrlAnnotation,
   useDeleteAnnotation,
   usePdfAnnotations,
   useRejectAnnotation,
@@ -65,6 +66,7 @@ export const TxtAnnotatorWrapper: React.FC<TxtAnnotatorWrapperProps> = ({
   const { showStructural } = useAnnotationDisplay();
 
   const handleCreateAnnotation = useCreateAnnotation();
+  const handleCreateUrlAnnotation = useCreateUrlAnnotation();
   const handleDeleteAnnotation = useDeleteAnnotation();
   const handleUpdateAnnotation = useUpdateAnnotation();
   const handleApproveAnnotation = useApproveAnnotation();
@@ -201,6 +203,7 @@ export const TxtAnnotatorWrapper: React.FC<TxtAnnotatorWrapperProps> = ({
         read_only={readOnly}
         allowInput={allowInput}
         createAnnotation={handleCreateAnnotation}
+        createUrlAnnotation={handleCreateUrlAnnotation}
         updateAnnotation={handleUpdateAnnotation}
         approveAnnotation={handleApproveAnnotation}
         rejectAnnotation={handleRejectAnnotation}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import _ from "lodash";
 import styled from "styled-components";
+import { useNavigate } from "react-router-dom";
 
-import { Pencil, Trash2 } from "lucide-react";
+import { ExternalLink, Pencil, Trash2 } from "lucide-react";
 
 import { VerticallyJustifiedEndDiv } from "../../sidebar/common";
 
@@ -21,6 +22,10 @@ import RadialButtonCloud, {
 } from "../../../widgets/buttons/RadialButtonCloud";
 import { SelectionTokenGroup } from "./SelectionTokenGroup";
 import { EditLabelModal } from "../../components/modals/EditLabelModal";
+import { CreateUrlAnnotationModal } from "../../components/modals/CreateUrlAnnotationModal";
+import { isUrlAnnotation, openAnnotationUrl } from "../../utils/urlAnnotation";
+import { useUpdateAnnotation } from "../../hooks/AnnotationHooks";
+import { OC_URL_LABEL } from "../../../../assets/configurations/constants";
 import { useReactiveVar } from "@apollo/client";
 import { authToken } from "../../../../graphql/cache";
 import { PDFPageInfo } from "../../types/pdf";
@@ -118,11 +123,14 @@ export const Selection: React.FC<SelectionProps> = ({
   showInfo = true,
 }) => {
   const auth_token = useReactiveVar(authToken);
+  const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
   const [isEditLabelModalVisible, setIsEditLabelModalVisible] = useState(false);
+  const [isEditUrlModalVisible, setIsEditUrlModalVisible] = useState(false);
   const [cloudVisible, setCloudVisible] = useState(false);
   const [hidden, setHidden] = useState(false);
   const cloudRef = useRef<HTMLDivElement | null>(null);
+  const updateAnnotation = useUpdateAnnotation();
 
   const { showBoundingBoxes, showSelectedOnly, showLabels } =
     useAnnotationDisplay();
@@ -214,7 +222,24 @@ export const Selection: React.FC<SelectionProps> = ({
     deleteAnnotation(annotation.id);
   };
 
-  const onShiftClick = () => {
+  const isLinkAnnotation = isUrlAnnotation(annotation);
+
+  const onShiftClick = (event?: React.MouseEvent) => {
+    // OC_URL annotations act as hyperlinks on plain click. Holding Shift or
+    // a modifier key (Ctrl/Cmd) falls back to the normal "toggle selection"
+    // behaviour so authors can still pick a link annotation to edit or delete
+    // it from the radial menu.
+    if (
+      isLinkAnnotation &&
+      !event?.shiftKey &&
+      !event?.metaKey &&
+      !event?.ctrlKey
+    ) {
+      // Pass ``navigate`` so site-relative paths stay in the SPA instead
+      // of triggering a hard page reload that would blow away Apollo cache.
+      if (openAnnotationUrl(annotation, navigate)) return;
+    }
+
     const current = selectedAnnotations.slice(0);
     if (current.some((other) => other === annotation.id)) {
       const next = current.filter((other) => other !== annotation.id);
@@ -276,6 +301,7 @@ export const Selection: React.FC<SelectionProps> = ({
         bounds={bounds}
         onHover={setHovered}
         onClick={onShiftClick}
+        clickThroughOnPlainClick={isLinkAnnotation}
         approved={approved}
         rejected={rejected}
         selected={selected}
@@ -323,8 +349,17 @@ export const Selection: React.FC<SelectionProps> = ({
                         whiteSpace: "nowrap",
                         overflowX: "visible",
                         marginLeft: "8px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
                       }}
                     >
+                      {isLinkAnnotation && (
+                        <ExternalLink
+                          size={12}
+                          aria-label="External link annotation"
+                        />
+                      )}
                       <span>{label.text}</span>
                     </div>
                     {annotation.myPermissions.includes(
@@ -340,7 +375,16 @@ export const Selection: React.FC<SelectionProps> = ({
                           }}
                           onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
-                            setIsEditLabelModalVisible(true);
+                            // OC_URL annotations get the link-target editor;
+                            // every other annotation gets the standard label
+                            // editor.
+                            if (
+                              annotation.annotationLabel?.text === OC_URL_LABEL
+                            ) {
+                              setIsEditUrlModalVisible(true);
+                            } else {
+                              setIsEditLabelModalVisible(true);
+                            }
                           }}
                           onMouseDown={(e: React.MouseEvent) => {
                             e.stopPropagation();
@@ -410,6 +454,18 @@ export const Selection: React.FC<SelectionProps> = ({
           annotation={annotation}
           visible={isEditLabelModalVisible}
           onHide={() => setIsEditLabelModalVisible(false)}
+        />
+      )}
+      {isEditUrlModalVisible && (
+        <CreateUrlAnnotationModal
+          visible={isEditUrlModalVisible}
+          selectedText={annotation.rawText}
+          initialUrl={annotation.linkUrl ?? ""}
+          onCancel={() => setIsEditUrlModalVisible(false)}
+          onConfirm={(url) => {
+            updateAnnotation(annotation.update({ linkUrl: url }));
+            setIsEditUrlModalVisible(false);
+          }}
         />
       )}
     </>

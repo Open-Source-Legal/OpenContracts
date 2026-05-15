@@ -84,7 +84,8 @@ export class ServerSpanAnnotation {
     public readonly rejected: boolean,
     public readonly canComment: boolean = false,
     id: string | undefined = undefined,
-    public readonly contentModalities?: string[]
+    public readonly contentModalities?: string[],
+    public readonly linkUrl?: string | null
   ) {
     this.id = id || uuidv4();
   }
@@ -105,7 +106,8 @@ export class ServerSpanAnnotation {
       delta.rejected ?? this.rejected,
       delta.canComment ?? this.canComment,
       this.id,
-      delta.contentModalities ?? this.contentModalities
+      delta.contentModalities ?? this.contentModalities,
+      delta.linkUrl ?? this.linkUrl
     );
   }
 
@@ -121,7 +123,8 @@ export class ServerSpanAnnotation {
       obj.rejected,
       obj.canComment,
       obj.id,
-      obj.contentModalities
+      obj.contentModalities,
+      obj.linkUrl
     );
   }
 }
@@ -144,7 +147,8 @@ export class ServerTokenAnnotation {
     public readonly rejected: boolean,
     public readonly canComment: boolean = false,
     id: string | undefined = undefined,
-    public readonly contentModalities?: string[]
+    public readonly contentModalities?: string[],
+    public readonly linkUrl?: string | null
   ) {
     this.id = id || uuidv4();
     // Normalize any format (v1 or v2) to v1 for the rendering layer.
@@ -180,7 +184,8 @@ export class ServerTokenAnnotation {
       delta.rejected ?? this.rejected,
       delta.canComment ?? this.canComment,
       this.id,
-      delta.contentModalities ?? this.contentModalities
+      delta.contentModalities ?? this.contentModalities,
+      delta.linkUrl ?? this.linkUrl
     );
   }
 
@@ -196,7 +201,8 @@ export class ServerTokenAnnotation {
       obj.rejected,
       obj.canComment,
       obj.id,
-      obj.contentModalities
+      obj.contentModalities,
+      obj.linkUrl
     );
   }
 }

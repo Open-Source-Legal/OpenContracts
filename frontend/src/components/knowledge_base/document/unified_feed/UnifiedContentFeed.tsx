@@ -36,7 +36,10 @@ import { FetchMoreOnVisible } from "../../../widgets/infinite_scroll/FetchMoreOn
 import { ContentItemRenderer } from "./ContentItemRenderer";
 import { RelationshipActionModal } from "./RelationshipActionModal";
 import { useRelationshipActions } from "../../../annotator/hooks/useRelationshipActions";
-import { STRUCTURAL_LABEL_PREFIX } from "../../../../assets/configurations/constants";
+import {
+  OC_URL_LABEL,
+  STRUCTURAL_LABEL_PREFIX,
+} from "../../../../assets/configurations/constants";
 import { getCreatorDisplay } from "../../../../utils/userDisplay";
 
 interface UnifiedContentFeedProps {
@@ -256,8 +259,16 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
           return;
         }
 
-        // Always hide OC_* prefixed annotations (platform-generated structural labels)
-        if (ann.annotationLabel.text?.startsWith(STRUCTURAL_LABEL_PREFIX)) {
+        // Always hide OC_* prefixed annotations (platform-generated structural
+        // labels like OC_SECTION / OC_EXTRACT_SOURCE) — EXCEPT for OC_URL,
+        // which is user-authored (it carries a click-through ``linkUrl``
+        // anchored to highlighted text) and should appear in the feed
+        // alongside other user annotations.
+        const labelText = ann.annotationLabel.text;
+        if (
+          labelText?.startsWith(STRUCTURAL_LABEL_PREFIX) &&
+          labelText !== OC_URL_LABEL
+        ) {
           return;
         }
 

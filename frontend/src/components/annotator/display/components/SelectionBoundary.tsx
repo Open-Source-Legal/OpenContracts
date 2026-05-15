@@ -26,7 +26,15 @@ interface SelectionBoundaryProps {
   children?: React.ReactNode;
   annotationId?: string;
   onHover?: (hovered: boolean) => void;
-  onClick?: () => void;
+  onClick?: (event?: React.MouseEvent) => void;
+  /**
+   * When true, plain (non-shift) clicks also invoke ``onClick``. Used for
+   * hyperlink-style annotations (OC_URL) where a single click should open
+   * the link.  When false (default) the shift-click-to-select semantic is
+   * preserved, so plain clicks fall through to canvas handlers and don't
+   * interfere with creating a new annotation underneath.
+   */
+  clickThroughOnPlainClick?: boolean;
   approved?: boolean;
   rejected?: boolean;
 }
@@ -94,6 +102,7 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
   children,
   onHover,
   onClick,
+  clickThroughOnPlainClick = false,
   selected,
   approved,
   rejected,
@@ -140,15 +149,17 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
 
   const handleClick = (e: React.MouseEvent) => {
     if (isCreatingAnnotation) return;
-    if (e.shiftKey && onClick) {
+    if (!onClick) return;
+    if (e.shiftKey || clickThroughOnPlainClick) {
       e.stopPropagation();
-      onClick();
+      onClick(e);
     }
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isCreatingAnnotation) return;
-    if (e.shiftKey && onClick) {
+    if (!onClick) return;
+    if (e.shiftKey || clickThroughOnPlainClick) {
       e.stopPropagation();
     }
   };
@@ -181,7 +192,10 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
       $bounds={bounds}
       $approved={approved}
       $rejected={rejected}
-      style={{ pointerEvents: isCreatingAnnotation ? "none" : "auto" }}
+      style={{
+        pointerEvents: isCreatingAnnotation ? "none" : "auto",
+        cursor: clickThroughOnPlainClick ? "pointer" : undefined,
+      }}
     >
       {children || null}
     </BoundarySpan>

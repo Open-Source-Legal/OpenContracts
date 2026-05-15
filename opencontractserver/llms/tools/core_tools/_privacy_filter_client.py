@@ -18,10 +18,8 @@ import httpx
 from django.conf import settings
 
 from opencontractserver.constants.document_processing import (
-    PRIVACY_FILTER_CHUNK_OVERLAP as CHUNK_OVERLAP,
-)
-from opencontractserver.constants.document_processing import (
-    PRIVACY_FILTER_CHUNK_SIZE as CHUNK_SIZE,
+    PRIVACY_FILTER_CHUNK_OVERLAP,
+    PRIVACY_FILTER_CHUNK_SIZE,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,7 +78,7 @@ async def adetect_pii(text: str) -> list[Detection]:
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         for chunk_start in _iter_chunk_starts(len(text)):
-            chunk = text[chunk_start : chunk_start + CHUNK_SIZE]
+            chunk = text[chunk_start : chunk_start + PRIVACY_FILTER_CHUNK_SIZE]
             # Surface transport-level failures (timeouts, DNS, connection
             # refused, TLS errors, …) as plain RuntimeError. The agent tool
             # fault-tolerance layer turns RuntimeError into an error string
@@ -138,25 +136,25 @@ async def adetect_pii(text: str) -> list[Detection]:
 def _iter_chunk_starts(total_len: int) -> list[int]:
     """Return chunk start offsets covering ``[0, total_len)``.
 
-    Each chunk is up to ``CHUNK_SIZE`` chars; consecutive chunks overlap by
-    ``CHUNK_OVERLAP`` so that detections spanning a boundary are still seen
-    in at least one chunk's window.
+    Each chunk is up to ``PRIVACY_FILTER_CHUNK_SIZE`` chars; consecutive
+    chunks overlap by ``PRIVACY_FILTER_CHUNK_OVERLAP`` so that detections
+    spanning a boundary are still seen in at least one chunk's window.
 
     Note: when ``total_len`` falls just past a chunk boundary (e.g.
-    ``CHUNK_SIZE + 1``), the final emitted ``pos`` can produce a chunk that
-    overlaps the *previous* chunk by significantly more than
-    ``CHUNK_OVERLAP``. That's intentional — it keeps the loop branch-free
-    and the over-coverage is harmless because de-duplication on
-    ``(start, end, group)`` collapses any duplicate detections in the
-    overlapped region back down to a single result.
+    ``PRIVACY_FILTER_CHUNK_SIZE + 1``), the final emitted ``pos`` can
+    produce a chunk that overlaps the *previous* chunk by significantly
+    more than ``PRIVACY_FILTER_CHUNK_OVERLAP``. That's intentional — it
+    keeps the loop branch-free and the over-coverage is harmless because
+    de-duplication on ``(start, end, group)`` collapses any duplicate
+    detections in the overlapped region back down to a single result.
     """
-    if total_len <= CHUNK_SIZE:
+    if total_len <= PRIVACY_FILTER_CHUNK_SIZE:
         return [0]
-    step = CHUNK_SIZE - CHUNK_OVERLAP
+    step = PRIVACY_FILTER_CHUNK_SIZE - PRIVACY_FILTER_CHUNK_OVERLAP
     starts: list[int] = []
     pos = 0
     # Emit every chunk that doesn't yet reach total_len.
-    while pos + CHUNK_SIZE < total_len:
+    while pos + PRIVACY_FILTER_CHUNK_SIZE < total_len:
         starts.append(pos)
         pos += step
     # The final chunk reaches (or extends past) total_len; Python slicing

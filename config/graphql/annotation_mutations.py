@@ -5,7 +5,7 @@ GraphQL mutations for annotation, relationship, and note operations.
 import logging
 
 import graphene
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
 from graphene.types.generic import GenericScalar
 from graphql_jwt.decorators import login_required
@@ -26,6 +26,13 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     Note,
     Relationship,
+    validate_link_url,
+)
+from opencontractserver.constants.annotations import (
+    OC_URL_LABEL,
+    OC_URL_LABEL_COLOR,
+    OC_URL_LABEL_DESCRIPTION,
+    OC_URL_LABEL_ICON,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
@@ -216,6 +223,21 @@ _ANNOTATION_PARENT_NOT_FOUND_MSG = (
 )
 
 
+def _format_link_url_error(exc: ValidationError) -> str:
+    """Surface a stable, human-readable link_url validation error.
+
+    ``str(ValidationError({"link_url": "..."}))`` returns a Python
+    ``[" {'link_url': ['...']} "]`` string that leaks internal structure.
+    Pull the first message off the dict so the user sees a clean sentence.
+    """
+    detail = getattr(exc, "message_dict", None)
+    if detail:
+        messages = detail.get("link_url", []) or []
+        if messages:
+            return str(messages[0])
+    return "link_url failed validation."
+
+
 def _resolve_annotation_parents(
     user, corpus_pk: int | str, document_pk: int | str
 ) -> tuple["Document", "Corpus"] | None:
@@ -279,6 +301,13 @@ class AddAnnotation(graphene.Mutation):
             required=False,
             description="Optional markdown description for this annotation.",
         )
+        link_url = graphene.String(
+            required=False,
+            description=(
+                "Optional URL opened on click. Restricted to http(s):// or "
+                "site-relative paths; intended for OC_URL annotations."
+            ),
+        )
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -297,12 +326,21 @@ class AddAnnotation(graphene.Mutation):
         annotation_label_id,
         annotation_type,
         long_description=None,
+        link_url=None,
     ) -> "AddAnnotation":
         corpus_pk = from_global_id(corpus_id)[1]
         document_pk = from_global_id(document_id)[1]
         label_pk = from_global_id(annotation_label_id)[1]
 
         user = info.context.user
+
+        if link_url:
+            try:
+                validate_link_url(link_url)
+            except ValidationError as exc:
+                return AddAnnotation(
+                    ok=False, annotation=None, message=_format_link_url_error(exc)
+                )
 
         parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
         if parents is None:
@@ -323,12 +361,123 @@ class AddAnnotation(graphene.Mutation):
             creator=user,
             json=json,
             annotation_type=annotation_type.value,
+            # Normalise empty string to None so the column ends up NULL
+            # (the ``if link_url:`` guard above only protects the validator
+            # call, not the persisted value).
+            link_url=link_url or None,
         )
         annotation.save()
         set_permissions_for_obj_to_user(user, annotation, [PermissionTypes.CRUD])
 
         return AddAnnotation(
             ok=True, message="Annotation created", annotation=annotation
+        )
+
+
+class AddUrlAnnotation(graphene.Mutation):
+    """Create an annotation labelled ``OC_URL`` with a click-through URL.
+
+    Convenience wrapper over ``AddAnnotation``: ensures the corpus has an
+    ``OC_URL`` label (creating it if absent) and stamps ``link_url`` on the
+    resulting annotation so the frontend renders the highlighted text as a
+    clickable hyperlink.
+    """
+
+    class Arguments:
+        json = GenericScalar(
+            required=True, description="New-style JSON for multipage annotations."
+        )
+        page = graphene.Int(
+            required=True, description="What page is this annotation on (0-indexed)."
+        )
+        raw_text = graphene.String(
+            required=True, description="The raw text being linked."
+        )
+        corpus_id = graphene.String(
+            required=True, description="ID of the corpus this annotation is for."
+        )
+        document_id = graphene.String(
+            required=True, description="ID of the document this annotation is on."
+        )
+        annotation_type = graphene.Argument(
+            graphene.Enum.from_enum(LabelType),
+            required=True,
+            description="Annotation type: TOKEN_LABEL for PDFs, SPAN_LABEL for text.",
+        )
+        link_url = graphene.String(
+            required=True,
+            description="The target URL to open on click.",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    annotation = graphene.Field(AnnotationType)
+
+    @login_required
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"))
+    def mutate(
+        root,
+        info,
+        json,
+        page,
+        raw_text,
+        corpus_id,
+        document_id,
+        annotation_type,
+        link_url,
+    ) -> "AddUrlAnnotation":
+        corpus_pk = from_global_id(corpus_id)[1]
+        document_pk = from_global_id(document_id)[1]
+
+        user = info.context.user
+
+        try:
+            validate_link_url(link_url)
+        except ValidationError as exc:
+            return AddUrlAnnotation(
+                ok=False, annotation=None, message=_format_link_url_error(exc)
+            )
+
+        parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
+        if parents is None:
+            return AddUrlAnnotation(
+                ok=False,
+                annotation=None,
+                message=_ANNOTATION_PARENT_NOT_FOUND_MSG,
+            )
+        document, corpus = parents
+
+        with transaction.atomic():
+            # ``ensure_label_and_labelset`` is idempotent per (text, label_type).
+            # PDF (TOKEN_LABEL) and text (SPAN_LABEL) documents each get their
+            # own OC_URL row — the lookup filters on both fields, so flipping
+            # types between calls cannot return a label of the wrong shape to
+            # the renderer.
+            label = corpus.ensure_label_and_labelset(
+                label_text=OC_URL_LABEL,
+                creator_id=user.pk,
+                label_type=annotation_type.value,
+                color=OC_URL_LABEL_COLOR,
+                icon=OC_URL_LABEL_ICON,
+                description=OC_URL_LABEL_DESCRIPTION,
+            )
+
+            annotation = Annotation(
+                page=page,
+                raw_text=raw_text,
+                corpus_id=corpus.pk,
+                document_id=document.pk,
+                annotation_label_id=label.pk,
+                creator=user,
+                json=json,
+                annotation_type=annotation_type.value,
+                link_url=link_url,
+            )
+            annotation.save()
+            set_permissions_for_obj_to_user(user, annotation, [PermissionTypes.CRUD])
+
+        return AddUrlAnnotation(
+            ok=True, message="URL annotation created", annotation=annotation
         )
 
 
@@ -767,6 +916,14 @@ class UpdateAnnotation(DRFMutation):
         long_description = graphene.String()
         json = GenericScalar()
         annotation_label = graphene.String()
+        link_url = graphene.String(
+            required=False,
+            description=(
+                "Optional click-through URL for OC_URL annotations. Pass an "
+                "empty string to clear an existing URL. Restricted to "
+                "http(s):// or site-relative paths."
+            ),
+        )
 
 
 class UpdateRelations(graphene.Mutation):

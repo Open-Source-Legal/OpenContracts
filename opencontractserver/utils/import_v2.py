@@ -140,6 +140,9 @@ def import_structural_annotation_set(
                 page=annot_data.get("page", 0),
                 json=annot_data.get("annotation_json", {}),
                 annotation_type=annot_data.get("annotation_type", ""),
+                # Restore OC_URL ``link_url`` if it was exported. Falsy /
+                # missing values stay NULL on the column.
+                link_url=annot_data.get("link_url") or None,
                 structural=True,
                 creator=user_obj,
             )
