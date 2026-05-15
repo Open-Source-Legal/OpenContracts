@@ -275,3 +275,70 @@ class DocumentRelationshipsQueryTestCase(TestCase):
             to_global_id("DocumentRelationshipType", parent_relationship.id),
         )
         self.assertEqual(rels["edges"][0]["node"]["annotationLabel"]["text"], "parent")
+
+    def test_document_relationships_combined_type_and_label_filter(self):
+        """
+        The corpus TOC query passes ``relationshipType="RELATIONSHIP"`` and
+        ``annotationLabelText="parent"`` together. Pin the combined-filter
+        interaction so a future refactor that drops or reorders the filters
+        is caught here rather than as a TOC regression.
+        """
+        # A parent-labeled RELATIONSHIP — the only row the TOC should return.
+        parent_label = AnnotationLabel.objects.create(
+            text="parent",
+            label_type="DOC_RELATIONSHIP_LABEL",
+            creator=self.user,
+        )
+        parent_relationship = DocumentRelationship.objects.create(
+            source_document=self.source_doc,
+            target_document=self.target_doc,
+            relationship_type="RELATIONSHIP",
+            annotation_label=parent_label,
+            creator=self.user,
+            corpus=self.corpus,
+        )
+        # A parent-labeled row with a non-RELATIONSHIP type — must be excluded
+        # by ``relationshipType``.
+        DocumentRelationship.objects.create(
+            source_document=self.source_doc,
+            target_document=self.target_doc,
+            relationship_type="NOTES",
+            annotation_label=parent_label,
+            creator=self.user,
+            corpus=self.corpus,
+        )
+
+        corpus_gid = to_global_id("CorpusType", self.corpus.id)
+        query = """
+            query(
+                $corpusId: ID,
+                $relType: DocumentsDocumentRelationshipRelationshipTypeChoices,
+                $labelText: String,
+            ) {
+                documentRelationships(
+                    corpusId: $corpusId
+                    relationshipType: $relType
+                    annotationLabelText: $labelText
+                ) {
+                    edges { node { id relationshipType } }
+                    totalCount
+                }
+            }
+        """
+        result = self.client.execute(
+            query,
+            variables={
+                "corpusId": corpus_gid,
+                "relType": "RELATIONSHIP",
+                "labelText": "parent",
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        rels = result["data"]["documentRelationships"]
+        # Exactly one row matches BOTH filters: the parent-labeled RELATIONSHIP.
+        self.assertEqual(rels["totalCount"], 1)
+        self.assertEqual(
+            rels["edges"][0]["node"]["id"],
+            to_global_id("DocumentRelationshipType", parent_relationship.id),
+        )
+        self.assertEqual(rels["edges"][0]["node"]["relationshipType"], "RELATIONSHIP")
