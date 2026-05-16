@@ -93,6 +93,7 @@ nav:
       - Asynchronous Processing: architecture/asynchronous-processing.md
       - Bulk Import: architecture/bulk-import.md
       - Document Analyzers: architecture/analyzers.md
+      - Discovery System (llms.txt, MCP, robots.txt): architecture/discovery_system.md
       - Corpus Actions: architecture/opencontract-corpus-actions.md
       - Agent Corpus Actions: architecture/agent_corpus_actions_design.md
       - Document Versioning: architecture/document_versioning.md
@@ -194,7 +195,7 @@ nav:
       - Corpus Optional Features: frontend/corpus-optional-features.md
       - Doc Data Query Optimizations: frontend/doc-data-query-optimizations.md
       - Read Only Mode Inventory: frontend/read_only_mode_inventory.md
-      - "any" Baseline: frontend/any-baseline.md
+      - '"any" Baseline': frontend/any-baseline.md
       - OS-Legal Style Migration: frontend/os-legal-style-migration-guide.md
       - DataGrid:
           - Custom Cell Rendering: frontend/datagrid/rendering_custom_cells.md
