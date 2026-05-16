@@ -67,6 +67,15 @@ class PermissionQueryOptimizer:
         """Return the set of guardian permission codenames the user has on
         ``instance``, consulting the request-scoped cache first.
 
+        Note on default: ``include_group_permissions`` defaults to ``True``
+        here to mirror :func:`user_can`'s default (this optimizer exists to
+        serve ``user_can`` callers). The lower-level Tier 1 helper
+        :func:`get_users_permissions_for_obj` defaults to ``False`` to keep
+        direct callers narrow by default. Production call sites always pass
+        the flag explicitly, so the two defaults never collide on a real
+        request; the divergence only matters to ad-hoc callers, who get the
+        default matching the API level they reach for.
+
         Anonymous / unauthenticated users bypass the cache (their state
         isn't reusable across calls and we never want to retain the
         sentinel).
