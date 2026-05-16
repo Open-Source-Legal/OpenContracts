@@ -73,7 +73,7 @@ class EmbeddingManagerStoreEmbeddingTest(TestCase):
 
         self.assertIn(
             "Must provide one of document_id, annotation_id, note_id, "
-            "conversation_id, or message_id",
+            "conversation_id, message_id, or relationship_id",
             str(context.exception),
         )
 

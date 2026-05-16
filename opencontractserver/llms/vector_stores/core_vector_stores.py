@@ -30,12 +30,12 @@ from opencontractserver.pipeline.base.reranker import (
     safe_rerank,
 )
 from opencontractserver.shared.QuerySets import AnnotationQuerySet
-from opencontractserver.tasks.embeddings_task import join_block_text_parts
 from opencontractserver.types.protocols import VectorStoreProtocol
 from opencontractserver.utils.embeddings import (
     agenerate_embeddings_from_text,
     generate_embeddings_from_text,
     get_embedder,
+    join_block_text_parts,
 )
 from opencontractserver.utils.search import reciprocal_rank_fusion
 
@@ -640,9 +640,12 @@ class CoreAnnotationVectorStore:
         intersects the hit IDs, then for each hit pick the smallest such
         group (the most-specific enclosing block).
 
-        Implementation detail: the M2M join is annotated with
-        ``descendant_count = Count(target_annotations)`` so smallest-block
-        selection runs in Python without a second round-trip. The
+        Implementation detail: the candidate groups are pulled with
+        ``prefetch_related("target_annotations")``, and the descendant
+        count for each group is computed in Python from the prefetched
+        ID set (see inline comment for why ``Count(target_annotations)``
+        on the queryset would collapse the tie-break). Smallest-block
+        selection therefore runs without a second round-trip. The
         annotations whose IDs appear in ``target_annotation_ids`` are
         re-fetched once in a single ``IN`` query to keep ``block_text``
         bounded by ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS``.

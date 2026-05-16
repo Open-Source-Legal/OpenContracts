@@ -38,7 +38,7 @@ from opencontractserver.llms.vector_stores.core_vector_stores import (
     CoreAnnotationVectorStore,
 )
 from opencontractserver.pipeline.utils import get_default_embedder_path
-from opencontractserver.tasks.embeddings_task import (
+from opencontractserver.utils.embeddings import (
     synthesize_relationship_block_text,
 )
 from opencontractserver.utils.subtree_groups import (

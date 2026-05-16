@@ -44,10 +44,21 @@ export function useJumpToRelationship(): void {
   const [, setHoveredAnnotationId] = useAtom(hoveredAnnotationIdAtom);
   const { annotationElementRefs } = useAnnotationRefs();
 
-  // Track the last id we applied so the effect doesn't re-run on every
-  // ``allRelations`` mutation (relation CRUD elsewhere would otherwise
-  // re-select the URL-driven relationship and pull focus back to it).
-  const lastAppliedRef = useRef<string | null>(null);
+  // Two separate "applied once" guards:
+  // * ``lastAppliedSelectionRef`` — set as soon as the selection has been
+  //   pushed to ``selectedRelationsAtom``. Prevents the effect from
+  //   re-selecting the URL-driven relationship on every ``allRelations``
+  //   mutation, so user-driven edits aren't fought.
+  // * ``lastAppliedScrollRef`` — set only when ``scrollIntoView`` actually
+  //   fired. The source/target annotation refs come from a virtualised
+  //   renderer; for deep-links into pages the renderer hasn't materialised
+  //   yet, the refs map is empty on the first run and the scroll has to
+  //   retry once ``annotationElementRefs`` (a Jotai atom) repopulates with
+  //   the newly-mounted page. Selection without scroll is still useful
+  //   (the relation line will render once the user scrolls there
+  //   manually), so the two are tracked independently.
+  const lastAppliedSelectionRef = useRef<string | null>(null);
+  const lastAppliedScrollRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!relId) {
@@ -56,16 +67,12 @@ export function useJumpToRelationship(): void {
       // touch ``setSelectedAnnotations`` here because that's driven by
       // the ``ann=`` param via its own routing path. Also clear the
       // hover indicator since we set it when applying the jump.
-      if (lastAppliedRef.current !== null) {
+      if (lastAppliedSelectionRef.current !== null) {
         setSelectedRelations([]);
         setHoveredAnnotationId(null);
-        lastAppliedRef.current = null;
+        lastAppliedSelectionRef.current = null;
+        lastAppliedScrollRef.current = null;
       }
-      return;
-    }
-
-    if (lastAppliedRef.current === relId) {
-      // Already applied this id — leave the user's subsequent edits alone.
       return;
     }
 
@@ -91,27 +98,31 @@ export function useJumpToRelationship(): void {
       return;
     }
 
-    setSelectedRelations([match]);
-
-    // Smooth-scroll the source annotation into view so the user lands
-    // on the block root, then surface a hover indicator so the relation
-    // line is unambiguous. We pick the source over the targets because
-    // the source is the block's anchor — most users want to read from
-    // the top down. Falls back to the first available ref if the source
-    // hasn't been mounted yet (e.g. when the source lives on a page
-    // that the virtualised renderer hasn't materialised).
-    const refs = annotationElementRefs?.current ?? {};
-    const candidateIds = [...match.sourceIds, ...match.targetIds];
-    const targetId = candidateIds.find((id) => refs[id]);
-    const ref = targetId ? refs[targetId] : undefined;
-    if (ref && typeof ref.scrollIntoView === "function") {
-      ref.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (match.sourceIds[0]) {
-        setHoveredAnnotationId(match.sourceIds[0]);
-      }
+    if (lastAppliedSelectionRef.current !== relId) {
+      setSelectedRelations([match]);
+      lastAppliedSelectionRef.current = relId;
     }
 
-    lastAppliedRef.current = relId;
+    // We pick the source over the targets because the source is the
+    // block's anchor — most users want to read from the top down.
+    // Falls back to the first available ref if the source hasn't been
+    // mounted yet (e.g. when the source lives on a page that the
+    // virtualised renderer hasn't materialised). When no ref is
+    // available we leave ``lastAppliedScrollRef`` unset so the effect
+    // retries once the relevant page mounts.
+    if (lastAppliedScrollRef.current !== relId) {
+      const refs = annotationElementRefs?.current ?? {};
+      const candidateIds = [...match.sourceIds, ...match.targetIds];
+      const targetId = candidateIds.find((id) => refs[id]);
+      const ref = targetId ? refs[targetId] : undefined;
+      if (ref && typeof ref.scrollIntoView === "function") {
+        ref.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (match.sourceIds[0]) {
+          setHoveredAnnotationId(match.sourceIds[0]);
+        }
+        lastAppliedScrollRef.current = relId;
+      }
+    }
   }, [
     relId,
     allRelations,

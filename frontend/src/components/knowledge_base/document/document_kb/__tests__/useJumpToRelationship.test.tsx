@@ -26,19 +26,20 @@ import {
   PdfAnnotations,
   RelationGroup,
 } from "../../../../annotator/types/annotations";
+import { AnnotationLabelType } from "../../../../../types/graphql-api";
 
 const RELAY_PK = 42;
 // btoa("Relationship:42") — what the GraphQL query actually returns.
 const RELAY_GLOBAL_ID = btoa(`Relationship:${RELAY_PK}`);
 
-const baseLabel = {
+const baseLabel: AnnotationLabelType = {
   id: "lbl",
   text: "rel-label",
   color: "#000",
   icon: "",
   description: "",
-  labelType: "RELATIONSHIP_LABEL",
-} as any;
+  labelType: "RELATIONSHIP_LABEL" as AnnotationLabelType["labelType"],
+};
 
 function makeRelationGroup(id: string): RelationGroup {
   return new RelationGroup(["ann-1"], ["ann-2", "ann-3"], baseLabel, id, true);

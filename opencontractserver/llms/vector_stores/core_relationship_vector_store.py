@@ -32,11 +32,11 @@ from opencontractserver.constants.search import (
     HNSW_MAX_INDEXED_DIM,
     VALID_EMBEDDING_DIMS,
 )
-from opencontractserver.tasks.embeddings_task import join_block_text_parts
 from opencontractserver.utils.embeddings import (
     agenerate_embeddings_from_text,
     generate_embeddings_from_text,
     get_embedder,
+    join_block_text_parts,
 )
 
 User = get_user_model()
