@@ -446,7 +446,7 @@ class TestCoreAnnotationVectorStoreCtor(TestCase):
         )
 
         with patch(
-            "opencontractserver.llms.vector_stores.core_vector_stores.get_embedder",
+            "opencontractserver.llms.vector_stores.base_vector_store.get_embedder",
             return_value=(MagicMock(vector_size=768), "explicit/path"),
         ) as mock_get:
             store = CoreAnnotationVectorStore(embedder_path="explicit/path")
@@ -465,7 +465,7 @@ class TestCoreAnnotationVectorStoreCtor(TestCase):
         )
 
         with patch(
-            "opencontractserver.llms.vector_stores.core_vector_stores.get_embedder",
+            "opencontractserver.llms.vector_stores.base_vector_store.get_embedder",
             return_value=(MagicMock(vector_size=768), "from/corpus"),
         ) as mock_get:
             store = CoreAnnotationVectorStore(corpus_id=42)
@@ -484,7 +484,7 @@ class TestCoreAnnotationVectorStoreCtor(TestCase):
         )
 
         with patch(
-            "opencontractserver.llms.vector_stores.core_vector_stores.get_embedder",
+            "opencontractserver.llms.vector_stores.base_vector_store.get_embedder",
             return_value=(MagicMock(vector_size=768), None),
         ):
             with self.assertRaisesRegex(ValueError, "no embedder_path"):

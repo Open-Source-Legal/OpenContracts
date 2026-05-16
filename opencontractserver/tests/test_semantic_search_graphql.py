@@ -619,6 +619,48 @@ class SemanticSearchRelationshipsQueryTest(TestCase):
         result = anon.execute(self._query(), variables={"q": "x"})
         self.assertIsNotNone(result.get("errors"))
 
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_both_corpus_and_document_dispatch_succeeds(
+        self, mock_get_embedder
+    ) -> None:
+        """Both filters set + both visible → resolver succeeds.
+
+        The store ANDs the two filters so a relationship must match both
+        scopes; this just guards the dispatch path against errors.
+        """
+        mock_get_embedder.return_value = MockEmbedder
+        cid = to_global_id("CorpusType", self.corpus.id)
+        did = to_global_id("DocumentType", self.document.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "corpusId": cid, "documentId": did}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertIsInstance(result["data"]["semanticSearchRelationships"], list)
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_both_corpus_and_document_unrelated_returns_empty(
+        self, mock_get_embedder
+    ) -> None:
+        """Both visible to the user but the document is NOT in the corpus.
+
+        Each IDOR check passes independently — combined filter must still
+        return ``[]`` because no relationship sits in both scopes.
+        """
+        mock_get_embedder.return_value = MockEmbedder
+        # Independent doc + corpus, both visible, no DocumentPath linking them.
+        other_doc = Document.objects.create(
+            title="Unrelated Doc",
+            creator=self.user,
+            is_public=True,
+        )
+        cid = to_global_id("CorpusType", self.corpus.id)
+        did = to_global_id("DocumentType", other_doc.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "corpusId": cid, "documentId": did}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(result["data"]["semanticSearchRelationships"], [])
+
 
 class SemanticSearchBlockContextFieldTest(TestCase):
     """Covers the BlockContext mapping inside ``resolve_semantic_search``

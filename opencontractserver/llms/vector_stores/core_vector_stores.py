@@ -24,6 +24,7 @@ from opencontractserver.constants.search import (
     RERANK_OVERSAMPLE_FACTOR,
     VALID_EMBEDDING_DIMS,
 )
+from opencontractserver.llms.vector_stores.base_vector_store import BaseVectorStore
 from opencontractserver.pipeline.base.reranker import (
     BaseReranker,
     safe_arerank,
@@ -31,12 +32,7 @@ from opencontractserver.pipeline.base.reranker import (
 )
 from opencontractserver.shared.QuerySets import AnnotationQuerySet
 from opencontractserver.types.protocols import VectorStoreProtocol
-from opencontractserver.utils.embeddings import (
-    agenerate_embeddings_from_text,
-    generate_embeddings_from_text,
-    get_embedder,
-    join_block_text_parts,
-)
+from opencontractserver.utils.embeddings import join_block_text_parts
 from opencontractserver.utils.search import reciprocal_rank_fusion
 
 User = get_user_model()
@@ -128,32 +124,14 @@ class VectorSearchQuery:
 
 @dataclass
 class BlockContext:
-    """Containing-subtree context for a vector hit.
-
-    Attached to a :class:`VectorSearchResult` by
-    :meth:`CoreAnnotationVectorStore._attach_block_context` when the hit's
-    annotation participates in an ``OC_SUBTREE_GROUP`` relationship (see
-    ``opencontractserver/utils/subtree_groups.py``). Surfaces the smallest
-    enclosing block so the LLM / UI can show "what larger section does this
-    leaf belong to?" without a recursive CTE per hit.
-
-    Attributes:
-        relationship_id: PK of the materialised ``OC_SUBTREE_GROUP`` relationship.
-        source_annotation_id: PK of the ancestor annotation (the block's root).
-        source_text: ``raw_text`` of the ancestor annotation.
-        target_annotation_ids: PKs of every annotation transitively under the
-            ancestor (i.e. the descendants of the smallest enclosing subtree).
-        block_text: ``source_text`` concatenated with each target's ``raw_text``
-            on newline boundaries, truncated to
-            ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS``. Provided as a single,
-            already-bounded string so consumers (LLM tools, GraphQL clients)
-            don't need to re-fetch annotations to display the block.
-    """
+    """Smallest enclosing ``OC_SUBTREE_GROUP`` for a vector hit."""
 
     relationship_id: int
     source_annotation_id: int
     source_text: str
     target_annotation_ids: list[int] = field(default_factory=list)
+    # Same bounded string the embedder saw — consumers can render a
+    # snippet without re-fetching annotations.
     block_text: str = ""
 
 
@@ -163,15 +141,11 @@ class VectorSearchResult:
 
     annotation: Annotation
     similarity_score: float = 1.0
-    # Populated post-hoc by ``_attach_block_context`` when the hit's
-    # annotation lies inside an ``OC_SUBTREE_GROUP`` materialised subtree.
-    # ``None`` when the annotation is a root-level structural row, when no
-    # subtree groups have been materialised yet (legacy documents), or when
-    # an attach pass was skipped (e.g. ``include_block_context=False``).
+    # None when the hit isn't inside a materialised OC_SUBTREE_GROUP.
     block_context: Optional[BlockContext] = None
 
 
-class CoreAnnotationVectorStore:
+class CoreAnnotationVectorStore(BaseVectorStore):
     """Core annotation vector store functionality independent of agent frameworks.
 
     This class encapsulates the business logic for searching annotations using
@@ -204,20 +178,15 @@ class CoreAnnotationVectorStore:
         reranker: Optional[BaseReranker] = None,
         rerank_oversample_factor: int = RERANK_OVERSAMPLE_FACTOR,
     ):
-        # ------------------------------------------------------------------ #
-        # Validation – we need a corpus context unless the caller overrides
-        # the embedder explicitly.
-        # ------------------------------------------------------------------ #
-        if embedder_path is None and corpus_id is None:
-            raise ValueError(
-                "CoreAnnotationVectorStore requires either 'corpus_id' to "
-                "derive an embedder or an explicit 'embedder_path' override."
-            )
-        self.user_id = user_id
-        self.corpus_id = corpus_id
-        self.document_id = document_id
+        # Embedder resolution + corpus/embedder_path validation lives in BaseVectorStore.
+        super().__init__(
+            user_id=user_id,
+            corpus_id=corpus_id,
+            document_id=document_id,
+            embedder_path=embedder_path,
+            embed_dim=embed_dim,
+        )
         self.must_have_text = must_have_text
-        self.embed_dim = embed_dim
         self.only_current_versions = only_current_versions
         self.check_corpus_deletion = check_corpus_deletion
         self.modalities = modalities
@@ -227,38 +196,7 @@ class CoreAnnotationVectorStore:
         # cheap even on the hot path.
         self._reranker_override: Optional[BaseReranker] = reranker
         self.rerank_oversample_factor = max(1, int(rerank_oversample_factor))
-
-        # Auto-detect embedder configuration. The constructor invariant above
-        # guarantees that at least one of ``corpus_id`` / ``embedder_path`` is
-        # provided, so the call below is safe even though ``get_embedder``
-        # rejects ``None`` for ``corpus_id``.
-        if embedder_path is not None:
-            embedder_class, detected_embedder_path = get_embedder(
-                embedder_path=embedder_path,
-            )
-        else:
-            # Explicit check (not `assert`) so the guard survives `python -O`.
-            if corpus_id is None:
-                raise RuntimeError(
-                    "internal invariant violated: corpus_id is None in the "
-                    "embedder-path-absent branch (constructor requires at "
-                    "least one of corpus_id / embedder_path)"
-                )
-            embedder_class, detected_embedder_path = get_embedder(
-                corpus_id=corpus_id,
-            )
-        if detected_embedder_path is None:
-            raise ValueError(
-                "get_embedder() resolved no embedder_path; vector search "
-                "cannot proceed without one. Check corpus.preferred_embedder "
-                "or the global default."
-            )
-        self.embedder_path: str = detected_embedder_path
         _logger.debug(f"Configured embedder path: {self.embedder_path}")
-
-        # Validate or fallback dimension
-        if self.embed_dim not in VALID_EMBEDDING_DIMS:
-            self.embed_dim = getattr(embedder_class, "vector_size", 768)
 
     async def _build_base_queryset(self) -> AnnotationQuerySet:
         """Build the base annotation queryset applying the following rules.
@@ -282,51 +220,15 @@ class CoreAnnotationVectorStore:
         """
         _logger.debug("Building base queryset for vector search")
 
-        # -------------------------------------------------------------------------
-        # SECURITY: Verify user has access to requested document/corpus (IDOR prevention)
-        # This check ensures callers cannot access annotations from documents/corpuses
-        # they don't have permission to view. We use visible_to_user() which returns
-        # empty queryset for both "not found" and "no permission" cases to prevent
-        # enumeration attacks.
-        # -------------------------------------------------------------------------
-        from opencontractserver.corpuses.models import Corpus
+        # IDOR pre-check via BaseVectorStore: deny by empty result for both
+        # "user not found" and "no permission on document/corpus" cases.
         from opencontractserver.documents.models import Document, DocumentPath
 
-        user = None
-        if self.user_id:
-            try:
-                user = await sync_to_async(User.objects.get)(id=self.user_id)
-            except User.DoesNotExist:
-                _logger.warning(f"User ID {self.user_id} not found")
-                return Annotation.objects.none()
-
-        if self.document_id is not None:
-            # Check if user can access this document
-            has_access = await sync_to_async(
-                lambda: Document.objects.visible_to_user(user)
-                .filter(id=self.document_id)
-                .exists()
-            )()
-            if not has_access:
-                _logger.warning(
-                    f"User {self.user_id} denied access to document {self.document_id} "
-                    "in vector search (not found or no permission)"
-                )
-                return Annotation.objects.none()
-
-        if self.corpus_id is not None:
-            # Check if user can access this corpus
-            has_access = await sync_to_async(
-                lambda: Corpus.objects.visible_to_user(user)
-                .filter(id=self.corpus_id)
-                .exists()
-            )()
-            if not has_access:
-                _logger.warning(
-                    f"User {self.user_id} denied access to corpus {self.corpus_id} "
-                    "in vector search (not found or no permission)"
-                )
-                return Annotation.objects.none()
+        user, user_invalid = await self._aresolve_user()
+        if user_invalid:
+            return Annotation.objects.none()
+        if await self._acheck_idor(user):
+            return Annotation.objects.none()
 
         # Select related for fields directly on Annotation or accessed often.
         # Document's M2M to Corpus (corpus_set) is handled by JOINs in filters.
@@ -629,31 +531,7 @@ class CoreAnnotationVectorStore:
     def _attach_block_context_sync(
         results: list["VectorSearchResult"],
     ) -> list["VectorSearchResult"]:
-        """Populate ``result.block_context`` for hits inside a subtree group.
-
-        The materialised ``OC_SUBTREE_GROUP`` rows (see
-        ``opencontractserver/utils/subtree_groups.py``) act as a precomputed
-        "what larger block does this leaf belong to?" index — one row per
-        non-leaf structural annotation whose ``target_annotations`` contains
-        every transitive descendant. This helper turns that index into a
-        single bounded join: pull every OC_SUBTREE_GROUP whose target set
-        intersects the hit IDs, then for each hit pick the smallest such
-        group (the most-specific enclosing block).
-
-        Implementation detail: the candidate groups are pulled with
-        ``prefetch_related("target_annotations")``, and the descendant
-        count for each group is computed in Python from the prefetched
-        ID set (see inline comment for why ``Count(target_annotations)``
-        on the queryset would collapse the tie-break). Smallest-block
-        selection therefore runs without a second round-trip. The
-        annotations whose IDs appear in ``target_annotation_ids`` are
-        re-fetched once in a single ``IN`` query to keep ``block_text``
-        bounded by ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS``.
-
-        Mutates ``results`` in place AND returns it so call-sites can write
-        ``results = self._attach_block_context_sync(results)`` for clarity.
-        Pure pass-through if ``results`` is empty.
-        """
+        """Populate ``result.block_context`` for hits inside a subtree group."""
         if not results:
             return results
 
@@ -764,34 +642,12 @@ class CoreAnnotationVectorStore:
     async def _aattach_block_context(
         self, results: list["VectorSearchResult"]
     ) -> list["VectorSearchResult"]:
-        """Async wrapper around :meth:`_attach_block_context_sync`.
-
-        The helper touches a small bounded number of rows (≤ top_k hits +
-        their containing subtree groups) and is best run on the ORM thread
-        pool rather than the event loop. Splitting the prefetch into
-        separate ``sync_to_async`` calls would buy nothing — every step
-        joins to the same M2M tables — so we hand the whole pass off as
-        one block.
-        """
+        """Async wrapper around :meth:`_attach_block_context_sync`."""
+        # One sync_to_async per call — the whole pass shares the same
+        # M2M joins, so splitting would buy nothing.
         return await sync_to_async(self._attach_block_context_sync)(results)
 
-    def _generate_query_embedding(self, query_text: str) -> Optional[list[float]]:
-        """Generate embeddings from query text synchronously."""
-        _logger.debug(f"Generating embeddings from query string: '{query_text}'")
-        _logger.debug(f"Using embedder path: {self.embedder_path}")
-
-        embedder_path, vector = generate_embeddings_from_text(
-            query_text,
-            embedder_path=self.embedder_path,
-        )
-
-        _logger.debug(f"Generated embeddings using embedder: {embedder_path}")
-        if vector is not None:
-            _logger.debug(f"Vector dimension: {len(vector)}")
-        else:
-            _logger.warning("Failed to generate embeddings - vector is None")
-
-        return vector
+    # Sync + async query-embedding generation are inherited from BaseVectorStore.
 
     # ------------------------------------------------------------------ #
     # Reranker plumbing
@@ -889,26 +745,6 @@ class CoreAnnotationVectorStore:
                 VectorSearchResult(annotation=src.annotation, similarity_score=r.score)
             )
         return reordered
-
-    async def _agenerate_query_embedding(
-        self, query_text: str
-    ) -> Optional[list[float]]:
-        """Generate embeddings from query text asynchronously."""
-        _logger.debug(f"Async generating embeddings from query string: '{query_text}'")
-        _logger.debug(f"Using embedder path: {self.embedder_path}")
-
-        embedder_path, vector = await agenerate_embeddings_from_text(
-            query_text,
-            embedder_path=self.embedder_path,
-        )
-
-        _logger.debug(f"Generated embeddings using embedder: {embedder_path}")
-        if vector is not None:
-            _logger.debug(f"Vector dimension: {len(vector)}")
-        else:
-            _logger.warning("Failed to generate embeddings - vector is None")
-
-        return vector
 
     def search(self, query: VectorSearchQuery) -> list[VectorSearchResult]:
         """Execute a vector search query and return results.

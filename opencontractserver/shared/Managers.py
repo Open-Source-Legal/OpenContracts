@@ -656,19 +656,25 @@ class EmbeddingManager(BaseVisibilityManager):
         filtering would cause us to miss embeddings created by other users, leading to
         constraint violations.
         """
-        if not any(
-            [
+        # Exactly one parent FK must be set — Embedding has a partial
+        # unique constraint per (embedder_path, parent) pair and accepting
+        # multiple here would silently write a row violating that intent.
+        provided = [
+            x
+            for x in (
                 document_id,
                 annotation_id,
                 note_id,
                 conversation_id,
                 message_id,
                 relationship_id,
-            ]
-        ):
+            )
+            if x
+        ]
+        if len(provided) != 1:
             raise ValueError(
-                "Must provide one of document_id, annotation_id, note_id, "
-                "conversation_id, message_id, or relationship_id."
+                "Must provide exactly one of document_id, annotation_id, "
+                "note_id, conversation_id, message_id, or relationship_id."
             )
 
         field_name = self._get_vector_field_name(dimension)

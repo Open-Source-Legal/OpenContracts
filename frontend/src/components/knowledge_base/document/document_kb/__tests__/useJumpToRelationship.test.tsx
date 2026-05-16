@@ -8,24 +8,18 @@
  */
 
 import * as React from "react";
-import { Provider as JotaiProvider, createStore, useAtomValue } from "jotai";
+import { Provider as JotaiProvider, createStore } from "jotai";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { renderHook, waitFor } from "../../../../../test-utils/renderHook";
 import { useJumpToRelationship } from "../useJumpToRelationship";
 import { selectedRelationshipId } from "../../../../../graphql/cache";
-import {
-  pdfAnnotationsAtom,
-  structuralRelationshipsAtom,
-} from "../../../../annotator/context/AnnotationAtoms";
+import { structuralRelationshipsAtom } from "../../../../annotator/context/AnnotationAtoms";
 import {
   selectedRelationsAtom,
   hoveredAnnotationIdAtom,
 } from "../../../../annotator/context/UISettingsAtom";
-import {
-  PdfAnnotations,
-  RelationGroup,
-} from "../../../../annotator/types/annotations";
+import { RelationGroup } from "../../../../annotator/types/annotations";
 import { AnnotationLabelType } from "../../../../../types/graphql-api";
 
 const RELAY_PK = 42;
@@ -182,7 +176,3 @@ describe("useJumpToRelationship", () => {
     expect(store.get(selectedRelationsAtom)).toEqual([]);
   });
 });
-
-// Silence unused-import warnings — these are used as type assertions only.
-void useAtomValue;
-void PdfAnnotations;

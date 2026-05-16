@@ -21,17 +21,10 @@ def join_block_text_parts(
     *,
     max_chars: int = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
 ) -> str:
-    """Newline-join non-empty strings, truncated at ``max_chars``.
-
-    Shared by every code path that surfaces an OC_SUBTREE_GROUP's block
-    text — the embedder (so the vector reflects what we'll later show),
-    the relationship-vector-store result shaper, and the annotation
-    vector store's block-context attach. Centralising here keeps the
-    cap/truncation rules from drifting across three call sites.
-
-    Empty strings are skipped so a partially-parsed structural annotation
-    with no raw text yet doesn't inject stray newlines.
-    """
+    """Newline-join non-empty strings, truncated at ``max_chars``."""
+    # Shared by embedder + vector store + block-context attach so the
+    # cap/truncation logic never diverges. Empty strings are skipped so
+    # a partially-parsed annotation doesn't inject stray newlines.
     parts: list[str] = []
     running = 0
     for chunk in chunks:
@@ -63,30 +56,17 @@ def synthesize_relationship_block_text(
     *,
     max_chars: int = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
 ) -> str:
-    """Build the embedder-facing string for a ``Relationship``.
-
-    The string is ``source.raw_text`` followed by each target's ``raw_text``
-    on its own line, truncated to ``max_chars``. Target ordering is by ID so
-    re-embedding the same relationship produces a stable input string — that
-    way ``add_embedding``'s idempotent upsert short-circuits unchanged
-    inputs instead of overwriting equivalent vectors.
-
-    Delegates the cap/truncation logic to :func:`join_block_text_parts`, which
-    is also called from the GraphQL-facing vector-store paths so all three
-    code paths produce byte-identical output for the same inputs.
-
-    When the caller has prefetched ``source_annotations`` /
-    ``target_annotations`` with ``Prefetch(queryset=Annotation.objects.order_by("id"))``,
-    we read ``raw_text`` from the prefetched objects directly so the
-    helper costs zero extra queries; otherwise the ``order_by("id")``
-    falls back to fresh DB hits with deterministic ordering.
-    """
-    # Always hit the DB via ``order_by("id").values_list`` rather than
-    # introspecting Django's private ``_prefetched_objects_cache``. Subtree
-    # groups are small relative to leaf annotations and this is a Celery
-    # task path, so two extra value queries per relationship are
-    # negligible; in exchange we avoid coupling to a Django internal whose
-    # shape has shifted across versions.
+    """Build the embedder-facing string for a ``Relationship``."""
+    # Order by ID (not document position) so re-embedding produces a
+    # stable input string and ``add_embedding``'s upsert short-circuits
+    # unchanged inputs. Document-position ordering would be more
+    # semantically meaningful for the embedder but isn't available
+    # cheaply today — IDs are dense and roughly insertion-ordered, so
+    # the resulting text is usually close to document order anyway.
+    # values_list keeps the helper resilient to whether the caller
+    # prefetched these M2Ms — couples to a public API, not the private
+    # ``_prefetched_objects_cache`` whose shape has shifted across
+    # Django versions.
     sources = [
         (text or "")
         for text in relationship.source_annotations.order_by("id").values_list(
