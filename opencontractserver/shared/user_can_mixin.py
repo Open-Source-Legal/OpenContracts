@@ -47,9 +47,13 @@ def resolve_user_for_user_can(user_val: Any) -> Any | None:
     ``RelationshipManager.user_can`` and ``_default_user_can``:
 
     - ``None`` → ``None`` (caller maps to ``False``).
-    - ``int`` / ``str`` → ``User.objects.get(id=user_val)``; ``DoesNotExist``
-      → ``None`` (legacy raised; the unified contract returns ``None`` so
-      callers can deny without catching).
+    - ``int`` / ``str`` → ``User.objects.get(id=user_val)``; both
+      ``DoesNotExist`` and ``ValueError`` (raised when the str isn't a
+      valid PK — e.g. ``""``, a GraphQL global id, or an arbitrary
+      label) → ``None``. The legacy duplicated bodies caught
+      ``DoesNotExist`` only and would propagate ``ValueError``; the
+      unified contract treats both as a deny so callers can stay
+      try-free.
     - Anything else (a ``User``, ``AnonymousUser``, or duck-typed user) →
       returned as-is.
 
@@ -66,7 +70,7 @@ def resolve_user_for_user_can(user_val: Any) -> Any | None:
         user_cls = get_user_model()
         try:
             return user_cls.objects.get(id=user_val)
-        except user_cls.DoesNotExist:
+        except (user_cls.DoesNotExist, ValueError):
             return None
     return user_val
 

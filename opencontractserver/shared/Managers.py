@@ -1020,11 +1020,42 @@ class RelationshipManager(BaseVisibilityManager):
             return True
 
         # Structural relationships are ALWAYS read-only for non-superusers.
+        # Run before the creator short-circuit so even the creator cannot
+        # write to a structural relationship.
         if (
             getattr(instance, "structural", False)
             and permission != PermissionTypes.READ
         ):
             return False
+
+        # Creator short-circuit — mirrors ``Q(creator=user)`` in
+        # ``visible_to_user``. Without this, granting User A CREATE on a
+        # doc/corpus, letting A author a Relationship, then revoking A's
+        # READ grant would keep the relationship in A's ``visible_to_user``
+        # queryset (creator OR doc-corpus visible) while ``user_can(READ)``
+        # would return ``False`` (doc/corpus READ denied) — a latent
+        # invariant violation surfaced by the Claude review on PR #1663.
+        #
+        # Restrict to the permission codes Relationship actually
+        # recognises: PUBLISH/PERMISSION must still fall through to the
+        # terminal ``return False`` (Relationship doesn't model those
+        # codes, and creators are not exempt from that fact).
+        _CREATOR_SHORT_CIRCUIT_PERMS = (
+            PermissionTypes.READ,
+            PermissionTypes.CREATE,
+            PermissionTypes.UPDATE,
+            PermissionTypes.EDIT,
+            PermissionTypes.DELETE,
+            PermissionTypes.COMMENT,
+            PermissionTypes.CRUD,
+            PermissionTypes.ALL,
+        )
+        if (
+            getattr(instance, "creator_id", None) is not None
+            and instance.creator_id == user.id
+            and permission in _CREATOR_SHORT_CIRCUIT_PERMS
+        ):
+            return True
 
         if getattr(instance, "document_id", None) is None:
             return False

@@ -543,6 +543,17 @@ def _default_user_can(
     return False
 
 
+# Per-call-site dedup for the deprecation warning emitted by
+# ``user_has_permission_for_obj``. With ~170 legacy call sites each
+# potentially fired many times per request, an unthrottled
+# ``warnings.warn`` would flood logs during the Phase B migration window.
+# We track (filename, lineno) tuples for each unique caller frame and
+# emit at most once per site per process. Tests that need to assert
+# specific call sites still issue warnings can clear this set via
+# ``_user_has_permission_for_obj_warned.clear()``.
+_user_has_permission_for_obj_warned: set[tuple[str, int]] = set()
+
+
 def user_has_permission_for_obj(
     user_val: int | str | UserModel,
     instance: django.db.models.Model,
@@ -585,17 +596,27 @@ def user_has_permission_for_obj(
     the call fall through and surface as a confusing ``AttributeError``
     deep inside the resolver. Addresses Claude review on PR #1663.
     """
+    import sys
     import warnings
 
     from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
 
-    warnings.warn(
-        "user_has_permission_for_obj is deprecated; use "
-        "Model.objects.user_can(user, instance, permission) instead "
-        "(or instance.user_can(user, permission)). See issue #1655.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+    # Throttle to one warning per unique call site per process. Identify
+    # the caller via its frame's (filename, lineno) — cheap to compute and
+    # stable for the lifetime of the process. ``sys._getframe(1)`` mirrors
+    # what ``warnings.warn(stacklevel=2)`` reports, so the dedup key
+    # always matches the line that actually appears in the warning text.
+    caller = sys._getframe(1)
+    site = (caller.f_code.co_filename, caller.f_lineno)
+    if site not in _user_has_permission_for_obj_warned:
+        _user_has_permission_for_obj_warned.add(site)
+        warnings.warn(
+            "user_has_permission_for_obj is deprecated; use "
+            "Model.objects.user_can(user, instance, permission) instead "
+            "(or instance.user_can(user, permission)). See issue #1655.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # ``resolve_user_for_user_can`` returns ``None`` for both ``None``
     # input and a missing-id lookup; both deny under the legacy contract.

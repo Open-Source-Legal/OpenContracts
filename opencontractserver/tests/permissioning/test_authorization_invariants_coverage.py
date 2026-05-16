@@ -624,6 +624,169 @@ class RelationshipUserCanAccessWideningTestCase(TransactionTestCase):
         )
 
 
+class RelationshipNonOwnerCreatorTestCase(TransactionTestCase):
+    """Pin the creator short-circuit added to ``RelationshipManager.user_can``.
+
+    Addresses the latent invariant violation flagged on PR #1663: a
+    user who is granted CREATE on someone else's document/corpus,
+    authors a relationship (becoming ``relationship.creator``), and
+    then loses their READ grant must still see/manage the relationship
+    via the creator path — otherwise ``visible_to_user`` (which has
+    ``Q(creator=user)``) and ``user_can(READ)`` (which routed only
+    through ``_compute_effective_permissions``) diverge.
+
+    Structural relationships remain read-only even for their creator.
+    """
+
+    def setUp(self) -> None:
+        self.owner = User.objects.create_user(
+            username="rel_owner", email="ro@cov.test", password="x"
+        )
+        self.contributor = User.objects.create_user(
+            username="rel_contrib", email="rc@cov.test", password="x"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Rel Creator Corpus", creator=self.owner, is_public=False
+        )
+        self.doc = Document.objects.create(
+            title="Rel Creator Doc", creator=self.owner, is_public=False
+        )
+        # Contributor gets transient READ+CREATE on doc+corpus so they
+        # can author a relationship; we then revoke the grants to
+        # simulate the share-then-revoke sequence.
+        for inst in (self.corpus, self.doc):
+            set_permissions_for_obj_to_user(
+                self.contributor,
+                inst,
+                [PermissionTypes.READ, PermissionTypes.CREATE],
+            )
+
+        rel_label = AnnotationLabel.objects.create(
+            text="rlnoc", label_type="RELATIONSHIP_LABEL", creator=self.owner
+        )
+        self.relationship = Relationship.objects.create(
+            relationship_label=rel_label,
+            creator=self.contributor,
+            document=self.doc,
+            corpus=self.corpus,
+            structural=False,
+        )
+        # Revoke the grants — contributor now only has the creator path.
+        for inst in (self.corpus, self.doc):
+            set_permissions_for_obj_to_user(self.contributor, inst, [])
+
+    def test_creator_keeps_access_after_grants_revoked(self) -> None:
+        """The creator-short-circuit branch — without it, the contributor
+        would lose READ when the doc/corpus grants were revoked, while
+        ``visible_to_user``'s ``Q(creator=user)`` would still surface the
+        row. That divergence is the invariant violation Claude flagged."""
+        for perm in (
+            PermissionTypes.READ,
+            PermissionTypes.UPDATE,
+            PermissionTypes.DELETE,
+        ):
+            self.assertTrue(
+                self.relationship.user_can(self.contributor, perm),
+                f"creator denied {perm} after their doc/corpus grants were "
+                "revoked — short-circuit regressed",
+            )
+        # And the queryset filter agrees (the invariant — same row should
+        # appear in both surfaces).
+        self.assertTrue(
+            Relationship.objects.visible_to_user(self.contributor)
+            .filter(pk=self.relationship.pk)
+            .exists()
+        )
+
+    def test_structural_creator_still_read_only(self) -> None:
+        """Structural-write-deny runs *before* the creator short-circuit:
+        even the creator can only READ a structural relationship."""
+        rel_label = AnnotationLabel.objects.create(
+            text="rlnoc_s", label_type="RELATIONSHIP_LABEL", creator=self.owner
+        )
+        # Re-grant so we can save a fresh structural row, then revoke.
+        for inst in (self.corpus, self.doc):
+            set_permissions_for_obj_to_user(
+                self.contributor,
+                inst,
+                [PermissionTypes.READ, PermissionTypes.CREATE],
+            )
+        structural_rel = Relationship.objects.create(
+            relationship_label=rel_label,
+            creator=self.contributor,
+            document=self.doc,
+            corpus=self.corpus,
+            structural=True,
+        )
+        for inst in (self.corpus, self.doc):
+            set_permissions_for_obj_to_user(self.contributor, inst, [])
+
+        # READ still works (via creator branch).
+        self.assertTrue(structural_rel.user_can(self.contributor, PermissionTypes.READ))
+        # Writes are denied even though contributor is the creator.
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                structural_rel.user_can(self.contributor, perm),
+                f"structural relationship granted {perm} to creator — "
+                "structural-write-deny regressed",
+            )
+
+
+class ResolveUserForUserCanInvalidStringTestCase(TransactionTestCase):
+    """Cover ``resolve_user_for_user_can``'s ``ValueError`` catch.
+
+    The legacy duplicated bodies caught ``DoesNotExist`` only; a
+    non-numeric string (``""``, a GraphQL global id, or any stray
+    label) would propagate ``ValueError`` from Django's PK coercion
+    up through every per-model ``user_can`` override. The unified
+    resolver now treats both as a deny — pinned here so a future
+    "let's simplify the resolver" change can't silently re-introduce
+    the uncaught exception."""
+
+    def setUp(self) -> None:
+        self.creator = User.objects.create_user(
+            username="resolve_invalid", email="ri@cov.test", password="x"
+        )
+        self.doc = Document.objects.create(
+            title="Resolve Invalid Doc",
+            creator=self.creator,
+            is_public=True,
+        )
+        self.corpus = Corpus.objects.create(
+            title="Resolve Invalid Corpus",
+            creator=self.creator,
+            is_public=True,
+        )
+        tok_label = AnnotationLabel.objects.create(
+            text="ri_tok", label_type="TOKEN_LABEL", creator=self.creator
+        )
+        self.ann = Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            annotation_label=tok_label,
+            raw_text="x",
+            json={"x": 1},
+            page=1,
+            creator=self.creator,
+        )
+
+    def test_non_numeric_string_is_denied_not_raised(self) -> None:
+        from opencontractserver.shared.user_can_mixin import (
+            resolve_user_for_user_can,
+        )
+
+        # The resolver itself: returns None instead of raising.
+        for bad in ("", "not-a-number", "VXNlcjox"):
+            self.assertIsNone(resolve_user_for_user_can(bad))
+
+        # The downstream per-model surfaces deny without raising.
+        for bad in ("", "not-a-number", "VXNlcjox"):
+            self.assertFalse(
+                Annotation.objects.user_can(bad, self.ann, PermissionTypes.READ),
+                f"bad user_val {bad!r} should deny, not raise",
+            )
+
+
 # ---------------------------------------------------------------------------
 # NoteManager.user_can — anonymous leaf branches and id resolution
 # ---------------------------------------------------------------------------
