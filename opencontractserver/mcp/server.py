@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from opencontractserver.users.types import UserOrAnonymous
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 from mcp.server import Server
@@ -107,6 +108,52 @@ def _extract_bearer_token(scope: MutableMapping[str, Any]) -> str | None:
     return None
 
 
+def _build_www_authenticate_header(scope: MutableMapping[str, Any]) -> bytes:
+    """Construct the ``WWW-Authenticate`` value for a 401 MCP response.
+
+    Per the MCP 2025-06-18 Authorization spec (and RFC 9728), when the
+    server rejects a request it advertises *where* the client should go
+    to obtain a credential by pointing at the OAuth 2.0 protected-
+    resource metadata document. Interactive MCP clients (Claude Desktop,
+    Cursor) follow that pointer, fetch the metadata, discover the
+    configured authorization server (Auth0), and drive the user through
+    an Authorization-Code + PKCE flow — no preconfigured token needed.
+
+    When ``USE_AUTH0=False`` there is no spec-compliant authorization
+    server to advertise, so the header degrades to a plain
+    ``Bearer realm=...`` value. Clients can still infer the credential
+    *type* but will not auto-discover a login flow.
+    """
+    realm = b'Bearer realm="opencontracts"'
+    if not getattr(settings, "USE_AUTH0", False):
+        return realm
+
+    # Derive the base URL from the ASGI scope. ``Host`` carries the
+    # public hostname; ``X-Forwarded-Proto`` (set by the reverse proxy
+    # in production) tells us the original scheme. Fall back to the
+    # ASGI ``scope["scheme"]`` for direct connections (local dev).
+    host = b""
+    forwarded_proto = b""
+    for name, value in scope.get("headers", []):
+        lower = name.lower()
+        if lower == b"host":
+            host = value
+        elif lower == b"x-forwarded-proto":
+            forwarded_proto = value
+    if not host:
+        # No Host header at all is unusual — punt on the resource_metadata
+        # hint rather than emitting a malformed URL.
+        return realm
+    scheme = forwarded_proto.decode("ascii", errors="ignore") or scope.get(
+        "scheme", "http"
+    )
+    base_url = f"{scheme}://{host.decode('ascii', errors='ignore')}"
+    metadata_url = f"{base_url}/.well-known/oauth-protected-resource"
+    return (f'Bearer realm="opencontracts", resource_metadata="{metadata_url}"').encode(
+        "ascii", errors="ignore"
+    )
+
+
 async def _check_per_tool_rate_limit(name: str) -> None:
     """Check per-tool MCP rate limit using the ASGI scope from ContextVar.
 
@@ -142,7 +189,15 @@ async def _check_per_tool_rate_limit(name: str) -> None:
         )
 
 
-# Map tool names to implementations - at module level for testability
+# Map tool names to implementations - at module level for testability.
+#
+# Write tools (``create_thread_message`` is the first) enforce
+# authentication and per-resource permissions *inside the tool body* —
+# the dispatcher does not gate writes by tool name. Anonymous callers
+# that invoke a write tool see ``PermissionDenied`` from the tool,
+# which the dispatcher surfaces as a structured ``{"error": ...}``
+# payload. Do not add a wrapper-level write guard here; it would either
+# duplicate the in-tool check or drift from it.
 TOOL_HANDLERS: dict[str, Callable[..., Any]] = {
     "list_public_corpuses": list_public_corpuses,
     "list_documents": list_documents,
@@ -921,6 +976,18 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
         Validates corpus permissions on every call to prevent access
         if corpus becomes private between manager creation and tool execution.
         Includes per-tool rate limiting via the shared engine.
+
+        Structure mirrors the non-scoped ``call_tool_handler`` so every
+        error path is recorded exactly once:
+          * Unknown-tool check sits *outside* the ``try`` so the ``ValueError``
+            it raises is not also caught by ``except Exception``.
+          * Corpus-visibility check sits *inside* the ``try`` so its
+            ``PermissionDenied`` flows through ``_record_and_return_tool_error``
+            and becomes a structured ``{"error": ...}`` LLM-facing payload.
+          * Do not reintroduce a pre-raise ``arecord_mcp_tool_call`` for either
+            check — the structured-error handler and ``except Exception`` already
+            record. Earlier revisions recorded twice, which silently inflated
+            failure counts in telemetry.
         """
         await _check_per_tool_rate_limit(name)
 
@@ -931,40 +998,32 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
         # ContextVar so scoped endpoints honor per-user visibility.
         user = _mcp_user.get()
 
+        # Unknown-tool guard outside the try block — mirrors the non-scoped
+        # dispatcher. Records once and propagates as a transport error, which
+        # is acceptable because clients discover tools via ``tools/list`` so
+        # this path is unreachable in normal use.
+        handler = scoped_handlers.get(name)
+        if not handler:
+            await arecord_mcp_tool_call(
+                name,
+                success=False,
+                error_type="UnknownTool",
+                corpus_slug=corpus_slug,
+                document_slug=_document_slug,
+            )
+            raise ValueError(f"Unknown tool: {name}")
+
         try:
-            # Re-validate corpus is still accessible on every tool call so
-            # corpora that go private after the scoped manager was cached
-            # still surface a structured permission-denied result rather
-            # than a transport error. Kept inside the try block (alongside
-            # the handler call) so the ``except (PermissionDenied,
-            # ValidationError)`` branch below catches both the validation
-            # raise and any tool-level permission errors with the same
-            # structured-error path.
+            # Re-validate corpus on every tool call so corpora that go private
+            # after the scoped manager was cached still surface a structured
+            # permission-denied result rather than a transport error. Kept
+            # inside the try block so Django's ``PermissionDenied`` is caught
+            # by the structured-error branch below (Python's ``PermissionError``
+            # would route through ``except Exception`` and bubble up as a raw
+            # transport error — do not change to ``PermissionError``).
             is_valid = await sync_to_async(_validate_corpus_sync)(user)
             if not is_valid:
-                await arecord_mcp_tool_call(
-                    name,
-                    success=False,
-                    error_type="CorpusNotAccessible",
-                    corpus_slug=corpus_slug,
-                    document_slug=_document_slug,
-                )
-                # Django's PermissionDenied (not Python's PermissionError)
-                # so the structured-error branch below catches it. Python's
-                # PermissionError would route through ``except Exception``
-                # and bubble up as a raw transport error.
                 raise PermissionDenied(f"Corpus '{corpus_slug}' is not accessible")
-
-            handler = scoped_handlers.get(name)
-            if not handler:
-                await arecord_mcp_tool_call(
-                    name,
-                    success=False,
-                    error_type="UnknownTool",
-                    corpus_slug=corpus_slug,
-                    document_slug=_document_slug,
-                )
-                raise ValueError(f"Unknown tool: {name}")
 
             # Run synchronous Django ORM handlers in thread pool. All scoped
             # handlers accept an optional `user`; passing None preserves
@@ -1373,11 +1432,19 @@ def create_mcp_asgi_app() -> ASGIApp:
                 )
             except (JSONWebTokenExpired, JSONWebTokenError) as exc:
                 logger.warning("MCP: rejected invalid JWT (%s)", exc.__class__.__name__)
+                www_authenticate = _build_www_authenticate_header(scope)
                 await send(
                     {
                         "type": "http.response.start",
                         "status": 401,
-                        "headers": [[b"content-type", b"application/json"]],
+                        "headers": [
+                            [b"content-type", b"application/json"],
+                            # RFC 6750 §3 + MCP 2025-06-18 Authorization §2.4:
+                            # always include WWW-Authenticate on a 401 from a
+                            # Bearer-protected resource so interactive clients
+                            # can discover the authorization server.
+                            [b"www-authenticate", www_authenticate],
+                        ],
                     }
                 )
                 await send(

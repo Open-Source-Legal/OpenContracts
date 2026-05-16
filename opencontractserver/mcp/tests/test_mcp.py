@@ -5370,6 +5370,43 @@ class MCPAuthenticatedToolsTest(TestCase):
                 user=self.owner,
             )
 
+    def test_create_thread_message_with_valid_parent_succeeds(self):
+        """Happy path for an in-thread reply via ``parent_message_id``.
+
+        The IDOR rejection case is covered above; this pins the success path
+        end-to-end: a caller who can see the thread can supply a parent that
+        also lives in the same thread and the resulting ChatMessage carries
+        the parent FK. This call also exercises ``ChatMessage.objects.create``
+        from inside a synchronous context — the same path the dispatcher hits
+        via ``sync_to_async`` — so the two ``post_save`` notification signal
+        handlers registered on ChatMessage are confirmed to run cleanly here.
+        """
+        from opencontractserver.conversations.models import ChatMessage
+        from opencontractserver.mcp.tools import create_thread_message
+
+        parent = ChatMessage.objects.create(
+            conversation=self.private_thread,
+            content="parent in same thread",
+            creator=self.owner,
+        )
+
+        result = create_thread_message(
+            corpus_slug=self.private_corpus.slug,
+            thread_id=self.private_thread.id,
+            content="reply that nests under valid parent",
+            parent_message_id=parent.id,
+            user=self.owner,
+        )
+
+        self.assertNotIn("error", result)
+        self.assertEqual(result["parent_message_id"], str(parent.id))
+
+        msg = ChatMessage.objects.get(id=int(result["id"]))
+        self.assertEqual(msg.parent_message_id, parent.id)
+        self.assertEqual(msg.conversation_id, self.private_thread.id)
+        self.assertEqual(msg.creator_id, self.owner.id)
+        self.assertEqual(msg.content, "reply that nests under valid parent")
+
     def test_create_thread_message_strips_content_before_save(self):
         """Validation and persistence must agree on the same normalised value
         so the row never carries surprising leading/trailing whitespace that
@@ -5591,6 +5628,7 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
             "headers": [
                 (b"authorization", b"Bearer not-a-real-token"),
                 (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
             ],
         }
         messages = self._run_app(scope)
@@ -5601,6 +5639,69 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         self.assertTrue(bodies)
         payload = json.loads(bodies[0]["body"])
         self.assertIn("Invalid", payload.get("error", ""))
+
+    def test_invalid_bearer_token_401_includes_www_authenticate_header(self):
+        """Per RFC 6750 §3 + the MCP 2025-06-18 Authorization spec, a 401
+        from a Bearer-protected resource must carry ``WWW-Authenticate``
+        so interactive clients can discover the authorization server.
+
+        Non-Auth0 mode (this test's default): the header degrades to the
+        plain ``Bearer realm="opencontracts"`` value — no resource_metadata
+        URL because there is no spec-compliant authorization server to
+        advertise.
+        """
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer not-a-real-token"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        headers = dict(starts[0]["headers"])
+        self.assertIn(b"www-authenticate", headers)
+        www_auth = headers[b"www-authenticate"].decode("ascii")
+        self.assertTrue(www_auth.startswith("Bearer realm="))
+        # Without Auth0 there's nothing to point at, so no resource_metadata.
+        self.assertNotIn("resource_metadata", www_auth)
+
+    def test_invalid_bearer_token_401_advertises_resource_metadata_under_auth0(
+        self,
+    ):
+        """In Auth0 mode the 401 must point Claude Desktop / Cursor at the
+        OAuth protected-resource metadata document so they can drive the
+        full Authorization-Code + PKCE flow without a preconfigured token."""
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer not-a-real-token"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+                (b"x-forwarded-proto", b"https"),
+            ],
+        }
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        headers = dict(starts[0]["headers"])
+        www_auth = headers[b"www-authenticate"].decode("ascii")
+        self.assertIn('Bearer realm="opencontracts"', www_auth)
+        self.assertIn(
+            'resource_metadata="https://opencontracts.test/.well-known/oauth-protected-resource"',
+            www_auth,
+        )
 
     def test_valid_bearer_token_authenticates_and_does_not_401(self):
         """A valid JWT must NOT trigger the 401 branch; the ASGI layer
