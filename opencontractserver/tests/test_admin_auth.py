@@ -887,6 +887,41 @@ class TestAdminLoginView(TestCase):
         self.assertEqual(response.status_code, 200)
         # Auth0 button should not be in content
 
+    @override_settings(USE_AUTH0=True)
+    def test_auth0_sdk_load_listener_wired(self):
+        """SDK script must wire `load` -> initAuth0 before insertBefore.
+
+        Regression test for the race where initAuth0() ran synchronously
+        before the async-by-default dynamic SDK script finished loading,
+        causing a spurious 'SRI check may have failed' error on every
+        Auth0 admin login even though the integrity hash matched.
+        """
+        response = self.client.get("/admin/login/")
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+
+        # Both listeners must be attached on the dynamically-created
+        # SDK script element.
+        self.assertIn("sdkScript.addEventListener('load', initAuth0)", body)
+        self.assertIn("sdkScript.addEventListener('error', handleScriptError)", body)
+
+        # Both listener attachments must precede the insertBefore call,
+        # otherwise a disk-cache hit could fire `load` before we listen.
+        load_idx = body.index("sdkScript.addEventListener('load'")
+        err_idx = body.index("sdkScript.addEventListener('error'")
+        insert_idx = body.index("insertBefore(sdkScript")
+        self.assertLess(load_idx, insert_idx)
+        self.assertLess(err_idx, insert_idx)
+
+        # The synchronous ``initAuth0();`` call at the end of the old
+        # second script tag was the race trigger and must not appear.
+        # ``initAuth0`` legitimately shows up as ``async function
+        # initAuth0()`` and as ``addEventListener('load', initAuth0)``;
+        # only the bare invocation form (parens + semicolon, no args)
+        # signals a synchronous call site. Whitespace-insensitive so
+        # the test survives template re-indentation.
+        self.assertNotIn("initAuth0();", body)
+
     def test_open_redirect_blocked_external_url(self):
         """External URL in next parameter should be blocked."""
         response = self.client.post(

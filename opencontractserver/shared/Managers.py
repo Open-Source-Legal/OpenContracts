@@ -20,6 +20,7 @@ from opencontractserver.shared.QuerySets import (
     UserFeedbackQuerySet,
 )
 from opencontractserver.shared.user_can_mixin import UserCanMixin
+from opencontractserver.types.enums import PermissionTypes as _PermissionTypes
 
 # Re-exported so callers receiving "a permissioned manager" can annotate
 # against ``PermissionedQueryManagerProtocol`` instead of any concrete
@@ -27,6 +28,25 @@ from opencontractserver.shared.user_can_mixin import UserCanMixin
 # ``visible_to_user(user) -> QuerySet`` contract.
 from opencontractserver.types.protocols import (  # noqa: F401
     PermissionedQueryManagerProtocol,
+)
+
+# Subset of permission codes Relationship recognises and that creators
+# are exempt from. PUBLISH/PERMISSION are intentionally excluded so they
+# still fall through to the terminal ``return False`` below
+# (Relationship doesn't model those codes; creators aren't exempt from
+# that fact). Module-level so the tuple isn't reallocated on every
+# ``RelationshipManager.user_can`` call.
+_RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS = frozenset(
+    {
+        _PermissionTypes.READ,
+        _PermissionTypes.CREATE,
+        _PermissionTypes.UPDATE,
+        _PermissionTypes.EDIT,
+        _PermissionTypes.DELETE,
+        _PermissionTypes.COMMENT,
+        _PermissionTypes.CRUD,
+        _PermissionTypes.ALL,
+    }
 )
 
 if TYPE_CHECKING:
@@ -330,6 +350,47 @@ class UserFeedbackManager(BaseVisibilityManager):
             user = AnonymousUser()
         return self.get_queryset().visible_to_user(user)
 
+    def user_can(
+        self,
+        user: Any,
+        instance: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for ``UserFeedback``.
+
+        Mirrors ``UserFeedbackQuerySet.visible_to_user``
+        (``shared/QuerySets.py:169-190``): adds a READ grant when the
+        feedback's commented annotation is public, then delegates to the
+        default branch for creator/public/guardian. Non-READ permissions
+        do NOT get the commented-annotation grant — write permission is
+        creator/guardian only.
+
+        Performance note: the public-annotation gate uses a targeted
+        ``Annotation.objects.filter(pk=commented_annotation_id,
+        is_public=True).exists()`` lookup instead of dereferencing
+        ``instance.commented_annotation`` — that descriptor triggers a
+        DB hit per call when not prefetched, so bulk callers iterating
+        feedback rows would otherwise generate one extra query each.
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.types.enums import PermissionTypes
+
+        if permission == PermissionTypes.READ:
+            commented_id = getattr(instance, "commented_annotation_id", None)
+            if (
+                commented_id
+                and Annotation.objects.filter(pk=commented_id, is_public=True).exists()
+            ):
+                return True
+        return super().user_can(
+            user,
+            instance,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )
+
     def get_or_none(self, *args: Any, **kwargs: Any) -> Any | None:
         model_cls: Any = cast(Any, self.model)
         try:
@@ -394,6 +455,34 @@ class DocumentManager(BaseVisibilityManager):
             user,
             lightweight,
             with_doc_label_annotations=with_doc_label_annotations,
+        )
+
+    def user_can(
+        self,
+        user: Any,
+        instance: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for ``Document``.
+
+        Documents in public corpora have ``is_public=True`` auto-propagated
+        at creation time (see ``Corpus.add_document`` and
+        ``Corpus._propagate_public_status_to_documents``), so the
+        public-corpus auto-inheritance is encoded in the instance's own
+        ``is_public`` flag and ``_default_user_can``'s public-READ branch
+        handles it without additional joins.
+
+        Default rules suffice: creator OR is_public (READ only) OR
+        guardian codename. Mirrors ``DocumentQuerySet.visible_to_user``
+        (``shared/QuerySets.py:256-299``).
+        """
+        return super().user_can(
+            user,
+            instance,
+            permission,
+            include_group_permissions=include_group_permissions,
         )
 
     def search_by_embedding(
@@ -530,6 +619,190 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
             query_vector, embedder_path, top_k
         )
 
+    def user_can(
+        self,
+        user: Any,
+        instance: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for ``Annotation``.
+
+        Branch order is **LOAD-BEARING** — do not reorder:
+
+        1. ``None`` user → False (matches ``_default_user_can``).
+        2. Resolve user (str/int id → ``User`` instance, ``AnonymousUser``
+           passes through).
+        3. **Superuser bypass** → True. Must precede structural-write-deny
+           so superusers retain write access to structural items.
+        4. **Structural write deny** → for non-superusers, any non-READ
+           permission on a ``structural=True`` annotation returns False.
+        5. **Privacy recursion** (only when not structural-READ):
+           ``created_by_analysis``/``created_by_extract`` private rows
+           require the *same* permission on the source Analysis/Extract.
+           This delegates to ``Analysis.objects.user_can`` /
+           ``Extract.objects.user_can`` — those manager paths honor
+           creator status, fixing the legacy bug where the recursion
+           used the creator-blind ``user_has_permission_for_obj``.
+        6. ``document_id is None`` → False for non-superusers. Mirrors
+           the legacy denial at ``permissioning.py:640``. Structural-set-
+           linked annotations (which the QuerySet does cover via
+           ``structural_set__documents``) get their READ answered by the
+           ``visible_to_user(...).exists()`` fallback below.
+        7. **MIN(doc, corpus)** — delegate to
+           ``AnnotationQueryOptimizer._compute_effective_permissions``
+           which encodes the MIN logic and BACON MODE
+           (``corpus.allow_comments → COMMENT = READ``).
+
+        Performance note: the privacy-recursion branch dereferences
+        ``instance.created_by_analysis`` / ``instance.created_by_extract``
+        when their FK ids are set — those descriptors hit the database
+        once each per call when the relations aren't prefetched. Bulk
+        callers (e.g. GraphQL list resolvers iterating annotations)
+        SHOULD ``select_related("created_by_analysis",
+        "created_by_extract")`` on their root queryset to avoid one
+        extra query per row. The ``AnnotationQueryOptimizer`` already
+        batches the MIN(doc, corpus) computation; only the privacy
+        recursion path is unbatched today.
+
+        Anonymous-path note: the ``visible_to_user(...).filter(pk=).exists()``
+        query for anonymous READ is also a per-call DB round-trip with
+        no batched alternative — bulk anonymous filtering should call
+        ``visible_to_user(anon).filter(pk__in=[...])`` directly rather
+        than looping ``user_can`` per row.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
+        from opencontractserver.types.enums import PermissionTypes
+
+        # Single shared int/str → User resolver (PR #1663 DRY cleanup).
+        # ``None`` covers both an explicit ``None`` argument AND an
+        # unresolvable id; both deny under the legacy contract.
+        user = resolve_user_for_user_can(user)
+        if user is None:
+            return False
+
+        if isinstance(user, AnonymousUser) or not getattr(
+            user, "is_authenticated", False
+        ):
+            # Anonymous: route READ through visible_to_user (which
+            # encodes the structural+public-doc+public-corpus rules)
+            # and deny non-READ outright.
+            if permission != PermissionTypes.READ:
+                return False
+            return (
+                self.get_queryset()
+                .visible_to_user(user)
+                .filter(pk=instance.pk)
+                .exists()
+            )
+
+        # Superuser bypass — MUST precede structural-write-deny so that
+        # admin tooling retains write access to structural annotations.
+        if user.is_superuser:
+            return True
+
+        # Structural write deny: non-superusers can only READ structural
+        # annotations.
+        if (
+            getattr(instance, "structural", False)
+            and permission != PermissionTypes.READ
+        ):
+            return False
+
+        # Privacy recursion: when an annotation was generated by an
+        # Analysis or Extract, gate the requested permission on that
+        # source object (in addition to doc+corpus). Skip for the
+        # structural-READ case (structural rows are always READable when
+        # the parent doc is). At this point step 5 above has already
+        # denied non-READ structural calls, so ``structural and READ``
+        # is the only structural state we can still be in — but we keep
+        # the explicit ``and permission == READ`` for readability rather
+        # than relying on the flow-sensitive equivalence.
+        is_structural_read = (
+            getattr(instance, "structural", False)
+            and permission == PermissionTypes.READ
+        )
+        if not is_structural_read:
+            analysis_id = getattr(instance, "created_by_analysis_id", None)
+            extract_id = getattr(instance, "created_by_extract_id", None)
+            if analysis_id:
+                source_analysis = instance.created_by_analysis
+                if source_analysis is None:
+                    return False
+                from opencontractserver.analyzer.models import Analysis
+
+                if not Analysis.objects.user_can(
+                    user,
+                    source_analysis,
+                    permission,
+                    include_group_permissions=include_group_permissions,
+                ):
+                    return False
+            elif extract_id:
+                source_extract = instance.created_by_extract
+                if source_extract is None:
+                    return False
+                from opencontractserver.extracts.models import Extract
+
+                if not Extract.objects.user_can(
+                    user,
+                    source_extract,
+                    permission,
+                    include_group_permissions=include_group_permissions,
+                ):
+                    return False
+
+        # MIN(doc, corpus): defer to the optimizer which encodes BACON
+        # MODE and the corpus.allow_comments → COMMENT = READ flip.
+        if getattr(instance, "document_id", None) is None:
+            # No parent document — no inheritable scope.
+            # Fall back to visible_to_user for the structural_set route
+            # (Annotation.objects.visible_to_user handles structural rows
+            # linked via ``structural_set__documents`` even when the FK
+            # is NULL) for READ only; non-READ is denied.
+            if permission != PermissionTypes.READ:
+                return False
+            return (
+                self.get_queryset()
+                .visible_to_user(user)
+                .filter(pk=instance.pk)
+                .exists()
+            )
+
+        from opencontractserver.annotations.query_optimizer import (
+            AnnotationQueryOptimizer,
+        )
+
+        can_read, can_create, can_update, can_delete, can_comment = (
+            AnnotationQueryOptimizer._compute_effective_permissions(
+                user=user,
+                document_id=instance.document_id,
+                corpus_id=instance.corpus_id,
+            )
+        )
+
+        if permission == PermissionTypes.READ:
+            return can_read
+        if permission == PermissionTypes.CREATE:
+            return can_create
+        if permission in (PermissionTypes.UPDATE, PermissionTypes.EDIT):
+            return can_update
+        if permission == PermissionTypes.DELETE:
+            return can_delete
+        if permission == PermissionTypes.COMMENT:
+            return can_comment
+        if permission == PermissionTypes.CRUD:
+            return can_read and can_create and can_update and can_delete
+        if permission == PermissionTypes.ALL:
+            # Annotations don't support PUBLISH or PERMISSION — ALL
+            # here matches the legacy semantic (READ+CRUD+COMMENT).
+            return can_read and can_create and can_update and can_delete and can_comment
+        # PUBLISH and PERMISSION are not defined for annotations.
+        return False
+
 
 # Same ``from_queryset`` dynamic-base-class rationale as ``AnnotationManager``
 # above — the runtime-synthesised base class isn't visible to mypy.
@@ -555,6 +828,95 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
             query_vector, embedder_path, top_k
         )
 
+    def user_can(
+        self,
+        user: Any,
+        instance: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for ``Note``.
+
+        Mirrors ``NoteQuerySet.visible_to_user``
+        (``shared/QuerySets.py:486-514``): a note is visible when the
+        user created it OR the document AND the corpus (or null corpus)
+        are visible. Composes ``Document.objects.user_can`` and
+        ``Corpus.objects.user_can`` rather than reusing
+        ``AnnotationQueryOptimizer`` (notes don't have BACON MODE).
+
+        Performance note: both the anonymous and authenticated branches
+        dereference ``instance.document`` / ``instance.corpus`` — these
+        descriptors hit the database when the relations aren't
+        prefetched. Bulk callers (list resolvers iterating notes)
+        SHOULD ``select_related("document", "corpus")`` on the root
+        queryset to keep the per-note check at O(1) DB ops.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
+        from opencontractserver.types.enums import PermissionTypes
+
+        user = resolve_user_for_user_can(user)
+        if user is None:
+            return False
+
+        if isinstance(user, AnonymousUser) or not getattr(
+            user, "is_authenticated", False
+        ):
+            # Anonymous: only public notes on public docs/corpuses
+            # (matches NoteQuerySet anonymous branch at QuerySets.py:501-506).
+            if permission != PermissionTypes.READ:
+                return False
+            if not getattr(instance, "is_public", False):
+                return False
+            doc = getattr(instance, "document", None)
+            if doc is None or not getattr(doc, "is_public", False):
+                return False
+            corpus = getattr(instance, "corpus", None)
+            if corpus is not None and not getattr(corpus, "is_public", False):
+                return False
+            return True
+
+        if user.is_superuser:
+            return True
+
+        # Creator short-circuit (matches the QuerySet's ``Q(creator=user)``).
+        if (
+            getattr(instance, "creator_id", None) is not None
+            and instance.creator_id == user.id
+        ):
+            return True
+
+        # MIN(doc, corpus): the user must be able to perform ``permission``
+        # on both the parent document and the corpus (if any).
+        doc = getattr(instance, "document", None)
+        if doc is None:
+            return False
+
+        from opencontractserver.documents.models import Document
+
+        if not Document.objects.user_can(
+            user,
+            doc,
+            permission,
+            include_group_permissions=include_group_permissions,
+        ):
+            return False
+
+        corpus = getattr(instance, "corpus", None)
+        if corpus is None:
+            return True
+
+        from opencontractserver.corpuses.models import Corpus
+
+        return Corpus.objects.user_can(
+            user,
+            corpus,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )
+
 
 class RelationshipManager(BaseVisibilityManager):
     """Visibility manager for the ``Relationship`` model.
@@ -578,6 +940,19 @@ class RelationshipManager(BaseVisibilityManager):
         # the parent manager so callers can use a uniform call shape.
         with_doc_label_annotations: bool = False,
     ) -> QuerySet:
+        """Filter relationships to those visible to ``user``.
+
+        Aligned with ``RelationshipManager.user_can`` (Phase A invariant):
+        relationships inherit visibility from their parent document AND
+        parent corpus (MIN logic). ``BaseVisibilityManager.visible_to_user``
+        would fall back to a creator/public check for this model (no
+        ``relationshipuserobjectpermission`` table exists), which is
+        narrower than ``user_can``'s MIN(doc, corpus) and produced the
+        Phase A invariant-test mismatch. We compose doc + corpus
+        visibility directly here so the two surfaces agree.
+        """
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
         from opencontractserver.shared.QuerySets import (
             _exclude_soft_deleted_doc_orphans,
         )
@@ -595,12 +970,137 @@ class RelationshipManager(BaseVisibilityManager):
                 with_doc_label_annotations=with_doc_label_annotations,
             )
 
-        qs = super().visible_to_user(
-            user=user,
-            lightweight=lightweight,
-            with_doc_label_annotations=with_doc_label_annotations,
+        # MIN(doc, corpus): user must be able to see both the parent doc
+        # and the parent corpus. Use the manager-level ``visible_to_user``
+        # so doc/corpus creator/public/guardian rules all participate.
+        visible_doc_ids = Document.objects.visible_to_user(user).values_list(
+            "pk", flat=True
         )
+        visible_corpus_ids = Corpus.objects.visible_to_user(user).values_list(
+            "pk", flat=True
+        )
+
+        doc_corpus_visible = Q(document_id__in=visible_doc_ids) & (
+            Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids)
+        )
+
+        # Anonymous users have no ``id`` field — gate the creator OR to
+        # authenticated users only. Doc/corpus visibility already encodes
+        # the public-anonymous path via ``Document.objects.visible_to_user``.
+        if user.is_anonymous:
+            qs = self.get_queryset().filter(doc_corpus_visible)
+        else:
+            qs = self.get_queryset().filter(Q(creator=user) | doc_corpus_visible)
         return _exclude_soft_deleted_doc_orphans(qs)
+
+    def user_can(
+        self,
+        user: Any,
+        instance: Any,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for ``Relationship``.
+
+        Order: superuser bypass → structural-write-deny →
+        (``document_id is None`` → False) → MIN(doc, corpus) via
+        ``AnnotationQueryOptimizer``.
+
+        **NOTE: deliberately does NOT check ``created_by_analysis``/
+        ``created_by_extract``**. Although these fields exist on
+        ``Relationship``, the legacy ``user_has_permission_for_obj``
+        relationship branch (``permissioning.py:680-740``) never
+        consulted them. Adding a privacy check here would be a
+        behavior widening beyond the scope of Phase A. If/when that
+        widening is desired, mirror the annotation branch and pin a
+        new invariant test.
+
+        TODO(Phase-C, issue #1655 follow-up): mirror the privacy
+        recursion already wired into ``AnnotationManager.user_can`` so
+        analysis-/extract-rooted relationships honour their source's
+        creator/grant semantics rather than only the doc+corpus MIN.
+        Until then this omission is intentional, not an oversight.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
+        from opencontractserver.types.enums import PermissionTypes
+
+        user = resolve_user_for_user_can(user)
+        if user is None:
+            return False
+
+        if isinstance(user, AnonymousUser) or not getattr(
+            user, "is_authenticated", False
+        ):
+            if permission != PermissionTypes.READ:
+                return False
+            # ``self.get_queryset()`` is statically a plain ``QuerySet`` in
+            # the Django stubs; at runtime ``RelationshipManager`` runs against
+            # ``BaseVisibilityManager`` whose ``visible_to_user`` is defined
+            # both on the manager and via the QuerySet contract.
+            return self.visible_to_user(user).filter(pk=instance.pk).exists()
+
+        if user.is_superuser:
+            return True
+
+        # Structural relationships are ALWAYS read-only for non-superusers.
+        # Run before the creator short-circuit so even the creator cannot
+        # write to a structural relationship.
+        if (
+            getattr(instance, "structural", False)
+            and permission != PermissionTypes.READ
+        ):
+            return False
+
+        # Creator short-circuit — mirrors ``Q(creator=user)`` in
+        # ``visible_to_user``. Without this, granting User A CREATE on a
+        # doc/corpus, letting A author a Relationship, then revoking A's
+        # READ grant would keep the relationship in A's ``visible_to_user``
+        # queryset (creator OR doc-corpus visible) while ``user_can(READ)``
+        # would return ``False`` (doc/corpus READ denied) — a latent
+        # invariant violation surfaced by the Claude review on PR #1663.
+        # See ``_RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS`` (module-level)
+        # for the permission codes this short-circuit covers.
+        if (
+            getattr(instance, "creator_id", None) is not None
+            and instance.creator_id == user.id
+            and permission in _RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS
+        ):
+            return True
+
+        if getattr(instance, "document_id", None) is None:
+            return False
+
+        from opencontractserver.annotations.query_optimizer import (
+            AnnotationQueryOptimizer,
+        )
+
+        can_read, can_create, can_update, can_delete, can_comment = (
+            AnnotationQueryOptimizer._compute_effective_permissions(
+                user=user,
+                document_id=instance.document_id,
+                corpus_id=instance.corpus_id,
+            )
+        )
+
+        if permission == PermissionTypes.READ:
+            return can_read
+        if permission == PermissionTypes.CREATE:
+            return can_create
+        if permission in (PermissionTypes.UPDATE, PermissionTypes.EDIT):
+            return can_update
+        if permission == PermissionTypes.DELETE:
+            return can_delete
+        if permission == PermissionTypes.COMMENT:
+            return can_comment
+        if permission == PermissionTypes.CRUD:
+            return can_read and can_create and can_update and can_delete
+        if permission == PermissionTypes.ALL:
+            return can_read and can_create and can_update and can_delete and can_comment
+        # PUBLISH and PERMISSION are not defined for relationships.
+        return False
 
 
 class EmbeddingManager(BaseVisibilityManager):

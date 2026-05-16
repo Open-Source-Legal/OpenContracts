@@ -66,7 +66,6 @@ from opencontractserver.users.models import UserExport
 from opencontractserver.utils.etl import is_dict_instance_of_typed_dict
 from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
-    user_can_modify_corpus,
     user_has_permission_for_obj,
 )
 
@@ -324,7 +323,7 @@ class UpdateDocumentSummary(graphene.Mutation):
             else:
                 # If no summary exists, require corpus modify rights
                 # (superuser, creator, or explicit guardian UPDATE).
-                if not user_can_modify_corpus(user, corpus):
+                if not corpus.user_can(user, PermissionTypes.UPDATE):
                     return UpdateDocumentSummary(
                         ok=False,
                         message=not_found_msg,

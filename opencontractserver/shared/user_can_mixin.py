@@ -19,11 +19,79 @@ Two mixins, two signatures:
   one place (the Manager / QuerySet). Used by ``BaseOCModel`` and by
   ``TreeNode``-rooted models whose default manager exposes the same
   contract (``Corpus``, ``CorpusFolder``).
+
+Also exports :func:`resolve_user_for_user_can` — the shared int/str-id →
+``User`` resolver used by every per-model ``user_can`` override and by the
+``_default_user_can`` body. Centralising it here removes the ~40 lines of
+duplicated resolution boilerplate that previously lived in every manager
+(see Claude review on PR #1663) and ensures the int/str/None/AnonymousUser
+contract stays consistent across surfaces.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_user_for_user_can(user_val: Any) -> Any | None:
+    """Normalise the ``user`` argument that every ``user_can`` override accepts.
+
+    Returns:
+        ``None`` when the caller passed ``None`` or an int/str id that doesn't
+        resolve to a row (these are the "deny" cases — callers map ``None``
+        to ``False``). Otherwise returns the resolved ``User`` instance (or
+        ``AnonymousUser`` when that was passed in verbatim).
+
+    Resolution rules — must match the legacy duplicated bodies in
+    ``AnnotationManager.user_can``, ``NoteManager.user_can``,
+    ``RelationshipManager.user_can`` and ``_default_user_can``:
+
+    - ``None`` → ``None`` (caller maps to ``False``).
+    - ``int`` / ``str`` → ``User.objects.get(id=user_val)``; both
+      ``DoesNotExist`` and ``ValueError`` (raised when the str isn't a
+      valid PK — e.g. ``""``, a GraphQL global id, or an arbitrary
+      label) → ``None``. The legacy duplicated bodies caught
+      ``DoesNotExist`` only and would propagate ``ValueError``; the
+      unified contract treats both as a deny so callers can stay
+      try-free.
+    - Anything else (a ``User``, ``AnonymousUser``, or duck-typed user) →
+      returned as-is.
+
+    The ``str`` branch is defensive: GraphQL's PK serialisers sometimes hand
+    back string-encoded integers and we want one resolver to handle both.
+    """
+    if user_val is None:
+        return None
+    if isinstance(user_val, (int, str)):
+        # Lazy import — keeps this module out of the ``shared.Models`` ⇄
+        # ``users.models`` startup chain at import time.
+        from django.contrib.auth import get_user_model
+
+        user_cls = get_user_model()
+        try:
+            return user_cls.objects.get(id=user_val)
+        except user_cls.DoesNotExist:
+            return None
+        except ValueError:
+            # ValueError on a user-id lookup usually signals a
+            # programming bug (a caller passing a base64 GraphQL global
+            # id like ``"VXNlcjox"`` instead of a raw PK, or some other
+            # type-coercion miss). The unified contract still maps
+            # this to a deny so the caller doesn't have to wrap every
+            # site in try/except, but we surface the defect in logs
+            # rather than swallowing it silently.
+            logger.warning(
+                "resolve_user_for_user_can: invalid user id %r — treating as deny. "
+                "If you see this in production, a caller is passing a non-integer "
+                "id (often a GraphQL global id from from_global_id missing) to "
+                "user_can or user_has_permission_for_obj.",
+                user_val,
+            )
+            return None
+    return user_val
 
 
 class UserCanMixin:
